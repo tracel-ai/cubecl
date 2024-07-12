@@ -43,3 +43,17 @@ async-channel = "2.3"
 
 # Testing
 serial_test = "3.1.1"
+
+bytemuck = "1.16.1"
+half = { version = "2.4.1", features = [
+    "alloc",
+    "num-traits",
+    "serde",
+], default-features = false }
+num-traits = { version = "0.2.19", default-features = false, features = [
+    "libm",
+] } # libm is for no_std
+
+proc-macro2 = "1.0.86"
+syn = { version = "2.0.69", features = ["full", "extra-traits"] }
+quote = "1.0.36"

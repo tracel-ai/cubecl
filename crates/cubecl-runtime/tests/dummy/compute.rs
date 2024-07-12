@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
 use super::DummyServer;
-use burn_common::stub::RwLock;
-use burn_compute::channel::MutexComputeChannel;
-use burn_compute::client::ComputeClient;
-use burn_compute::memory_management::simple::{
+use cubecl_common::stub::RwLock;
+use cubecl_runtime::channel::MutexComputeChannel;
+use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::memory_management::simple::{
     DeallocStrategy, SimpleMemoryManagement, SliceStrategy,
 };
-use burn_compute::storage::BytesStorage;
-use burn_compute::tune::Tuner;
-use burn_compute::ComputeRuntime;
+use cubecl_runtime::storage::BytesStorage;
+use cubecl_runtime::tune::Tuner;
+use cubecl_runtime::ComputeRuntime;
 
 /// The dummy device.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]

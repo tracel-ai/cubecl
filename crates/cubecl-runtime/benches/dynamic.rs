@@ -1,6 +1,6 @@
 use std::collections::LinkedList;
 
-use burn_compute::{
+use cubecl_runtime::{
     memory_management::{
         dynamic::{DynamicMemoryManagement, DynamicMemoryManagementOptions},
         MemoryManagement,

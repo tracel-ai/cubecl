@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use burn_compute::{client::ComputeClient, server::Binding, tune::AutotuneOperation};
+use cubecl_runtime::{client::ComputeClient, server::Binding, tune::AutotuneOperation};
 use derive_new::new;
 
 use crate::dummy::{DummyChannel, DummyKernel, DummyServer};

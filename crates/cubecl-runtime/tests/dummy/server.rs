@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use burn_common::{reader::reader_from_concrete, sync_type::SyncType};
-use burn_compute::{
+use cubecl_common::{reader::reader_from_concrete, sync_type::SyncType};
+use cubecl_runtime::{
     memory_management::{simple::SimpleMemoryManagement, MemoryHandle, MemoryManagement},
     server::{Binding, ComputeServer, Handle},
     storage::{BytesResource, BytesStorage},
@@ -28,7 +28,7 @@ where
     type AutotuneKey = String;
     type FeatureSet = ();
 
-    fn read(&mut self, binding: Binding<Self>) -> burn_common::reader::Reader {
+    fn read(&mut self, binding: Binding<Self>) -> cubecl_common::reader::Reader {
         let bytes = self.memory_management.get(binding.memory);
         reader_from_concrete(bytes.read().to_vec())
     }

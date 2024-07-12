@@ -3,8 +3,8 @@ use rand::{distributions::Alphanumeric, Rng};
 use std::sync::Arc;
 
 #[cfg(feature = "autotune-persistent-cache")]
-use burn_compute::tune::compute_checksum;
-use burn_compute::{
+use cubecl_runtime::tune::compute_checksum;
+use cubecl_runtime::{
     server::Binding,
     tune::{AutotuneOperation, AutotuneOperationSet},
 };

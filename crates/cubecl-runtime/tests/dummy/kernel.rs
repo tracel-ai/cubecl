@@ -1,4 +1,4 @@
-use burn_compute::storage::BytesResource;
+use cubecl_runtime::storage::BytesResource;
 
 /// The DummyKernel trait should be implemented for every supported operation
 pub trait DummyKernel: Sync + Send {

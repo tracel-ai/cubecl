@@ -1,6 +1,6 @@
 use std::{thread::sleep, time::Duration};
 
-use burn_compute::storage::BytesResource;
+use cubecl_runtime::storage::BytesResource;
 
 use crate::dummy::DummyKernel;
 
