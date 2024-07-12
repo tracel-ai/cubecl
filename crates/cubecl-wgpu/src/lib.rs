@@ -19,8 +19,6 @@ pub use cubecl_core::prelude::CubeCount;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     pub type TestRuntime = crate::WgpuRuntime;
 
     cubecl_core::testgen_all!();

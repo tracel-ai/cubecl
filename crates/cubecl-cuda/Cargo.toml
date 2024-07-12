@@ -1,0 +1,37 @@
+[package]
+authors = ["nathanielsimard <nathaniel.simard.42@gmail.com>"]
+categories = ["science"]
+description = "CUDA runtime for CubeCL"
+edition.workspace = true
+keywords = ["deep-learning", "machine-learning", "gpu", "cuda"]
+license.workspace = true
+name = "cubecl-cuda"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda"
+version.workspace = true
+
+[features]
+default = []
+autotune = []
+doc = []
+std = []
+
+[dependencies]
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.1.0" }
+cubecl-core = { path = "../cubecl-core", version = "0.1.0" }
+
+half = { workspace = true }
+bytemuck = { workspace = true }
+cudarc = { version = "0.11.7", features = ["cuda-12030"] }
+
+log = { workspace = true }
+derive-new = { workspace = true }
+
+[dev-dependencies]
+cubecl-core = { path = "../cubecl-core", version = "0.1.0", features = [
+  "export_tests",
+] }
+
+[package.metadata.docs.rs]
+features = ["doc"]
