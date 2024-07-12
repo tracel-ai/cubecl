@@ -1,0 +1,34 @@
+[package]
+authors = ["Dilshod Tadjibaev (@antimora)", "Nathaniel Simard (@nathanielsimard)"]
+categories = []
+description = "Common crate for CubeCL"
+edition.workspace = true
+keywords = []
+license.workspace = true
+name = "cubecl-common"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-common"
+version.workspace = true
+
+[features]
+default = ["std"]
+std = ["rand/std"]
+doc = ["default"]
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+getrandom = { workspace = true, features = ["js"] }
+web-time = { version = "1.1.0" }
+
+[dependencies]
+# ** Please make sure all dependencies support no_std when std is disabled **
+spin = { workspace = true }                      # using in place of use std::sync::Mutex;
+derive-new = { workspace = true }
+serde = { workspace = true }
+rand = { workspace = true }
+pollster = { workspace = true }
+
+[dev-dependencies]
+dashmap = { workspace = true }
+
+[package.metadata.docs.rs]
+features = ["doc"]
