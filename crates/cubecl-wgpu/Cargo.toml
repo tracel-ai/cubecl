@@ -1,0 +1,36 @@
+[package]
+authors = ["nathanielsimard <nathaniel.simard.42@gmail.com>"]
+categories = ["science"]
+description = "WGPU backend for the Burn framework"
+edition.workspace = true
+keywords = ["deep-learning", "machine-learning", "gpu", "wgpu", "webgpu"]
+license.workspace = true
+name = "burn-wgpu"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/burn/tree/main/crates/burn-wgpu"
+version.workspace = true
+
+[features]
+default = []
+autotune = []
+doc = []
+std = []
+
+[dependencies]
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.1.0" }
+cubecl-core = { path = "../cubecl-core", version = "0.1.0" }
+
+bytemuck = { workspace = true }
+wgpu = { version="0.20.1", features = ["fragile-send-sync-non-atomic-wasm"] }
+pollster = { workspace = true }
+
+log = { workspace = true }
+async-channel = { workspace = true }
+derive-new = { workspace = true }
+hashbrown = { workspace = true }
+
+[dev-dependencies]
+cubecl-core = { path = "../cubecl-core", version = "0.1.0", features = [
+  "export_tests",
+] }

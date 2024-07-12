@@ -50,7 +50,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     type RuntimeArg<'a, R: Runtime> = TensorArg<'a, R>;
 }
 
-/// Tensor representation with a reference to the [server handle](burn_compute::server::Handle),
+/// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),
 /// the strides and the shape.
 #[derive(new)]
 pub struct TensorHandle<'a, R: Runtime> {

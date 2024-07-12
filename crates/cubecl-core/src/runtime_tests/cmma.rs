@@ -3,7 +3,6 @@ use cubecl_core::{
     ir::{Elem, FloatKind},
     prelude::*,
 };
-use burn_tensor::ElementConversion;
 use half::f16;
 
 #[cube(launch)]
@@ -57,8 +56,8 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
         return;
     }
 
-    let lhs: Vec<f16> = (0..256).map(|i| i.elem()).collect();
-    let rhs: Vec<f16> = (0..256).map(|i| (i % 8).elem()).collect();
+    let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
+    let rhs: Vec<f16> = (0..256).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
     let lhs = client.create(f16::as_bytes(&lhs));
     let rhs = client.create(f16::as_bytes(&rhs));

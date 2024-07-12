@@ -133,7 +133,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
     }
 }
 
-/// Tensor representation with a reference to the [server handle](burn_compute::server::Handle).
+/// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct ArrayHandle<'a, R: Runtime> {
     pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
     pub length: [usize; 1],
