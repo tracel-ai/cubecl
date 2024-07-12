@@ -5,19 +5,19 @@ description = "WGPU backend for the Burn framework"
 edition.workspace = true
 keywords = ["deep-learning", "machine-learning", "gpu", "wgpu", "webgpu"]
 license.workspace = true
-name = "burn-wgpu"
+name = "cubecl-wgpu"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/burn/tree/main/crates/burn-wgpu"
 version.workspace = true
 
 [features]
-default = []
+default = ["cubecl-runtime/default", "cubecl-common/default", "cubecl-core/default"]
 autotune = []
 doc = []
-std = []
+std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 [dependencies]
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.0", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.0", default-features = false, features = ["channel-mutex"] }
 cubecl-common = { path = "../cubecl-common", version = "0.1.0" }
 cubecl-core = { path = "../cubecl-core", version = "0.1.0" }
 

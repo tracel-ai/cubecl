@@ -19,7 +19,7 @@ use wgpu::{AdapterInfo, DeviceDescriptor};
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
 /// specific graphics API.
 #[derive(Debug)]
-pub struct WgpuRuntime {}
+pub struct WgpuRuntime;
 
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
 static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
