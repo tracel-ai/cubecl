@@ -29,7 +29,7 @@ pub fn expand_sig(
 
                 let ty = no_ref(pat.ty.as_ref());
                 inputs.extend(quote::quote! {
-                    #ident: <#ty as cubecl_core::frontend::CubeType>::ExpandType,
+                    #ident: <#ty as cubecl::frontend::CubeType>::ExpandType,
                 });
             }
             _ => todo!("Only Typed inputs are supported"),
@@ -43,7 +43,7 @@ pub fn expand_sig(
         syn::ReturnType::Type(_, ty) => {
             let ty = no_ref(ty.as_ref());
             output.extend(quote::quote! {
-                <#ty as cubecl_core::frontend::CubeType>::ExpandType
+                <#ty as cubecl::frontend::CubeType>::ExpandType
             });
         }
     }
@@ -58,7 +58,7 @@ pub fn expand_sig(
 
     quote::quote! {
         /// Expanded Cube function
-        #visibility fn #ident #generics (context: &mut cubecl_core::frontend::CubeContext, #inputs) -> #output
+        #visibility fn #ident #generics (context: &mut cubecl::frontend::CubeContext, #inputs) -> #output
     }
 }
 

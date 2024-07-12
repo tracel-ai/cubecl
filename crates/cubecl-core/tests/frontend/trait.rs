@@ -1,3 +1,4 @@
+use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 /// Traits used in Cube kernels must expose an _expand variant

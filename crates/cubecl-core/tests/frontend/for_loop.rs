@@ -1,3 +1,4 @@
+use cubecl_core as cubecl;
 use cubecl_core::{
     cube,
     frontend::branch::range,

@@ -1,3 +1,4 @@
+use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]

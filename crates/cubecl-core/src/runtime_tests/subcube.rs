@@ -1,5 +1,6 @@
-use crate::{self as cubecl_core, Feature};
-use cubecl_core::prelude::*;
+use crate as cubecl;
+use crate::Feature;
+use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn kernel_sum<F: Float>(output: &mut Tensor<F>) {

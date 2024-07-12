@@ -1,5 +1,5 @@
 error: Only arrays of literals are supported
- --> tests/error/array_variable.rs:5:18
+ --> tests/error/array_variable.rs:6:18
   |
-5 |     let _array = [x, y];
+6 |     let _array = [x, y];
   |                  ^^^^^^

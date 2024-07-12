@@ -27,77 +27,77 @@ pub(crate) fn codegen_binary(
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::add::expand(context, _lhs, _rhs)
+                    cubecl::frontend::add::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Sub(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::sub::expand(context, _lhs, _rhs)
+                    cubecl::frontend::sub::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Mul(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::mul::expand(context, _lhs, _rhs)
+                    cubecl::frontend::mul::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Div(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::div::expand(context, _lhs, _rhs)
+                    cubecl::frontend::div::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Rem(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::rem::expand(context, _lhs, _rhs)
+                    cubecl::frontend::rem::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Ne(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::ne::expand(context, _lhs, _rhs)
+                    cubecl::frontend::ne::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Gt(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::gt::expand(context, _lhs, _rhs)
+                    cubecl::frontend::gt::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Ge(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::ge::expand(context, _lhs, _rhs)
+                    cubecl::frontend::ge::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Lt(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::lt::expand(context, _lhs, _rhs)
+                    cubecl::frontend::lt::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Le(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::le::expand(context, _lhs, _rhs)
+                    cubecl::frontend::le::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Eq(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::eq::expand(context, _lhs, _rhs)
+                    cubecl::frontend::eq::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::AddAssign(_) => {
@@ -109,7 +109,7 @@ pub(crate) fn codegen_binary(
                             let _array = #array;
                             let _index = #index;
                             let _value = #rhs;
-                            cubecl_core::frontend::add_assign_array_op::expand(context, _array, _index, _value)
+                            cubecl::frontend::add_assign_array_op::expand(context, _array, _index, _value)
                         }
                     }
                 } else {
@@ -117,7 +117,7 @@ pub(crate) fn codegen_binary(
                         {
                             let _lhs = #lhs;
                             let _rhs = #rhs;
-                            cubecl_core::frontend::add_assign_op::expand(context, _lhs, _rhs)
+                            cubecl::frontend::add_assign_op::expand(context, _lhs, _rhs)
                         }
                     }
                 }
@@ -131,7 +131,7 @@ pub(crate) fn codegen_binary(
                             let _array = #array;
                             let _index = #index;
                             let _value = #rhs;
-                            cubecl_core::frontend::sub_assign_array_op::expand(context, _array, _index, _value)
+                            cubecl::frontend::sub_assign_array_op::expand(context, _array, _index, _value)
                         }
                     }
                 } else {
@@ -139,7 +139,7 @@ pub(crate) fn codegen_binary(
                         {
                             let _lhs = #lhs;
                             let _rhs = #rhs;
-                            cubecl_core::frontend::sub_assign_op::expand(context, _lhs, _rhs)
+                            cubecl::frontend::sub_assign_op::expand(context, _lhs, _rhs)
                         }
                     }
                 }
@@ -153,7 +153,7 @@ pub(crate) fn codegen_binary(
                             let _array = #array;
                             let _index = #index;
                             let _value = #rhs;
-                            cubecl_core::frontend::mul_assign_array_op::expand(context, _array, _index, _value)
+                            cubecl::frontend::mul_assign_array_op::expand(context, _array, _index, _value)
                         }
                     }
                 } else {
@@ -161,7 +161,7 @@ pub(crate) fn codegen_binary(
                         {
                             let _lhs = #lhs;
                             let _rhs = #rhs;
-                            cubecl_core::frontend::mul_assign_op::expand(context, _lhs, _rhs)
+                            cubecl::frontend::mul_assign_op::expand(context, _lhs, _rhs)
                         }
                     }
                 }
@@ -175,7 +175,7 @@ pub(crate) fn codegen_binary(
                             let _array = #array;
                             let _index = #index;
                             let _value = #rhs;
-                            cubecl_core::frontend::div_assign_array_op::expand(context, _array, _index, _value)
+                            cubecl::frontend::div_assign_array_op::expand(context, _array, _index, _value)
                         }
                     }
                 } else {
@@ -183,7 +183,7 @@ pub(crate) fn codegen_binary(
                         {
                             let _lhs = #lhs;
                             let _rhs = #rhs;
-                            cubecl_core::frontend::div_assign_op::expand(context, _lhs, _rhs)
+                            cubecl::frontend::div_assign_op::expand(context, _lhs, _rhs)
                         }
                     }
                 }
@@ -193,14 +193,14 @@ pub(crate) fn codegen_binary(
 
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::and::expand(context, _lhs, _rhs)
+                    cubecl::frontend::and::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Or(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::or::expand(context, _lhs, _rhs)
+                    cubecl::frontend::or::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::BitAnd(_) => quote::quote! {
@@ -208,28 +208,28 @@ pub(crate) fn codegen_binary(
 
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::bitand::expand(context, _lhs, _rhs)
+                    cubecl::frontend::bitand::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::BitXor(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::bitxor::expand(context, _lhs, _rhs)
+                    cubecl::frontend::bitxor::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Shl(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::shl::expand(context, _lhs, _rhs)
+                    cubecl::frontend::shl::expand(context, _lhs, _rhs)
                 }
             },
             syn::BinOp::Shr(_) => quote::quote! {
                 {
                     let _lhs = #lhs;
                     let _rhs = #rhs;
-                    cubecl_core::frontend::shr::expand(context, _lhs, _rhs)
+                    cubecl::frontend::shr::expand(context, _lhs, _rhs)
                 }
             },
             _ => todo!("Codegen: unsupported op {:?}", binary.op),
@@ -260,7 +260,7 @@ pub(crate) fn codegen_unary(
             syn::UnOp::Not(_) => quote::quote! {
                 {
                     let _inner = #inner;
-                    cubecl_core::frontend::not::expand(context, _inner)
+                    cubecl::frontend::not::expand(context, _inner)
                 }
             },
             _ => todo!("Codegen: unsupported op {:?}", unary.op),

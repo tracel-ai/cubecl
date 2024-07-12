@@ -70,7 +70,7 @@ pub(crate) fn codegen_for_loop(
                         let _start = #start;
                         let _end = #end;
                         let _unroll = #unroll;
-                        cubecl_core::frontend::branch::range_expand(context, _start, _end, _unroll, |context, #i| #block);
+                        cubecl::frontend::branch::range_expand(context, _start, _end, _unroll, |context, #i| #block);
                     }
                 }
             } else {
@@ -99,7 +99,7 @@ pub(crate) fn codegen_cond(
 /// Codegen for break statement
 pub(crate) fn codegen_break() -> TokenStream {
     quote::quote! {
-        cubecl_core::frontend::branch::break_expand(context);
+        cubecl::frontend::branch::break_expand(context);
     }
 }
 
@@ -111,7 +111,7 @@ pub(crate) fn codegen_return(expr_return: &syn::ExprReturn) -> TokenStream {
     }
 
     quote::quote! {
-        cubecl_core::frontend::branch::return_expand(context);
+        cubecl::frontend::branch::return_expand(context);
     }
 }
 
@@ -147,13 +147,13 @@ pub(crate) fn codegen_if(
         quote::quote! {
             {
             let _cond = #cond;
-            cubecl_core::frontend::branch::if_else_expand(context, #comptime_bool, _cond.into(), |context| #then_block, |context| #else_block);
+            cubecl::frontend::branch::if_else_expand(context, #comptime_bool, _cond.into(), |context| #then_block, |context| #else_block);
             }
         }
     } else {
         quote::quote! {
             let _cond = #cond;
-            cubecl_core::frontend::branch::if_expand(context, #comptime_bool, _cond.into(), |context| #then_block);
+            cubecl::frontend::branch::if_expand(context, #comptime_bool, _cond.into(), |context| #then_block);
         }
     }
 }
@@ -167,7 +167,7 @@ pub(crate) fn codegen_loop(
     let block = codegen_block(&loop_expr.body, loop_level + 1, variable_tracker);
 
     quote::quote! {
-        cubecl_core::frontend::branch::loop_expand(context, |context| #block);
+        cubecl::frontend::branch::loop_expand(context, |context| #block);
     }
 }
 
@@ -188,6 +188,6 @@ pub(crate) fn codegen_while_loop(
     let block = codegen_block(&while_loop.body, loop_level + 1, variable_tracker);
 
     quote::quote! {
-        cubecl_core::frontend::branch::while_loop_expand(context, |context| #cond, |context| #block);
+        cubecl::frontend::branch::while_loop_expand(context, |context| #cond, |context| #block);
     }
 }

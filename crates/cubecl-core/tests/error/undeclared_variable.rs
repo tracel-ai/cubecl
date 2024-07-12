@@ -1,4 +1,5 @@
-use cubecl_core::prelude::*;
+use cubecl_core as cubecl;
+use cubecl::prelude::*;
 
 #[cube]
 fn kernel(x: UInt) {

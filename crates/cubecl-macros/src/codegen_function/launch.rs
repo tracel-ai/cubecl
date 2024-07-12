@@ -73,7 +73,7 @@ impl Codegen {
                     if comptime {
                         let ty = no_ref(&ty);
                         inputs.extend(quote::quote! {
-                            #ident: <#ty as cubecl_core::frontend::CubeType>::ExpandType,
+                            #ident: <#ty as cubecl::frontend::CubeType>::ExpandType,
                         });
                     } else {
                         let ty = no_ref(&ty);
@@ -106,7 +106,7 @@ impl Codegen {
             syn::ReturnType::Default => output.extend(quote::quote! {()}),
             syn::ReturnType::Type(_, ty) => {
                 output.extend(quote::quote! {
-                    <#ty as cubecl_core::frontend::CubeType>::ExpandType
+                    <#ty as cubecl::frontend::CubeType>::ExpandType
                 });
             }
         }

@@ -189,7 +189,7 @@ impl TypeCodegen {
             impl #type_generics_impl LaunchArgExpand for #name #type_generics_use {
                 fn expand(
                     builder: &mut KernelBuilder,
-                    vectorization: cubecl_core::ir::Vectorization,
+                    vectorization: cubecl::ir::Vectorization,
                 ) -> <Self as CubeType>::ExpandType {
                     #name_expand {
                         #body_input
@@ -197,7 +197,7 @@ impl TypeCodegen {
                 }
                 fn expand_output(
                     builder: &mut KernelBuilder,
-                    vectorization: cubecl_core::ir::Vectorization,
+                    vectorization: cubecl::ir::Vectorization,
                 ) -> <Self as CubeType>::ExpandType {
                     #name_expand {
                         #body_output

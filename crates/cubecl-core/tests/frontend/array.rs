@@ -1,3 +1,5 @@
+use cubecl_core as cubecl;
+
 use cubecl_core::prelude::*;
 
 #[cube]

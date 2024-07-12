@@ -1,5 +1,7 @@
-use crate::{self as cubecl_core, Feature};
-use cubecl_core::{
+use crate as cubecl;
+
+use crate::Feature;
+use cubecl::{
     ir::{Elem, FloatKind},
     prelude::*,
 };

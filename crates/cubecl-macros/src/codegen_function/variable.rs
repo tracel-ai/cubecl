@@ -81,7 +81,7 @@ pub(crate) fn codegen_local(
                 quote::quote! {
                     #let_tok #ident = {
                         let _inner = #init;
-                        cubecl_core::frontend::Init::init(_inner, context)
+                        cubecl::frontend::Init::init(_inner, context)
                     };
                 }
             }
@@ -107,7 +107,7 @@ pub(crate) fn codegen_index(
         {
             let _array = #array;
             let _index = #index;
-            cubecl_core::frontend::index::expand(context, _array, _index)
+            cubecl::frontend::index::expand(context, _array, _index)
         }
     };
 
@@ -140,7 +140,7 @@ pub(crate) fn codegen_assign(
                     let _array = #array;
                     let _index = #index;
                     let _value = #value;
-                    cubecl_core::frontend::index_assign::expand(context, _array, _index, _value)
+                    cubecl::frontend::index_assign::expand(context, _array, _index, _value)
                 }
             }
         }
@@ -152,7 +152,7 @@ pub(crate) fn codegen_assign(
                 {
                     let _assign_lhs = #lhs;
                     let _assign_rhs = #rhs;
-                    cubecl_core::frontend::assign::expand(context, _assign_rhs, _assign_lhs)
+                    cubecl::frontend::assign::expand(context, _assign_rhs, _assign_lhs)
                 }
             }
         }
@@ -164,7 +164,7 @@ pub(crate) fn codegen_assign(
                 {
                     let _assign_lhs = #lhs;
                     let _assign_rhs = #rhs;
-                    cubecl_core::frontend::assign::expand(context, _assign_rhs, _assign_lhs)
+                    cubecl::frontend::assign::expand(context, _assign_rhs, _assign_lhs)
                 }
             }
         }

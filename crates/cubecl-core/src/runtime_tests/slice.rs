@@ -1,5 +1,5 @@
-use crate as cubecl_core;
-use cubecl_core::prelude::*;
+use crate as cubecl;
+use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn slice_select<F: Float>(input: &Array<F>, output: &mut Array<F>) {

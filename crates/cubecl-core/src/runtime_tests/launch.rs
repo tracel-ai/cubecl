@@ -1,5 +1,6 @@
-use crate as cubecl_core;
-use cubecl_core::prelude::*;
+use crate as cubecl;
+
+use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn kernel_with_generics<F: Float>(output: &mut Array<F>) {
