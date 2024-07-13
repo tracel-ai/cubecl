@@ -98,6 +98,16 @@ To fix this, we created a Just-in-Time compiler with three core features: **auto
 
 These features are extremely useful for anyone writing high-performance kernels, even when portability is not a concern.
 They improve code composability, reusability, testability, and maintainability, all while staying optimal.
+CubeCL also ships with a memory management strategy optimized for throughput with heavy buffer reuse to avoid allocations.
+
+Our goal extends beyond providing an optimized compute language; we aim to develop an ecosystem of high-performance and scientific computing in Rust.
+To achieve this, we're developing linear algebra components that you can integrate into your own kernels.
+We currently have an highly optimized matrix multiplication module, leveraging Tensor Cores on NVIDIA hardware where available, while gracefully falling back to basic instructions on other platforms.
+While there's room for improvement, particularly in using custom instructions from newer NVIDIA GPUs, our implementation already delivers impressive performance.
+
+This is just the beginning.
+We plan to include more utilities such as convolutions, random number generation, fast Fourier transforms, and other essential algorithms.
+We are a small team also building [Burn](https://burn.dev), so don't hesitate to contribute and port algorithms; it can help more than you would imagine!
 
 ## Design
 
