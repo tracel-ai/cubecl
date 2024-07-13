@@ -1,5 +1,5 @@
 <div align="center">
-<img src="../burn-cube/assets/logo.drawio.svg" width="400px"/>
+<img src="./assets/logo.drawio.svg" width="400px"/>
 
 <br />
 <br />
