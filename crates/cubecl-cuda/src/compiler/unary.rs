@@ -83,16 +83,7 @@ pub trait Unary {
         out: &Variable,
         elem: Elem,
     ) -> std::fmt::Result {
-        let input0 = input.index(0);
-        let input1 = input.index(1);
-
-        let out0 = out.index(0);
-        let out1 = out.index(1);
-
-        Self::format_scalar(f, input0, out0, elem)?;
-        Self::format_scalar(f, input1, out1, elem)?;
-
-        Ok(())
+        Self::unroll_vec(f, input, out, elem, 2)
     }
 
     fn unroll_vec3(
@@ -101,19 +92,7 @@ pub trait Unary {
         out: &Variable,
         elem: Elem,
     ) -> std::fmt::Result {
-        let input0 = input.index(0);
-        let input1 = input.index(1);
-        let input2 = input.index(2);
-
-        let out0 = out.index(0);
-        let out1 = out.index(1);
-        let out2 = out.index(2);
-
-        Self::format_scalar(f, input0, out0, elem)?;
-        Self::format_scalar(f, input1, out1, elem)?;
-        Self::format_scalar(f, input2, out2, elem)?;
-
-        Ok(())
+        Self::unroll_vec(f, input, out, elem, 3)
     }
 
     fn unroll_vec4(
@@ -122,20 +101,22 @@ pub trait Unary {
         out: &Variable,
         elem: Elem,
     ) -> std::fmt::Result {
-        let input0 = input.index(0);
-        let input1 = input.index(1);
-        let input2 = input.index(2);
-        let input3 = input.index(3);
+        Self::unroll_vec(f, input, out, elem, 4)
+    }
 
-        let out0 = out.index(0);
-        let out1 = out.index(1);
-        let out2 = out.index(2);
-        let out3 = out.index(3);
+    fn unroll_vec(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable,
+        out: &Variable,
+        elem: Elem,
+        index: usize,
+    ) -> std::fmt::Result {
+        for i in 0..index {
+            let inputi = input.index(i);
+            let outi = out.index(i);
 
-        Self::format_scalar(f, input0, out0, elem)?;
-        Self::format_scalar(f, input1, out1, elem)?;
-        Self::format_scalar(f, input2, out2, elem)?;
-        Self::format_scalar(f, input3, out3, elem)?;
+            Self::format_scalar(f, inputi, outi, elem)?;
+        }
 
         Ok(())
     }

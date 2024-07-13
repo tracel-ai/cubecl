@@ -3,24 +3,24 @@ use cubecl_core::{ir as gpu, Compiler};
 use super::{Instruction, WarpInstruction};
 
 #[allow(clippy::too_many_arguments)]
-#[derive(new, Clone, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct CudaCompiler {
+    shared_memories: Vec<super::SharedMemory>,
+    local_arrays: Vec<super::LocalArray>,
+    idx_global: bool,
+    rank: bool,
+    thread_idx_global: bool,
+    absolute_idx: (bool, bool, bool),
+    wrap_size_checked: bool,
+    wmma: bool,
     shape: bool,
     stride: bool,
     num_inputs: usize,
     num_outputs: usize,
-    shared_memories: Vec<super::SharedMemory>,
-    local_arrays: Vec<super::LocalArray>,
-    id: bool,
-    rank: bool,
-    invocation_index: bool,
-    global_invocation_id: (bool, bool, bool),
-    wrap_size_checked: bool,
-    wmma: bool,
 }
 
 impl Compiler for CudaCompiler {
-    type Representation = super::ComputeShader;
+    type Representation = super::ComputeKernel;
 
     fn compile(shader: cubecl_core::ir::KernelDefinition) -> Self::Representation {
         let compiler = Self::default();
@@ -38,7 +38,7 @@ impl Compiler for CudaCompiler {
 }
 
 impl CudaCompiler {
-    fn compile_shader(mut self, mut value: gpu::KernelDefinition) -> super::ComputeShader {
+    fn compile_shader(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel {
         self.num_inputs = value.inputs.len();
         self.num_outputs = value.outputs.len();
 
@@ -50,13 +50,13 @@ impl CudaCompiler {
             shared_memories: self.shared_memories,
             local_arrays: self.local_arrays,
             rank: self.rank,
-            id: self.id,
-            invocation_index: self.invocation_index,
-            global_invocation_id: self.global_invocation_id,
+            idx_global: self.idx_global,
+            thread_idx_global: self.thread_idx_global,
+            global_invocation_id: self.absolute_idx,
             wrap_size_checked: self.wrap_size_checked,
         };
 
-        super::ComputeShader {
+        super::ComputeKernel {
             inputs: value
                 .inputs
                 .into_iter()
@@ -425,41 +425,41 @@ impl CudaCompiler {
                 super::Variable::SharedMemory(id, item, length)
             }
             gpu::Variable::AbsolutePos => {
-                self.id = true;
-                super::Variable::Id
+                self.idx_global = true;
+                super::Variable::IdxGlobal
             }
             gpu::Variable::Rank => {
                 self.rank = true;
                 super::Variable::Rank
             }
             gpu::Variable::UnitPos => {
-                self.invocation_index = true;
-                super::Variable::LocalInvocationIndex
+                self.thread_idx_global = true;
+                super::Variable::ThreadIdxGlobal
             }
-            gpu::Variable::UnitPosX => super::Variable::LocalInvocationIdX,
-            gpu::Variable::UnitPosY => super::Variable::LocalInvocationIdY,
-            gpu::Variable::UnitPosZ => super::Variable::LocalInvocationIdZ,
-            gpu::Variable::CubePosX => super::Variable::WorkgroupIdX,
-            gpu::Variable::CubePosY => super::Variable::WorkgroupIdY,
-            gpu::Variable::CubePosZ => super::Variable::WorkgroupIdZ,
+            gpu::Variable::UnitPosX => super::Variable::ThreadIdxX,
+            gpu::Variable::UnitPosY => super::Variable::ThreadIdxY,
+            gpu::Variable::UnitPosZ => super::Variable::ThreadIdxZ,
+            gpu::Variable::CubePosX => super::Variable::BlockIdxX,
+            gpu::Variable::CubePosY => super::Variable::BlockIdxY,
+            gpu::Variable::CubePosZ => super::Variable::BlockIdxZ,
             gpu::Variable::AbsolutePosX => {
-                self.global_invocation_id.0 = true;
-                super::Variable::GlobalInvocationIdX
+                self.absolute_idx.0 = true;
+                super::Variable::AbsoluteIdxX
             }
             gpu::Variable::AbsolutePosY => {
-                self.global_invocation_id.1 = true;
-                super::Variable::GlobalInvocationIdY
+                self.absolute_idx.1 = true;
+                super::Variable::AbsoluteIdxY
             }
             gpu::Variable::AbsolutePosZ => {
-                self.global_invocation_id.2 = true;
-                super::Variable::GlobalInvocationIdZ
+                self.absolute_idx.2 = true;
+                super::Variable::AbsoluteIdxZ
             }
-            gpu::Variable::CubeDimX => super::Variable::WorkgroupSizeX,
-            gpu::Variable::CubeDimY => super::Variable::WorkgroupSizeY,
-            gpu::Variable::CubeDimZ => super::Variable::WorkgroupSizeZ,
-            gpu::Variable::CubeCountX => super::Variable::NumWorkgroupsX,
-            gpu::Variable::CubeCountY => super::Variable::NumWorkgroupsY,
-            gpu::Variable::CubeCountZ => super::Variable::NumWorkgroupsZ,
+            gpu::Variable::CubeDimX => super::Variable::BlockDimX,
+            gpu::Variable::CubeDimY => super::Variable::BlockDimY,
+            gpu::Variable::CubeDimZ => super::Variable::BlockDimZ,
+            gpu::Variable::CubeCountX => super::Variable::GridDimX,
+            gpu::Variable::CubeCountY => super::Variable::GridDimY,
+            gpu::Variable::CubeCountZ => super::Variable::GridDimZ,
             gpu::Variable::LocalArray {
                 id,
                 item,

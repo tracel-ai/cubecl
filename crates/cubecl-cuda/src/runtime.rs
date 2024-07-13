@@ -5,7 +5,7 @@ use cubecl_core::{
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::simple::{DeallocStrategy, SimpleMemoryManagement, SliceStrategy},
+    memory_management::dynamic::{DynamicMemoryManagement, DynamicMemoryManagementOptions},
     ComputeRuntime,
 };
 use std::sync::Arc;
@@ -22,17 +22,17 @@ pub struct CudaRuntime;
 static RUNTIME: ComputeRuntime<CudaDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
-type Server = CudaServer<SimpleMemoryManagement<CudaStorage>>;
+type Server = CudaServer<DynamicMemoryManagement<CudaStorage>>;
 
 impl Runtime for CudaRuntime {
     type Compiler = CudaCompiler;
-    type Server = CudaServer<SimpleMemoryManagement<CudaStorage>>;
+    type Server = CudaServer<DynamicMemoryManagement<CudaStorage>>;
 
-    type Channel = MutexComputeChannel<CudaServer<SimpleMemoryManagement<CudaStorage>>>;
+    type Channel = MutexComputeChannel<CudaServer<DynamicMemoryManagement<CudaStorage>>>;
     type Device = CudaDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
-        fn init(index: usize) -> CudaContext<SimpleMemoryManagement<CudaStorage>> {
+        fn init(index: usize) -> CudaContext<DynamicMemoryManagement<CudaStorage>> {
             cudarc::driver::result::init().unwrap();
             let device_ptr = cudarc::driver::result::device::get(index as i32).unwrap();
 
@@ -47,11 +47,8 @@ impl Runtime for CudaRuntime {
             )
             .unwrap();
             let storage = CudaStorage::new(stream);
-            let memory_management = SimpleMemoryManagement::new(
-                storage,
-                DeallocStrategy::new_period_tick(1),
-                SliceStrategy::Ratio(0.8),
-            );
+            let options = DynamicMemoryManagementOptions::preset(2048 * 1024 * 1024, 32);
+            let memory_management = DynamicMemoryManagement::new(storage, options);
             CudaContext::new(memory_management, stream, ctx)
         }
 

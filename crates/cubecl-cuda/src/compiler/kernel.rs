@@ -1,21 +1,6 @@
-use cubecl_core::{ir::CubeDim, CompilerRepresentation};
-
-// use super::{Body, Extension, Item};
 use super::{Body, Item};
+use cubecl_core::{ir::CubeDim, CompilerRepresentation};
 use std::fmt::Display;
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Location {
-    Storage,
-    #[allow(dead_code)]
-    Warp,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Visibility {
-    Read,
-    ReadWrite,
-}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding {
@@ -56,7 +41,7 @@ impl SharedMemory {
 }
 
 #[derive(Debug, Clone)]
-pub struct ComputeShader {
+pub struct ComputeKernel {
     pub inputs: Vec<Binding>,
     pub outputs: Vec<Binding>,
     pub named: Vec<(String, Binding)>,
@@ -65,7 +50,7 @@ pub struct ComputeShader {
     pub wmma_activated: bool,
 }
 
-impl CompilerRepresentation for ComputeShader {
+impl CompilerRepresentation for ComputeKernel {
     fn shared_memory_size(&self) -> usize {
         let mut current = 0usize;
 
@@ -85,7 +70,7 @@ impl CompilerRepresentation for ComputeShader {
     }
 }
 
-impl Display for ComputeShader {
+impl Display for ComputeKernel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.wmma_activated {
             f.write_str("#include <mma.h>\nusing namespace nvcuda;\n")?;
@@ -137,23 +122,5 @@ extern \"C\" __global__ void kernel(
         f.write_str("\n}")?;
 
         Ok(())
-    }
-}
-
-impl Display for Location {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Location::Storage => f.write_str("storage"),
-            Location::Warp => f.write_str("workgroup"),
-        }
-    }
-}
-
-impl Display for Visibility {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Visibility::Read => f.write_str("read"),
-            Visibility::ReadWrite => f.write_str("read_write"),
-        }
     }
 }

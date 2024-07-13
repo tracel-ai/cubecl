@@ -5,6 +5,7 @@ use std::collections::HashMap;
 /// Buffer storage for cuda.
 pub struct CudaStorage {
     memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
+    active_slices: Vec<cudarc::driver::sys::CUdeviceptr>,
     deallocations: Vec<StorageId>,
     stream: cudarc::driver::sys::CUstream,
 }
@@ -23,6 +24,7 @@ impl CudaStorage {
     pub fn new(stream: CUstream) -> Self {
         Self {
             memory: HashMap::new(),
+            active_slices: Vec::new(),
             deallocations: Vec::new(),
             stream,
         }
@@ -37,6 +39,10 @@ impl CudaStorage {
                 }
             }
         }
+    }
+
+    pub fn flush(&mut self) {
+        self.active_slices.clear();
     }
 }
 
@@ -57,7 +63,10 @@ pub type Binding = *mut std::ffi::c_void;
 impl CudaResource {
     /// Return the binding view of the buffer.
     pub fn as_binding(&self) -> Binding {
-        self.binding
+        match self.kind {
+            CudaResourceKind::Full { .. } => self.binding,
+            CudaResourceKind::Slice { .. } => self.binding,
+        }
     }
 
     /// Return the buffer size.
@@ -91,17 +100,25 @@ impl ComputeStorage for CudaStorage {
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = self.memory.get(&handle.id).unwrap();
+
         match handle.utilization {
             StorageUtilization::Full(size) => CudaResource::new(
                 *ptr,
                 ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
                 CudaResourceKind::Full { size },
             ),
-            StorageUtilization::Slice { offset, size } => CudaResource::new(
-                *ptr,
-                ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
-                CudaResourceKind::Slice { size, offset },
-            ),
+            StorageUtilization::Slice { offset, size } => {
+                let ptr = ptr + offset as u64;
+                self.active_slices.push(ptr);
+                // The ptr needs to stay alive until we send the task to the server.
+                let ptr = self.active_slices.last().unwrap();
+
+                CudaResource::new(
+                    *ptr,
+                    ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
+                    CudaResourceKind::Slice { size, offset },
+                )
+            }
         }
     }
 

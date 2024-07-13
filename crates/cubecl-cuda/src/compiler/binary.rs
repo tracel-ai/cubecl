@@ -90,19 +90,7 @@ pub trait Binary {
         out: &Variable,
         elem: Elem,
     ) -> std::fmt::Result {
-        let lhs0 = lhs.index(0);
-        let lhs1 = lhs.index(1);
-
-        let rhs0 = rhs.index(0);
-        let rhs1 = rhs.index(1);
-
-        let out0 = out.index(0);
-        let out1 = out.index(1);
-
-        Self::format_scalar(f, lhs0, rhs0, out0, elem)?;
-        Self::format_scalar(f, lhs1, rhs1, out1, elem)?;
-
-        Ok(())
+        Self::unroll_vec(f, lhs, rhs, out, elem, 2)
     }
 
     fn unroll_vec3(
@@ -112,23 +100,7 @@ pub trait Binary {
         out: &Variable,
         elem: Elem,
     ) -> std::fmt::Result {
-        let lhs0 = lhs.index(0);
-        let lhs1 = lhs.index(1);
-        let lhs2 = lhs.index(2);
-
-        let rhs0 = rhs.index(0);
-        let rhs1 = rhs.index(1);
-        let rhs2 = rhs.index(2);
-
-        let out0 = out.index(0);
-        let out1 = out.index(1);
-        let out2 = out.index(2);
-
-        Self::format_scalar(f, lhs0, rhs0, out0, elem)?;
-        Self::format_scalar(f, lhs1, rhs1, out1, elem)?;
-        Self::format_scalar(f, lhs2, rhs2, out2, elem)?;
-
-        Ok(())
+        Self::unroll_vec(f, lhs, rhs, out, elem, 3)
     }
 
     fn unroll_vec4(
@@ -138,25 +110,24 @@ pub trait Binary {
         out: &Variable,
         elem: Elem,
     ) -> std::fmt::Result {
-        let lhs0 = lhs.index(0);
-        let lhs1 = lhs.index(1);
-        let lhs2 = lhs.index(2);
-        let lhs3 = lhs.index(3);
+        Self::unroll_vec(f, lhs, rhs, out, elem, 4)
+    }
 
-        let rhs0 = rhs.index(0);
-        let rhs1 = rhs.index(1);
-        let rhs2 = rhs.index(2);
-        let rhs3 = rhs.index(3);
+    fn unroll_vec(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable,
+        rhs: &Variable,
+        out: &Variable,
+        elem: Elem,
+        index: usize,
+    ) -> core::fmt::Result {
+        for i in 0..index {
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+            let outi = out.index(i);
 
-        let out0 = out.index(0);
-        let out1 = out.index(1);
-        let out2 = out.index(2);
-        let out3 = out.index(3);
-
-        Self::format_scalar(f, lhs0, rhs0, out0, elem)?;
-        Self::format_scalar(f, lhs1, rhs1, out1, elem)?;
-        Self::format_scalar(f, lhs2, rhs2, out2, elem)?;
-        Self::format_scalar(f, lhs3, rhs3, out3, elem)?;
+            Self::format_scalar(f, lhsi, rhsi, outi, elem)?;
+        }
 
         Ok(())
     }
@@ -288,68 +259,19 @@ impl Binary for IndexAssign {
         }
     }
 
-    fn unroll_vec2(
+    fn unroll_vec(
         f: &mut std::fmt::Formatter<'_>,
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
         elem: Elem,
+        index: usize,
     ) -> std::fmt::Result {
-        let lhs0 = lhs.index(0);
-        let lhs1 = lhs.index(1);
-
-        let rhs0 = rhs.index(0);
-        let rhs1 = rhs.index(1);
-
-        Self::format_scalar(f, lhs0, rhs0, *out, elem)?;
-        Self::format_scalar(f, lhs1, rhs1, *out, elem)?;
-
-        Ok(())
-    }
-
-    fn unroll_vec3(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        let lhs0 = lhs.index(0);
-        let lhs1 = lhs.index(1);
-        let lhs2 = lhs.index(2);
-
-        let rhs0 = rhs.index(0);
-        let rhs1 = rhs.index(1);
-        let rhs2 = rhs.index(2);
-
-        Self::format_scalar(f, lhs0, rhs0, *out, elem)?;
-        Self::format_scalar(f, lhs1, rhs1, *out, elem)?;
-        Self::format_scalar(f, lhs2, rhs2, *out, elem)?;
-
-        Ok(())
-    }
-
-    fn unroll_vec4(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        let lhs0 = lhs.index(0);
-        let lhs1 = lhs.index(1);
-        let lhs2 = lhs.index(2);
-        let lhs3 = lhs.index(3);
-
-        let rhs0 = rhs.index(0);
-        let rhs1 = rhs.index(1);
-        let rhs2 = rhs.index(2);
-        let rhs3 = rhs.index(3);
-
-        Self::format_scalar(f, lhs0, rhs0, *out, elem)?;
-        Self::format_scalar(f, lhs1, rhs1, *out, elem)?;
-        Self::format_scalar(f, lhs2, rhs2, *out, elem)?;
-        Self::format_scalar(f, lhs3, rhs3, *out, elem)?;
+        for i in 0..index {
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+            Self::format_scalar(f, lhsi, rhsi, *out, elem)?;
+        }
 
         Ok(())
     }

@@ -143,8 +143,6 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
             .collect();
 
         ctx.execute_task(kernel_id, count, bindings);
-        // TODO: fix this
-        // self.memory_management.storage().perform_deallocations();
     }
 
     fn sync(&mut self, sync_type: SyncType) {
@@ -258,6 +256,8 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             )
             .unwrap();
         };
+
+        self.memory_management.storage().flush()
     }
 }
 

@@ -9,23 +9,23 @@ pub struct Body {
     pub local_arrays: Vec<super::LocalArray>,
     pub stride: bool,
     pub shape: bool,
-    pub id: bool,
+    pub idx_global: bool,
     pub rank: bool,
-    pub invocation_index: bool,
+    pub thread_idx_global: bool,
     pub global_invocation_id: (bool, bool, bool),
     pub wrap_size_checked: bool,
 }
 
 impl Display for Body {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.id
+        if self.idx_global
             || self.global_invocation_id.0
             || self.global_invocation_id.1
             || self.global_invocation_id.2
         {
             f.write_str(
                 "
-    int3 globalInvocationId = make_int3(
+    int3 absoluteIdx = make_int3(
         blockIdx.x * blockDim.x + threadIdx.x,
         blockIdx.y * blockDim.y + threadIdx.y,
         blockIdx.z * blockDim.z + threadIdx.z
@@ -34,18 +34,18 @@ impl Display for Body {
             )?;
         }
 
-        if self.id {
+        if self.idx_global {
             f.write_str(
                 "
-    uint id = (globalInvocationId.z * gridDim.x * blockDim.x * gridDim.y * blockDim.y) + (globalInvocationId.y * gridDim.x * blockDim.x) + globalInvocationId.x;
+    uint idxGlobal = (absoluteIdx.z * gridDim.x * blockDim.x * gridDim.y * blockDim.y) + (absoluteIdx.y * gridDim.x * blockDim.x) + absoluteIdx.x;
 ",
             )?;
         }
 
-        if self.invocation_index {
+        if self.thread_idx_global {
             f.write_str(
                 "
-    int invocationIndex = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * (blockDim.x * blockDim.y);
+    int threadIdxGlobal = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * (blockDim.x * blockDim.y);
             ",
             )?;
         }
