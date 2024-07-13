@@ -13,7 +13,6 @@ version.workspace = true
 [features]
 default = ["cubecl-runtime/default", "cubecl-common/default", "cubecl-core/default"]
 autotune = []
-doc = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 [dependencies]

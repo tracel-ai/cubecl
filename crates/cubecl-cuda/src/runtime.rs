@@ -1,4 +1,3 @@
-use cubecl_common::stub::RwLock;
 use cubecl_core::{
     ir::{Elem, FloatKind},
     Feature, FeatureSet, Runtime,
@@ -7,7 +6,6 @@ use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::simple::{DeallocStrategy, SimpleMemoryManagement, SliceStrategy},
-    tune::Tuner,
     ComputeRuntime,
 };
 use std::sync::Arc;
@@ -60,7 +58,6 @@ impl Runtime for CudaRuntime {
         RUNTIME.client(device, move || {
             let mut server = CudaServer::new(device.index, Box::new(init));
             let mut features = FeatureSet::new(&[Feature::Subcube]);
-            let tuner_device_id = tuner_device_id();
 
             if let Some(wmma_minimum_version) = register_wmma_features(&mut features, &server.archs)
             {
@@ -68,11 +65,7 @@ impl Runtime for CudaRuntime {
                     i32::max(server.minimum_arch_version, wmma_minimum_version);
             }
 
-            ComputeClient::new(
-                MutexComputeChannel::new(server),
-                Arc::new(RwLock::new(Tuner::new("cuda", &tuner_device_id))),
-                Arc::new(features),
-            )
+            ComputeClient::new(MutexComputeChannel::new(server), Arc::new(features))
         })
     }
 
@@ -144,7 +137,4 @@ fn register_wmma_features(features: &mut FeatureSet, archs: &[i32]) -> Option<i3
     }
 
     None
-}
-fn tuner_device_id() -> String {
-    "cuda".into()
 }

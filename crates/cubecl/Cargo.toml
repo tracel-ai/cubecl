@@ -12,8 +12,9 @@ version.workspace = true
 rust-version = "1.75"
 
 [features]
-default = ["cubecl-wgpu?/std", "cubecl-cuda?/std"]
+default = ["cubecl-wgpu?/default", "cubecl-cuda?/default"]
 std = ["cubecl-wgpu?/std", "cubecl-cuda?/std"]
+template = ["cubecl-core/template"]
 
 # Runtimes
 wgpu = ["cubecl-wgpu"]

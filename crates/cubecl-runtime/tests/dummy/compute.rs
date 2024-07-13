@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use super::DummyServer;
-use cubecl_common::stub::RwLock;
 use cubecl_runtime::channel::MutexComputeChannel;
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::memory_management::simple::{
     DeallocStrategy, SimpleMemoryManagement, SliceStrategy,
 };
 use cubecl_runtime::storage::BytesStorage;
-use cubecl_runtime::tune::Tuner;
+use cubecl_runtime::tune::{AutotuneOperationSet, LocalTuner};
 use cubecl_runtime::ComputeRuntime;
 
 /// The dummy device.
@@ -21,6 +20,14 @@ pub type DummyClient = ComputeClient<DummyServer, DummyChannel>;
 static RUNTIME: ComputeRuntime<DummyDevice, DummyServer, DummyChannel> = ComputeRuntime::new();
 pub static TUNER_DEVICE_ID: &str = "tests/dummy-device";
 pub static TUNER_PREFIX: &str = "dummy-tests/dummy-device";
+pub static TEST_TUNER: LocalTuner<String, String> = LocalTuner::new(TUNER_PREFIX);
+
+pub fn autotune_execute(
+    client: &ComputeClient<DummyServer, MutexComputeChannel<DummyServer>>,
+    set: Box<dyn AutotuneOperationSet<String>>,
+) {
+    TEST_TUNER.execute(&TUNER_DEVICE_ID.to_string(), client, set)
+}
 
 pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServer>> {
     let storage = BytesStorage::default();
@@ -28,8 +35,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         SimpleMemoryManagement::new(storage, DeallocStrategy::Never, SliceStrategy::Never);
     let server = DummyServer::new(memory_management);
     let channel = MutexComputeChannel::new(server);
-    let tuner = Arc::new(RwLock::new(Tuner::new("dummy", TUNER_DEVICE_ID)));
-    ComputeClient::new(channel, tuner, Arc::new(()))
+    ComputeClient::new(channel, Arc::new(()))
 }
 
 pub fn client(device: &DummyDevice) -> DummyClient {

@@ -4,16 +4,14 @@ use crate::{
     AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
 use alloc::sync::Arc;
-use cubecl_common::stub::RwLock;
 use cubecl_core::{Feature, FeatureSet, Runtime};
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::dynamic::{DynamicMemoryManagement, DynamicMemoryManagementOptions},
-    tune::Tuner,
     ComputeRuntime,
 };
-use wgpu::{AdapterInfo, DeviceDescriptor};
+use wgpu::DeviceDescriptor;
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
@@ -129,7 +127,6 @@ fn create_client(
     );
     let server = WgpuServer::new(memory_management, device_wgpu, queue, options.tasks_max);
     let channel = MutexComputeChannel::new(server);
-    let tuner_device_id = tuner_device_id(adapter.get_info());
 
     let features = adapter.features();
     let mut features_cube = FeatureSet::default();
@@ -138,11 +135,7 @@ fn create_client(
         features_cube.register(Feature::Subcube);
     }
 
-    ComputeClient::new(
-        channel,
-        Arc::new(RwLock::new(Tuner::new("wgpu", &tuner_device_id))),
-        Arc::new(features_cube),
-    )
+    ComputeClient::new(channel, Arc::new(features_cube))
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).
@@ -176,10 +169,6 @@ pub async fn select_device<G: GraphicsApi>(
         .unwrap();
 
     (device, queue, adapter)
-}
-
-fn tuner_device_id(info: AdapterInfo) -> String {
-    format!("wgpu-{}-{}", info.device, info.backend.to_str())
 }
 
 #[cfg(target_family = "wasm")]

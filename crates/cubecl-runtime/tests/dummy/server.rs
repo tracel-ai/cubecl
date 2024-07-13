@@ -25,7 +25,6 @@ where
     type Kernel = Arc<dyn DummyKernel>;
     type Storage = BytesStorage;
     type MemoryManagement = MM;
-    type AutotuneKey = String;
     type FeatureSet = ();
 
     fn read(&mut self, binding: Binding<Self>) -> cubecl_common::reader::Reader {

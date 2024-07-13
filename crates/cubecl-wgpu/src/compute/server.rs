@@ -161,7 +161,6 @@ where
     type DispatchOptions = CubeCount<Self>;
     type Storage = WgpuStorage;
     type MemoryManagement = MM;
-    type AutotuneKey = String;
     type FeatureSet = FeatureSet;
 
     fn read(&mut self, binding: server::Binding<Self>) -> Reader {

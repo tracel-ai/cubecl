@@ -5,6 +5,11 @@ use crate::{
 };
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
+pub use cubecl_runtime::channel;
+pub use cubecl_runtime::client;
+pub use cubecl_runtime::server;
+pub use cubecl_runtime::tune;
+
 /// Runtime for the CubeCL.
 pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// The compiler used to compile the inner representation into tokens.

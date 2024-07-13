@@ -1,7 +1,6 @@
 use crate::{
     memory_management::{MemoryHandle, MemoryManagement},
     storage::ComputeStorage,
-    tune::AutotuneKey,
 };
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -23,8 +22,6 @@ where
     type Storage: ComputeStorage;
     /// The [memory management](MemoryManagement) type defines strategies for allocation in the [storage](ComputeStorage) type.
     type MemoryManagement: MemoryManagement<Self::Storage>;
-    /// The key used to cache operations used on specific inputs in autotune
-    type AutotuneKey: AutotuneKey;
     /// Features supported by the compute server.
     type FeatureSet: Send + Sync;
 
