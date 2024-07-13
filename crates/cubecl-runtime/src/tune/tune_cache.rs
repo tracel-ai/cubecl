@@ -23,7 +23,7 @@ use hashbrown::HashMap;
 /// prefix should be the device id computed at the backend level
 pub fn get_persistent_cache_file_path(prefix: &str) -> PathBuf {
     let home_dir = dirs::home_dir().expect("An home directory should exist");
-    let path_dir = home_dir.join(".cache").join("burn").join("autotune");
+    let path_dir = home_dir.join(".cache").join("cubecl").join("autotune");
     let path = Path::new(&path_dir);
     path.join(format!("{}-autotune-cache.json", prefix))
 }
@@ -238,6 +238,6 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// Return the file path for the persistent cache on disk
     #[cfg(feature = "autotune-persistent-cache")]
     pub fn get_persistent_cache_file_path(&self) -> PathBuf {
-        get_persistent_cache_file_path(&format!("{}-{}", self.name, self.device_id))
+        get_persistent_cache_file_path(&format!("{}/{}", self.name, self.device_id))
     }
 }

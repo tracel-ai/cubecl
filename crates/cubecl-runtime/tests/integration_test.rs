@@ -4,10 +4,14 @@ use std::sync::Arc;
 
 use crate::dummy::autotune_execute;
 use crate::dummy::{client, DummyDevice, DummyElementwiseAddition};
+use crate::dummy::{TEST_TUNER, TUNER_DEVICE_ID, TUNER_PREFIX};
+
 use cubecl_runtime::ComputeRuntime;
 
 #[allow(unused)]
 use serial_test::serial;
+
+type Runtime = ComputeRuntime<DummyDevice, dummy::DummyServer, dummy::DummyChannel>;
 
 #[test]
 fn created_resource_is_the_same_when_read() {
@@ -52,6 +56,7 @@ fn execute_elementwise_addition() {
 #[serial]
 #[cfg(feature = "std")]
 fn autotune_basic_addition_execution() {
+    TEST_TUNER.clear();
     let client = client(&DummyDevice);
 
     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
@@ -74,6 +79,7 @@ fn autotune_basic_addition_execution() {
 #[serial]
 #[cfg(feature = "std")]
 fn autotune_basic_multiplication_execution() {
+    TEST_TUNER.clear();
     let client = client(&DummyDevice);
 
     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
@@ -96,7 +102,7 @@ fn autotune_basic_multiplication_execution() {
 #[serial]
 #[cfg(feature = "std")]
 fn autotune_cache_same_key_return_a_cache_hit() {
-    type Runtime = ComputeRuntime<DummyDevice, dummy::DummyServer, dummy::DummyChannel>;
+    TEST_TUNER.clear();
     let runtime = Runtime::new();
 
     let client = runtime.client(&DummyDevice, dummy::init_client);
@@ -135,12 +141,15 @@ fn autotune_cache_same_key_return_a_cache_hit() {
 #[serial]
 #[cfg(feature = "std")]
 fn autotune_cache_no_cache_on_disk_return_a_cache_miss() {
+    TEST_TUNER.clear();
+
     // delete the cache file
-    let file_path =
-        cubecl_runtime::tune::get_persistent_cache_file_path(crate::dummy::TUNER_PREFIX);
+    let file_path = cubecl_runtime::tune::get_persistent_cache_file_path(&format!(
+        "{}/{}",
+        TUNER_PREFIX, TUNER_DEVICE_ID
+    ));
     let _ = std::fs::remove_file(file_path);
 
-    type Runtime = ComputeRuntime<DummyDevice, dummy::DummyServer, dummy::DummyChannel>;
     let compute = Runtime::new();
 
     let client = compute.client(&DummyDevice, dummy::init_client);
@@ -177,18 +186,19 @@ fn autotune_cache_no_cache_on_disk_return_a_cache_miss() {
 #[serial]
 #[cfg(feature = "std")]
 fn autotune_cache_file_path_creation_works_when_path_does_not_exist_yet() {
+    TEST_TUNER.clear();
     // delete the cache file
 
-    use cubecl_common::sync_type::SyncType;
-    let file_path =
-        cubecl_runtime::tune::get_persistent_cache_file_path(crate::dummy::TUNER_PREFIX);
+    let file_path = cubecl_runtime::tune::get_persistent_cache_file_path(&format!(
+        "{}/{}",
+        TUNER_PREFIX, TUNER_DEVICE_ID
+    ));
     let parent_dir = file_path
         .parent()
         .expect("Cache file should have a parent directory");
     // Delete the cache file's parent directory
     let _ = std::fs::remove_dir_all(parent_dir);
 
-    type Runtime = ComputeRuntime<DummyDevice, dummy::DummyServer, dummy::DummyChannel>;
     let runtime = Runtime::new();
     let client = runtime.client(&DummyDevice, dummy::init_client);
 
@@ -203,8 +213,6 @@ fn autotune_cache_file_path_creation_works_when_path_does_not_exist_yet() {
     let cache_test_autotune_kernel =
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes, handles);
     autotune_execute(&client, Box::new(cache_test_autotune_kernel));
-    // ensure that the autotune operations are run and cached
-    client.sync(SyncType::Wait);
 
     assert!(
         parent_dir.exists(),
@@ -217,6 +225,7 @@ fn autotune_cache_file_path_creation_works_when_path_does_not_exist_yet() {
 #[serial]
 #[cfg(feature = "std")]
 fn autotune_cache_different_keys_return_a_cache_miss() {
+    TEST_TUNER.clear();
     let client = client(&DummyDevice);
 
     // in this test shapes [1,3] and [1,5] ends up with different key names
@@ -250,9 +259,8 @@ fn autotune_cache_different_keys_return_a_cache_miss() {
 #[serial]
 #[cfg(feature = "std")]
 fn autotune_cache_different_checksums_return_a_cache_miss() {
-    use cubecl_common::sync_type::SyncType;
+    TEST_TUNER.clear();
 
-    type Runtime = ComputeRuntime<DummyDevice, dummy::DummyServer, dummy::DummyChannel>;
     let runtime = Runtime::new();
     let client = runtime.client(&DummyDevice, dummy::init_client);
 
@@ -266,13 +274,8 @@ fn autotune_cache_different_checksums_return_a_cache_miss() {
     let cache_test_autotune_kernel_1 =
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
     autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-    client.sync(SyncType::Wait);
 
-    // we use a second compute client in order to have freshly initialized autotune cache
-    // and test invalidation of the cache when the checksum of the operation set is
-    // different
-    let runtime = Runtime::new();
-    let client = runtime.client(&DummyDevice, dummy::init_client);
+    TEST_TUNER.clear();
 
     let shapes_2 = vec![vec![1, 4], vec![1, 4], vec![1, 4]];
     let lhs_2 = client.create(&[0, 1, 2, 3]);
@@ -284,7 +287,6 @@ fn autotune_cache_different_checksums_return_a_cache_miss() {
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
     cache_test_autotune_kernel_2.generate_random_checksum = true;
     autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
-    client.sync(SyncType::Wait);
 
     let obtained_resource = client.read(out_2.binding());
 

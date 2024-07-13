@@ -6,6 +6,7 @@ resolver = "2"
 
 members = [
     "crates/*",
+    "examples/*",
 ]
 
 [workspace.package]

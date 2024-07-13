@@ -18,8 +18,8 @@ pub type DummyChannel = MutexComputeChannel<DummyServer>;
 pub type DummyClient = ComputeClient<DummyServer, DummyChannel>;
 
 static RUNTIME: ComputeRuntime<DummyDevice, DummyServer, DummyChannel> = ComputeRuntime::new();
-pub static TUNER_DEVICE_ID: &str = "tests/dummy-device";
-pub static TUNER_PREFIX: &str = "dummy-tests/dummy-device";
+pub static TUNER_DEVICE_ID: &str = "dummy-device";
+pub static TUNER_PREFIX: &str = "dummy-tests";
 pub static TEST_TUNER: LocalTuner<String, String> = LocalTuner::new(TUNER_PREFIX);
 
 pub fn autotune_execute(

@@ -15,8 +15,6 @@ pub use element::*;
 pub use graphics::*;
 pub use runtime::*;
 
-pub use cubecl_core::prelude::CubeCount;
-
 #[cfg(test)]
 mod tests {
     pub type TestRuntime = crate::WgpuRuntime;

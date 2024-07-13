@@ -32,7 +32,9 @@ pub const SUBCUBE_DIM_APPROX: usize = 16;
 
 use crate::ir::KernelDefinition;
 use frontend::LaunchArg;
-use prelude::CubeCount;
+
+pub use prelude::CubeCount;
+pub use prelude::CubeDim;
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).
 pub trait Kernel: Send + Sync + 'static {

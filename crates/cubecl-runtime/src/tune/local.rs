@@ -37,6 +37,12 @@ impl<AK: AutotuneKey, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK
         }
     }
 
+    /// Clear the autotune state.
+    pub fn clear(&self) {
+        let mut state = self.state.write();
+        *state = None;
+    }
+
     /// Execute the best operation in the provided [autotune operation set](AutotuneOperationSet)
     pub fn execute<S, C>(
         &self,
@@ -61,7 +67,7 @@ impl<AK: AutotuneKey, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK
 
         // We have to run the autotune.
         let mut state = self.state.write();
-        let map = state.get_or_insert_with(|| Default::default());
+        let map = state.get_or_insert_with(Default::default);
 
         let tuner = if let Some(tuner) = map.get_mut(id) {
             tuner
@@ -79,7 +85,7 @@ impl<AK: AutotuneKey, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK
     pub fn autotune_result(&self, id: &ID, key: &AK) -> Option<usize> {
         if let Some(state) = self.state.read().as_ref() {
             if let Some(tuner) = state.get(id) {
-                return tuner.autotune_fastest(&key);
+                return tuner.autotune_fastest(key);
             }
         }
 
