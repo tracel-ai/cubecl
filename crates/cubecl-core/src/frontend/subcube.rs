@@ -1,5 +1,5 @@
-use crate::prelude::ExpandElementTyped;
 use super::{CubeContext, CubePrimitive, ExpandElement};
+use crate::prelude::ExpandElementTyped;
 use crate::{
     ir::{Elem, InitOperator, Item, Operation, Subcube, UnaryOperator},
     unexpanded,

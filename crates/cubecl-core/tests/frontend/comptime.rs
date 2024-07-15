@@ -138,7 +138,12 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        comptime_if_expr::__expand::<ElemType>(&mut context, lhs.into(), UInt::new(4), UInt::new(5));
+        comptime_if_expr::__expand::<ElemType>(
+            &mut context,
+            lhs.into(),
+            UInt::new(4),
+            UInt::new(5),
+        );
         let scope = context.into_scope();
 
         assert_eq!(
@@ -168,7 +173,12 @@ mod tests {
             for cond2 in [false, true] {
                 let mut context1 = CubeContext::root();
                 let lhs = context1.create_local(Item::new(ElemType::as_elem()));
-                comptime_else_then_if::__expand::<ElemType>(&mut context1, lhs.into(), cond1, cond2);
+                comptime_else_then_if::__expand::<ElemType>(
+                    &mut context1,
+                    lhs.into(),
+                    cond1,
+                    cond2,
+                );
                 let scope1 = context1.into_scope();
 
                 let mut context2 = CubeContext::root();

@@ -3,7 +3,7 @@ use crate::{
     unexpanded,
 };
 
-use super::{ExpandElement, Init, UInt, Vectorized};
+use super::{CubePrimitive, ExpandElement, ExpandElementTyped, Init, UInt, Vectorized};
 
 #[derive(Clone, Copy)]
 /// Encapsulates a value to signify it must be used at compilation time rather than in the kernel
@@ -32,7 +32,7 @@ impl<T> Comptime<T> {
         unexpanded!()
     }
 
-    pub fn map_expand<R, F: Fn(T) -> R>(inner: T, closure: F) -> R {
+    pub fn __expand_map<R, F: Fn(T) -> R>(inner: T, closure: F) -> R {
         closure(inner)
     }
 }
@@ -54,7 +54,7 @@ impl<T: CubeType + Into<T::ExpandType>> Comptime<Option<T>> {
     }
 
     /// Expanded version of unwrap_or_else
-    pub fn unwrap_or_else_expand<F>(
+    pub fn __expand_unwrap_or_else<F>(
         context: &mut CubeContext,
         t: Option<T>,
         alt: F,
@@ -78,18 +78,19 @@ impl<T: Vectorized> Comptime<T> {
         unexpanded!()
     }
 
-    pub fn vectorization_expand(_context: &mut CubeContext, state: T) -> UInt {
+    pub fn __expand_vectorization(_context: &mut CubeContext, state: T) -> UInt {
         state.vectorization_factor()
     }
 }
 
-impl<T: Into<ExpandElement>> Comptime<T> {
+impl<T: CubePrimitive + Into<ExpandElement>> Comptime<T> {
     pub fn runtime(_comptime: Self) -> T {
         unexpanded!()
     }
 
-    pub fn runtime_expand(_context: &mut CubeContext, inner: T) -> ExpandElement {
-        inner.into()
+    pub fn __expand_runtime(_context: &mut CubeContext, inner: T) -> ExpandElementTyped<T> {
+        let elem: ExpandElement = inner.into();
+        elem.into()
     }
 }
 

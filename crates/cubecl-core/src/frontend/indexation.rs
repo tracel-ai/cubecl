@@ -1,4 +1,4 @@
-use super::{Comptime, ExpandElement, UInt};
+use super::{Comptime, ExpandElement, ExpandElementTyped, UInt};
 use crate::ir::{Elem, Variable};
 
 pub trait Index {
@@ -53,5 +53,12 @@ impl Index for UInt {
 impl Index for ExpandElement {
     fn value(self) -> Variable {
         *self
+    }
+}
+
+impl Index for ExpandElementTyped<UInt> {
+    fn value(self) -> Variable {
+        let value: ExpandElement = self.into();
+        value.value()
     }
 }

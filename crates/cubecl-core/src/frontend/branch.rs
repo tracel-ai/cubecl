@@ -19,7 +19,7 @@ where
 
 pub fn range_expand<F, S, E>(context: &mut CubeContext, start: S, end: E, unroll: bool, mut func: F)
 where
-    F: FnMut(&mut CubeContext, ExpandElement),
+    F: FnMut(&mut CubeContext, ExpandElementTyped<UInt>),
     S: Into<ExpandElement>,
     E: Into<ExpandElement>,
 {
@@ -37,7 +37,8 @@ where
         };
 
         for i in start..end {
-            func(context, i.into())
+            let var: ExpandElement = i.into();
+            func(context, var.into())
         }
     } else {
         let mut child = context.child();
@@ -45,7 +46,7 @@ where
         let i = child.scope.borrow_mut().create_local_undeclared(index_ty);
         let i = ExpandElement::Plain(i);
 
-        func(&mut child, i.clone());
+        func(&mut child, i.clone().into());
 
         context.register(Branch::RangeLoop(RangeLoop {
             i: *i,

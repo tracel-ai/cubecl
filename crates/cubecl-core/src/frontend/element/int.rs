@@ -1,6 +1,7 @@
 use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::frontend::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Numeric, ExpandElementBaseInit
+    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
+    Numeric,
 };
 use crate::ir::{Elem, IntKind, Item, Variable, Vectorization};
 use crate::prelude::index_assign;

@@ -19,6 +19,10 @@ pub trait CubePrimitive:
 {
     /// Return the element type to use on GPU
     fn as_elem() -> Elem;
+
+    fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
+        ExpandElementTyped::new(elem)
+    }
 }
 
 macro_rules! impl_into_expand_element {

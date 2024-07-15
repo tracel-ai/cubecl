@@ -12,7 +12,8 @@ use crate::{
 };
 
 use super::{
-    ArgSettings, CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg, LaunchArgExpand, TensorHandle, UInt
+    ArgSettings, CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
+    LaunchArg, LaunchArgExpand, TensorHandle, UInt,
 };
 
 /// A contiguous array of elements.
@@ -70,7 +71,7 @@ impl<T: CubePrimitive + Clone> Array<T> {
     }
 }
 
-impl<C: CubeType> ExpandElementTyped<Array<C>> {
+impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
     pub fn __expand_to_vectorized_method(
         self,
         context: &mut CubeContext,
@@ -97,7 +98,7 @@ impl<C: CubeType> CubeType for &Array<C> {
     type ExpandType = ExpandElementTyped<Array<C>>;
 }
 
-impl<C: CubeType> ExpandElementBaseInit  for Array<C> {
+impl<C: CubeType> ExpandElementBaseInit for Array<C> {
     fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem

@@ -4,7 +4,8 @@ use crate::prelude::{index_assign, KernelBuilder, KernelLauncher};
 use crate::{frontend::Comptime, Runtime};
 
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand, ScalarArgSettings, Vectorized
+    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand,
+    ScalarArgSettings, Vectorized,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -28,6 +29,14 @@ impl ExpandElementBaseInit for UInt {
 impl CubePrimitive for UInt {
     fn as_elem() -> Elem {
         Elem::UInt
+    }
+}
+
+// For use within comptime.
+impl Into<<UInt as CubeType>::ExpandType> for UInt {
+    fn into(self) -> ExpandElementTyped<UInt> {
+        let elem: ExpandElement = self.into();
+        elem.into()
     }
 }
 

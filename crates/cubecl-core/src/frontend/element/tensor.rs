@@ -20,7 +20,7 @@ impl<T: CubeType> CubeType for Tensor<T> {
     type ExpandType = ExpandElementTyped<Tensor<T>>;
 }
 
-impl<C: CubeType> ExpandElementBaseInit  for Tensor<C> {
+impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
     fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem
@@ -178,39 +178,47 @@ impl<T: CubeType> Tensor<T> {
 
 impl<T: CubeType> ExpandElementTyped<T> {
     // Expanded version of stride
-    pub fn __expand_stride_method<C: Index>(self, context: &mut CubeContext, dim: C) -> ExpandElement {
+    pub fn __expand_stride_method<C: Index>(
+        self,
+        context: &mut CubeContext,
+        dim: C,
+    ) -> ExpandElementTyped<UInt> {
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Stride {
             dim: dim.value(),
             var: self.expand.into(),
             out: out.clone().into(),
         });
-        out
+        out.into()
     }
 
     // Expanded version of shape
-    pub fn __expand_shape_method<C: Index>(self, context: &mut CubeContext, dim: C) -> ExpandElement {
+    pub fn __expand_shape_method<C: Index>(
+        self,
+        context: &mut CubeContext,
+        dim: C,
+    ) -> ExpandElementTyped<UInt> {
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Shape {
             dim: dim.value(),
             var: self.expand.into(),
             out: out.clone().into(),
         });
-        out
+        out.into()
     }
 
     // Expanded version of len
-    pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElement {
+    pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<UInt> {
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Length {
             var: self.expand.into(),
             out: out.clone().into(),
         });
-        out
+        out.into()
     }
 
     // Expanded version of rank.
-    pub fn __expand_rank_method(self, _context: &mut CubeContext) -> ExpandElement {
-        ExpandElement::Plain(Variable::Rank)
+    pub fn __expand_rank_method(self, _context: &mut CubeContext) -> ExpandElementTyped<UInt> {
+        ExpandElement::Plain(Variable::Rank).into()
     }
 }

@@ -167,7 +167,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {
                     {
-                        Comptime::map_expand(#args)
+                        Comptime::__expand_map(#args)
                     }
                 }
             }
@@ -177,7 +177,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {{
                     #expansion
-                    Comptime::unwrap_or_else_expand(#variables)
+                    Comptime::__expand_unwrap_or_else(#variables)
                 }}
             }
             "is_some" => {
@@ -190,7 +190,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {{
                     #expansion
-                    Comptime::vectorization_expand(#variables)
+                    Comptime::__expand_vectorization(#variables)
                 }}
             }
             "vectorize" => {
@@ -199,7 +199,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {{
                     #expansion
-                    Comptime::vectorize_expand(#variables)
+                    Comptime::__expand_vectorize(#variables)
                 }}
             }
             "runtime" => {
@@ -208,7 +208,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {{
                     #expansion
-                    Comptime::runtime_expand(#variables)
+                    Comptime::__expand_runtime(#variables)
                 }}
             }
 

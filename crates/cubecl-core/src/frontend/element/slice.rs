@@ -203,7 +203,10 @@ pub trait SliceOperatorExpand<E: CubeType>: Into<ExpandElement> + Clone {
         ExpandElementTyped::new(self.slice_base(context, start, end))
     }
 
-    fn __expand_as_slice_method(&self, _context: &mut CubeContext) -> ExpandElementTyped<Slice<'static, E>> {
+    fn __expand_as_slice_method(
+        &self,
+        _context: &mut CubeContext,
+    ) -> ExpandElementTyped<Slice<'static, E>> {
         let expand = self.clone().into();
         ExpandElementTyped::new(expand)
     }
