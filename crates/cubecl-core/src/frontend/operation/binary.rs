@@ -1,7 +1,6 @@
 use crate::frontend::operation::base::binary_expand;
 use crate::frontend::{
-    CubeContext, CubePrimitive, ExpandElementTyped, UInt, BF16, F16, F32, F64, I32,
-    I64,
+    CubeContext, CubePrimitive, ExpandElementTyped, UInt, BF16, F16, F32, F64, I32, I64,
 };
 use crate::ir::Operator;
 use crate::{frontend::CubeType, unexpanded};

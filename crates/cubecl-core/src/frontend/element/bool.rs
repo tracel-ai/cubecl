@@ -2,7 +2,7 @@ use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::Elem;
 use crate::prelude::CubeContext;
 
-use super::{init_expand_element, ExpandElement, ExpandElementTyped, Init, Vectorized};
+use super::{init_expand_element, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, Vectorized};
 
 // To be consistent with other primitive type.
 /// Boolean type.
@@ -19,7 +19,7 @@ pub trait BoolOps {
     }
 }
 
-impl BoolOps for Bool { }
+impl BoolOps for Bool {}
 
 impl CubeType for bool {
     type ExpandType = ExpandElementTyped<Self>;
@@ -31,9 +31,9 @@ impl CubePrimitive for bool {
     }
 }
 
-impl Init for ExpandElementTyped<bool> {
-    fn init(self, context: &mut crate::prelude::CubeContext) -> Self {
-        ExpandElementTyped::new(init_expand_element(context, self))
+impl ExpandElementBaseInit for bool {
+    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(context, elem)
     }
 }
 

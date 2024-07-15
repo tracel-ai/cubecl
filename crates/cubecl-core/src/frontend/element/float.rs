@@ -2,7 +2,7 @@ use half::{bf16, f16};
 
 use crate::frontend::{Ceil, Cos, Erf, Exp, Floor, Log, Log1p, Powf, Recip, Sin, Sqrt, Tanh};
 use crate::frontend::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Numeric,
+    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Numeric, ExpandElementBaseInit,
 };
 use crate::ir::{Elem, FloatKind, Item, Variable, Vectorization};
 
@@ -10,7 +10,7 @@ use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::prelude::index_assign;
 use crate::{unexpanded, Runtime};
 
-use super::{init_expand_element, Init, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
+use super::{init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -68,9 +68,9 @@ macro_rules! impl_float {
             type Primitive = $primitive;
         }
 
-        impl Init for ExpandElementTyped<$type> {
-            fn init(self, context: &mut CubeContext) -> Self {
-                ExpandElementTyped::new(init_expand_element(context, self))
+        impl ExpandElementBaseInit for $type {
+            fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+                init_expand_element(context, elem)
             }
         }
 

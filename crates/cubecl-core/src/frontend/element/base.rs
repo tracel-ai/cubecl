@@ -124,6 +124,16 @@ pub struct ExpandElementTyped<T: CubeType> {
     pub(crate) _type: PhantomData<T>,
 }
 
+pub trait ExpandElementBaseInit: CubeType {
+    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement;
+}
+
+impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
+    fn init(self, context: &mut CubeContext) -> Self {
+        <T as ExpandElementBaseInit>::init_elem(context, self.into()).into()
+    }
+}
+
 impl<T: CubeType<ExpandType = Self>> ExpandElementTyped<T> {
     pub fn init(self, context: &mut CubeContext) -> Self {
         T::init(context, self)

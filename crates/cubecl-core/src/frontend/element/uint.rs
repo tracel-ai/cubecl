@@ -4,7 +4,7 @@ use crate::prelude::{index_assign, KernelBuilder, KernelLauncher};
 use crate::{frontend::Comptime, Runtime};
 
 use super::{
-    init_expand_element, ExpandElementTyped, Init, LaunchArgExpand, ScalarArgSettings, Vectorized,
+    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand, ScalarArgSettings, Vectorized
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -19,9 +19,9 @@ impl CubeType for UInt {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl Init for ExpandElementTyped<UInt> {
-    fn init(self, context: &mut CubeContext) -> Self {
-        ExpandElementTyped::new(init_expand_element(context, self))
+impl ExpandElementBaseInit for UInt {
+    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(context, elem)
     }
 }
 

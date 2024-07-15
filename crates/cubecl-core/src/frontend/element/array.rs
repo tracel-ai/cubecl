@@ -12,8 +12,7 @@ use crate::{
 };
 
 use super::{
-    ArgSettings, CubePrimitive, ExpandElementTyped, Init, LaunchArg, LaunchArgExpand, TensorHandle,
-    UInt,
+    ArgSettings, CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg, LaunchArgExpand, TensorHandle, UInt
 };
 
 /// A contiguous array of elements.
@@ -97,10 +96,11 @@ impl<C: CubeType> ExpandElementTyped<Array<C>> {
 impl<C: CubeType> CubeType for &Array<C> {
     type ExpandType = ExpandElementTyped<Array<C>>;
 }
-impl<C: CubeType> Init for ExpandElementTyped<Array<C>> {
-    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+
+impl<C: CubeType> ExpandElementBaseInit  for Array<C> {
+    fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
-        self
+        elem
     }
 }
 

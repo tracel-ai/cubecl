@@ -81,8 +81,7 @@ pub(crate) fn codegen_local(
                 quote::quote! {
                     #let_tok #ident = {
                         let _inner = #init;
-                        _inner.init(context)
-                        // cubecl::frontend::Init::init(_inner, context)
+                        cubecl::frontend::Init::init(_inner, context)
                     };
                 }
             }

@@ -23,7 +23,7 @@ mod tests {
 
         let lhs = context.create_local(Item::vectorized(ElemType::as_elem(), 2));
 
-        vectorization_binary::__expand::<ElemType>(&mut context, lhs);
+        vectorization_binary::__expand::<ElemType>(&mut context, lhs.into());
     }
 
     #[test]
@@ -33,7 +33,7 @@ mod tests {
 
         let lhs = context.create_local(Item::vectorized(ElemType::as_elem(), 4));
 
-        vectorization_binary::__expand::<ElemType>(&mut context, lhs);
+        vectorization_binary::__expand::<ElemType>(&mut context, lhs.into());
     }
 
     #[test]
@@ -42,7 +42,7 @@ mod tests {
 
         let lhs = context.create_local(Item::vectorized(ElemType::as_elem(), 2));
 
-        vectorization_cmp::__expand::<ElemType>(&mut context, lhs);
+        vectorization_cmp::__expand::<ElemType>(&mut context, lhs.into());
     }
 
     #[test]
@@ -52,7 +52,7 @@ mod tests {
 
         let lhs = context.create_local(Item::vectorized(ElemType::as_elem(), 4));
 
-        vectorization_cmp::__expand::<ElemType>(&mut context, lhs);
+        vectorization_cmp::__expand::<ElemType>(&mut context, lhs.into());
     }
 
     #[test]
@@ -61,6 +61,6 @@ mod tests {
 
         let lhs = context.create_local(Item::vectorized(ElemType::as_elem(), 1));
 
-        vectorization_cmp::__expand::<ElemType>(&mut context, lhs);
+        vectorization_cmp::__expand::<ElemType>(&mut context, lhs.into());
     }
 }

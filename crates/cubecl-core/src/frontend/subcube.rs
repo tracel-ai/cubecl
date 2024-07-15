@@ -1,3 +1,4 @@
+use crate::prelude::ExpandElementTyped;
 use super::{CubeContext, CubePrimitive, ExpandElement};
 use crate::{
     ir::{Elem, InitOperator, Item, Operation, Subcube, UnaryOperator},
@@ -32,8 +33,9 @@ pub mod subcube_sum {
     /// Expand method of [subcube_sum()].
     pub fn __expand<E: CubePrimitive>(
         context: &mut CubeContext,
-        elem: ExpandElement,
-    ) -> ExpandElement {
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item());
 
         let out = *output;
@@ -44,7 +46,7 @@ pub mod subcube_sum {
             out,
         })));
 
-        output
+        output.into()
     }
 }
 
@@ -60,8 +62,9 @@ pub mod subcube_prod {
     /// Expand method of [subcube_prod()].
     pub fn __expand<E: CubePrimitive>(
         context: &mut CubeContext,
-        elem: ExpandElement,
-    ) -> ExpandElement {
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item());
 
         let out = *output;
@@ -72,7 +75,7 @@ pub mod subcube_prod {
             out,
         })));
 
-        output
+        output.into()
     }
 }
 
@@ -88,8 +91,9 @@ pub mod subcube_max {
     /// Expand method of [subcube_max()].
     pub fn __expand<E: CubePrimitive>(
         context: &mut CubeContext,
-        elem: ExpandElement,
-    ) -> ExpandElement {
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item());
 
         let out = *output;
@@ -100,7 +104,7 @@ pub mod subcube_max {
             out,
         })));
 
-        output
+        output.into()
     }
 }
 
@@ -116,8 +120,9 @@ pub mod subcube_min {
     /// Expand method of [subcube_min()].
     pub fn __expand<E: CubePrimitive>(
         context: &mut CubeContext,
-        elem: ExpandElement,
-    ) -> ExpandElement {
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item());
 
         let out = *output;
@@ -128,7 +133,7 @@ pub mod subcube_min {
             out,
         })));
 
-        output
+        output.into()
     }
 }
 
@@ -144,8 +149,9 @@ pub mod subcube_all {
     /// Expand method of [subcube_all()].
     pub fn __expand<E: CubePrimitive>(
         context: &mut CubeContext,
-        elem: ExpandElement,
-    ) -> ExpandElement {
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item());
 
         let out = *output;
@@ -156,6 +162,6 @@ pub mod subcube_all {
             out,
         })));
 
-        output
+        output.into()
     }
 }

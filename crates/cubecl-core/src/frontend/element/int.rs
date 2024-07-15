@@ -1,12 +1,12 @@
 use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::frontend::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Numeric,
+    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Numeric, ExpandElementBaseInit
 };
 use crate::ir::{Elem, IntKind, Item, Variable, Vectorization};
 use crate::prelude::index_assign;
 use crate::Runtime;
 
-use super::{init_expand_element, Init, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
+use super::{init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
 
 /// Signed integer. Used as input in int kernels
 pub trait Int: Numeric + std::ops::Rem<Output = Self> {
@@ -42,9 +42,9 @@ macro_rules! impl_int {
             type Primitive = $primitive;
         }
 
-        impl Init for ExpandElementTyped<$type> {
-            fn init(self, context: &mut CubeContext) -> Self {
-                ExpandElementTyped::new(init_expand_element(context, self))
+        impl ExpandElementBaseInit for $type {
+            fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+                init_expand_element(context, elem)
             }
         }
 
