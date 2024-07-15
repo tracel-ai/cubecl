@@ -18,6 +18,7 @@ pub fn for_loop<F: Float>(mut lhs: Array<F>, rhs: F, end: UInt, unroll: Comptime
 }
 
 mod tests {
+    use cubecl::frontend::ExpandElement;
     use cubecl_core::{cpa, ir::Item};
 
     use super::*;
@@ -29,9 +30,9 @@ mod tests {
 
         let lhs = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
         let rhs = context.create_local(Item::new(ElemType::as_elem()));
-        let end = 4u32.into();
+        let end: ExpandElement = 4u32.into();
 
-        for_loop::__expand::<ElemType>(&mut context, lhs.into(), rhs, end, unroll);
+        for_loop::__expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref(unroll));
@@ -44,9 +45,9 @@ mod tests {
 
         let lhs = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
         let rhs = context.create_local(Item::new(ElemType::as_elem()));
-        let end = 4u32.into();
+        let end: ExpandElement = 4u32.into();
 
-        for_loop::__expand::<ElemType>(&mut context, lhs.into(), rhs, end, unroll);
+        for_loop::__expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref(unroll));

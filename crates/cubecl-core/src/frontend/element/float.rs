@@ -1,14 +1,17 @@
 use half::{bf16, f16};
 
 use crate::frontend::{Ceil, Cos, Erf, Exp, Floor, Log, Log1p, Powf, Recip, Sin, Sqrt, Tanh};
-use crate::frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric};
+use crate::frontend::{
+    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
+    Numeric,
+};
 use crate::ir::{Elem, FloatKind, Item, Variable, Vectorization};
 
 use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::prelude::index_assign;
 use crate::{unexpanded, Runtime};
 
-use super::{LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
+use super::{init_expand_element, Init, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -28,6 +31,8 @@ pub trait Float:
     + core::ops::Index<UInt, Output = Self>
     + core::ops::IndexMut<UInt, Output = Self>
 {
+    type EE<A>: Init + Clone;
+
     fn new(val: f32) -> Self;
     fn vectorized(val: f32, vectorization: UInt) -> Self;
     fn vectorized_empty(vectorization: UInt) -> Self;
@@ -52,7 +57,7 @@ macro_rules! impl_float {
         }
 
         impl CubeType for $type {
-            type ExpandType = ExpandElement;
+            type ExpandType = ExpandElementTyped<$type>;
         }
 
         impl CubePrimitive for $type {
@@ -66,7 +71,15 @@ macro_rules! impl_float {
             type Primitive = $primitive;
         }
 
+        impl ExpandElementBaseInit for $type {
+            fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+                init_expand_element(context, elem)
+            }
+        }
+
         impl Float for $type {
+            type EE<A> = ExpandElementTyped<$type>;
+
             fn new(val: f32) -> Self {
                 Self {
                     val,
@@ -97,7 +110,7 @@ macro_rules! impl_float {
                     value: val as f64,
                     elem: Self::as_elem(),
                 };
-                ExpandElement::Plain(new_var)
+                ExpandElement::Plain(new_var).into()
             }
 
             fn __expand_vectorized(
@@ -114,7 +127,7 @@ macro_rules! impl_float {
                         new_var = index_assign::expand(context, new_var, i, *element);
                     }
 
-                    new_var
+                    new_var.into()
                 }
             }
 
@@ -125,7 +138,9 @@ macro_rules! impl_float {
                 if vectorization.val == 1 {
                     Self::__expand_new(context, 0.)
                 } else {
-                    context.create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8))
+                    context
+                        .create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8))
+                        .into()
                 }
             }
         }
@@ -145,9 +160,12 @@ macro_rules! impl_float {
         }
 
         impl LaunchArgExpand for $type {
-            fn expand(builder: &mut KernelBuilder, vectorization: Vectorization) -> ExpandElement {
+            fn expand(
+                builder: &mut KernelBuilder,
+                vectorization: Vectorization,
+            ) -> ExpandElementTyped<Self> {
                 assert_eq!(vectorization, 1, "Attempted to vectorize a scalar");
-                builder.scalar($type::as_elem())
+                builder.scalar($type::as_elem()).into()
             }
         }
 

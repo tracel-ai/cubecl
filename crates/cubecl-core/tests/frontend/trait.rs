@@ -88,7 +88,7 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        with_strategy_trait::__expand::<AddStrategy, ElemType>(&mut context, x, y);
+        with_strategy_trait::__expand::<AddStrategy, ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -104,7 +104,7 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        with_strategy_trait::__expand::<SubStrategy, ElemType>(&mut context, x, y);
+        with_strategy_trait::__expand::<SubStrategy, ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -120,7 +120,11 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        two_strategy_traits::__expand::<SubStrategy, AddStrategy, ElemType>(&mut context, x, y);
+        two_strategy_traits::__expand::<SubStrategy, AddStrategy, ElemType>(
+            &mut context,
+            x.into(),
+            y.into(),
+        );
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_two());
@@ -133,7 +137,11 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        with_trait_generic_method::__expand::<AddStrategy, ElemType>(&mut context, x, y);
+        with_trait_generic_method::__expand::<AddStrategy, ElemType>(
+            &mut context,
+            x.into(),
+            y.into(),
+        );
         let scope = context.into_scope();
 
         assert_eq!(

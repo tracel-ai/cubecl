@@ -54,7 +54,7 @@ mod tests {
 
         let x = context.create_local(Item::new(ElemType::as_elem()));
 
-        redeclare_same_scope::__expand::<ElemType>(&mut context, x);
+        redeclare_same_scope::__expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -69,7 +69,7 @@ mod tests {
 
         let x = context.create_local(Item::new(ElemType::as_elem()));
 
-        redeclare_same_scope_other_type::__expand::<ElemType, F32>(&mut context, x);
+        redeclare_same_scope_other_type::__expand::<ElemType, F32>(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -84,7 +84,7 @@ mod tests {
 
         let x = context.create_local(Item::new(ElemType::as_elem()));
 
-        redeclare_different_scope::__expand::<ElemType>(&mut context, x);
+        redeclare_different_scope::__expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -99,7 +99,7 @@ mod tests {
 
         let x = context.create_local(Item::new(UInt::as_elem()));
 
-        redeclare_two_for_loops::__expand(&mut context, x);
+        redeclare_two_for_loops::__expand(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(

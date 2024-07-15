@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
-    ArgSettings, CubePrimitive, ExpandElement, ExpandElementTyped, Init, LaunchArg,
-    LaunchArgExpand, TensorHandle, UInt,
+    ArgSettings, CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
+    LaunchArg, LaunchArgExpand, TensorHandle, UInt,
 };
 
 /// A contiguous array of elements.
@@ -71,12 +71,12 @@ impl<T: CubePrimitive + Clone> Array<T> {
     }
 }
 
-impl<C: CubeType> ExpandElementTyped<Array<C>> {
-    pub fn to_vectorized_expand(
+impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
+    pub fn __expand_to_vectorized_method(
         self,
         context: &mut CubeContext,
         vectorization_factor: UInt,
-    ) -> ExpandElement {
+    ) -> ExpandElementTyped<C> {
         let factor = vectorization_factor.val;
         let var = self.expand.clone();
         let mut new_var = context.create_local(Item::vectorized(var.item().elem(), factor as u8));
@@ -85,21 +85,23 @@ impl<C: CubeType> ExpandElementTyped<Array<C>> {
             assign::expand(context, element, new_var.clone());
         } else {
             for i in 0..factor {
-                let element = index::expand(context, self.expand.clone(), i);
+                let expand: Self = self.expand.clone().into();
+                let element = index::expand(context, expand, i);
                 new_var = index_assign::expand(context, new_var, i, element);
             }
         }
-        new_var
+        new_var.into()
     }
 }
 
 impl<C: CubeType> CubeType for &Array<C> {
     type ExpandType = ExpandElementTyped<Array<C>>;
 }
-impl<C: CubeType> Init for ExpandElementTyped<Array<C>> {
-    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+
+impl<C: CubeType> ExpandElementBaseInit for Array<C> {
+    fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
-        self
+        elem
     }
 }
 

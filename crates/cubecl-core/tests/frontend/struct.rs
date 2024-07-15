@@ -49,7 +49,7 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        creator::__expand::<ElemType>(&mut context, x, y);
+        creator::__expand::<ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -66,8 +66,8 @@ mod tests {
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
         let expanded_state = StateExpand {
-            first: x,
-            second: y,
+            first: x.into(),
+            second: y.into(),
         };
         state_receiver_with_reuse::__expand::<ElemType>(&mut context, expanded_state);
         let scope = context.into_scope();
@@ -86,8 +86,8 @@ mod tests {
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
         let expanded_state = StateExpand {
-            first: x,
-            second: y,
+            first: x.into(),
+            second: y.into(),
         };
         attribute_modifier_reuse_field::__expand::<ElemType>(&mut context, expanded_state);
         let scope = context.into_scope();
@@ -106,8 +106,8 @@ mod tests {
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
         let expanded_state = StateExpand {
-            first: x,
-            second: y,
+            first: x.into(),
+            second: y.into(),
         };
         attribute_modifier_reuse_struct::__expand::<ElemType>(&mut context, expanded_state);
         let scope = context.into_scope();

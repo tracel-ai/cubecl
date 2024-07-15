@@ -4,6 +4,7 @@ use crate::frontend::{CubeContext, ExpandElement, UInt};
 use crate::ir::{Branch, Elem, If, IfElse, Item, Loop, RangeLoop, Variable};
 
 use super::comptime::Comptime;
+use super::ExpandElementTyped;
 
 pub fn range<S, E>(start: S, end: E, _unroll: Comptime<bool>) -> impl Iterator<Item = UInt>
 where
@@ -18,7 +19,7 @@ where
 
 pub fn range_expand<F, S, E>(context: &mut CubeContext, start: S, end: E, unroll: bool, mut func: F)
 where
-    F: FnMut(&mut CubeContext, ExpandElement),
+    F: FnMut(&mut CubeContext, ExpandElementTyped<UInt>),
     S: Into<ExpandElement>,
     E: Into<ExpandElement>,
 {
@@ -36,7 +37,8 @@ where
         };
 
         for i in start..end {
-            func(context, i.into())
+            let var: ExpandElement = i.into();
+            func(context, var.into())
         }
     } else {
         let mut child = context.child();
@@ -44,7 +46,7 @@ where
         let i = child.scope.borrow_mut().create_local_undeclared(index_ty);
         let i = ExpandElement::Plain(i);
 
-        func(&mut child, i.clone());
+        func(&mut child, i.clone().into());
 
         context.register(Branch::RangeLoop(RangeLoop {
             i: *i,
@@ -138,12 +140,12 @@ where
 
 pub fn while_loop_expand<FC, FB>(context: &mut CubeContext, mut cond_fn: FC, mut block: FB)
 where
-    FC: FnMut(&mut CubeContext) -> ExpandElement,
+    FC: FnMut(&mut CubeContext) -> ExpandElementTyped<bool>,
     FB: FnMut(&mut CubeContext),
 {
     let mut inside_loop = context.child();
 
-    let cond: ExpandElement = cond_fn(&mut inside_loop);
+    let cond: ExpandElement = cond_fn(&mut inside_loop).into();
     if_expand(&mut inside_loop, None, cond, break_expand);
 
     block(&mut inside_loop);

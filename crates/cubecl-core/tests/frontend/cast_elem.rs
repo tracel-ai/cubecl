@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::{
     cube,
-    frontend::{Bool, Cast, Numeric, UInt, F32, I32},
+    frontend::{Bool, BoolOps, Cast, Numeric, UInt, F32, I32},
 };
 
 // From float
@@ -27,7 +27,7 @@ pub fn float_to_uint(x: F32) {
 #[allow(clippy::overly_complex_bool_expr)]
 pub fn float_to_bool(x: F32) {
     let y = x + F32::from_int(2);
-    let _ = Bool::cast_from(y) || true;
+    let _ = Bool::cast_from(y) || Bool::new(true);
 }
 
 // From int
@@ -54,7 +54,7 @@ pub fn int_to_uint(x: I32) {
 #[allow(clippy::overly_complex_bool_expr)]
 pub fn int_to_bool(x: I32) {
     let y = x + I32::from_int(2);
-    let _ = Bool::cast_from(y) || true;
+    let _ = Bool::cast_from(y) || Bool::new(true);
 }
 
 // // From uint
@@ -81,28 +81,28 @@ pub fn uint_to_uint(x: UInt) {
 #[allow(clippy::overly_complex_bool_expr)]
 pub fn uint_to_bool(x: UInt) {
     let y = x + UInt::from_int(2);
-    let _ = Bool::cast_from(y) || true;
+    let _ = Bool::cast_from(y) || Bool::new(true);
 }
 
 // From bool
 #[cube]
 #[allow(clippy::overly_complex_bool_expr)]
 pub fn bool_to_float(x: Bool) {
-    let y = x && false;
+    let y = x && Bool::new(false);
     let _ = F32::cast_from(y) + F32::from_int(34);
 }
 
 #[cube]
 #[allow(clippy::overly_complex_bool_expr)]
 pub fn bool_to_int(x: Bool) {
-    let y = x && false;
+    let y = x && Bool::new(false);
     let _ = I32::cast_from(y) + I32::from_int(34);
 }
 
 #[cube]
 #[allow(clippy::overly_complex_bool_expr)]
 pub fn bool_to_uint(x: Bool) {
-    let y = x && false;
+    let y = x && Bool::new(false);
     let _ = UInt::cast_from(y) + UInt::from_int(34);
 }
 
@@ -110,8 +110,8 @@ pub fn bool_to_uint(x: Bool) {
 #[allow(clippy::overly_complex_bool_expr)]
 #[allow(clippy::useless_conversion)]
 pub fn bool_to_bool(x: Bool) {
-    let y = x && false;
-    let _ = Bool::cast_from(y) || true;
+    let y = x && Bool::new(false);
+    let _ = Bool::cast_from(y) || Bool::new(true);
 }
 
 mod tests {
@@ -130,7 +130,7 @@ mod tests {
 
                 let x = context.create_local($from);
 
-                $module(&mut context, x);
+                $module(&mut context, x.into());
                 let scope = context.into_scope();
 
                 assert_eq!(

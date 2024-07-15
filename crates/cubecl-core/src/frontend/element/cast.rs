@@ -20,7 +20,7 @@ pub trait Cast: CubePrimitive {
             var.item().vectorization,
         ));
         assign::expand(context, value, new_var.clone());
-        new_var
+        new_var.into()
     }
 }
 

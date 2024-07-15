@@ -47,7 +47,7 @@ mod tests {
 
         let input = context.create_local(item);
 
-        cast_float_kind::__expand::<F64, F32>(&mut context, input);
+        cast_float_kind::__expand::<F64, F32>(&mut context, input.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_float());
@@ -60,7 +60,7 @@ mod tests {
 
         let input = context.create_local(item);
 
-        cast_int_kind::__expand::<I32, I64>(&mut context, input);
+        cast_int_kind::__expand::<I32, I64>(&mut context, input.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_int());
@@ -73,7 +73,7 @@ mod tests {
 
         let input = context.create_local(item);
 
-        cast_numeric_to_kind::__expand::<I32, I64>(&mut context, input);
+        cast_numeric_to_kind::__expand::<I32, I64>(&mut context, input.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_int());
@@ -86,7 +86,7 @@ mod tests {
 
         let input = context.create_local(item);
 
-        cast_int_to_numeric::__expand::<I32, I64>(&mut context, input);
+        cast_int_to_numeric::__expand::<I32, I64>(&mut context, input.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_int());

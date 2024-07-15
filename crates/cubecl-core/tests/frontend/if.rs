@@ -53,7 +53,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        if_greater::__expand::<ElemType>(&mut context, lhs);
+        if_greater::__expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_if());
@@ -65,7 +65,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        if_then_else::__expand::<ElemType>(&mut context, lhs);
+        if_then_else::__expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -80,7 +80,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        elsif::__expand::<ElemType>(&mut context, lhs);
+        elsif::__expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_elsif());

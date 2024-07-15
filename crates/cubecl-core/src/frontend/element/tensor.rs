@@ -1,4 +1,4 @@
-use super::{ExpandElementTyped, Init, LaunchArgExpand};
+use super::{ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand};
 use crate::{
     frontend::{
         indexation::Index, ArgSettings, CubeContext, CubePrimitive, CubeType, ExpandElement, UInt,
@@ -20,10 +20,10 @@ impl<T: CubeType> CubeType for Tensor<T> {
     type ExpandType = ExpandElementTyped<Tensor<T>>;
 }
 
-impl<T: CubeType> Init for ExpandElementTyped<Tensor<T>> {
-    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
+    fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
-        self
+        elem
     }
 }
 
@@ -176,41 +176,49 @@ impl<T: CubeType> Tensor<T> {
     }
 }
 
-impl<T> ExpandElementTyped<T> {
+impl<T: CubeType> ExpandElementTyped<T> {
     // Expanded version of stride
-    pub fn stride_expand<C: Index>(self, context: &mut CubeContext, dim: C) -> ExpandElement {
+    pub fn __expand_stride_method<C: Index>(
+        self,
+        context: &mut CubeContext,
+        dim: C,
+    ) -> ExpandElementTyped<UInt> {
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Stride {
             dim: dim.value(),
             var: self.expand.into(),
             out: out.clone().into(),
         });
-        out
+        out.into()
     }
 
     // Expanded version of shape
-    pub fn shape_expand<C: Index>(self, context: &mut CubeContext, dim: C) -> ExpandElement {
+    pub fn __expand_shape_method<C: Index>(
+        self,
+        context: &mut CubeContext,
+        dim: C,
+    ) -> ExpandElementTyped<UInt> {
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Shape {
             dim: dim.value(),
             var: self.expand.into(),
             out: out.clone().into(),
         });
-        out
+        out.into()
     }
 
     // Expanded version of len
-    pub fn len_expand(self, context: &mut CubeContext) -> ExpandElement {
+    pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<UInt> {
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Length {
             var: self.expand.into(),
             out: out.clone().into(),
         });
-        out
+        out.into()
     }
 
     // Expanded version of rank.
-    pub fn rank_expand(self, _context: &mut CubeContext) -> ExpandElement {
-        ExpandElement::Plain(Variable::Rank)
+    pub fn __expand_rank_method(self, _context: &mut CubeContext) -> ExpandElementTyped<UInt> {
+        ExpandElement::Plain(Variable::Rank).into()
     }
 }

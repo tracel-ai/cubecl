@@ -23,6 +23,11 @@ use super::{UInt, Vectorized};
 /// the generated code.
 pub trait CubeType {
     type ExpandType: Clone + Init;
+
+    /// Wrapper around the init method, necesary to type inference.
+    fn init(context: &mut CubeContext, expand: Self::ExpandType) -> Self::ExpandType {
+        expand.init(context)
+    }
 }
 
 /// Trait to be implemented by [cube types](CubeType) implementations.
@@ -114,12 +119,28 @@ pub enum ExpandElement {
 
 /// Expand type associated with a type.
 #[derive(new)]
-pub struct ExpandElementTyped<T> {
+pub struct ExpandElementTyped<T: CubeType> {
     pub(crate) expand: ExpandElement,
     pub(crate) _type: PhantomData<T>,
 }
 
-impl<T> Vectorized for ExpandElementTyped<T> {
+pub trait ExpandElementBaseInit: CubeType {
+    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement;
+}
+
+impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
+    fn init(self, context: &mut CubeContext) -> Self {
+        <T as ExpandElementBaseInit>::init_elem(context, self.into()).into()
+    }
+}
+
+impl<T: CubeType<ExpandType = Self>> ExpandElementTyped<T> {
+    pub fn init(self, context: &mut CubeContext) -> Self {
+        T::init(context, self)
+    }
+}
+
+impl<T: CubeType> Vectorized for ExpandElementTyped<T> {
     fn vectorization_factor(&self) -> UInt {
         self.expand.vectorization_factor()
     }
@@ -132,7 +153,7 @@ impl<T> Vectorized for ExpandElementTyped<T> {
     }
 }
 
-impl<T> Clone for ExpandElementTyped<T> {
+impl<T: CubeType> Clone for ExpandElementTyped<T> {
     fn clone(&self) -> Self {
         Self {
             expand: self.expand.clone(),
@@ -141,7 +162,7 @@ impl<T> Clone for ExpandElementTyped<T> {
     }
 }
 
-impl<T> From<ExpandElement> for ExpandElementTyped<T> {
+impl<T: CubeType> From<ExpandElement> for ExpandElementTyped<T> {
     fn from(expand: ExpandElement) -> Self {
         Self {
             expand,
@@ -150,7 +171,7 @@ impl<T> From<ExpandElement> for ExpandElementTyped<T> {
     }
 }
 
-impl<T> From<ExpandElementTyped<T>> for ExpandElement {
+impl<T: CubeType> From<ExpandElementTyped<T>> for ExpandElement {
     fn from(value: ExpandElementTyped<T>) -> Self {
         value.expand
     }
@@ -191,52 +212,61 @@ impl From<ExpandElement> for Variable {
     }
 }
 
+pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
+    context: &mut CubeContext,
+    element: E,
+) -> ExpandElement {
+    let elem = element.into();
+
+    if elem.can_mut() {
+        // Can reuse inplace :)
+        return elem;
+    }
+
+    let mut init = |elem: ExpandElement| init_expand(context, elem, Operator::Assign);
+
+    match *elem {
+        Variable::GlobalScalar { .. } => init(elem),
+        Variable::LocalScalar { .. } => init(elem),
+        Variable::ConstantScalar { .. } => init(elem),
+        Variable::Local { .. } => init(elem),
+        // Constant should be initialized since the new variable can be mutated afterward.
+        // And it is assumed those values are cloned.
+        Variable::Rank
+        | Variable::UnitPos
+        | Variable::UnitPosX
+        | Variable::UnitPosY
+        | Variable::UnitPosZ
+        | Variable::CubePos
+        | Variable::CubePosX
+        | Variable::CubePosY
+        | Variable::CubePosZ
+        | Variable::CubeDim
+        | Variable::CubeDimX
+        | Variable::CubeDimY
+        | Variable::CubeDimZ
+        | Variable::CubeCount
+        | Variable::CubeCountX
+        | Variable::CubeCountY
+        | Variable::CubeCountZ
+        | Variable::SubcubeDim
+        | Variable::AbsolutePos
+        | Variable::AbsolutePosX
+        | Variable::AbsolutePosY
+        | Variable::AbsolutePosZ => init(elem),
+        // Array types can't be copied, so we should simply return the same variable.
+        Variable::SharedMemory { .. }
+        | Variable::GlobalInputArray { .. }
+        | Variable::GlobalOutputArray { .. }
+        | Variable::LocalArray { .. }
+        | Variable::Slice { .. }
+        | Variable::Matrix { .. } => elem,
+    }
+}
+
 impl Init for ExpandElement {
     fn init(self, context: &mut CubeContext) -> Self {
-        if self.can_mut() {
-            // Can reuse inplace :)
-            return self;
-        }
-
-        let mut init = |elem: Self| init_expand(context, elem, Operator::Assign);
-
-        match *self {
-            Variable::GlobalScalar { .. } => init(self),
-            Variable::LocalScalar { .. } => init(self),
-            Variable::ConstantScalar { .. } => init(self),
-            Variable::Local { .. } => init(self),
-            // Constant should be initialized since the new variable can be mutated afterward.
-            // And it is assumed those values are cloned.
-            Variable::Rank
-            | Variable::UnitPos
-            | Variable::UnitPosX
-            | Variable::UnitPosY
-            | Variable::UnitPosZ
-            | Variable::CubePos
-            | Variable::CubePosX
-            | Variable::CubePosY
-            | Variable::CubePosZ
-            | Variable::CubeDim
-            | Variable::CubeDimX
-            | Variable::CubeDimY
-            | Variable::CubeDimZ
-            | Variable::CubeCount
-            | Variable::CubeCountX
-            | Variable::CubeCountY
-            | Variable::CubeCountZ
-            | Variable::SubcubeDim
-            | Variable::AbsolutePos
-            | Variable::AbsolutePosX
-            | Variable::AbsolutePosY
-            | Variable::AbsolutePosZ => init(self),
-            // Array types can't be copied, so we should simply return the same variable.
-            Variable::SharedMemory { .. }
-            | Variable::GlobalInputArray { .. }
-            | Variable::GlobalOutputArray { .. }
-            | Variable::LocalArray { .. }
-            | Variable::Slice { .. }
-            | Variable::Matrix { .. } => self,
-        }
+        init_expand_element(context, self)
     }
 }
 

@@ -18,7 +18,7 @@ pub(crate) fn codegen_expr_method_call(
 ) -> TokenStream {
     let receiver = codegen_expr(&call.receiver, loop_level, variable_tracker);
     let method_expand = syn::Ident::new(
-        format!("{}_expand", call.method).as_str(),
+        format!("__expand_{}_method", call.method).as_str(),
         proc_macro2::Span::call_site(),
     );
     let (expansion, variables) = codegen_args(&call.args, loop_level, variable_tracker);
@@ -167,7 +167,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {
                     {
-                        Comptime::map_expand(#args)
+                        Comptime::__expand_map(#args)
                     }
                 }
             }
@@ -177,7 +177,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {{
                     #expansion
-                    Comptime::unwrap_or_else_expand(#variables)
+                    Comptime::__expand_unwrap_or_else(#variables)
                 }}
             }
             "is_some" => {
@@ -190,7 +190,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {{
                     #expansion
-                    Comptime::vectorization_expand(#variables)
+                    Comptime::__expand_vectorization(#variables)
                 }}
             }
             "vectorize" => {
@@ -199,7 +199,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {{
                     #expansion
-                    Comptime::vectorize_expand(#variables)
+                    Comptime::__expand_vectorize(#variables)
                 }}
             }
             "runtime" => {
@@ -208,7 +208,7 @@ pub(crate) fn codegen_call(
                 // Codegen
                 quote::quote! {{
                     #expansion
-                    Comptime::runtime_expand(#variables)
+                    Comptime::__expand_runtime(#variables)
                 }}
             }
 

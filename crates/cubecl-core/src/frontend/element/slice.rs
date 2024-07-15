@@ -59,7 +59,7 @@ impl<'a, C: CubeType> Init for ExpandElementTyped<SliceMut<'a, C>> {
     }
 }
 
-pub trait SliceOperator<E>: CubeType<ExpandType = Self::Expand> {
+pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     type Expand: SliceOperatorExpand<E>;
 
     /// Return a read-only view of all elements comprise between the start and end index.
@@ -68,13 +68,13 @@ pub trait SliceOperator<E>: CubeType<ExpandType = Self::Expand> {
         unexpanded!()
     }
     /// Expand function of [SliceOperator::slice].
-    fn slice_expand<Start: Index, End: Index>(
+    fn __expand_slice<Start: Index, End: Index>(
         context: &mut CubeContext,
         expand: Self::Expand,
         start: Start,
         end: End,
     ) -> ExpandElementTyped<Slice<'static, E>> {
-        expand.slice_expand(context, start, end)
+        expand.__expand_slice_method(context, start, end)
     }
 
     /// Return a read-write view of all elements comprise between the start and end index.
@@ -88,13 +88,13 @@ pub trait SliceOperator<E>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Expand function of [SliceOperator::slice_mut].
-    fn slice_mut_expand<Start: Index, End: Index>(
+    fn __expand_slice_mut<Start: Index, End: Index>(
         context: &mut CubeContext,
         expand: Self::Expand,
         start: Start,
         end: End,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {
-        expand.slice_mut_expand(context, start, end)
+        expand.__expand_slice_mut_method(context, start, end)
     }
 
     /// Return a read-write view of all elements comprise between the start and end index.
@@ -112,13 +112,13 @@ pub trait SliceOperator<E>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Expand function of [SliceOperator::slice_mut_unsafe].
-    fn slice_mut_unsafe_expand<Start: Index, End: Index>(
+    fn __expand_slice_mut_unsafe<Start: Index, End: Index>(
         context: &mut CubeContext,
         expand: Self::Expand,
         start: Start,
         end: End,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {
-        expand.slice_mut_unsafe_expand(context, start, end)
+        expand.__expand_slice_mut_unsafe_method(context, start, end)
     }
 
     /// Reinterprete the current type as a read-only slice.
@@ -128,11 +128,11 @@ pub trait SliceOperator<E>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Expand function of [SliceOperator::as_slice].
-    fn as_slice_expand(
+    fn __expand_as_slice(
         context: &mut CubeContext,
         expand: Self::Expand,
     ) -> ExpandElementTyped<Slice<'static, E>> {
-        expand.as_slice_expand(context)
+        expand.__expand_as_slice_method(context)
     }
 
     /// Reinterprete the current type as a read-write slice.
@@ -142,11 +142,11 @@ pub trait SliceOperator<E>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Expand function of [SliceOperator::as_slice_mut].
-    fn as_slice_mut_expand(
+    fn __expand_as_slice_mut(
         context: &mut CubeContext,
         expand: Self::Expand,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {
-        expand.as_slice_mut_expand(context)
+        expand.__expand_as_slice_mut_method(context)
     }
 
     /// Reinterprete the current type as a read-write slice.
@@ -160,15 +160,15 @@ pub trait SliceOperator<E>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Expand function of [SliceOperator::as_slice_mut_unsafe].
-    fn as_slice_mut_unsafe_expand(
+    fn __expand_as_slice_mut_unsafe(
         context: &mut CubeContext,
         expand: Self::Expand,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {
-        expand.as_slice_mut_unsafe_expand(context)
+        expand.__expand_as_slice_mut_unsafe_method(context)
     }
 }
 
-pub trait SliceOperatorExpand<E>: Into<ExpandElement> + Clone {
+pub trait SliceOperatorExpand<E: CubeType>: Into<ExpandElement> + Clone {
     fn slice_base<Start: Index, End: Index>(
         &self,
         context: &mut CubeContext,
@@ -176,7 +176,7 @@ pub trait SliceOperatorExpand<E>: Into<ExpandElement> + Clone {
         end: End,
     ) -> ExpandElement;
 
-    fn slice_expand<Start: Index, End: Index>(
+    fn __expand_slice_method<Start: Index, End: Index>(
         &self,
         context: &mut CubeContext,
         start: Start,
@@ -185,7 +185,7 @@ pub trait SliceOperatorExpand<E>: Into<ExpandElement> + Clone {
         ExpandElementTyped::new(self.slice_base(context, start, end))
     }
 
-    fn slice_mut_expand<Start: Index, End: Index>(
+    fn __expand_slice_mut_method<Start: Index, End: Index>(
         &self,
         context: &mut CubeContext,
         start: Start,
@@ -194,7 +194,7 @@ pub trait SliceOperatorExpand<E>: Into<ExpandElement> + Clone {
         ExpandElementTyped::new(self.slice_base(context, start, end))
     }
 
-    fn slice_mut_unsafe_expand<Start: Index, End: Index>(
+    fn __expand_slice_mut_unsafe_method<Start: Index, End: Index>(
         &self,
         context: &mut CubeContext,
         start: Start,
@@ -203,19 +203,22 @@ pub trait SliceOperatorExpand<E>: Into<ExpandElement> + Clone {
         ExpandElementTyped::new(self.slice_base(context, start, end))
     }
 
-    fn as_slice_expand(&self, _context: &mut CubeContext) -> ExpandElementTyped<Slice<'static, E>> {
+    fn __expand_as_slice_method(
+        &self,
+        _context: &mut CubeContext,
+    ) -> ExpandElementTyped<Slice<'static, E>> {
         let expand = self.clone().into();
         ExpandElementTyped::new(expand)
     }
 
-    fn as_slice_mut_unsafe_expand(
+    fn __expand_as_slice_mut_unsafe_method(
         &self,
         context: &mut CubeContext,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {
-        self.as_slice_mut_expand(context)
+        self.__expand_as_slice_mut_method(context)
     }
 
-    fn as_slice_mut_expand(
+    fn __expand_as_slice_mut_method(
         &self,
         _context: &mut CubeContext,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {

@@ -26,7 +26,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        literal::__expand::<ElemType>(&mut context, lhs);
+        literal::__expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref());
@@ -38,7 +38,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        literal_float_no_decimals::__expand::<ElemType>(&mut context, lhs);
+        literal_float_no_decimals::__expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref());

@@ -54,7 +54,7 @@ mod tests {
 
         let y = context.create_local(Item::new(UInt::as_elem()));
 
-        mut_assign_input::__expand(&mut context, y);
+        mut_assign_input::__expand(&mut context, y.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -69,7 +69,7 @@ mod tests {
 
         let y = context.create_local(Item::new(UInt::as_elem()));
 
-        assign_mut_input::__expand(&mut context, y);
+        assign_mut_input::__expand(&mut context, y.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -84,7 +84,7 @@ mod tests {
 
         let y = context.create_local(Item::vectorized(UInt::as_elem(), 4));
 
-        assign_vectorized::__expand(&mut context, y);
+        assign_vectorized::__expand(&mut context, y.into());
         let scope = context.into_scope();
 
         assert_eq!(

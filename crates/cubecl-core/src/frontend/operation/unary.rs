@@ -1,6 +1,7 @@
 use crate::{
-    frontend::{CubeContext, CubeType, ExpandElement, UInt, BF16, F16, F32, F64, I32, I64},
+    frontend::{CubeContext, CubeType, UInt, BF16, F16, F32, F64, I32, I64},
     ir::Operator,
+    prelude::ExpandElementTyped,
     unexpanded,
 };
 
@@ -9,8 +10,11 @@ use super::base::unary_expand;
 pub mod not {
     use super::*;
 
-    pub fn expand(context: &mut CubeContext, x: ExpandElement) -> ExpandElement {
-        unary_expand(context, x, Operator::Not)
+    pub fn expand(
+        context: &mut CubeContext,
+        x: ExpandElementTyped<bool>,
+    ) -> ExpandElementTyped<bool> {
+        unary_expand(context, x.into(), Operator::Not).into()
     }
 }
 
@@ -21,8 +25,8 @@ macro_rules! impl_unary_func {
                 unexpanded!()
             }
 
-            fn $method_name_expand(context: &mut CubeContext, x: ExpandElement) -> ExpandElement {
-                unary_expand(context, x, $operator)
+            fn $method_name_expand(context: &mut CubeContext, x: ExpandElementTyped<Self>) -> ExpandElementTyped<Self> {
+                unary_expand(context, x.into(), $operator).into()
             }
         }
 
