@@ -15,6 +15,7 @@ rust-version = "1.75"
 default = ["cubecl-wgpu?/default", "cubecl-cuda?/default"]
 std = ["cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
+lac = ["dep:cubecl-lac"]
 
 # Runtimes
 wgpu = ["cubecl-wgpu"]
@@ -24,3 +25,4 @@ cuda = ["cubecl-cuda"]
 cubecl-core = { path = "../cubecl-core", version = "0.1.0", default-features = false }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.1.0", default-features = false, optional = true }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.1.0", default-features = false, optional = true }
+cubecl-lac = { path = "../cubecl-lac", version = "0.1.0", default-features = false, optional = true }
