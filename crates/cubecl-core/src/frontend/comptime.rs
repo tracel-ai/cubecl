@@ -13,6 +13,18 @@ pub struct Comptime<T> {
     pub(crate) inner: T,
 }
 
+/// Type that can be used within [Comptime].
+pub trait ComptimeType: CubeType {
+    /// Create the expand type from the normal type.
+    fn into_expand(self) -> Self::ExpandType;
+}
+
+impl ComptimeType for UInt {
+    fn into_expand(self) -> Self::ExpandType {
+        ExpandElementTyped::new(self.into())
+    }
+}
+
 impl<T> Comptime<T> {
     /// Create a new Comptime. Useful when hardcoding values in
     /// Cube kernels. For instance:
@@ -37,7 +49,7 @@ impl<T> Comptime<T> {
     }
 }
 
-impl<T: CubeType + Into<T::ExpandType>> Comptime<Option<T>> {
+impl<T: ComptimeType> Comptime<Option<T>> {
     /// Map a Comptime optional to a Comptime boolean that tell
     /// whether the optional contained a value
     pub fn is_some(comptime: Self) -> Comptime<bool> {
@@ -63,7 +75,7 @@ impl<T: CubeType + Into<T::ExpandType>> Comptime<Option<T>> {
         F: FnOnce(&mut CubeContext) -> T::ExpandType,
     {
         match t {
-            Some(t) => t.into(),
+            Some(t) => t.into_expand(),
             None => alt(context),
         }
     }

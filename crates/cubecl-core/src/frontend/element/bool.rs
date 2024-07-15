@@ -1,6 +1,6 @@
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::Elem;
-use crate::prelude::CubeContext;
+use crate::prelude::{ComptimeType, CubeContext};
 
 use super::{
     init_expand_element, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, Vectorized,
@@ -23,6 +23,12 @@ pub trait BoolOps {
 }
 
 impl BoolOps for Bool {}
+
+impl ComptimeType for Bool {
+    fn into_expand(self) -> Self::ExpandType {
+        ExpandElementTyped::new(self.into())
+    }
+}
 
 impl CubeType for bool {
     type ExpandType = ExpandElementTyped<Self>;

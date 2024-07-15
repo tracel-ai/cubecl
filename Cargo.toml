@@ -58,3 +58,6 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 proc-macro2 = "1.0.86"
 syn = { version = "2.0.69", features = ["full", "extra-traits"] }
 quote = "1.0.36"
+
+[profile.dev]
+opt-level = 2

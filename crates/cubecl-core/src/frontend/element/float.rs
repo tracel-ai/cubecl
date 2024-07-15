@@ -2,8 +2,8 @@ use half::{bf16, f16};
 
 use crate::frontend::{Ceil, Cos, Erf, Exp, Floor, Log, Log1p, Powf, Recip, Sin, Sqrt, Tanh};
 use crate::frontend::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
-    Numeric,
+    ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
+    ExpandElementTyped, Numeric,
 };
 use crate::ir::{Elem, FloatKind, Item, Variable, Vectorization};
 
@@ -11,7 +11,7 @@ use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::prelude::index_assign;
 use crate::{unexpanded, Runtime};
 
-use super::{init_expand_element, Init, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
+use super::{init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -31,8 +31,6 @@ pub trait Float:
     + core::ops::Index<UInt, Output = Self>
     + core::ops::IndexMut<UInt, Output = Self>
 {
-    type EE<A>: Init + Clone;
-
     fn new(val: f32) -> Self;
     fn vectorized(val: f32, vectorization: UInt) -> Self;
     fn vectorized_empty(vectorization: UInt) -> Self;
@@ -67,6 +65,15 @@ macro_rules! impl_float {
             }
         }
 
+        impl ComptimeType for $type {
+            fn into_expand(self) -> Self::ExpandType {
+                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar {
+                    value: self.val as f64,
+                    elem: Self::as_elem(),
+                }))
+            }
+        }
+
         impl Numeric for $type {
             type Primitive = $primitive;
         }
@@ -78,8 +85,6 @@ macro_rules! impl_float {
         }
 
         impl Float for $type {
-            type EE<A> = ExpandElementTyped<$type>;
-
             fn new(val: f32) -> Self {
                 Self {
                     val,

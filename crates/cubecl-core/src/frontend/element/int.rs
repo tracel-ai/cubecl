@@ -1,7 +1,7 @@
 use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::frontend::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
-    Numeric,
+    ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
+    ExpandElementTyped, Numeric,
 };
 use crate::ir::{Elem, IntKind, Item, Variable, Vectorization};
 use crate::prelude::index_assign;
@@ -36,6 +36,15 @@ macro_rules! impl_int {
         impl CubePrimitive for $type {
             fn as_elem() -> Elem {
                 Elem::Int(IntKind::$type)
+            }
+        }
+
+        impl ComptimeType for $type {
+            fn into_expand(self) -> Self::ExpandType {
+                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar {
+                    value: self.val as f64,
+                    elem: Self::as_elem(),
+                }))
             }
         }
 

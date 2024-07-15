@@ -134,12 +134,6 @@ impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
     }
 }
 
-impl<T: CubeType<ExpandType = Self>> ExpandElementTyped<T> {
-    pub fn init(self, context: &mut CubeContext) -> Self {
-        T::init(context, self)
-    }
-}
-
 impl<T: CubeType> Vectorized for ExpandElementTyped<T> {
     fn vectorization_factor(&self) -> UInt {
         self.expand.vectorization_factor()

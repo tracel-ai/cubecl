@@ -32,14 +32,6 @@ impl CubePrimitive for UInt {
     }
 }
 
-// For use within comptime.
-impl From<UInt> for <UInt as CubeType>::ExpandType {
-    fn from(val: UInt) -> Self {
-        let elem: ExpandElement = val.into();
-        elem.into()
-    }
-}
-
 impl LaunchArgExpand for UInt {
     fn expand(
         builder: &mut KernelBuilder,
