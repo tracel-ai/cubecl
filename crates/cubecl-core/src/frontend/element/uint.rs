@@ -33,9 +33,9 @@ impl CubePrimitive for UInt {
 }
 
 // For use within comptime.
-impl Into<<UInt as CubeType>::ExpandType> for UInt {
-    fn into(self) -> ExpandElementTyped<UInt> {
-        let elem: ExpandElement = self.into();
+impl From<UInt> for <UInt as CubeType>::ExpandType {
+    fn from(val: UInt) -> Self {
+        let elem: ExpandElement = val.into();
         elem.into()
     }
 }

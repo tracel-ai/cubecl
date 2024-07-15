@@ -12,6 +12,7 @@ pub type Bool = bool;
 
 /// Extension trait for [bool].
 pub trait BoolOps {
+    #[allow(clippy::new_ret_no_self)]
     fn new(value: bool) -> bool {
         value
     }
