@@ -18,7 +18,7 @@ pub(crate) fn codegen_expr_method_call(
 ) -> TokenStream {
     let receiver = codegen_expr(&call.receiver, loop_level, variable_tracker);
     let method_expand = syn::Ident::new(
-        format!("{}_expand", call.method).as_str(),
+        format!("__expand_{}_method", call.method).as_str(),
         proc_macro2::Span::call_site(),
     );
     let (expansion, variables) = codegen_args(&call.args, loop_level, variable_tracker);

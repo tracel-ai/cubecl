@@ -176,7 +176,7 @@ impl<T: CubeType> Tensor<T> {
     }
 }
 
-impl<T> ExpandElementTyped<T> {
+impl<T: CubeType> ExpandElementTyped<T> {
     // Expanded version of stride
     pub fn stride_expand<C: Index>(self, context: &mut CubeContext, dim: C) -> ExpandElement {
         let out = context.create_local(Item::new(Elem::UInt));

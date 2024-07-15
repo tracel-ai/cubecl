@@ -16,7 +16,7 @@
 
 ## TL;DR
 
-With CubeCL, you can harness the power of your GPU using Rust, taking advantage of zero-cost abstractions to develop maintainable, flexible, and efficient compute kernels.
+With CubeCL, you can program your GPU using Rust, taking advantage of zero-cost abstractions to develop maintainable, flexible, and efficient compute kernels.
 CubeCL currently fully supports functions, generics, and structs, with partial support for traits and type inference.
 As the project evolves, we anticipate even broader support for Rust language primitives, all while maintaining optimal performance.
 

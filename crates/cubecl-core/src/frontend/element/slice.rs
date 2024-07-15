@@ -59,7 +59,7 @@ impl<'a, C: CubeType> Init for ExpandElementTyped<SliceMut<'a, C>> {
     }
 }
 
-pub trait SliceOperator<E>: CubeType<ExpandType = Self::Expand> {
+pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     type Expand: SliceOperatorExpand<E>;
 
     /// Return a read-only view of all elements comprise between the start and end index.
@@ -168,7 +168,7 @@ pub trait SliceOperator<E>: CubeType<ExpandType = Self::Expand> {
     }
 }
 
-pub trait SliceOperatorExpand<E>: Into<ExpandElement> + Clone {
+pub trait SliceOperatorExpand<E: CubeType>: Into<ExpandElement> + Clone {
     fn slice_base<Start: Index, End: Index>(
         &self,
         context: &mut CubeContext,

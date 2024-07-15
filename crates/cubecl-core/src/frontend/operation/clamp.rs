@@ -1,6 +1,6 @@
 use crate::{
     ir::{ClampOperator, Operator},
-    prelude::{CubeContext, CubePrimitive, UInt, BF16, F16, F32, F64, I32, I64},
+    prelude::{CubeContext, CubePrimitive, ExpandElement, UInt, BF16, F16, F32, F64, I32, I64},
     unexpanded,
 };
 
@@ -18,6 +18,10 @@ pub trait Clamp: CubePrimitive + Sized {
         min_value: Self::ExpandType,
         max_value: Self::ExpandType,
     ) -> Self::ExpandType {
+        let input: ExpandElement = input.into();
+        let min_value: ExpandElement = min_value.into();
+        let max_value: ExpandElement = max_value.into();
+
         unary_expand(context, input, |op| {
             Operator::Clamp(ClampOperator {
                 input: op.input,
@@ -26,6 +30,7 @@ pub trait Clamp: CubePrimitive + Sized {
                 out: op.out,
             })
         })
+        .into()
     }
 }
 

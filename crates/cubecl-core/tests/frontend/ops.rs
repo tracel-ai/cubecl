@@ -203,7 +203,7 @@ mod tests {
                 let x = context.create_local(Item::new(Elem::Float(FloatKind::F32)));
                 let y = context.create_local(Item::new(Elem::Float(FloatKind::F32)));
 
-                $op_expand(&mut context, x, y);
+                $op_expand(&mut context, x.into(), y.into());
 
                 assert_eq!(
                     format!("{:?}", context.into_scope().operations),
@@ -220,7 +220,7 @@ mod tests {
                 let mut context = CubeContext::root();
                 let x = context.create_local(Item::new(Elem::Float(FloatKind::F32)));
 
-                $op_expand(&mut context, x);
+                $op_expand(&mut context, x.into());
 
                 assert_eq!(
                     format!("{:?}", context.into_scope().operations),
@@ -238,7 +238,7 @@ mod tests {
                 let x = context.create_local(Item::new(Elem::Bool));
                 let y = context.create_local(Item::new(Elem::Bool));
 
-                $op_expand(&mut context, x, y);
+                $op_expand(&mut context, x.into(), y.into());
 
                 assert_eq!(
                     format!("{:?}", context.into_scope().operations),
@@ -256,7 +256,7 @@ mod tests {
                 let x = context.create_local(Item::new(Elem::UInt));
                 let y = context.create_local(Item::new(Elem::UInt));
 
-                $op_expand(&mut context, x, y);
+                $op_expand(&mut context, x.into(), y.into());
 
                 assert_eq!(
                     format!("{:?}", context.into_scope().operations),
@@ -359,7 +359,7 @@ mod tests {
         let mut context = CubeContext::root();
         let x = context.create_local(Item::new(Elem::Bool));
 
-        not_op::__expand(&mut context, x);
+        not_op::__expand(&mut context, x.into());
 
         assert_eq!(
             format!("{:?}", context.into_scope().operations),

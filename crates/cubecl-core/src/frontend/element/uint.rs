@@ -3,7 +3,9 @@ use crate::ir::{Elem, Item, Variable, Vectorization};
 use crate::prelude::{index_assign, KernelBuilder, KernelLauncher};
 use crate::{frontend::Comptime, Runtime};
 
-use super::{LaunchArgExpand, ScalarArgSettings, Vectorized};
+use super::{
+    init_expand_element, ExpandElementTyped, Init, LaunchArgExpand, ScalarArgSettings, Vectorized,
+};
 
 #[derive(Clone, Copy, Debug)]
 /// An unsigned int.
@@ -14,7 +16,13 @@ pub struct UInt {
 }
 
 impl CubeType for UInt {
-    type ExpandType = ExpandElement;
+    type ExpandType = ExpandElementTyped<Self>;
+}
+
+impl Init for ExpandElementTyped<UInt> {
+    fn init(self, context: &mut CubeContext) -> Self {
+        ExpandElementTyped::new(init_expand_element(context, self))
+    }
 }
 
 impl CubePrimitive for UInt {
@@ -24,9 +32,12 @@ impl CubePrimitive for UInt {
 }
 
 impl LaunchArgExpand for UInt {
-    fn expand(builder: &mut KernelBuilder, vectorization: Vectorization) -> ExpandElement {
+    fn expand(
+        builder: &mut KernelBuilder,
+        vectorization: Vectorization,
+    ) -> ExpandElementTyped<Self> {
         assert_eq!(vectorization, 1, "Attempted to vectorize a scalar");
-        builder.scalar(UInt::as_elem())
+        builder.scalar(UInt::as_elem()).into()
     }
 }
 
@@ -53,7 +64,7 @@ impl UInt {
             value: val as f64,
             elem: Self::as_elem(),
         };
-        ExpandElement::Plain(new_var)
+        ExpandElement::Plain(new_var).into()
     }
 
     pub fn vectorized(val: u32, vectorization: UInt) -> Self {
@@ -81,7 +92,7 @@ impl UInt {
                 new_var = index_assign::expand(context, new_var, i, *element);
             }
 
-            new_var
+            new_var.into()
         }
     }
 }

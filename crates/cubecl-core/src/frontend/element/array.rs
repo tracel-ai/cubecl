@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
-    ArgSettings, CubePrimitive, ExpandElement, ExpandElementTyped, Init, LaunchArg,
-    LaunchArgExpand, TensorHandle, UInt,
+    ArgSettings, CubePrimitive, ExpandElementTyped, Init, LaunchArg, LaunchArgExpand, TensorHandle,
+    UInt,
 };
 
 /// A contiguous array of elements.
@@ -72,11 +72,11 @@ impl<T: CubePrimitive + Clone> Array<T> {
 }
 
 impl<C: CubeType> ExpandElementTyped<Array<C>> {
-    pub fn to_vectorized_expand(
+    pub fn __expand_to_vectorized_method(
         self,
         context: &mut CubeContext,
         vectorization_factor: UInt,
-    ) -> ExpandElement {
+    ) -> ExpandElementTyped<C> {
         let factor = vectorization_factor.val;
         let var = self.expand.clone();
         let mut new_var = context.create_local(Item::vectorized(var.item().elem(), factor as u8));
@@ -85,11 +85,12 @@ impl<C: CubeType> ExpandElementTyped<Array<C>> {
             assign::expand(context, element, new_var.clone());
         } else {
             for i in 0..factor {
-                let element = index::expand(context, self.expand.clone(), i);
+                let expand: Self = self.expand.clone().into();
+                let element = index::expand(context, expand, i);
                 new_var = index_assign::expand(context, new_var, i, element);
             }
         }
-        new_var
+        new_var.into()
     }
 }
 

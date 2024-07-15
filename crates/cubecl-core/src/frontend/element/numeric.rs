@@ -54,7 +54,7 @@ pub trait Numeric:
             value: val as f64,
             elem: Self::as_elem(),
         };
-        ExpandElement::Plain(new_var)
+        ExpandElement::Plain(new_var).into()
     }
 
     fn __expand_from_vec<const D: usize>(
@@ -66,7 +66,7 @@ pub trait Numeric:
             new_var = index_assign::expand(context, new_var, i, *element);
         }
 
-        new_var
+        new_var.into()
     }
 }
 

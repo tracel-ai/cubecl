@@ -2,12 +2,12 @@ use crate::frontend::UInt;
 use crate::frontend::{CubeType, ExpandElement};
 use crate::ir::{Elem, Variable};
 
-use super::Vectorized;
+use super::{ExpandElementTyped, Vectorized};
 
 /// Form of CubeType that encapsulates all primitive types:
 /// Numeric, UInt, Bool
 pub trait CubePrimitive:
-    CubeType<ExpandType = ExpandElement>
+    CubeType<ExpandType = ExpandElementTyped<Self>>
     + Vectorized
     + core::cmp::Eq
     + core::cmp::PartialEq

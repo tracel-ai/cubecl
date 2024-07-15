@@ -75,7 +75,7 @@ pub mod index {
             operation::base::{binary_expand, binary_expand_no_vec},
             CubeType,
         },
-        prelude::{Slice, SliceMut},
+        prelude::{ExpandElementTyped, Slice, SliceMut},
         unexpanded,
     };
 
@@ -83,11 +83,14 @@ pub mod index {
 
     use super::*;
 
-    pub fn expand<L: Into<ExpandElement>, R: Into<ExpandElement>>(
+    pub fn expand<A: CubeType + core::ops::Index<UInt>, I: Into<ExpandElement>>(
         context: &mut CubeContext,
-        array: L,
-        index: R,
-    ) -> ExpandElement {
+        array: ExpandElementTyped<A>,
+        index: I,
+    ) -> ExpandElementTyped<A::Output>
+    where
+        A::Output: CubeType + Sized,
+    {
         let index: ExpandElement = index.into();
         let index_var: Variable = *index;
         let index = match index_var {
@@ -101,10 +104,12 @@ pub mod index {
         };
         let array: ExpandElement = array.into();
         let var: Variable = *array;
-        match var {
+        let var = match var {
             Variable::Local { .. } => binary_expand_no_vec(context, array, index, Operator::Index),
             _ => binary_expand(context, array, index, Operator::Index),
-        }
+        };
+
+        ExpandElementTyped::new(var)
     }
 
     macro_rules! impl_index {

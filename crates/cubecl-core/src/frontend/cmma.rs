@@ -137,8 +137,9 @@ pub mod fill {
     pub fn __expand<C: CubeType>(
         context: &mut CubeContext,
         mat: MatrixExpand,
-        value: ExpandElement,
+        value: ExpandElementTyped<C>,
     ) {
+        let value: ExpandElement = value.into();
         context.register(Operation::CoopMma(ir::CoopMma::Fill {
             mat: *mat.elem,
             value: *value,
@@ -162,8 +163,10 @@ pub mod load {
         context: &mut CubeContext,
         mat: MatrixExpand,
         value: ExpandElementTyped<Slice<'static, C>>,
-        stride: ExpandElement,
+        stride: ExpandElementTyped<UInt>,
     ) {
+        let stride: ExpandElement = stride.into();
+
         context.register(Operation::CoopMma(ir::CoopMma::Load {
             mat: *mat.elem,
             value: *value.expand,
@@ -193,9 +196,11 @@ pub mod store {
         context: &mut CubeContext,
         output: ExpandElementTyped<SliceMut<'static, C>>,
         mat: MatrixExpand,
-        stride: ExpandElement,
+        stride: ExpandElementTyped<UInt>,
         layout: MatrixLayout,
     ) {
+        let stride: ExpandElement = stride.into();
+
         context.register(Operation::CoopMma(ir::CoopMma::Store {
             output: *output.expand,
             mat: *mat.elem,
