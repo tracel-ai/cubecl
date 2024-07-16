@@ -40,7 +40,7 @@ impl<T: CubePrimitive + Clone> Array<T> {
     ) -> <Self as CubeType>::ExpandType {
         let size = size.value();
         let size = match size {
-            crate::ir::Variable::ConstantScalar { value, .. } => value as u32,
+            crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
             _ => panic!("Array need constant initialization value"),
         };
         context
@@ -55,7 +55,7 @@ impl<T: CubePrimitive + Clone> Array<T> {
     ) -> <Self as CubeType>::ExpandType {
         let size = size.value();
         let size = match size {
-            crate::ir::Variable::ConstantScalar { value, .. } => value as u32,
+            crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
             _ => panic!("Shared memory need constant initialization value"),
         };
         context

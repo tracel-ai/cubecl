@@ -79,7 +79,7 @@ fn calculate_offsets<F: Float>(
     let dim_n = rhs.shape(rank - UInt::new(1));
 
     // Batch offset for output
-    let mut batch_out = dim_m * dim_n * CUBE_POS_Z;
+    let batch_out = dim_m * dim_n * CUBE_POS_Z;
     let mut batch_lhs = UInt::new(0);
     let mut batch_rhs = UInt::new(0);
 

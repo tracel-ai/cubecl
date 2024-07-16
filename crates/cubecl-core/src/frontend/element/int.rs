@@ -3,7 +3,7 @@ use crate::frontend::{
     ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
     ExpandElementTyped, Numeric,
 };
-use crate::ir::{Elem, IntKind, Item, Variable, Vectorization};
+use crate::ir::{ConstantScalarValue, Elem, IntKind, Item, Variable, Vectorization};
 use crate::prelude::index_assign;
 use crate::Runtime;
 
@@ -41,10 +41,14 @@ macro_rules! impl_int {
 
         impl ComptimeType for $type {
             fn into_expand(self) -> Self::ExpandType {
-                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar {
-                    value: self.val as f64,
-                    elem: Self::as_elem(),
-                }))
+                let elem = Self::as_elem();
+                let value = match elem {
+                    Elem::Int(kind) => ConstantScalarValue::Int(self.val as i64, kind),
+                    Elem::UInt => ConstantScalarValue::UInt(self.val as u64),
+                    _ => panic!("Wrong elem type"),
+                };
+
+                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar(value)))
             }
         }
 
@@ -81,11 +85,7 @@ macro_rules! impl_int {
                 _context: &mut CubeContext,
                 val: i64,
             ) -> <Self as CubeType>::ExpandType {
-                let new_var = Variable::ConstantScalar {
-                    value: val as f64,
-                    elem: Self::as_elem(),
-                };
-                ExpandElement::Plain(new_var).into()
+                Self::new(val).into_expand()
             }
 
             fn __expand_vectorized(

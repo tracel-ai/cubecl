@@ -28,11 +28,11 @@ where
 
     if unroll {
         let start = match start.deref() {
-            Variable::ConstantScalar { value, .. } => *value as usize,
+            Variable::ConstantScalar(value) => value.as_usize(),
             _ => panic!("Only constant start can be unrolled."),
         };
         let end = match end.deref() {
-            Variable::ConstantScalar { value, .. } => *value as usize,
+            Variable::ConstantScalar(value) => value.as_usize(),
             _ => panic!("Only constant end can be unrolled."),
         };
 

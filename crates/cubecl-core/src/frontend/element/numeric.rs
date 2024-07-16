@@ -1,6 +1,6 @@
 use crate::compute::KernelLauncher;
 use crate::frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement};
-use crate::ir::{Item, Variable};
+use crate::ir::{ConstantScalarValue, Elem, Item, Variable};
 use crate::prelude::Clamp;
 use crate::Runtime;
 use crate::{
@@ -51,11 +51,15 @@ pub trait Numeric:
     }
 
     fn __expand_from_int(_context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType {
-        let new_var = Variable::ConstantScalar {
-            value: val as f64,
-            elem: Self::as_elem(),
+        let elem = Self::as_elem();
+        let value = match elem {
+            Elem::Float(kind) => ConstantScalarValue::Float(val as f64, kind),
+            Elem::Int(kind) => ConstantScalarValue::Int(val, kind),
+            Elem::UInt => ConstantScalarValue::UInt(val as u64),
+            _ => panic!("Wrong elem type"),
         };
-        ExpandElement::Plain(new_var).into()
+
+        ExpandElement::Plain(Variable::ConstantScalar(value)).into()
     }
 
     fn __expand_from_vec<const D: usize>(

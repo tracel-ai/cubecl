@@ -86,24 +86,9 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
         client,
         cube_count,
         cube_dim,
-        TensorArg::vectorized(
-            lhs_vectorization,
-            &lhs.handle,
-            &lhs.strides,
-            &lhs.shape,
-        ),
-        TensorArg::vectorized(
-            rhs_vectorization,
-            &rhs.handle,
-            &rhs.strides,
-            &rhs.shape,
-        ),
-        TensorArg::vectorized(
-            out_vectorization,
-            &out.handle,
-            &out.strides,
-            &out.shape,
-        ),
+        TensorArg::vectorized(lhs_vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
+        TensorArg::vectorized(rhs_vectorization, &rhs.handle, &rhs.strides, &rhs.shape),
+        TensorArg::vectorized(out_vectorization, &out.handle, &out.strides, &out.shape),
         cube_config,
     );
 

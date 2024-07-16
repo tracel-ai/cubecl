@@ -127,14 +127,8 @@ mod tests {
             id: 0,
             item: Item::new(Elem::UInt),
         };
-        let index = Variable::ConstantScalar {
-            value: 1.,
-            elem: Elem::UInt,
-        };
-        let value = Variable::ConstantScalar {
-            value: 1.,
-            elem: Elem::UInt,
-        };
+        let index: Variable = 1u32.into();
+        let value: Variable = 1u32.into();
 
         cpa!(scope, local = array[index]);
         cpa!(scope, local += value);
@@ -194,18 +188,9 @@ mod tests {
             id: 0,
             item: Item::new(Elem::UInt),
         };
-        let const1 = Variable::ConstantScalar {
-            value: 1.,
-            elem: Elem::UInt,
-        };
-        let const2 = Variable::ConstantScalar {
-            value: 5.,
-            elem: Elem::UInt,
-        };
-        let value = Variable::ConstantScalar {
-            value: 1.,
-            elem: Elem::UInt,
-        };
+        let const1: Variable = 1u32.into();
+        let const2: Variable = 5u32.into();
+        let value: Variable = 1u32.into();
 
         cpa!(scope, index = const1 + const2);
         cpa!(scope, local = array[index]);
