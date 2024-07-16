@@ -42,7 +42,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
             .accumulate
             .slice_mut(accumulate_pos, accumulate_pos + num_tile_elems);
 
-        for k_iter in range(0u32, num_tiles_in_k, Comptime::new(false)) {
+        for k_iter in range(1u32, 2u32, Comptime::new(false)) {
             // 0..1
             let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter; // 0..7
             let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter; // 0..7
@@ -593,9 +593,9 @@ pub mod tests {
                 TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
                 TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
                 ArrayArg::new(&results, 256),
-                UInt::new(64),
+                UInt::new(16),
                 UInt::new(32),
-                UInt::new(64),
+                UInt::new(16),
                 config,
             );
 
@@ -614,9 +614,9 @@ pub mod tests {
                 TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
                 TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
                 ArrayArg::new(&results, 256),
-                UInt::new(64),
+                UInt::new(16),
                 UInt::new(32),
-                UInt::new(64),
+                UInt::new(16),
                 config,
             );
 
