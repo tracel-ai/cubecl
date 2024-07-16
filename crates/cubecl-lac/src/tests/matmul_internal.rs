@@ -3,9 +3,13 @@
 macro_rules! testgen_matmul_internal {
     () => {
         use cubecl_lac::matmul::{
-            cmma::{cmma_compute_loop_tests, cmma_load_shared_memory_tests, cmma_write_output_tests},
+            cmma::{
+                cmma_compute_loop_mimic_tests, cmma_compute_loop_tests,
+                cmma_load_shared_memory_tests, cmma_write_output_tests,
+            },
             tiling2d::{
-                compute_loop_tests, load_shared_memory_tests, outer_product_tests, write_output_tests,
+                compute_loop_tests, load_shared_memory_tests, outer_product_tests,
+                write_output_tests,
             },
         };
 
@@ -37,12 +41,16 @@ macro_rules! testgen_matmul_internal {
 
         #[test]
         pub fn load_lhs_transposed_unit_test() {
-            load_shared_memory_tests::load_lhs_transposed_unit_test::<TestRuntime>(&Default::default())
+            load_shared_memory_tests::load_lhs_transposed_unit_test::<TestRuntime>(
+                &Default::default(),
+            )
         }
 
         #[test]
         pub fn load_lhs_transposed_cube_test() {
-            load_shared_memory_tests::load_lhs_transposed_cube_test::<TestRuntime>(&Default::default())
+            load_shared_memory_tests::load_lhs_transposed_cube_test::<TestRuntime>(
+                &Default::default(),
+            )
         }
 
         #[test]
@@ -83,12 +91,16 @@ macro_rules! testgen_matmul_internal {
 
         #[test]
         pub fn load_rhs_plain_cube_offset_test() {
-            load_shared_memory_tests::load_rhs_plain_cube_offset_test::<TestRuntime>(&Default::default())
+            load_shared_memory_tests::load_rhs_plain_cube_offset_test::<TestRuntime>(
+                &Default::default(),
+            )
         }
 
         #[test]
         pub fn load_rhs_transposed_unit_test() {
-            load_shared_memory_tests::load_rhs_transposed_unit_test::<TestRuntime>(&Default::default())
+            load_shared_memory_tests::load_rhs_transposed_unit_test::<TestRuntime>(
+                &Default::default(),
+            )
         }
 
         #[test]
@@ -100,12 +112,16 @@ macro_rules! testgen_matmul_internal {
 
         #[test]
         pub fn write_to_output_over_height_unit_test() {
-            write_output_tests::write_to_output_over_height_unit_test::<TestRuntime>(&Default::default())
+            write_output_tests::write_to_output_over_height_unit_test::<TestRuntime>(
+                &Default::default(),
+            )
         }
 
         #[test]
         pub fn write_to_output_over_width_unit_test() {
-            write_output_tests::write_to_output_over_width_unit_test::<TestRuntime>(&Default::default())
+            write_output_tests::write_to_output_over_width_unit_test::<TestRuntime>(
+                &Default::default(),
+            )
         }
 
         #[test]
@@ -129,7 +145,9 @@ macro_rules! testgen_matmul_internal {
 
         #[test]
         pub fn cmma_compute_loop_mimic_warp_test() {
-            cmma_compute_loop_tests::compute_loop_mimic_warp_test::<TestRuntime>(&Default::default())
+            cmma_compute_loop_mimic_tests::compute_loop_mimic_warp_test::<TestRuntime>(
+                &Default::default(),
+            )
         }
 
         #[test]
@@ -151,14 +169,14 @@ macro_rules! testgen_matmul_internal {
 
         #[test]
         pub fn compute_loop_cmma_offseted_warp_in_shared_memory_test() {
-            cmma_compute_loop_tests::compute_loop_cmma_offseted_warp_in_shared_memory_test::<TestRuntime>(
-                &Default::default(),
-            )
+            cmma_compute_loop_tests::compute_loop_cmma_offseted_warp_in_shared_memory_test::<
+                TestRuntime,
+            >(&Default::default())
         }
 
         #[test]
         pub fn cmma_compute_loop_mimic_offseted_warp_test() {
-            cmma_compute_loop_tests::compute_loop_mimic_offseted_warp_test::<TestRuntime>(
+            cmma_compute_loop_mimic_tests::compute_loop_mimic_offseted_warp_test::<TestRuntime>(
                 &Default::default(),
             )
         }
@@ -261,5 +279,19 @@ macro_rules! testgen_matmul_internal {
                 &Default::default(),
             )
         }
-    }
+
+        #[test]
+        pub fn compute_loop_mimic_two_warps_same_tile_row_test() {
+            cmma_compute_loop_mimic_tests::compute_loop_two_warps_same_tile_row_test::<TestRuntime>(
+                &Default::default(),
+            )
+        }
+
+        #[test]
+        pub fn compute_loop_two_warps_same_tile_row_test() {
+            cmma_compute_loop_tests::compute_loop_two_warps_same_tile_row_test::<TestRuntime>(
+                &Default::default(),
+            )
+        }
+    };
 }

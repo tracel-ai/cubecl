@@ -84,7 +84,7 @@ pub(crate) fn write_to_output<F: Float>(
 pub mod tests {
 
     use crate::matmul::{
-        cmma::base::{DimensionsExpand, OffsetsExpand, USE_CMMA},
+        cmma::base::{DimensionsExpand, OffsetsExpand},
         test_utils::{assert_equals, assert_equals_range, range_tensor},
     };
 
@@ -152,7 +152,6 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
-            use_cmma: USE_CMMA,
         };
 
         write_output_test::launch::<F32, R>(
@@ -223,7 +222,6 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
-            use_cmma: USE_CMMA,
         };
 
         write_output_test::launch::<F32, R>(
@@ -305,7 +303,6 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
-            use_cmma: USE_CMMA,
         };
 
         write_output_test::launch::<F32, R>(
@@ -430,7 +427,6 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
-            use_cmma: USE_CMMA,
         };
 
         write_output_test::launch::<F32, R>(
