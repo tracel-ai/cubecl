@@ -20,4 +20,5 @@ mod tests {
     pub type TestRuntime = crate::WgpuRuntime;
 
     cubecl_core::testgen_all!();
+    cubecl_lac::testgen_all!();
 }

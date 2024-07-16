@@ -16,4 +16,5 @@ mod tests {
     pub type TestRuntime = crate::CudaRuntime;
 
     cubecl_core::testgen_all!();
+    cubecl_lac::testgen_all!();
 }
