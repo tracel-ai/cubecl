@@ -26,18 +26,21 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     let num_subcube_per_row =
         Comptime::runtime(block_size_n) / (n_iterations * Comptime::runtime(tile_size)); // 64 / (2*16) = 2
 
-    let subcube_id = UNIT_POS_Y; 
-    let tile_row = subcube_id / num_subcube_per_row; 
-    let tile_col_base = (subcube_id % num_subcube_per_row) * n_iterations; 
+    let subcube_id = UNIT_POS_Y;
+    let tile_row = subcube_id / num_subcube_per_row;
+    let tile_col_base = (subcube_id % num_subcube_per_row) * n_iterations;
 
     for n_iter in range(0u32, n_iterations, Comptime::new(false)) {
-        let tile_col = tile_col_base + n_iter; 
+        let tile_col = tile_col_base + n_iter;
 
-        let accumulate_tile = tile_row * Comptime::runtime(num_tiles_per_row) + tile_col; 
-        let accumulate_pos = accumulate_tile * num_tile_elems; 
+        let accumulate_tile = tile_row * Comptime::runtime(num_tiles_per_row) + tile_col;
+        let accumulate_pos = accumulate_tile * num_tile_elems;
         let accumulate_slice = shared_memories
             .accumulate
-            .slice_mut(accumulate_pos, accumulate_pos + num_tile_elems);
+            .slice(accumulate_pos, accumulate_pos + num_tile_elems);
+        let accumulate_slice_mut = shared_memories
+            .accumulate
+            .slice_mut_unsafe(accumulate_pos, accumulate_pos + num_tile_elems);
 
         let acc = cmma::Matrix::<F>::new(
             cmma::MatrixIdent::Accumulator,
@@ -46,13 +49,13 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
             16,
             cmma::MatrixLayout::Undefined,
         );
-        cmma::fill::<F>(&acc, F::new(0.0));
+        cmma::load::<F>(&acc, accumulate_slice, UInt::new(16));
 
         for k_iter in range(0u32, num_tiles_in_k, Comptime::new(false)) {
-            let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter; 
-            let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter; 
-            let shared_lhs_pos = shared_lhs_tile * num_tile_elems; 
-            let shared_rhs_pos = shared_rhs_tile * num_tile_elems; 
+            let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
+            let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
+            let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
+            let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
 
             let lhs_slice = shared_memories
                 .lhs
@@ -82,7 +85,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
         }
 
         cmma::store::<F>(
-            accumulate_slice,
+            accumulate_slice_mut,
             &acc,
             UInt::new(16),
             cmma::MatrixLayout::RowMajor,
@@ -498,7 +501,7 @@ pub mod tests {
             UInt::new(32),
             UInt::new(32),
             config,
-        );        
+        );
 
         let expected = &[
             1610496., 1614832., 1619168., 1623504., 1627840., 1632176., 1636512., 1640848.,

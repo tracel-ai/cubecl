@@ -107,7 +107,7 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
         &self,
         start: Start,
         end: End,
-    ) -> SliceMut<'static, E> {
+    ) -> &'_ mut SliceMut<'_, E> {
         unexpanded!()
     }
 
@@ -155,7 +155,7 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     ///
     /// Ignore the multiple borrow rule.
     #[allow(unused_variables)]
-    fn as_slice_mut_unsafe(&self) -> SliceMut<'static, E> {
+    fn as_slice_mut_unsafe(&self) -> &'_ mut SliceMut<'_, E> {
         unexpanded!()
     }
 
