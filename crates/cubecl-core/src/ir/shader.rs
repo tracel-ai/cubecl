@@ -1,4 +1,4 @@
-use super::{Scope, Vectorization};
+use super::{ConstantScalarValue, Scope, Variable, Vectorization};
 use crate::SUBCUBE_DIM_APPROX;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
@@ -40,6 +40,53 @@ pub enum Elem {
     Int(IntKind),
     UInt,
     Bool,
+}
+
+impl Elem {
+    /// Create a constant scalar from a float.
+    ///
+    /// The output will have the same type as the element.
+    pub fn constant_from_f64(&self, val: f64) -> Variable {
+        Variable::ConstantScalar(match self {
+            Elem::Float(kind) => ConstantScalarValue::Float(val, *kind),
+            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Elem::UInt => ConstantScalarValue::UInt(val as u64),
+            Elem::Bool => ConstantScalarValue::Bool(val > 0.0),
+        })
+    }
+    /// Create a constant scalar from a signed integer.
+    ///
+    /// The output will have the same type as the element.
+    pub fn constant_from_i64(&self, val: i64) -> Variable {
+        Variable::ConstantScalar(match self {
+            Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
+            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Elem::UInt => ConstantScalarValue::UInt(val as u64),
+            Elem::Bool => ConstantScalarValue::Bool(val > 0),
+        })
+    }
+    /// Create a constant scalar from a unsigned integer.
+    ///
+    /// The output will have the same type as the element.
+    pub fn constant_from_u64(&self, val: u64) -> Variable {
+        Variable::ConstantScalar(match self {
+            Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
+            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Elem::UInt => ConstantScalarValue::UInt(val as u64),
+            Elem::Bool => ConstantScalarValue::Bool(val > 0),
+        })
+    }
+    /// Create a constant scalar from a unsigned integer.
+    ///
+    /// The output will have the same type as the element.
+    pub fn constant_from_bool(&self, val: bool) -> Variable {
+        Variable::ConstantScalar(match self {
+            Elem::Float(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
+            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Elem::UInt => ConstantScalarValue::UInt(val as u64),
+            Elem::Bool => ConstantScalarValue::Bool(val),
+        })
+    }
 }
 
 impl From<Elem> for Item {
