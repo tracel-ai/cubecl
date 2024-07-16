@@ -91,6 +91,7 @@ impl Scope {
         let variable = Variable::Matrix {
             id: index,
             mat: matrix,
+            depth: self.depth
         };
         self.matrices.push(variable);
         variable

@@ -39,7 +39,6 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
         let accumulate_slice = shared_memories
             .accumulate
             .slice_mut(accumulate_pos, accumulate_pos + num_tile_elems);
-
         
         let acc = cmma::Matrix::<F>::new(
             cmma::MatrixIdent::Accumulator,
@@ -635,9 +634,9 @@ pub mod tests {
     /// Exported test
     pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
         let config = CmmaConfig {
-            block_size_m: UInt::new(64),
+            block_size_m: UInt::new(16),
             block_size_k: UInt::new(32),
-            block_size_n: UInt::new(64),
+            block_size_n: UInt::new(32),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
@@ -716,46 +715,24 @@ pub mod tests {
             9763456., 9775472., 9787488., 9799504., 9811520., 9823536., 9835552., 9847568.,
         ];
 
-        if USE_CMMA {
-            let lhs = range_tensor_f16::<R>(16, 32, device);
-            let rhs = range_tensor_f16::<R>(32, 32, device);
-            let results = create_empty::<R>(16, 32, device);
-            let cube_dim = CubeDim::new(1, 32, 1);
-            let cube_count = CubeCount::Static(1, 1, 1);
-            compute_loop_test::launch::<F32, F16, R>(
-                R::client(device),
-                cube_count,
-                cube_dim,
-                TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-                TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-                ArrayArg::new(&results, 512),
-                UInt::new(64),
-                UInt::new(32),
-                UInt::new(64),
-                config,
-            );
+        let lhs = range_tensor_f16::<R>(16, 32, device);
+        let rhs = range_tensor_f16::<R>(32, 32, device);
+        let results = create_empty::<R>(16, 32, device);
+        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_count = CubeCount::Static(1, 1, 1);
+        compute_loop_test::launch::<F32, F16, R>(
+            R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
+            TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
+            ArrayArg::new(&results, 512),
+            UInt::new(16),
+            UInt::new(32),
+            UInt::new(32),
+            config,
+        );
 
-            assert_equals::<R>(results, expected, device);
-        } else {
-            let lhs = range_tensor::<R>(16, 32, device);
-            let rhs = range_tensor::<R>(32, 32, device);
-            let results = create_empty::<R>(16, 32, device);
-            let cube_dim = CubeDim::new(1, 32, 1);
-            let cube_count = CubeCount::Static(1, 1, 1);
-            compute_loop_test::launch::<F32, F32, R>(
-                R::client(device),
-                cube_count,
-                cube_dim,
-                TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-                TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-                ArrayArg::new(&results, 512),
-                UInt::new(64),
-                UInt::new(32),
-                UInt::new(64),
-                config,
-            );
-
-            assert_equals::<R>(results, expected, device);
-        }
+        assert_equals::<R>(results, expected, device);
     }
 }

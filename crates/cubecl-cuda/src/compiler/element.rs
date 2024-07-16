@@ -122,7 +122,11 @@ impl Component for Variable {
             Variable::GridDimZ => Item::Scalar(Elem::U32),
             Variable::LocalArray(_, e, _, _) => *e,
             Variable::WarpSize => Item::Scalar(Elem::U32),
-            Variable::WmmaFragment { id: _, frag } => Item::Scalar(frag.elem),
+            Variable::WmmaFragment {
+                id: _,
+                frag,
+                depth: _,
+            } => Item::Scalar(frag.elem),
         }
     }
 }
@@ -157,7 +161,7 @@ pub enum Variable {
     GridDimX,
     GridDimY,
     GridDimZ,
-    WmmaFragment { id: u16, frag: Fragment },
+    WmmaFragment { id: u16, frag: Fragment, depth: u8 },
 }
 
 impl Display for Variable {
@@ -207,9 +211,11 @@ impl Display for Variable {
                 f.write_fmt(format_args!("l_arr_{}_{}", id, depth))
             }
             Variable::WarpSize => f.write_str("warpSize"),
-            Variable::WmmaFragment { id: index, frag: _ } => {
-                f.write_fmt(format_args!("frag_{index}"))
-            }
+            Variable::WmmaFragment {
+                id: index,
+                frag: _,
+                depth,
+            } => f.write_fmt(format_args!("frag_{index}_{depth}")),
         }
     }
 }
@@ -257,7 +263,11 @@ impl Variable {
             Variable::GridDimZ => true,
             Variable::LocalArray(_, _, _, _) => false,
             Variable::WarpSize => true,
-            Variable::WmmaFragment { id: _, frag: _ } => false,
+            Variable::WmmaFragment {
+                id: _,
+                frag: _,
+                depth: _,
+            } => false,
         }
     }
 
