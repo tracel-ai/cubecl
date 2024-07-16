@@ -104,7 +104,6 @@ fn calculate_offsets<F: Float>(
 fn make_shared_memories<F: Float, FC: Float>(
     config: Comptime<CmmaConfig>,
 ) -> SharedMemories<F, FC> {
-    let sm_vec = Comptime::map(config, |c| c.sm_vec);
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);

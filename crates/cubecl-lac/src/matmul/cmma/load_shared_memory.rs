@@ -44,8 +44,8 @@ fn load_lhs<F: Float, FC: Float>(
     let subcube_dim = UInt::new(32);
     let within_tile_row_offset = subcube_dim / tensor_vec_r; // assuming subcube_dim is 32 -> 8
     let within_sm_row_offset = subcube_dim / Comptime::runtime(tile_size); // assuming subcube_dim is 32 -> 2
-    let subcube_id = UNIT_POS_X;
-    let id_within_subcube = UNIT_POS_Y;
+    let subcube_id = UNIT_POS_Y;
+    let id_within_subcube = UNIT_POS_X;
 
     // There are two because 32 / 16. TODO generalize
     let unit_read_row_0 = id_within_subcube / tensor_vec_r;
@@ -108,8 +108,8 @@ fn load_rhs<F: Float, FC: Float>(
     let subcube_dim = UInt::new(32);
     let within_tile_row_offset = subcube_dim / tensor_vec_r; // assuming subcube_dim is 32 -> 8
     let within_sm_row_offset = subcube_dim / Comptime::runtime(tile_size); // assuming subcube_dim is 32 -> 2
-    let subcube_id = UNIT_POS_X;
-    let id_within_subcube = UNIT_POS_Y;
+    let subcube_id = UNIT_POS_Y;
+    let id_within_subcube = UNIT_POS_X;
 
     // There are two because 32 / 16. TODO generalize
     let unit_read_row_0 = id_within_subcube / tensor_vec_r;
@@ -348,7 +348,7 @@ pub mod tests {
     pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
         let lhs_tensor = range_tensor::<R>(64, 64, device);
         let lhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -410,7 +410,7 @@ pub mod tests {
     pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
         let rhs_tensor = range_tensor::<R>(64, 64, device);
         let rhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -472,7 +472,7 @@ pub mod tests {
     pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
         let lhs_tensor = range_tensor::<R>(64, 64, device);
         let lhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(2, 32, 1);
+        let cube_dim = CubeDim::new(32, 2, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -533,7 +533,7 @@ pub mod tests {
     pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
         let rhs_tensor = range_tensor::<R>(64, 64, device);
         let rhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(2, 32, 1);
+        let cube_dim = CubeDim::new(32, 2, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -598,7 +598,7 @@ pub mod tests {
     pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
         let lhs_tensor = range_tensor::<R>(64, 64, device);
         let lhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(3, 32, 1);
+        let cube_dim = CubeDim::new(32, 3, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -663,7 +663,7 @@ pub mod tests {
     pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
         let rhs_tensor = range_tensor::<R>(64, 64, device);
         let rhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(3, 32, 1);
+        let cube_dim = CubeDim::new(32, 3, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -724,7 +724,7 @@ pub mod tests {
     pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
         let lhs_tensor = range_tensor::<R>(64, 64, device);
         let lhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -786,7 +786,7 @@ pub mod tests {
     pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
         let rhs_tensor = range_tensor::<R>(64, 64, device);
         let rhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
