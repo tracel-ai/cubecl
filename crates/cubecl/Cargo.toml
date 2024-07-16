@@ -3,7 +3,14 @@ authors = ["nathanielsimard <nathaniel.simard.42@gmail.com>"]
 categories = []
 description = ""
 edition.workspace = true
-keywords = ["cuda", "wgpu", "gpgpu", "deep-learning", "machine-learning", "tensor"]
+keywords = [
+    "cuda",
+    "wgpu",
+    "gpgpu",
+    "deep-learning",
+    "machine-learning",
+    "tensor",
+]
 license.workspace = true
 name = "cubecl"
 readme.workspace = true
