@@ -31,8 +31,8 @@ pub(crate) fn write_to_output<F: Float>(
     let subcube_dim = UInt::new(32);
     let within_tile_row_offset = subcube_dim / out_vec_r; // assuming subcube_dim is 32 -> 8
     let within_sm_row_offset = subcube_dim * out_vec_r / acc_sm_stride; // assuming subcube_dim is 32 -> 2
-    let subcube_id = UNIT_POS_X;
-    let id_within_subcube = UNIT_POS_Y;
+    let subcube_id = UNIT_POS_Y;
+    let id_within_subcube = UNIT_POS_X;
 
     // There are two because 32 / 16. TODO generalize
     let unit_read_row_0 = id_within_subcube / acc_sm_stride_vec;
@@ -85,7 +85,7 @@ pub mod tests {
 
     use crate::matmul::{
         cmma::base::{DimensionsExpand, OffsetsExpand},
-        test_utils::{assert_equals, assert_equals_range, range_tensor},
+        test_utils::{assert_equals, assert_equals_range, range_tensor, zeros_tensor},
     };
 
     use super::*;
@@ -107,15 +107,6 @@ pub mod tests {
             k: UInt::new(0),
         };
 
-        let out_vec = Comptime::vectorization(out);
-        for i in range(
-            0u32,
-            (k * n) / Comptime::runtime(out_vec),
-            Comptime::new(false),
-        ) {
-            out[i] = F::vectorized(0., Comptime::get(out_vec));
-        }
-
         let mut accumulate = SharedMemory::<F>::new(4096);
         for i in range(0u32, 4096u32, Comptime::new(false)) {
             accumulate[i] = acc_sm_arr[i];
@@ -134,8 +125,7 @@ pub mod tests {
     pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
         let k = 16;
         let n = 32;
-        // TODO should be zeros_tensor, rather than range then put back to 0, but fails on cuda
-        let out = range_tensor::<R>(k, n, device);
+        let out = zeros_tensor::<R>(k, n, device);
         let acc_sm = range_tensor::<R>(64, 64, device);
         let cube_dim = CubeDim::new(1, 1, 1);
         let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
@@ -207,7 +197,7 @@ pub mod tests {
         let n = 32;
         let out = range_tensor::<R>(k, n, device);
         let acc_sm = range_tensor::<R>(64, 64, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -288,7 +278,7 @@ pub mod tests {
         let n = 64;
         let out = range_tensor::<R>(k, n, device);
         let acc_sm = range_tensor::<R>(64, 64, device);
-        let cube_dim = CubeDim::new(2, 32, 1);
+        let cube_dim = CubeDim::new(32, 2, 1);
         let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -412,7 +402,7 @@ pub mod tests {
         let n = 64;
         let out = range_tensor::<R>(k, n, device);
         let acc_sm = range_tensor::<R>(64, 64, device);
-        let cube_dim = CubeDim::new(4, 32, 1);
+        let cube_dim = CubeDim::new(32, 4, 1);
         let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
