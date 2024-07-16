@@ -12,29 +12,29 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
 ) {
     let block_size_m = Comptime::map(config, |c| c.block_size_m); // 16
     let block_size_k = Comptime::map(config, |c| c.block_size_k); // 32
-    let block_size_n = Comptime::map(config, |c| c.block_size_n); // 16
+    let block_size_n = Comptime::map(config, |c| c.block_size_n); // 64
     let tile_size = Comptime::map(config, |c| c.tile_size); // 16
     let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size); // 32/16 = 2
 
     let num_tile_elems = Comptime::runtime(tile_size * tile_size); // 16*16 = 256
 
-    let num_tiles_per_row = block_size_m / tile_size; // 16/16 = 1
-    let num_tiles_per_col = block_size_n / tile_size; // 16/16 = 1
-    let num_tiles = num_tiles_per_row * num_tiles_per_col; // 1*1 = 1
+    let num_tiles_per_row = block_size_n / tile_size; // 64/16 = 4
+    let num_tiles_per_col = block_size_m / tile_size; // 16/16 = 1
+    let num_tiles = num_tiles_per_row * num_tiles_per_col; // 4*1 = 4
 
-    let n_iterations = Comptime::runtime(num_tiles) / CUBE_DIM_X; // 1/1 = 1
+    let n_iterations = Comptime::runtime(num_tiles) / CUBE_DIM_Y; // 4/2 = 2
     let num_subcube_per_row =
-        Comptime::runtime(block_size_n) / (n_iterations * Comptime::runtime(tile_size)); // 16 / (1*16) = 1
+        Comptime::runtime(block_size_n) / (n_iterations * Comptime::runtime(tile_size)); // 64 / (2*16) = 2
 
-    let subcube_id = UNIT_POS_X; // 0
-    let tile_row = subcube_id / num_subcube_per_row; // 0
-    let tile_col_base = (subcube_id % num_subcube_per_row) * n_iterations; //0
+    let subcube_id = UNIT_POS_Y; 
+    let tile_row = subcube_id / num_subcube_per_row; 
+    let tile_col_base = (subcube_id % num_subcube_per_row) * n_iterations; 
 
     for n_iter in range(0u32, n_iterations, Comptime::new(false)) {
-        let tile_col = tile_col_base + n_iter; // 0
+        let tile_col = tile_col_base + n_iter; 
 
-        let accumulate_tile = tile_row * Comptime::runtime(num_tiles_per_row) + tile_col; // 0
-        let accumulate_pos = accumulate_tile * num_tile_elems; // 0
+        let accumulate_tile = tile_row * Comptime::runtime(num_tiles_per_row) + tile_col; 
+        let accumulate_pos = accumulate_tile * num_tile_elems; 
         let accumulate_slice = shared_memories
             .accumulate
             .slice_mut(accumulate_pos, accumulate_pos + num_tile_elems);
@@ -49,11 +49,10 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
         cmma::fill::<F>(&acc, F::new(0.0));
 
         for k_iter in range(0u32, num_tiles_in_k, Comptime::new(false)) {
-            // 0..1
-            let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter; // 0..1
-            let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter; // 0..1
-            let shared_lhs_pos = shared_lhs_tile * num_tile_elems; // 0..256
-            let shared_rhs_pos = shared_rhs_tile * num_tile_elems; // 0..256
+            let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter; 
+            let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter; 
+            let shared_lhs_pos = shared_lhs_tile * num_tile_elems; 
+            let shared_rhs_pos = shared_rhs_tile * num_tile_elems; 
 
             let lhs_slice = shared_memories
                 .lhs
@@ -232,11 +231,11 @@ pub mod tests {
     }
 
     /// Exported test
-    pub fn compute_loop_cmma_warp_test<R: Runtime>(device: &R::Device) {
+    pub fn cmma_warp_test<R: Runtime>(device: &R::Device) {
         let lhs = range_tensor_f16::<R>(16, 16, device);
         let rhs = range_tensor_f16::<R>(16, 16, device);
         let results = create_empty::<R>(16, 16, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         compute_loop_cmma_test::launch::<F32, F16, R>(
@@ -278,8 +277,8 @@ pub mod tests {
             492520., 496480., 500440., 504400., 508360., 512320., 516280., 520240., 524200.,
             528160., 532120., 536080., 540040.,
         ];
+
         assert_equals::<R>(results, expected, device);
-        assert!(false);
     }
 
     /// Exported test
@@ -287,7 +286,7 @@ pub mod tests {
         let lhs = range_tensor_f16::<R>(32, 16, device);
         let rhs = range_tensor_f16::<R>(16, 32, device);
         let results = create_empty::<R>(32, 32, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         compute_loop_cmma_offseted_slice_test::launch::<F32, F16, R>(
@@ -341,7 +340,7 @@ pub mod tests {
         let lhs = range_tensor_f16::<R>(32, 16, device);
         let rhs = range_tensor_f16::<R>(16, 32, device);
         let results = create_empty::<R>(32, 32, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         compute_loop_cmma_offseted_slice_in_shared_memory_test::launch::<F32, F16, R>(
@@ -395,6 +394,12 @@ pub mod tests {
 
     /// Exported test
     pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
+        let lhs = range_tensor_f16::<R>(16, 32, device);
+        let rhs = range_tensor_f16::<R>(32, 16, device);
+        let results = create_empty::<R>(16, 16, device);
+        let cube_dim = CubeDim::new(32, 1, 1);
+        let cube_count = CubeCount::Static(1, 1, 1);
+
         let config = CmmaConfig {
             block_size_m: UInt::new(16),
             block_size_k: UInt::new(32),
@@ -408,6 +413,19 @@ pub mod tests {
             rhs_transposed: false,
             unroll: false,
         };
+
+        compute_loop_test::launch::<F32, F16, R>(
+            R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
+            TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
+            ArrayArg::new(&results, 256),
+            UInt::new(16),
+            UInt::new(32),
+            UInt::new(16),
+            config,
+        );
 
         let expected = &[
             1610496., 1614832., 1619168., 1623504., 1627840., 1632176., 1636512., 1640848.,
@@ -444,30 +462,17 @@ pub mod tests {
             3611264., 3623280., 3635296., 3647312., 3659328., 3671344., 3683360., 3695376.,
         ];
 
-        let lhs = range_tensor_f16::<R>(16, 32, device);
-        let rhs = range_tensor_f16::<R>(32, 16, device);
-        let results = create_empty::<R>(16, 16, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
-        let cube_count = CubeCount::Static(1, 1, 1);
-
-        compute_loop_test::launch::<F32, F16, R>(
-            R::client(device),
-            cube_count,
-            cube_dim,
-            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-            TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-            ArrayArg::new(&results, 256),
-            UInt::new(16),
-            UInt::new(32),
-            UInt::new(16),
-            config,
-        );
-
         assert_equals::<R>(results, expected, device);
     }
 
     /// Exported test
     pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
+        let lhs = range_tensor_f16::<R>(16, 32, device);
+        let rhs = range_tensor_f16::<R>(32, 32, device);
+        let results = create_empty::<R>(16, 32, device);
+        let cube_dim = CubeDim::new(32, 1, 1);
+        let cube_count = CubeCount::Static(1, 1, 1);
+
         let config = CmmaConfig {
             block_size_m: UInt::new(16),
             block_size_k: UInt::new(32),
@@ -481,6 +486,19 @@ pub mod tests {
             rhs_transposed: false,
             unroll: false,
         };
+
+        compute_loop_test::launch::<F32, F16, R>(
+            R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
+            TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
+            ArrayArg::new(&results, 512),
+            UInt::new(16),
+            UInt::new(32),
+            UInt::new(32),
+            config,
+        );        
 
         let expected = &[
             1610496., 1614832., 1619168., 1623504., 1627840., 1632176., 1636512., 1640848.,
@@ -549,24 +567,6 @@ pub mod tests {
             9763456., 9775472., 9787488., 9799504., 9811520., 9823536., 9835552., 9847568.,
         ];
 
-        let lhs = range_tensor_f16::<R>(16, 32, device);
-        let rhs = range_tensor_f16::<R>(32, 32, device);
-        let results = create_empty::<R>(16, 32, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
-        let cube_count = CubeCount::Static(1, 1, 1);
-        compute_loop_test::launch::<F32, F16, R>(
-            R::client(device),
-            cube_count,
-            cube_dim,
-            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-            TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-            ArrayArg::new(&results, 512),
-            UInt::new(16),
-            UInt::new(32),
-            UInt::new(32),
-            config,
-        );
-
         assert_equals::<R>(results, expected, device);
     }
 
@@ -576,10 +576,10 @@ pub mod tests {
         let k = 32;
         let n = 64;
 
-        let lhs = range_tensor::<R>(m, k, device);
-        let rhs = range_tensor::<R>(k, n, device);
+        let lhs = range_tensor_f16::<R>(m, k, device);
+        let rhs = range_tensor_f16::<R>(k, n, device);
         let results = create_empty::<R>(m, n, device);
-        let cube_dim = CubeDim::new(2, 32, 1);
+        let cube_dim = CubeDim::new(32, 2, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
@@ -596,7 +596,7 @@ pub mod tests {
             unroll: false,
         };
 
-        compute_loop_test::launch::<F32, F32, R>(
+        compute_loop_test::launch::<F32, F16, R>(
             R::client(device),
             cube_count,
             cube_dim,

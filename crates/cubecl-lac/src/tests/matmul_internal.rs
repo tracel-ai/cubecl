@@ -182,8 +182,8 @@ macro_rules! testgen_matmul_internal {
         }
 
         #[test]
-        pub fn cmma_compute_loop_cmma_warp_test() {
-            cmma_compute_loop_tests::compute_loop_cmma_warp_test::<TestRuntime>(&Default::default())
+        pub fn cmma_warp_test() {
+            cmma_compute_loop_tests::cmma_warp_test::<TestRuntime>(&Default::default())
         }
 
         #[test]

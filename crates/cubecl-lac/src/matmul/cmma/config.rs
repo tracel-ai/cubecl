@@ -90,5 +90,5 @@ pub fn cmma_cube_count<R: Runtime>(
 }
 
 pub fn cmma_cube_dim() -> CubeDim {
-    CubeDim::new(8, 32, 1)
+    CubeDim::new(32, 8, 1)
 }
