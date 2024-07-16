@@ -10,3 +10,6 @@ pub mod tiling2d;
 
 #[cfg(feature = "export_tests")]
 mod test_utils;
+
+#[cfg(feature = "export_tests")]
+pub mod matmul_tests;

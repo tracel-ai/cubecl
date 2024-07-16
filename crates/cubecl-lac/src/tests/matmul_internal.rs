@@ -1,6 +1,6 @@
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! testgen_matmul_cube{
+macro_rules! testgen_matmul_internal {
     () => {
         use cubecl_lac::matmul::{
             cmma::{cmma_compute_loop_tests, cmma_load_shared_memory_tests, cmma_write_output_tests},
