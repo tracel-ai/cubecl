@@ -7,7 +7,7 @@ use cubecl_core::{
 
 use crate::{
     matmul::cmma::{
-        base::cmma_kernel,
+        base::{cmma_kernel, USE_CMMA},
         config::{cmma_cube_count, cmma_cube_dim, CmmaConfig},
     },
     tensor::{MatrixLayout, Tensor},
@@ -76,20 +76,31 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
 
     let cube_count = cmma_cube_count::<R>(&out.shape, 64, 64);
     let cube_dim = cmma_cube_dim();
-    let cube_config = CmmaConfig::new(m, k, n, lhs_transposed, rhs_transposed);
+    let cube_config = CmmaConfig::new(m, k, n, lhs_transposed, rhs_transposed, USE_CMMA);
 
     assert!(lhs_vectorization == 4 && rhs_vectorization == 4 && out_vectorization == 4);
 
-    // cmma_kernel::launch::<E::FloatPrimitive, <half::f16 as FloatElement>::FloatPrimitive, R>(
-    cmma_kernel::launch::<F, F, R>(
-        client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(lhs_vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
-        TensorArg::vectorized(rhs_vectorization, &rhs.handle, &rhs.strides, &rhs.shape),
-        TensorArg::vectorized(out_vectorization, &out.handle, &out.strides, &out.shape),
-        cube_config,
-    );
+    if USE_CMMA {
+        cmma_kernel::launch::<F, F16, R>(
+            client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(lhs_vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
+            TensorArg::vectorized(rhs_vectorization, &rhs.handle, &rhs.strides, &rhs.shape),
+            TensorArg::vectorized(out_vectorization, &out.handle, &out.strides, &out.shape),
+            cube_config,
+        );
+    } else {
+        cmma_kernel::launch::<F, F, R>(
+            client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(lhs_vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
+            TensorArg::vectorized(rhs_vectorization, &rhs.handle, &rhs.strides, &rhs.shape),
+            TensorArg::vectorized(out_vectorization, &out.handle, &out.strides, &out.shape),
+            cube_config,
+        );
+    }
 
     out
 }

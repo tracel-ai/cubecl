@@ -31,10 +31,19 @@ pub struct CmmaConfig {
     pub rhs_transposed: bool,
     /// Unroll
     pub unroll: bool,
+    /// Use CMMA. Otherwise falls back to slow algorithm. Deactivate for tests only
+    pub use_cmma: bool,
 }
 
 impl CmmaConfig {
-    pub fn new(m: usize, k: usize, n: usize, lhs_transposed: bool, rhs_transposed: bool) -> Self {
+    pub fn new(
+        m: usize,
+        k: usize,
+        n: usize,
+        lhs_transposed: bool,
+        rhs_transposed: bool,
+        use_cmma: bool,
+    ) -> Self {
         let block_size_m = 64;
         let block_size_k = 32;
         let block_size_n = 64;
@@ -66,6 +75,7 @@ impl CmmaConfig {
             lhs_transposed,
             rhs_transposed,
             unroll: false,
+            use_cmma
         }
     }
 }

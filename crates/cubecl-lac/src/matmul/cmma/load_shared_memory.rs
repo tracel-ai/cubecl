@@ -156,7 +156,7 @@ fn load_rhs<F: Float, FC: Float>(
 pub mod tests {
 
     use crate::matmul::{
-        cmma::base::{DimensionsExpand, OffsetsExpand},
+        cmma::base::{DimensionsExpand, OffsetsExpand, USE_CMMA},
         test_utils::{assert_equals_range, create_empty, range_tensor},
     };
 
@@ -249,6 +249,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_lhs_test::launch::<F32, R>(
@@ -306,6 +307,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_rhs_test::launch::<F32, R>(
@@ -363,6 +365,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_lhs_test::launch::<F32, R>(
@@ -425,6 +428,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_rhs_test::launch::<F32, R>(
@@ -487,6 +491,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_lhs_test::launch::<F32, R>(
@@ -548,6 +553,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_rhs_test::launch::<F32, R>(
@@ -613,6 +619,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_lhs_test::launch::<F32, R>(
@@ -678,6 +685,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_rhs_test::launch::<F32, R>(
@@ -739,6 +747,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_lhs_test::launch::<F32, R>(
@@ -801,6 +810,7 @@ pub mod tests {
             lhs_transposed: false,
             rhs_transposed: false,
             unroll: false,
+            use_cmma: USE_CMMA,
         };
 
         load_rhs_test::launch::<F32, R>(
