@@ -1,4 +1,7 @@
-use cubecl_core::{ir as gpu, Compiler};
+use cubecl_core::{
+    ir::{self as gpu, ConstantScalarValue},
+    Compiler,
+};
 
 use super::{Instruction, WarpInstruction};
 
@@ -352,14 +355,20 @@ impl CudaCompiler {
                 max_value: self.compile_variable(op.max_value),
                 out: self.compile_variable(op.out),
             },
-            gpu::Operator::Recip(op) => Instruction::Div(super::BinaryInstruction {
-                lhs: super::Variable::ConstantScalar(
-                    1.0,
-                    Self::compile_elem(op.input.item().elem()),
-                ),
-                rhs: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
-            }),
+            gpu::Operator::Recip(op) => {
+                let elem = op.input.item().elem();
+                let lhs = match elem {
+                    gpu::Elem::Float(kind) => ConstantScalarValue::Float(1.0, kind),
+                    gpu::Elem::Int(kind) => ConstantScalarValue::Int(1, kind),
+                    gpu::Elem::UInt => ConstantScalarValue::UInt(1),
+                    gpu::Elem::Bool => ConstantScalarValue::Bool(true),
+                };
+                Instruction::Div(super::BinaryInstruction {
+                    lhs: super::Variable::ConstantScalar(lhs, Self::compile_elem(elem)),
+                    rhs: self.compile_variable(op.input),
+                    out: self.compile_variable(op.out),
+                })
+            }
             gpu::Operator::Floor(op) => Instruction::Floor(self.compile_unary(op)),
             gpu::Operator::Ceil(op) => Instruction::Ceil(self.compile_unary(op)),
             gpu::Operator::Remainder(_op) => todo!(),
@@ -413,8 +422,8 @@ impl CudaCompiler {
             gpu::Variable::GlobalOutputArray { id, item } => {
                 super::Variable::GlobalOutputArray(id, Self::compile_item(item))
             }
-            gpu::Variable::ConstantScalar { value, elem } => {
-                super::Variable::ConstantScalar(value, Self::compile_elem(elem))
+            gpu::Variable::ConstantScalar(value) => {
+                super::Variable::ConstantScalar(value, Self::compile_elem(value.elem()))
             }
             gpu::Variable::SharedMemory { id, item, length } => {
                 let item = Self::compile_item(item);

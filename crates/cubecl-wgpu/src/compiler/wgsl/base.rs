@@ -1,4 +1,4 @@
-use cubecl_core::ir as cube;
+use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, IntKind};
 use std::fmt::Display;
 
 #[derive(Debug, Clone)]
@@ -7,7 +7,7 @@ pub enum Variable {
     GlobalInputArray(u16, Item),
     GlobalOutputArray(u16, Item),
     GlobalScalar(u16, Elem, cube::Elem),
-    ConstantScalar(f64, Elem),
+    ConstantScalar(ConstantScalarValue, Elem),
     Local {
         id: u16,
         item: Item,
@@ -245,11 +245,25 @@ impl Display for Variable {
             Variable::GlobalScalar(number, _, elem) => {
                 f.write_fmt(format_args!("scalars_{elem}[{number}]"))
             }
-            Variable::ConstantScalar(number, elem) => match elem {
-                Elem::F32 => f.write_fmt(format_args!("{number}f")),
-                Elem::I32 => f.write_fmt(format_args!("{number}i")),
-                Elem::U32 => f.write_fmt(format_args!("{number}u")),
-                Elem::Bool => f.write_fmt(format_args!("bool({number})")),
+            // We do the conversion in Rust and then render the number to avoid overflow or other
+            // precision related problems.
+            Variable::ConstantScalar(number, _elem) => match number {
+                ConstantScalarValue::Int(val, kind) => match kind {
+                    IntKind::I32 => f.write_fmt(format_args!("{}i", *val as i32)),
+                    IntKind::I64 => f.write_fmt(format_args!("{}i", *val as i64)),
+                },
+                ConstantScalarValue::Float(val, kind) => match kind {
+                    FloatKind::F16 => {
+                        todo!("Unsupported")
+                    }
+                    FloatKind::BF16 => {
+                        todo!("Unsupported")
+                    }
+                    FloatKind::F32 => f.write_fmt(format_args!("{}f", *val as f32)),
+                    FloatKind::F64 => f.write_fmt(format_args!("{}f", *val as f64)),
+                },
+                ConstantScalarValue::UInt(val) => f.write_fmt(format_args!("{}u", *val as u32)),
+                ConstantScalarValue::Bool(val) => f.write_fmt(format_args!("{}", val)),
             },
             Variable::SharedMemory(number, _, _) => {
                 f.write_fmt(format_args!("shared_memory_{number}"))

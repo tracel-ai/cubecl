@@ -34,10 +34,9 @@ pub mod index_assign {
         let array = array.into();
         let index: Variable = *index.into();
         let index = match index {
-            Variable::ConstantScalar { value, .. } => Variable::ConstantScalar {
-                value,
-                elem: ir::Elem::UInt,
-            },
+            Variable::ConstantScalar(value) => {
+                Variable::ConstantScalar(ir::ConstantScalarValue::UInt(value.as_u64()))
+            }
             _ => index,
         };
         context.register(Operator::IndexAssign(BinaryOperator {
@@ -94,12 +93,9 @@ pub mod index {
         let index: ExpandElement = index.into();
         let index_var: Variable = *index;
         let index = match index_var {
-            Variable::ConstantScalar { value, .. } => {
-                ExpandElement::Plain(Variable::ConstantScalar {
-                    value,
-                    elem: ir::Elem::UInt,
-                })
-            }
+            Variable::ConstantScalar(value) => ExpandElement::Plain(Variable::ConstantScalar(
+                ir::ConstantScalarValue::UInt(value.as_u64()),
+            )),
             _ => index,
         };
         let array: ExpandElement = array.into();

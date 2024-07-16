@@ -5,13 +5,12 @@ use crate::frontend::{
     ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
     ExpandElementTyped, Numeric,
 };
-use crate::ir::{Elem, FloatKind, Item, Variable, Vectorization};
+use crate::ir::{ConstantScalarValue, Elem, FloatKind, Item, Variable, Vectorization};
 
+use super::{init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
 use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::prelude::index_assign;
 use crate::{unexpanded, Runtime};
-
-use super::{init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -67,10 +66,14 @@ macro_rules! impl_float {
 
         impl ComptimeType for $type {
             fn into_expand(self) -> Self::ExpandType {
-                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar {
-                    value: self.val as f64,
-                    elem: Self::as_elem(),
-                }))
+                let elem = Self::as_elem();
+                let value = self.val as f64;
+                let value = match elem {
+                    Elem::Float(kind) => ConstantScalarValue::Float(value, kind),
+                    _ => panic!("Wrong elem type"),
+                };
+
+                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar(value)))
             }
         }
 
@@ -111,11 +114,7 @@ macro_rules! impl_float {
                 _context: &mut CubeContext,
                 val: f32,
             ) -> <Self as CubeType>::ExpandType {
-                let new_var = Variable::ConstantScalar {
-                    value: val as f64,
-                    elem: Self::as_elem(),
-                };
-                ExpandElement::Plain(new_var).into()
+                Self::new(val).into_expand()
             }
 
             fn __expand_vectorized(

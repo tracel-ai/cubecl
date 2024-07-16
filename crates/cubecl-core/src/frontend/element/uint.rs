@@ -1,5 +1,5 @@
 use crate::frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric};
-use crate::ir::{Elem, Item, Variable, Vectorization};
+use crate::ir::{Elem, Item, Vectorization};
 use crate::prelude::{index_assign, KernelBuilder, KernelLauncher};
 use crate::{frontend::Comptime, Runtime};
 
@@ -61,11 +61,8 @@ impl UInt {
     }
 
     pub fn __expand_new(_context: &mut CubeContext, val: u32) -> <Self as CubeType>::ExpandType {
-        let new_var = Variable::ConstantScalar {
-            value: val as f64,
-            elem: Self::as_elem(),
-        };
-        ExpandElement::Plain(new_var).into()
+        let val: ExpandElement = Self::new(val).into();
+        val.into()
     }
 
     pub fn vectorized(val: u32, vectorization: UInt) -> Self {

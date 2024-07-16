@@ -151,8 +151,8 @@ impl WgslCompiler {
             cube::Variable::GlobalOutputArray { id, item } => {
                 wgsl::Variable::GlobalOutputArray(id, Self::compile_item(item))
             }
-            cube::Variable::ConstantScalar { value, elem } => {
-                wgsl::Variable::ConstantScalar(value, Self::compile_elem(elem))
+            cube::Variable::ConstantScalar(value) => {
+                wgsl::Variable::ConstantScalar(value, Self::compile_elem(value.elem()))
             }
             cube::Variable::SharedMemory { id, item, length } => {
                 let item = Self::compile_item(item);
