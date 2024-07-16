@@ -10,44 +10,52 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     mut shared_memories: SharedMemories<F, FC>,
     config: Comptime<CmmaConfig>,
 ) {
-    let block_size_m = Comptime::map(config, |c| c.block_size_m); // 64
+    let block_size_m = Comptime::map(config, |c| c.block_size_m); // 16
     let block_size_k = Comptime::map(config, |c| c.block_size_k); // 32
-    let block_size_n = Comptime::map(config, |c| c.block_size_n); // 64
+    let block_size_n = Comptime::map(config, |c| c.block_size_n); // 16
     let tile_size = Comptime::map(config, |c| c.tile_size); // 16
     let use_cmma = Comptime::map(config, |c| c.use_cmma);
     let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size); // 32/16 = 2
 
-    // let num_tile_elems = Comptime::runtime((tile_size * tile_size) / sm_vec); // 256 / 4
-    let num_tile_elems = UInt::new(256); //Comptime::runtime(tile_size * tile_size); // 16*16 = 256
+    let num_tile_elems = Comptime::runtime(tile_size * tile_size); // 16*16 = 256
 
-    let num_tiles_per_row = block_size_m / tile_size; // 64/16 = 4
-    let num_tiles_per_col = block_size_n / tile_size; // 64/16 = 4
-    let num_tiles = num_tiles_per_row * num_tiles_per_col; // 4*4 = 16
+    let num_tiles_per_row = block_size_m / tile_size; // 16/16 = 1
+    let num_tiles_per_col = block_size_n / tile_size; // 16/16 = 1
+    let num_tiles = num_tiles_per_row * num_tiles_per_col; // 1*1 = 1
 
-    let n_iterations = Comptime::runtime(num_tiles) / CUBE_DIM_X; // 16/8 = 2
+    let n_iterations = Comptime::runtime(num_tiles) / CUBE_DIM_X; // 1/1 = 1
     let num_subcube_per_row =
-        Comptime::runtime(block_size_n) / (n_iterations * Comptime::runtime(tile_size)); // 64 / (2*16) = 2
+        Comptime::runtime(block_size_n) / (n_iterations * Comptime::runtime(tile_size)); // 16 / (1*16) = 1
 
-    let subcube_id = UNIT_POS_X; // 0..7
-    let tile_row = subcube_id / num_subcube_per_row; // 0..3
-    let tile_col_base = (subcube_id % num_subcube_per_row) * n_iterations; //0 or 2
+    let subcube_id = UNIT_POS_X; // 0
+    let tile_row = subcube_id / num_subcube_per_row; // 0
+    let tile_col_base = (subcube_id % num_subcube_per_row) * n_iterations; //0
 
     for n_iter in range(0u32, n_iterations, Comptime::new(false)) {
-        // 0..1
-        let tile_col = tile_col_base + n_iter; // 0..3
+        let tile_col = tile_col_base + n_iter; // 0
 
-        let accumulate_tile = tile_row * Comptime::runtime(num_tiles_per_row) + tile_col; // 0..3 * 4 + 0..3 -> 0..15
-        let accumulate_pos = accumulate_tile * num_tile_elems; // 0..3840
+        let accumulate_tile = tile_row * Comptime::runtime(num_tiles_per_row) + tile_col; // 0
+        let accumulate_pos = accumulate_tile * num_tile_elems; // 0
         let accumulate_slice = shared_memories
             .accumulate
             .slice_mut(accumulate_pos, accumulate_pos + num_tile_elems);
 
+        
+        let acc = cmma::Matrix::<F>::new(
+            cmma::MatrixIdent::Accumulator,
+            16,
+            16,
+            16,
+            cmma::MatrixLayout::Undefined,
+        );
+        cmma::fill::<F>(&acc, F::new(0.0));
+
         for k_iter in range(0u32, num_tiles_in_k, Comptime::new(false)) {
             // 0..1
-            let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter; // 0..7
-            let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter; // 0..7
-            let shared_lhs_pos = shared_lhs_tile * num_tile_elems; // 0..1792
-            let shared_rhs_pos = shared_rhs_tile * num_tile_elems; // 0..1792
+            let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter; // 0..1
+            let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter; // 0..1
+            let shared_lhs_pos = shared_lhs_tile * num_tile_elems; // 0..256
+            let shared_rhs_pos = shared_rhs_tile * num_tile_elems; // 0..256
 
             let lhs_slice = shared_memories
                 .lhs
@@ -56,12 +64,32 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
                 .rhs
                 .slice(shared_rhs_pos, shared_rhs_pos + num_tile_elems);
 
-            if Comptime::get(use_cmma) {
-                cmma_computation(lhs_slice, rhs_slice, accumulate_slice);
-            } else {
-                cmma_row_major_mimic(lhs_slice, rhs_slice, accumulate_slice);
-            }
+            let a = cmma::Matrix::<FC>::new(
+                cmma::MatrixIdent::A,
+                16,
+                16,
+                16,
+                cmma::MatrixLayout::RowMajor,
+            );
+            let b = cmma::Matrix::<FC>::new(
+                cmma::MatrixIdent::B,
+                16,
+                16,
+                16,
+                cmma::MatrixLayout::RowMajor,
+            );
+            cmma::load::<FC>(&a, lhs_slice, UInt::new(16));
+            cmma::load::<FC>(&b, rhs_slice, UInt::new(16));
+
+            cmma::execute::<FC, FC, F, F>(&a, &b, &acc, &acc);
         }
+
+        cmma::store::<F>(
+            accumulate_slice,
+            &acc,
+            UInt::new(16),
+            cmma::MatrixLayout::RowMajor,
+        );
     }
 }
 
@@ -119,18 +147,19 @@ pub fn cmma_computation<F: Float, FC: Float>(
         cmma::MatrixLayout::Undefined,
     );
     cmma::fill::<F>(&c, F::new(0.0));
-    cmma::load::<FC>(&a, lhs.as_slice(), UInt::new(16));
-    cmma::load::<FC>(&b, rhs.as_slice(), UInt::new(16));
+    
+    cmma::load::<FC>(&a, lhs, UInt::new(16));
+    cmma::load::<FC>(&b, rhs, UInt::new(16));
 
     cmma::execute::<FC, FC, F, F>(&a, &b, &c, &c);
 
-    cmma::store::<F>(
-        out.as_slice_mut(),
+     cmma::store::<F>(
+        out,
         &c,
-        UInt::new(16),
+        UInt::new(17),
         cmma::MatrixLayout::RowMajor,
     );
-}
+ }
 
 #[cfg(feature = "export_tests")]
 /// Compute loop exported tests
@@ -408,6 +437,7 @@ pub mod tests {
             528160., 532120., 536080., 540040.,
         ];
         assert_equals::<R>(results, expected, device);
+        assert!(false);
     }
 
     /// Exported test
@@ -530,9 +560,9 @@ pub mod tests {
     /// Exported test
     pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
         let config = CmmaConfig {
-            block_size_m: UInt::new(64),
+            block_size_m: UInt::new(16),
             block_size_k: UInt::new(32),
-            block_size_n: UInt::new(64),
+            block_size_n: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
@@ -579,7 +609,6 @@ pub mod tests {
             3611264., 3623280., 3635296., 3647312., 3659328., 3671344., 3683360., 3695376.,
         ];
 
-        if USE_CMMA {
             let lhs = range_tensor_f16::<R>(16, 32, device);
             let rhs = range_tensor_f16::<R>(32, 16, device);
             let results = create_empty::<R>(16, 16, device);
@@ -593,35 +622,14 @@ pub mod tests {
                 TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
                 TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
                 ArrayArg::new(&results, 256),
-                UInt::new(64),
+                UInt::new(16),
                 UInt::new(32),
-                UInt::new(64),
+                UInt::new(16),
                 config,
             );
 
             assert_equals::<R>(results, expected, device);
-        } else {
-            let lhs = range_tensor::<R>(16, 32, device);
-            let rhs = range_tensor::<R>(32, 16, device);
-            let results = create_empty::<R>(16, 16, device);
-            let cube_dim = CubeDim::new(1, 32, 1);
-            let cube_count = CubeCount::Static(1, 1, 1);
-
-            compute_loop_test::launch::<F32, F32, R>(
-                R::client(device),
-                cube_count,
-                cube_dim,
-                TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-                TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-                ArrayArg::new(&results, 256),
-                UInt::new(64),
-                UInt::new(32),
-                UInt::new(64),
-                config,
-            );
-
-            assert_equals::<R>(results, expected, device);
-        }
+       
     }
 
     /// Exported test

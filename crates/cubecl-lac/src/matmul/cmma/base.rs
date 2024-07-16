@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use super::block_loop::block_loop;
 use super::config::CmmaConfig;
 
-pub(crate) const USE_CMMA: bool = false;
+pub(crate) const USE_CMMA: bool = true;
 
 #[cube(launch)]
 #[allow(unused_mut)]
