@@ -412,7 +412,7 @@ impl From<i32> for Variable {
 
 impl From<i64> for Variable {
     fn from(value: i64) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::Int(value as i64, IntKind::I64))
+        Variable::ConstantScalar(ConstantScalarValue::Int(value, IntKind::I64))
     }
 }
 
@@ -424,7 +424,7 @@ impl From<f32> for Variable {
 
 impl From<f64> for Variable {
     fn from(value: f64) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::Float(value as f64, FloatKind::F64))
+        Variable::ConstantScalar(ConstantScalarValue::Float(value, FloatKind::F64))
     }
 }
 

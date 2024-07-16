@@ -54,7 +54,7 @@ pub trait Numeric:
         let elem = Self::as_elem();
         let value = match elem {
             Elem::Float(kind) => ConstantScalarValue::Float(val as f64, kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, kind),
+            Elem::Int(kind) => ConstantScalarValue::Int(val, kind),
             Elem::UInt => ConstantScalarValue::UInt(val as u64),
             _ => panic!("Wrong elem type"),
         };

@@ -22,8 +22,8 @@ impl ScopeProcessing {
             .merge_read_global_with_layout()
     }
 
-    /// Make sure constant scalars are of the good type so compilers don't have to do conversion
-    /// and handle edge cases such as indexing with a sign integer.
+    /// Make sure constant scalars are of the correct type so compilers don't have to do conversion
+    /// and handle edge cases such as indexing with a signed integer.
     fn sanitize_constant_scalars(mut self) -> Self {
         self.operations.iter_mut().for_each(|op| match op {
             Operation::Operator(op) => match op {

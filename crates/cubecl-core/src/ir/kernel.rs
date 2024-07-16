@@ -3,6 +3,16 @@ use crate::SUBCUBE_DIM_APPROX;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct KernelDefinition {
+    pub inputs: Vec<Binding>,
+    pub outputs: Vec<Binding>,
+    pub named: Vec<(String, Binding)>,
+    pub cube_dim: CubeDim,
+    pub body: Scope,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub enum Location {
@@ -60,7 +70,7 @@ impl Elem {
     pub fn constant_from_i64(&self, val: i64) -> Variable {
         Variable::ConstantScalar(match self {
             Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Elem::Int(kind) => ConstantScalarValue::Int(val, *kind),
             Elem::UInt => ConstantScalarValue::UInt(val as u64),
             Elem::Bool => ConstantScalarValue::Bool(val > 0),
         })
@@ -72,11 +82,11 @@ impl Elem {
         Variable::ConstantScalar(match self {
             Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
             Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::UInt => ConstantScalarValue::UInt(val as u64),
+            Elem::UInt => ConstantScalarValue::UInt(val),
             Elem::Bool => ConstantScalarValue::Bool(val > 0),
         })
     }
-    /// Create a constant scalar from a unsigned integer.
+    /// Create a constant scalar from a boolean.
     ///
     /// The output will have the same type as the element.
     pub fn constant_from_bool(&self, val: bool) -> Variable {
@@ -161,14 +171,4 @@ impl Default for CubeDim {
             z: 1,
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(missing_docs)]
-pub struct KernelDefinition {
-    pub inputs: Vec<Binding>,
-    pub outputs: Vec<Binding>,
-    pub named: Vec<(String, Binding)>,
-    pub cube_dim: CubeDim,
-    pub body: Scope,
 }

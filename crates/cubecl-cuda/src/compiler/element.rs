@@ -186,7 +186,7 @@ impl Display for Variable {
             Variable::ConstantScalar(number, _elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
                     gpu::IntKind::I32 => f.write_fmt(format_args!("{}", *val as i32)),
-                    gpu::IntKind::I64 => f.write_fmt(format_args!("{}", *val as i64)),
+                    gpu::IntKind::I64 => f.write_fmt(format_args!("{}", { *val })),
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
                     gpu::FloatKind::F16 => {
@@ -196,9 +196,9 @@ impl Display for Variable {
                         f.write_fmt(format_args!("{}", half::bf16::from_f64(*val)))
                     }
                     gpu::FloatKind::F32 => f.write_fmt(format_args!("{}", *val as f32)),
-                    gpu::FloatKind::F64 => f.write_fmt(format_args!("{}", *val as f64)),
+                    gpu::FloatKind::F64 => f.write_fmt(format_args!("{}", { *val })),
                 },
-                ConstantScalarValue::UInt(val) => f.write_fmt(format_args!("{}u", *val as u32)),
+                ConstantScalarValue::UInt(val) => f.write_fmt(format_args!("{}", *val as u32)),
                 ConstantScalarValue::Bool(val) => f.write_fmt(format_args!("{}", val)),
             },
             Variable::SharedMemory(number, _, _) => {

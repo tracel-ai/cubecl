@@ -250,7 +250,7 @@ impl Display for Variable {
             Variable::ConstantScalar(number, _elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
                     IntKind::I32 => f.write_fmt(format_args!("{}i", *val as i32)),
-                    IntKind::I64 => f.write_fmt(format_args!("{}i", *val as i64)),
+                    IntKind::I64 => f.write_fmt(format_args!("{}i", { *val })),
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
                     FloatKind::F16 => {
@@ -260,7 +260,7 @@ impl Display for Variable {
                         todo!("Unsupported")
                     }
                     FloatKind::F32 => f.write_fmt(format_args!("{}f", *val as f32)),
-                    FloatKind::F64 => f.write_fmt(format_args!("{}f", *val as f64)),
+                    FloatKind::F64 => f.write_fmt(format_args!("{}f", { *val })),
                 },
                 ConstantScalarValue::UInt(val) => f.write_fmt(format_args!("{}u", *val as u32)),
                 ConstantScalarValue::Bool(val) => f.write_fmt(format_args!("{}", val)),

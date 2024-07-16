@@ -72,7 +72,7 @@ pub enum Variable {
 }
 
 /// The scalars are stored with the highest precision possible, but they might get reduced during
-/// compolation.
+/// compilation.
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, PartialOrd)]
 #[allow(missing_docs)]
 pub enum ConstantScalarValue {
@@ -138,7 +138,7 @@ impl ConstantScalarValue {
     /// It will return [None] if the scalar type is a float or a bool.
     pub fn try_as_u64(&self) -> Option<u64> {
         match self {
-            ConstantScalarValue::UInt(val) => Some(*val as u64),
+            ConstantScalarValue::UInt(val) => Some(*val),
             ConstantScalarValue::Int(val, _) => Some(*val as u64),
             ConstantScalarValue::Float(_, _) => None,
             ConstantScalarValue::Bool(_) => None,
