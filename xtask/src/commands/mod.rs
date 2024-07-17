@@ -1,5 +1,6 @@
 pub(crate) mod check;
 pub(crate) mod ci;
+pub(crate) mod publish;
 pub(crate) mod pull_request_checks;
 pub(crate) mod test;
 

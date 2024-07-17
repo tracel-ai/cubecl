@@ -25,6 +25,8 @@ enum Command {
     Check(commands::check::CheckCmdArgs),
     /// Runs checks for Continous Integration
     CI(commands::ci::CICmdArgs),
+    /// Publish a crate to crates.io
+    Publish(commands::publish::PublishCmdArgs),
     /// Runs tests.
     Test(commands::test::TestCmdArgs),
     /// Runs all tests and checks that should pass before opening a Pull Request.
@@ -39,6 +41,7 @@ fn main() -> anyhow::Result<()> {
     match args.command {
         Command::Check(args) => commands::check::handle_command(args, None),
         Command::CI(args) => commands::ci::handle_command(args),
+        Command::Publish(args) => commands::publish::handle_command(args),
         Command::Test(args) => commands::test::handle_command(args),
         Command::PullRequestChecks => commands::pull_request_checks::handle_command(),
     }?;
