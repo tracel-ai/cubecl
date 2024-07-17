@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    ArgSettings, Array, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg,
+    ArgSettings, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg,
     LaunchArgExpand, UInt, I64,
 };
 
@@ -64,7 +64,7 @@ pub trait Numeric:
 
     type Primitive: ScalarArgSettings;
 
-    fn from_vec<const D: usize>(_vec: [i64; D]) -> Self {
+    fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {
         unexpanded!()
     }
 
@@ -80,7 +80,7 @@ pub trait Numeric:
 
     fn __expand_from_vec<const D: usize>(
         context: &mut CubeContext,
-        vec: [ExpandElementTyped<I64>; D],
+        vec: [ExpandElementTyped<UInt>; D],
     ) -> <Self as CubeType>::ExpandType {
         let new_var = context.create_local(Item::vectorized(Self::as_elem(), vec.len() as u8));
         let elem = Self::as_elem();
@@ -89,7 +89,7 @@ pub trait Numeric:
             let var: Variable = elem.constant_from_i64(element.constant().unwrap().as_i64());
             let expand = ExpandElement::Plain(var);
 
-            index_assign::expand::<Array<I64>>(
+            index_assign::expand::<UInt>(
                 context,
                 new_var.clone().into(),
                 ExpandElementTyped::from_lit(i),
