@@ -3,22 +3,31 @@ use crate::frontend::{
     ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
     ExpandElementTyped, Numeric,
 };
-use crate::ir::{ConstantScalarValue, Elem, IntKind, Item, Variable, Vectorization};
-use crate::prelude::index_assign;
+use crate::ir::{ConstantScalarValue, Elem, IntKind, Variable, Vectorization};
 use crate::Runtime;
 
-use super::{init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
+use super::{
+    init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized, __expand_new,
+    __expand_vectorized,
+};
 
 /// Signed integer. Used as input in int kernels
 pub trait Int: Numeric + std::ops::Rem<Output = Self> {
     fn new(val: i64) -> Self;
     fn vectorized(val: i64, vectorization: UInt) -> Self;
-    fn __expand_new(context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType;
+    fn __expand_new(
+        context: &mut CubeContext,
+        val: Self::ExpandType,
+    ) -> <Self as CubeType>::ExpandType {
+        __expand_new(context, val, Self::as_elem())
+    }
     fn __expand_vectorized(
         context: &mut CubeContext,
-        val: i64,
+        val: Self::ExpandType,
         vectorization: UInt,
-    ) -> <Self as CubeType>::ExpandType;
+    ) -> <Self as CubeType>::ExpandType {
+        __expand_vectorized(context, val, vectorization, Self::as_elem())
+    }
 }
 
 macro_rules! impl_int {
@@ -78,31 +87,6 @@ macro_rules! impl_int {
                         val: val as $primitive,
                         vectorization: vectorization.val as u8,
                     }
-                }
-            }
-
-            fn __expand_new(
-                _context: &mut CubeContext,
-                val: i64,
-            ) -> <Self as CubeType>::ExpandType {
-                Self::new(val).into_expand()
-            }
-
-            fn __expand_vectorized(
-                context: &mut CubeContext,
-                val: i64,
-                vectorization: UInt,
-            ) -> <Self as CubeType>::ExpandType {
-                if vectorization.val == 1 {
-                    Self::__expand_new(context, val)
-                } else {
-                    let mut new_var = context
-                        .create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8));
-                    for (i, element) in vec![val; vectorization.val as usize].iter().enumerate() {
-                        new_var = index_assign::expand(context, new_var, i, *element);
-                    }
-
-                    new_var.into()
                 }
             }
         }

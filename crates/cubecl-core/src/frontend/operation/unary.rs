@@ -21,11 +21,12 @@ pub mod not {
 macro_rules! impl_unary_func {
     ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $operator:expr, $($type:ty),*) => {
         pub trait $trait_name: CubeType + Sized {
-            fn $method_name(_input: Self) -> Self {
+            fn $method_name<N: Into<Self>>(_input: N) -> Self {
                 unexpanded!()
             }
 
-            fn $method_name_expand(context: &mut CubeContext, x: ExpandElementTyped<Self>) -> ExpandElementTyped<Self> {
+            fn $method_name_expand<N: Into<ExpandElementTyped<Self>>>(context: &mut CubeContext, x: N) -> ExpandElementTyped<Self> {
+                let x: ExpandElementTyped<Self> = x.into();
                 unary_expand(context, x.into(), $operator).into()
             }
         }

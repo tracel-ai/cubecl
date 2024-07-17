@@ -26,7 +26,7 @@ pub(crate) fn codegen_array_lit(array: &syn::ExprArray) -> TokenStream {
     let mut tokens = quote::quote! {};
     for element in array.elems.iter() {
         let token = match element {
-            syn::Expr::Lit(lit) => codegen_lit(lit),
+            syn::Expr::Lit(lit) => Codegen::new(codegen_lit(lit), CodegenKind::Literal),
             _ => {
                 return syn::Error::new_spanned(array, "Only arrays of literals are supported")
                     .into_compile_error()

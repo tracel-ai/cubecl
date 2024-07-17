@@ -97,6 +97,21 @@ impl Elem {
             Elem::Bool => ConstantScalarValue::Bool(val),
         })
     }
+
+    /// Ensure that the variable provided, when a constant, is the same type as elem.
+    pub fn from_constant(&self, constant: Variable) -> Variable {
+        let value = match constant {
+            Variable::ConstantScalar(value) => value,
+            _ => return constant,
+        };
+
+        match value {
+            ConstantScalarValue::Int(val, _) => self.constant_from_i64(val),
+            ConstantScalarValue::Float(val, _) => self.constant_from_f64(val),
+            ConstantScalarValue::UInt(val) => self.constant_from_u64(val),
+            ConstantScalarValue::Bool(val) => self.constant_from_bool(val),
+        }
+    }
 }
 
 impl From<Elem> for Item {

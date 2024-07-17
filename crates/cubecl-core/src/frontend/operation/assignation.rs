@@ -19,20 +19,25 @@ pub mod assign {
 }
 
 pub mod index_assign {
-    use crate::{frontend::CubeType, prelude::SliceMut, unexpanded};
+    use crate::{
+        frontend::CubeType,
+        prelude::{ExpandElementTyped, SliceMut},
+        unexpanded,
+    };
 
     use self::ir::{BinaryOperator, Operator, Variable};
 
     use super::*;
 
-    pub fn expand<A: Into<ExpandElement>, I: Into<ExpandElement>, V: Into<ExpandElement>>(
+    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
         context: &mut CubeContext,
-        array: A,
-        index: I,
-        value: V,
-    ) -> ExpandElement {
-        let array = array.into();
-        let index: Variable = *index.into();
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<UInt>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        let index: Variable = index.expand.into();
         let index = match index {
             Variable::ConstantScalar(value) => {
                 Variable::ConstantScalar(ir::ConstantScalarValue::UInt(value.as_u64()))
@@ -41,10 +46,9 @@ pub mod index_assign {
         };
         context.register(Operator::IndexAssign(BinaryOperator {
             lhs: index,
-            rhs: *value.into(),
-            out: *array,
+            rhs: value.expand.into(),
+            out: array.expand.into(),
         }));
-        array
     }
 
     macro_rules! impl_index {
@@ -82,10 +86,10 @@ pub mod index {
 
     use super::*;
 
-    pub fn expand<A: CubeType + core::ops::Index<UInt>, I: Into<ExpandElement>>(
+    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
         context: &mut CubeContext,
         array: ExpandElementTyped<A>,
-        index: I,
+        index: ExpandElementTyped<UInt>,
     ) -> ExpandElementTyped<A::Output>
     where
         A::Output: CubeType + Sized,

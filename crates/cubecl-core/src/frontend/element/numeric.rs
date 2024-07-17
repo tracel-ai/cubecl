@@ -1,6 +1,6 @@
 use crate::compute::KernelLauncher;
-use crate::frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement};
-use crate::ir::{ConstantScalarValue, Elem, Item, Variable};
+use crate::frontend::{CubeContext, CubePrimitive, CubeType};
+use crate::ir::{Item, Variable};
 use crate::prelude::Clamp;
 use crate::Runtime;
 use crate::{
@@ -8,7 +8,10 @@ use crate::{
     unexpanded,
 };
 
-use super::{ArgSettings, ExpandElementBaseInit, LaunchArg, LaunchArgExpand};
+use super::{
+    ArgSettings, Array, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg,
+    LaunchArgExpand, I64,
+};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -50,25 +53,37 @@ pub trait Numeric:
         unexpanded!()
     }
 
-    fn __expand_from_int(_context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType {
+    fn __expand_from_int(
+        _context: &mut CubeContext,
+        val: ExpandElementTyped<I64>,
+    ) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_elem();
-        let value = match elem {
-            Elem::Float(kind) => ConstantScalarValue::Float(val as f64, kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val, kind),
-            Elem::UInt => ConstantScalarValue::UInt(val as u64),
-            _ => panic!("Wrong elem type"),
-        };
+        let var: Variable = elem
+            .constant_from_i64(val.constant().unwrap().as_i64())
+            .into();
 
-        ExpandElement::Plain(Variable::ConstantScalar(value)).into()
+        ExpandElement::Plain(var).into()
     }
 
     fn __expand_from_vec<const D: usize>(
         context: &mut CubeContext,
-        vec: [i64; D],
+        vec: [ExpandElementTyped<I64>; D],
     ) -> <Self as CubeType>::ExpandType {
-        let mut new_var = context.create_local(Item::vectorized(Self::as_elem(), vec.len() as u8));
+        let new_var = context.create_local(Item::vectorized(Self::as_elem(), vec.len() as u8));
+        let elem = Self::as_elem();
+
         for (i, element) in vec.iter().enumerate() {
-            new_var = index_assign::expand(context, new_var, i, *element);
+            let var: Variable = elem
+                .constant_from_i64(element.constant().unwrap().as_i64())
+                .into();
+            let expand = ExpandElement::Plain(var);
+
+            index_assign::expand::<Array<I64>>(
+                context,
+                new_var.clone().into(),
+                ExpandElementTyped::from_lit(i),
+                expand.into(),
+            );
         }
 
         new_var.into()

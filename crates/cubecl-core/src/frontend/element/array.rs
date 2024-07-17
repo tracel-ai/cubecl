@@ -79,15 +79,21 @@ impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
     ) -> ExpandElementTyped<C> {
         let factor = vectorization_factor.val;
         let var = self.expand.clone();
-        let mut new_var = context.create_local(Item::vectorized(var.item().elem(), factor as u8));
+        let new_var = context.create_local(Item::vectorized(var.item().elem(), factor as u8));
+
         if vectorization_factor.val == 1 {
-            let element = index::expand(context, self.clone(), 0u32);
+            let element = index::expand(context, self.clone(), ExpandElementTyped::from_lit(0u32));
             assign::expand(context, element, new_var.clone());
         } else {
             for i in 0..factor {
                 let expand: Self = self.expand.clone().into();
-                let element = index::expand(context, expand, i);
-                new_var = index_assign::expand(context, new_var, i, element);
+                let element = index::expand(context, expand, ExpandElementTyped::from_lit(i));
+                index_assign::expand::<Array<C>>(
+                    context,
+                    new_var.clone().into(),
+                    ExpandElementTyped::from_lit(i),
+                    element,
+                );
             }
         }
         new_var.into()

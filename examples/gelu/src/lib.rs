@@ -9,7 +9,7 @@ fn gelu_array<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 
 #[cube]
 fn gelu_scalar<F: Float>(x: F) -> F {
-    x * (F::new(1.0) + F::erf(x / F::sqrt(F::new(2.0)))) / F::new(2.0)
+    x * (F::new(1.0) + F::erf(x / F::sqrt(2.0))) / F::new(2.0)
 }
 
 pub fn launch<R: Runtime>(device: &R::Device) {

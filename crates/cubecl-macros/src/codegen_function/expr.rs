@@ -63,10 +63,7 @@ pub(crate) fn codegen_expr(
                     kind = index_kind;
                     tokens
                 }
-                syn::Expr::Array(array) => {
-                    kind = CodegenKind::Literal;
-                    codegen_array_lit(array)
-                }
+                syn::Expr::Array(array) => codegen_array_lit(array),
                 syn::Expr::Reference(reference) => {
                     codegen_ref(reference, loop_level, variable_tracker)
                 }

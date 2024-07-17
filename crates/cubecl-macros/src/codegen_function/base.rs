@@ -53,12 +53,14 @@ pub(crate) enum CodegenKind {
     Expand,
 }
 
+#[derive(Clone)]
 pub(crate) struct Codegen {
     tokens: proc_macro2::TokenStream,
     array_indexing: Option<ArrayIndexing>,
     kind: CodegenKind,
 }
 
+#[derive(Clone)]
 pub(crate) struct ArrayIndexing {
     pub array: proc_macro2::TokenStream,
     pub index: proc_macro2::TokenStream,
@@ -106,12 +108,23 @@ impl Codegen {
 
 impl ToTokens for Codegen {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.tokens.clone());
+        let cloned = self.clone();
+        let toks = cloned.into_token_stream();
+        tokens.extend(toks);
     }
     fn into_token_stream(self) -> TokenStream
     where
         Self: Sized,
     {
-        self.tokens
+        match self.kind {
+            CodegenKind::Comptime => self.tokens,
+            CodegenKind::Expand => self.tokens,
+            CodegenKind::Literal => {
+                let lit = self.tokens;
+                quote::quote! {
+                    cubecl::frontend::ExpandElementTyped::from_lit(#lit)
+                }
+            }
+        }
     }
 }
