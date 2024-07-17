@@ -17,6 +17,17 @@ pub(crate) fn codegen_expr_method_call(
     variable_tracker: &mut VariableTracker,
 ) -> TokenStream {
     let receiver = codegen_expr(&call.receiver, loop_level, variable_tracker);
+
+    if call.method == "into" {
+        let (tokens, kind, _) = receiver.process();
+
+        return match kind {
+            CodegenKind::Comptime => quote::quote! { #tokens.into() },
+            CodegenKind::Literal => quote::quote! { #tokens },
+            CodegenKind::Expand => quote::quote! { #tokens.into() },
+        };
+    }
+
     let method_expand = syn::Ident::new(
         format!("__expand_{}_method", call.method).as_str(),
         proc_macro2::Span::call_site(),

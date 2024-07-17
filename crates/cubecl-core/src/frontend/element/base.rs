@@ -1,13 +1,12 @@
 use std::marker::PhantomData;
 
+use super::{Bool, Float, Int, Numeric, UInt, Vectorized, F64, I64};
 use crate::{
     ir::{ConstantScalarValue, Elem, Item, Operator, Variable, Vectorization},
     prelude::{index_assign, init_expand, CubeContext, KernelBuilder, KernelLauncher},
     KernelSettings, Runtime,
 };
 use alloc::rc::Rc;
-
-use super::{Array, Bool, Float, UInt, Vectorized, F64, I32, I64};
 
 /// Types used in a cube function must implement this trait
 ///
@@ -124,6 +123,11 @@ pub struct ExpandElementTyped<T: CubeType> {
     pub(crate) _type: PhantomData<T>,
 }
 
+// Fake implementation for traits.
+impl<T: CubeType> CubeType for ExpandElementTyped<T> {
+    type ExpandType = ();
+}
+
 macro_rules! from_const {
     ($lit:ty, $ty:ty) => {
         impl From<$lit> for ExpandElementTyped<$ty> {
@@ -146,7 +150,6 @@ macro_rules! from_const {
 }
 
 from_const!(u32, UInt);
-from_const!(i32, I32);
 from_const!(i64, I64);
 from_const!(f64, F64);
 from_const!(bool, Bool);
@@ -155,6 +158,12 @@ from_const!(val UInt);
 impl<F: Float> From<f32> for ExpandElementTyped<F> {
     fn from(value: f32) -> Self {
         ExpandElement::Plain(F::as_elem().from_constant(value.into())).into()
+    }
+}
+
+impl<I: Int> From<i32> for ExpandElementTyped<I> {
+    fn from(value: i32) -> Self {
+        ExpandElement::Plain(I::as_elem().from_constant(value.into())).into()
     }
 }
 
@@ -349,7 +358,7 @@ impl<T: Init> Init for Vec<T> {
     }
 }
 
-pub(crate) fn __expand_new<C: CubeType>(
+pub(crate) fn __expand_new<C: Numeric>(
     _context: &mut CubeContext,
     val: ExpandElementTyped<C>,
     elem: Elem,
@@ -357,7 +366,7 @@ pub(crate) fn __expand_new<C: CubeType>(
     ExpandElement::Plain(elem.from_constant(*val.expand)).into()
 }
 
-pub(crate) fn __expand_vectorized<C: CubeType>(
+pub(crate) fn __expand_vectorized<C: Numeric>(
     context: &mut CubeContext,
     val: ExpandElementTyped<C>,
     vectorization: UInt,
@@ -371,7 +380,7 @@ pub(crate) fn __expand_vectorized<C: CubeType>(
         for (i, element) in vec![val; vectorization.val as usize].iter().enumerate() {
             let element = elem.from_constant(*element.expand);
 
-            index_assign::expand::<Array<C>>(
+            index_assign::expand::<C>(
                 context,
                 new_var.clone().into(),
                 ExpandElementTyped::from_lit(i),

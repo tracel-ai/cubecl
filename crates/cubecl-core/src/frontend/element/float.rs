@@ -12,13 +12,12 @@ use super::{
     __expand_vectorized,
 };
 use crate::compute::{KernelBuilder, KernelLauncher};
-use crate::{unexpanded, Runtime};
+use crate::Runtime;
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
     Numeric
     + Exp
-    + From<f32>
     + Log
     + Log1p
     + Cos
@@ -30,10 +29,17 @@ pub trait Float:
     + Ceil
     + Erf
     + Recip
-    + core::ops::Div<f32, Output = Self>
+    + From<f32>
     + core::ops::Add<f32, Output = Self>
-    + core::ops::Index<UInt, Output = Self>
-    + core::ops::IndexMut<UInt, Output = Self>
+    + core::ops::Sub<f32, Output = Self>
+    + core::ops::Mul<f32, Output = Self>
+    + core::ops::Div<f32, Output = Self>
+    + std::ops::AddAssign<f32>
+    + std::ops::SubAssign<f32>
+    + std::ops::MulAssign<f32>
+    + std::ops::DivAssign<f32>
+    + std::cmp::PartialOrd<f32>
+    + std::cmp::PartialEq<f32>
 {
     fn new(val: f32) -> Self;
     fn vectorized(val: f32, vectorization: UInt) -> Self;
@@ -94,25 +100,15 @@ macro_rules! impl_float {
             type Primitive = $primitive;
         }
 
+        impl From<u32> for $type {
+            fn from(val: u32) -> Self {
+                $type::from_int(val)
+            }
+        }
+
         impl ExpandElementBaseInit for $type {
             fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
                 init_expand_element(context, elem)
-            }
-        }
-
-        impl core::ops::Div<f32> for $type {
-            type Output = Self;
-
-            fn div(self, _rhs: f32) -> Self::Output {
-                unexpanded!();
-            }
-        }
-
-        impl core::ops::Add<f32> for $type {
-            type Output = Self;
-
-            fn add(self, _rhs: f32) -> Self::Output {
-                unexpanded!();
             }
         }
 
@@ -150,20 +146,6 @@ macro_rules! impl_float {
                         .create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8))
                         .into()
                 }
-            }
-        }
-
-        impl core::ops::Index<UInt> for $type {
-            type Output = Self;
-
-            fn index(&self, _index: UInt) -> &Self::Output {
-                unexpanded!()
-            }
-        }
-
-        impl core::ops::IndexMut<UInt> for $type {
-            fn index_mut(&mut self, _index: UInt) -> &mut Self::Output {
-                unexpanded!()
             }
         }
 

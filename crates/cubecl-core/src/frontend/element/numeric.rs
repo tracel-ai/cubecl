@@ -10,30 +10,45 @@ use crate::{
 
 use super::{
     ArgSettings, Array, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg,
-    LaunchArgExpand, I64,
+    LaunchArgExpand, UInt, I64,
 };
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
 pub trait Numeric:
     Copy
-    + ExpandElementBaseInit
-    + CubePrimitive
-    + LaunchArgExpand
-    + std::ops::Add<Output = Self>
-    + std::ops::AddAssign
-    + std::ops::SubAssign
-    + std::ops::MulAssign
-    + std::ops::DivAssign
-    + std::ops::Sub<Output = Self>
-    + std::ops::Mul<Output = Self>
-    + std::ops::Div<Output = Self>
-    + std::cmp::PartialOrd
     + Abs
     + Max
     + Min
     + Clamp
     + Remainder
+    + ExpandElementBaseInit
+    + CubePrimitive
+    + LaunchArgExpand
+    + std::ops::AddAssign
+    + std::ops::SubAssign
+    + std::ops::MulAssign
+    + std::ops::DivAssign
+    + std::ops::Add<Output = Self>
+    + std::ops::Sub<Output = Self>
+    + std::ops::Mul<Output = Self>
+    + std::ops::Div<Output = Self>
+    + std::cmp::PartialOrd
+    + core::ops::Index<UInt, Output = Self>
+    + core::ops::IndexMut<UInt, Output = Self>
+    + core::ops::Index<u32, Output = Self>
+    + core::ops::IndexMut<u32, Output = Self>
+    + From<u32>
+    + std::ops::Add<u32, Output = Self>
+    + std::ops::Sub<u32, Output = Self>
+    + std::ops::Mul<u32, Output = Self>
+    + std::ops::Div<u32, Output = Self>
+    + std::ops::AddAssign<u32>
+    + std::ops::SubAssign<u32>
+    + std::ops::MulAssign<u32>
+    + std::ops::DivAssign<u32>
+    + std::cmp::PartialOrd<u32>
+    + std::cmp::PartialEq<u32>
 {
     /// Create a new constant numeric.
     ///
@@ -43,7 +58,7 @@ pub trait Numeric:
     ///
     /// This method panics when unexpanded. For creating an element
     /// with a val, use the new method of the sub type.
-    fn from_int(_val: i64) -> Self {
+    fn from_int(_val: u32) -> Self {
         unexpanded!()
     }
 
@@ -58,9 +73,7 @@ pub trait Numeric:
         val: ExpandElementTyped<I64>,
     ) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_elem();
-        let var: Variable = elem
-            .constant_from_i64(val.constant().unwrap().as_i64())
-            .into();
+        let var: Variable = elem.constant_from_i64(val.constant().unwrap().as_i64());
 
         ExpandElement::Plain(var).into()
     }
@@ -73,9 +86,7 @@ pub trait Numeric:
         let elem = Self::as_elem();
 
         for (i, element) in vec.iter().enumerate() {
-            let var: Variable = elem
-                .constant_from_i64(element.constant().unwrap().as_i64())
-                .into();
+            let var: Variable = elem.constant_from_i64(element.constant().unwrap().as_i64());
             let expand = ExpandElement::Plain(var);
 
             index_assign::expand::<Array<I64>>(

@@ -12,7 +12,21 @@ use super::{
 };
 
 /// Signed integer. Used as input in int kernels
-pub trait Int: Numeric + std::ops::Rem<Output = Self> {
+pub trait Int:
+    Numeric
+    + std::ops::Rem<Output = Self>
+    + From<i32>
+    + core::ops::Add<i32, Output = Self>
+    + core::ops::Sub<i32, Output = Self>
+    + core::ops::Mul<i32, Output = Self>
+    + core::ops::Div<i32, Output = Self>
+    + std::ops::AddAssign<i32>
+    + std::ops::SubAssign<i32>
+    + std::ops::MulAssign<i32>
+    + std::ops::DivAssign<i32>
+    + std::cmp::PartialOrd<i32>
+    + std::cmp::PartialEq<i32>
+{
     fn new(val: i64) -> Self;
     fn vectorized(val: i64, vectorization: UInt) -> Self;
     fn __expand_new(
@@ -45,6 +59,24 @@ macro_rules! impl_int {
         impl CubePrimitive for $type {
             fn as_elem() -> Elem {
                 Elem::Int(IntKind::$type)
+            }
+        }
+
+        impl From<u32> for $type {
+            fn from(val: u32) -> Self {
+                Self {
+                    val: val as $primitive,
+                    vectorization: 1,
+                }
+            }
+        }
+
+        impl From<i32> for $type {
+            fn from(val: i32) -> Self {
+                Self {
+                    val: val as $primitive,
+                    vectorization: 1,
+                }
             }
         }
 
@@ -122,15 +154,6 @@ impl_int!(I64, i64);
 
 impl From<i64> for I64 {
     fn from(value: i64) -> Self {
-        Self {
-            val: value,
-            vectorization: 1,
-        }
-    }
-}
-
-impl From<i32> for I32 {
-    fn from(value: i32) -> Self {
         Self {
             val: value,
             vectorization: 1,

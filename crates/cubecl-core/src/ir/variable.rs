@@ -159,7 +159,7 @@ impl ConstantScalarValue {
     pub fn try_as_i64(&self) -> Option<i64> {
         match self {
             ConstantScalarValue::UInt(val) => Some(*val as i64),
-            ConstantScalarValue::Int(val, _) => Some(*val as i64),
+            ConstantScalarValue::Int(val, _) => Some(*val),
             ConstantScalarValue::Float(_, _) => None,
             ConstantScalarValue::Bool(_) => None,
         }

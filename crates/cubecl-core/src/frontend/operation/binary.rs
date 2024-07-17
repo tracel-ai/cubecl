@@ -5,9 +5,34 @@ use crate::frontend::{
 use crate::ir::Operator;
 use crate::{frontend::CubeType, unexpanded};
 
-pub mod add {
+macro_rules! impl_op {
+    (($tr:ident|$func:ident|$op:tt) => { $($type:ty| $($rhs:ty);*),* }) => {
+        $(
+            $(
+                impl $tr<$rhs> for $type {
+                    type Output = Self;
 
+                    fn $func(self, rhs: $rhs) -> Self::Output {
+                        let rhs: Self = rhs.into();
+                        self $op rhs
+                    }
+                }
+            )*
+
+            impl $tr for $type {
+                type Output = Self;
+
+                fn $func(self, rhs: Self) -> Self::Output {
+                    (self.val $op rhs.val).into()
+                }
+            }
+        )*
+    };
+}
+
+pub mod add {
     use super::*;
+    use core::ops::Add;
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
@@ -17,29 +42,22 @@ pub mod add {
         binary_expand(context, lhs.into(), rhs.into(), Operator::Add).into()
     }
 
-    macro_rules! impl_add {
-        ($type:ty) => {
-            impl core::ops::Add for $type {
-                type Output = Self;
-
-                fn add(self, rhs: Self) -> Self::Output {
-                    (self.val + rhs.val).into()
-                }
-            }
-        };
-    }
-
-    impl_add!(F16);
-    impl_add!(BF16);
-    impl_add!(F32);
-    impl_add!(F64);
-    impl_add!(I32);
-    impl_add!(I64);
-    impl_add!(UInt);
+    impl_op!(
+        (Add|add|+) => {
+            F16 | f32;u32,
+            F32 | f32;u32,
+            BF16 | f32;u32,
+            F64 | f32;u32,
+            I32 | i32;u32,
+            I64 | i32;u32,
+            UInt | u32
+        }
+    );
 }
 
 pub mod sub {
     use super::*;
+    use core::ops::Sub;
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
@@ -49,29 +67,22 @@ pub mod sub {
         binary_expand(context, lhs.into(), rhs.into(), Operator::Sub).into()
     }
 
-    macro_rules! impl_sub {
-        ($type:ty) => {
-            impl core::ops::Sub for $type {
-                type Output = Self;
-
-                fn sub(self, rhs: Self) -> Self::Output {
-                    (self.val - rhs.val).into()
-                }
-            }
-        };
-    }
-
-    impl_sub!(F16);
-    impl_sub!(BF16);
-    impl_sub!(F32);
-    impl_sub!(F64);
-    impl_sub!(I32);
-    impl_sub!(I64);
-    impl_sub!(UInt);
+    impl_op!(
+        (Sub|sub|-) => {
+            F16 | f32;u32,
+            F32 | f32;u32,
+            BF16 | f32;u32,
+            F64 | f32;u32,
+            I32 | i32;u32,
+            I64 | i32;u32,
+            UInt | u32
+        }
+    );
 }
 
 pub mod mul {
     use super::*;
+    use core::ops::Mul;
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
@@ -81,29 +92,22 @@ pub mod mul {
         binary_expand(context, lhs.into(), rhs.into(), Operator::Mul).into()
     }
 
-    macro_rules! impl_mul {
-        ($type:ty) => {
-            impl core::ops::Mul for $type {
-                type Output = Self;
-
-                fn mul(self, rhs: Self) -> Self::Output {
-                    (self.val * rhs.val).into()
-                }
-            }
-        };
-    }
-
-    impl_mul!(F16);
-    impl_mul!(BF16);
-    impl_mul!(F32);
-    impl_mul!(F64);
-    impl_mul!(I32);
-    impl_mul!(I64);
-    impl_mul!(UInt);
+    impl_op!(
+        (Mul|mul|*) => {
+            F16 | f32;u32,
+            F32 | f32;u32,
+            BF16 | f32;u32,
+            F64 | f32;u32,
+            I32 | i32;u32,
+            I64 | i32;u32,
+            UInt | u32
+        }
+    );
 }
 
 pub mod div {
     use super::*;
+    use core::ops::Div;
 
     pub fn expand<C: CubePrimitive, R: Into<ExpandElementTyped<C>>>(
         context: &mut CubeContext,
@@ -114,25 +118,17 @@ pub mod div {
         binary_expand(context, lhs.into(), rhs.into(), Operator::Div).into()
     }
 
-    macro_rules! impl_div {
-        ($type:ty) => {
-            impl core::ops::Div for $type {
-                type Output = Self;
-
-                fn div(self, rhs: Self) -> Self::Output {
-                    (self.val / rhs.val).into()
-                }
-            }
-        };
-    }
-
-    impl_div!(F16);
-    impl_div!(BF16);
-    impl_div!(F32);
-    impl_div!(F64);
-    impl_div!(I32);
-    impl_div!(I64);
-    impl_div!(UInt);
+    impl_op!(
+        (Div|div|/) => {
+            F16 | f32;u32,
+            F32 | f32;u32,
+            BF16 | f32;u32,
+            F64 | f32;u32,
+            I32 | i32;u32,
+            I64 | i32;u32,
+            UInt | u32
+        }
+    );
 }
 
 pub mod rem {

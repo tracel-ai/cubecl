@@ -4,6 +4,28 @@ use crate::ir::Operator;
 use crate::prelude::CubePrimitive;
 
 macro_rules! impl_cmp {
+    ({ $($type:ty| $($rhs:ty);*),* }) => {
+        $(
+            $(
+                impl core::cmp::PartialEq<$rhs> for $type {
+                    fn eq(&self, rhs: &$rhs) -> bool {
+                        let rhs: Self = (*rhs).into();
+                        self == &rhs
+                    }
+                }
+
+                impl core::cmp::PartialOrd<$rhs> for $type {
+                    fn partial_cmp(&self, rhs: &$rhs) -> Option<std::cmp::Ordering> {
+                        let rhs: Self = (*rhs).into();
+                        core::cmp::PartialOrd::partial_cmp(self, &rhs)
+                    }
+                }
+
+            )*
+
+            impl_cmp!($type);
+        )*
+    };
     ($type:ty) => {
         impl core::cmp::PartialEq for $type {
             fn eq(&self, other: &Self) -> bool {
@@ -25,13 +47,18 @@ macro_rules! impl_cmp {
     };
 }
 
-impl_cmp!(F16);
-impl_cmp!(BF16);
-impl_cmp!(F32);
-impl_cmp!(F64);
-impl_cmp!(I32);
-impl_cmp!(I64);
-impl_cmp!(UInt);
+impl_cmp!(
+    {
+        F16 | f32;u32,
+        F32 | f32;u32,
+        BF16 | f32;u32,
+        F64 | f32;u32,
+        I32 | i32;u32,
+        I64 | i32;u32,
+        UInt | u32
+
+    }
+);
 
 pub mod ne {
 
