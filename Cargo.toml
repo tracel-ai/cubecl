@@ -7,6 +7,7 @@ resolver = "2"
 members = [
     "crates/*",
     "examples/*",
+    "xtask",
 ]
 
 [workspace.package]
@@ -44,6 +45,7 @@ async-channel = "2.3"
 
 # Testing
 serial_test = "3.1.1"
+rstest = "0.19.0"
 
 bytemuck = "1.16.1"
 half = { version = "2.4.1", features = [
@@ -58,6 +60,13 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 proc-macro2 = "1.0.86"
 syn = { version = "2.0.69", features = ["full", "extra-traits"] }
 quote = "1.0.36"
+
+# xtask
+anyhow = "1.0.86"
+clap = { version = "4.5.9", features = ["derive"] }
+derive_more = { version = "0.99.18", features = ["display"], default-features = false }
+env_logger = "0.11.3"
+strum = {version = "0.26.3", features = ["derive"]}
 
 [profile.dev]
 opt-level = 2

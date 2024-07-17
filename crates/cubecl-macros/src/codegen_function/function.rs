@@ -7,7 +7,7 @@ use syn::{
 
 use crate::{codegen_function::expr::codegen_expr, tracker::VariableTracker};
 
-use super::base::Codegen;
+use super::base::{Codegen, CodegenKind};
 
 /// Codegen for method call
 /// Supports [expr].method(args)
@@ -17,6 +17,17 @@ pub(crate) fn codegen_expr_method_call(
     variable_tracker: &mut VariableTracker,
 ) -> TokenStream {
     let receiver = codegen_expr(&call.receiver, loop_level, variable_tracker);
+
+    if call.method == "into" {
+        let (tokens, kind, _) = receiver.process();
+
+        return match kind {
+            CodegenKind::Comptime => quote::quote! { #tokens.into() },
+            CodegenKind::Literal => quote::quote! { #tokens },
+            CodegenKind::Expand => quote::quote! { #tokens.into() },
+        };
+    }
+
     let method_expand = syn::Ident::new(
         format!("__expand_{}_method", call.method).as_str(),
         proc_macro2::Span::call_site(),
@@ -98,7 +109,7 @@ pub(crate) fn codegen_call(
         _ => {
             return Codegen::new(
                 syn::Error::new_spanned(&call.func, "Unsupported").into_compile_error(),
-                false,
+                CodegenKind::Expand,
             )
         }
     };
@@ -215,7 +226,7 @@ pub(crate) fn codegen_call(
             _ => panic!("Codegen: Comptime function {:?} does not exist", func_name),
         };
 
-        Codegen::new(tokens, true)
+        Codegen::new(tokens, CodegenKind::Comptime)
     } else {
         let (expansion, variables) = codegen_args(&call.args, loop_level, variable_tracker);
 
@@ -225,7 +236,7 @@ pub(crate) fn codegen_call(
             #path_tokens (#variables)
         }};
 
-        Codegen::new(tokens, false)
+        Codegen::new(tokens, CodegenKind::Expand)
     }
 }
 

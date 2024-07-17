@@ -16,9 +16,11 @@ pub trait BoolOps {
     fn new(value: bool) -> bool {
         value
     }
-    fn __expand_new(_context: &mut CubeContext, value: bool) -> ExpandElementTyped<bool> {
-        let var: ExpandElement = value.into();
-        var.into()
+    fn __expand_new(
+        _context: &mut CubeContext,
+        value: ExpandElementTyped<bool>,
+    ) -> ExpandElementTyped<bool> {
+        ExpandElement::Plain(Elem::Bool.from_constant(*value.expand)).into()
     }
 }
 

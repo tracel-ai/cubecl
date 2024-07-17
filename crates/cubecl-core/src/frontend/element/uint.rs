@@ -1,11 +1,11 @@
 use crate::frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric};
-use crate::ir::{Elem, Item, Variable, Vectorization};
-use crate::prelude::{index_assign, KernelBuilder, KernelLauncher};
+use crate::ir::{Elem, Vectorization};
+use crate::prelude::{KernelBuilder, KernelLauncher};
 use crate::{frontend::Comptime, Runtime};
 
 use super::{
     init_expand_element, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand,
-    ScalarArgSettings, Vectorized,
+    ScalarArgSettings, Vectorized, __expand_new, __expand_vectorized,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -60,14 +60,6 @@ impl UInt {
         }
     }
 
-    pub fn __expand_new(_context: &mut CubeContext, val: u32) -> <Self as CubeType>::ExpandType {
-        let new_var = Variable::ConstantScalar {
-            value: val as f64,
-            elem: Self::as_elem(),
-        };
-        ExpandElement::Plain(new_var).into()
-    }
-
     pub fn vectorized(val: u32, vectorization: UInt) -> Self {
         if vectorization.val == 1 {
             Self::new(val)
@@ -78,23 +70,19 @@ impl UInt {
             }
         }
     }
+    pub fn __expand_new(
+        context: &mut CubeContext,
+        val: <Self as CubeType>::ExpandType,
+    ) -> <Self as CubeType>::ExpandType {
+        __expand_new(context, val, Self::as_elem())
+    }
 
     pub fn __expand_vectorized(
         context: &mut CubeContext,
-        val: u32,
+        val: <Self as CubeType>::ExpandType,
         vectorization: UInt,
     ) -> <Self as CubeType>::ExpandType {
-        if vectorization.val == 1 {
-            Self::__expand_new(context, val)
-        } else {
-            let mut new_var =
-                context.create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8));
-            for (i, element) in vec![val; vectorization.val as usize].iter().enumerate() {
-                new_var = index_assign::expand(context, new_var, i, *element);
-            }
-
-            new_var.into()
-        }
+        __expand_vectorized(context, val, vectorization, Self::as_elem())
     }
 }
 

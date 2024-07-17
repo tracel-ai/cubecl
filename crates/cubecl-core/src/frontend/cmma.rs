@@ -100,23 +100,23 @@ impl<C: CubePrimitive> Matrix<C> {
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
-    pub fn new(ident: MatrixIdent, m: u8, n: u8, k: u8, layout: MatrixLayout) -> Self {
+    pub fn new(ident: MatrixIdent, m: u32, n: u32, k: u32, layout: MatrixLayout) -> Self {
         Matrix { _c: PhantomData }
     }
 
     pub fn __expand_new(
         context: &mut CubeContext,
         ident: MatrixIdent,
-        m: u8,
-        n: u8,
-        k: u8,
+        m: ExpandElementTyped<UInt>,
+        n: ExpandElementTyped<UInt>,
+        k: ExpandElementTyped<UInt>,
         layout: MatrixLayout,
     ) -> MatrixExpand {
         let elem = context.create_matrix(ir::Matrix {
             ident,
-            m,
-            n,
-            k,
+            m: m.constant().unwrap().as_u32() as u8,
+            n: n.constant().unwrap().as_u32() as u8,
+            k: k.constant().unwrap().as_u32() as u8,
             elem: C::as_elem(),
             layout,
         });

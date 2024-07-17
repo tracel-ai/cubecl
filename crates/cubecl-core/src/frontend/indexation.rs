@@ -1,5 +1,5 @@
 use super::{Comptime, ExpandElement, ExpandElementTyped, UInt};
-use crate::ir::{Elem, Variable};
+use crate::ir::{IntKind, Variable};
 
 pub trait Index {
     fn value(self) -> Variable;
@@ -7,46 +7,37 @@ pub trait Index {
 
 impl Index for Comptime<u32> {
     fn value(self) -> Variable {
-        Variable::ConstantScalar {
-            value: self.inner as f64,
-            elem: Elem::UInt,
-        }
+        Variable::ConstantScalar(crate::ir::ConstantScalarValue::UInt(self.inner as u64))
     }
 }
 
 impl Index for Comptime<i32> {
     fn value(self) -> Variable {
-        Variable::ConstantScalar {
-            value: self.inner as f64,
-            elem: Elem::UInt,
-        }
+        Variable::ConstantScalar(crate::ir::ConstantScalarValue::Int(
+            self.inner as i64,
+            IntKind::I32,
+        ))
     }
 }
 
 impl Index for i32 {
     fn value(self) -> Variable {
-        Variable::ConstantScalar {
-            value: self as f64,
-            elem: Elem::UInt,
-        }
+        Variable::ConstantScalar(crate::ir::ConstantScalarValue::Int(
+            self as i64,
+            IntKind::I32,
+        ))
     }
 }
 
 impl Index for u32 {
     fn value(self) -> Variable {
-        Variable::ConstantScalar {
-            value: self as f64,
-            elem: Elem::UInt,
-        }
+        Variable::ConstantScalar(crate::ir::ConstantScalarValue::UInt(self as u64))
     }
 }
 
 impl Index for UInt {
     fn value(self) -> Variable {
-        Variable::ConstantScalar {
-            value: self.val as f64,
-            elem: Elem::UInt,
-        }
+        Variable::ConstantScalar(crate::ir::ConstantScalarValue::UInt(self.val as u64))
     }
 }
 

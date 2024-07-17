@@ -1,3 +1,5 @@
+use crate::ir::ConstantScalarValue;
+
 use super::{
     cpa, processing::ScopeProcessing, Elem, IndexOffsetGlobalWithLayout, Item, Matrix, Operation,
     Operator, Procedure, ReadGlobal, ReadGlobalWithLayout, UnaryOperator, Variable, Vectorization,
@@ -73,14 +75,18 @@ impl Scope {
     /// Create a variable initialized at some value.
     pub fn create_with_value<E, I>(&mut self, value: E, item: I) -> Variable
     where
-        E: Into<f64>,
+        E: num_traits::ToPrimitive,
         I: Into<Item> + Copy,
     {
-        let local = self.create_local(item);
-        let value = Variable::ConstantScalar {
-            value: value.into(),
-            elem: item.into().elem(),
+        let item: Item = item.into();
+        let value = match item.elem() {
+            Elem::Float(kind) => ConstantScalarValue::Float(value.to_f64().unwrap(), kind),
+            Elem::Int(kind) => ConstantScalarValue::Int(value.to_i64().unwrap(), kind),
+            Elem::UInt => ConstantScalarValue::UInt(value.to_u64().unwrap()),
+            Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
         };
+        let local = self.create_local(item);
+        let value = Variable::ConstantScalar(value);
         cpa!(self, local = value);
         local
     }

@@ -1,6 +1,9 @@
 use proc_macro2::TokenStream;
 
-use crate::{codegen_function::expr::codegen_expr, tracker::VariableTracker};
+use crate::{
+    codegen_function::{base::CodegenKind, expr::codegen_expr},
+    tracker::VariableTracker,
+};
 
 use super::{
     base::{codegen_block, Codegen},
@@ -89,7 +92,7 @@ pub(crate) fn codegen_cond(
 ) -> Codegen {
     match cond {
         syn::Expr::Binary(expr) => codegen_binary(expr, loop_level, variable_tracker),
-        syn::Expr::Lit(expr) => Codegen::new(codegen_lit(expr), false),
+        syn::Expr::Lit(expr) => Codegen::new(codegen_lit(expr), CodegenKind::Literal),
         syn::Expr::Path(expr) => codegen_path_var(expr, loop_level, variable_tracker),
         syn::Expr::Call(expr) => codegen_call(expr, loop_level, variable_tracker),
         _ => todo!("{cond:?} cond not supported"),
@@ -126,8 +129,8 @@ pub(crate) fn codegen_if(
     loop_level: usize,
     variable_tracker: &mut VariableTracker,
 ) -> TokenStream {
-    let (cond, is_comptime) = codegen_cond(&expr_if.cond, loop_level, variable_tracker).split();
-    let comptime_bool = if is_comptime {
+    let (cond, kind, _) = codegen_cond(&expr_if.cond, loop_level, variable_tracker).process();
+    let comptime_bool = if let CodegenKind::Comptime = kind {
         quote::quote! { Some(#cond) }
     } else {
         quote::quote! { None }
@@ -177,10 +180,10 @@ pub(crate) fn codegen_while_loop(
     loop_level: usize,
     variable_tracker: &mut VariableTracker,
 ) -> TokenStream {
-    let (cond, is_comptime) =
-        codegen_cond(&while_loop.cond, loop_level + 1, variable_tracker).split();
+    let (cond, kind, _) =
+        codegen_cond(&while_loop.cond, loop_level + 1, variable_tracker).process();
 
-    if is_comptime {
+    if let CodegenKind::Comptime = kind {
         return syn::Error::new_spanned(while_loop.while_token, "Comptime not supported for while")
             .into_compile_error();
     }

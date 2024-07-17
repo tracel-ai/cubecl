@@ -32,7 +32,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{Elem, Item, Variable},
+        ir::{Elem, Item, Operation, Variable},
     };
 
     #[test]
@@ -42,10 +42,7 @@ mod tests {
         mut_assign::__expand(&mut context);
         let scope = context.into_scope();
 
-        assert_eq!(
-            format!("{:?}", scope.operations),
-            inline_macro_ref_mut_assign()
-        );
+        assert_eq!(scope.operations, inline_macro_ref_mut_assign());
     }
 
     #[test]
@@ -57,10 +54,7 @@ mod tests {
         mut_assign_input::__expand(&mut context, y.into());
         let scope = context.into_scope();
 
-        assert_eq!(
-            format!("{:?}", scope.operations),
-            inline_macro_ref_mut_assign_input()
-        );
+        assert_eq!(scope.operations, inline_macro_ref_mut_assign_input());
     }
 
     #[test]
@@ -72,10 +66,7 @@ mod tests {
         assign_mut_input::__expand(&mut context, y.into());
         let scope = context.into_scope();
 
-        assert_eq!(
-            format!("{:?}", scope.operations),
-            inline_macro_ref_assign_mut_input()
-        );
+        assert_eq!(scope.operations, inline_macro_ref_assign_mut_input());
     }
 
     #[test]
@@ -87,33 +78,25 @@ mod tests {
         assign_vectorized::__expand(&mut context, y.into());
         let scope = context.into_scope();
 
-        assert_eq!(
-            format!("{:?}", scope.operations),
-            inline_macro_ref_assign_vectorized()
-        );
+        assert_eq!(scope.operations, inline_macro_ref_assign_vectorized());
     }
 
-    fn inline_macro_ref_mut_assign() -> String {
+    fn inline_macro_ref_mut_assign() -> Vec<Operation> {
         let context = CubeContext::root();
 
         let mut scope = context.into_scope();
         let x = scope.create_local(Item::new(Elem::UInt));
 
-        let zero = Variable::ConstantScalar {
-            value: 0.,
-            elem: Elem::UInt,
-        };
-        let one = Variable::ConstantScalar {
-            value: 1.,
-            elem: Elem::UInt,
-        };
+        let zero: Variable = 0u32.into();
+        let one: Variable = 1u32.into();
+
         cpa!(scope, x = zero);
         cpa!(scope, x = x + one);
 
-        format!("{:?}", scope.operations)
+        scope.operations
     }
 
-    fn inline_macro_ref_mut_assign_input() -> String {
+    fn inline_macro_ref_mut_assign_input() -> Vec<Operation> {
         let mut context = CubeContext::root();
         let item = Item::new(Elem::UInt);
         let y = context.create_local(item);
@@ -122,22 +105,17 @@ mod tests {
         let y: Variable = y.into();
         let x = scope.create_local(item);
 
-        let one = Variable::ConstantScalar {
-            value: 1.,
-            elem: Elem::UInt,
-        };
-        let two = Variable::ConstantScalar {
-            value: 2.,
-            elem: Elem::UInt,
-        };
+        let one: Variable = 1u32.into();
+        let two: Variable = 2u32.into();
+
         cpa!(scope, x = y);
         cpa!(scope, x = x + one);
         cpa!(scope, y = y + two);
 
-        format!("{:?}", scope.operations)
+        scope.operations
     }
 
-    fn inline_macro_ref_assign_mut_input() -> String {
+    fn inline_macro_ref_assign_mut_input() -> Vec<Operation> {
         let mut context = CubeContext::root();
         let item = Item::new(Elem::UInt);
         let y = context.create_local(item);
@@ -146,22 +124,17 @@ mod tests {
         let y: Variable = y.into();
         let x = scope.create_local(item);
 
-        let one = Variable::ConstantScalar {
-            value: 1.,
-            elem: Elem::UInt,
-        };
-        let two = Variable::ConstantScalar {
-            value: 2.,
-            elem: Elem::UInt,
-        };
+        let one: Variable = 1u32.into();
+        let two: Variable = 2u32.into();
+
         cpa!(scope, x = y);
         cpa!(scope, y = y + one);
         cpa!(scope, x = x + two);
 
-        format!("{:?}", scope.operations)
+        scope.operations
     }
 
-    fn inline_macro_ref_assign_vectorized() -> String {
+    fn inline_macro_ref_assign_vectorized() -> Vec<Operation> {
         let mut context = CubeContext::root();
         let item = Item::vectorized(Elem::UInt, 4);
         let y = context.create_local(item);
@@ -170,28 +143,17 @@ mod tests {
         let y: Variable = y.into();
         let x = scope.create_local(item);
 
-        let zero = Variable::ConstantScalar {
-            value: 0.,
-            elem: Elem::UInt,
-        };
-        let one = Variable::ConstantScalar {
-            value: 1.,
-            elem: Elem::UInt,
-        };
-        let two = Variable::ConstantScalar {
-            value: 2.,
-            elem: Elem::UInt,
-        };
-        let three = Variable::ConstantScalar {
-            value: 3.,
-            elem: Elem::UInt,
-        };
+        let zero: Variable = 0u32.into();
+        let one: Variable = 1u32.into();
+        let two: Variable = 2u32.into();
+        let three: Variable = 3u32.into();
+
         cpa!(scope, x[zero] = one);
         cpa!(scope, x[one] = one);
         cpa!(scope, x[two] = one);
         cpa!(scope, x[three] = one);
         cpa!(scope, x = x + y);
 
-        format!("{:?}", scope.operations)
+        scope.operations
     }
 }

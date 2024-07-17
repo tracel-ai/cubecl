@@ -5,13 +5,14 @@ use crate::frontend::{
     ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
     ExpandElementTyped, Numeric,
 };
-use crate::ir::{Elem, FloatKind, Item, Variable, Vectorization};
+use crate::ir::{ConstantScalarValue, Elem, FloatKind, Item, Variable, Vectorization};
 
+use super::{
+    init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized, __expand_new,
+    __expand_vectorized,
+};
 use crate::compute::{KernelBuilder, KernelLauncher};
-use crate::prelude::index_assign;
-use crate::{unexpanded, Runtime};
-
-use super::{init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
+use crate::Runtime;
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -28,18 +29,35 @@ pub trait Float:
     + Ceil
     + Erf
     + Recip
-    + core::ops::Index<UInt, Output = Self>
-    + core::ops::IndexMut<UInt, Output = Self>
+    + From<f32>
+    + core::ops::Add<f32, Output = Self>
+    + core::ops::Sub<f32, Output = Self>
+    + core::ops::Mul<f32, Output = Self>
+    + core::ops::Div<f32, Output = Self>
+    + std::ops::AddAssign<f32>
+    + std::ops::SubAssign<f32>
+    + std::ops::MulAssign<f32>
+    + std::ops::DivAssign<f32>
+    + std::cmp::PartialOrd<f32>
+    + std::cmp::PartialEq<f32>
 {
     fn new(val: f32) -> Self;
     fn vectorized(val: f32, vectorization: UInt) -> Self;
     fn vectorized_empty(vectorization: UInt) -> Self;
-    fn __expand_new(context: &mut CubeContext, val: f32) -> <Self as CubeType>::ExpandType;
+    fn __expand_new(
+        context: &mut CubeContext,
+        val: Self::ExpandType,
+    ) -> <Self as CubeType>::ExpandType {
+        __expand_new(context, val, Self::as_elem())
+    }
     fn __expand_vectorized(
         context: &mut CubeContext,
-        val: f32,
+        val: Self::ExpandType,
         vectorization: UInt,
-    ) -> <Self as CubeType>::ExpandType;
+    ) -> <Self as CubeType>::ExpandType {
+        __expand_vectorized(context, val, vectorization, Self::as_elem())
+    }
+
     fn __expand_vectorized_empty(
         context: &mut CubeContext,
         vectorization: UInt,
@@ -67,15 +85,25 @@ macro_rules! impl_float {
 
         impl ComptimeType for $type {
             fn into_expand(self) -> Self::ExpandType {
-                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar {
-                    value: self.val as f64,
-                    elem: Self::as_elem(),
-                }))
+                let elem = Self::as_elem();
+                let value = self.val as f64;
+                let value = match elem {
+                    Elem::Float(kind) => ConstantScalarValue::Float(value, kind),
+                    _ => panic!("Wrong elem type"),
+                };
+
+                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar(value)))
             }
         }
 
         impl Numeric for $type {
             type Primitive = $primitive;
+        }
+
+        impl From<u32> for $type {
+            fn from(val: u32) -> Self {
+                $type::from_int(val)
+            }
         }
 
         impl ExpandElementBaseInit for $type {
@@ -107,60 +135,17 @@ macro_rules! impl_float {
                 Self::vectorized(0., vectorization)
             }
 
-            fn __expand_new(
-                _context: &mut CubeContext,
-                val: f32,
-            ) -> <Self as CubeType>::ExpandType {
-                let new_var = Variable::ConstantScalar {
-                    value: val as f64,
-                    elem: Self::as_elem(),
-                };
-                ExpandElement::Plain(new_var).into()
-            }
-
-            fn __expand_vectorized(
-                context: &mut CubeContext,
-                val: f32,
-                vectorization: UInt,
-            ) -> <Self as CubeType>::ExpandType {
-                if vectorization.val == 1 {
-                    Self::__expand_new(context, val)
-                } else {
-                    let mut new_var = context
-                        .create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8));
-                    for (i, element) in vec![val; vectorization.val as usize].iter().enumerate() {
-                        new_var = index_assign::expand(context, new_var, i, *element);
-                    }
-
-                    new_var.into()
-                }
-            }
-
             fn __expand_vectorized_empty(
                 context: &mut CubeContext,
                 vectorization: UInt,
             ) -> <Self as CubeType>::ExpandType {
                 if vectorization.val == 1 {
-                    Self::__expand_new(context, 0.)
+                    Self::__expand_new(context, ExpandElementTyped::from_lit(0.))
                 } else {
                     context
                         .create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8))
                         .into()
                 }
-            }
-        }
-
-        impl core::ops::Index<UInt> for $type {
-            type Output = Self;
-
-            fn index(&self, _index: UInt) -> &Self::Output {
-                unexpanded!()
-            }
-        }
-
-        impl core::ops::IndexMut<UInt> for $type {
-            fn index_mut(&mut self, _index: UInt) -> &mut Self::Output {
-                unexpanded!()
             }
         }
 

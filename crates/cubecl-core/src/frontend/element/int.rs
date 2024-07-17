@@ -3,22 +3,45 @@ use crate::frontend::{
     ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
     ExpandElementTyped, Numeric,
 };
-use crate::ir::{Elem, IntKind, Item, Variable, Vectorization};
-use crate::prelude::index_assign;
+use crate::ir::{ConstantScalarValue, Elem, IntKind, Variable, Vectorization};
 use crate::Runtime;
 
-use super::{init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized};
+use super::{
+    init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized, __expand_new,
+    __expand_vectorized,
+};
 
 /// Signed integer. Used as input in int kernels
-pub trait Int: Numeric + std::ops::Rem<Output = Self> {
+pub trait Int:
+    Numeric
+    + std::ops::Rem<Output = Self>
+    + From<i32>
+    + core::ops::Add<i32, Output = Self>
+    + core::ops::Sub<i32, Output = Self>
+    + core::ops::Mul<i32, Output = Self>
+    + core::ops::Div<i32, Output = Self>
+    + std::ops::AddAssign<i32>
+    + std::ops::SubAssign<i32>
+    + std::ops::MulAssign<i32>
+    + std::ops::DivAssign<i32>
+    + std::cmp::PartialOrd<i32>
+    + std::cmp::PartialEq<i32>
+{
     fn new(val: i64) -> Self;
     fn vectorized(val: i64, vectorization: UInt) -> Self;
-    fn __expand_new(context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType;
+    fn __expand_new(
+        context: &mut CubeContext,
+        val: Self::ExpandType,
+    ) -> <Self as CubeType>::ExpandType {
+        __expand_new(context, val, Self::as_elem())
+    }
     fn __expand_vectorized(
         context: &mut CubeContext,
-        val: i64,
+        val: Self::ExpandType,
         vectorization: UInt,
-    ) -> <Self as CubeType>::ExpandType;
+    ) -> <Self as CubeType>::ExpandType {
+        __expand_vectorized(context, val, vectorization, Self::as_elem())
+    }
 }
 
 macro_rules! impl_int {
@@ -39,12 +62,34 @@ macro_rules! impl_int {
             }
         }
 
+        impl From<u32> for $type {
+            fn from(val: u32) -> Self {
+                Self {
+                    val: val as $primitive,
+                    vectorization: 1,
+                }
+            }
+        }
+
+        impl From<i32> for $type {
+            fn from(val: i32) -> Self {
+                Self {
+                    val: val as $primitive,
+                    vectorization: 1,
+                }
+            }
+        }
+
         impl ComptimeType for $type {
             fn into_expand(self) -> Self::ExpandType {
-                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar {
-                    value: self.val as f64,
-                    elem: Self::as_elem(),
-                }))
+                let elem = Self::as_elem();
+                let value = match elem {
+                    Elem::Int(kind) => ConstantScalarValue::Int(self.val as i64, kind),
+                    Elem::UInt => ConstantScalarValue::UInt(self.val as u64),
+                    _ => panic!("Wrong elem type"),
+                };
+
+                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar(value)))
             }
         }
 
@@ -74,35 +119,6 @@ macro_rules! impl_int {
                         val: val as $primitive,
                         vectorization: vectorization.val as u8,
                     }
-                }
-            }
-
-            fn __expand_new(
-                _context: &mut CubeContext,
-                val: i64,
-            ) -> <Self as CubeType>::ExpandType {
-                let new_var = Variable::ConstantScalar {
-                    value: val as f64,
-                    elem: Self::as_elem(),
-                };
-                ExpandElement::Plain(new_var).into()
-            }
-
-            fn __expand_vectorized(
-                context: &mut CubeContext,
-                val: i64,
-                vectorization: UInt,
-            ) -> <Self as CubeType>::ExpandType {
-                if vectorization.val == 1 {
-                    Self::__expand_new(context, val)
-                } else {
-                    let mut new_var = context
-                        .create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8));
-                    for (i, element) in vec![val; vectorization.val as usize].iter().enumerate() {
-                        new_var = index_assign::expand(context, new_var, i, *element);
-                    }
-
-                    new_var.into()
                 }
             }
         }
@@ -138,15 +154,6 @@ impl_int!(I64, i64);
 
 impl From<i64> for I64 {
     fn from(value: i64) -> Self {
-        Self {
-            val: value,
-            vectorization: 1,
-        }
-    }
-}
-
-impl From<i32> for I32 {
-    fn from(value: i32) -> Self {
         Self {
             val: value,
             vectorization: 1,

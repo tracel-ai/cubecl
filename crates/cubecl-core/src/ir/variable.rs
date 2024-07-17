@@ -1,4 +1,4 @@
-use super::{Elem, Item, Matrix};
+use super::{Elem, FloatKind, IntKind, Item, Matrix};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -27,10 +27,7 @@ pub enum Variable {
         elem: Elem,
         depth: u8,
     },
-    ConstantScalar {
-        value: f64,
-        elem: Elem,
-    },
+    ConstantScalar(ConstantScalarValue),
     SharedMemory {
         id: u16,
         item: Item,
@@ -73,6 +70,109 @@ pub enum Variable {
     AbsolutePosX,
     AbsolutePosY,
     AbsolutePosZ,
+}
+
+/// The scalars are stored with the highest precision possible, but they might get reduced during
+/// compilation.
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, PartialOrd)]
+#[allow(missing_docs)]
+pub enum ConstantScalarValue {
+    Int(i64, IntKind),
+    Float(f64, FloatKind),
+    UInt(u64),
+    Bool(bool),
+}
+
+impl ConstantScalarValue {
+    /// Returns the element type of the scalar.
+    pub fn elem(&self) -> Elem {
+        match self {
+            ConstantScalarValue::Int(_, kind) => Elem::Int(*kind),
+            ConstantScalarValue::Float(_, kind) => Elem::Float(*kind),
+            ConstantScalarValue::UInt(_) => Elem::UInt,
+            ConstantScalarValue::Bool(_) => Elem::Bool,
+        }
+    }
+
+    /// Returns the value of the scalar as a usize.
+    ///
+    /// It will return [None] if the scalar type is a float or a bool.
+    pub fn try_as_usize(&self) -> Option<usize> {
+        match self {
+            ConstantScalarValue::UInt(val) => Some(*val as usize),
+            ConstantScalarValue::Int(val, _) => Some(*val as usize),
+            ConstantScalarValue::Float(_, _) => None,
+            ConstantScalarValue::Bool(_) => None,
+        }
+    }
+
+    /// Returns the value of the scalar as a usize.
+    ///
+    /// It will panics if the scalar type is a float or a bool.
+    pub fn as_usize(&self) -> usize {
+        self.try_as_usize()
+            .expect("Only Int and UInt kind can be made into usize.")
+    }
+
+    /// Returns the value of the scalar as a u32.
+    ///
+    /// It will return [None] if the scalar type is a float or a bool.
+    pub fn try_as_u32(&self) -> Option<u32> {
+        match self {
+            ConstantScalarValue::UInt(val) => Some(*val as u32),
+            ConstantScalarValue::Int(val, _) => Some(*val as u32),
+            ConstantScalarValue::Float(_, _) => None,
+            ConstantScalarValue::Bool(_) => None,
+        }
+    }
+
+    /// Returns the value of the scalar as a u32.
+    ///
+    /// It will panics if the scalar type is a float or a bool.
+    pub fn as_u32(&self) -> u32 {
+        self.try_as_u32()
+            .expect("Only Int and UInt kind can be made into u32.")
+    }
+
+    /// Returns the value of the scalar as a u64.
+    ///
+    /// It will return [None] if the scalar type is a float or a bool.
+    pub fn try_as_u64(&self) -> Option<u64> {
+        match self {
+            ConstantScalarValue::UInt(val) => Some(*val),
+            ConstantScalarValue::Int(val, _) => Some(*val as u64),
+            ConstantScalarValue::Float(_, _) => None,
+            ConstantScalarValue::Bool(_) => None,
+        }
+    }
+
+    /// Returns the value of the scalar as a u64.
+    ///
+    /// It will panics if the scalar type is a float or a bool.
+    pub fn as_u64(&self) -> u64 {
+        self.try_as_u64()
+            .expect("Only Int and UInt kind can be made into u64.")
+    }
+
+    /// Returns the value of the scalar as a i64.
+    ///
+    /// It will return [None] if the scalar type is a float or a bool.
+    pub fn try_as_i64(&self) -> Option<i64> {
+        match self {
+            ConstantScalarValue::UInt(val) => Some(*val as i64),
+            ConstantScalarValue::Int(val, _) => Some(*val),
+            ConstantScalarValue::Float(_, _) => None,
+            ConstantScalarValue::Bool(_) => None,
+        }
+    }
+
+    /// Returns the value of the scalar as a u32.
+    ///
+    /// It will panics if the scalar type is a float or a bool.
+    pub fn as_i64(&self) -> i64 {
+        self.try_as_i64()
+            .expect("Only Int and UInt kind can be made into i64.")
+    }
 }
 
 impl Variable {
@@ -121,7 +221,7 @@ impl Variable {
             Variable::GlobalScalar { elem, .. } => Item::new(*elem),
             Variable::Local { item, .. } => *item,
             Variable::LocalScalar { elem, .. } => Item::new(*elem),
-            Variable::ConstantScalar { elem, .. } => Item::new(*elem),
+            Variable::ConstantScalar(value) => Item::new(value.elem()),
             Variable::SharedMemory { item, .. } => *item,
             Variable::LocalArray { item, .. } => *item,
             Variable::Slice { item, .. } => *item,

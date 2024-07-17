@@ -20,19 +20,21 @@ where
 pub fn range_expand<F, S, E>(context: &mut CubeContext, start: S, end: E, unroll: bool, mut func: F)
 where
     F: FnMut(&mut CubeContext, ExpandElementTyped<UInt>),
-    S: Into<ExpandElement>,
-    E: Into<ExpandElement>,
+    S: Into<ExpandElementTyped<UInt>>,
+    E: Into<ExpandElementTyped<UInt>>,
 {
-    let start: ExpandElement = start.into();
-    let end: ExpandElement = end.into();
+    let start: ExpandElementTyped<UInt> = start.into();
+    let end: ExpandElementTyped<UInt> = end.into();
+    let start = start.expand;
+    let end = end.expand;
 
     if unroll {
         let start = match start.deref() {
-            Variable::ConstantScalar { value, .. } => *value as usize,
+            Variable::ConstantScalar(value) => value.as_usize(),
             _ => panic!("Only constant start can be unrolled."),
         };
         let end = match end.deref() {
-            Variable::ConstantScalar { value, .. } => *value as usize,
+            Variable::ConstantScalar(value) => value.as_usize(),
             _ => panic!("Only constant end can be unrolled."),
         };
 

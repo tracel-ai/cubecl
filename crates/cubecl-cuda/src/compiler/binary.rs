@@ -368,7 +368,7 @@ impl IndexVector {
         out: &Variable,
     ) -> std::fmt::Result {
         let index = match rhs {
-            Variable::ConstantScalar(value, _elem) => *value as usize,
+            Variable::ConstantScalar(value, _elem) => value.as_usize(),
             _ => {
                 let elem = out.elem();
                 return f.write_fmt(format_args!("{out} = *(({elem}*)&{lhs} + {rhs});\n"));
@@ -390,7 +390,7 @@ impl IndexAssignVector {
         out: &Variable,
     ) -> std::fmt::Result {
         let index = match lhs {
-            Variable::ConstantScalar(value, _) => *value as usize,
+            Variable::ConstantScalar(value, _) => value.as_usize(),
             _ => {
                 let elem = out.elem();
                 return f.write_fmt(format_args!("*(({elem}*)&{out} + {lhs}) = {rhs};\n"));
