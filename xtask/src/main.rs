@@ -21,6 +21,8 @@ struct XtaskArgs {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Bump the version of all crates to be published
+    Bump(commands::bump::BumpCmdArgs),
     /// Runs checks and fix issues (used for development purposes)
     Check(commands::check::CheckCmdArgs),
     /// Runs checks for Continous Integration
@@ -39,6 +41,7 @@ fn main() -> anyhow::Result<()> {
 
     let start = Instant::now();
     match args.command {
+        Command::Bump(args) => commands::bump::handle_command(args),
         Command::Check(args) => commands::check::handle_command(args, None),
         Command::CI(args) => commands::ci::handle_command(args),
         Command::Publish(args) => commands::publish::handle_command(args),

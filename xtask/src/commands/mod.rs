@@ -1,3 +1,4 @@
+pub(crate) mod bump;
 pub(crate) mod check;
 pub(crate) mod ci;
 pub(crate) mod publish;
