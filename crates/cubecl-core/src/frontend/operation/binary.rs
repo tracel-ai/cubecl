@@ -105,11 +105,12 @@ pub mod mul {
 pub mod div {
     use super::*;
 
-    pub fn expand<C: CubePrimitive>(
+    pub fn expand<C: CubePrimitive, R: Into<ExpandElementTyped<C>>>(
         context: &mut CubeContext,
         lhs: ExpandElementTyped<C>,
-        rhs: ExpandElementTyped<C>,
+        rhs: R,
     ) -> ExpandElementTyped<C> {
+        let rhs: ExpandElementTyped<C> = rhs.into();
         binary_expand(context, lhs.into(), rhs.into(), Operator::Div).into()
     }
 

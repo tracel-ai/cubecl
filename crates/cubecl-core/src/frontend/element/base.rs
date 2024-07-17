@@ -7,7 +7,7 @@ use crate::{
 };
 use alloc::rc::Rc;
 
-use super::{Array, Bool, UInt, Vectorized, F32, F64, I32, I64};
+use super::{Array, Bool, Float, UInt, Vectorized, F64, I32, I64};
 
 /// Types used in a cube function must implement this trait
 ///
@@ -148,10 +148,15 @@ macro_rules! from_const {
 from_const!(u32, UInt);
 from_const!(i32, I32);
 from_const!(i64, I64);
-from_const!(f32, F32);
 from_const!(f64, F64);
 from_const!(bool, Bool);
 from_const!(val UInt);
+
+impl<F: Float> From<f32> for ExpandElementTyped<F> {
+    fn from(value: f32) -> Self {
+        ExpandElement::Plain(F::as_elem().from_constant(value.into())).into()
+    }
+}
 
 pub trait ExpandElementBaseInit: CubeType {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement;

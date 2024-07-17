@@ -183,22 +183,24 @@ impl Display for Variable {
             }
             // We do the conversion in Rust and then render the number to avoid overflow or other
             // precision related problems.
-            Variable::ConstantScalar(number, _elem) => match number {
+            Variable::ConstantScalar(number, elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
-                    gpu::IntKind::I32 => f.write_fmt(format_args!("{}", *val as i32)),
-                    gpu::IntKind::I64 => f.write_fmt(format_args!("{}", { *val })),
+                    gpu::IntKind::I32 => f.write_fmt(format_args!("{elem}({})", *val as i32)),
+                    gpu::IntKind::I64 => f.write_fmt(format_args!("{elem}({})", { *val })),
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
                     gpu::FloatKind::F16 => {
-                        f.write_fmt(format_args!("{}", half::f16::from_f64(*val)))
+                        f.write_fmt(format_args!("{elem}({})", half::f16::from_f64(*val)))
                     }
                     gpu::FloatKind::BF16 => {
-                        f.write_fmt(format_args!("{}", half::bf16::from_f64(*val)))
+                        f.write_fmt(format_args!("{elem}({})", half::bf16::from_f64(*val)))
                     }
-                    gpu::FloatKind::F32 => f.write_fmt(format_args!("{}", *val as f32)),
-                    gpu::FloatKind::F64 => f.write_fmt(format_args!("{}", { *val })),
+                    gpu::FloatKind::F32 => f.write_fmt(format_args!("{elem}({})", *val as f32)),
+                    gpu::FloatKind::F64 => f.write_fmt(format_args!("{elem}({})", { *val })),
                 },
-                ConstantScalarValue::UInt(val) => f.write_fmt(format_args!("{}", *val as u32)),
+                ConstantScalarValue::UInt(val) => {
+                    f.write_fmt(format_args!("{elem}({})", *val as u32))
+                }
                 ConstantScalarValue::Bool(val) => f.write_fmt(format_args!("{}", val)),
             },
             Variable::SharedMemory(number, _, _) => {

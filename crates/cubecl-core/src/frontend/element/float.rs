@@ -30,6 +30,8 @@ pub trait Float:
     + Ceil
     + Erf
     + Recip
+    + core::ops::Div<f32, Output = Self>
+    + core::ops::Add<f32, Output = Self>
     + core::ops::Index<UInt, Output = Self>
     + core::ops::IndexMut<UInt, Output = Self>
 {
@@ -95,6 +97,22 @@ macro_rules! impl_float {
         impl ExpandElementBaseInit for $type {
             fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
                 init_expand_element(context, elem)
+            }
+        }
+
+        impl core::ops::Div<f32> for $type {
+            type Output = Self;
+
+            fn div(self, _rhs: f32) -> Self::Output {
+                unexpanded!();
+            }
+        }
+
+        impl core::ops::Add<f32> for $type {
+            type Output = Self;
+
+            fn add(self, _rhs: f32) -> Self::Output {
+                unexpanded!();
             }
         }
 
