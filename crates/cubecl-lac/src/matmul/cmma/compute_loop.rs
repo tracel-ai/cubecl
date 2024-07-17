@@ -15,54 +15,41 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     let n_tiles = UInt::new(2);
 
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let num_coop_per_row = Comptime::runtime(block_size_n / tile_size) / n_tiles;
+    let tile_size = Comptime::map(config, |c| c.tile_size); 
+    let num_coop_per_row =
+        Comptime::runtime(block_size_n / tile_size) / n_tiles; 
 
     let coop_id = UNIT_POS_Y;
     let tile_row = coop_id / num_coop_per_row;
     let tile_col_base = (coop_id % num_coop_per_row) * n_tiles;
 
-    compute_tile(
-        UInt::new(0),
-        tile_row,
-        tile_col_base,
-        shared_memories,
-        accumulators,
-        config,
-    );
-    compute_tile(
-        UInt::new(1),
-        tile_row,
-        tile_col_base,
-        shared_memories,
-        accumulators,
-        config,
-    );
+    compute_tile::<F, FC>(UInt::new(0), tile_row, tile_col_base, shared_memories, accumulators.first, config);
+    compute_tile::<F, FC>(UInt::new(1), tile_row, tile_col_base, shared_memories, accumulators.second, config);
 }
 
 #[cube]
 fn compute_tile<F: Float, FC: Float>(
-    n_iter: UInt,
-    tile_row: UInt,
-    tile_col_base: UInt,
-    shared_memories: SharedMemories<FC>,
-    accumulators: Accumulators<F>,
-    config: Comptime<CmmaConfig>,
+n_iter: UInt,
+tile_row: UInt,
+tile_col_base: UInt,
+shared_memories: SharedMemories<FC>,
+accumulator: cmma::Matrix<F>,
+config: Comptime<CmmaConfig>
 ) {
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let tile_size = Comptime::map(config, |c| c.tile_size); 
     let unroll = Comptime::map(config, |c| c.unroll);
 
-    let num_tiles_in_k = block_size_k / tile_size;
-    let tile_offset = Comptime::runtime(num_tiles_in_k * tile_size * tile_size);
-    let num_tile_elems = Comptime::runtime(tile_size * tile_size);
+    let num_tile_elems = Comptime::runtime(tile_size * tile_size); 
+    let k_tiles = Comptime::runtime(block_size_k / tile_size); 
 
-    let tile_row_offset = tile_row * tile_offset;
-    let tile_col_offset = (tile_col_base + n_iter) * tile_offset;
+    let tile_col = tile_col_base + n_iter;
 
-    for k_iter in range(0u32, Comptime::get(num_tiles_in_k), unroll) {
-        let shared_lhs_pos = tile_row_offset + k_iter * num_tile_elems;
-        let shared_rhs_pos = tile_col_offset + k_iter * num_tile_elems;
+    for k_iter in range(0u32, k_tiles , Comptime::new(false)) {
+        let shared_lhs_tile = tile_row * k_tiles + k_iter;
+        let shared_rhs_tile = tile_col * k_tiles + k_iter;
+        let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
+        let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
 
         let lhs_slice = shared_memories
             .lhs
@@ -89,7 +76,7 @@ fn compute_tile<F: Float, FC: Float>(
         cmma::load::<FC>(&a, lhs_slice, UInt::new(16));
         cmma::load::<FC>(&b, rhs_slice, UInt::new(16));
 
-        cmma::execute::<FC, FC, F, F>(&a, &b, &accumulators.second, &accumulators.second);
+        cmma::execute::<FC, FC, F, F>(&a, &b, &accumulator, &accumulator);
     }
 }
 
@@ -223,7 +210,8 @@ pub mod tests {
 
         compute_loop(shared_memories, accumulators, config);
 
-        let slice = accumulate_array.slice_mut(0, 256);
+        let offset = UNIT_POS_Y * UInt::new(512);
+        let slice = accumulate_array.slice_mut(offset, offset + UInt::new(256));
         cmma::store::<F>(
             slice,
             &accumulators.first,
@@ -231,7 +219,7 @@ pub mod tests {
             cmma::MatrixLayout::RowMajor,
         );
 
-        let slice = accumulate_array.slice_mut(256, 512);
+        let slice = accumulate_array.slice_mut(offset + UInt::new(256), offset + UInt::new(512));
         cmma::store::<F>(
             slice,
             &accumulators.second,
@@ -575,7 +563,7 @@ pub mod tests {
     }
 
     /// Exported test
-    pub fn compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::Device) {
+    pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::Device) {
         let m = 16;
         let k = 32;
         let n = 64;
