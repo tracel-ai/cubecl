@@ -15,8 +15,9 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     config: Comptime<CmmaConfig>,
     dims: Dimensions,
 ) {
-    // Other values not supported
-    let k_tiles = UInt::new(2);
+    let block_size_k = Comptime::map(config, |c| c.block_size_k);
+    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let k_tiles = Comptime::runtime(block_size_k / tile_size);
 
     load_lhs(lhs, offsets, shared.lhs, k_tiles, dims.k, config);
     load_rhs(rhs, offsets, shared.rhs, k_tiles, dims.n, config);

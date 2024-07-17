@@ -7,77 +7,62 @@ use super::config::CmmaConfig;
 #[cube]
 #[allow(unused_mut)]
 pub(crate) fn compute_loop<F: Float, FC: Float>(
-    mut shared_memories: SharedMemories<FC>,
+    shared_memories: SharedMemories<FC>,
     mut accumulators: Accumulators<F>,
     config: Comptime<CmmaConfig>,
 ) {
-    let block_size_m = Comptime::map(config, |c| c.block_size_m); // 16
-    let block_size_k = Comptime::map(config, |c| c.block_size_k); // 32
-    let block_size_n = Comptime::map(config, |c| c.block_size_n); // 64
-    let tile_size = Comptime::map(config, |c| c.tile_size); // 16
+    // Other values not supported
+    let n_tiles = UInt::new(2);
+
+    let block_size_n = Comptime::map(config, |c| c.block_size_n);
+    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let num_coop_per_row = Comptime::runtime(block_size_n / tile_size) / n_tiles;
+
+    let coop_id = UNIT_POS_Y;
+    let tile_row = coop_id / num_coop_per_row;
+    let tile_col_base = (coop_id % num_coop_per_row) * n_tiles;
+
+    compute_tile(
+        UInt::new(0),
+        tile_row,
+        tile_col_base,
+        shared_memories,
+        accumulators,
+        config,
+    );
+    compute_tile(
+        UInt::new(1),
+        tile_row,
+        tile_col_base,
+        shared_memories,
+        accumulators,
+        config,
+    );
+}
+
+#[cube]
+fn compute_tile<F: Float, FC: Float>(
+    n_iter: UInt,
+    tile_row: UInt,
+    tile_col_base: UInt,
+    shared_memories: SharedMemories<FC>,
+    accumulators: Accumulators<F>,
+    config: Comptime<CmmaConfig>,
+) {
+    let block_size_k = Comptime::map(config, |c| c.block_size_k);
+    let tile_size = Comptime::map(config, |c| c.tile_size);
     let unroll = Comptime::map(config, |c| c.unroll);
 
-    let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size); // 32/16 = 2
-    let num_tile_elems = Comptime::runtime(tile_size * tile_size); // 16*16 = 256
+    let num_tiles_in_k = block_size_k / tile_size;
+    let tile_offset = Comptime::runtime(num_tiles_in_k * tile_size * tile_size);
+    let num_tile_elems = Comptime::runtime(tile_size * tile_size);
 
-    let num_tiles_per_row = block_size_n / tile_size; // 64/16 = 4
-    let num_tiles_per_col = block_size_m / tile_size; // 64/16 = 4
-    let num_tiles = num_tiles_per_row * num_tiles_per_col; // 4*4 = 16
+    let tile_row_offset = tile_row * tile_offset;
+    let tile_col_offset = (tile_col_base + n_iter) * tile_offset;
 
-    // TODO this won't work if n_iterations > 2
-    let n_iterations = Comptime::runtime(num_tiles) / CUBE_DIM_Y; // 16/8 = 2
-    let num_subcube_per_row =
-        Comptime::runtime(block_size_n) / (n_iterations * Comptime::runtime(tile_size)); // 64 / (2*16) = 2
-
-    let subcube_id = UNIT_POS_Y;
-    let tile_row = subcube_id / num_subcube_per_row;
-    let tile_col_base = (subcube_id % num_subcube_per_row) * n_iterations;
-
-    let n_iter = UInt::new(0);
-    let tile_col = tile_col_base + n_iter;
-
-    for k_iter in range(0u32, num_tiles_in_k, unroll) {
-        let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
-        let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
-        let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
-        let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
-
-        let lhs_slice = shared_memories
-            .lhs
-            .slice(shared_lhs_pos, shared_lhs_pos + num_tile_elems);
-        let rhs_slice = shared_memories
-            .rhs
-            .slice(shared_rhs_pos, shared_rhs_pos + num_tile_elems);
-
-        let a = cmma::Matrix::<FC>::new(
-            cmma::MatrixIdent::A,
-            16,
-            16,
-            16,
-            cmma::MatrixLayout::RowMajor,
-        );
-        let b = cmma::Matrix::<FC>::new(
-            cmma::MatrixIdent::B,
-            16,
-            16,
-            16,
-            cmma::MatrixLayout::RowMajor,
-        );
-
-        cmma::load::<FC>(&a, lhs_slice, UInt::new(16));
-        cmma::load::<FC>(&b, rhs_slice, UInt::new(16));
-
-        cmma::execute::<FC, FC, F, F>(&a, &b, &accumulators.first, &accumulators.first);
-    }
-
-    let n_iter = UInt::new(1);
-    let tile_col = tile_col_base + n_iter;
-
-    for k_iter in range(0u32, num_tiles_in_k, Comptime::new(false)) {
-        let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
-        let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
-        let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
-        let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
+    for k_iter in range(0u32, Comptime::get(num_tiles_in_k), unroll) {
+        let shared_lhs_pos = tile_row_offset + k_iter * num_tile_elems;
+        let shared_rhs_pos = tile_col_offset + k_iter * num_tile_elems;
 
         let lhs_slice = shared_memories
             .lhs

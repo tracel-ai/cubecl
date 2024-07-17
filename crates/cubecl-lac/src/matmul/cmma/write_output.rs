@@ -21,9 +21,9 @@ pub(crate) fn write_to_output<F: Float>(
 #[cube]
 fn fragment_to_shared_memory<F: Float>(accumulators: Accumulators<F>) -> SharedMemory<F> {
     let mut acc_sm = SharedMemory::<F>::new(4096);
-    let subcube_id = UNIT_POS_Y;
 
-    let slice_offset_0 = UInt::new(2) * subcube_id * UInt::new(256);
+    let coop_id = UNIT_POS_Y;
+    let slice_offset_0 = coop_id * UInt::new(512);
     let slice_offset_1 = slice_offset_0 + UInt::new(256);
     let slice_offset_2 = slice_offset_1 + UInt::new(256);
 
@@ -54,7 +54,8 @@ fn shared_memory_to_output<F: Float>(
     dims: Dimensions,
     config: Comptime<CmmaConfig>,
 ) {
-    let k_tiles = UInt::new(2);
+    // Other values not supported
+    let n_tiles = UInt::new(2);
     let out_stride = dims.n;
 
     let tile_size = Comptime::map(config, |c| c.tile_size);
@@ -62,13 +63,13 @@ fn shared_memory_to_output<F: Float>(
     let out_vec = Comptime::vectorization(out);
     let out_vec_r = Comptime::runtime(out_vec);
     let n_units_per_tile_row = Comptime::runtime(tile_size / out_vec);
-    let sm_row_offset = Comptime::runtime(tile_size * tile_size);
+    let num_tile_elems = Comptime::runtime(tile_size * tile_size);
 
     let coop_dim = UInt::new(32);
     let coop_id = UNIT_POS_Y;
     let lane_id = UNIT_POS_X;
 
-    let read_offset = k_tiles * coop_id * sm_row_offset;
+    let read_offset = n_tiles * coop_id * num_tile_elems;
     let out_offset = offsets.batch_out + offsets.cube_row * out_stride + offsets.cube_col;
 
     let read_0 = read_offset + lane_id * out_vec_r;
@@ -76,8 +77,8 @@ fn shared_memory_to_output<F: Float>(
 
     let unit_write_row_0 = lane_id / n_units_per_tile_row;
     let unit_write_col = lane_id % n_units_per_tile_row;
-    let tile_row = coop_id / k_tiles;
-    let tile_col = (coop_id % k_tiles) * k_tiles;
+    let tile_row = coop_id / n_tiles;
+    let tile_col = (coop_id % n_tiles) * n_tiles;
     let offset_row_write = tile_row * tile_size_r * out_stride;
     let offset_col_write = (tile_col * n_units_per_tile_row + unit_write_col) * out_vec_r;
 
