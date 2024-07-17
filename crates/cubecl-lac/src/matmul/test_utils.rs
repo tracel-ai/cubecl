@@ -140,6 +140,24 @@ pub(crate) fn assert_equals<R: Runtime>(
     assert_eq!(actual, expected);
 }
 
+pub(crate) fn assert_equals_approx<R: Runtime>(
+    output: Handle<<R as Runtime>::Server>,
+    expected: &[f32],
+    epsilon: f32,
+    device: &R::Device,
+) {
+    let client = R::client(device);
+
+    let actual = client.read(output.binding());
+    let actual = f32::from_bytes(&actual);
+
+    for (a, e) in actual.iter().zip(expected.iter()) {
+        assert!(
+            (a - e).abs() < epsilon
+        );
+    }
+}
+
 pub(crate) fn assert_equals_range<R: Runtime>(
     output: Handle<<R as Runtime>::Server>,
     expected: &[f32],

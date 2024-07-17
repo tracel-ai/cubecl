@@ -5,84 +5,74 @@ use cubecl_core::{frontend::F32, CubeElement, Runtime};
 
 use super::{
     cmma::matmul_cmma,
-    test_utils::{assert_equals, create_empty},
+    test_utils::{assert_equals_approx, assert_equals, create_empty},
 };
 use half::f16;
 
-fn matmul_cpu(
-    lhs: &[f32],
-    rhs: &[f32],
+pub fn test_matmul_cmma_1<R: Runtime>(device: &R::Device) {
+    MatmulTestCase {
+        m: 64, k: 64, n: 64, factor: 100000., epsilon: 0.1, compute_f16: true
+    }.test::<R>(device);
+}
+
+pub fn test_matmul_cmma_2<R: Runtime>(device: &R::Device) {
+    MatmulTestCase {
+        m: 256, k: 256, n: 256, factor: 100000., epsilon: 0.1, compute_f16: true
+    }.test::<R>(device);
+}
+
+struct MatmulTestCase {
     m: usize,
     k: usize,
     n: usize,
-    compute_f16: bool,
-) -> Vec<f32> {
-    let mut out = vec![0.; m * n];
-    for i in 0..m {
-        for j in 0..n {
-            for k_ in 0..k {
-                let lhs_value = lhs[i * k + k_];
-                let rhs_value = rhs[j * k_ + n];
+    factor: f32,
+    epsilon: f32,
+    compute_f16: bool
+}
 
-                let result = if compute_f16 {
-                    (f16::from_f32(lhs_value) * f16::from_f32(rhs_value)).to_f32()
-                } else {
-                    lhs_value * rhs_value
-                };
+impl MatmulTestCase {
+    fn test<R: Runtime>(&self, device: &R::Device) {
+        let tensor_1 = range_tensor_with_factor::<R>(self.m, self.k, self.factor, device);
+        let tensor_2 = range_tensor_with_factor::<R>(self.k, self.n, self.factor, device);
+        let out = Tensor {
+            handle: create_empty::<R>(self.m, self.n, device),
+            shape: vec![self.m, self.n],
+            strides: vec![self.n, 1],
+            elem: PhantomData,
+        };
 
-                out[i * n + j] += result;
+        let expected = self.matmul_cpu(
+            f32::from_bytes(&R::client(device).read(tensor_1.handle.clone().binding())),
+            f32::from_bytes(&R::client(device).read(tensor_2.handle.clone().binding())),
+        );
+
+        let out = matmul_cmma::<R, F32>(tensor_1, tensor_2, out, device);
+
+        assert_equals_approx::<R>(out.handle, &expected, self.epsilon, device);
+    }
+
+    fn matmul_cpu(
+        &self, 
+        lhs: &[f32],
+        rhs: &[f32],
+    ) -> Vec<f32> {
+        let mut out = vec![0.; self.m * self.n];
+        for i in 0..self.m {
+            for j in 0..self.n {
+                for k_ in 0..self.k {
+                    let lhs_value = lhs[i * self.k + k_];
+                    let rhs_value = rhs[j + k_ * self.n];
+
+                    let result = if self.compute_f16 {
+                        (f16::from_f32(lhs_value) * f16::from_f32(rhs_value)).to_f32()
+                    } else {
+                        lhs_value * rhs_value
+                    };
+
+                    out[i * self.n + j] += result;
+                }
             }
         }
+        out
     }
-    out
 }
-
-pub fn test_matmul_cmma_1<R: Runtime>(device: &R::Device) {
-    let m = 64;
-    let k = 64;
-    let n = 64;
-
-    let factor = 100.;
-    let tensor_1 = range_tensor_with_factor::<R>(m, k, factor, device);
-    let tensor_2 = range_tensor_with_factor::<R>(k, n, factor, device);
-    let out = Tensor {
-        handle: create_empty::<R>(m, n, device),
-        shape: vec![m, n],
-        strides: vec![n, 1],
-        elem: PhantomData,
-    };
-
-    let expected = matmul_cpu(
-        f32::from_bytes(&R::client(device).read(tensor_1.handle.clone().binding())),
-        f32::from_bytes(&R::client(device).read(tensor_2.handle.clone().binding())),
-        m,
-        k,
-        n,
-        true,
-    );
-
-    let out = matmul_cmma::<R, F32>(tensor_1, tensor_2, out, device);
-
-    assert_equals::<R>(out.handle, &expected, device);
-}
-
-// pub fn test_matmul_cmma_2<R: Runtime>(device: &R::Device) {
-//     let m = 256;
-//     let k = 256;
-//     let n = 256;
-
-//     let tensor_1 = range_tensor::<R>(m, k, device);
-//     let tensor_2 = range_tensor::<R>(k, n, device);
-//     let out = Tensor {
-//         handle: create_empty::<R>(m, n, device),
-//         shape: vec![m, n],
-//         strides: vec![n, 1],
-//         elem: PhantomData,
-//     };
-
-//     let out = matmul_cmma::<R, F32>(tensor_1, tensor_2, out, device);
-
-//     let client = R::client(device);
-//     println!("{:?}", f32::from_bytes(&client.read(out.handle.binding())));
-//     assert!(false);
-// }

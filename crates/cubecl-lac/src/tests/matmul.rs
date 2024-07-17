@@ -11,9 +11,9 @@ macro_rules! testgen_matmul {
             matmul::matmul_tests::test_matmul_cmma_1::<TestRuntime>(&Default::default())
         }
 
-        // #[test]
-        // pub fn test_matmul_cmma_2() {
-        //     matmul::matmul_tests::test_matmul_cmma_2::<TestRuntime>(&Default::default())
-        // }
+        #[test]
+        pub fn test_matmul_cmma_2() {
+            matmul::matmul_tests::test_matmul_cmma_2::<TestRuntime>(&Default::default())
+        }
     };
 }
