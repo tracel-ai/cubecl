@@ -2,14 +2,14 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    base::{Dimensions, Offsets},
+    base::{Accumulators, Dimensions, Offsets},
     config::CmmaConfig,
 };
 
 #[cube]
 pub(crate) fn write_to_output<F: Float>(
     out: &mut Tensor<F>,
-    accumulate: SharedMemory<F>,
+    accumulators: Accumulators<F>,
     offsets: Offsets,
     dims: Dimensions,
     config: Comptime<CmmaConfig>,
@@ -32,7 +32,7 @@ pub(crate) fn write_to_output<F: Float>(
     let within_tile_row_offset = subcube_dim / out_vec_r; // assuming subcube_dim is 32 -> 8
     let within_sm_row_offset = subcube_dim * out_vec_r / acc_sm_stride; // assuming subcube_dim is 32 -> 2
     let subcube_id = UNIT_POS_Y;
-    let id_within_subcube = UNIT_POS_X;
+    let id_within_subcube = UNIT_POS_X; // lane_id
 
     // There are two because 32 / 16. TODO generalize
     let unit_read_row_0 = id_within_subcube / acc_sm_stride_vec;
@@ -44,39 +44,104 @@ pub(crate) fn write_to_output<F: Float>(
     let unit_write_row_1 = unit_write_row_0 + within_tile_row_offset;
     let unit_write_col = id_within_subcube % n_units_per_tile_row;
 
-    for n_iter in range(0u32, num_tiles_per_subcube, Comptime::new(true)) {
-        let single_row_offset = Comptime::runtime(tile_size * tile_size / block_size_n); // 4
-        let row_offset = (num_tiles_per_subcube * subcube_id + n_iter) * single_row_offset;
+    // TODO: the need for this shared memory should be replaced by using __shfl_sync
+    // 4096 = 256 * 2 * 8 = content of accumulator * 2 accumulators * 8 warps in parallel = 64 * 64 as well
+    let mut acc_sm = SharedMemory::<F>::new(4096);
 
-        let read_pos_0 = (row_offset + unit_read_row_0) * acc_sm_stride + unit_read_col * out_vec_r;
-        let read_pos_1 = (row_offset + unit_read_row_1) * acc_sm_stride + unit_read_col * out_vec_r;
+    // for n_iter in range(0u32, num_tiles_per_subcube, Comptime::new(true)) { // MANUAL UNROLL
+    let n_iter = UInt::new(0);
+    let num_slice = UInt::new(2) * subcube_id + n_iter;
+    let slice = acc_sm.slice_mut(
+        num_slice * UInt::new(256),
+        (num_slice + UInt::new(1)) * UInt::new(256),
+    );
+    cmma::store::<F>(
+        slice,
+        &accumulators.first,
+        UInt::new(16),
+        cmma::MatrixLayout::RowMajor,
+    );
 
-        let tile_row = subcube_id / num_tiles_per_subcube;
-        let tile_col = (subcube_id % num_tiles_per_subcube) * num_tiles_per_subcube + n_iter;
+    let single_row_offset = Comptime::runtime(tile_size * tile_size / block_size_n); // 4
+    let row_offset = (num_tiles_per_subcube * subcube_id + n_iter) * single_row_offset;
 
-        let total_col = tile_col * n_units_per_tile_row + unit_write_col;
+    let read_pos_0 = (row_offset + unit_read_row_0) * acc_sm_stride + unit_read_col * out_vec_r;
+    let read_pos_1 = (row_offset + unit_read_row_1) * acc_sm_stride + unit_read_col * out_vec_r;
 
-        let out_offset = offsets.batch_out + offsets.cube_row * out_stride + offsets.cube_col;
+    let tile_row = subcube_id / num_tiles_per_subcube;
+    let tile_col = (subcube_id % num_tiles_per_subcube) * num_tiles_per_subcube + n_iter;
 
-        let out_write_pos_0 = out_offset
-            + (tile_row * tile_size_r + unit_write_row_0) * out_stride
-            + total_col * out_vec_r;
-        let out_write_pos_1 = out_offset
-            + (tile_row * tile_size_r + unit_write_row_1) * out_stride
-            + total_col * out_vec_r;
+    let total_col = tile_col * n_units_per_tile_row + unit_write_col;
 
-        let mut a = F::vectorized_empty(Comptime::get(out_vec));
-        for i in range(0u32, 4u32, Comptime::new(true)) {
-            a[i] = accumulate[read_pos_0 + i];
-        }
-        out[out_write_pos_0 / out_vec_r] = a;
+    let out_offset = offsets.batch_out + offsets.cube_row * out_stride + offsets.cube_col;
 
-        let mut b = F::vectorized_empty(Comptime::get(out_vec));
-        for i in range(0u32, 4u32, Comptime::new(true)) {
-            b[i] = accumulate[read_pos_1 + i];
-        }
-        out[out_write_pos_1 / out_vec_r] = b;
+    let out_write_pos_0 = out_offset
+        + (tile_row * tile_size_r + unit_write_row_0) * out_stride
+        + total_col * out_vec_r;
+    let out_write_pos_1 = out_offset
+        + (tile_row * tile_size_r + unit_write_row_1) * out_stride
+        + total_col * out_vec_r;
+
+    // TODO use store instruction directly
+    let mut a = F::vectorized_empty(Comptime::get(out_vec));
+    for i in range(0u32, 4u32, Comptime::new(true)) {
+        a[i] = acc_sm[read_pos_0 + i];
     }
+    out[out_write_pos_0 / out_vec_r] = a;
+
+    let mut b = F::vectorized_empty(Comptime::get(out_vec));
+    for i in range(0u32, 4u32, Comptime::new(true)) {
+        b[i] = acc_sm[read_pos_1 + i];
+    }
+    out[out_write_pos_1 / out_vec_r] = b;
+
+    /////
+
+    let n_iter = UInt::new(1);
+    let num_slice = UInt::new(2) * subcube_id + n_iter;
+    let slice = acc_sm.slice_mut(
+        num_slice * UInt::new(256),
+        (num_slice + UInt::new(1)) * UInt::new(256),
+    );
+    cmma::store::<F>(
+        slice,
+        &accumulators.second,
+        UInt::new(16),
+        cmma::MatrixLayout::RowMajor,
+    );
+
+    let single_row_offset = Comptime::runtime(tile_size * tile_size / block_size_n); // 4
+    let row_offset = (num_tiles_per_subcube * subcube_id + n_iter) * single_row_offset;
+
+    let read_pos_0 = (row_offset + unit_read_row_0) * acc_sm_stride + unit_read_col * out_vec_r;
+    let read_pos_1 = (row_offset + unit_read_row_1) * acc_sm_stride + unit_read_col * out_vec_r;
+
+    let tile_row = subcube_id / num_tiles_per_subcube;
+    let tile_col = (subcube_id % num_tiles_per_subcube) * num_tiles_per_subcube + n_iter;
+
+    let total_col = tile_col * n_units_per_tile_row + unit_write_col;
+
+    let out_offset = offsets.batch_out + offsets.cube_row * out_stride + offsets.cube_col;
+
+    let out_write_pos_0 = out_offset
+        + (tile_row * tile_size_r + unit_write_row_0) * out_stride
+        + total_col * out_vec_r;
+    let out_write_pos_1 = out_offset
+        + (tile_row * tile_size_r + unit_write_row_1) * out_stride
+        + total_col * out_vec_r;
+
+    // TODO use store instruction directly
+    let mut aa = F::vectorized_empty(Comptime::get(out_vec));
+    for i in range(0u32, 4u32, Comptime::new(true)) {
+        aa[i] = acc_sm[read_pos_0 + i];
+    }
+    out[out_write_pos_0 / out_vec_r] = aa;
+
+    let mut bb = F::vectorized_empty(Comptime::get(out_vec));
+    for i in range(0u32, 4u32, Comptime::new(true)) {
+        bb[i] = acc_sm[read_pos_1 + i];
+    }
+    out[out_write_pos_1 / out_vec_r] = bb;
 }
 
 #[cfg(feature = "export_tests")]
@@ -84,7 +149,7 @@ pub(crate) fn write_to_output<F: Float>(
 pub mod tests {
 
     use crate::matmul::{
-        cmma::base::{DimensionsExpand, OffsetsExpand},
+        cmma::base::{make_accumulators, DimensionsExpand, OffsetsExpand},
         test_utils::{assert_equals, assert_equals_range, range_tensor, zeros_tensor},
     };
 
@@ -107,10 +172,13 @@ pub mod tests {
             k: UInt::new(0),
         };
 
-        let mut accumulate = SharedMemory::<F>::new(4096);
-        for i in range(0u32, 4096u32, Comptime::new(false)) {
-            accumulate[i] = acc_sm_arr[i];
-        }
+        let accumulators = make_accumulators();
+        // TODO. Just to make compile but test will fail
+
+        // let mut accumulate = SharedMemory::<F>::new(4096);
+        // for i in range(0u32, 4096u32, Comptime::new(false)) {
+        //     accumulate[i] = acc_sm_arr[i];
+        // }
 
         let dims = Dimensions {
             m: UInt::new(16),
@@ -118,7 +186,7 @@ pub mod tests {
             n,
         };
 
-        write_to_output(out, accumulate, offsets, dims, config);
+        write_to_output(out, accumulators, offsets, dims, config);
     }
 
     /// Exported test

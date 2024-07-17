@@ -11,7 +11,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     offsets: Offsets,
-    shared: SharedMemories<F, FC>,
+    shared: SharedMemories<FC>,
     config: Comptime<CmmaConfig>,
     dims: Dimensions,
 ) {

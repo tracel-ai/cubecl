@@ -64,6 +64,7 @@ pub use ir::{MatrixIdent, MatrixLayout};
 ///
 /// They can either be in a [row major](MatrixLayout::RowMajor) or a
 /// [column major](MatrixLayout::ColMajor) format.
+#[derive(Copy, Clone)]
 pub struct Matrix<C: CubeType> {
     _c: PhantomData<C>,
 }

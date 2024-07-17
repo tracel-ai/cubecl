@@ -4,8 +4,7 @@ macro_rules! testgen_matmul_internal {
     () => {
         use cubecl_lac::matmul::{
             cmma::{
-                cmma_compute_loop_mimic_tests, cmma_compute_loop_tests,
-                cmma_load_shared_memory_tests, cmma_write_output_tests,
+                cmma_compute_loop_tests, cmma_load_shared_memory_tests, cmma_write_output_tests,
             },
             tiling2d::{
                 compute_loop_tests, load_shared_memory_tests, outer_product_tests,
@@ -143,12 +142,12 @@ macro_rules! testgen_matmul_internal {
             )
         }
 
-        #[test]
-        pub fn cmma_compute_loop_mimic_warp_test() {
-            cmma_compute_loop_mimic_tests::compute_loop_mimic_warp_test::<TestRuntime>(
-                &Default::default(),
-            )
-        }
+        // #[test]
+        // pub fn cmma_compute_loop_mimic_warp_test() {
+        //     cmma_compute_loop_mimic_tests::compute_loop_mimic_warp_test::<TestRuntime>(
+        //         &Default::default(),
+        //     )
+        // }
 
         #[test]
         pub fn cmma_compute_loop_k_test() {
@@ -174,12 +173,12 @@ macro_rules! testgen_matmul_internal {
             >(&Default::default())
         }
 
-        #[test]
-        pub fn cmma_compute_loop_mimic_offseted_warp_test() {
-            cmma_compute_loop_mimic_tests::compute_loop_mimic_offseted_warp_test::<TestRuntime>(
-                &Default::default(),
-            )
-        }
+        // #[test]
+        // pub fn cmma_compute_loop_mimic_offseted_warp_test() {
+        //     cmma_compute_loop_mimic_tests::compute_loop_mimic_offseted_warp_test::<TestRuntime>(
+        //         &Default::default(),
+        //     )
+        // }
 
         #[test]
         pub fn cmma_warp_test() {
@@ -280,12 +279,12 @@ macro_rules! testgen_matmul_internal {
             )
         }
 
-        #[test]
-        pub fn compute_loop_mimic_two_warps_same_tile_row_test() {
-            cmma_compute_loop_mimic_tests::compute_loop_two_warps_same_tile_row_test::<TestRuntime>(
-                &Default::default(),
-            )
-        }
+        // #[test]
+        // pub fn compute_loop_mimic_two_warps_same_tile_row_test() {
+        //     cmma_compute_loop_mimic_tests::compute_loop_two_warps_same_tile_row_test::<TestRuntime>(
+        //         &Default::default(),
+        //     )
+        // }
 
         #[test]
         pub fn compute_loop_two_warps_same_tile_row_test() {
