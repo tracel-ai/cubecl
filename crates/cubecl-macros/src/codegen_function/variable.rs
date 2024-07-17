@@ -4,7 +4,7 @@ use syn::{punctuated::Punctuated, FieldValue, Lit, Member, PathArguments, Token}
 
 use crate::{analyzer::KEYWORDS, codegen_function::expr::codegen_expr, tracker::VariableTracker};
 
-use super::base::Codegen;
+use super::base::{Codegen, CodegenKind};
 
 /// Codegen for literals
 pub(crate) fn codegen_lit(lit: &syn::ExprLit) -> TokenStream {
@@ -26,7 +26,7 @@ pub(crate) fn codegen_array_lit(array: &syn::ExprArray) -> TokenStream {
     let mut tokens = quote::quote! {};
     for element in array.elems.iter() {
         let token = match element {
-            syn::Expr::Lit(lit) => codegen_lit(lit),
+            syn::Expr::Lit(lit) => Codegen::new(codegen_lit(lit), CodegenKind::Literal),
             _ => {
                 return syn::Error::new_spanned(array, "Only arrays of literals are supported")
                     .into_compile_error()
@@ -64,16 +64,15 @@ pub(crate) fn codegen_local(
 
     match local.init.as_ref() {
         Some(init) => {
-            let (init, is_comptime) =
-                codegen_expr(&init.expr, loop_level, variable_tracker).split();
+            let (init, kind, _) = codegen_expr(&init.expr, loop_level, variable_tracker).process();
 
-            if is_comptime {
+            if matches!(kind, CodegenKind::Comptime) {
                 variable_tracker
                     .set_as_comptime(ident.to_string(), loop_level as u8, None)
                     .unwrap();
             }
 
-            if is_comptime {
+            if matches!(kind, CodegenKind::Comptime) {
                 quote::quote! {
                     #let_tok #ident = #init;
                 }
@@ -111,11 +110,11 @@ pub(crate) fn codegen_index(
         }
     };
 
-    let mut codegen = Codegen::new(tokens, false);
-    codegen.array_indexing = Some(super::base::ArrayIndexing {
-        array: array.tokens,
-        index: index.tokens,
-    });
+    let mut codegen = Codegen::new(tokens, CodegenKind::Expand);
+    codegen.set_array_indexing(Some(super::base::ArrayIndexing {
+        array: array.tokens(),
+        index: index.tokens(),
+    }));
 
     codegen
 }
@@ -184,7 +183,7 @@ pub(crate) fn codegen_path_var(
                 quote::quote! {
                     #path
                 },
-                false,
+                CodegenKind::Expand,
             );
         }
     };
@@ -192,7 +191,7 @@ pub(crate) fn codegen_path_var(
     let name = ident.to_string();
 
     if name == "None" {
-        return Codegen::new(quote::quote! { None }, true);
+        return Codegen::new(quote::quote! { None }, CodegenKind::Comptime);
     }
 
     if KEYWORDS.contains(&name.as_str()) {
@@ -200,12 +199,18 @@ pub(crate) fn codegen_path_var(
             quote::quote! {
                 #ident :: expand(context)
             },
-            false,
+            CodegenKind::Expand,
         )
     } else {
         let (will_be_used_again, is_comptime) = variable_tracker
             .codegen_reuse(name, loop_level as u8, None)
             .unwrap_or((true, false));
+
+        let kind = if is_comptime {
+            CodegenKind::Comptime
+        } else {
+            CodegenKind::Expand
+        };
 
         let output = if will_be_used_again {
             quote::quote! {
@@ -217,7 +222,7 @@ pub(crate) fn codegen_path_var(
             }
         };
 
-        Codegen::new(output, is_comptime)
+        Codegen::new(output, kind)
     }
 }
 

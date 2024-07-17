@@ -1,6 +1,6 @@
 use crate::compute::KernelLauncher;
-use crate::frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement};
-use crate::ir::{ConstantScalarValue, Elem, Item, Variable};
+use crate::frontend::{CubeContext, CubePrimitive, CubeType};
+use crate::ir::{Item, Variable};
 use crate::prelude::Clamp;
 use crate::Runtime;
 use crate::{
@@ -8,29 +8,47 @@ use crate::{
     unexpanded,
 };
 
-use super::{ArgSettings, ExpandElementBaseInit, LaunchArg, LaunchArgExpand};
+use super::{
+    ArgSettings, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg,
+    LaunchArgExpand, UInt, I64,
+};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
 pub trait Numeric:
     Copy
-    + ExpandElementBaseInit
-    + CubePrimitive
-    + LaunchArgExpand
-    + std::ops::Add<Output = Self>
-    + std::ops::AddAssign
-    + std::ops::SubAssign
-    + std::ops::MulAssign
-    + std::ops::DivAssign
-    + std::ops::Sub<Output = Self>
-    + std::ops::Mul<Output = Self>
-    + std::ops::Div<Output = Self>
-    + std::cmp::PartialOrd
     + Abs
     + Max
     + Min
     + Clamp
     + Remainder
+    + ExpandElementBaseInit
+    + CubePrimitive
+    + LaunchArgExpand
+    + std::ops::AddAssign
+    + std::ops::SubAssign
+    + std::ops::MulAssign
+    + std::ops::DivAssign
+    + std::ops::Add<Output = Self>
+    + std::ops::Sub<Output = Self>
+    + std::ops::Mul<Output = Self>
+    + std::ops::Div<Output = Self>
+    + std::cmp::PartialOrd
+    + core::ops::Index<UInt, Output = Self>
+    + core::ops::IndexMut<UInt, Output = Self>
+    + core::ops::Index<u32, Output = Self>
+    + core::ops::IndexMut<u32, Output = Self>
+    + From<u32>
+    + std::ops::Add<u32, Output = Self>
+    + std::ops::Sub<u32, Output = Self>
+    + std::ops::Mul<u32, Output = Self>
+    + std::ops::Div<u32, Output = Self>
+    + std::ops::AddAssign<u32>
+    + std::ops::SubAssign<u32>
+    + std::ops::MulAssign<u32>
+    + std::ops::DivAssign<u32>
+    + std::cmp::PartialOrd<u32>
+    + std::cmp::PartialEq<u32>
 {
     /// Create a new constant numeric.
     ///
@@ -40,35 +58,43 @@ pub trait Numeric:
     ///
     /// This method panics when unexpanded. For creating an element
     /// with a val, use the new method of the sub type.
-    fn from_int(_val: i64) -> Self {
+    fn from_int(_val: u32) -> Self {
         unexpanded!()
     }
 
     type Primitive: ScalarArgSettings;
 
-    fn from_vec<const D: usize>(_vec: [i64; D]) -> Self {
+    fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {
         unexpanded!()
     }
 
-    fn __expand_from_int(_context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType {
+    fn __expand_from_int(
+        _context: &mut CubeContext,
+        val: ExpandElementTyped<I64>,
+    ) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_elem();
-        let value = match elem {
-            Elem::Float(kind) => ConstantScalarValue::Float(val as f64, kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val, kind),
-            Elem::UInt => ConstantScalarValue::UInt(val as u64),
-            _ => panic!("Wrong elem type"),
-        };
+        let var: Variable = elem.constant_from_i64(val.constant().unwrap().as_i64());
 
-        ExpandElement::Plain(Variable::ConstantScalar(value)).into()
+        ExpandElement::Plain(var).into()
     }
 
     fn __expand_from_vec<const D: usize>(
         context: &mut CubeContext,
-        vec: [i64; D],
+        vec: [ExpandElementTyped<UInt>; D],
     ) -> <Self as CubeType>::ExpandType {
-        let mut new_var = context.create_local(Item::vectorized(Self::as_elem(), vec.len() as u8));
+        let new_var = context.create_local(Item::vectorized(Self::as_elem(), vec.len() as u8));
+        let elem = Self::as_elem();
+
         for (i, element) in vec.iter().enumerate() {
-            new_var = index_assign::expand(context, new_var, i, *element);
+            let var: Variable = elem.constant_from_i64(element.constant().unwrap().as_i64());
+            let expand = ExpandElement::Plain(var);
+
+            index_assign::expand::<UInt>(
+                context,
+                new_var.clone().into(),
+                ExpandElementTyped::from_lit(i),
+                expand.into(),
+            );
         }
 
         new_var.into()

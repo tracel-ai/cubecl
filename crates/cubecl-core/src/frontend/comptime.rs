@@ -40,6 +40,7 @@ impl<T> Comptime<T> {
         unexpanded!()
     }
 
+    /// Executes a closure on the comptime and returns a new comptime containing the value.
     pub fn map<R, F: Fn(T) -> R>(_comptime: Self, _closure: F) -> Comptime<R> {
         unexpanded!()
     }

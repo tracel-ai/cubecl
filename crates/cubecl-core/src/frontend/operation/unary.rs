@@ -1,7 +1,7 @@
 use crate::{
-    frontend::{CubeContext, CubeType, UInt, BF16, F16, F32, F64, I32, I64},
+    frontend::{CubeContext, UInt, BF16, F16, F32, F64, I32, I64},
     ir::Operator,
-    prelude::ExpandElementTyped,
+    prelude::{CubePrimitive, ExpandElementTyped},
     unexpanded,
 };
 
@@ -20,12 +20,13 @@ pub mod not {
 
 macro_rules! impl_unary_func {
     ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $operator:expr, $($type:ty),*) => {
-        pub trait $trait_name: CubeType + Sized {
-            fn $method_name(_input: Self) -> Self {
+        pub trait $trait_name: CubePrimitive + Sized {
+            #[allow(unused_variables)]
+            fn $method_name(x: Self) -> Self {
                 unexpanded!()
             }
 
-            fn $method_name_expand(context: &mut CubeContext, x: ExpandElementTyped<Self>) -> ExpandElementTyped<Self> {
+            fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<Self> {
                 unary_expand(context, x.into(), $operator).into()
             }
         }

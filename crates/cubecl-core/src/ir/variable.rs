@@ -152,6 +152,26 @@ impl ConstantScalarValue {
         self.try_as_u64()
             .expect("Only Int and UInt kind can be made into u64.")
     }
+
+    /// Returns the value of the scalar as a i64.
+    ///
+    /// It will return [None] if the scalar type is a float or a bool.
+    pub fn try_as_i64(&self) -> Option<i64> {
+        match self {
+            ConstantScalarValue::UInt(val) => Some(*val as i64),
+            ConstantScalarValue::Int(val, _) => Some(*val),
+            ConstantScalarValue::Float(_, _) => None,
+            ConstantScalarValue::Bool(_) => None,
+        }
+    }
+
+    /// Returns the value of the scalar as a u32.
+    ///
+    /// It will panics if the scalar type is a float or a bool.
+    pub fn as_i64(&self) -> i64 {
+        self.try_as_i64()
+            .expect("Only Int and UInt kind can be made into i64.")
+    }
 }
 
 impl Variable {

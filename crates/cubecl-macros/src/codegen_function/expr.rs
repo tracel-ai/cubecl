@@ -2,7 +2,7 @@ use crate::tracker::VariableTracker;
 use proc_macro2::TokenStream;
 
 use super::{
-    base::{codegen_block, Codegen},
+    base::{codegen_block, Codegen, CodegenKind},
     branch::{
         codegen_break, codegen_for_loop, codegen_if, codegen_loop, codegen_return,
         codegen_while_loop,
@@ -26,13 +26,17 @@ pub(crate) fn codegen_expr(
         syn::Expr::Paren(paren) => codegen_expr(&paren.expr, loop_level, variable_tracker),
         _ => {
             let mut array_indexing = None;
+            let mut kind = CodegenKind::Expand;
             let tokens = match expr {
                 syn::Expr::Path(path) => {
                     return codegen_path_var(path, loop_level, variable_tracker)
                 }
                 syn::Expr::Binary(op) => return codegen_binary(op, loop_level, variable_tracker),
                 syn::Expr::Unary(op) => return codegen_unary(op, loop_level, variable_tracker),
-                syn::Expr::Lit(lit) => codegen_lit(lit),
+                syn::Expr::Lit(lit) => {
+                    kind = CodegenKind::Literal;
+                    codegen_lit(lit)
+                }
                 syn::Expr::Closure(closure) => {
                     codegen_closure(closure, loop_level, variable_tracker)
                 }
@@ -52,9 +56,12 @@ pub(crate) fn codegen_expr(
                     codegen_expr_method_call(call, loop_level, variable_tracker)
                 }
                 syn::Expr::Index(index) => {
-                    let codegen = codegen_index(index, loop_level, variable_tracker);
-                    array_indexing = codegen.array_indexing;
-                    codegen.tokens
+                    let (tokens, index_kind, index_array_indexing) =
+                        codegen_index(index, loop_level, variable_tracker).process();
+
+                    array_indexing = index_array_indexing;
+                    kind = index_kind;
+                    tokens
                 }
                 syn::Expr::Array(array) => codegen_array_lit(array),
                 syn::Expr::Reference(reference) => {
@@ -72,8 +79,8 @@ pub(crate) fn codegen_expr(
                 }
             };
 
-            let mut codegen = Codegen::new(tokens, false);
-            codegen.array_indexing = array_indexing;
+            let mut codegen = Codegen::new(tokens, kind);
+            codegen.set_array_indexing(array_indexing);
             codegen
         }
     }

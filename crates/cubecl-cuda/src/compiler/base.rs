@@ -25,9 +25,9 @@ pub struct CudaCompiler {
 impl Compiler for CudaCompiler {
     type Representation = super::ComputeKernel;
 
-    fn compile(shader: cubecl_core::ir::KernelDefinition) -> Self::Representation {
+    fn compile(kernel: cubecl_core::ir::KernelDefinition) -> Self::Representation {
         let compiler = Self::default();
-        compiler.compile_shader(shader)
+        compiler.compile_shader(kernel)
     }
 
     fn elem_size(elem: gpu::Elem) -> usize {

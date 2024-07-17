@@ -206,7 +206,7 @@ mod tests {
                 $op_expand(&mut context, x.into(), y.into());
 
                 assert_eq!(
-                    format!("{:?}", context.into_scope().operations),
+                    format!("{:?}", context.into_scope().process().operations),
                     $func($op_name)
                 );
             }
