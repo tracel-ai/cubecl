@@ -43,7 +43,7 @@ impl Default for CmmaConfig {
 }
 
 pub fn cmma_cube_count<R: Runtime>(
-    output_shape: &Vec<usize>,
+    output_shape: &[usize],
     block_size_m: usize,
     block_size_n: usize,
 ) -> CubeCount<R::Server> {
@@ -54,8 +54,8 @@ pub fn cmma_cube_count<R: Runtime>(
     let cubes_x = f32::ceil(num_rows as f32 / block_size_m as f32) as u32;
     let cubes_y = f32::ceil(num_cols as f32 / block_size_n as f32) as u32;
     let mut num_iter = 1;
-    for i in 0..rank - 2 {
-        num_iter *= output_shape[i];
+    for shape in output_shape.iter().take(rank - 2) {
+        num_iter *= shape;
     }
 
     CubeCount::Static(cubes_x, cubes_y, num_iter as u32)

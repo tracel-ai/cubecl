@@ -168,20 +168,20 @@ fn run_lint(target: &Target) -> anyhow::Result<()> {
 }
 
 fn run_unit_tests(target: &Target) -> anyhow::Result<()> {
-    run_unit(&target)
+    run_unit(target)
 }
 
 fn run_integration_tests(target: &Target) -> anyhow::Result<()> {
-    run_integration(&target)
+    run_integration(target)
 }
 
 fn run_doc_tests(target: &Target) -> anyhow::Result<()> {
-    run_documentation(&target)
+    run_documentation(target)
 }
 
 fn run_all_tests(target: &Target) -> anyhow::Result<()> {
-    run_unit_tests(&target)?;
-    run_integration_tests(&target)?;
-    run_doc_tests(&target)?;
+    run_unit_tests(target)?;
+    run_integration_tests(target)?;
+    run_doc_tests(target)?;
     Ok(())
 }

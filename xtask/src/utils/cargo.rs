@@ -62,7 +62,7 @@ pub fn ensure_cargo_crate_is_installed(
         if let Some(features) = features {
             if !features.is_empty() {
                 args.push("--features");
-                args.push(&features);
+                args.push(features);
             }
         }
         run_cargo(
