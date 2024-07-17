@@ -160,7 +160,7 @@ macro_rules! testgen_matmul_internal {
         }
 
         #[test]
-        pub fn compute_loop_cmma_offseted_warp_in_shared_memory_test() {
+        pub fn cmma_compute_loop_cmma_offseted_warp_in_shared_memory_test() {
             cmma_compute_loop_tests::compute_loop_cmma_offseted_warp_in_shared_memory_test::<
                 TestRuntime,
             >(&Default::default())
