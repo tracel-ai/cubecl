@@ -3,8 +3,9 @@ use std::{marker::PhantomData, ops::Range};
 use bytemuck::cast_slice;
 use cubecl_core::{
     frontend::{F16, F32},
+    ir::{Elem, FloatKind},
     server::Handle,
-    CubeElement, Runtime,
+    CubeElement, Feature, Runtime,
 };
 
 use crate::tensor::Tensor;
@@ -153,7 +154,12 @@ pub(crate) fn assert_equals_approx<R: Runtime>(
 
     for (a, e) in actual.iter().zip(expected.iter()) {
         assert!(
-            (a - e).abs() < epsilon
+            (a - e).abs() < epsilon,
+            "Values differ more than epsilon: actual={}, expected={}, difference={}, epsilon={}",
+            a,
+            e,
+            (a - e).abs(),
+            epsilon
         );
     }
 }
@@ -180,4 +186,15 @@ pub(crate) fn make_config(m: usize, k: usize, n: usize) -> CubeTiling2dConfig {
         ..Default::default()
     };
     CubeTiling2dConfig::new(&tiling2d_config, m, k, n, false, false)
+}
+
+pub(crate) fn cmma_available<R: Runtime>(device: &R::Device) -> bool {
+    R::client(device).features().enabled(Feature::Cmma {
+        a: Elem::Float(FloatKind::F16),
+        b: Elem::Float(FloatKind::F16),
+        c: Elem::Float(FloatKind::F32),
+        m: 16,
+        k: 16,
+        n: 16,
+    })
 }

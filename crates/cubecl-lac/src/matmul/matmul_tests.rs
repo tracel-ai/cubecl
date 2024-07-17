@@ -5,20 +5,32 @@ use cubecl_core::{frontend::F32, CubeElement, Runtime};
 
 use super::{
     cmma::matmul_cmma,
-    test_utils::{assert_equals_approx, assert_equals, create_empty},
+    test_utils::{assert_equals_approx, cmma_available, create_empty},
 };
 use half::f16;
 
 pub fn test_matmul_cmma_1<R: Runtime>(device: &R::Device) {
     MatmulTestCase {
-        m: 64, k: 64, n: 64, factor: 100000., epsilon: 0.1, compute_f16: true
-    }.test::<R>(device);
+        m: 64,
+        k: 64,
+        n: 64,
+        factor: 100000.,
+        epsilon: 0.1,
+        compute_f16: true,
+    }
+    .test::<R>(device);
 }
 
 pub fn test_matmul_cmma_2<R: Runtime>(device: &R::Device) {
     MatmulTestCase {
-        m: 256, k: 256, n: 256, factor: 100000., epsilon: 0.1, compute_f16: true
-    }.test::<R>(device);
+        m: 256,
+        k: 256,
+        n: 256,
+        factor: 100000.,
+        epsilon: 0.1,
+        compute_f16: true,
+    }
+    .test::<R>(device);
 }
 
 struct MatmulTestCase {
@@ -27,11 +39,16 @@ struct MatmulTestCase {
     n: usize,
     factor: f32,
     epsilon: f32,
-    compute_f16: bool
+    compute_f16: bool,
 }
 
 impl MatmulTestCase {
     fn test<R: Runtime>(&self, device: &R::Device) {
+        if !cmma_available::<R>(device) {
+            // We can't execute the test, skip.
+            return;
+        }
+
         let tensor_1 = range_tensor_with_factor::<R>(self.m, self.k, self.factor, device);
         let tensor_2 = range_tensor_with_factor::<R>(self.k, self.n, self.factor, device);
         let out = Tensor {
@@ -51,11 +68,7 @@ impl MatmulTestCase {
         assert_equals_approx::<R>(out.handle, &expected, self.epsilon, device);
     }
 
-    fn matmul_cpu(
-        &self, 
-        lhs: &[f32],
-        rhs: &[f32],
-    ) -> Vec<f32> {
+    fn matmul_cpu(&self, lhs: &[f32], rhs: &[f32]) -> Vec<f32> {
         let mut out = vec![0.; self.m * self.n];
         for i in 0..self.m {
             for j in 0..self.n {

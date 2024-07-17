@@ -96,14 +96,11 @@ fn compute_tile<F: Float, FC: Float>(
 #[cfg(feature = "export_tests")]
 /// Compute loop exported tests
 pub mod tests {
-    use cubecl_core::{
-        ir::{Elem, FloatKind},
-        Feature,
-    };
-
     use crate::matmul::{
         cmma::base::{make_accumulators, SharedMemoriesExpand},
-        test_utils::{assert_equals, assert_equals_range, create_empty, range_tensor_f16},
+        test_utils::{
+            assert_equals, assert_equals_range, cmma_available, create_empty, range_tensor_f16,
+        },
     };
 
     use super::*;
@@ -785,16 +782,5 @@ pub mod tests {
         ];
 
         assert_equals::<R>(results, expected, device);
-    }
-
-    fn cmma_available<R: Runtime>(device: &R::Device) -> bool {
-        R::client(device).features().enabled(Feature::Cmma {
-            a: Elem::Float(FloatKind::F16),
-            b: Elem::Float(FloatKind::F16),
-            c: Elem::Float(FloatKind::F32),
-            m: 16,
-            k: 16,
-            n: 16,
-        })
     }
 }
