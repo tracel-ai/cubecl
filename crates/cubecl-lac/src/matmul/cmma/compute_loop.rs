@@ -238,7 +238,8 @@ pub mod tests {
 
         compute_loop(shared_memories, accumulators, config);
 
-        let slice = accumulate_array.slice_mut(0, 256);
+        let offset = UNIT_POS_Y * UInt::new(512);
+        let slice = accumulate_array.slice_mut(offset, offset + UInt::new(256));
         cmma::store::<F>(
             slice,
             &accumulators.first,
@@ -246,7 +247,7 @@ pub mod tests {
             cmma::MatrixLayout::RowMajor,
         );
 
-        let slice = accumulate_array.slice_mut(256, 512);
+        let slice = accumulate_array.slice_mut(offset + UInt::new(256), offset + UInt::new(512));
         cmma::store::<F>(
             slice,
             &accumulators.second,
@@ -590,7 +591,7 @@ pub mod tests {
     }
 
     /// Exported test
-    pub fn compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::Device) {
+    pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::Device) {
         let m = 16;
         let k = 32;
         let n = 64;
