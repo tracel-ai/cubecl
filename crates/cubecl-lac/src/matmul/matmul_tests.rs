@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{frontend::F32, Runtime};
-
+use cubecl_core::{frontend::F32, Runtime, CubeElement};
+use crate::matmul::tiling2d::matmul_tiling_2d_cube;
 use crate::tensor::Tensor;
 
 use super::{
@@ -4125,4 +4125,28 @@ pub fn test_matmul_cmma_1<R: Runtime>(device: &R::Device) {
     ];
 
     assert_equals::<R>(out.handle, expected, device);
+}
+
+
+
+pub fn test_matmul_cmma_2<R: Runtime>(device: &R::Device) {
+    let m = 256;
+    let k = 256;
+    let n = 256;
+
+    let tensor_1 = range_tensor::<R>(m, k, device);
+    let tensor_2 = range_tensor::<R>(k, n, device);
+    let out = Tensor {
+        handle: create_empty::<R>(m, n, device),
+        shape: vec![m, n],
+        strides: vec![n, 1],
+        elem: PhantomData,
+    };
+
+    // let out = matmul_cmma::<R, F32>(tensor_1, tensor_2, out, device);
+    // let out = matmul_tiling_2d_cube::<R, F32>(tensor_1, tensor_2, out, Default::default(), device);
+
+    let client = R::client(device);
+    println!("{:?}", f32::from_bytes(&client.read(out.handle.binding())));
+    assert!(false);
 }
