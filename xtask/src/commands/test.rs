@@ -11,9 +11,6 @@ use crate::{
 
 use super::Target;
 
-const PROJECT_UUID: &str = "331a3907-bfd8-45e5-af54-1fee73a3c1b1";
-const API_KEY: &str = "dcaf7eb9-5acc-47d7-8b93-ca0fbb234096";
-
 #[derive(Args)]
 pub(crate) struct TestCmdArgs {
     /// Target to test for.
@@ -32,8 +29,6 @@ enum TestCommand {
     Integration,
     /// Run documentation tests.
     Documentation,
-    /// Run guide test against Heat dev stack.
-    Guide,
     /// Run all the checks.
     All,
 }
@@ -43,7 +38,6 @@ pub(crate) fn handle_command(args: TestCmdArgs) -> anyhow::Result<()> {
         TestCommand::Unit => run_unit(&args.target),
         TestCommand::Integration => run_integration(&args.target),
         TestCommand::Documentation => run_documentation(&args.target),
-        TestCommand::Guide => run_guide(),
         TestCommand::All => TestCommand::iter()
             .filter(|c| *c != TestCommand::All)
             .try_for_each(|c| {
@@ -53,30 +47,6 @@ pub(crate) fn handle_command(args: TestCmdArgs) -> anyhow::Result<()> {
                 })
             }),
     }
-}
-
-pub(crate) fn run_guide() -> Result<()> {
-    group!("Guide Test");
-    info!("Command line: cargo run --release --bin guide -- --key \"...\" --project \"...\"");
-    let status = Command::new("cargo")
-        .args([
-            "run",
-            "--release",
-            "--bin",
-            "guide",
-            "--",
-            "--key",
-            API_KEY,
-            "--project",
-            PROJECT_UUID,
-        ])
-        .status()
-        .map_err(|e| anyhow!("Failed to execute guide example: {}", e))?;
-    if !status.success() {
-        return Err(anyhow!("Failed to execute guide example"));
-    }
-    endgroup!();
-    Ok(())
 }
 
 pub(crate) fn run_unit(target: &Target) -> Result<()> {
