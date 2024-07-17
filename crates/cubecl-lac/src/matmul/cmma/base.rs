@@ -14,8 +14,18 @@ pub fn cmma_kernel<F: Float, FC: Float>(
 ) {
     let dims = get_dims::<F>(lhs, rhs);
     let offsets = calculate_offsets::<F>(lhs, rhs, out, config);
-    let shared_memories = make_shared_memories::<F, FC>(config);
-    block_loop::<F, FC>(lhs, rhs, out, offsets, shared_memories, config, dims);
+    let shared_memories = make_shared_memories::<FC>(config);
+    let accumulate = make_accumulators::<F>();
+    block_loop::<F, FC>(
+        lhs,
+        rhs,
+        out,
+        offsets,
+        shared_memories,
+        accumulate,
+        config,
+        dims,
+    );
 }
 
 #[derive(CubeType, Copy, Clone)]
@@ -28,10 +38,15 @@ pub(crate) struct Dimensions {
 }
 
 #[derive(CubeType, Copy, Clone)]
-pub(crate) struct SharedMemories<F: Float, FC: Float> {
+pub(crate) struct SharedMemories<FC: Float> {
     pub lhs: SharedMemory<FC>,
     pub rhs: SharedMemory<FC>,
-    pub accumulate: SharedMemory<F>,
+}
+
+#[derive(CubeType, Copy, Clone)]
+pub(crate) struct Accumulators<F: Float> {
+    pub first: cmma::Matrix<F>,
+    pub second: cmma::Matrix<F>,
 }
 
 #[derive(CubeType, Copy, Clone)]
@@ -101,28 +116,40 @@ fn calculate_offsets<F: Float>(
 }
 
 #[cube]
-fn make_shared_memories<F: Float, FC: Float>(
-    config: Comptime<CmmaConfig>,
-) -> SharedMemories<F, FC> {
+fn make_shared_memories<FC: Float>(config: Comptime<CmmaConfig>) -> SharedMemories<FC> {
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
-    let unroll = Comptime::map(config, |c| c.unroll);
 
     let lhs = SharedMemory::<FC>::new(Comptime::get(block_size_k * block_size_m));
-
     let rhs = SharedMemory::<FC>::new(Comptime::get(block_size_k * block_size_n));
 
-    let mut accumulate = SharedMemory::<F>::new(Comptime::get(block_size_m * block_size_n));
+    SharedMemories { lhs, rhs }
+}
 
-    // Init accumulation to 0
-    for i in range(0u32, Comptime::get(block_size_m * block_size_n), unroll) {
-        accumulate[i] = F::new(0.);
-    }
+#[cube]
+pub(crate) fn make_accumulators<F: Float>() -> Accumulators<F> {
+    // Assumes two per warp. TODO generalize
+    let acc0 = cmma::Matrix::<F>::new(
+        cmma::MatrixIdent::Accumulator,
+        16,
+        16,
+        16,
+        cmma::MatrixLayout::Undefined,
+    );
+    let acc1 = cmma::Matrix::<F>::new(
+        cmma::MatrixIdent::Accumulator,
+        16,
+        16,
+        16,
+        cmma::MatrixLayout::Undefined,
+    );
 
-    SharedMemories {
-        lhs,
-        rhs,
-        accumulate,
+    cmma::fill::<F>(&acc0, F::new(0.0));
+    cmma::fill::<F>(&acc1, F::new(0.0));
+
+    Accumulators {
+        first: acc0,
+        second: acc1,
     }
 }

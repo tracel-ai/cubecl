@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    base::{Dimensions, Offsets, SharedMemories},
+    base::{Accumulators, Dimensions, Offsets, SharedMemories},
     compute_loop::compute_loop,
     config::CmmaConfig,
     load_shared_memory::load_to_shared_memories,
@@ -15,7 +15,8 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
     mut offsets: Offsets,
-    shared_memories: SharedMemories<F, FC>,
+    shared_memories: SharedMemories<FC>,
+    accumulators: Accumulators<F>,
     config: Comptime<CmmaConfig>,
     dims: Dimensions,
 ) {
@@ -29,12 +30,12 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
 
         sync_units();
 
-        compute_loop::<F, FC>(shared_memories, config);
+        compute_loop::<F, FC>(shared_memories, accumulators, config);
 
         sync_units();
     }
 
-    write_to_output::<F>(out, shared_memories.accumulate, offsets, dims, config);
+    write_to_output::<F>(out, accumulators, offsets, dims, config);
 }
 
 #[cube]

@@ -1,13 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::base::SharedMemories;
+use super::base::{Accumulators, SharedMemories};
 use super::config::CmmaConfig;
 
 #[cube]
 #[allow(unused_mut)]
 pub(crate) fn compute_loop<F: Float, FC: Float>(
-    mut shared_memories: SharedMemories<F, FC>,
+    mut shared_memories: SharedMemories<FC>,
+    mut accumulators: Accumulators<F>,
     config: Comptime<CmmaConfig>,
 ) {
     let block_size_m = Comptime::map(config, |c| c.block_size_m); // 16
@@ -30,63 +31,80 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     let tile_row = subcube_id / num_subcube_per_row;
     let tile_col_base = (subcube_id % num_subcube_per_row) * n_iterations;
 
-    for n_iter in range(0u32, n_iterations, Comptime::new(false)) {
-        let tile_col = tile_col_base + n_iter;
+    // for n_iter in range(0u32, n_iterations, Comptime::new(false)) { MANUAL UNROLL
 
-        let accumulate_tile = tile_row * Comptime::runtime(num_tiles_per_row) + tile_col;
-        let accumulate_pos = accumulate_tile * num_tile_elems;
-        let accumulate_slice = shared_memories
-            .accumulate
-            .slice_mut(accumulate_pos, accumulate_pos + num_tile_elems);
+    let n_iter = UInt::new(0);
+    let tile_col = tile_col_base + n_iter;
 
-        let acc = cmma::Matrix::<F>::new(
-            cmma::MatrixIdent::Accumulator,
+    for k_iter in range(0u32, num_tiles_in_k, Comptime::new(false)) {
+        let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
+        let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
+        let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
+        let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
+
+        let lhs_slice = shared_memories
+            .lhs
+            .slice(shared_lhs_pos, shared_lhs_pos + num_tile_elems);
+        let rhs_slice = shared_memories
+            .rhs
+            .slice(shared_rhs_pos, shared_rhs_pos + num_tile_elems);
+
+        let a = cmma::Matrix::<FC>::new(
+            cmma::MatrixIdent::A,
             16,
             16,
             16,
-            cmma::MatrixLayout::Undefined,
-        );
-        cmma::fill::<F>(&acc, F::new(0.0));
-
-        for k_iter in range(0u32, num_tiles_in_k, Comptime::new(false)) {
-            let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
-            let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
-            let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
-            let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
-
-            let lhs_slice = shared_memories
-                .lhs
-                .slice(shared_lhs_pos, shared_lhs_pos + num_tile_elems);
-            let rhs_slice = shared_memories
-                .rhs
-                .slice(shared_rhs_pos, shared_rhs_pos + num_tile_elems);
-
-            let a = cmma::Matrix::<FC>::new(
-                cmma::MatrixIdent::A,
-                16,
-                16,
-                16,
-                cmma::MatrixLayout::RowMajor,
-            );
-            let b = cmma::Matrix::<FC>::new(
-                cmma::MatrixIdent::B,
-                16,
-                16,
-                16,
-                cmma::MatrixLayout::RowMajor,
-            );
-            cmma::load::<FC>(&a, lhs_slice, UInt::new(16));
-            cmma::load::<FC>(&b, rhs_slice, UInt::new(16));
-
-            cmma::execute::<FC, FC, F, F>(&a, &b, &acc, &acc);
-        }
-
-        cmma::store::<F>(
-            accumulate_slice,
-            &acc,
-            UInt::new(16),
             cmma::MatrixLayout::RowMajor,
         );
+        let b = cmma::Matrix::<FC>::new(
+            cmma::MatrixIdent::B,
+            16,
+            16,
+            16,
+            cmma::MatrixLayout::RowMajor,
+        );
+
+        cmma::load::<FC>(&a, lhs_slice, UInt::new(16));
+        cmma::load::<FC>(&b, rhs_slice, UInt::new(16));
+
+        cmma::execute::<FC, FC, F, F>(&a, &b, &accumulators.first, &accumulators.first);
+    }
+
+    let n_iter = UInt::new(1);
+    let tile_col = tile_col_base + n_iter;
+
+    for k_iter in range(0u32, num_tiles_in_k, Comptime::new(false)) {
+        let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
+        let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
+        let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
+        let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
+
+        let lhs_slice = shared_memories
+            .lhs
+            .slice(shared_lhs_pos, shared_lhs_pos + num_tile_elems);
+        let rhs_slice = shared_memories
+            .rhs
+            .slice(shared_rhs_pos, shared_rhs_pos + num_tile_elems);
+
+        let a = cmma::Matrix::<FC>::new(
+            cmma::MatrixIdent::A,
+            16,
+            16,
+            16,
+            cmma::MatrixLayout::RowMajor,
+        );
+        let b = cmma::Matrix::<FC>::new(
+            cmma::MatrixIdent::B,
+            16,
+            16,
+            16,
+            cmma::MatrixLayout::RowMajor,
+        );
+
+        cmma::load::<FC>(&a, lhs_slice, UInt::new(16));
+        cmma::load::<FC>(&b, rhs_slice, UInt::new(16));
+
+        cmma::execute::<FC, FC, F, F>(&a, &b, &accumulators.second, &accumulators.second);
     }
 }
 
@@ -94,10 +112,8 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
 /// Compute loop exported tests
 pub mod tests {
     use crate::matmul::{
-        cmma::base::SharedMemoriesExpand,
-        test_utils::{
-            assert_equals, assert_equals_range, create_empty, range_tensor, range_tensor_f16,
-        },
+        cmma::base::{make_accumulators, SharedMemoriesExpand},
+        test_utils::{assert_equals, assert_equals_range, create_empty, range_tensor_f16},
     };
 
     use super::*;
@@ -136,7 +152,7 @@ pub mod tests {
 
         cmma::execute::<FC, FC, F, F>(&a, &b, &c, &c);
 
-        cmma::store::<F>(out, &c, UInt::new(17), cmma::MatrixLayout::RowMajor);
+        cmma::store::<F>(out, &c, UInt::new(16), cmma::MatrixLayout::RowMajor);
     }
 
     #[cube(launch)]
@@ -217,17 +233,26 @@ pub mod tests {
             accumulate[i] = F::new(0.);
         }
 
-        let shared_memories = SharedMemories {
-            lhs,
-            rhs,
-            accumulate,
-        };
+        let shared_memories = SharedMemories { lhs, rhs };
+        let accumulators = make_accumulators::<F>();
 
-        compute_loop(shared_memories, config);
+        compute_loop(shared_memories, accumulators, config);
 
-        for i in range(0u32, Comptime::get(m * n), Comptime::new(false)) {
-            accumulate_array[i] = accumulate[i];
-        }
+        let slice = accumulate_array.slice_mut(0, 256);
+        cmma::store::<F>(
+            slice,
+            &accumulators.first,
+            UInt::new(16),
+            cmma::MatrixLayout::RowMajor,
+        );
+
+        let slice = accumulate_array.slice_mut(256, 512);
+        cmma::store::<F>(
+            slice,
+            &accumulators.second,
+            UInt::new(16),
+            cmma::MatrixLayout::RowMajor,
+        );
     }
 
     /// Exported test
