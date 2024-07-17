@@ -20,10 +20,11 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     let num_tile_elems = Comptime::runtime(tile_size * tile_size); // 16*16 = 256
 
     let num_tiles_per_row = block_size_n / tile_size; // 64/16 = 4
-    let num_tiles_per_col = block_size_m / tile_size; // 16/16 = 1
-    let num_tiles = num_tiles_per_row * num_tiles_per_col; // 4*1 = 4
+    let num_tiles_per_col = block_size_m / tile_size; // 64/16 = 4
+    let num_tiles = num_tiles_per_row * num_tiles_per_col; // 4*4 = 16
 
-    let n_iterations = Comptime::runtime(num_tiles) / CUBE_DIM_Y; // 4/2 = 2
+    // TODO this won't work if n_iterations > 2
+    let n_iterations = Comptime::runtime(num_tiles) / CUBE_DIM_Y; // 16/8 = 2
     let num_subcube_per_row =
         Comptime::runtime(block_size_n) / (n_iterations * Comptime::runtime(tile_size)); // 64 / (2*16) = 2
 
