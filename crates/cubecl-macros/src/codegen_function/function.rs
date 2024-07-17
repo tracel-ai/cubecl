@@ -7,7 +7,7 @@ use syn::{
 
 use crate::{codegen_function::expr::codegen_expr, tracker::VariableTracker};
 
-use super::base::Codegen;
+use super::base::{Codegen, CodegenKind};
 
 /// Codegen for method call
 /// Supports [expr].method(args)
@@ -98,7 +98,7 @@ pub(crate) fn codegen_call(
         _ => {
             return Codegen::new(
                 syn::Error::new_spanned(&call.func, "Unsupported").into_compile_error(),
-                false,
+                CodegenKind::Expand,
             )
         }
     };
@@ -215,7 +215,7 @@ pub(crate) fn codegen_call(
             _ => panic!("Codegen: Comptime function {:?} does not exist", func_name),
         };
 
-        Codegen::new(tokens, true)
+        Codegen::new(tokens, CodegenKind::Comptime)
     } else {
         let (expansion, variables) = codegen_args(&call.args, loop_level, variable_tracker);
 
@@ -225,7 +225,7 @@ pub(crate) fn codegen_call(
             #path_tokens (#variables)
         }};
 
-        Codegen::new(tokens, false)
+        Codegen::new(tokens, CodegenKind::Expand)
     }
 }
 

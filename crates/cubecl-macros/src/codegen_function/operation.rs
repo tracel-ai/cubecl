@@ -1,6 +1,9 @@
 use crate::tracker::VariableTracker;
 
-use super::{base::Codegen, expr::codegen_expr};
+use super::{
+    base::{Codegen, CodegenKind},
+    expr::codegen_expr,
+};
 
 /// Codegen for binary operations (+, -, *, etc.)
 pub(crate) fn codegen_binary(
@@ -9,15 +12,15 @@ pub(crate) fn codegen_binary(
     variable_tracker: &mut VariableTracker,
 ) -> Codegen {
     let lhs = codegen_expr(&binary.left, loop_level, variable_tracker);
-    let (lhs, is_comptime_lhs, lhs_array) = (lhs.tokens, lhs.is_comptime, lhs.array_indexing);
-    let (rhs, is_comptime_rhs) = codegen_expr(&binary.right, loop_level, variable_tracker).split();
+    let (lhs, kind_lhs, lhs_array) = lhs.process();
+    let (rhs, kind_rhs, _) = codegen_expr(&binary.right, loop_level, variable_tracker).process();
 
-    if is_comptime_lhs && is_comptime_rhs {
+    if matches!(kind_lhs, CodegenKind::Comptime) && matches!(kind_rhs, CodegenKind::Comptime) {
         return Codegen::new(
             quote::quote! {
                 #binary
             },
-            true,
+            CodegenKind::Comptime,
         );
     }
 
@@ -234,7 +237,7 @@ pub(crate) fn codegen_binary(
             },
             _ => todo!("Codegen: unsupported op {:?}", binary.op),
         },
-        false,
+        CodegenKind::Expand,
     )
 }
 
@@ -244,14 +247,14 @@ pub(crate) fn codegen_unary(
     loop_level: usize,
     variable_tracker: &mut VariableTracker,
 ) -> Codegen {
-    let (inner, is_comptime) = codegen_expr(&unary.expr, loop_level, variable_tracker).split();
+    let (inner, kind, _) = codegen_expr(&unary.expr, loop_level, variable_tracker).process();
 
-    if is_comptime {
+    if matches!(kind, CodegenKind::Comptime) {
         return Codegen::new(
             quote::quote! {
                 #unary
             },
-            true,
+            CodegenKind::Comptime,
         );
     }
 
@@ -265,6 +268,6 @@ pub(crate) fn codegen_unary(
             },
             _ => todo!("Codegen: unsupported op {:?}", unary.op),
         },
-        false,
+        CodegenKind::Expand,
     )
 }

@@ -46,10 +46,17 @@ pub(crate) fn codegen_block(
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum CodegenKind {
+    Comptime,
+    Literal,
+    Expand,
+}
+
 pub(crate) struct Codegen {
-    pub tokens: proc_macro2::TokenStream,
-    pub is_comptime: bool,
-    pub array_indexing: Option<ArrayIndexing>,
+    tokens: proc_macro2::TokenStream,
+    array_indexing: Option<ArrayIndexing>,
+    kind: CodegenKind,
 }
 
 pub(crate) struct ArrayIndexing {
@@ -61,23 +68,39 @@ impl From<proc_macro2::TokenStream> for Codegen {
     fn from(tokens: proc_macro2::TokenStream) -> Self {
         Self {
             tokens,
-            is_comptime: false,
+            kind: CodegenKind::Expand,
             array_indexing: None,
         }
     }
 }
 
 impl Codegen {
-    pub fn new<S: Into<proc_macro2::TokenStream>>(tokens: S, is_comptime: bool) -> Self {
+    pub fn new<S: Into<proc_macro2::TokenStream>>(tokens: S, kind: CodegenKind) -> Self {
         Self {
             tokens: tokens.into(),
-            is_comptime,
+            kind,
             array_indexing: None,
         }
     }
 
-    pub fn split(self) -> (proc_macro2::TokenStream, bool) {
-        (self.tokens, self.is_comptime)
+    pub fn process(mut self) -> (proc_macro2::TokenStream, CodegenKind, Option<ArrayIndexing>) {
+        let kind = self.kind;
+        let array_indexing = self.pop_array_indexing();
+        let tokens = self.tokens();
+
+        (tokens, kind, array_indexing)
+    }
+
+    pub fn tokens(self) -> TokenStream {
+        self.into_token_stream()
+    }
+    pub fn pop_array_indexing(&mut self) -> Option<ArrayIndexing> {
+        let mut result = None;
+        core::mem::swap(&mut result, &mut self.array_indexing);
+        result
+    }
+    pub fn set_array_indexing(&mut self, array_indexing: Option<ArrayIndexing>) {
+        self.array_indexing = array_indexing;
     }
 }
 
