@@ -21,7 +21,7 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     dims: Dimensions,
 ) {
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let n_loops = calculate_n_loops::<F>(dims.k, config);
+    let n_loops = dims.k / Comptime::runtime(block_size_k); // TODO not always true if check_k_bounds
 
     for k in range(0u32, n_loops, Comptime::new(false)) {
         offsets.k = k * Comptime::runtime(block_size_k);
@@ -36,22 +36,4 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     }
 
     write_to_output::<F>(out, accumulators, offsets, dims, config);
-}
-
-#[cube]
-#[allow(unused_assignments)]
-fn calculate_n_loops<F: Float>(dim_k: UInt, config: Comptime<CmmaConfig>) -> UInt {
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
-
-    let mut n_loops = UInt::new(0); // TODO support syntax let x = if ... else ...
-    if Comptime::get(check_k_bounds) {
-        n_loops = UInt::cast_from(F::ceil(
-            F::cast_from(dim_k) / F::cast_from(Comptime::runtime(block_size_k)),
-        ));
-    } else {
-        n_loops = dim_k / Comptime::runtime(block_size_k);
-    }
-
-    n_loops
 }

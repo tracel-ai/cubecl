@@ -1,8 +1,6 @@
 mod base;
 mod block_loop;
 mod compute_loop;
-#[cfg(feature = "export_tests")]
-mod compute_loop_mimic;
 mod config;
 mod launch;
 mod load_shared_memory;

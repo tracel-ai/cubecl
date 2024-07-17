@@ -4127,8 +4127,6 @@ pub fn test_matmul_cmma_1<R: Runtime>(device: &R::Device) {
     assert_equals::<R>(out.handle, expected, device);
 }
 
-
-
 pub fn test_matmul_cmma_2<R: Runtime>(device: &R::Device) {
     let m = 256;
     let k = 256;
@@ -4143,7 +4141,7 @@ pub fn test_matmul_cmma_2<R: Runtime>(device: &R::Device) {
         elem: PhantomData,
     };
 
-    // let out = matmul_cmma::<R, F32>(tensor_1, tensor_2, out, device);
+    let out = matmul_cmma::<R, F32>(tensor_1, tensor_2, out, device);
     // let out = matmul_tiling_2d_cube::<R, F32>(tensor_1, tensor_2, out, Default::default(), device);
 
     let client = R::client(device);

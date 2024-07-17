@@ -20,9 +20,6 @@ pub(crate) fn write_to_output<F: Float>(
 
 #[cube]
 fn fragment_to_shared_memory<F: Float>(accumulators: Accumulators<F>) -> SharedMemory<F> {
-    // TODO: the need for this shared memory should be replaced by using __shfl_sync
-
-    // 4096 = 256 * 2 * 8 = content of accumulator * 2 accumulators * 8 warps in parallel = 64 * 64 as well
     let mut acc_sm = SharedMemory::<F>::new(4096);
     let subcube_id = UNIT_POS_Y;
 
@@ -57,107 +54,82 @@ fn shared_memory_to_output<F: Float>(
     dims: Dimensions,
     config: Comptime<CmmaConfig>,
 ) {
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let block_size_n = Comptime::map(config, |c| c.block_size_k);
+    let k_tiles = UInt::new(2);
+    let out_stride = dims.n;
 
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);
     let out_vec = Comptime::vectorization(out);
     let out_vec_r = Comptime::runtime(out_vec);
+    let n_units_per_tile_row = Comptime::runtime(tile_size / out_vec);
+    let sm_row_offset = Comptime::runtime(tile_size * tile_size);
 
-    let num_tiles_per_subcube = Comptime::runtime(block_size_k / tile_size); // 2
-    let acc_sm_stride = Comptime::runtime(block_size_n); // 64
-    let acc_sm_stride_vec = Comptime::runtime(block_size_n / out_vec); // Even if not really vectorized, because write out_vec_r values
+    let coop_dim = UInt::new(32);
+    let coop_id = UNIT_POS_Y;
+    let lane_id = UNIT_POS_X;
 
-    let out_stride = dims.n;
-
-    let subcube_dim = UInt::new(32);
-    let within_tile_row_offset = subcube_dim / out_vec_r; // assuming subcube_dim is 32 -> 8
-    let within_sm_row_offset = subcube_dim * out_vec_r / acc_sm_stride; // assuming subcube_dim is 32 -> 2
-    let subcube_id = UNIT_POS_Y;
-    let id_within_subcube = UNIT_POS_X; // lane_id
-
-    // There are two because 32 / 16. TODO generalize
-    let unit_read_row_0 = id_within_subcube / acc_sm_stride_vec;
-    let unit_read_row_1 = unit_read_row_0 + within_sm_row_offset;
-    let unit_read_col = id_within_subcube % acc_sm_stride_vec;
-
-    let n_units_per_tile_row = Comptime::runtime(tile_size / out_vec); // 4
-    let unit_write_row_0 = id_within_subcube / n_units_per_tile_row;
-    let unit_write_row_1 = unit_write_row_0 + within_tile_row_offset;
-    let unit_write_col = id_within_subcube % n_units_per_tile_row;
-
-    let n_iter = UInt::new(0);
-
-    let single_row_offset = Comptime::runtime(tile_size * tile_size / block_size_n); // 4
-    let row_offset = (num_tiles_per_subcube * subcube_id + n_iter) * single_row_offset;
-
-    let read_pos_0 = (row_offset + unit_read_row_0) * acc_sm_stride + unit_read_col * out_vec_r;
-    let read_pos_1 = (row_offset + unit_read_row_1) * acc_sm_stride + unit_read_col * out_vec_r;
-
-    let tile_row = subcube_id / num_tiles_per_subcube;
-    let tile_col = (subcube_id % num_tiles_per_subcube) * num_tiles_per_subcube + n_iter;
-
-    let total_col = tile_col * n_units_per_tile_row + unit_write_col;
-
+    let read_offset = k_tiles * coop_id * sm_row_offset;
     let out_offset = offsets.batch_out + offsets.cube_row * out_stride + offsets.cube_col;
 
-    let out_write_pos_0 = out_offset
-        + (tile_row * tile_size_r + unit_write_row_0) * out_stride
-        + total_col * out_vec_r;
-    let out_write_pos_1 = out_offset
-        + (tile_row * tile_size_r + unit_write_row_1) * out_stride
-        + total_col * out_vec_r;
+    let read_0 = read_offset + lane_id * out_vec_r;
+    let read_1 = read_0 + coop_dim * out_vec_r;
 
-    // TODO use store instruction directly
-    let mut a = F::vectorized_empty(Comptime::get(out_vec));
+    let unit_write_row_0 = lane_id / n_units_per_tile_row;
+    let unit_write_col = lane_id % n_units_per_tile_row;
+    let tile_row = coop_id / k_tiles;
+    let tile_col = (coop_id % k_tiles) * k_tiles;
+    let offset_row_write = tile_row * tile_size_r * out_stride;
+    let offset_col_write = (tile_col * n_units_per_tile_row + unit_write_col) * out_vec_r;
+
+    let write_0 = out_offset + offset_row_write + offset_col_write + unit_write_row_0 * out_stride;
+    let write_1 = write_0 + coop_dim / out_vec_r * out_stride;
+
+    let positions = ReadWritePositions {
+        read_0,
+        read_1,
+        write_0,
+        write_1,
+    };
+
+    write_tile(UInt::new(0), out, positions, accumulator_sm, config);
+    write_tile(UInt::new(1), out, positions, accumulator_sm, config);
+}
+
+#[derive(CubeType, Copy, Clone)]
+struct ReadWritePositions {
+    pub read_0: UInt,
+    pub read_1: UInt,
+    pub write_0: UInt,
+    pub write_1: UInt,
+}
+
+#[cube]
+fn write_tile<F: Float>(
+    n_iter: UInt,
+    out: &mut Tensor<F>,
+    positions: ReadWritePositions,
+    accumulator_sm: SharedMemory<F>,
+    config: Comptime<CmmaConfig>,
+) {
+    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let out_vec = Comptime::vectorization(out);
+    let out_vec_r = Comptime::runtime(out_vec);
+
+    let n_iter_read_offset = n_iter * Comptime::runtime(tile_size * tile_size);
+    let n_iter_write_offset = n_iter * Comptime::runtime(tile_size);
+
+    let mut val_0 = F::vectorized_empty(Comptime::get(out_vec));
     for i in range(0u32, 4u32, Comptime::new(true)) {
-        a[i] = accumulator_sm[read_pos_0 + i];
+        val_0[i] = accumulator_sm[positions.read_0 + n_iter_read_offset + i];
     }
-    out[out_write_pos_0 / out_vec_r] = a;
 
-    let mut b = F::vectorized_empty(Comptime::get(out_vec));
+    let mut val_1 = F::vectorized_empty(Comptime::get(out_vec));
     for i in range(0u32, 4u32, Comptime::new(true)) {
-        b[i] = accumulator_sm[read_pos_1 + i];
+        val_1[i] = accumulator_sm[positions.read_1 + n_iter_read_offset + i];
     }
-    out[out_write_pos_1 / out_vec_r] = b;
 
-    ////
-
-    let n_iter = UInt::new(1);
-
-    let single_row_offset = Comptime::runtime(tile_size * tile_size / block_size_n); // 4
-    let row_offset = (num_tiles_per_subcube * subcube_id + n_iter) * single_row_offset;
-
-    let read_pos_0 = (row_offset + unit_read_row_0) * acc_sm_stride + unit_read_col * out_vec_r;
-    let read_pos_1 = (row_offset + unit_read_row_1) * acc_sm_stride + unit_read_col * out_vec_r;
-
-    let tile_row = subcube_id / num_tiles_per_subcube;
-    let tile_col = (subcube_id % num_tiles_per_subcube) * num_tiles_per_subcube + n_iter;
-
-    let total_col = tile_col * n_units_per_tile_row + unit_write_col;
-
-    let out_offset = offsets.batch_out + offsets.cube_row * out_stride + offsets.cube_col;
-
-    let out_write_pos_0 = out_offset
-        + (tile_row * tile_size_r + unit_write_row_0) * out_stride
-        + total_col * out_vec_r;
-    let out_write_pos_1 = out_offset
-        + (tile_row * tile_size_r + unit_write_row_1) * out_stride
-        + total_col * out_vec_r;
-
-    // TODO use store instruction directly
-    let mut aa = F::vectorized_empty(Comptime::get(out_vec));
-    for i in range(0u32, 4u32, Comptime::new(true)) {
-        aa[i] = accumulator_sm[read_pos_0 + i];
-    }
-    out[out_write_pos_0 / out_vec_r] = aa;
-
-    let mut bb = F::vectorized_empty(Comptime::get(out_vec));
-    for i in range(0u32, 4u32, Comptime::new(true)) {
-        bb[i] = accumulator_sm[read_pos_1 + i];
-    }
-    out[out_write_pos_1 / out_vec_r] = bb;
+    out[(positions.write_0 + n_iter_write_offset) / out_vec_r] = val_0;
+    out[(positions.write_1 + n_iter_write_offset) / out_vec_r] = val_1;
 }
 
 #[cfg(feature = "export_tests")]
@@ -194,7 +166,7 @@ pub mod tests {
         }
 
         let dims = Dimensions {
-            m: UInt::new(16),
+            _m: UInt::new(16),
             k,
             n,
         };
@@ -215,13 +187,10 @@ pub mod tests {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
-            check_m_bounds: false,
-            check_k_bounds: false,
-            check_n_bounds: false,
             tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
+            _check_m_bounds: false,
+            _check_k_bounds: false,
+            _check_n_bounds: false,
             unroll: false,
         };
 
@@ -285,13 +254,10 @@ pub mod tests {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
-            check_m_bounds: false,
-            check_k_bounds: false,
-            check_n_bounds: false,
             tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
+            _check_m_bounds: false,
+            _check_k_bounds: false,
+            _check_n_bounds: false,
             unroll: false,
         };
 
@@ -366,13 +332,10 @@ pub mod tests {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
-            check_m_bounds: false,
-            check_k_bounds: false,
-            check_n_bounds: false,
             tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
+            _check_m_bounds: false,
+            _check_k_bounds: false,
+            _check_n_bounds: false,
             unroll: false,
         };
 
@@ -490,13 +453,10 @@ pub mod tests {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
-            check_m_bounds: false,
-            check_k_bounds: false,
-            check_n_bounds: false,
             tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
+            _check_m_bounds: false,
+            _check_k_bounds: false,
+            _check_n_bounds: false,
             unroll: false,
         };
 

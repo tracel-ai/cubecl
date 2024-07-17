@@ -2,7 +2,7 @@ use syn::{Member, Pat, PathArguments, Stmt};
 
 use crate::tracker::VariableTracker;
 
-pub const KEYWORDS: [&str; 20] = [
+pub const KEYWORDS: [&str; 21] = [
     "ABSOLUTE_POS",
     "ABSOLUTE_POS_X",
     "ABSOLUTE_POS_Y",
@@ -23,6 +23,7 @@ pub const KEYWORDS: [&str; 20] = [
     "CUBE_COUNT_X",
     "CUBE_COUNT_Y",
     "CUBE_COUNT_Z",
+    "SUBCUBE_DIM",
 ];
 
 #[derive(Debug, Default)]

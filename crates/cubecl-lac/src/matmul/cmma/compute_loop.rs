@@ -15,8 +15,9 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     let block_size_k = Comptime::map(config, |c| c.block_size_k); // 32
     let block_size_n = Comptime::map(config, |c| c.block_size_n); // 64
     let tile_size = Comptime::map(config, |c| c.tile_size); // 16
-    let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size); // 32/16 = 2
+    let unroll = Comptime::map(config, |c| c.unroll);
 
+    let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size); // 32/16 = 2
     let num_tile_elems = Comptime::runtime(tile_size * tile_size); // 16*16 = 256
 
     let num_tiles_per_row = block_size_n / tile_size; // 64/16 = 4
@@ -32,12 +33,10 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     let tile_row = subcube_id / num_subcube_per_row;
     let tile_col_base = (subcube_id % num_subcube_per_row) * n_iterations;
 
-    // for n_iter in range(0u32, n_iterations, Comptime::new(false)) { MANUAL UNROLL
-
     let n_iter = UInt::new(0);
     let tile_col = tile_col_base + n_iter;
 
-    for k_iter in range(0u32, num_tiles_in_k, Comptime::new(false)) {
+    for k_iter in range(0u32, num_tiles_in_k, unroll) {
         let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
         let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
         let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
@@ -430,13 +429,10 @@ pub mod tests {
             block_size_m: UInt::new(16),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(16),
-            check_m_bounds: false,
-            check_k_bounds: false,
-            check_n_bounds: false,
             tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
+            _check_m_bounds: false,
+            _check_k_bounds: false,
+            _check_n_bounds: false,
             unroll: false,
         };
 
@@ -503,13 +499,10 @@ pub mod tests {
             block_size_m: UInt::new(16),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(32),
-            check_m_bounds: false,
-            check_k_bounds: false,
-            check_n_bounds: false,
             tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
+            _check_m_bounds: false,
+            _check_k_bounds: false,
+            _check_n_bounds: false,
             unroll: false,
         };
 
@@ -612,13 +605,10 @@ pub mod tests {
             block_size_m: UInt::new(m as u32),
             block_size_k: UInt::new(k as u32),
             block_size_n: UInt::new(n as u32),
-            check_m_bounds: false,
-            check_k_bounds: false,
-            check_n_bounds: false,
             tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
+            _check_m_bounds: false,
+            _check_k_bounds: false,
+            _check_n_bounds: false,
             unroll: false,
         };
 

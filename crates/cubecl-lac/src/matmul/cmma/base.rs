@@ -29,10 +29,8 @@ pub fn cmma_kernel<F: Float, FC: Float>(
 }
 
 #[derive(CubeType, Copy, Clone)]
-/// Information available at runtime only
-/// Strides assume contiguous
 pub(crate) struct Dimensions {
-    pub m: UInt,
+    pub _m: UInt,
     pub k: UInt,
     pub n: UInt,
 }
@@ -71,7 +69,7 @@ fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
     let k = lhs.shape(second_dim);
     let n = rhs.shape(second_dim);
 
-    Dimensions { m, k, n }
+    Dimensions { _m: m, k, n }
 }
 
 #[cube]
@@ -94,7 +92,7 @@ fn calculate_offsets<F: Float>(
     let dim_n = rhs.shape(rank - UInt::new(1));
 
     // Batch offset for output
-    let mut batch_out = dim_m * dim_n * CUBE_POS_Z;
+    let batch_out = dim_m * dim_n * CUBE_POS_Z;
     let mut batch_lhs = UInt::new(0);
     let mut batch_rhs = UInt::new(0);
 
