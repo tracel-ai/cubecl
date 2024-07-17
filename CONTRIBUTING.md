@@ -118,12 +118,13 @@ We look forward to seeing your contributions to the CubeCL project. Happy coding
 
 If you have any questions and would like to get in touch with us, please feel free to join our
 discord server:
+
 [![Discord](https://img.shields.io/discord/1038839012602941528.svg?color=7289da&&logo=discord)][7]
 
 [1]: https://github.com/tracel-ai/cubecl/issues
 [2]: https://github.com/tracel-ai/cubecl/blob/main/README.md
 [3]: https://github.com/tracel-ai/cubecl/tree/main/examples
-[4]: TODO cargo xtask readme
+[4]: https://github.com/tracel-ai/cubecl/blob/main/xtask/README.md
 [5]: https://desktop.github.com/
 [6]: https://doc.rust-lang.org/std/result/enum.Result.html#recommended-message-style
 [7]: https://discord.gg/uPEBbYYDB6
