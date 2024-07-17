@@ -1,0 +1,70 @@
+name: CI
+
+env:
+  CARGO_TERM_COLOR: always
+
+# For now we execute CI only on PR to save on CI time
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cargo.lock'
+      - '**.rs'
+      - '**.yml'
+      - '**.toml'
+      - '!**.md'
+      - '!LICENSE-APACHE'
+      - '!LICENSE-MIT'
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'Cargo.lock'
+      - '**.rs'
+      - '**.yml'
+      - '**.toml'
+      - '!**.md'
+      - '!LICENSE-APACHE'
+      - '!LICENSE-MIT'
+
+jobs:
+  crates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          components: clippy, rustfmt
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo xtask ci --target crates format
+      - name: Lint
+        run: cargo xtask ci --target crates lint
+      - name: Audit
+        run: cargo xtask ci --target crates audit
+      - name: Unit Tests
+        run: cargo xtask ci --target crates unit-tests
+      - name: Integration Tests
+        run: cargo xtask ci --target crates integration-tests
+      - name: Documentation Tests
+        run: cargo xtask ci --target crates doc-tests
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          components: clippy, rustfmt
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo xtask ci --target examples format
+      - name: Lint
+        run: cargo xtask ci --target examples lint
+      - name: Unit Tests
+        run: cargo xtask ci --target examples unit-tests
+      - name: Integration Tests
+        run: cargo xtask ci --target examples integration-tests
+      - name: Documentation Tests
+        run: cargo xtask ci --target examples doc-tests
