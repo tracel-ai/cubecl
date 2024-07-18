@@ -84,7 +84,7 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
     };
 
     compute_loop_test::launch::<F32, F16, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -159,7 +159,7 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     compute_loop_test::launch::<F32, F16, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -263,7 +263,7 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
     };
 
     compute_loop_test::launch::<F32, F16, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),

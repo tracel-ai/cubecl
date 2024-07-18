@@ -80,7 +80,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
     );
 
     cmma_kernel::launch::<F, F16, R>(
-        client,
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(lhs_vectorization, &lhs.handle, &lhs.strides, &lhs.shape),

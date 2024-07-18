@@ -51,7 +51,7 @@ pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device)
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
     tile_outer_product_test::launch::<F32, R>(
-        client.clone(),
+        &client,
         cube_count,
         cube_dim,
         ArrayArg::new(&register_m, 4),
@@ -125,7 +125,7 @@ pub fn tile_outer_product_vectorized_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
     tile_outer_product_test::launch::<F32, R>(
-        client.clone(),
+        &client,
         cube_count,
         cube_dim,
         ArrayArg::new(&register_m, 4),
@@ -152,7 +152,7 @@ pub fn compute_loop_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
     compute_loop_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(TILE_SIZE as u8, &lhs.handle, &lhs.strides, &lhs.shape),
@@ -183,7 +183,7 @@ pub fn compute_loop_unit_offset_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(4, 8, 4);
 
     compute_loop_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(TILE_SIZE as u8, &lhs.handle, &lhs.strides, &lhs.shape),

@@ -222,7 +222,7 @@ pub fn load_lhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(16, 16, 8);
 
     load_tensor_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -254,7 +254,7 @@ pub fn load_lhs_transposed_out_of_bounds_cube_test<R: Runtime>(device: &R::Devic
     let config = make_tiling2d_config(5, 1, 1);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -288,7 +288,7 @@ pub fn load_lhs_transposed_cube_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 8, 8);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -318,7 +318,7 @@ pub fn load_lhs_transposed_offset_cube_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 8, 16);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -348,7 +348,7 @@ pub fn load_rhs_plain_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 16, 16);
 
     load_tensor_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
@@ -379,7 +379,7 @@ pub fn load_rhs_plain_cube_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 8, 8);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
@@ -409,7 +409,7 @@ pub fn load_rhs_plain_cube_offset_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(16, 16, 8);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
@@ -439,7 +439,7 @@ pub fn load_lhs_plain_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(16, 16, 8);
 
     load_tensor_permuted_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -471,7 +471,7 @@ pub fn load_lhs_plain_out_of_bounds_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(m, k, 8);
 
     load_tensor_permuted_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -502,7 +502,7 @@ pub fn load_rhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(16, 16, 8);
 
     load_tensor_permuted_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
@@ -534,7 +534,7 @@ pub fn load_rhs_transposed_out_of_bounds_unit_test<R: Runtime>(device: &R::Devic
     let config = make_tiling2d_config(8, k, n);
 
     load_tensor_permuted_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),

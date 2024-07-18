@@ -60,7 +60,7 @@ pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
     };
 
     write_output_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -125,7 +125,7 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     write_output_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -200,7 +200,7 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
     };
 
     write_output_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -270,7 +270,7 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
     };
 
     write_output_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -340,7 +340,7 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
     };
 
     write_output_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -406,7 +406,7 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     write_output_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -521,7 +521,7 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
     };
 
     write_output_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),

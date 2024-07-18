@@ -93,7 +93,7 @@ pub fn load_shared_memory_lhs_unit_test<R: Runtime>(device: &R::Device) {
     };
 
     load_lhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -149,7 +149,7 @@ pub fn load_shared_memory_rhs_unit_test<R: Runtime>(device: &R::Device) {
     };
 
     load_rhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -205,7 +205,7 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_lhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -266,7 +266,7 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
     };
 
     load_lhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -325,7 +325,7 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
     };
 
     load_lhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -384,7 +384,7 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
     };
 
     load_lhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -442,7 +442,7 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_rhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -503,7 +503,7 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_lhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -563,7 +563,7 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_rhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -626,7 +626,7 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_lhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -689,7 +689,7 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_rhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -749,7 +749,7 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
     };
 
     load_lhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -809,7 +809,7 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
     };
 
     load_rhs_test::launch::<F32, R>(
-        R::client(device),
+        &R::client(device),
         cube_count,
         cube_dim,
         TensorArg::vectorized(

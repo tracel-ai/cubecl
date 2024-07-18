@@ -19,7 +19,7 @@ version.workspace = true
 rust-version = "1.75"
 
 [features]
-default = ["cubecl-wgpu?/default", "cubecl-cuda?/default"]
+default = ["cubecl-wgpu?/default", "cubecl-cuda?/default", "linalg"]
 std = ["cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 linalg = ["dep:cubecl-linalg"]
@@ -33,3 +33,7 @@ cubecl-core = { path = "../cubecl-core", version = "0.1.0", default-features = f
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.1.0", default-features = false, optional = true }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.1.0", default-features = false, optional = true }
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.1.0", default-features = false, optional = true }
+
+[[bench]]
+name = "matmul"
+harness = false
