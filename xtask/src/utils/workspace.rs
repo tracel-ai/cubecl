@@ -49,10 +49,8 @@ pub(crate) fn get_workspace_members(w_type: WorkspaceMemberType) -> Vec<Workspac
                 parse_workspace_member1(member_str)?
             };
 
-            if !cuda_available {
-                if path.contains("cuda") {
-                    return None;
-                }
+            if !cuda_available && path.contains("cuda") {
+                return None;
             }
 
             match w_type {
