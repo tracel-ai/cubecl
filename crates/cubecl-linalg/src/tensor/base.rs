@@ -1,5 +1,8 @@
+use cubecl_core::calculate_cube_count_elemwise;
 use cubecl_core::prelude::*;
+use cubecl_core::tensor_vectorization_factor;
 use cubecl_core::Runtime;
+use cubecl_core::SUBCUBE_DIM_APPROX;
 use cubecl_runtime::server::Handle;
 use std::marker::PhantomData;
 
@@ -56,17 +59,19 @@ where
     R: Runtime,
     E: CubePrimitive,
 {
+    /// Create a new tensor.
+    pub fn new(shape: Vec<usize>, strides: Vec<usize>, handle: Handle<R::Server>) -> Self {
+        Self {
+            shape,
+            strides,
+            handle,
+            elem: PhantomData,
+        }
+    }
+
     /// Create a new tensor with a contiguous memory layout.
     pub fn new_contiguous(shape: Vec<usize>, handle: Handle<R::Server>) -> Self {
-        let d = shape.len();
-        let mut strides = Vec::with_capacity(d);
-
-        let mut current = 1;
-        shape.iter().enumerate().rev().for_each(|(_, val)| {
-            strides.push(current);
-            current *= val;
-        });
-        strides.reverse();
+        let strides = Self::contiguous_strides(&shape);
 
         Self {
             handle,
@@ -92,5 +97,59 @@ where
 
     pub(crate) fn rank(&self) -> usize {
         self.shape.len()
+    }
+
+    fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+        let mut strides = Vec::with_capacity(shape.len());
+
+        let mut current = 1;
+        shape.iter().enumerate().rev().for_each(|(_, val)| {
+            strides.push(current);
+            current *= val;
+        });
+        strides.reverse();
+        strides
+    }
+}
+impl<R, E> TensorHandle<R, E>
+where
+    R: Runtime,
+    E: Numeric,
+{
+    pub fn zeros(client: ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
+        let num_elements: usize = shape.iter().product();
+        let size = E::as_elem().size();
+
+        let handle = client.empty(size * num_elements);
+        let strides = Self::contiguous_strides(&shape);
+
+        let vectorization_factor =
+            tensor_vectorization_factor(&[4, 2], &shape, &strides, shape.len() - 1);
+
+        let cube_count = calculate_cube_count_elemwise::<R::Server>(
+            num_elements / vectorization_factor as usize,
+            SUBCUBE_DIM_APPROX,
+        );
+
+        init::zeros_array::launch::<E, R>(
+            &client,
+            cube_count,
+            CubeDim::default(),
+            ArrayArg::new(&handle, num_elements),
+        );
+
+        Self::new(shape, strides, handle)
+    }
+}
+
+pub(crate) mod init {
+    use cubecl::prelude::*;
+    use cubecl_core as cubecl;
+
+    #[cube(launch)]
+    pub fn zeros_array<C: Numeric>(output: &mut Array<C>) {
+        if ABSOLUTE_POS < output.len() {
+            output[ABSOLUTE_POS] = C::from_int(0);
+        }
     }
 }

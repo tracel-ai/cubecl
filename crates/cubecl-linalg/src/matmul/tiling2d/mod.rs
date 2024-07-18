@@ -8,7 +8,7 @@ mod outer_product;
 mod tile;
 mod write_output;
 
-pub use launch::matmul_tiling_2d_cube;
+pub use launch::matmul_tiling_2d;
 
 #[cfg(feature = "export_tests")]
 pub use {

@@ -80,9 +80,9 @@ impl<R: Runtime> KernelLauncher<R> {
         self,
         cube_count: CubeCount<R::Server>,
         kernel: K,
-        client: ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server, R::Channel>,
     ) {
-        let bindings = self.into_bindings(&client);
+        let bindings = self.into_bindings(client);
 
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
