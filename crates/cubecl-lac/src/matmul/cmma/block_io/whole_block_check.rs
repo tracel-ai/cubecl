@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::{base::Dimensions, config::CmmaConfig};
 
-use super::base::{BlockLoader, BlockWriter, CheckBounds, ReadTileInfo, WriteTileInfo};
+use super::base::{BlockLoader, BlockWriter};
 
 pub(crate) struct WholeCheckBlockIO;
 

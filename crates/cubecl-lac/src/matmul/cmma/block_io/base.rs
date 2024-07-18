@@ -4,31 +4,6 @@ use cubecl_core::prelude::*;
 use crate::matmul::cmma::base::Dimensions;
 use crate::matmul::cmma::config::CmmaConfig;
 
-#[derive(CubeType, Copy, Clone)]
-pub(crate) struct CheckBounds {
-    pub dim_vertical: UInt,
-    pub dim_horizontal: UInt,
-    pub skip_row: UInt,
-    pub skip_col: UInt,
-}
-
-#[derive(CubeType, Copy, Clone)]
-pub(crate) struct ReadTileInfo {
-    // pub read_row: UInt,
-    // pub read_col: UInt,
-    // pub gm_position_base: UInt,
-    // pub sm_position_base: UInt,
-    // pub gm_stride: UInt,
-    // pub sm_stride: UInt,
-}
-
-#[derive(CubeType)]
-pub(crate) struct WriteTileInfo {
-    // pub coordinates: Coordinates,
-    // pub offset_output: UInt,
-    // pub out_stride: UInt,
-}
-
 #[cube]
 pub(crate) trait BlockLoader<F: Float, FC: Float>: Send + Sync + 'static {
     fn load_tile(

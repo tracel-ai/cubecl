@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::{base::Dimensions, config::CmmaConfig};
 
-use super::base::{BlockLoader, BlockWriter, CheckBounds, WriteTileInfo};
+use super::base::{BlockLoader, BlockWriter};
 
 /// Assumes block sizes divide tensor shape
 pub(crate) struct UncheckedBlockIO;

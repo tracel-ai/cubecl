@@ -273,6 +273,22 @@ macro_rules! testgen_matmul_internal {
         }
 
         #[test]
+        pub fn cmma_write_output_warp_horizontal_out_of_bounds_test() {
+            cmma_write_output_tests::cmma_write_output_warp_horizontal_out_of_bounds_test::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn cmma_write_output_warp_vertical_out_of_bounds_test() {
+            cmma_write_output_tests::cmma_write_output_warp_vertical_out_of_bounds_test::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn cmma_write_output_warp_whole_out_of_bounds_test() {
+            cmma_write_output_tests::cmma_write_output_warp_whole_out_of_bounds_test::<TestRuntime>(&Default::default())
+        }
+
+
+        #[test]
         pub fn cmma_write_output_second_warp_test() {
             cmma_write_output_tests::cmma_write_output_second_warp_test::<TestRuntime>(
                 &Default::default(),
