@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::{matmul::test_utils::range_tensor_with_factor, tensor::TensorHandle};
 use cubecl_core::{frontend::F32, CubeElement, Runtime};
 
@@ -82,12 +80,10 @@ impl MatmulTestCase {
             range_tensor_with_factor::<R>(self.batch, self.m, self.k, self.factor, device);
         let tensor_2 =
             range_tensor_with_factor::<R>(self.batch, self.k, self.n, self.factor, device);
-        let out = TensorHandle {
-            handle: create_empty::<R>(self.batch * self.m, self.n, device),
-            shape: vec![self.batch, self.m, self.n],
-            strides: vec![self.m * self.n, self.n, 1],
-            elem: PhantomData,
-        };
+        let out = TensorHandle::new_contiguous(
+            vec![self.batch, self.m, self.n],
+            create_empty::<R>(self.batch * self.m, self.n, device),
+        );
 
         let expected = self.matmul_cpu(
             f32::from_bytes(&R::client(device).read(tensor_1.handle.clone().binding())),

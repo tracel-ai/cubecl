@@ -17,7 +17,7 @@ where
     pub shape: Vec<usize>,
     /// The strides of the tensor.
     pub strides: Vec<usize>,
-    pub(crate) elem: PhantomData<E>,
+    elem: PhantomData<E>,
 }
 
 impl<R, E> core::fmt::Debug for TensorHandle<R, E>
@@ -27,10 +27,11 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "Tensor {{ shape: {:?}, strides: {:?}, runtime: {}}}",
+            "Tensor {{ shape: {:?}, strides: {:?}, runtime: {}, dtype: {}}}",
             self.shape,
             self.strides,
             R::name(),
+            core::any::type_name::<E>(),
         ))
     }
 }

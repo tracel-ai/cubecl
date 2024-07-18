@@ -1,5 +1,3 @@
-use std::{marker::PhantomData, ops::Range};
-
 use bytemuck::cast_slice;
 use cubecl_core::{
     frontend::{F16, F32},
@@ -7,6 +5,7 @@ use cubecl_core::{
     server::Handle,
     CubeElement, Feature, Runtime,
 };
+use std::ops::Range;
 
 use crate::tensor::TensorHandle;
 
@@ -27,12 +26,7 @@ pub(crate) fn range_tensor_f16<R: Runtime>(
 
     let handle = client.create(cast_slice(&data));
 
-    TensorHandle {
-        handle,
-        shape: vec![x, y],
-        strides: vec![y, 1],
-        elem: PhantomData,
-    }
+    TensorHandle::new_contiguous(vec![x, y], handle)
 }
 
 pub(crate) fn range_tensor<R: Runtime>(
@@ -50,12 +44,7 @@ pub(crate) fn range_tensor<R: Runtime>(
 
     let handle = client.create(cast_slice(&data));
 
-    TensorHandle {
-        handle,
-        shape: vec![x, y],
-        strides: vec![y, 1],
-        elem: PhantomData,
-    }
+    TensorHandle::new_contiguous(vec![x, y], handle)
 }
 
 pub(crate) fn range_tensor_with_factor<R: Runtime>(
@@ -75,12 +64,7 @@ pub(crate) fn range_tensor_with_factor<R: Runtime>(
 
     let handle = client.create(cast_slice(&data));
 
-    TensorHandle {
-        handle,
-        shape: vec![batch, x, y],
-        strides: vec![x * y, y, 1],
-        elem: PhantomData,
-    }
+    TensorHandle::new_contiguous(vec![batch, x, y], handle)
 }
 
 pub(crate) fn range_tensor_transposed<R: Runtime>(
@@ -101,12 +85,7 @@ pub(crate) fn range_tensor_transposed<R: Runtime>(
 
     let handle = client.create(cast_slice(&data));
 
-    TensorHandle {
-        handle,
-        shape: vec![x, y],
-        strides: vec![y, 1],
-        elem: PhantomData,
-    }
+    TensorHandle::new_contiguous(vec![x, y], handle)
 }
 
 pub(crate) fn zeros_tensor<R: Runtime>(
@@ -120,12 +99,7 @@ pub(crate) fn zeros_tensor<R: Runtime>(
     let data: Vec<f32> = vec![0.; n_elements];
     let handle = client.create(cast_slice(&data));
 
-    TensorHandle {
-        handle,
-        shape: vec![x, y],
-        strides: vec![y, 1],
-        elem: PhantomData,
-    }
+    TensorHandle::new_contiguous(vec![x, y], handle)
 }
 
 pub(crate) fn create_empty<R: Runtime>(
