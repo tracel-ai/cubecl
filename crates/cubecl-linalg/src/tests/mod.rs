@@ -6,11 +6,11 @@ pub mod matmul_internal;
 #[macro_export]
 macro_rules! testgen_all {
     () => {
-        mod lac {
+        mod linalg {
             use super::*;
 
-            cubecl_lac::testgen_matmul!();
-            cubecl_lac::testgen_matmul_internal!();
+            cubecl_linalg::testgen_matmul!();
+            cubecl_linalg::testgen_matmul_internal!();
         }
     };
 }

@@ -69,7 +69,7 @@ fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
     let k = lhs.shape(second_dim);
     let n = rhs.shape(second_dim);
 
-    Dimensions { m: m, k, n }
+    Dimensions { m, k, n }
 }
 
 #[cube]

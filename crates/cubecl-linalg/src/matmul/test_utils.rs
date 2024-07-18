@@ -8,7 +8,7 @@ use cubecl_core::{
     CubeElement, Feature, Runtime,
 };
 
-use crate::tensor::Tensor;
+use crate::tensor::TensorHandle;
 
 use super::tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig};
 
@@ -16,7 +16,7 @@ pub(crate) fn range_tensor_f16<R: Runtime>(
     x: usize,
     y: usize,
     device: &R::Device,
-) -> Tensor<R, F16> {
+) -> TensorHandle<R, F16> {
     let n_elements = x * y;
     let client = R::client(device);
 
@@ -27,7 +27,7 @@ pub(crate) fn range_tensor_f16<R: Runtime>(
 
     let handle = client.create(cast_slice(&data));
 
-    Tensor {
+    TensorHandle {
         handle,
         shape: vec![x, y],
         strides: vec![y, 1],
@@ -35,7 +35,11 @@ pub(crate) fn range_tensor_f16<R: Runtime>(
     }
 }
 
-pub(crate) fn range_tensor<R: Runtime>(x: usize, y: usize, device: &R::Device) -> Tensor<R, F32> {
+pub(crate) fn range_tensor<R: Runtime>(
+    x: usize,
+    y: usize,
+    device: &R::Device,
+) -> TensorHandle<R, F32> {
     let n_elements = x * y;
     let client = R::client(device);
 
@@ -46,7 +50,7 @@ pub(crate) fn range_tensor<R: Runtime>(x: usize, y: usize, device: &R::Device) -
 
     let handle = client.create(cast_slice(&data));
 
-    Tensor {
+    TensorHandle {
         handle,
         shape: vec![x, y],
         strides: vec![y, 1],
@@ -60,7 +64,7 @@ pub(crate) fn range_tensor_with_factor<R: Runtime>(
     y: usize,
     factor: f32,
     device: &R::Device,
-) -> Tensor<R, F32> {
+) -> TensorHandle<R, F32> {
     let n_elements = batch * x * y;
     let client = R::client(device);
 
@@ -71,10 +75,10 @@ pub(crate) fn range_tensor_with_factor<R: Runtime>(
 
     let handle = client.create(cast_slice(&data));
 
-    Tensor {
+    TensorHandle {
         handle,
         shape: vec![batch, x, y],
-        strides: vec![x*y, y, 1],
+        strides: vec![x * y, y, 1],
         elem: PhantomData,
     }
 }
@@ -83,7 +87,7 @@ pub(crate) fn range_tensor_transposed<R: Runtime>(
     x: usize,
     y: usize,
     device: &R::Device,
-) -> Tensor<R, F32> {
+) -> TensorHandle<R, F32> {
     let n_elements = x * y;
     let client = R::client(device);
 
@@ -97,7 +101,7 @@ pub(crate) fn range_tensor_transposed<R: Runtime>(
 
     let handle = client.create(cast_slice(&data));
 
-    Tensor {
+    TensorHandle {
         handle,
         shape: vec![x, y],
         strides: vec![y, 1],
@@ -105,14 +109,18 @@ pub(crate) fn range_tensor_transposed<R: Runtime>(
     }
 }
 
-pub(crate) fn zeros_tensor<R: Runtime>(x: usize, y: usize, device: &R::Device) -> Tensor<R, F32> {
+pub(crate) fn zeros_tensor<R: Runtime>(
+    x: usize,
+    y: usize,
+    device: &R::Device,
+) -> TensorHandle<R, F32> {
     let n_elements = x * y;
     let client = R::client(device);
 
     let data: Vec<f32> = vec![0.; n_elements];
     let handle = client.create(cast_slice(&data));
 
-    Tensor {
+    TensorHandle {
         handle,
         shape: vec![x, y],
         strides: vec![y, 1],

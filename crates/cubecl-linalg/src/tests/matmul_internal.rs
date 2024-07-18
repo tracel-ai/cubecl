@@ -2,7 +2,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_internal {
     () => {
-        use cubecl_lac::matmul::{
+        use cubecl_linalg::matmul::{
             cmma::{
                 cmma_compute_loop_tests, cmma_load_shared_memory_tests, cmma_write_output_tests,
             },

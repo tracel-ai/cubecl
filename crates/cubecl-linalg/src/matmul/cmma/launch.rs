@@ -10,16 +10,16 @@ use crate::{
         base::cmma_kernel,
         config::{cmma_cube_count, cmma_cube_dim, CmmaConfig, CmmaLaunchConfig},
     },
-    tensor::{MatrixLayout, Tensor},
+    tensor::{MatrixLayout, TensorHandle},
 };
 
 /// Matrix multiplication using tiling 2d algorithm
 pub fn matmul_cmma<R: Runtime, F: Float>(
-    lhs: Tensor<R, F>,
-    rhs: Tensor<R, F>,
-    out: Tensor<R, F>,
+    lhs: TensorHandle<R, F>,
+    rhs: TensorHandle<R, F>,
+    out: TensorHandle<R, F>,
     device: &R::Device,
-) -> Tensor<R, F> {
+) -> TensorHandle<R, F> {
     let rank = lhs.rank();
     let m = lhs.shape[rank - 2];
     let k = lhs.shape[rank - 1];
@@ -27,7 +27,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
 
     let client = R::client(device);
 
-    let check_layout = |tensor: &Tensor<R, F>| match tensor.matrix_layout() {
+    let check_layout = |tensor: &TensorHandle<R, F>| match tensor.matrix_layout() {
         MatrixLayout::Contiguous => {}
         MatrixLayout::MildlyPermuted {
             transposed: _,

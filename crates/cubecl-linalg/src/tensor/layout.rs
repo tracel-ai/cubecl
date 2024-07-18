@@ -1,7 +1,7 @@
 #[derive(PartialEq, Eq, Debug)]
 /// Layout for matrix tensors, i.e. tensors whose interpretation
 /// is a bunch of batched matrices of 2 dimensions
-pub(crate) enum MatrixLayout {
+pub enum MatrixLayout {
     /// Memory is wholly contiguous, with row major layout
     Contiguous,
     /// Permutations happened, but may not impact some kernels
@@ -15,7 +15,7 @@ pub(crate) enum MatrixLayout {
     HighlyPermuted,
 }
 
-pub(crate) fn memory_layout(strides: &[usize]) -> MatrixLayout {
+pub fn memory_layout(strides: &[usize]) -> MatrixLayout {
     let rank = strides.len();
     if rank <= 1 {
         return MatrixLayout::Contiguous;

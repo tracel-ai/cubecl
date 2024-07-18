@@ -2,7 +2,7 @@
 #[macro_export]
 macro_rules! testgen_matmul {
     () => {
-        use cubecl_lac::matmul;
+        use cubecl_linalg::matmul;
 
         use super::*;
 
@@ -18,7 +18,9 @@ macro_rules! testgen_matmul {
 
         #[test]
         pub fn test_matmul_cmma_with_check_bounds() {
-            matmul::matmul_tests::test_matmul_cmma_with_check_bounds::<TestRuntime>(&Default::default())
+            matmul::matmul_tests::test_matmul_cmma_with_check_bounds::<TestRuntime>(
+                &Default::default(),
+            )
         }
 
         #[test]

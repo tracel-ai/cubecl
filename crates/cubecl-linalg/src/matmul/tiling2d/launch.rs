@@ -7,19 +7,19 @@ use crate::{
         base::tiling2d_cube_kernel,
         config::{tiling2d_cube_count, tiling2d_cube_dim, CubeTiling2dConfig},
     },
-    tensor::{MatrixLayout, Tensor},
+    tensor::{MatrixLayout, TensorHandle},
 };
 
 use super::config::Tiling2dConfig;
 
 /// Matrix multiplication using tiling 2d algorithm
 pub fn matmul_tiling_2d_cube<R: Runtime, F: Float>(
-    lhs: Tensor<R, F>,
-    rhs: Tensor<R, F>,
-    out: Tensor<R, F>,
+    lhs: TensorHandle<R, F>,
+    rhs: TensorHandle<R, F>,
+    out: TensorHandle<R, F>,
     config: Tiling2dConfig,
     device: &R::Device,
-) -> Tensor<R, F> {
+) -> TensorHandle<R, F> {
     assert!(
         config.block_size_k * max(config.block_size_m, config.block_size_n)
             <= <R::Compiler as Compiler>::max_shared_memory_size(),
@@ -33,7 +33,7 @@ pub fn matmul_tiling_2d_cube<R: Runtime, F: Float>(
 
     let client = R::client(device);
 
-    let check_layout = |tensor: Tensor<R, F>| match tensor.matrix_layout() {
+    let check_layout = |tensor: TensorHandle<R, F>| match tensor.matrix_layout() {
         MatrixLayout::Contiguous => (tensor, false),
         MatrixLayout::MildlyPermuted {
             transposed,

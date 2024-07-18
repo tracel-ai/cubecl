@@ -98,9 +98,7 @@ fn compute_tile<F: Float, FC: Float>(
 pub mod tests {
     use crate::matmul::{
         cmma::base::{make_accumulators, SharedMemoriesExpand},
-        test_utils::{
-            assert_equals, cmma_available, create_empty, range_tensor_f16,
-        },
+        test_utils::{assert_equals, cmma_available, create_empty, range_tensor_f16},
     };
 
     use super::*;
