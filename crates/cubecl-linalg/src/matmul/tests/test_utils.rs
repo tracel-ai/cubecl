@@ -7,9 +7,10 @@ use cubecl_core::{
 };
 use std::ops::Range;
 
-use crate::tensor::TensorHandle;
-
-use super::tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig};
+use crate::{
+    matmul::tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig},
+    tensor::TensorHandle,
+};
 
 pub(crate) fn range_tensor_f16<R: Runtime>(
     x: usize,
@@ -161,7 +162,7 @@ pub(crate) fn assert_equals_range<R: Runtime>(
     assert_eq!(&actual[range], expected);
 }
 
-pub(crate) fn make_config(m: usize, k: usize, n: usize) -> CubeTiling2dConfig {
+pub(crate) fn make_tiling2d_config(m: usize, k: usize, n: usize) -> CubeTiling2dConfig {
     let tiling2d_config = Tiling2dConfig {
         block_size_m: 8,
         block_size_k: 8,

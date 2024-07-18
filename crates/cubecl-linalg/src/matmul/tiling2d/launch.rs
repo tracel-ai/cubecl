@@ -13,7 +13,7 @@ use crate::{
 use super::config::Tiling2dConfig;
 
 /// Matrix multiplication using tiling 2d algorithm
-pub fn matmul_tiling_2d_cube<R: Runtime, F: Float>(
+pub fn matmul_tiling_2d<R: Runtime, F: Float>(
     lhs: TensorHandle<R, F>,
     rhs: TensorHandle<R, F>,
     out: TensorHandle<R, F>,
