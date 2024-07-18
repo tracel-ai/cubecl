@@ -3,6 +3,11 @@ use cubecl_core::prelude::*;
 
 use super::{
     base::{Accumulators, Dimensions, Offsets},
+    block_io::{
+        base::BlockWriter, horizontal_block_check::HorizontalCheckBlockIO,
+        unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
+        whole_block_check::WholeCheckBlockIO,
+    },
     config::CmmaConfig,
 };
 
@@ -14,8 +19,8 @@ pub(crate) fn write_to_output<F: Float>(
     dims: Dimensions,
     config: Comptime<CmmaConfig>,
 ) {
-    let acc_sm = fragment_to_shared_memory(accumulators);
-    shared_memory_to_output(out, offsets, acc_sm, dims, config);
+    let accumulator_sm = fragment_to_shared_memory(accumulators);
+    shared_memory_to_output(out, offsets, accumulator_sm, dims, config);
 }
 
 #[cube]
@@ -54,9 +59,32 @@ fn shared_memory_to_output<F: Float>(
     dims: Dimensions,
     config: Comptime<CmmaConfig>,
 ) {
+    let check_m_bounds = Comptime::map(config, |c| c.check_m_bounds);
+    let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
+
+    if Comptime::get(check_m_bounds) {
+        if Comptime::get(check_n_bounds) {
+            write_tile::<F, WholeCheckBlockIO>(out, offsets, accumulator_sm, dims, config);
+        } else {
+            write_tile::<F, VerticalCheckBlockIO>(out, offsets, accumulator_sm, dims, config);
+        }
+    } else if Comptime::get(check_n_bounds) {
+        write_tile::<F, HorizontalCheckBlockIO>(out, offsets, accumulator_sm, dims, config);
+    } else {
+        write_tile::<F, UncheckedBlockIO>(out, offsets, accumulator_sm, dims, config);
+    }
+}
+
+#[cube]
+fn write_tile<F: Float, W: BlockWriter<F>>(
+    out: &mut Tensor<F>,
+    offsets: Offsets,
+    accumulator_sm: SharedMemory<F>,
+    dims: Dimensions,
+    config: Comptime<CmmaConfig>,
+) {
     // Other values not supported
     let n_tiles = UInt::new(2);
-    let out_stride = dims.n;
 
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);
@@ -69,68 +97,66 @@ fn shared_memory_to_output<F: Float>(
     let coop_id = UNIT_POS_Y;
     let lane_id = UNIT_POS_X;
 
-    let read_offset = n_tiles * coop_id * num_tile_elems;
-    let out_offset = offsets.batch_out + offsets.cube_row * out_stride + offsets.cube_col;
+    let tile_row = coop_id / n_tiles;
+    let tile_col = (coop_id % n_tiles) * n_tiles;
 
+    let read_offset = n_tiles * coop_id * num_tile_elems;
     let read_0 = read_offset + lane_id * out_vec_r;
     let read_1 = read_0 + coop_dim * out_vec_r;
 
     let unit_write_row_0 = lane_id / n_units_per_tile_row;
-    let unit_write_col = lane_id % n_units_per_tile_row;
-    let tile_row = coop_id / n_tiles;
-    let tile_col = (coop_id % n_tiles) * n_tiles;
-    let offset_row_write = tile_row * tile_size_r * out_stride;
-    let offset_col_write = (tile_col * n_units_per_tile_row + unit_write_col) * out_vec_r;
+    let unit_write_row_1 = unit_write_row_0 + coop_dim / out_vec_r;
+    let unit_write_col = (lane_id % n_units_per_tile_row) * n_units_per_tile_row;
 
-    let write_0 = out_offset + offset_row_write + offset_col_write + unit_write_row_0 * out_stride;
-    let write_1 = write_0 + coop_dim / out_vec_r * out_stride;
+    let row_offset = offsets.cube_row + tile_row * tile_size_r;
+    let write_row_0 = row_offset + unit_write_row_0;
+    let write_row_1 = row_offset + unit_write_row_1;
+    let write_col = offsets.cube_col + tile_col * tile_size_r + unit_write_col;
 
-    let positions = ReadWritePositions {
+    W::write_output(
+        out,
+        accumulator_sm,
+        UInt::new(0),
+        offsets.batch_out,
         read_0,
+        write_row_0,
+        write_col,
+        dims,
+        config,
+    );
+    W::write_output(
+        out,
+        accumulator_sm,
+        UInt::new(0),
+        offsets.batch_out,
         read_1,
-        write_0,
-        write_1,
-    };
-
-    write_tile(UInt::new(0), out, positions, accumulator_sm, config);
-    write_tile(UInt::new(1), out, positions, accumulator_sm, config);
-}
-
-#[derive(CubeType, Copy, Clone)]
-struct ReadWritePositions {
-    pub read_0: UInt,
-    pub read_1: UInt,
-    pub write_0: UInt,
-    pub write_1: UInt,
-}
-
-#[cube]
-fn write_tile<F: Float>(
-    n_iter: UInt,
-    out: &mut Tensor<F>,
-    positions: ReadWritePositions,
-    accumulator_sm: SharedMemory<F>,
-    config: Comptime<CmmaConfig>,
-) {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let out_vec = Comptime::vectorization(out);
-    let out_vec_r = Comptime::runtime(out_vec);
-
-    let n_iter_read_offset = n_iter * Comptime::runtime(tile_size * tile_size);
-    let n_iter_write_offset = n_iter * Comptime::runtime(tile_size);
-
-    let mut val_0 = F::vectorized_empty(Comptime::get(out_vec));
-    for i in range(0u32, 4u32, Comptime::new(true)) {
-        val_0[i] = accumulator_sm[positions.read_0 + n_iter_read_offset + i];
-    }
-
-    let mut val_1 = F::vectorized_empty(Comptime::get(out_vec));
-    for i in range(0u32, 4u32, Comptime::new(true)) {
-        val_1[i] = accumulator_sm[positions.read_1 + n_iter_read_offset + i];
-    }
-
-    out[(positions.write_0 + n_iter_write_offset) / out_vec_r] = val_0;
-    out[(positions.write_1 + n_iter_write_offset) / out_vec_r] = val_1;
+        write_row_1,
+        write_col,
+        dims,
+        config,
+    );
+    W::write_output(
+        out,
+        accumulator_sm,
+        UInt::new(1),
+        offsets.batch_out,
+        read_0,
+        write_row_0,
+        write_col,
+        dims,
+        config,
+    );
+    W::write_output(
+        out,
+        accumulator_sm,
+        UInt::new(1),
+        offsets.batch_out,
+        read_1,
+        write_row_1,
+        write_col,
+        dims,
+        config,
+    );
 }
 
 #[cfg(feature = "export_tests")]
@@ -147,8 +173,8 @@ pub mod tests {
     #[cube(launch)]
     fn write_output_test<F: Float>(
         out: &mut Tensor<F>,
-        acc_sm_arr: &mut Array<F>, // TODO can't have a non-mut array?
-        k: UInt,
+        acc_sm_arr: &mut Array<F>,
+        m: UInt,
         n: UInt,
         config: Comptime<CmmaConfig>,
     ) {
@@ -167,8 +193,8 @@ pub mod tests {
         }
 
         let dims = Dimensions {
-            m: UInt::new(16),
-            k,
+            m,
+            k: UInt::new(16),
             n,
         };
 
@@ -177,9 +203,9 @@ pub mod tests {
 
     /// Exported test
     pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
-        let k = 16;
+        let m = 16;
         let n = 32;
-        let out = zeros_tensor::<R>(k, n, device);
+        let out = zeros_tensor::<R>(m, n, device);
         let acc_sm = range_tensor::<R>(64, 64, device);
         let cube_dim = CubeDim::new(1, 1, 1);
         let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
@@ -201,7 +227,7 @@ pub mod tests {
             cube_dim,
             TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
             ArrayArg::new(&acc_sm.handle, 64 * 64),
-            ScalarArg::new(k as u32),
+            ScalarArg::new(m as u32),
             ScalarArg::new(n as u32),
             config,
         );
@@ -244,9 +270,9 @@ pub mod tests {
 
     /// Exported test
     pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
-        let k = 16;
+        let m = 16;
         let n = 32;
-        let out = range_tensor::<R>(k, n, device);
+        let out = zeros_tensor::<R>(m, n, device);
         let acc_sm = range_tensor::<R>(64, 64, device);
         let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
@@ -256,9 +282,9 @@ pub mod tests {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
             tile_size: UInt::new(16),
-            check_m_bounds: false,
+            check_m_bounds: true,
             check_k_bounds: false,
-            check_n_bounds: false,
+            check_n_bounds: true,
             unroll: false,
         };
 
@@ -268,7 +294,7 @@ pub mod tests {
             cube_dim,
             TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
             ArrayArg::new(&acc_sm.handle, 64 * 64),
-            ScalarArg::new(k as u32),
+            ScalarArg::new(m as u32),
             ScalarArg::new(n as u32),
             config,
         );
@@ -322,9 +348,9 @@ pub mod tests {
 
     /// Exported test
     pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
-        let k = 16;
+        let m = 16;
         let n = 64;
-        let out = range_tensor::<R>(k, n, device);
+        let out = zeros_tensor::<R>(m, n, device);
         let acc_sm = range_tensor::<R>(64, 64, device);
         let cube_dim = CubeDim::new(32, 2, 1);
         let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
@@ -334,7 +360,7 @@ pub mod tests {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
             tile_size: UInt::new(16),
-            check_m_bounds: false,
+            check_m_bounds: true,
             check_k_bounds: false,
             check_n_bounds: false,
             unroll: false,
@@ -346,7 +372,7 @@ pub mod tests {
             cube_dim,
             TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
             ArrayArg::new(&acc_sm.handle, 64 * 64),
-            ScalarArg::new(k as u32),
+            ScalarArg::new(m as u32),
             ScalarArg::new(n as u32),
             config,
         );
@@ -443,9 +469,9 @@ pub mod tests {
 
     /// Exported test
     pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device) {
-        let k = 32;
+        let m = 32;
         let n = 64;
-        let out = range_tensor::<R>(k, n, device);
+        let out = zeros_tensor::<R>(m, n, device);
         let acc_sm = range_tensor::<R>(64, 64, device);
         let cube_dim = CubeDim::new(32, 4, 1);
         let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
@@ -455,7 +481,7 @@ pub mod tests {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
             tile_size: UInt::new(16),
-            check_m_bounds: false,
+            check_m_bounds: true,
             check_k_bounds: false,
             check_n_bounds: false,
             unroll: false,
@@ -467,7 +493,7 @@ pub mod tests {
             cube_dim,
             TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
             ArrayArg::new(&acc_sm.handle, 64 * 64),
-            ScalarArg::new(k as u32),
+            ScalarArg::new(m as u32),
             ScalarArg::new(n as u32),
             config,
         );

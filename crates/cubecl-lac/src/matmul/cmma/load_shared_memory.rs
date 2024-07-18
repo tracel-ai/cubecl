@@ -189,7 +189,7 @@ fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
     let coop_id = UNIT_POS_Y;
     let lane_id = UNIT_POS_X;
 
-    // There are two rows because n_tiles = 2 is assumed
+    // There are two rows because 16x16 tiles with 32 threads -> 2 vec4 loads
     let unit_read_row_0 = lane_id / tensor_vec_r;
     let unit_read_row_1 = unit_read_row_0 + coop_dim / tensor_vec_r;
     let read_row_0 = skip_row + tile_row * tile_size_r + unit_read_row_0;
