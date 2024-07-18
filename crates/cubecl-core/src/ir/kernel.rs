@@ -112,6 +112,23 @@ impl Elem {
             ConstantScalarValue::Bool(val) => self.constant_from_bool(val),
         }
     }
+    /// Get the size in bytes.
+    pub fn size(&self) -> usize {
+        match self {
+            Elem::Float(kind) => match kind {
+                FloatKind::F16 => core::mem::size_of::<half::f16>(),
+                FloatKind::BF16 => core::mem::size_of::<half::bf16>(),
+                FloatKind::F32 => core::mem::size_of::<f32>(),
+                FloatKind::F64 => core::mem::size_of::<f64>(),
+            },
+            Elem::Int(kind) => match kind {
+                IntKind::I32 => core::mem::size_of::<i32>(),
+                IntKind::I64 => core::mem::size_of::<i64>(),
+            },
+            Elem::UInt => core::mem::size_of::<u32>(),
+            Elem::Bool => core::mem::size_of::<bool>(),
+        }
+    }
 }
 
 impl From<Elem> for Item {

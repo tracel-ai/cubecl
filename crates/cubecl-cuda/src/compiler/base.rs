@@ -16,6 +16,8 @@ pub struct CudaCompiler {
     absolute_idx: (bool, bool, bool),
     wrap_size_checked: bool,
     wmma: bool,
+    bf16: bool,
+    f16: bool,
     shape: bool,
     stride: bool,
     num_inputs: usize,
@@ -31,7 +33,7 @@ impl Compiler for CudaCompiler {
     }
 
     fn elem_size(elem: gpu::Elem) -> usize {
-        Self::compile_elem(elem).size()
+        elem.size()
     }
 
     fn max_shared_memory_size() -> usize {
@@ -46,6 +48,22 @@ impl CudaCompiler {
         self.num_outputs = value.outputs.len();
 
         let instructions = self.compile_scope(&mut value.body);
+        let inputs = value
+            .inputs
+            .into_iter()
+            .map(|b| self.compile_binding(b))
+            .collect();
+        let outputs = value
+            .outputs
+            .into_iter()
+            .map(|b| self.compile_binding(b))
+            .collect();
+        let named = value
+            .named
+            .into_iter()
+            .map(|(name, binding)| (name, self.compile_binding(binding)))
+            .collect();
+
         let body = super::Body {
             instructions,
             stride: true,
@@ -60,24 +78,14 @@ impl CudaCompiler {
         };
 
         super::ComputeKernel {
-            inputs: value
-                .inputs
-                .into_iter()
-                .map(Self::compile_binding)
-                .collect(),
-            outputs: value
-                .outputs
-                .into_iter()
-                .map(Self::compile_binding)
-                .collect(),
-            named: value
-                .named
-                .into_iter()
-                .map(|(name, binding)| (name, Self::compile_binding(binding)))
-                .collect(),
+            inputs,
+            outputs,
+            named,
             cube_dim: value.cube_dim,
             body,
             wmma_activated: self.wmma,
+            bf16: self.bf16,
+            f16: self.f16,
         }
     }
 
@@ -187,7 +195,8 @@ impl CudaCompiler {
                 output: self.compile_variable(output),
                 frag: self.compile_variable(mat),
                 stride: self.compile_variable(stride),
-                layout: Self::compile_matrix_layout(layout)
+                layout: self
+                    .compile_matrix_layout(layout)
                     .expect("Layout required for store instruction"),
             }),
         }
@@ -364,7 +373,7 @@ impl CudaCompiler {
                     gpu::Elem::Bool => ConstantScalarValue::Bool(true),
                 };
                 Instruction::Div(super::BinaryInstruction {
-                    lhs: super::Variable::ConstantScalar(lhs, Self::compile_elem(elem)),
+                    lhs: super::Variable::ConstantScalar(lhs, self.compile_elem(elem)),
                     rhs: self.compile_variable(op.input),
                     out: self.compile_variable(op.out),
                 })
@@ -399,34 +408,34 @@ impl CudaCompiler {
     fn compile_variable(&mut self, value: gpu::Variable) -> super::Variable {
         match value {
             gpu::Variable::GlobalInputArray { id, item } => {
-                super::Variable::GlobalInputArray(id, Self::compile_item(item))
+                super::Variable::GlobalInputArray(id, self.compile_item(item))
             }
             gpu::Variable::GlobalScalar { id, elem } => {
-                super::Variable::GlobalScalar(id, Self::compile_elem(elem), elem)
+                super::Variable::GlobalScalar(id, self.compile_elem(elem), elem)
             }
             gpu::Variable::Local { id, item, depth } => super::Variable::Local {
                 id,
-                item: Self::compile_item(item),
+                item: self.compile_item(item),
                 depth,
             },
             gpu::Variable::Slice { id, item, depth } => super::Variable::Slice {
                 id,
-                item: Self::compile_item(item),
+                item: self.compile_item(item),
                 depth,
             },
             gpu::Variable::LocalScalar { id, elem, depth } => super::Variable::LocalScalar {
                 id,
-                elem: Self::compile_elem(elem),
+                elem: self.compile_elem(elem),
                 depth,
             },
             gpu::Variable::GlobalOutputArray { id, item } => {
-                super::Variable::GlobalOutputArray(id, Self::compile_item(item))
+                super::Variable::GlobalOutputArray(id, self.compile_item(item))
             }
             gpu::Variable::ConstantScalar(value) => {
-                super::Variable::ConstantScalar(value, Self::compile_elem(value.elem()))
+                super::Variable::ConstantScalar(value, self.compile_elem(value.elem()))
             }
             gpu::Variable::SharedMemory { id, item, length } => {
-                let item = Self::compile_item(item);
+                let item = self.compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
                         .push(super::SharedMemory::new(id, item, length));
@@ -475,7 +484,7 @@ impl CudaCompiler {
                 depth,
                 length,
             } => {
-                let item = Self::compile_item(item);
+                let item = self.compile_item(item);
                 if !self
                     .local_arrays
                     .iter()
@@ -494,24 +503,24 @@ impl CudaCompiler {
                 self.wmma = true;
                 super::Variable::WmmaFragment {
                     id,
-                    frag: Self::compile_matrix(mat),
+                    frag: self.compile_matrix(mat),
                 }
             }
         }
     }
 
-    fn compile_matrix(matrix: gpu::Matrix) -> super::Fragment {
+    fn compile_matrix(&mut self, matrix: gpu::Matrix) -> super::Fragment {
         super::Fragment {
-            ident: Self::compile_matrix_ident(matrix.ident),
+            ident: self.compile_matrix_ident(matrix.ident),
             m: matrix.m,
             n: matrix.n,
             k: matrix.k,
-            elem: Self::compile_elem(matrix.elem),
-            layout: Self::compile_matrix_layout(matrix.layout),
+            elem: self.compile_elem(matrix.elem),
+            layout: self.compile_matrix_layout(matrix.layout),
         }
     }
 
-    fn compile_matrix_ident(ident: gpu::MatrixIdent) -> super::FragmentIdent {
+    fn compile_matrix_ident(&mut self, ident: gpu::MatrixIdent) -> super::FragmentIdent {
         match ident {
             gpu::MatrixIdent::A => super::FragmentIdent::A,
             gpu::MatrixIdent::B => super::FragmentIdent::B,
@@ -519,7 +528,10 @@ impl CudaCompiler {
         }
     }
 
-    fn compile_matrix_layout(layout: gpu::MatrixLayout) -> Option<super::FragmentLayout> {
+    fn compile_matrix_layout(
+        &mut self,
+        layout: gpu::MatrixLayout,
+    ) -> Option<super::FragmentLayout> {
         match layout {
             gpu::MatrixLayout::ColMajor => Some(super::FragmentLayout::ColMajor),
             gpu::MatrixLayout::RowMajor => Some(super::FragmentLayout::RowMajor),
@@ -527,28 +539,34 @@ impl CudaCompiler {
         }
     }
 
-    fn compile_binding(binding: gpu::Binding) -> super::Binding {
+    fn compile_binding(&mut self, binding: gpu::Binding) -> super::Binding {
         super::Binding {
-            item: Self::compile_item(binding.item),
+            item: self.compile_item(binding.item),
             size: binding.size,
         }
     }
 
-    fn compile_item(item: gpu::Item) -> super::Item {
+    fn compile_item(&mut self, item: gpu::Item) -> super::Item {
         match item.vectorization {
-            4 => super::Item::Vec4(Self::compile_elem(item.elem)),
-            3 => super::Item::Vec3(Self::compile_elem(item.elem)),
-            2 => super::Item::Vec2(Self::compile_elem(item.elem)),
-            1 => super::Item::Scalar(Self::compile_elem(item.elem)),
+            4 => super::Item::Vec4(self.compile_elem(item.elem)),
+            3 => super::Item::Vec3(self.compile_elem(item.elem)),
+            2 => super::Item::Vec2(self.compile_elem(item.elem)),
+            1 => super::Item::Scalar(self.compile_elem(item.elem)),
             _ => panic!("Vectorization factor unsupported {:?}", item.vectorization),
         }
     }
 
-    fn compile_elem(value: gpu::Elem) -> super::Elem {
+    fn compile_elem(&mut self, value: gpu::Elem) -> super::Elem {
         match value {
             gpu::Elem::Float(kind) => match kind {
-                gpu::FloatKind::F16 => super::Elem::F16,
-                gpu::FloatKind::BF16 => super::Elem::BF16,
+                gpu::FloatKind::F16 => {
+                    self.f16 = true;
+                    super::Elem::F16
+                }
+                gpu::FloatKind::BF16 => {
+                    self.bf16 = true;
+                    super::Elem::BF16
+                }
                 gpu::FloatKind::F32 => super::Elem::F32,
                 gpu::FloatKind::F64 => panic!("f64 isn't supported yet"),
             },

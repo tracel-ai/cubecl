@@ -25,7 +25,7 @@ pub enum Item {
 impl Display for Elem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Elem::F16 => f.write_str("half"),
+            Elem::F16 => f.write_str("__half"),
             Elem::F32 => f.write_str("float"),
             Elem::BF16 => f.write_str("__nv_bfloat16"),
             Elem::I32 => f.write_str("int"),
@@ -190,13 +190,13 @@ impl Display for Variable {
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
                     gpu::FloatKind::F16 => {
-                        f.write_fmt(format_args!("{elem}({})", half::f16::from_f64(*val)))
+                        f.write_fmt(format_args!("{elem}({:?})", half::f16::from_f64(*val)))
                     }
                     gpu::FloatKind::BF16 => {
-                        f.write_fmt(format_args!("{elem}({})", half::bf16::from_f64(*val)))
+                        f.write_fmt(format_args!("{elem}({:?})", half::bf16::from_f64(*val)))
                     }
-                    gpu::FloatKind::F32 => f.write_fmt(format_args!("{elem}({})", *val as f32)),
-                    gpu::FloatKind::F64 => f.write_fmt(format_args!("{elem}({})", { *val })),
+                    gpu::FloatKind::F32 => f.write_fmt(format_args!("{elem}({:?})", *val as f32)),
+                    gpu::FloatKind::F64 => f.write_fmt(format_args!("{elem}({:?})", { *val })),
                 },
                 ConstantScalarValue::UInt(val) => {
                     f.write_fmt(format_args!("{elem}({})", *val as u32))

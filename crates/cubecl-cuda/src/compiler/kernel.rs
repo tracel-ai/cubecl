@@ -48,6 +48,8 @@ pub struct ComputeKernel {
     pub cube_dim: CubeDim,
     pub body: Body,
     pub wmma_activated: bool,
+    pub bf16: bool,
+    pub f16: bool,
 }
 
 impl CompilerRepresentation for ComputeKernel {
@@ -73,7 +75,18 @@ impl CompilerRepresentation for ComputeKernel {
 impl Display for ComputeKernel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.wmma_activated {
-            f.write_str("#include <mma.h>\nusing namespace nvcuda;\n")?;
+            f.write_str("#include <mma.h>\n")?;
+        }
+        if self.bf16 {
+            f.write_str("#include <cuda_bf16.h>\n")?;
+        }
+
+        if self.f16 {
+            f.write_str("#include <cuda_fp16.h>\n")?;
+        }
+
+        if self.wmma_activated {
+            f.write_str("using namespace nvcuda;\n")?;
         }
 
         f.write_fmt(format_args!(

@@ -1,4 +1,4 @@
-use super::{Bool, Numeric, UInt, Vectorized, F32, F64, I32, I64};
+use super::{Bool, CubePrimitive, Numeric, UInt, Vectorized, F32, F64, I32, I64};
 use crate::{
     ir::{ConstantScalarValue, Elem, Item, Operator, Variable, Vectorization},
     prelude::{index_assign, init_expand, CubeContext, KernelBuilder, KernelLauncher},
@@ -200,10 +200,11 @@ impl<T: CubeType> From<ExpandElementTyped<T>> for ExpandElement {
     }
 }
 
-impl<T: CubeType> ExpandElementTyped<T> {
+impl<T: CubePrimitive> ExpandElementTyped<T> {
     /// Create an [ExpandElementTyped] from a value that is normaly a literal.
     pub fn from_lit<L: Into<Variable>>(lit: L) -> Self {
         let variable: Variable = lit.into();
+        let variable = T::as_elem().from_constant(variable);
 
         ExpandElementTyped::new(ExpandElement::Plain(variable))
     }
