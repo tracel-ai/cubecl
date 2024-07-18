@@ -27,17 +27,42 @@ pub struct CmmaConfig {
     pub unroll: bool,
 }
 
-impl Default for CmmaConfig {
+pub struct CmmaLaunchConfig {
+    /// Block size along dimension of lhs
+    pub block_size_m: usize,
+    /// Block size along common dimension
+    pub block_size_k: usize,
+    /// Block size along dimension of rhs
+    pub block_size_n: usize,
+    /// Tile size (dimension of one side). Should correspond to cmma supported tile size
+    pub tile_size: usize,
+    /// Unroll
+    pub unroll: bool,
+}
+
+impl Default for CmmaLaunchConfig {
     fn default() -> Self {
         Self {
-            block_size_m: UInt::new(64),
-            block_size_k: UInt::new(32),
-            block_size_n: UInt::new(64),
-            tile_size: UInt::new(16),
-            check_m_bounds: false,
-            check_k_bounds: false,
-            check_n_bounds: false,
+            block_size_m: 64,
+            block_size_k: 32,
+            block_size_n: 64,
+            tile_size: 16,
             unroll: false,
+        }
+    }
+}
+
+impl CmmaConfig {
+    pub(crate) fn new(m: usize, k: usize, n: usize, launch_config: CmmaLaunchConfig) -> Self {
+        CmmaConfig {
+            block_size_m: launch_config.block_size_m.into(),
+            block_size_k: launch_config.block_size_k.into(),
+            block_size_n: launch_config.block_size_n.into(),
+            tile_size: launch_config.tile_size.into(),
+            unroll: launch_config.unroll,
+            check_m_bounds: m % launch_config.block_size_m != 0,
+            check_k_bounds: k % launch_config.block_size_k != 0,
+            check_n_bounds: n % launch_config.block_size_n != 0,
         }
     }
 }

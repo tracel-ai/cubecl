@@ -8,7 +8,7 @@ use cubecl_core::{
 use crate::{
     matmul::cmma::{
         base::cmma_kernel,
-        config::{cmma_cube_count, cmma_cube_dim, CmmaConfig},
+        config::{cmma_cube_count, cmma_cube_dim, CmmaConfig, CmmaLaunchConfig},
     },
     tensor::{MatrixLayout, Tensor},
 };
@@ -55,20 +55,16 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
 
     let cube_count = cmma_cube_count::<R>(&out.shape, 64, 64);
     let cube_dim = cmma_cube_dim();
-    let config = CmmaConfig::default();
+    let launch_config = CmmaLaunchConfig::default();
     let (b_m, b_k, b_n) = (
-        config.block_size_m.val as usize,
-        config.block_size_k.val as usize,
-        config.block_size_n.val as usize,
+        launch_config.block_size_m,
+        launch_config.block_size_k,
+        launch_config.block_size_n,
     );
 
     assert!(
         lhs_vectorization == 4 && rhs_vectorization == 4 && out_vectorization == 4,
         "Only vec4 is supported"
-    );
-    assert!(
-        m % b_m == 0 && k % b_k == 0 && n % b_n == 0,
-        "Check bounds not supported yet. "
     );
     assert!(
         b_k * max(b_m, b_n) <= <R::Compiler as Compiler>::max_shared_memory_size(),
@@ -79,7 +75,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
         "Shared memory limit will be busted. "
     );
     assert!(
-        b_k == 2 * config.tile_size.val as usize,
+        b_k == 2 * launch_config.tile_size,
         "Variable tile number per coop_units not supported"
     );
 
@@ -90,7 +86,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
         TensorArg::vectorized(lhs_vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
         TensorArg::vectorized(rhs_vectorization, &rhs.handle, &rhs.strides, &rhs.shape),
         TensorArg::vectorized(out_vectorization, &out.handle, &out.strides, &out.shape),
-        config,
+        CmmaConfig::new(m, k, n, launch_config),
     );
 
     out

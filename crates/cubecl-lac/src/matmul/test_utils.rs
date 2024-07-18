@@ -55,12 +55,13 @@ pub(crate) fn range_tensor<R: Runtime>(x: usize, y: usize, device: &R::Device) -
 }
 
 pub(crate) fn range_tensor_with_factor<R: Runtime>(
+    batch: usize,
     x: usize,
     y: usize,
     factor: f32,
     device: &R::Device,
 ) -> Tensor<R, F32> {
-    let n_elements = x * y;
+    let n_elements = batch * x * y;
     let client = R::client(device);
 
     let mut data: Vec<f32> = Vec::with_capacity(n_elements);
@@ -72,8 +73,8 @@ pub(crate) fn range_tensor_with_factor<R: Runtime>(
 
     Tensor {
         handle,
-        shape: vec![x, y],
-        strides: vec![y, 1],
+        shape: vec![batch, x, y],
+        strides: vec![x*y, y, 1],
         elem: PhantomData,
     }
 }

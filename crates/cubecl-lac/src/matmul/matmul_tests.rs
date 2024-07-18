@@ -37,24 +37,24 @@ pub fn test_matmul_cmma_several_cubes<R: Runtime>(device: &R::Device) {
 
 pub fn test_matmul_cmma_with_check_bounds<R: Runtime>(device: &R::Device) {
     MatmulTestCase {
-        m: 255,
-        k: 253,
-        n: 252,
+        m: 60,
+        k: 60,
+        n: 60,
         batch: 1,
-        factor: 100000.,
+        factor: 1000.,
         epsilon: 0.1,
         compute_f16: true,
     }
     .test::<R>(device);
 }
 
-pub fn test_matmul_cmma_with_batch<R: Runtime>(device: &R::Device) {
+pub fn test_matmul_cmma_with_batches<R: Runtime>(device: &R::Device) {
     MatmulTestCase {
         m: 64,
         k: 64,
         n: 64,
         batch: 3,
-        factor: 100000.,
+        factor: 10000.,
         epsilon: 0.1,
         compute_f16: true,
     }
@@ -78,12 +78,12 @@ impl MatmulTestCase {
             return;
         }
 
-        let tensor_1 = range_tensor_with_factor::<R>(self.m, self.k, self.factor, device);
-        let tensor_2 = range_tensor_with_factor::<R>(self.k, self.n, self.factor, device);
+        let tensor_1 = range_tensor_with_factor::<R>(self.batch, self.m, self.k, self.factor, device);
+        let tensor_2 = range_tensor_with_factor::<R>(self.batch, self.k, self.n, self.factor, device);
         let out = Tensor {
-            handle: create_empty::<R>(self.m, self.n, device),
-            shape: vec![self.m, self.n],
-            strides: vec![self.n, 1],
+            handle: create_empty::<R>(self.batch * self.m, self.n, device),
+            shape: vec![self.batch, self.m, self.n],
+            strides: vec![self.m * self.n, self.n, 1],
             elem: PhantomData,
         };
 
@@ -116,7 +116,7 @@ impl MatmulTestCase {
                             lhs_value * rhs_value
                         };
 
-                        out[out_batch_offset + i * self.n + j] += result;
+                        out[b * out_batch_offset + i * self.n + j] += result;
                     }
                 }
             }

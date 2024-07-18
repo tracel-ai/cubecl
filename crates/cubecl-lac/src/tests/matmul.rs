@@ -20,5 +20,10 @@ macro_rules! testgen_matmul {
         pub fn test_matmul_cmma_with_check_bounds() {
             matmul::matmul_tests::test_matmul_cmma_with_check_bounds::<TestRuntime>(&Default::default())
         }
+
+        #[test]
+        pub fn test_matmul_cmma_with_batches() {
+            matmul::matmul_tests::test_matmul_cmma_with_batches::<TestRuntime>(&Default::default())
+        }
     };
 }
