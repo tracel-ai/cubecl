@@ -438,9 +438,9 @@ pub mod tests {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(16),
             tile_size: UInt::new(16),
-            _check_m_bounds: false,
-            _check_k_bounds: false,
-            _check_n_bounds: false,
+            check_m_bounds: false,
+            check_k_bounds: false,
+            check_n_bounds: false,
             unroll: false,
         };
 
@@ -513,9 +513,9 @@ pub mod tests {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(32),
             tile_size: UInt::new(16),
-            _check_m_bounds: false,
-            _check_k_bounds: false,
-            _check_n_bounds: false,
+            check_m_bounds: false,
+            check_k_bounds: false,
+            check_n_bounds: false,
             unroll: false,
         };
 
@@ -624,9 +624,9 @@ pub mod tests {
             block_size_k: UInt::new(k as u32),
             block_size_n: UInt::new(n as u32),
             tile_size: UInt::new(16),
-            _check_m_bounds: false,
-            _check_k_bounds: false,
-            _check_n_bounds: false,
+            check_m_bounds: false,
+            check_k_bounds: false,
+            check_n_bounds: false,
             unroll: false,
         };
 

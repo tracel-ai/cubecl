@@ -30,7 +30,7 @@ pub fn cmma_kernel<F: Float, FC: Float>(
 
 #[derive(CubeType, Copy, Clone)]
 pub(crate) struct Dimensions {
-    pub _m: UInt,
+    pub m: UInt,
     pub k: UInt,
     pub n: UInt,
 }
@@ -69,7 +69,7 @@ fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
     let k = lhs.shape(second_dim);
     let n = rhs.shape(second_dim);
 
-    Dimensions { _m: m, k, n }
+    Dimensions { m: m, k, n }
 }
 
 #[cube]

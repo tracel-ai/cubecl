@@ -167,7 +167,7 @@ pub mod tests {
         }
 
         let dims = Dimensions {
-            _m: UInt::new(16),
+            m: UInt::new(16),
             k,
             n,
         };
@@ -189,9 +189,9 @@ pub mod tests {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
             tile_size: UInt::new(16),
-            _check_m_bounds: false,
-            _check_k_bounds: false,
-            _check_n_bounds: false,
+            check_m_bounds: false,
+            check_k_bounds: false,
+            check_n_bounds: false,
             unroll: false,
         };
 
@@ -256,9 +256,9 @@ pub mod tests {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
             tile_size: UInt::new(16),
-            _check_m_bounds: false,
-            _check_k_bounds: false,
-            _check_n_bounds: false,
+            check_m_bounds: false,
+            check_k_bounds: false,
+            check_n_bounds: false,
             unroll: false,
         };
 
@@ -334,9 +334,9 @@ pub mod tests {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
             tile_size: UInt::new(16),
-            _check_m_bounds: false,
-            _check_k_bounds: false,
-            _check_n_bounds: false,
+            check_m_bounds: false,
+            check_k_bounds: false,
+            check_n_bounds: false,
             unroll: false,
         };
 
@@ -455,9 +455,9 @@ pub mod tests {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
             tile_size: UInt::new(16),
-            _check_m_bounds: false,
-            _check_k_bounds: false,
-            _check_n_bounds: false,
+            check_m_bounds: false,
+            check_k_bounds: false,
+            check_n_bounds: false,
             unroll: false,
         };
 

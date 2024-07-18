@@ -193,6 +193,27 @@ macro_rules! testgen_matmul_internal {
         }
 
         #[test]
+        pub fn cmma_load_shared_memory_lhs_vertical_out_of_bound_warp_test() {
+            cmma_load_shared_memory_tests::load_shared_memory_lhs_vertical_out_of_bound_warp_test::<
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
+        pub fn cmma_load_shared_memory_lhs_horizontal_out_of_bound_warp_test() {
+            cmma_load_shared_memory_tests::load_shared_memory_lhs_horizontal_out_of_bound_warp_test::<
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
+        pub fn cmma_load_shared_memory_lhs_whole_out_of_bound_warp_test() {
+            cmma_load_shared_memory_tests::load_shared_memory_lhs_whole_out_of_bound_warp_test::<
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
         pub fn cmma_load_shared_memory_rhs_warp_test() {
             cmma_load_shared_memory_tests::load_shared_memory_rhs_warp_test::<TestRuntime>(
                 &Default::default(),

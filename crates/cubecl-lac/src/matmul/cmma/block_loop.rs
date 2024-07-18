@@ -20,13 +20,13 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     config: Comptime<CmmaConfig>,
     dims: Dimensions,
 ) {
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let n_loops = dims.k / Comptime::runtime(block_size_k); // TODO not always true if check_k_bounds
+    let block_size_k = Comptime::runtime(Comptime::map(config, |c| c.block_size_k));
+    let n_loops = (dims.k + block_size_k - 1) / block_size_k;
 
-    for k in range(0u32, n_loops, Comptime::new(false)) {
-        offsets.k = k * Comptime::runtime(block_size_k);
+    for block in range(0u32, n_loops, Comptime::new(false)) {
+        offsets.k = block * block_size_k;
 
-        load_to_shared_memories::<F, FC>(lhs, rhs, offsets, shared_memories, config, dims);
+        load_to_shared_memories::<F, FC>(lhs, rhs, offsets, shared_memories, dims, config);
 
         sync_units();
 

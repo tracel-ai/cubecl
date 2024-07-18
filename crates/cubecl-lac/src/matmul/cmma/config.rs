@@ -18,11 +18,11 @@ pub struct CmmaConfig {
     /// Tile size (dimension of one side). Should correspond to cmma supported tile size
     pub tile_size: UInt,
     /// Bounds must be checked on lhs dimension
-    pub _check_m_bounds: bool,
+    pub check_m_bounds: bool,
     /// Bounds must be checked on common dimension
-    pub _check_k_bounds: bool,
+    pub check_k_bounds: bool,
     /// Bounds must be checked on rhs dimension
-    pub _check_n_bounds: bool,
+    pub check_n_bounds: bool,
     /// Unroll
     pub unroll: bool,
 }
@@ -34,9 +34,9 @@ impl Default for CmmaConfig {
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
             tile_size: UInt::new(16),
-            _check_m_bounds: false,
-            _check_k_bounds: false,
-            _check_n_bounds: false,
+            check_m_bounds: false,
+            check_k_bounds: false,
+            check_n_bounds: false,
             unroll: false,
         }
     }
