@@ -5,6 +5,8 @@ use cubecl_core::{
     Runtime,
 };
 
+use super::base::TILE_SIZE;
+
 #[derive(Debug, Clone)]
 /// Tiling 2D parameters
 pub struct Tiling2dConfig {
@@ -26,7 +28,7 @@ impl Default for Tiling2dConfig {
             block_size_m: 64,
             block_size_k: 32,
             block_size_n: 64,
-            tile_size: 4,
+            tile_size: TILE_SIZE,
             unroll: false,
         }
     }
