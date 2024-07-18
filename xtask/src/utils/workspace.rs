@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::{path::Path, process::Command, thread::panicking};
+use std::{path::Path, process::Command};
 
 const MEMBER_PATH_PREFIX: &str = if cfg!(target_os = "windows") {
     "path+file:///"
