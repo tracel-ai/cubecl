@@ -7,13 +7,18 @@ macro_rules! testgen_matmul {
         use super::*;
 
         #[test]
-        pub fn test_matmul_cmma_1() {
-            matmul::matmul_tests::test_matmul_cmma_1::<TestRuntime>(&Default::default())
+        pub fn test_matmul_cmma_one_cube() {
+            matmul::matmul_tests::test_matmul_cmma_one_cube::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn test_matmul_cmma_2() {
-            matmul::matmul_tests::test_matmul_cmma_2::<TestRuntime>(&Default::default())
+        pub fn test_matmul_cmma_several_cubes() {
+            matmul::matmul_tests::test_matmul_cmma_several_cubes::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_matmul_cmma_with_check_bounds() {
+            matmul::matmul_tests::test_matmul_cmma_with_check_bounds::<TestRuntime>(&Default::default())
         }
     };
 }
