@@ -158,16 +158,19 @@ pub mod tests {
             return;
         }
 
-        let lhs = range_tensor_f16::<R>(16, 32, device);
-        let rhs = range_tensor_f16::<R>(32, 16, device);
-        let results = create_empty::<R>(16, 16, device);
+        let m = 16;
+        let k = 32;
+        let n = 16;
+        let lhs = range_tensor_f16::<R>(m, k, device);
+        let rhs = range_tensor_f16::<R>(k, n, device);
+        let results = create_empty::<R>(m, n, device);
         let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
-            block_size_m: UInt::new(16),
-            block_size_k: UInt::new(32),
-            block_size_n: UInt::new(16),
+            block_size_m: UInt::new(m as u32),
+            block_size_k: UInt::new(k as u32),
+            block_size_n: UInt::new(n as u32),
             tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
@@ -181,10 +184,10 @@ pub mod tests {
             cube_dim,
             TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
             TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-            ArrayArg::new(&results, 256),
-            UInt::new(16),
-            UInt::new(32),
-            UInt::new(16),
+            ArrayArg::new(&results, m * n),
+            UInt::new(m as u32),
+            UInt::new(k as u32),
+            UInt::new(n as u32),
             config,
         );
 
