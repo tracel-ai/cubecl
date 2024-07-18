@@ -109,6 +109,21 @@ This is just the beginning.
 We plan to include more utilities such as convolutions, random number generation, fast Fourier transforms, and other essential algorithms.
 We are a small team also building [Burn](https://burn.dev), so don't hesitate to contribute and port algorithms; it can help more than you would imagine!
 
+## How it works
+
+CubeCL leverages Rust's proc macro system in a unique two-step process:
+
+1. Parsing: The proc macro parses the GPU kernel code using the syn crate.
+2. Expansion: Instead of immediately generating an Intermediate Representation (IR), the macro generates a new Rust function.
+
+The generated function, semantically similar to the original, is responsible for creating the IR when called.
+This approach differs from traditional compilers, which typically generate IR directly after parsing.
+Our method enables several key features:
+
+- **Comptime**: By not transforming the original code, it becomes remarkably easy to integrate compile-time optimizations.
+- **Automatic Vectorization**: By simply vectorizing the inputs of a CubeCL function, we can determine the vectorization factor of each intermediate variable during the expansion.
+- **Rust Integration**: The generated code remains valid Rust code, allowing it to be bundled without any dependency on the specific runtime.
+
 ## Design
 
 CubeCL is designed around - you guessed it - Cubes! More specifically, it's based on cuboids, because not all axes are the same size.
