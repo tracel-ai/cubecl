@@ -5,6 +5,8 @@ use cubecl_core::{
     Runtime,
 };
 
+use super::base::TILE_SIZE;
+
 #[derive(Debug, Clone)]
 /// Tiling 2D parameters
 pub struct Tiling2dConfig {
@@ -26,7 +28,7 @@ impl Default for Tiling2dConfig {
             block_size_m: 64,
             block_size_k: 32,
             block_size_n: 64,
-            tile_size: 4,
+            tile_size: TILE_SIZE,
             unroll: false,
         }
     }
@@ -103,7 +105,7 @@ impl CubeTiling2dConfig {
 }
 
 pub fn tiling2d_cube_count<R: Runtime>(
-    output_shape: &Vec<usize>,
+    output_shape: &[usize],
     config: &Tiling2dConfig,
 ) -> CubeCount<R::Server> {
     let rank = output_shape.len();
@@ -113,8 +115,8 @@ pub fn tiling2d_cube_count<R: Runtime>(
     let cubes_x = f32::ceil(num_rows as f32 / config.block_size_m as f32) as u32;
     let cubes_y = f32::ceil(num_cols as f32 / config.block_size_n as f32) as u32;
     let mut num_iter = 1;
-    for i in 0..rank - 2 {
-        num_iter *= output_shape[i];
+    for shape in output_shape.iter().take(rank - 2) {
+        num_iter *= shape;
     }
 
     CubeCount::Static(cubes_x, cubes_y, num_iter as u32)

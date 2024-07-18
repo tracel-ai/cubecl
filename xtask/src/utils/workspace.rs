@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::{path::Path, process::Command};
+use std::{path::Path, process::Command, thread::panicking};
 
 const MEMBER_PATH_PREFIX: &str = if cfg!(target_os = "windows") {
     "path+file:///"
@@ -27,6 +27,7 @@ impl WorkspaceMember {
 
 /// Get workspace crates
 pub(crate) fn get_workspace_members(w_type: WorkspaceMemberType) -> Vec<WorkspaceMember> {
+    let cuda_available = Command::new("nvcc").arg("--version").output().is_ok();
     // Run `cargo metadata` command to get project metadata
     let output = Command::new("cargo")
         .arg("metadata")
@@ -47,8 +48,15 @@ pub(crate) fn get_workspace_members(w_type: WorkspaceMemberType) -> Vec<Workspac
             } else {
                 parse_workspace_member1(member_str)?
             };
+
+            if !cuda_available {
+                if path.contains("cuda") {
+                    return None;
+                }
+            }
+
             match w_type {
-                WorkspaceMemberType::Crate if !path.contains("examples/") => {
+                WorkspaceMemberType::Crate if path.contains("crates/") => {
                     Some(WorkspaceMember::new(name.to_string(), path.to_string()))
                 }
                 WorkspaceMemberType::Example if path.contains("examples/") => {

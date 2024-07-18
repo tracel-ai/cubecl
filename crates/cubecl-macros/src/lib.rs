@@ -166,13 +166,13 @@ fn codegen_cube(
 
 
         #[doc = #doc]
+        #[allow(clippy::too_many_arguments)]
         #vis mod #mod_name {
             use super::*;
 
             #launch
 
             #[allow(unused_mut)]
-            #[allow(clippy::too_many_arguments)]
             #signature {
                 #body
             }

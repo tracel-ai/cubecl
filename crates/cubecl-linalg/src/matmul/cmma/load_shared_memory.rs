@@ -6,82 +6,95 @@ use super::{
     config::CmmaConfig,
 };
 
+use crate::matmul::cmma::block_io::{
+    base::BlockLoader, horizontal_block_check::HorizontalCheckBlockIO,
+    unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
+    whole_block_check::WholeCheckBlockIO,
+};
+
 #[cube]
 pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     offsets: Offsets,
-    shared: SharedMemories<F, FC>,
-    config: Comptime<CmmaConfig>,
+    mut shared: SharedMemories<FC>,
     dims: Dimensions,
+    config: Comptime<CmmaConfig>,
 ) {
-    load_lhs(lhs, offsets, shared.lhs, config, dims);
-    load_rhs(rhs, offsets, shared.rhs, config, dims);
+    let block_size_k = Comptime::map(config, |c| c.block_size_k);
+    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let k_tiles = Comptime::runtime(block_size_k / tile_size);
+
+    load_lhs(lhs, offsets, &mut shared.lhs, k_tiles, dims, config);
+    load_rhs(rhs, offsets, &mut shared.rhs, k_tiles, dims, config);
 }
 
 #[cube]
 fn load_lhs<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     offsets: Offsets,
-    mut shared_lhs: SharedMemory<FC>,
-    config: Comptime<CmmaConfig>,
+    shared_lhs: &mut SharedMemory<FC>,
+    k_tiles: UInt,
     dims: Dimensions,
+    config: Comptime<CmmaConfig>,
 ) {
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let lhs_stride = dims.k;
+    let check_m_bounds = Comptime::map(config, |c| c.check_m_bounds);
+    let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
 
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-
-    let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size); // 2
-    let tile_size_r = Comptime::runtime(tile_size); // 16
-
-    let tensor_vec = Comptime::vectorization(lhs);
-    let tensor_vec_r = Comptime::runtime(tensor_vec); // 4
-    let lhs_sm_stride = Comptime::runtime(block_size_m); // 64
-    let lhs_sm_stride_vec = Comptime::runtime(block_size_m / tensor_vec); // Even if not really vectorized, because write tensor_vec_r values
-
-    let subcube_dim = UInt::new(32);
-    let within_tile_row_offset = subcube_dim / tensor_vec_r; // assuming subcube_dim is 32 -> 8
-    let within_sm_row_offset = subcube_dim / Comptime::runtime(tile_size); // assuming subcube_dim is 32 -> 2
-    let subcube_id = UNIT_POS_X;
-    let id_within_subcube = UNIT_POS_Y;
-
-    // There are two because 32 / 16. TODO generalize
-    let unit_read_row_0 = id_within_subcube / tensor_vec_r;
-    let unit_read_row_1 = unit_read_row_0 + within_tile_row_offset;
-    let unit_read_col = id_within_subcube % tensor_vec_r;
-
-    // LHS
-    let lhs_tile_row = subcube_id / num_tiles_in_k;
-    let lhs_tile_col = subcube_id % num_tiles_in_k;
-
-    let lhs_offset = offsets.batch_lhs + offsets.k + offsets.cube_row * lhs_stride;
-    let lhs_read_tile_offset =
-        lhs_offset + lhs_tile_row * tile_size_r * lhs_stride + lhs_tile_col * tile_size_r;
-
-    let lhs_read_pos_0 =
-        lhs_read_tile_offset + unit_read_row_0 * lhs_stride + unit_read_col * tensor_vec_r;
-    let lhs_read_pos_1 =
-        lhs_read_tile_offset + unit_read_row_1 * lhs_stride + unit_read_col * tensor_vec_r;
-    let lhs_sm_row_offset = Comptime::runtime(tile_size * tile_size / block_size_m) * subcube_id; // 4
-
-    let lhs_write_row_0 = id_within_subcube / lhs_sm_stride_vec;
-    let lhs_write_row_1 = lhs_write_row_0 + within_sm_row_offset;
-    let lhs_write_col = id_within_subcube % lhs_sm_stride_vec;
-
-    let lhs_write_pos_0 =
-        (lhs_sm_row_offset + lhs_write_row_0) * lhs_sm_stride + lhs_write_col * tensor_vec_r;
-    let lhs_write_pos_1 =
-        (lhs_sm_row_offset + lhs_write_row_1) * lhs_sm_stride + lhs_write_col * tensor_vec_r;
-
-    let a = lhs[lhs_read_pos_0 / tensor_vec_r];
-    let b = lhs[lhs_read_pos_1 / tensor_vec_r];
-    for i in range(0u32, 4u32, Comptime::new(true)) {
-        shared_lhs[lhs_write_pos_0 + i] = FC::cast_from(a[i]);
-    }
-    for i in range(0u32, 4u32, Comptime::new(true)) {
-        shared_lhs[lhs_write_pos_1 + i] = FC::cast_from(b[i]);
+    if Comptime::get(check_m_bounds) {
+        if Comptime::get(check_k_bounds) {
+            load_tile::<F, FC, WholeCheckBlockIO>(
+                lhs,
+                shared_lhs,
+                offsets.batch_lhs,
+                UNIT_POS_Y / k_tiles,
+                UNIT_POS_Y % k_tiles,
+                dims.m,
+                dims.k,
+                offsets.cube_row,
+                offsets.k,
+                config,
+            );
+        } else {
+            load_tile::<F, FC, VerticalCheckBlockIO>(
+                lhs,
+                shared_lhs,
+                offsets.batch_lhs,
+                UNIT_POS_Y / k_tiles,
+                UNIT_POS_Y % k_tiles,
+                dims.m,
+                dims.k,
+                offsets.cube_row,
+                offsets.k,
+                config,
+            );
+        }
+    } else if Comptime::get(check_k_bounds) {
+        load_tile::<F, FC, HorizontalCheckBlockIO>(
+            lhs,
+            shared_lhs,
+            offsets.batch_lhs,
+            UNIT_POS_Y / k_tiles,
+            UNIT_POS_Y % k_tiles,
+            dims.m,
+            dims.k,
+            offsets.cube_row,
+            offsets.k,
+            config,
+        );
+    } else {
+        load_tile::<F, FC, UncheckedBlockIO>(
+            lhs,
+            shared_lhs,
+            offsets.batch_lhs,
+            UNIT_POS_Y / k_tiles,
+            UNIT_POS_Y % k_tiles,
+            dims.m,
+            dims.k,
+            offsets.cube_row,
+            offsets.k,
+            config,
+        );
     }
 }
 
@@ -89,66 +102,126 @@ fn load_lhs<F: Float, FC: Float>(
 fn load_rhs<F: Float, FC: Float>(
     rhs: &Tensor<F>,
     offsets: Offsets,
-    mut shared_rhs: SharedMemory<FC>,
-    config: Comptime<CmmaConfig>,
+    shared_rhs: &mut SharedMemory<FC>,
+    k_tiles: UInt,
     dims: Dimensions,
+    config: Comptime<CmmaConfig>,
 ) {
-    let block_size_n = Comptime::map(config, |c| c.block_size_n);
-    let rhs_sm_stride = Comptime::runtime(block_size_n); // 64
-    let rhs_stride = dims.n;
+    let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
+    let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
 
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
+    if Comptime::get(check_k_bounds) {
+        if Comptime::get(check_n_bounds) {
+            load_tile::<F, FC, WholeCheckBlockIO>(
+                rhs,
+                shared_rhs,
+                offsets.batch_rhs,
+                UNIT_POS_Y % k_tiles,
+                UNIT_POS_Y / k_tiles,
+                dims.k,
+                dims.n,
+                offsets.k,
+                offsets.cube_col,
+                config,
+            );
+        } else {
+            load_tile::<F, FC, VerticalCheckBlockIO>(
+                rhs,
+                shared_rhs,
+                offsets.batch_rhs,
+                UNIT_POS_Y % k_tiles,
+                UNIT_POS_Y / k_tiles,
+                dims.k,
+                dims.n,
+                offsets.k,
+                offsets.cube_col,
+                config,
+            );
+        }
+    } else if Comptime::get(check_n_bounds) {
+        load_tile::<F, FC, HorizontalCheckBlockIO>(
+            rhs,
+            shared_rhs,
+            offsets.batch_rhs,
+            UNIT_POS_Y % k_tiles,
+            UNIT_POS_Y / k_tiles,
+            dims.k,
+            dims.n,
+            offsets.k,
+            offsets.cube_col,
+            config,
+        );
+    } else {
+        load_tile::<F, FC, UncheckedBlockIO>(
+            rhs,
+            shared_rhs,
+            offsets.batch_rhs,
+            UNIT_POS_Y % k_tiles,
+            UNIT_POS_Y / k_tiles,
+            dims.k,
+            dims.n,
+            offsets.k,
+            offsets.cube_col,
+            config,
+        );
+    }
+}
+#[cube]
+fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
+    tensor: &Tensor<F>,
+    shared_memory: &mut SharedMemory<FC>,
+    batch_offset: UInt,
+    tile_row: UInt,
+    tile_col: UInt,
+    dim_vertical: UInt,
+    dim_horizontal: UInt,
+    skip_row: UInt,
+    skip_col: UInt,
+    config: Comptime<CmmaConfig>,
+) {
     let tile_size = Comptime::map(config, |c| c.tile_size);
-    let tensor_vec = Comptime::vectorization(rhs);
+    let tile_size_r = Comptime::runtime(tile_size);
+    let tensor_vec = Comptime::vectorization(tensor);
+    let tensor_vec_r = Comptime::runtime(tensor_vec);
 
-    let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size); // 2
-    let tile_size_r = Comptime::runtime(tile_size); // 16
-    let tensor_vec_r = Comptime::runtime(tensor_vec); // 4
+    // Will likely fail if SUBCUBE_DIM is not 32
+    let coop_dim = UInt::new(32);
+    let coop_id = UNIT_POS_Y;
+    let lane_id = UNIT_POS_X;
 
-    let subcube_dim = UInt::new(32);
-    let within_tile_row_offset = subcube_dim / tensor_vec_r; // assuming subcube_dim is 32 -> 8
-    let within_sm_row_offset = subcube_dim / Comptime::runtime(tile_size); // assuming subcube_dim is 32 -> 2
-    let subcube_id = UNIT_POS_X;
-    let id_within_subcube = UNIT_POS_Y;
+    // There are two rows because 16x16 tiles with 32 threads -> 2 vec4 loads
+    let unit_read_row_0 = lane_id / tensor_vec_r;
+    let unit_read_row_1 = unit_read_row_0 + coop_dim / tensor_vec_r;
+    let read_row_0 = skip_row + tile_row * tile_size_r + unit_read_row_0;
+    let read_row_1 = skip_row + tile_row * tile_size_r + unit_read_row_1;
 
-    // There are two because 32 / 16. TODO generalize
-    let unit_read_row_0 = id_within_subcube / tensor_vec_r;
-    let unit_read_row_1 = unit_read_row_0 + within_tile_row_offset;
-    let unit_read_col = id_within_subcube % tensor_vec_r;
+    let unit_read_col = lane_id % tensor_vec_r * tensor_vec_r;
+    let read_col = skip_col + tile_col * tile_size_r + unit_read_col;
 
-    let rhs_tile_row = subcube_id % num_tiles_in_k;
-    let rhs_tile_col = subcube_id / num_tiles_in_k;
+    let sm_stride = Comptime::runtime(tile_size * tile_size);
+    let write_pos_0 = coop_id * sm_stride + lane_id * tensor_vec_r;
+    let write_pos_1 = write_pos_0 + sm_stride / UInt::new(2);
 
-    let rhs_offset = offsets.batch_rhs + offsets.k * rhs_stride + offsets.cube_col;
-    let rhs_read_tile_offset =
-        rhs_offset + rhs_tile_row * tile_size_r * rhs_stride + rhs_tile_col * tile_size_r;
-
-    let rhs_read_pos_0 =
-        rhs_read_tile_offset + unit_read_row_0 * rhs_stride + unit_read_col * tensor_vec_r;
-    let rhs_read_pos_1 =
-        rhs_read_tile_offset + unit_read_row_1 * rhs_stride + unit_read_col * tensor_vec_r;
-
-    let rhs_sm_row_offset = Comptime::runtime(tile_size * tile_size / block_size_n) * subcube_id; // 4
-
-    let rhs_write_row_0 = id_within_subcube / rhs_sm_stride;
-    let rhs_write_row_1 = rhs_write_row_0 + within_sm_row_offset;
-    let rhs_write_col = id_within_subcube % rhs_sm_stride;
-
-    let rhs_write_pos_0 =
-        (rhs_sm_row_offset + rhs_write_row_0) * rhs_sm_stride + rhs_write_col * tensor_vec_r;
-    let rhs_write_pos_1 =
-        (rhs_sm_row_offset + rhs_write_row_1) * rhs_sm_stride + rhs_write_col * tensor_vec_r;
-
-    // TODO bug: because c is used in closures above, can't be used here
-    let e = rhs[rhs_read_pos_0 / tensor_vec_r];
-    let d = rhs[rhs_read_pos_1 / tensor_vec_r];
-
-    for i in range(0u32, 4u32, Comptime::new(true)) {
-        shared_rhs[rhs_write_pos_0 + i] = FC::cast_from(e[i]);
-    }
-    for i in range(0u32, 4u32, Comptime::new(true)) {
-        shared_rhs[rhs_write_pos_1 + i] = FC::cast_from(d[i]);
-    }
+    L::load_tile(
+        tensor,
+        shared_memory,
+        batch_offset,
+        read_row_0,
+        read_col,
+        write_pos_0,
+        dim_vertical,
+        dim_horizontal,
+    );
+    L::load_tile(
+        tensor,
+        shared_memory,
+        batch_offset,
+        read_row_1,
+        read_col,
+        write_pos_1,
+        dim_vertical,
+        dim_horizontal,
+    );
 }
 
 #[cfg(feature = "export_tests")]
@@ -167,6 +240,9 @@ pub mod tests {
         lhs_tensor: &Tensor<F>,
         lhs_sm_arr: &mut Array<F>,
         k_offset: UInt,
+        m: UInt,
+        k: UInt,
+        n: UInt,
         config: Comptime<CmmaConfig>,
     ) {
         let offsets = Offsets {
@@ -183,13 +259,9 @@ pub mod tests {
             lhs_sm[i] = lhs_sm_arr[i];
         }
 
-        let dims = Dimensions {
-            m: UInt::new(64),
-            k: UInt::new(64),
-            n: UInt::new(64),
-        };
+        let dims = Dimensions { m, k, n };
 
-        load_lhs(lhs_tensor, offsets, lhs_sm, config, dims);
+        load_lhs(lhs_tensor, offsets, &mut lhs_sm, UInt::new(2), dims, config);
 
         for i in range(0u32, 2048u32, Comptime::new(false)) {
             lhs_sm_arr[i] = lhs_sm[i];
@@ -201,6 +273,9 @@ pub mod tests {
         rhs_tensor: &Tensor<F>,
         rhs_sm_arr: &mut Array<F>,
         k_offset: UInt,
+        m: UInt,
+        k: UInt,
+        n: UInt,
         config: Comptime<CmmaConfig>,
     ) {
         let offsets = Offsets {
@@ -217,13 +292,9 @@ pub mod tests {
             rhs_sm[i] = rhs_sm_arr[i];
         }
 
-        let dims = Dimensions {
-            m: UInt::new(64),
-            k: UInt::new(64),
-            n: UInt::new(64),
-        };
+        let dims = Dimensions { m, k, n };
 
-        load_rhs(rhs_tensor, offsets, rhs_sm, config, dims);
+        load_rhs(rhs_tensor, offsets, &mut rhs_sm, UInt::new(2), dims, config);
 
         for i in range(0u32, 2048u32, Comptime::new(false)) {
             rhs_sm_arr[i] = rhs_sm[i];
@@ -241,13 +312,10 @@ pub mod tests {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -263,6 +331,9 @@ pub mod tests {
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 
@@ -298,13 +369,10 @@ pub mod tests {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -320,6 +388,9 @@ pub mod tests {
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 
@@ -348,20 +419,17 @@ pub mod tests {
     pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
         let lhs_tensor = range_tensor::<R>(64, 64, device);
         let lhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -377,6 +445,9 @@ pub mod tests {
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 
@@ -407,23 +478,202 @@ pub mod tests {
     }
 
     /// Exported test
-    pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
-        let rhs_tensor = range_tensor::<R>(64, 64, device);
-        let rhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+    pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device: &R::Device) {
+        let lhs_tensor = range_tensor::<R>(12, 64, device);
+        let lhs_sm = create_empty::<R>(32, 64, device);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
+            check_m_bounds: true,
+            check_k_bounds: false,
+            check_n_bounds: false,
+            unroll: false,
+        };
+
+        load_lhs_test::launch::<F32, R>(
+            R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(12),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+
+        let expected = &[
+            0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+            64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0,
+            78.0, 79.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0, 135.0, 136.0, 137.0,
+            138.0, 139.0, 140.0, 141.0, 142.0, 143.0, 192.0, 193.0, 194.0, 195.0, 196.0, 197.0,
+            198.0, 199.0, 200.0, 201.0, 202.0, 203.0, 204.0, 205.0, 206.0, 207.0, 256.0, 257.0,
+            258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0, 268.0, 269.0,
+            270.0, 271.0, 320.0, 321.0, 322.0, 323.0, 324.0, 325.0, 326.0, 327.0, 328.0, 329.0,
+            330.0, 331.0, 332.0, 333.0, 334.0, 335.0, 384.0, 385.0, 386.0, 387.0, 388.0, 389.0,
+            390.0, 391.0, 392.0, 393.0, 394.0, 395.0, 396.0, 397.0, 398.0, 399.0, 448.0, 449.0,
+            450.0, 451.0, 452.0, 453.0, 454.0, 455.0, 456.0, 457.0, 458.0, 459.0, 460.0, 461.0,
+            462.0, 463.0, 512.0, 513.0, 514.0, 515.0, 516.0, 517.0, 518.0, 519.0, 520.0, 521.0,
+            522.0, 523.0, 524.0, 525.0, 526.0, 527.0, 576.0, 577.0, 578.0, 579.0, 580.0, 581.0,
+            582.0, 583.0, 584.0, 585.0, 586.0, 587.0, 588.0, 589.0, 590.0, 591.0, 640.0, 641.0,
+            642.0, 643.0, 644.0, 645.0, 646.0, 647.0, 648.0, 649.0, 650.0, 651.0, 652.0, 653.0,
+            654.0, 655.0, 704.0, 705.0, 706.0, 707.0, 708.0, 709.0, 710.0, 711.0, 712.0, 713.0,
+            714.0, 715.0, 716.0, 717.0, 718.0, 719.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0,
+        ];
+        assert_equals_range::<R>(lhs_sm, expected, 0..256, device);
+    }
+
+    /// Exported test
+    pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(
+        device: &R::Device,
+    ) {
+        let lhs_tensor = range_tensor::<R>(64, 12, device);
+        let lhs_sm = create_empty::<R>(32, 64, device);
+        let cube_dim = CubeDim::new(32, 1, 1);
+        let cube_count = CubeCount::Static(1, 1, 1);
+
+        let config = CmmaConfig {
+            block_size_m: UInt::new(64),
+            block_size_k: UInt::new(32),
+            block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
+            check_m_bounds: false,
+            check_k_bounds: true,
+            check_n_bounds: false,
+            unroll: false,
+        };
+
+        load_lhs_test::launch::<F32, R>(
+            R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(12),
+            ScalarArg::new(12),
+            ScalarArg::new(64),
+            config,
+        );
+
+        let expected = &[
+            0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 0.0, 0.0, 0.0, 0.0, 12.0,
+            13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 0.0, 0.0, 0.0, 0.0,
+            24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 0.0, 0.0, 0.0,
+            0.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0, 47.0, 0.0, 0.0,
+            0.0, 0.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 0.0,
+            0.0, 0.0, 0.0, 60.0, 61.0, 62.0, 63.0, 64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0,
+            0.0, 0.0, 0.0, 0.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0, 78.0, 79.0, 80.0, 81.0, 82.0,
+            83.0, 0.0, 0.0, 0.0, 0.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0, 91.0, 92.0, 93.0,
+            94.0, 95.0, 0.0, 0.0, 0.0, 0.0, 96.0, 97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0,
+            104.0, 105.0, 106.0, 107.0, 0.0, 0.0, 0.0, 0.0, 108.0, 109.0, 110.0, 111.0, 112.0,
+            113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 0.0, 0.0, 0.0, 0.0, 120.0, 121.0,
+            122.0, 123.0, 124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 0.0, 0.0, 0.0,
+            0.0, 132.0, 133.0, 134.0, 135.0, 136.0, 137.0, 138.0, 139.0, 140.0, 141.0, 142.0,
+            143.0, 0.0, 0.0, 0.0, 0.0, 144.0, 145.0, 146.0, 147.0, 148.0, 149.0, 150.0, 151.0,
+            152.0, 153.0, 154.0, 155.0, 0.0, 0.0, 0.0, 0.0, 156.0, 157.0, 158.0, 159.0, 160.0,
+            161.0, 162.0, 163.0, 164.0, 165.0, 166.0, 167.0, 0.0, 0.0, 0.0, 0.0, 168.0, 169.0,
+            170.0, 171.0, 172.0, 173.0, 174.0, 175.0, 176.0, 177.0, 178.0, 179.0, 0.0, 0.0, 0.0,
+            0.0, 180.0, 181.0, 182.0, 183.0, 184.0, 185.0, 186.0, 187.0, 188.0, 189.0, 190.0,
+            191.0, 0.0, 0.0, 0.0, 0.0,
+        ];
+        assert_equals_range::<R>(lhs_sm, expected, 0..256, device);
+    }
+
+    /// Exported test
+    pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &R::Device) {
+        let lhs_tensor = range_tensor::<R>(12, 12, device);
+        let lhs_sm = create_empty::<R>(32, 64, device);
+        let cube_dim = CubeDim::new(32, 1, 1);
+        let cube_count = CubeCount::Static(1, 1, 1);
+
+        let config = CmmaConfig {
+            block_size_m: UInt::new(64),
+            block_size_k: UInt::new(32),
+            block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
+            check_m_bounds: true,
+            check_k_bounds: true,
+            check_n_bounds: false,
+            unroll: false,
+        };
+
+        load_lhs_test::launch::<F32, R>(
+            R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(12),
+            ScalarArg::new(12),
+            ScalarArg::new(64),
+            config,
+        );
+
+        let expected = &[
+            0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 0.0, 0.0, 0.0, 0.0, 12.0,
+            13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 0.0, 0.0, 0.0, 0.0,
+            24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 0.0, 0.0, 0.0,
+            0.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0, 47.0, 0.0, 0.0,
+            0.0, 0.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 0.0,
+            0.0, 0.0, 0.0, 60.0, 61.0, 62.0, 63.0, 64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0,
+            0.0, 0.0, 0.0, 0.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0, 78.0, 79.0, 80.0, 81.0, 82.0,
+            83.0, 0.0, 0.0, 0.0, 0.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0, 91.0, 92.0, 93.0,
+            94.0, 95.0, 0.0, 0.0, 0.0, 0.0, 96.0, 97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0,
+            104.0, 105.0, 106.0, 107.0, 0.0, 0.0, 0.0, 0.0, 108.0, 109.0, 110.0, 111.0, 112.0,
+            113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 0.0, 0.0, 0.0, 0.0, 120.0, 121.0,
+            122.0, 123.0, 124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 0.0, 0.0, 0.0,
+            0.0, 132.0, 133.0, 134.0, 135.0, 136.0, 137.0, 138.0, 139.0, 140.0, 141.0, 142.0,
+            143.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0,
+        ];
+        assert_equals_range::<R>(lhs_sm, expected, 0..256, device);
+    }
+
+    /// Exported test
+    pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
+        let rhs_tensor = range_tensor::<R>(64, 64, device);
+        let rhs_sm = create_empty::<R>(32, 64, device);
+        let cube_dim = CubeDim::new(32, 1, 1);
+        let cube_count = CubeCount::Static(1, 1, 1);
+
+        let config = CmmaConfig {
+            block_size_m: UInt::new(64),
+            block_size_k: UInt::new(32),
+            block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -439,6 +689,9 @@ pub mod tests {
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 
@@ -472,20 +725,17 @@ pub mod tests {
     pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
         let lhs_tensor = range_tensor::<R>(64, 64, device);
         let lhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(2, 32, 1);
+        let cube_dim = CubeDim::new(32, 2, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -501,6 +751,9 @@ pub mod tests {
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 
@@ -533,20 +786,17 @@ pub mod tests {
     pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
         let rhs_tensor = range_tensor::<R>(64, 64, device);
         let rhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(2, 32, 1);
+        let cube_dim = CubeDim::new(32, 2, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -562,6 +812,9 @@ pub mod tests {
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 
@@ -598,20 +851,17 @@ pub mod tests {
     pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
         let lhs_tensor = range_tensor::<R>(64, 64, device);
         let lhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(3, 32, 1);
+        let cube_dim = CubeDim::new(32, 3, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -627,6 +877,9 @@ pub mod tests {
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 
@@ -663,20 +916,17 @@ pub mod tests {
     pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
         let rhs_tensor = range_tensor::<R>(64, 64, device);
         let rhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(3, 32, 1);
+        let cube_dim = CubeDim::new(32, 3, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -692,6 +942,9 @@ pub mod tests {
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 
@@ -724,20 +977,17 @@ pub mod tests {
     pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
         let lhs_tensor = range_tensor::<R>(64, 64, device);
         let lhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -753,6 +1003,9 @@ pub mod tests {
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(32),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 
@@ -786,20 +1039,17 @@ pub mod tests {
     pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
         let rhs_tensor = range_tensor::<R>(64, 64, device);
         let rhs_sm = create_empty::<R>(32, 64, device);
-        let cube_dim = CubeDim::new(1, 32, 1);
+        let cube_dim = CubeDim::new(32, 1, 1);
         let cube_count = CubeCount::Static(1, 1, 1);
 
         let config = CmmaConfig {
             block_size_m: UInt::new(64),
             block_size_k: UInt::new(32),
             block_size_n: UInt::new(64),
+            tile_size: UInt::new(16),
             check_m_bounds: false,
             check_k_bounds: false,
             check_n_bounds: false,
-            tile_size: UInt::new(16),
-            sm_vec: UInt::new(4),
-            lhs_transposed: false,
-            rhs_transposed: false,
             unroll: false,
         };
 
@@ -815,6 +1065,9 @@ pub mod tests {
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(32),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
             config,
         );
 

@@ -1,48 +1,39 @@
 use std::cmp::max;
 
-use cubecl_core::{
-    frontend::{Float, TensorArg, F16},
-    Compiler, Runtime,
-};
+use cubecl_core::{prelude::*, Compiler};
 
 use crate::{
-    matmul::cmma::{
-        base::cmma_kernel,
-        config::{cmma_cube_count, cmma_cube_dim, CmmaConfig},
+    matmul::tiling2d::{
+        base::tiling2d_cube_kernel,
+        config::{tiling2d_cube_count, tiling2d_cube_dim, CubeTiling2dConfig},
     },
-    tensor::{MatrixLayout, Tensor},
+    tensor::{MatrixLayout, TensorHandle},
 };
 
-// Only those values supported at the moment
-const BLOCK_SIZE_M: usize = 64;
-const BLOCK_SIZE_K: usize = 32;
-const BLOCK_SIZE_N: usize = 64;
+use super::config::Tiling2dConfig;
 
 /// Matrix multiplication using tiling 2d algorithm
-pub fn matmul_cmma<R: Runtime, F: Float>(
-    lhs: Tensor<R, F>,
-    rhs: Tensor<R, F>,
-    out: Tensor<R, F>,
+pub fn matmul_tiling_2d_cube<R: Runtime, F: Float>(
+    lhs: TensorHandle<R, F>,
+    rhs: TensorHandle<R, F>,
+    out: TensorHandle<R, F>,
+    config: Tiling2dConfig,
     device: &R::Device,
-) -> Tensor<R, F> {
+) -> TensorHandle<R, F> {
     assert!(
-        BLOCK_SIZE_K * max(BLOCK_SIZE_M, BLOCK_SIZE_N)
+        config.block_size_k * max(config.block_size_m, config.block_size_n)
             <= <R::Compiler as Compiler>::max_shared_memory_size(),
         "Shared memory limit will be busted. "
     );
-    assert!(
-        BLOCK_SIZE_M * BLOCK_SIZE_N <= <R::Compiler as Compiler>::max_shared_memory_size(),
-        "Shared memory limit will be busted. "
-    );
-
     let rank = lhs.rank();
+
     let m = lhs.shape[rank - 2];
     let k = lhs.shape[rank - 1];
     let n = rhs.shape[rank - 1];
 
     let client = R::client(device);
 
-    let check_layout = |tensor: Tensor<R, F>| match tensor.matrix_layout() {
+    let check_layout = |tensor: TensorHandle<R, F>| match tensor.matrix_layout() {
         MatrixLayout::Contiguous => (tensor, false),
         MatrixLayout::MildlyPermuted {
             transposed,
@@ -65,8 +56,8 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
     };
 
     let lhs_vectorization = match lhs_transposed {
-        true => panic!(),
-        false => vectorization(k),
+        true => vectorization(m),
+        false => 1,
     };
     let rhs_vectorization = match rhs_transposed {
         true => 1,
@@ -74,15 +65,11 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
     };
     let out_vectorization = vectorization(n);
 
-    let cube_count = cmma_cube_count::<R>(&out.shape, 64, 64);
-    let cube_dim = cmma_cube_dim();
-    let cube_config = CmmaConfig::new(m, k, n, lhs_transposed, rhs_transposed);
+    let cube_count = tiling2d_cube_count::<R>(&out.shape, &config);
+    let cube_dim = tiling2d_cube_dim(&config);
+    let cube_config = CubeTiling2dConfig::new(&config, m, k, n, lhs_transposed, rhs_transposed);
 
-    assert!(lhs_vectorization == 4 && rhs_vectorization == 4 && out_vectorization == 4);
-
-    // cmma_kernel::launch::<E::FloatPrimitive, <half::f16 as FloatElement>::FloatPrimitive, R>(
-    cmma_kernel::launch::<F, F16, R>(
-        // TMP for WGPU testing
+    tiling2d_cube_kernel::launch::<F, R>(
         client,
         cube_count,
         cube_dim,

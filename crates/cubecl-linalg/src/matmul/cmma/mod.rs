@@ -1,4 +1,5 @@
 mod base;
+mod block_io;
 mod block_loop;
 mod compute_loop;
 mod config;

@@ -5,11 +5,11 @@ use std::marker::PhantomData;
 
 use super::layout::{memory_layout, MatrixLayout};
 
-/// The basic tensor primitive struct.
-pub struct Tensor<R, F>
+/// Tensor representation containing a [server handle](Handle) as well as basic tensor metadata.,
+pub struct TensorHandle<R, E>
 where
     R: Runtime,
-    F: Float,
+    E: CubePrimitive,
 {
     /// The buffer where the data are stored.
     pub handle: Handle<R::Server>,
@@ -17,28 +17,29 @@ where
     pub shape: Vec<usize>,
     /// The strides of the tensor.
     pub strides: Vec<usize>,
-    pub(crate) elem: PhantomData<F>,
+    elem: PhantomData<E>,
 }
 
-impl<R, F> core::fmt::Debug for Tensor<R, F>
+impl<R, E> core::fmt::Debug for TensorHandle<R, E>
 where
     R: Runtime,
-    F: Float,
+    E: CubePrimitive,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "Tensor {{ shape: {:?}, strides: {:?}, runtime: {}}}",
+            "Tensor {{ shape: {:?}, strides: {:?}, runtime: {}, dtype: {}}}",
             self.shape,
             self.strides,
             R::name(),
+            core::any::type_name::<E>(),
         ))
     }
 }
 
-impl<R, F> Clone for Tensor<R, F>
+impl<R, E> Clone for TensorHandle<R, E>
 where
     R: Runtime,
-    F: Float,
+    E: CubePrimitive,
 {
     fn clone(&self) -> Self {
         Self {
@@ -50,10 +51,10 @@ where
     }
 }
 
-impl<R, F> Tensor<R, F>
+impl<R, E> TensorHandle<R, E>
 where
     R: Runtime,
-    F: Float,
+    E: CubePrimitive,
 {
     /// Create a new tensor with a contiguous memory layout.
     pub fn new_contiguous(shape: Vec<usize>, handle: Handle<R::Server>) -> Self {

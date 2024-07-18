@@ -1,8 +1,8 @@
 use crate::compute::{CubeCount, KernelTask};
 use crate::ir::{Elem, FloatKind, IntKind};
-use crate::prelude::ArrayHandle;
+use crate::prelude::ArrayHandleRef;
 use crate::KernelSettings;
-use crate::{calculate_num_elems_dyn_rank, frontend::TensorHandle, Kernel, Runtime};
+use crate::{calculate_num_elems_dyn_rank, frontend::TensorHandleRef, Kernel, Runtime};
 use bytemuck::NoUninit;
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::Binding;
@@ -24,12 +24,12 @@ pub struct KernelLauncher<R: Runtime> {
 
 impl<R: Runtime> KernelLauncher<R> {
     /// Register a tensor to be launched.
-    pub fn register_tensor(&mut self, tensor: &TensorHandle<'_, R>) {
+    pub fn register_tensor(&mut self, tensor: &TensorHandleRef<'_, R>) {
         self.tensors.push(tensor);
     }
 
     /// Register an array to be launched.
-    pub fn register_array(&mut self, array: &ArrayHandle<'_, R>) {
+    pub fn register_array(&mut self, array: &ArrayHandleRef<'_, R>) {
         self.tensors.push(&array.as_tensor());
     }
 
@@ -154,7 +154,7 @@ pub enum ScalarState<T> {
 
 impl<R: Runtime> TensorState<R> {
     /// Push a new tensor to the state.
-    pub fn push(&mut self, tensor: &TensorHandle<'_, R>) {
+    pub fn push(&mut self, tensor: &TensorHandleRef<'_, R>) {
         if let TensorState::Empty = self {
             *self = TensorState::Some {
                 bindings: Vec::with_capacity(1),

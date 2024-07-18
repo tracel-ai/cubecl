@@ -490,11 +490,12 @@ impl CudaCompiler {
             gpu::Variable::CubeDim => todo!(),
             gpu::Variable::CubeCount => todo!(),
             gpu::Variable::SubcubeDim => todo!(),
-            gpu::Variable::Matrix { id, mat } => {
+            gpu::Variable::Matrix { id, mat, depth } => {
                 self.wmma = true;
                 super::Variable::WmmaFragment {
                     id,
                     frag: Self::compile_matrix(mat),
+                    depth,
                 }
             }
         }
