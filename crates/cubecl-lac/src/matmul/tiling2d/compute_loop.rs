@@ -45,11 +45,13 @@ pub mod tests {
 
     #[cube(launch)]
     fn compute_loop_test<F: Float>(
-        lhs: Tensor<F>,
-        rhs: Tensor<F>,
+        lhs: &Tensor<F>,
+        rhs: &Tensor<F>,
         unit_row: UInt,
         unit_col: UInt,
         results: &mut Array<F>,
+        lhs_len: Comptime<UInt>,
+        rhs_len: Comptime<UInt>,
         config: Comptime<CubeTiling2dConfig>,
     ) {
         let tile_size = Comptime::map(config, |c| c.tile_size);
@@ -62,13 +64,13 @@ pub mod tests {
         // Shared memories are not launchable, so we launch with tensor and convert to shared memory
         let mut shared_lhs =
             SharedMemory::<F>::vectorized(Comptime::get(sm_size_lhs), Comptime::get(tile_size));
-        for i in range(0u32, lhs.len(), Comptime::new(false)) {
+        for i in range(0u32, Comptime::get(lhs_len), Comptime::new(true)) {
             shared_lhs[i] = lhs[i];
         }
 
         let mut shared_rhs =
             SharedMemory::<F>::vectorized(Comptime::get(sm_size_rhs), Comptime::get(tile_size));
-        for i in range(0u32, rhs.len(), Comptime::new(false)) {
+        for i in range(0u32, Comptime::get(rhs_len), Comptime::new(true)) {
             shared_rhs[i] = rhs[i];
         }
 
@@ -105,7 +107,9 @@ pub mod tests {
             TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
             ScalarArg::new(0),
             ScalarArg::new(0),
-            ArrayArg::new(&results, 1),
+            ArrayArg::new(&results, 16),
+            UInt::new(16),
+            UInt::new(16),
             config,
         );
 
@@ -134,7 +138,9 @@ pub mod tests {
             TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
             ScalarArg::new(4),
             ScalarArg::new(4),
-            ArrayArg::new(&results, 1),
+            ArrayArg::new(&results, 16),
+            UInt::new(8),
+            UInt::new(8),
             config,
         );
 

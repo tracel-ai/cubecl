@@ -34,7 +34,7 @@ macro_rules! testgen_matmul_internal {
         }
 
         #[test]
-        pub fn compute_loop_unit_offset_test() {
+        pub fn tiling2d_matmul_compute_loop_unit_offset_test() {
             compute_loop_tests::compute_loop_unit_offset_test::<TestRuntime>(&Default::default())
         }
 
