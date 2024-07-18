@@ -44,7 +44,7 @@ impl Display for Item {
                 Elem::U32 => f.write_str("uint4"),
                 Elem::Bool => f.write_str("bool4"),
                 Elem::BF16 => f.write_str("__nv_bfloat164"),
-                Elem::F16 => f.write_str("half4"),
+                Elem::F16 => f.write_str("__half4"),
             },
             Item::Vec3(elem) => match elem {
                 Elem::F32 => f.write_str("float3"),
@@ -52,7 +52,7 @@ impl Display for Item {
                 Elem::U32 => f.write_str("uint3"),
                 Elem::Bool => f.write_str("bool3"),
                 Elem::BF16 => f.write_str("__nv_bfloat164"),
-                Elem::F16 => f.write_str("half3"),
+                Elem::F16 => f.write_str("__half3"),
             },
             Item::Vec2(elem) => match elem {
                 Elem::F32 => f.write_str("float2"),
@@ -60,7 +60,7 @@ impl Display for Item {
                 Elem::U32 => f.write_str("uint2"),
                 Elem::Bool => f.write_str("bool2"),
                 Elem::BF16 => f.write_str("__nv_bfloat162"),
-                Elem::F16 => f.write_str("half2"),
+                Elem::F16 => f.write_str("__half2"),
             },
             Item::Scalar(elem) => f.write_fmt(format_args!("{elem}")),
         }

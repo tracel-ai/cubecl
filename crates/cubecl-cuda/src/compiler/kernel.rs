@@ -89,6 +89,19 @@ impl Display for ComputeKernel {
             f.write_str("using namespace nvcuda;\n")?;
         }
 
+        if self.f16 {
+            f.write_str(
+                "
+extern \"C\" struct __half4 {
+    __half x;
+    __half y;
+    __half z;
+    __half w;
+};
+",
+            )?;
+        }
+
         f.write_fmt(format_args!(
             "
 typedef unsigned int uint;
@@ -99,6 +112,7 @@ extern \"C\" struct bool4 {{
     bool z;
     bool w;
 }};
+
 
 extern \"C\" __global__ void kernel(
 ",
