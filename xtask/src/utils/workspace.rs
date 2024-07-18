@@ -48,7 +48,7 @@ pub(crate) fn get_workspace_members(w_type: WorkspaceMemberType) -> Vec<Workspac
                 parse_workspace_member1(member_str)?
             };
             match w_type {
-                WorkspaceMemberType::Crate if !path.contains("examples/") => {
+                WorkspaceMemberType::Crate if path.contains("crates/") => {
                     Some(WorkspaceMember::new(name.to_string(), path.to_string()))
                 }
                 WorkspaceMemberType::Example if path.contains("examples/") => {
