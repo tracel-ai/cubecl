@@ -18,7 +18,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
 
     gelu_array::launch::<F32, R>(
-        client.clone(),
+        &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(input.len() as u32, 1, 1),
         ArrayArg::new(&client.create(f32::as_bytes(input)), input.len()),

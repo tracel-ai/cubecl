@@ -70,7 +70,7 @@ pub fn matmul_tiling_2d<R: Runtime, F: Float>(
     let cube_config = CubeTiling2dConfig::new(&config, m, k, n, lhs_transposed, rhs_transposed);
 
     tiling2d_cube_kernel::launch::<F, R>(
-        client,
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(lhs_vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
