@@ -39,6 +39,6 @@ hashbrown = { workspace = true }
 cubecl-core = { path = "../cubecl-core", version = "0.1.0", features = [
   "export_tests",
 ] }
-cubecl-lac = { path = "../cubecl-lac", version = "0.1.0", features = [
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.1.0", features = [
   "export_tests",
 ] }

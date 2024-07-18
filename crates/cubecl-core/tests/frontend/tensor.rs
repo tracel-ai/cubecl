@@ -37,8 +37,8 @@ mod tests {
         let y = scope.create_local(Item::new(UInt::as_elem()));
         let z = scope.create_local(Item::new(UInt::as_elem()));
 
-        cpa!(&mut scope, x = shape(input, 1));
-        cpa!(&mut scope, y = stride(input, 1));
+        cpa!(&mut scope, x = shape(input, 1u32));
+        cpa!(&mut scope, y = stride(input, 1u32));
         cpa!(&mut scope, z = len(input));
 
         scope.operations

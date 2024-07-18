@@ -22,6 +22,7 @@ pub fn expand_trait_def(mut tr: syn::ItemTrait) -> proc_macro2::TokenStream {
     tr.items.append(&mut expand_items);
 
     quote::quote! {
+        #[allow(clippy::too_many_arguments)]
         #tr
     }
 }
@@ -73,6 +74,7 @@ pub fn expand_trait_impl(mut tr: syn::ItemImpl) -> proc_macro2::TokenStream {
     tr.items.append(&mut expand_items);
 
     quote::quote! {
+        #[allow(clippy::too_many_arguments)]
         #tr
     }
 }

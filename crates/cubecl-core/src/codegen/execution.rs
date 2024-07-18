@@ -1,5 +1,5 @@
 use crate::compute::{CubeCount, KernelTask};
-use crate::frontend::TensorHandle;
+use crate::frontend::TensorHandleRef;
 use crate::ir::Elem;
 use crate::pod::CubeElement;
 use crate::{calculate_cube_count_elemwise, Kernel, Runtime, SUBCUBE_DIM_APPROX};
@@ -17,8 +17,8 @@ pub struct Execution<'h, K, R: Runtime, Scalars> {
     scalars: Scalars,
     client: ComputeClient<R::Server, R::Channel>,
     kernel: K,
-    inputs: &'h [TensorHandle<'h, R>],
-    outputs: &'h [TensorHandle<'h, R>],
+    inputs: &'h [TensorHandleRef<'h, R>],
+    outputs: &'h [TensorHandleRef<'h, R>],
 }
 
 impl<'h, K, R: Runtime> Execution<'h, K, R, ()> {
@@ -36,7 +36,7 @@ impl<'h, K, R: Runtime> Execution<'h, K, R, ()> {
     }
 
     #[allow(unused)]
-    pub fn inputs(self, inputs: &'h [TensorHandle<'h, R>]) -> Execution<'h, K, R, ()> {
+    pub fn inputs(self, inputs: &'h [TensorHandleRef<'h, R>]) -> Execution<'h, K, R, ()> {
         Execution {
             scalars: self.scalars,
             client: self.client,
@@ -46,7 +46,7 @@ impl<'h, K, R: Runtime> Execution<'h, K, R, ()> {
         }
     }
 
-    pub fn outputs(self, outputs: &'h [TensorHandle<'h, R>]) -> Execution<'h, K, R, ()> {
+    pub fn outputs(self, outputs: &'h [TensorHandleRef<'h, R>]) -> Execution<'h, K, R, ()> {
         Execution {
             scalars: self.scalars,
             client: self.client,
@@ -188,8 +188,8 @@ where
 
 #[allow(clippy::too_many_arguments)]
 fn execute_dynamic<R, K, E1, E2, E3>(
-    inputs: &[TensorHandle<R>],
-    outputs: &[TensorHandle<R>],
+    inputs: &[TensorHandleRef<R>],
+    outputs: &[TensorHandleRef<R>],
     scalars_1: Option<&[E1]>,
     scalars_2: Option<&[E2]>,
     scalars_3: Option<&[E3]>,
@@ -225,8 +225,8 @@ struct ExecuteSettings<R: Runtime> {
 }
 
 fn execute_settings<'a, R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeElement>(
-    inputs: &'a [TensorHandle<R>],
-    outputs: &'a [TensorHandle<R>],
+    inputs: &'a [TensorHandleRef<R>],
+    outputs: &'a [TensorHandleRef<R>],
     scalars_1: Option<&[E1]>,
     scalars_2: Option<&[E2]>,
     scalars_3: Option<&[E3]>,

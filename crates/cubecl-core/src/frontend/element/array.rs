@@ -13,7 +13,7 @@ use crate::{
 
 use super::{
     ArgSettings, CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
-    LaunchArg, LaunchArgExpand, TensorHandle, UInt,
+    LaunchArg, LaunchArgExpand, TensorHandleRef, UInt,
 };
 
 /// A contiguous array of elements.
@@ -142,7 +142,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
 }
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
-pub struct ArrayHandle<'a, R: Runtime> {
+pub struct ArrayHandleRef<'a, R: Runtime> {
     pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
     pub length: [usize; 1],
 }
@@ -151,7 +151,7 @@ pub enum ArrayArg<'a, R: Runtime> {
     /// The array is passed with an array handle.
     Handle {
         /// The array handle.
-        handle: ArrayHandle<'a, R>,
+        handle: ArrayHandleRef<'a, R>,
         /// The vectorization factor.
         vectorization_factor: u8,
     },
@@ -209,7 +209,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     /// factor of 1.
     pub fn new(handle: &'a cubecl_runtime::server::Handle<R::Server>, length: usize) -> Self {
         ArrayArg::Handle {
-            handle: ArrayHandle::new(handle, length),
+            handle: ArrayHandleRef::new(handle, length),
             vectorization_factor: 1,
         }
     }
@@ -220,13 +220,13 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         length: usize,
     ) -> Self {
         ArrayArg::Handle {
-            handle: ArrayHandle::new(handle, length),
+            handle: ArrayHandleRef::new(handle, length),
             vectorization_factor,
         }
     }
 }
 
-impl<'a, R: Runtime> ArrayHandle<'a, R> {
+impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
     pub fn new(handle: &'a cubecl_runtime::server::Handle<R::Server>, length: usize) -> Self {
         Self {
             handle,
@@ -234,10 +234,10 @@ impl<'a, R: Runtime> ArrayHandle<'a, R> {
         }
     }
 
-    pub fn as_tensor(&self) -> TensorHandle<'_, R> {
+    pub fn as_tensor(&self) -> TensorHandleRef<'_, R> {
         let shape = &self.length;
 
-        TensorHandle {
+        TensorHandleRef {
             handle: self.handle,
             strides: &[1],
             shape,

@@ -42,6 +42,7 @@ pub enum Variable {
     Matrix {
         id: u16,
         mat: Matrix,
+        depth: u8,
     },
     Slice {
         id: u16,

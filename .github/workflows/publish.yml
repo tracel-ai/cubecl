@@ -1,0 +1,46 @@
+name: publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-cubecl-common:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-common
+    secrets: inherit
+
+  publish-cubecl-runtime:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-runtime
+    needs:
+      - publish-cubecl-common
+    secrets: inherit
+
+  publish-cubecl-macros:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-macros
+    needs:
+      - publish-cubecl-common
+    secrets: inherit
+
+  publish-cubecl-core:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-core
+    needs:
+      - publish-cubecl-runtime
+      - publish-cubecl-macros
+    secrets: inherit
+
+  publish-cubecl:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl
+    needs:
+      - publish-cubecl-core
+    secrets: inherit

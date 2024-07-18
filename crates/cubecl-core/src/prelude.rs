@@ -11,8 +11,8 @@ pub use crate::runtime::Runtime;
 
 /// Elements
 pub use crate::frontend::{
-    Array, ArrayHandle, Bool, Float, LaunchArg, Slice, SliceMut, Tensor, TensorArg, UInt, F16, F32,
-    F64, I32, I64,
+    Array, ArrayHandleRef, Bool, Float, LaunchArg, Slice, SliceMut, Tensor, TensorArg, UInt, F16,
+    F32, F64, I32, I64,
 };
 pub use crate::pod::CubeElement;
 
@@ -20,7 +20,7 @@ pub use crate::pod::CubeElement;
 pub use crate::frontend::{
     ABSOLUTE_POS, ABSOLUTE_POS_X, ABSOLUTE_POS_Y, ABSOLUTE_POS_Z, CUBE_COUNT, CUBE_COUNT_X,
     CUBE_COUNT_Y, CUBE_COUNT_Z, CUBE_DIM, CUBE_DIM_X, CUBE_DIM_Y, CUBE_DIM_Z, CUBE_POS, CUBE_POS_X,
-    CUBE_POS_Y, CUBE_POS_Z, UNIT_POS, UNIT_POS_X, UNIT_POS_Y, UNIT_POS_Z,
+    CUBE_POS_Y, CUBE_POS_Z, SUBCUBE_DIM, UNIT_POS, UNIT_POS_X, UNIT_POS_Y, UNIT_POS_Z,
 };
 
 /// Export subcube operations.

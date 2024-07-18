@@ -1,0 +1,28 @@
+[package]
+authors = [
+    "nathanielsimard <nathaniel.simard.42@gmail.com>",
+    "louisfd <louisfd94@gmail.com>",
+]
+categories = ["science"]
+description = "CubeCL Linear Algebra Components"
+edition.workspace = true
+keywords = []
+license.workspace = true
+name = "cubecl-linalg"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/cubecl-linalg"
+version.workspace = true
+
+[features]
+default = []
+std = []
+export_tests = []
+
+[dependencies]
+cubecl-core = { path = "../cubecl-core", version = "0.1.0", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.0", default-features = false }
+bytemuck = { workspace = true }
+half = { workspace = true, features = ["bytemuck"] }
+
+[dev-dependencies]
+trybuild = "1"

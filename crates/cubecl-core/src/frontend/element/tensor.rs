@@ -53,7 +53,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),
 /// the strides and the shape.
 #[derive(new)]
-pub struct TensorHandle<'a, R: Runtime> {
+pub struct TensorHandleRef<'a, R: Runtime> {
     pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
     pub strides: &'a [usize],
     pub shape: &'a [usize],
@@ -64,7 +64,7 @@ pub enum TensorArg<'a, R: Runtime> {
     /// The tensor is passed with a tensor handle.
     Handle {
         /// The tensor handle.
-        handle: TensorHandle<'a, R>,
+        handle: TensorHandleRef<'a, R>,
         /// The vectorization factor.
         vectorization_factor: u8,
     },
@@ -86,7 +86,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
         shape: &'a [usize],
     ) -> Self {
         Self::Handle {
-            handle: TensorHandle::new(handle, strides, shape),
+            handle: TensorHandleRef::new(handle, strides, shape),
             vectorization_factor: 1,
         }
     }
@@ -98,7 +98,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
         shape: &'a [usize],
     ) -> Self {
         Self::Handle {
-            handle: TensorHandle::new(handle, strides, shape),
+            handle: TensorHandleRef::new(handle, strides, shape),
             vectorization_factor: factor,
         }
     }
