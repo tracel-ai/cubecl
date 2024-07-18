@@ -1,4 +1,4 @@
 /// Matrix multiplication components.
 pub mod matmul;
-mod tensor;
+pub mod tensor;
 mod tests;
