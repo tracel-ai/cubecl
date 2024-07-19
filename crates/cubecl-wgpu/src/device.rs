@@ -42,8 +42,8 @@ pub enum WgpuDevice {
     /// `IntegratedGpu` since it's often a discrete GPU.
     BestAvailable,
 
-    /// Use an externally created, existing, wgpu setup. This is helpful when using Burn in conjunction
-    /// with some existing wgpu setup (eg. egui or bevy), as resources can be transferred in & out of Burn.
+    /// Use an externally created, existing, wgpu setup. This is helpful when using CubeCL in conjunction
+    /// with some existing wgpu setup (eg. egui or bevy), as resources can be transferred in & out of CubeCL.
     ///
     /// The device is indexed by the global wgpu [adapter ID](wgpu::Device::global_id).
     Existing(wgpu::Id<wgpu::Device>),

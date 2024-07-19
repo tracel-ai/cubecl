@@ -3,7 +3,7 @@ authors = [
     "nathanielsimard <nathaniel.simard.42@gmail.com>",
     "louisfd <louisfd94@gmail.com>",
 ]
-categories = ["science"]
+categories = ["science", "mathematics", "algorithms"]
 description = "CubeCL Linear Algebra Components"
 edition.workspace = true
 keywords = []

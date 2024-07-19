@@ -3,7 +3,7 @@ authors = ["nathanielsimard <nathaniel.simard.42@gmail.com>"]
 categories = ["science"]
 description = "CUDA runtime for CubeCL"
 edition.workspace = true
-keywords = ["deep-learning", "machine-learning", "gpu", "cuda"]
+keywords = ["gpu", "cuda"]
 license.workspace = true
 name = "cubecl-cuda"
 readme.workspace = true
@@ -40,6 +40,3 @@ cubecl-core = { path = "../cubecl-core", version = "0.1.0", features = [
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.1.0", features = [
   "export_tests",
 ] }
-
-[package.metadata.docs.rs]
-features = ["doc"]

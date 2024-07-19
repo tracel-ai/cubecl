@@ -4,7 +4,7 @@ authors = [
     "louisfd <louisfd94@gmail.com",
 ]
 categories = ["science"]
-description = "TODO"
+description = "Procedural macros for CubeCL"
 edition.workspace = true
 keywords = []
 license.workspace = true

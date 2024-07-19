@@ -70,7 +70,7 @@ pub(crate) fn get_workspace_members(w_type: WorkspaceMemberType) -> Vec<Workspac
 
 /// Legacy cargo metadata format for member specs (rust < 1.77)
 /// Example:
-/// "backend-comparison 0.13.0 (path+file:///Users/username/burn/backend-comparison)"
+/// "backend-comparison 0.13.0 (path+file:///Users/username/cubecl/backend-comparison)"
 fn parse_workspace_member0(specs: &str) -> Option<(String, String)> {
     let parts: Vec<_> = specs.split_whitespace().collect();
     let (name, path) = (parts.first()?.to_owned(), parts.last()?.to_owned());
@@ -86,7 +86,7 @@ fn parse_workspace_member0(specs: &str) -> Option<(String, String)> {
 
 /// Cargo metadata format for member specs (rust >= 1.77)
 /// Example:
-/// "path+file:///Users/username/burn/backend-comparison#0.13.0"
+/// "path+file:///Users/username/cubecl/backend-comparison#0.13.0"
 fn parse_workspace_member1(specs: &str) -> Option<(String, String)> {
     let no_prefix = specs.replace(MEMBER_PATH_PREFIX, "").replace(')', "");
     let path = Path::new(no_prefix.split_once('#')?.0);

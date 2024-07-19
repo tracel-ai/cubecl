@@ -1,14 +1,13 @@
 [package]
 authors = ["nathanielsimard <nathaniel.simard.42@gmail.com>"]
-categories = []
-description = ""
+categories = ["science", "mathematics", "algorithms"]
+description = "Multi-platform high-performance compute language extension for Rust."
 edition.workspace = true
 keywords = [
+    "gpu",
     "cuda",
     "wgpu",
     "gpgpu",
-    "deep-learning",
-    "machine-learning",
     "tensor",
 ]
 license.workspace = true
@@ -16,10 +15,10 @@ name = "cubecl"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl"
 version.workspace = true
-rust-version = "1.75"
+rust-version = "1.79"
 
 [features]
-default = ["cubecl-wgpu?/default", "cubecl-cuda?/default", "linalg"]
+default = ["linalg", "cubecl-wgpu?/default", "cubecl-cuda?/default"]
 std = ["cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 linalg = ["dep:cubecl-linalg"]

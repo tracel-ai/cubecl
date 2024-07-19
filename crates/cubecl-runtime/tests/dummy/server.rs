@@ -10,7 +10,7 @@ use derive_new::new;
 
 use super::DummyKernel;
 
-/// The dummy server is used to test the burn-compute infrastructure.
+/// The dummy server is used to test the cubecl-runtime infrastructure.
 /// It uses simple memory management with a bytes storage on CPU, without asynchronous tasks.
 #[derive(new, Debug)]
 pub struct DummyServer<MM = SimpleMemoryManagement<BytesStorage>> {

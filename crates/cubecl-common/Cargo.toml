@@ -1,9 +1,9 @@
 [package]
 authors = ["Dilshod Tadjibaev (@antimora)", "Nathaniel Simard (@nathanielsimard)"]
-categories = []
+categories = ["science", "mathematics", "algorithms"]
 description = "Common crate for CubeCL"
 edition.workspace = true
-keywords = []
+keywords = ["gpu", "cuda", "wgpu"]
 license.workspace = true
 name = "cubecl-common"
 readme.workspace = true
@@ -13,7 +13,6 @@ version.workspace = true
 [features]
 default = ["std"]
 std = ["rand/std"]
-doc = ["default"]
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
@@ -29,6 +28,3 @@ pollster = { workspace = true }
 
 [dev-dependencies]
 dashmap = { workspace = true }
-
-[package.metadata.docs.rs]
-features = ["doc"]

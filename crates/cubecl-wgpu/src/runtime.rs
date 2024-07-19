@@ -58,10 +58,10 @@ impl Default for RuntimeOptions {
         #[cfg(not(test))]
         const DEFAULT_MAX_TASKS: usize = 16;
 
-        let tasks_max = match std::env::var("BURN_WGPU_MAX_TASKS") {
+        let tasks_max = match std::env::var("CUBECL_WGPU_MAX_TASKS") {
             Ok(value) => value
                 .parse::<usize>()
-                .expect("BURN_WGPU_MAX_TASKS should be a positive integer."),
+                .expect("CUBECL_WGPU_MAX_TASKS should be a positive integer."),
             Err(_) => DEFAULT_MAX_TASKS,
         };
 

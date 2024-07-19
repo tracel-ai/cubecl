@@ -1,5 +1,3 @@
-# Burn-Cuda
+# Cuda runtime
 
-This backend is still a work in progress and not ready to be used.
-
-See #1525
+The runtime uses the lower level primitives from [cudarc](https://github.com/coreylowman/cudarc) to compile generated CUDA code into a ptx and execute it at runtime.

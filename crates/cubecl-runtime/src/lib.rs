@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 
-//! Burn compute crate that helps creating high performance async backends.
+//! CubeCL runtime crate that helps creating high performance async runtimes.
 
 extern crate alloc;
 

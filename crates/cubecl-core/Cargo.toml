@@ -3,8 +3,8 @@ authors = [
     "nathanielsimard <nathaniel.simard.42@gmail.com>",
     "louisfd <louisfd94@gmail.com>",
 ]
-categories = ["science"]
-description = "Cube Compute Language (CubeCL) is a subset of Rust that can be executed on accelerators for compute intensive tasks."
+categories = ["science", "mathematics", "algorithms"]
+description = "CubeCL core create"
 edition.workspace = true
 keywords = []
 license.workspace = true
