@@ -140,9 +140,16 @@ impl From<Elem> for Item {
 impl Display for Elem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            // NOTE: we'll eventually want to differentiate between int/float types
-            Self::Float(_) => f.write_str("float"),
-            Self::Int(_) => f.write_str("int"),
+            Self::Float(kind) => match kind {
+                FloatKind::F16 => f.write_str("f16"),
+                FloatKind::BF16 => f.write_str("bf16"),
+                FloatKind::F32 => f.write_str("f32"),
+                FloatKind::F64 => f.write_str("f64"),
+            },
+            Self::Int(kind) => match kind {
+                IntKind::I32 => f.write_str("i32"),
+                IntKind::I64 => f.write_str("i64"),
+            },
             Self::UInt => f.write_str("uint"),
             Self::Bool => f.write_str("bool"),
         }

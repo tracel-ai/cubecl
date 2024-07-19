@@ -7,7 +7,7 @@ use cubecl::frontend::Float;
 use cubecl_linalg::matmul;
 use cubecl_linalg::tensor::TensorHandle;
 
-impl<R: Runtime, E: Float> Benchmark for Tiling2dBench<R, E> {
+impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     type Args = (TensorHandle<R, E>, TensorHandle<R, E>, TensorHandle<R, E>);
 
     fn prepare(&self) -> Self::Args {
@@ -36,8 +36,7 @@ impl<R: Runtime, E: Float> Benchmark for Tiling2dBench<R, E> {
     }
 
     fn name(&self) -> String {
-        let elem = E::as_elem();
-        format!("tiling2d-{}-{:?}-{:?}", R::name(), elem, self.kind)
+        format!("matmul-{}-{}-{:?}", R::name(), E::as_elem(), self.kind).to_lowercase()
     }
 
     fn sync(&self) {
@@ -46,7 +45,7 @@ impl<R: Runtime, E: Float> Benchmark for Tiling2dBench<R, E> {
 }
 
 #[allow(dead_code)]
-struct Tiling2dBench<R: Runtime, E> {
+struct MatmulBench<R: Runtime, E> {
     b: usize,
     m: usize,
     k: usize,
@@ -66,7 +65,7 @@ enum MatmulKind {
 
 #[allow(dead_code)]
 fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
-    let bench = Tiling2dBench::<R, E> {
+    let bench = MatmulBench::<R, E> {
         b: 32,
         m: 1024,
         k: 1024,

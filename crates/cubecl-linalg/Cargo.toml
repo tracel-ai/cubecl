@@ -4,7 +4,7 @@ authors = [
     "louisfd <louisfd94@gmail.com>",
 ]
 categories = ["science", "mathematics", "algorithms"]
-description = "CubeCL Linear Algebra Components"
+description = "CubeCL Linear Algebra Library."
 edition.workspace = true
 keywords = []
 license.workspace = true
