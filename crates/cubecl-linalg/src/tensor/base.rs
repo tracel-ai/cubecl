@@ -84,7 +84,7 @@ where
         self.handle.can_mut()
     }
 
-    pub fn as_ref<'a>(&'a self) -> TensorHandleRef<'a, R> {
+    pub fn as_ref(&self) -> TensorHandleRef<'_, R> {
         TensorHandleRef {
             handle: &self.handle,
             strides: &self.strides,

@@ -75,7 +75,7 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
     };
     let out_vectorization = vectorization(n);
 
-    let cube_count = tiling2d_cube_count::<R>(&out.shape, &config);
+    let cube_count = tiling2d_cube_count::<R>(out.shape, &config);
     let cube_dim = tiling2d_cube_dim(&config);
     let cube_config = CubeTiling2dConfig::new(&config, m, k, n, lhs_transposed, rhs_transposed);
 
@@ -83,9 +83,9 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
         client,
         cube_count,
         cube_dim,
-        TensorArg::vectorized(lhs_vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
-        TensorArg::vectorized(rhs_vectorization, &rhs.handle, &rhs.strides, &rhs.shape),
-        TensorArg::vectorized(out_vectorization, &out.handle, &out.strides, &out.shape),
+        TensorArg::vectorized(lhs_vectorization, lhs.handle, lhs.strides, lhs.shape),
+        TensorArg::vectorized(rhs_vectorization, rhs.handle, rhs.strides, rhs.shape),
+        TensorArg::vectorized(out_vectorization, out.handle, out.strides, out.shape),
         cube_config,
     );
 }

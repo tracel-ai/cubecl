@@ -63,8 +63,8 @@ pub fn check_cmma_availability<R: Runtime>(
         return Err(UnavailabilityReason::CmmaInstructionsUnsupported);
     }
 
-    check_layout(&lhs)?;
-    check_layout(&rhs)?;
+    check_layout(lhs)?;
+    check_layout(rhs)?;
 
     let rank = lhs.shape.len();
     let m = lhs.shape[rank - 2];
@@ -125,17 +125,17 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
     let rhs_vectorization = vectorization(n);
     let out_vectorization = vectorization(n);
 
-    let cube_count = cmma_cube_count::<R>(&out.shape, 64, 64);
+    let cube_count = cmma_cube_count::<R>(out.shape, 64, 64);
     let cube_dim = cmma_cube_dim();
     let launch_config = CmmaLaunchConfig::default();
 
     cmma_kernel::launch::<F, F16, R>(
-        &client,
+        client,
         cube_count,
         cube_dim,
-        TensorArg::vectorized(lhs_vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
-        TensorArg::vectorized(rhs_vectorization, &rhs.handle, &rhs.strides, &rhs.shape),
-        TensorArg::vectorized(out_vectorization, &out.handle, &out.strides, &out.shape),
+        TensorArg::vectorized(lhs_vectorization, lhs.handle, lhs.strides, lhs.shape),
+        TensorArg::vectorized(rhs_vectorization, rhs.handle, rhs.strides, rhs.shape),
+        TensorArg::vectorized(out_vectorization, out.handle, out.strides, out.shape),
         CmmaConfig::new(m, k, n, launch_config),
     );
 }
