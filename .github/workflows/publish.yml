@@ -37,10 +37,44 @@ jobs:
       - publish-cubecl-macros
     secrets: inherit
 
+  publish-cubecl-linalg:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-linalg
+    needs:
+      - publish-cubecl-runtime
+      - publish-cubecl-core
+    secrets: inherit
+
+  publish-cubecl-wgpu:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-wgpu
+    needs:
+      - publish-cubecl-common
+      - publish-cubecl-runtime
+      - publish-cubecl-core
+      - publish-cubecl-linalg
+    secrets: inherit
+
+  publish-cubecl-cuda:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-cuda
+    needs:
+      - publish-cubecl-common
+      - publish-cubecl-runtime
+      - publish-cubecl-core
+      - publish-cubecl-linalg
+    secrets: inherit
+
   publish-cubecl:
     uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
     with:
       crate: cubecl
     needs:
       - publish-cubecl-core
+      - publish-cubecl-cuda
+      - publish-cubecl-wgpu
+      - publish-cubecl-linalg
     secrets: inherit
