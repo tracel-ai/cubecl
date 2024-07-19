@@ -15,6 +15,7 @@ pub enum MatrixLayout {
     HighlyPermuted,
 }
 
+/// Return the layout of a matrix given the strides.
 pub fn matrix_layout(strides: &[usize]) -> MatrixLayout {
     let rank = strides.len();
     if rank <= 1 {
