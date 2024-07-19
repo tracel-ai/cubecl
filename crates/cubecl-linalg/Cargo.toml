@@ -19,8 +19,8 @@ std = []
 export_tests = []
 
 [dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.1.0", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.1.1", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.1", default-features = false }
 bytemuck = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 

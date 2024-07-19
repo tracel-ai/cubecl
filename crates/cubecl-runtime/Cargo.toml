@@ -27,7 +27,7 @@ storage-bytes = []
 autotune-persistent-cache = ["dirs", "md5", "serde", "serde_json"] # Assume std
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.1.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.1.1", default-features = false }
 derive-new = { workspace = true }
 spin = { workspace = true }
 log = { workspace = true }

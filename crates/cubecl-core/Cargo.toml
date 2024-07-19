@@ -20,12 +20,12 @@ template = []
 export_tests = []
 
 [dependencies]
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.0", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.1", default-features = false }
 
 bytemuck = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 serde = { workspace = true }
-cubecl-macros = { path = "../cubecl-macros", version = "0.1.0" }
+cubecl-macros = { path = "../cubecl-macros", version = "0.1.1" }
 derive-new = { workspace = true }
 num-traits = { workspace = true }
 
