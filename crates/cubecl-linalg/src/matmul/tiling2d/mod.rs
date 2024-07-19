@@ -8,4 +8,5 @@ pub(crate) mod outer_product;
 pub(crate) mod tile;
 pub(crate) mod write_output;
 
-pub use launch::matmul_tiling_2d;
+pub use launch::matmul_tiling_2d as launch;
+pub use launch::matmul_tiling_2d_ref as launch_ref;

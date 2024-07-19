@@ -214,15 +214,16 @@ fn load_tensor_multiple_tiles_test<F: Float>(
 
 /// Exported test
 pub fn load_lhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
-    let lhs = range_tensor::<R>(16, 16, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let lhs = range_tensor::<R>(&client, 16, 16);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(16, 16, 8);
 
     load_tensor_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -240,21 +241,22 @@ pub fn load_lhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
         76.0, 92.0, 108.0, 124.0, 0.0, 0.0, 0.0, 0.0, 77.0, 93.0, 109.0, 125.0, 0.0, 0.0, 0.0, 0.0,
         78.0, 94.0, 110.0, 126.0, 0.0, 0.0, 0.0, 0.0, 79.0, 95.0, 111.0, 127.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_lhs_transposed_out_of_bounds_cube_test<R: Runtime>(device: &R::Device) {
+    let client = R::client(device);
     let vectorization_factor = 1;
-    let lhs = range_tensor::<R>(5, 1, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let lhs = range_tensor::<R>(&client, 5, 1);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(2, 2, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(5, 1, 1);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -275,20 +277,21 @@ pub fn load_lhs_transposed_out_of_bounds_cube_test<R: Runtime>(device: &R::Devic
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_lhs_transposed_cube_test<R: Runtime>(device: &R::Device) {
-    let lhs = range_tensor::<R>(8, 8, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let lhs = range_tensor::<R>(&client, 8, 8);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(2, 2, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(8, 8, 8);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -305,20 +308,21 @@ pub fn load_lhs_transposed_cube_test<R: Runtime>(device: &R::Device) {
         53.0, 61.0, 6.0, 14.0, 22.0, 30.0, 38.0, 46.0, 54.0, 62.0, 7.0, 15.0, 23.0, 31.0, 39.0,
         47.0, 55.0, 63.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_lhs_transposed_offset_cube_test<R: Runtime>(device: &R::Device) {
-    let lhs = range_tensor::<R>(8, 16, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let lhs = range_tensor::<R>(&client, 8, 16);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(2, 2, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(8, 8, 16);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -335,20 +339,21 @@ pub fn load_lhs_transposed_offset_cube_test<R: Runtime>(device: &R::Device) {
         61.0, 77.0, 93.0, 109.0, 125.0, 14.0, 30.0, 46.0, 62.0, 78.0, 94.0, 110.0, 126.0, 15.0,
         31.0, 47.0, 63.0, 79.0, 95.0, 111.0, 127.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_rhs_plain_unit_test<R: Runtime>(device: &R::Device) {
-    let rhs = range_tensor::<R>(16, 16, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let rhs = range_tensor::<R>(&client, 16, 16);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(8, 16, 16);
 
     load_tensor_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
@@ -366,20 +371,21 @@ pub fn load_rhs_plain_unit_test<R: Runtime>(device: &R::Device) {
         196.0, 197.0, 198.0, 199.0, 0.0, 0.0, 0.0, 0.0, 212.0, 213.0, 214.0, 215.0, 0.0, 0.0, 0.0,
         0.0, 228.0, 229.0, 230.0, 231.0, 0.0, 0.0, 0.0, 0.0, 244.0, 245.0, 246.0, 247.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_rhs_plain_cube_test<R: Runtime>(device: &R::Device) {
-    let rhs = range_tensor::<R>(8, 8, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let rhs = range_tensor::<R>(&client, 8, 8);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(2, 2, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(8, 8, 8);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
@@ -396,20 +402,21 @@ pub fn load_rhs_plain_cube_test<R: Runtime>(device: &R::Device) {
         47.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 60.0, 61.0,
         62.0, 63.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_rhs_plain_cube_offset_test<R: Runtime>(device: &R::Device) {
-    let rhs = range_tensor::<R>(16, 8, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let rhs = range_tensor::<R>(&client, 16, 8);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(2, 2, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(16, 16, 8);
 
     load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
@@ -426,20 +433,21 @@ pub fn load_rhs_plain_cube_offset_test<R: Runtime>(device: &R::Device) {
         108.0, 109.0, 110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0,
         121.0, 122.0, 123.0, 124.0, 125.0, 126.0, 127.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_lhs_plain_unit_test<R: Runtime>(device: &R::Device) {
-    let lhs = range_tensor::<R>(16, 16, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let lhs = range_tensor::<R>(&client, 16, 16);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(16, 16, 8);
 
     load_tensor_permuted_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -457,14 +465,15 @@ pub fn load_lhs_plain_unit_test<R: Runtime>(device: &R::Device) {
         196.0, 197.0, 198.0, 199.0, 0.0, 0.0, 0.0, 0.0, 212.0, 213.0, 214.0, 215.0, 0.0, 0.0, 0.0,
         0.0, 228.0, 229.0, 230.0, 231.0, 0.0, 0.0, 0.0, 0.0, 244.0, 245.0, 246.0, 247.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_lhs_plain_out_of_bounds_unit_test<R: Runtime>(device: &R::Device) {
     let (m, k) = (6, 14);
-    let lhs = range_tensor::<R>(k, m, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let lhs = range_tensor::<R>(&client, k, m);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -489,20 +498,21 @@ pub fn load_lhs_plain_out_of_bounds_unit_test<R: Runtime>(device: &R::Device) {
         76.0, 77.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 82.0, 83.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_rhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
-    let rhs = range_tensor::<R>(16, 16, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let rhs = range_tensor::<R>(&client, 16, 16);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(16, 16, 8);
 
     load_tensor_permuted_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
@@ -520,21 +530,22 @@ pub fn load_rhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
         76.0, 92.0, 108.0, 124.0, 0.0, 0.0, 0.0, 0.0, 77.0, 93.0, 109.0, 125.0, 0.0, 0.0, 0.0, 0.0,
         78.0, 94.0, 110.0, 126.0, 0.0, 0.0, 0.0, 0.0, 79.0, 95.0, 111.0, 127.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }
 
 /// Exported test
 pub fn load_rhs_transposed_out_of_bounds_unit_test<R: Runtime>(device: &R::Device) {
     let (k, n) = (14, 6);
-    let rhs = range_tensor::<R>(n, k, device);
-    let sm_out = create_empty::<R>(8, 8, device);
+    let client = R::client(device);
+    let rhs = range_tensor::<R>(&client, n, k);
+    let sm_out = create_empty::<R>(&client, 8, 8);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = make_tiling2d_config(8, k, n);
 
     load_tensor_permuted_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
@@ -552,5 +563,5 @@ pub fn load_rhs_transposed_out_of_bounds_unit_test<R: Runtime>(device: &R::Devic
         68.0, 82.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 69.0, 83.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ];
-    assert_equals::<R>(sm_out, expected, device);
+    assert_equals::<R>(&client, sm_out, expected);
 }

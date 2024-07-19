@@ -6,8 +6,6 @@ use cubecl_core::SUBCUBE_DIM_APPROX;
 use cubecl_runtime::server::Handle;
 use std::marker::PhantomData;
 
-use super::layout::{memory_layout, MatrixLayout};
-
 /// Tensor representation containing a [server handle](Handle) as well as basic tensor metadata.,
 pub struct TensorHandle<R, E>
 where
@@ -86,17 +84,12 @@ where
         self.handle.can_mut()
     }
 
-    /// Check if the current tensor is contiguous.
-    pub fn is_contiguous(&self) -> bool {
-        self.matrix_layout() == MatrixLayout::Contiguous
-    }
-
-    pub(crate) fn matrix_layout(&self) -> MatrixLayout {
-        memory_layout(&self.strides)
-    }
-
-    pub(crate) fn rank(&self) -> usize {
-        self.shape.len()
+    pub fn as_ref(&self) -> TensorHandleRef<'_, R> {
+        TensorHandleRef {
+            handle: &self.handle,
+            strides: &self.strides,
+            shape: &self.shape,
+        }
     }
 
     fn contiguous_strides(shape: &[usize]) -> Vec<usize> {

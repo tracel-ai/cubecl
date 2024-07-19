@@ -4,8 +4,7 @@ use std::marker::PhantomData;
 use cubecl::benchmark::Benchmark;
 use cubecl::client::SyncType;
 use cubecl::frontend::Float;
-use cubecl_linalg::matmul::cmma::matmul_cmma;
-use cubecl_linalg::matmul::tiling2d::matmul_tiling_2d;
+use cubecl_linalg::matmul;
 use cubecl_linalg::tensor::TensorHandle;
 
 impl<R: Runtime, E: Float> Benchmark for Tiling2dBench<R, E> {
@@ -24,12 +23,16 @@ impl<R: Runtime, E: Float> Benchmark for Tiling2dBench<R, E> {
     fn execute(&self, (lhs, rhs, out): Self::Args) {
         match self.kind {
             MatmulKind::Tiling2d => {
-                matmul_tiling_2d(lhs, rhs, out, Default::default(), &self.device);
+                matmul::tiling2d::launch(&self.client, lhs, rhs, out, Default::default());
             }
             MatmulKind::Cmma => {
-                matmul_cmma(lhs, rhs, out, &self.device);
+                matmul::cmma::launch(&self.client, lhs, rhs, out);
             }
         }
+    }
+
+    fn num_samples(&self) -> usize {
+        100
     }
 
     fn name(&self) -> String {
@@ -38,8 +41,7 @@ impl<R: Runtime, E: Float> Benchmark for Tiling2dBench<R, E> {
     }
 
     fn sync(&self) {
-        let client = R::client(&self.device);
-        client.sync(SyncType::Wait);
+        self.client.sync(SyncType::Wait);
     }
 }
 
@@ -51,6 +53,7 @@ struct Tiling2dBench<R: Runtime, E> {
     n: usize,
     kind: MatmulKind,
     device: R::Device,
+    client: ComputeClient<R::Server, R::Channel>,
     _e: PhantomData<E>,
 }
 
@@ -68,6 +71,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
         m: 1024,
         k: 1024,
         n: 1024,
+        client: R::client(&device),
         device,
         kind,
         _e: PhantomData,
