@@ -12,7 +12,7 @@ use crate::{
         base::cmma_kernel,
         config::{cmma_cube_count, cmma_cube_dim, CmmaConfig, CmmaLaunchConfig},
     },
-    tensor::{matrix_layout, MatrixLayout, TensorHandle},
+    tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle},
 };
 
 /// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
@@ -28,8 +28,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
 
 #[derive(Debug)]
 pub enum UnavailabilityReason {
-    TransposedInput, // TODO: Support that case.
-    NotMultipleOf4,  // TODO: Support that case.
+    NotMultipleOf4, // TODO: Support that case.
     HiglyPermutatedInput,
     ShapeMemoryLimitBusted,
     InvalidConfig(String),
@@ -43,15 +42,6 @@ pub fn check_cmma_availability<R: Runtime>(
     rhs: &TensorHandleRef<'_, R>,
     config: Option<&CmmaLaunchConfig>,
 ) -> Result<(), UnavailabilityReason> {
-    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
-        MatrixLayout::Contiguous => Ok(()),
-        MatrixLayout::MildlyPermuted {
-            transposed: _,
-            batch_swap: _,
-        } => Err(UnavailabilityReason::TransposedInput),
-        MatrixLayout::HighlyPermuted => Err(UnavailabilityReason::HiglyPermutatedInput),
-    };
-
     if !client.features().enabled(Feature::Cmma {
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),
@@ -62,9 +52,6 @@ pub fn check_cmma_availability<R: Runtime>(
     }) {
         return Err(UnavailabilityReason::CmmaInstructionsUnsupported);
     }
-
-    check_layout(lhs)?;
-    check_layout(rhs)?;
 
     let rank = lhs.shape.len();
     let m = lhs.shape[rank - 2];
@@ -101,6 +88,47 @@ pub fn check_cmma_availability<R: Runtime>(
 }
 /// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
 pub fn matmul_cmma_ref<R: Runtime, F: Float>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: TensorHandleRef<'_, R>,
+    rhs: TensorHandleRef<'_, R>,
+    out: TensorHandleRef<'_, R>,
+) {
+    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
+        MatrixLayout::Contiguous => true,
+        MatrixLayout::MildlyPermuted {
+            transposed: _,
+            batch_swap: _,
+        } => false,
+        MatrixLayout::HighlyPermuted => false,
+    };
+
+    let lhs_correct_layout = check_layout(&lhs);
+    let rhs_correct_layout = check_layout(&rhs);
+
+    match (lhs_correct_layout, rhs_correct_layout) {
+        (true, true) => matmul_cmma_ref_no_check::<R, F>(client, lhs, rhs, out),
+        (true, false) => matmul_cmma_ref_no_check::<R, F>(
+            client,
+            lhs,
+            into_contiguous::<R, F>(client, rhs).as_ref(),
+            out,
+        ),
+        (false, true) => matmul_cmma_ref_no_check::<R, F>(
+            client,
+            into_contiguous::<R, F>(client, lhs).as_ref(),
+            rhs,
+            out,
+        ),
+        (false, false) => matmul_cmma_ref_no_check::<R, F>(
+            client,
+            into_contiguous::<R, F>(client, lhs).as_ref(),
+            into_contiguous::<R, F>(client, rhs).as_ref(),
+            out,
+        ),
+    }
+}
+
+fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
