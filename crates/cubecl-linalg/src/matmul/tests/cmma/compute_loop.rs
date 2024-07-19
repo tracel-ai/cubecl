@@ -66,9 +66,10 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
     let m = 16;
     let k = 32;
     let n = 16;
-    let lhs = range_tensor_f16::<R>(m, k, device);
-    let rhs = range_tensor_f16::<R>(k, n, device);
-    let results = create_empty::<R>(m, n, device);
+    let client = R::client(device);
+    let lhs = range_tensor_f16::<R>(&client, m, k);
+    let rhs = range_tensor_f16::<R>(&client, k, n);
+    let results = create_empty::<R>(&client, m, n);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -128,7 +129,7 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
         3659328., 3671344., 3683360., 3695376.,
     ];
 
-    assert_equals::<R>(results, expected, device);
+    assert_equals::<R>(&client, results, expected);
 }
 
 /// Exported test
@@ -141,9 +142,10 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
     let m = 16;
     let k = 32;
     let n = 32;
-    let lhs = range_tensor_f16::<R>(m, k, device);
-    let rhs = range_tensor_f16::<R>(k, n, device);
-    let results = create_empty::<R>(m, n, device);
+    let client = R::client(device);
+    let lhs = range_tensor_f16::<R>(&client, m, k);
+    let rhs = range_tensor_f16::<R>(&client, k, n);
+    let results = create_empty::<R>(&client, m, n);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -231,7 +233,7 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
         9763456., 9775472., 9787488., 9799504., 9811520., 9823536., 9835552., 9847568.,
     ];
 
-    assert_equals::<R>(results, expected, device);
+    assert_equals::<R>(&client, results, expected);
 }
 
 /// Exported test
@@ -244,10 +246,11 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
     let m = 16;
     let k = 32;
     let n = 64;
+    let client = R::client(device);
 
-    let lhs = range_tensor_f16::<R>(m, k, device);
-    let rhs = range_tensor_f16::<R>(k, n, device);
-    let results = create_empty::<R>(m, n, device);
+    let lhs = range_tensor_f16::<R>(&client, m, k);
+    let rhs = range_tensor_f16::<R>(&client, k, n);
+    let results = create_empty::<R>(&client, m, n);
     let cube_dim = CubeDim::new(32, 2, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -263,7 +266,7 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
     };
 
     compute_loop_test::launch::<F32, F16, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
@@ -413,5 +416,5 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
         22103888.0, 22115904.0, 22127920.0, 22139936.0, 22151952.0,
     ];
 
-    assert_equals::<R>(results, expected, device);
+    assert_equals::<R>(&client, results, expected);
 }

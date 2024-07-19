@@ -76,8 +76,9 @@ fn load_rhs_test<F: Float>(
 
 /// Exported test
 pub fn load_shared_memory_lhs_unit_test<R: Runtime>(device: &R::Device) {
-    let lhs_tensor = range_tensor::<R>(64, 64, device);
-    let lhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let lhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let lhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -127,13 +128,14 @@ pub fn load_shared_memory_lhs_unit_test<R: Runtime>(device: &R::Device) {
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ];
-    assert_equals_range::<R>(lhs_sm, expected, 0..256, device);
+    assert_equals_range::<R>(&client, lhs_sm, expected, 0..256);
 }
 
 /// Exported test
 pub fn load_shared_memory_rhs_unit_test<R: Runtime>(device: &R::Device) {
-    let rhs_tensor = range_tensor::<R>(64, 64, device);
-    let rhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let rhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let rhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -183,13 +185,14 @@ pub fn load_shared_memory_rhs_unit_test<R: Runtime>(device: &R::Device) {
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ];
-    assert_equals_range::<R>(rhs_sm, expected, 0..256, device);
+    assert_equals_range::<R>(&client, rhs_sm, expected, 0..256);
 }
 
 /// Exported test
 pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
-    let lhs_tensor = range_tensor::<R>(64, 64, device);
-    let lhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let lhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let lhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -244,13 +247,14 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
         960.0, 961.0, 962.0, 963.0, 964.0, 965.0, 966.0, 967.0, 968.0, 969.0, 970.0, 971.0, 972.0,
         973.0, 974.0, 975.0,
     ];
-    assert_equals_range::<R>(lhs_sm, expected, 0..256, device);
+    assert_equals_range::<R>(&client, lhs_sm, expected, 0..256);
 }
 
 /// Exported test
 pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device: &R::Device) {
-    let lhs_tensor = range_tensor::<R>(12, 64, device);
-    let lhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let lhs_tensor = range_tensor::<R>(&client, 12, 64);
+    let lhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -303,13 +307,14 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ];
-    assert_equals_range::<R>(lhs_sm, expected, 0..256, device);
+    assert_equals_range::<R>(&client, lhs_sm, expected, 0..256);
 }
 
 /// Exported test
 pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(device: &R::Device) {
-    let lhs_tensor = range_tensor::<R>(64, 12, device);
-    let lhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let lhs_tensor = range_tensor::<R>(&client, 64, 12);
+    let lhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -325,7 +330,7 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
     };
 
     load_lhs_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -362,13 +367,14 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
         180.0, 181.0, 182.0, 183.0, 184.0, 185.0, 186.0, 187.0, 188.0, 189.0, 190.0, 191.0, 0.0,
         0.0, 0.0, 0.0,
     ];
-    assert_equals_range::<R>(lhs_sm, expected, 0..256, device);
+    assert_equals_range::<R>(&client, lhs_sm, expected, 0..256);
 }
 
 /// Exported test
 pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &R::Device) {
-    let lhs_tensor = range_tensor::<R>(12, 12, device);
-    let lhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let lhs_tensor = range_tensor::<R>(&client, 12, 12);
+    let lhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -384,7 +390,7 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
     };
 
     load_lhs_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -420,13 +426,14 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0,
     ];
-    assert_equals_range::<R>(lhs_sm, expected, 0..256, device);
+    assert_equals_range::<R>(&client, lhs_sm, expected, 0..256);
 }
 
 /// Exported test
 pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
-    let rhs_tensor = range_tensor::<R>(64, 64, device);
-    let rhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let rhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let rhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -442,7 +449,7 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_rhs_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -481,13 +488,14 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
         960.0, 961.0, 962.0, 963.0, 964.0, 965.0, 966.0, 967.0, 968.0, 969.0, 970.0, 971.0, 972.0,
         973.0, 974.0, 975.0,
     ];
-    assert_equals_range::<R>(rhs_sm, expected, 0..256, device);
+    assert_equals_range::<R>(&client, rhs_sm, expected, 0..256);
 }
 
 /// Exported test
 pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
-    let lhs_tensor = range_tensor::<R>(64, 64, device);
-    let lhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let lhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let lhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 2, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -503,7 +511,7 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_lhs_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -541,13 +549,14 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
     ];
 
     // We are testing second warp
-    assert_equals_range::<R>(lhs_sm, expected, 256..512, device);
+    assert_equals_range::<R>(&client, lhs_sm, expected, 256..512);
 }
 
 /// Exported test
 pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
-    let rhs_tensor = range_tensor::<R>(64, 64, device);
-    let rhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let rhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let rhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 2, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -563,7 +572,7 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_rhs_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -604,13 +613,14 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
     ];
 
     // We are testing second warp
-    assert_equals_range::<R>(rhs_sm, expected, 256..512, device);
+    assert_equals_range::<R>(&client, rhs_sm, expected, 256..512);
 }
 
 /// Exported test
 pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
-    let lhs_tensor = range_tensor::<R>(64, 64, device);
-    let lhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let lhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let lhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 3, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -626,7 +636,7 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_lhs_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -667,13 +677,14 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
     ];
 
     // We are testing second warp
-    assert_equals_range::<R>(lhs_sm, expected, 512..768, device);
+    assert_equals_range::<R>(&client, lhs_sm, expected, 512..768);
 }
 
 /// Exported test
 pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
-    let rhs_tensor = range_tensor::<R>(64, 64, device);
-    let rhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let rhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let rhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 3, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -689,7 +700,7 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     load_rhs_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -727,13 +738,14 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
     ];
 
     // We are testing second warp
-    assert_equals_range::<R>(rhs_sm, expected, 512..768, device);
+    assert_equals_range::<R>(&client, rhs_sm, expected, 512..768);
 }
 
 /// Exported test
 pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
-    let lhs_tensor = range_tensor::<R>(64, 64, device);
-    let lhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let lhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let lhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -749,7 +761,7 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
     };
 
     load_lhs_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -787,13 +799,14 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
     ];
 
     // We are testing second warp
-    assert_equals_range::<R>(lhs_sm, expected, 0..256, device);
+    assert_equals_range::<R>(&client, lhs_sm, expected, 0..256);
 }
 
 /// Exported test
 pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
-    let rhs_tensor = range_tensor::<R>(64, 64, device);
-    let rhs_sm = create_empty::<R>(32, 64, device);
+    let client = R::client(device);
+    let rhs_tensor = range_tensor::<R>(&client, 64, 64);
+    let rhs_sm = create_empty::<R>(&client, 32, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -809,7 +822,7 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
     };
 
     load_rhs_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(
@@ -850,5 +863,5 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
     ];
 
     // We are testing second warp
-    assert_equals_range::<R>(rhs_sm, expected, 0..256, device);
+    assert_equals_range::<R>(&client, rhs_sm, expected, 0..256);
 }

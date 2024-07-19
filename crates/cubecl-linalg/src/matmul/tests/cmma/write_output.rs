@@ -43,8 +43,9 @@ fn write_output_test<F: Float>(
 pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
     let m = 16;
     let n = 32;
-    let out = zeros_tensor::<R>(m, n, device);
-    let acc_sm = range_tensor::<R>(64, 64, device);
+    let client = R::client(device);
+    let out = zeros_tensor::<R>(&client, m, n);
+    let acc_sm = range_tensor::<R>(&client, 64, 64);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
@@ -60,7 +61,7 @@ pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
     };
 
     write_output_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -101,15 +102,16 @@ pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ];
-    assert_equals::<R>(out.handle, expected, device);
+    assert_equals::<R>(&client, out.handle, expected);
 }
 
 /// Exported test
 pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
     let m = 16;
     let n = 32;
-    let out = zeros_tensor::<R>(m, n, device);
-    let acc_sm = range_tensor::<R>(64, 64, device);
+    let client = R::client(device);
+    let out = zeros_tensor::<R>(&client, m, n);
+    let acc_sm = range_tensor::<R>(&client, 64, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
@@ -125,7 +127,7 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     write_output_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -176,15 +178,16 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
         252.0, 253.0, 254.0, 255.0, 496.0, 497.0, 498.0, 499.0, 500.0, 501.0, 502.0, 503.0, 504.0,
         505.0, 506.0, 507.0, 508.0, 509.0, 510.0, 511.0,
     ];
-    assert_equals::<R>(out.handle, expected, device);
+    assert_equals::<R>(&client, out.handle, expected);
 }
 
 /// Exported test
 pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: &R::Device) {
     let m = 16;
     let n = 28;
-    let out = zeros_tensor::<R>(m, n, device);
-    let acc_sm = range_tensor::<R>(64, 64, device);
+    let client = R::client(device);
+    let out = zeros_tensor::<R>(&client, m, n);
+    let acc_sm = range_tensor::<R>(&client, 64, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
@@ -200,7 +203,7 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
     };
 
     write_output_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -246,15 +249,16 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
         249.0, 250.0, 251.0, 252.0, 253.0, 254.0, 255.0, 496.0, 497.0, 498.0, 499.0, 500.0, 501.0,
         502.0, 503.0, 504.0, 505.0, 506.0, 507.0,
     ];
-    assert_equals::<R>(out.handle, expected, device);
+    assert_equals::<R>(&client, out.handle, expected);
 }
 
 /// Exported test
 pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R::Device) {
     let m = 14;
     let n = 32;
-    let out = zeros_tensor::<R>(m, n, device);
-    let acc_sm = range_tensor::<R>(64, 64, device);
+    let client = R::client(device);
+    let out = zeros_tensor::<R>(&client, m, n);
+    let acc_sm = range_tensor::<R>(&client, 64, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
@@ -270,7 +274,7 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
     };
 
     write_output_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -316,15 +320,16 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
         219.0, 220.0, 221.0, 222.0, 223.0, 464.0, 465.0, 466.0, 467.0, 468.0, 469.0, 470.0, 471.0,
         472.0, 473.0, 474.0, 475.0, 476.0, 477.0, 478.0, 479.0,
     ];
-    assert_equals::<R>(out.handle, expected, device);
+    assert_equals::<R>(&client, out.handle, expected);
 }
 
 /// Exported test
 pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::Device) {
     let m = 14;
     let n = 28;
-    let out = zeros_tensor::<R>(m, n, device);
-    let acc_sm = range_tensor::<R>(64, 64, device);
+    let client = R::client(device);
+    let out = zeros_tensor::<R>(&client, m, n);
+    let acc_sm = range_tensor::<R>(&client, 64, 64);
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
@@ -340,7 +345,7 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
     };
 
     write_output_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -382,15 +387,16 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
         221.0, 222.0, 223.0, 464.0, 465.0, 466.0, 467.0, 468.0, 469.0, 470.0, 471.0, 472.0, 473.0,
         474.0, 475.0,
     ];
-    assert_equals::<R>(out.handle, expected, device);
+    assert_equals::<R>(&client, out.handle, expected);
 }
 
 /// Exported test
 pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
     let m = 16;
     let n = 64;
-    let out = zeros_tensor::<R>(m, n, device);
-    let acc_sm = range_tensor::<R>(64, 64, device);
+    let client = R::client(device);
+    let out = zeros_tensor::<R>(&client, m, n);
+    let acc_sm = range_tensor::<R>(&client, 64, 64);
     let cube_dim = CubeDim::new(32, 2, 1);
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
@@ -406,7 +412,7 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     write_output_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -497,15 +503,16 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
         1011.0, 1012.0, 1013.0, 1014.0, 1015.0, 1016.0, 1017.0, 1018.0, 1019.0, 1020.0, 1021.0,
         1022.0, 1023.0,
     ];
-    assert_equals::<R>(out.handle, expected, device);
+    assert_equals::<R>(&client, out.handle, expected);
 }
 
 /// Exported test
 pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device) {
     let m = 32;
     let n = 64;
-    let out = zeros_tensor::<R>(m, n, device);
-    let acc_sm = range_tensor::<R>(64, 64, device);
+    let client = R::client(device);
+    let out = zeros_tensor::<R>(&client, m, n);
+    let acc_sm = range_tensor::<R>(&client, 64, 64);
     let cube_dim = CubeDim::new(32, 4, 1);
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
@@ -521,7 +528,7 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
     };
 
     write_output_test::launch::<F32, R>(
-        &R::client(device),
+        &client,
         cube_count,
         cube_dim,
         TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
@@ -612,5 +619,5 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
         1785., 1786., 1787., 1788., 1789., 1790., 1791., 2032., 2033., 2034., 2035., 2036., 2037.,
         2038., 2039., 2040., 2041., 2042., 2043., 2044., 2045., 2046., 2047.,
     ];
-    assert_equals_range::<R>(out.handle, expected, 1024..2048, device);
+    assert_equals_range::<R>(&client, out.handle, expected, 1024..2048);
 }

@@ -1,5 +1,6 @@
 use bytemuck::cast_slice;
 use cubecl_core::{
+    client::ComputeClient,
     frontend::{F16, F32},
     ir::{Elem, FloatKind},
     server::Handle,
@@ -13,12 +14,11 @@ use crate::{
 };
 
 pub(crate) fn range_tensor_f16<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     x: usize,
     y: usize,
-    device: &R::Device,
 ) -> TensorHandle<R, F16> {
     let n_elements = x * y;
-    let client = R::client(device);
 
     let mut data = Vec::with_capacity(n_elements);
     for i in 0..n_elements {
@@ -31,12 +31,11 @@ pub(crate) fn range_tensor_f16<R: Runtime>(
 }
 
 pub(crate) fn range_tensor<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     x: usize,
     y: usize,
-    device: &R::Device,
 ) -> TensorHandle<R, F32> {
     let n_elements = x * y;
-    let client = R::client(device);
 
     let mut data: Vec<f32> = Vec::with_capacity(n_elements);
     for i in 0..n_elements {
@@ -49,14 +48,13 @@ pub(crate) fn range_tensor<R: Runtime>(
 }
 
 pub(crate) fn range_tensor_with_factor<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     batch: usize,
     x: usize,
     y: usize,
     factor: f32,
-    device: &R::Device,
 ) -> TensorHandle<R, F32> {
     let n_elements = batch * x * y;
-    let client = R::client(device);
 
     let mut data: Vec<f32> = Vec::with_capacity(n_elements);
     for i in 0..n_elements {
@@ -69,12 +67,11 @@ pub(crate) fn range_tensor_with_factor<R: Runtime>(
 }
 
 pub(crate) fn range_tensor_transposed<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     x: usize,
     y: usize,
-    device: &R::Device,
 ) -> TensorHandle<R, F32> {
     let n_elements = x * y;
-    let client = R::client(device);
 
     let mut data: Vec<f32> = Vec::with_capacity(n_elements);
     for i in 0..y {
@@ -90,12 +87,11 @@ pub(crate) fn range_tensor_transposed<R: Runtime>(
 }
 
 pub(crate) fn zeros_tensor<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     x: usize,
     y: usize,
-    device: &R::Device,
 ) -> TensorHandle<R, F32> {
     let n_elements = x * y;
-    let client = R::client(device);
 
     let data: Vec<f32> = vec![0.; n_elements];
     let handle = client.create(cast_slice(&data));
@@ -104,21 +100,18 @@ pub(crate) fn zeros_tensor<R: Runtime>(
 }
 
 pub(crate) fn create_empty<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     x: usize,
     y: usize,
-    device: &R::Device,
 ) -> Handle<<R as Runtime>::Server> {
-    let client = R::client(device);
     client.empty(x * y * core::mem::size_of::<f32>())
 }
 
 pub(crate) fn assert_equals<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     output: Handle<<R as Runtime>::Server>,
     expected: &[f32],
-    device: &R::Device,
 ) {
-    let client = R::client(device);
-
     let actual = client.read(output.binding());
     let actual = f32::from_bytes(&actual);
 
@@ -126,13 +119,11 @@ pub(crate) fn assert_equals<R: Runtime>(
 }
 
 pub(crate) fn assert_equals_approx<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     output: Handle<<R as Runtime>::Server>,
     expected: &[f32],
     epsilon: f32,
-    device: &R::Device,
 ) {
-    let client = R::client(device);
-
     let actual = client.read(output.binding());
     let actual = f32::from_bytes(&actual);
 
@@ -149,13 +140,11 @@ pub(crate) fn assert_equals_approx<R: Runtime>(
 }
 
 pub(crate) fn assert_equals_range<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
     output: Handle<<R as Runtime>::Server>,
     expected: &[f32],
     range: Range<usize>,
-    device: &R::Device,
 ) {
-    let client = R::client(device);
-
     let actual = client.read(output.binding());
     let actual = f32::from_bytes(&actual);
 

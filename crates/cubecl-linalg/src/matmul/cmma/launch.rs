@@ -1,8 +1,10 @@
 use std::cmp::max;
 
 use cubecl_core::{
-    frontend::{Float, TensorArg, F16},
-    Compiler, Runtime,
+    client::ComputeClient,
+    frontend::{Float, TensorArg, TensorHandleRef, F16},
+    ir::{Elem, FloatKind},
+    Compiler, Feature, Runtime,
 };
 
 use crate::{
@@ -10,35 +12,105 @@ use crate::{
         base::cmma_kernel,
         config::{cmma_cube_count, cmma_cube_dim, CmmaConfig, CmmaLaunchConfig},
     },
-    tensor::{MatrixLayout, TensorHandle},
+    tensor::{matrix_layout, MatrixLayout, TensorHandle},
 };
 
-/// Matrix multiplication using tiling 2d algorithm
+/// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
 pub fn matmul_cmma<R: Runtime, F: Float>(
+    client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, F>,
     rhs: TensorHandle<R, F>,
     out: TensorHandle<R, F>,
-    device: &R::Device,
 ) -> TensorHandle<R, F> {
-    let rank = lhs.rank();
+    matmul_cmma_ref::<R, F>(client, lhs.as_ref(), rhs.as_ref(), out.as_ref());
+    out
+}
+
+#[derive(Debug)]
+pub enum UnavailabilityReason {
+    TransposedInput, // TODO: Support that case.
+    NotMultipleOf4,  // TODO: Support that case.
+    HiglyPermutatedInput,
+    ShapeMemoryLimitBusted,
+    InvalidConfig(String),
+    CmmaInstructionsUnsupported,
+}
+
+/// Checks if the matmul cmma can be used.
+pub fn check_cmma_availability<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    config: Option<&CmmaLaunchConfig>,
+) -> Result<(), UnavailabilityReason> {
+    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
+        MatrixLayout::Contiguous => Ok(()),
+        MatrixLayout::MildlyPermuted {
+            transposed: _,
+            batch_swap: _,
+        } => Err(UnavailabilityReason::TransposedInput),
+        MatrixLayout::HighlyPermuted => Err(UnavailabilityReason::HiglyPermutatedInput),
+    };
+
+    if !client.features().enabled(Feature::Cmma {
+        a: Elem::Float(FloatKind::F16),
+        b: Elem::Float(FloatKind::F16),
+        c: Elem::Float(FloatKind::F32),
+        m: 16,
+        k: 16,
+        n: 16,
+    }) {
+        return Err(UnavailabilityReason::CmmaInstructionsUnsupported);
+    }
+
+    check_layout(&lhs)?;
+    check_layout(&rhs)?;
+
+    let rank = lhs.shape.len();
     let m = lhs.shape[rank - 2];
     let k = lhs.shape[rank - 1];
     let n = rhs.shape[rank - 1];
 
-    let client = R::client(device);
+    if !(m % 4 == 0 && k % 4 == 0 && n % 4 == 0) {
+        return Err(UnavailabilityReason::NotMultipleOf4);
+    }
 
-    let check_layout = |tensor: &TensorHandle<R, F>| match tensor.matrix_layout() {
-        MatrixLayout::Contiguous => {}
-        MatrixLayout::MildlyPermuted {
-            transposed: _,
-            batch_swap: _,
-        } => panic!("Transposed input not supported yet."),
-        MatrixLayout::HighlyPermuted => {
-            panic!("Can't run on highly permuted tensor.")
+    if let Some(config) = config {
+        let (b_m, b_k, b_n) = (
+            config.block_size_m,
+            config.block_size_k,
+            config.block_size_n,
+        );
+
+        if b_k * max(b_m, b_n) > <R::Compiler as Compiler>::max_shared_memory_size() {
+            return Err(UnavailabilityReason::ShapeMemoryLimitBusted);
         }
-    };
-    check_layout(&lhs);
-    check_layout(&rhs);
+
+        if b_m * b_n > <R::Compiler as Compiler>::max_shared_memory_size() {
+            return Err(UnavailabilityReason::ShapeMemoryLimitBusted);
+        }
+
+        if b_k != 2 * config.tile_size {
+            return Err(UnavailabilityReason::InvalidConfig(
+                "Variable tile number per coop_units not supported".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+/// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
+pub fn matmul_cmma_ref<R: Runtime, F: Float>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: TensorHandleRef<'_, R>,
+    rhs: TensorHandleRef<'_, R>,
+    out: TensorHandleRef<'_, R>,
+) {
+    let rank = lhs.strides.len();
+
+    let m = lhs.shape[rank - 2];
+    let k = lhs.shape[rank - 1];
+    let n = rhs.shape[rank - 1];
 
     let vectorization = |shape: usize| {
         [4, 2]
@@ -56,28 +128,6 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
     let cube_count = cmma_cube_count::<R>(&out.shape, 64, 64);
     let cube_dim = cmma_cube_dim();
     let launch_config = CmmaLaunchConfig::default();
-    let (b_m, b_k, b_n) = (
-        launch_config.block_size_m,
-        launch_config.block_size_k,
-        launch_config.block_size_n,
-    );
-
-    assert!(
-        lhs_vectorization == 4 && rhs_vectorization == 4 && out_vectorization == 4,
-        "Only vec4 is supported"
-    );
-    assert!(
-        b_k * max(b_m, b_n) <= <R::Compiler as Compiler>::max_shared_memory_size(),
-        "Shared memory limit will be busted. "
-    );
-    assert!(
-        b_m * b_n <= <R::Compiler as Compiler>::max_shared_memory_size(),
-        "Shared memory limit will be busted. "
-    );
-    assert!(
-        b_k == 2 * launch_config.tile_size,
-        "Variable tile number per coop_units not supported"
-    );
 
     cmma_kernel::launch::<F, F16, R>(
         &client,
@@ -88,6 +138,4 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
         TensorArg::vectorized(out_vectorization, &out.handle, &out.strides, &out.shape),
         CmmaConfig::new(m, k, n, launch_config),
     );
-
-    out
 }

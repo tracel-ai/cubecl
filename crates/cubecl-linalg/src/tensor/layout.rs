@@ -15,7 +15,7 @@ pub enum MatrixLayout {
     HighlyPermuted,
 }
 
-pub fn memory_layout(strides: &[usize]) -> MatrixLayout {
+pub fn matrix_layout(strides: &[usize]) -> MatrixLayout {
     let rank = strides.len();
     if rank <= 1 {
         return MatrixLayout::Contiguous;
@@ -59,13 +59,13 @@ mod tests {
     #[test]
     fn layout_is_contiguous() {
         let strides = &[8, 4, 2, 1];
-        assert_eq!(memory_layout(strides), MatrixLayout::Contiguous);
+        assert_eq!(matrix_layout(strides), MatrixLayout::Contiguous);
     }
 
     #[test]
     fn vector_is_contiguous() {
         let strides = &[1];
-        assert_eq!(memory_layout(strides), MatrixLayout::Contiguous)
+        assert_eq!(matrix_layout(strides), MatrixLayout::Contiguous)
     }
 
     #[test]
@@ -74,7 +74,7 @@ mod tests {
         if let MatrixLayout::MildlyPermuted {
             transposed,
             batch_swap,
-        } = memory_layout(strides)
+        } = matrix_layout(strides)
         {
             assert!(transposed && !batch_swap);
         } else {
@@ -88,7 +88,7 @@ mod tests {
         if let MatrixLayout::MildlyPermuted {
             transposed,
             batch_swap,
-        } = memory_layout(strides)
+        } = matrix_layout(strides)
         {
             assert!(!transposed && batch_swap);
         } else {
@@ -102,7 +102,7 @@ mod tests {
         if let MatrixLayout::MildlyPermuted {
             transposed,
             batch_swap,
-        } = memory_layout(strides)
+        } = matrix_layout(strides)
         {
             assert!(transposed && batch_swap);
         } else {
@@ -113,12 +113,12 @@ mod tests {
     #[test]
     fn layout_has_batch_swapped_with_row() {
         let strides = &[8, 2, 4, 1];
-        assert_eq!(memory_layout(strides), MatrixLayout::HighlyPermuted);
+        assert_eq!(matrix_layout(strides), MatrixLayout::HighlyPermuted);
     }
 
     #[test]
     fn layout_has_batch_swapped_with_col() {
         let strides = &[1, 4, 2, 8];
-        assert_eq!(memory_layout(strides), MatrixLayout::HighlyPermuted);
+        assert_eq!(matrix_layout(strides), MatrixLayout::HighlyPermuted);
     }
 }

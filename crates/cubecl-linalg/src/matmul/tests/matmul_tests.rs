@@ -2,7 +2,7 @@ use cubecl_core::{frontend::F32, CubeElement, Runtime};
 use half::f16;
 
 use crate::{
-    matmul::{cmma::matmul_cmma, tiling2d::matmul_tiling_2d},
+    matmul::{cmma::launch, tiling2d},
     tensor::TensorHandle,
 };
 
@@ -126,13 +126,14 @@ struct MatmulTestCase {
 
 impl MatmulTestCase {
     fn test_tiling2d<R: Runtime>(&self, device: &R::Device) {
+        let client = R::client(device);
         let tensor_1 =
-            range_tensor_with_factor::<R>(self.batch, self.m, self.k, self.factor, device);
+            range_tensor_with_factor::<R>(&client, self.batch, self.m, self.k, self.factor);
         let tensor_2 =
-            range_tensor_with_factor::<R>(self.batch, self.k, self.n, self.factor, device);
+            range_tensor_with_factor::<R>(&client, self.batch, self.k, self.n, self.factor);
         let out = TensorHandle::new_contiguous(
             vec![self.batch, self.m, self.n],
-            create_empty::<R>(self.batch * self.m, self.n, device),
+            create_empty::<R>(&client, self.batch * self.m, self.n),
         );
 
         let expected = self.matmul_cpu(
@@ -140,9 +141,9 @@ impl MatmulTestCase {
             f32::from_bytes(&R::client(device).read(tensor_2.handle.clone().binding())),
         );
 
-        let out = matmul_tiling_2d::<R, F32>(tensor_1, tensor_2, out, Default::default(), device);
+        let out = tiling2d::launch::<R, F32>(&client, tensor_1, tensor_2, out, Default::default());
 
-        assert_equals_approx::<R>(out.handle, &expected, self.epsilon, device);
+        assert_equals_approx::<R>(&client, out.handle, &expected, self.epsilon);
     }
 
     fn test_cmma<R: Runtime>(&self, device: &R::Device) {
@@ -151,23 +152,24 @@ impl MatmulTestCase {
             return;
         }
 
+        let client = R::client(device);
         let tensor_1 =
-            range_tensor_with_factor::<R>(self.batch, self.m, self.k, self.factor, device);
+            range_tensor_with_factor::<R>(&client, self.batch, self.m, self.k, self.factor);
         let tensor_2 =
-            range_tensor_with_factor::<R>(self.batch, self.k, self.n, self.factor, device);
+            range_tensor_with_factor::<R>(&client, self.batch, self.k, self.n, self.factor);
         let out = TensorHandle::new_contiguous(
             vec![self.batch, self.m, self.n],
-            create_empty::<R>(self.batch * self.m, self.n, device),
+            create_empty::<R>(&client, self.batch * self.m, self.n),
         );
 
         let expected = self.matmul_cpu(
-            f32::from_bytes(&R::client(device).read(tensor_1.handle.clone().binding())),
-            f32::from_bytes(&R::client(device).read(tensor_2.handle.clone().binding())),
+            f32::from_bytes(&client.read(tensor_1.handle.clone().binding())),
+            f32::from_bytes(&client.read(tensor_2.handle.clone().binding())),
         );
 
-        let out = matmul_cmma::<R, F32>(tensor_1, tensor_2, out, device);
+        let out = launch::<R, F32>(&client, tensor_1, tensor_2, out);
 
-        assert_equals_approx::<R>(out.handle, &expected, self.epsilon, device);
+        assert_equals_approx::<R>(&client, out.handle, &expected, self.epsilon);
     }
 
     fn matmul_cpu(&self, lhs: &[f32], rhs: &[f32]) -> Vec<f32> {
