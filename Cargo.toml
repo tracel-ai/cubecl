@@ -6,7 +6,7 @@ resolver = "2"
 
 members = [
     "crates/*",
-    "examples/*",
+    "examples/*", "profiling/matmul-example",
     "xtask",
 ]
 
