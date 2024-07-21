@@ -22,7 +22,7 @@ enum CubeMode {
     /// Generates the expanded version of the function
     Default,
     /// Panics and prints the generated code, useful when debugging
-    /// Use by writing #[cube(panic)]
+    /// Use by writing #[cube(debug)]
     Debug,
 }
 
