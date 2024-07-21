@@ -14,7 +14,7 @@ pub struct Comptime<T> {
 }
 
 /// Type that can be used within [Comptime].
-pub trait ComptimeType: CubeType {
+pub trait ComptimeType: CubeType + Into<ExpandElement> {
     /// Create the expand type from the normal type.
     fn into_expand(self) -> Self::ExpandType;
 }

@@ -37,6 +37,12 @@ pub fn comptime_else_then_if<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: C
 }
 
 #[cube]
+pub fn comptime_float() {
+    let comptime_float = Comptime::new(F32::new(0.0));
+    let _runtime_float = Comptime::runtime(comptime_float);
+}
+
+#[cube]
 pub fn comptime_elsif<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: Comptime<bool>) {
     if Comptime::get(cond1) {
         let _ = lhs + T::from_int(4);
