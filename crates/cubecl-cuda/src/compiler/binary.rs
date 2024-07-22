@@ -1,4 +1,4 @@
-use super::{Component, Elem, InstructionSettings, Item, Variable};
+use super::{Component, Elem, Variable};
 use std::fmt::Display;
 
 pub trait Binary {
@@ -9,36 +9,7 @@ pub trait Binary {
         out: &Variable,
     ) -> std::fmt::Result {
         let item = out.item();
-        let settings = Self::settings(*item.elem());
-
-        match item {
-            Item::Vec4(elem) => {
-                if settings.native_vec4 && lhs.item() == rhs.item() {
-                    Self::format_native_vec4(f, lhs, rhs, out, elem)
-                } else {
-                    Self::unroll_vec4(f, lhs, rhs, out, elem)
-                }
-            }
-            Item::Vec3(elem) => {
-                if settings.native_vec3 && lhs.item() == rhs.item() {
-                    Self::format_native_vec3(f, lhs, rhs, out, elem)
-                } else {
-                    Self::unroll_vec3(f, lhs, rhs, out, elem)
-                }
-            }
-            Item::Vec2(elem) => {
-                if settings.native_vec2 && lhs.item() == rhs.item() {
-                    Self::format_native_vec2(f, lhs, rhs, out, elem)
-                } else {
-                    Self::unroll_vec2(f, lhs, rhs, out, elem)
-                }
-            }
-            Item::Scalar(elem) => Self::format_scalar(f, *lhs, *rhs, *out, elem),
-        }
-    }
-
-    fn settings(_elem: Elem) -> InstructionSettings {
-        InstructionSettings::default()
+        Self::unroll_vec(f, lhs, rhs, out, item.elem, item.vectorization.into())
     }
 
     fn format_scalar<Lhs, Rhs, Out>(
@@ -53,78 +24,39 @@ pub trait Binary {
         Rhs: Component,
         Out: Component;
 
-    fn format_native_vec4(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::format_scalar(f, *lhs, *rhs, *out, elem)
-    }
-
-    fn format_native_vec3(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::format_scalar(f, *lhs, *rhs, *out, elem)
-    }
-
-    fn format_native_vec2(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::format_scalar(f, *lhs, *rhs, *out, elem)
-    }
-
-    fn unroll_vec2(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::unroll_vec(f, lhs, rhs, out, elem, 2)
-    }
-
-    fn unroll_vec3(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::unroll_vec(f, lhs, rhs, out, elem, 3)
-    }
-
-    fn unroll_vec4(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::unroll_vec(f, lhs, rhs, out, elem, 4)
-    }
-
     fn unroll_vec(
         f: &mut std::fmt::Formatter<'_>,
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
-        elem: Elem,
+        mut elem: Elem,
         index: usize,
     ) -> core::fmt::Result {
+        if index == 1 {
+            return Self::format_scalar(f, *lhs, *rhs, *out, elem);
+        }
+
+        let lhs_optimized = lhs.optimized();
+        let rhs_optimized = rhs.optimized();
+        let out_optimized = out.optimized();
+        let lhs_elem = lhs_optimized.elem();
+        let optimized = lhs_elem == rhs_optimized.elem()
+            && lhs_elem == out_optimized.elem()
+            && lhs_elem != elem
+            && lhs_optimized.is_optimized();
+
+        let (lhs, rhs, out, index) = if optimized {
+            let factor = lhs.item().vectorization / lhs_optimized.item().vectorization;
+            elem = lhs_elem;
+            (lhs_optimized, rhs_optimized, out_optimized, index / factor)
+        } else {
+            (*lhs, *rhs, *out, index)
+        };
+
         for i in 0..index {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
-            let outi = out.index(i);
+            let lhsi = lhs.index(i, optimized);
+            let rhsi = rhs.index(i, optimized);
+            let outi = out.index(i, optimized);
 
             Self::format_scalar(f, lhsi, rhsi, outi, elem)?;
         }
@@ -158,11 +90,6 @@ macro_rules! operator {
             ) -> std::fmt::Result {
                 f.write_fmt(format_args!("{out} = {lhs} {} {rhs};\n", $op))
             }
-
-            #[allow(unused_variables)]
-            fn settings(elem: Elem) -> InstructionSettings {
-                $vectorization
-            }
         }
     };
 }
@@ -191,11 +118,6 @@ macro_rules! function {
                 _elem: Elem,
             ) -> std::fmt::Result {
                 f.write_fmt(format_args!("{out} = {}({lhs}, {rhs});\n", $op))
-            }
-
-            #[allow(unused_variables)]
-            fn settings(elem: Elem) -> InstructionSettings {
-                $vectorization
             }
         }
     };
@@ -242,18 +164,18 @@ impl Binary for IndexAssign {
         let elem_rhs = rhs.elem();
         // Cast only when necessary.
         if elem != elem_rhs {
-            if let Elem::Bool = elem_rhs {
-                match rhs.item() {
-                    Item::Vec4(_) => {
-                        f.write_fmt(format_args!("{out}[{lhs}] = make_uint4({elem}({rhs}.x), {elem}({rhs}.y), {elem}({rhs}.z), {elem}({rhs}.w));\n"))
-                    },
-                    Item::Vec3(_) => todo!(),
-                    Item::Vec2(_) => todo!(),
-                    Item::Scalar(_) => todo!(),
-                }
-            } else {
-                f.write_fmt(format_args!("{out}[{lhs}] = {elem}({rhs});\n"))
-            }
+            // if let Elem::Bool = elem_rhs {
+            //     match rhs.item() {
+            //         Item::Vec4(_) => {
+            //             f.write_fmt(format_args!("{out}[{lhs}] = make_uint4({elem}({rhs}.x), {elem}({rhs}.y), {elem}({rhs}.z), {elem}({rhs}.w));\n"))
+            //         },
+            //         Item::Vec3(_) => todo!(),
+            //         Item::Vec2(_) => todo!(),
+            //         Item::Scalar(_) => todo!(),
+            //     }
+            // } else {
+            // }
+            f.write_fmt(format_args!("{out}[{lhs}] = {elem}({rhs});\n"))
         } else {
             f.write_fmt(format_args!("{out}[{lhs}] = {rhs};\n"))
         }
@@ -267,9 +189,13 @@ impl Binary for IndexAssign {
         elem: Elem,
         index: usize,
     ) -> std::fmt::Result {
+        if index == 1 {
+            return Self::format_scalar(f, *lhs, *rhs, *out, elem);
+        }
+
         for i in 0..index {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
+            let lhsi = lhs.index(i, false);
+            let rhsi = rhs.index(i, false);
             Self::format_scalar(f, lhsi, rhsi, *out, elem)?;
         }
 
@@ -292,13 +218,9 @@ impl Binary for IndexAssign {
         };
 
         let elem = out.elem();
+        let item = lhs.item();
 
-        match lhs.item() {
-            Item::Vec4(_) => Self::unroll_vec4(f, lhs, rhs, out, elem),
-            Item::Vec3(_) => Self::unroll_vec3(f, lhs, rhs, out, elem),
-            Item::Vec2(_) => Self::unroll_vec2(f, lhs, rhs, out, elem),
-            Item::Scalar(_) => Self::format_scalar(f, *lhs, *rhs, *out, elem),
-        }
+        Self::unroll_vec(f, lhs, rhs, out, elem, item.vectorization.into())
     }
 }
 
@@ -375,8 +297,8 @@ impl IndexVector {
             }
         };
 
-        let out = out.index(index);
-        let lhs = lhs.index(index);
+        let out = out.index(index, false);
+        let lhs = lhs.index(index, false);
 
         f.write_fmt(format_args!("{out} = {lhs};\n"))
     }
@@ -397,8 +319,8 @@ impl IndexAssignVector {
             }
         };
 
-        let out = out.index(index);
-        let rhs = rhs.index(index);
+        let out = out.index(index, false);
+        let rhs = rhs.index(index, false);
 
         f.write_fmt(format_args!("{out} = {rhs};\n"))
     }

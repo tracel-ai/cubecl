@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use cubecl_core::{
     ir::{self as gpu, ConstantScalarValue},
     Compiler,
@@ -22,6 +24,7 @@ pub struct CudaCompiler {
     stride: bool,
     num_inputs: usize,
     num_outputs: usize,
+    items: HashSet<super::Item>,
 }
 
 impl Compiler for CudaCompiler {
@@ -86,6 +89,7 @@ impl CudaCompiler {
             wmma_activated: self.wmma,
             bf16: self.bf16,
             f16: self.f16,
+            items: self.items,
         }
     }
 
@@ -548,13 +552,10 @@ impl CudaCompiler {
     }
 
     fn compile_item(&mut self, item: gpu::Item) -> super::Item {
-        match item.vectorization {
-            4 => super::Item::Vec4(self.compile_elem(item.elem)),
-            3 => super::Item::Vec3(self.compile_elem(item.elem)),
-            2 => super::Item::Vec2(self.compile_elem(item.elem)),
-            1 => super::Item::Scalar(self.compile_elem(item.elem)),
-            _ => panic!("Vectorization factor unsupported {:?}", item.vectorization),
-        }
+        let item = super::Item::new(self.compile_elem(item.elem), item.vectorization.into());
+        self.items.insert(item.clone());
+        self.items.insert(item.optimized());
+        item
     }
 
     fn compile_elem(&mut self, value: gpu::Elem) -> super::Elem {

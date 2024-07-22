@@ -1,6 +1,6 @@
 use super::{Body, Item};
 use cubecl_core::{ir::CubeDim, CompilerRepresentation};
-use std::fmt::Display;
+use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding {
@@ -50,6 +50,7 @@ pub struct ComputeKernel {
     pub wmma_activated: bool,
     pub bf16: bool,
     pub f16: bool,
+    pub items: HashSet<super::Item>,
 }
 
 impl CompilerRepresentation for ComputeKernel {
@@ -57,13 +58,7 @@ impl CompilerRepresentation for ComputeKernel {
         let mut current = 0usize;
 
         for var in self.body.shared_memories.iter() {
-            let factor = match var.item {
-                Item::Vec4(_) => 4,
-                Item::Vec3(_) => 3,
-                Item::Vec2(_) => 2,
-                Item::Scalar(_) => 1,
-            };
-
+            let factor = var.item.vectorization;
             let elem_size_bytes = var.item.elem().size();
             current += (var.size as usize) * factor * elem_size_bytes;
         }
@@ -89,30 +84,35 @@ impl Display for ComputeKernel {
             f.write_str("using namespace nvcuda;\n")?;
         }
 
-        if self.f16 {
-            f.write_str(
-                "
-extern \"C\" struct __half4 {
-    __half x;
-    __half y;
-    __half z;
-    __half w;
-};
-",
-            )?;
+        f.write_str(
+            "
+typedef unsigned int uint;
+            ",
+        )?;
+
+        for item in self.items.iter() {
+            let elem = item.elem;
+            let size = item.vectorization;
+            let alignment = elem.size() * size;
+            if size > 1 {
+                f.write_fmt(format_args!(
+                    "
+struct __align__({alignment}) {item} {{"
+                ))?;
+
+                for i in 0..size {
+                    f.write_fmt(format_args!(
+                        "
+    {elem} i_{i};"
+                    ))?;
+                }
+
+                f.write_str("\n};\n")?;
+            }
         }
 
         f.write_fmt(format_args!(
             "
-typedef unsigned int uint;
-
-extern \"C\" struct bool4 {{
-    bool x;
-    bool y;
-    bool z;
-    bool w;
-}};
-
 
 extern \"C\" __global__ void kernel(
 ",

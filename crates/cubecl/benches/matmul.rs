@@ -80,11 +80,13 @@ fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
 }
 
 fn main() {
-    #[cfg(feature = "wgpu")]
-    run::<cubecl::wgpu::WgpuRuntime, F32>(Default::default(), MatmulKind::Tiling2d);
+    // #[cfg(feature = "wgpu")]
+    // run::<cubecl::wgpu::WgpuRuntime, F32>(Default::default(), MatmulKind::Tiling2d);
+    // #[cfg(feature = "cuda")]
+    // run::<cubecl::cuda::CudaRuntime, F32>(Default::default(), MatmulKind::Tiling2d);
     #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F32>(Default::default(), MatmulKind::Tiling2d);
+    run::<cubecl::cuda::CudaRuntime, F16>(Default::default(), MatmulKind::Tiling2d);
 
-    #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F32>(Default::default(), MatmulKind::Cmma);
+    // #[cfg(feature = "cuda")]
+    // run::<cubecl::cuda::CudaRuntime, F32>(Default::default(), MatmulKind::Cmma);
 }

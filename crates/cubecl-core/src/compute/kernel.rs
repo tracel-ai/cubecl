@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData};
 
 use crate::{codegen::CompilerRepresentation, ir::CubeDim, Compiler, Kernel};
 use alloc::sync::Arc;
@@ -76,6 +76,15 @@ pub enum CubeCount<S: ComputeServer> {
     Static(u32, u32, u32),
     /// Dispatch work groups based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
     Dynamic(Binding<S>),
+}
+
+impl<S: ComputeServer> Debug for CubeCount<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CubeCount::Static(x, y, z) => f.write_fmt(format_args!("({x}, {y}, {z})")),
+            CubeCount::Dynamic(_) => f.write_str("binding"),
+        }
+    }
 }
 
 impl<S: ComputeServer> Clone for CubeCount<S> {

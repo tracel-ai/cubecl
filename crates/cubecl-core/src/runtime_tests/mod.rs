@@ -1,3 +1,4 @@
+pub mod assign;
 pub mod cmma;
 pub mod launch;
 pub mod slice;
@@ -13,5 +14,6 @@ macro_rules! testgen_all {
         cubecl_core::testgen_launch!();
         cubecl_core::testgen_cmma!();
         cubecl_core::testgen_slice!();
+        cubecl_core::testgen_assign!();
     };
 }

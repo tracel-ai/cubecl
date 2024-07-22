@@ -4,30 +4,32 @@ use std::fmt::Display;
 
 use super::Fragment;
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum Elem {
     F32,
     F16,
+    F162,
     BF16,
+    BF162,
     I32,
     U32,
     Bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
-pub enum Item {
-    Vec4(Elem),
-    Vec3(Elem),
-    Vec2(Elem),
-    Scalar(Elem),
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
+pub struct Item {
+    pub(crate) elem: Elem,
+    pub(crate) vectorization: usize,
 }
 
 impl Display for Elem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Elem::F16 => f.write_str("__half"),
+            Elem::F162 => f.write_str("__half2"),
             Elem::F32 => f.write_str("float"),
             Elem::BF16 => f.write_str("__nv_bfloat16"),
+            Elem::BF162 => f.write_str("__nv_bfloat162"),
             Elem::I32 => f.write_str("int"),
             Elem::U32 => f.write_str("uint"),
             Elem::Bool => f.write_str("bool"),
@@ -37,33 +39,11 @@ impl Display for Elem {
 
 impl Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Item::Vec4(elem) => match elem {
-                Elem::F32 => f.write_str("float4"),
-                Elem::I32 => f.write_str("int4"),
-                Elem::U32 => f.write_str("uint4"),
-                Elem::Bool => f.write_str("bool4"),
-                Elem::BF16 => f.write_str("__nv_bfloat164"),
-                Elem::F16 => f.write_str("__half4"),
-            },
-            Item::Vec3(elem) => match elem {
-                Elem::F32 => f.write_str("float3"),
-                Elem::I32 => f.write_str("int3"),
-                Elem::U32 => f.write_str("uint3"),
-                Elem::Bool => f.write_str("bool3"),
-                Elem::BF16 => f.write_str("__nv_bfloat164"),
-                Elem::F16 => f.write_str("__half3"),
-            },
-            Item::Vec2(elem) => match elem {
-                Elem::F32 => f.write_str("float2"),
-                Elem::I32 => f.write_str("int2"),
-                Elem::U32 => f.write_str("uint2"),
-                Elem::Bool => f.write_str("bool2"),
-                Elem::BF16 => f.write_str("__nv_bfloat162"),
-                Elem::F16 => f.write_str("__half2"),
-            },
-            Item::Scalar(elem) => f.write_fmt(format_args!("{elem}")),
+        if 1 == self.vectorization {
+            return f.write_fmt(format_args!("{}", self.elem));
         }
+
+        return f.write_fmt(format_args!("{}_{}", self.elem, self.vectorization));
     }
 }
 
@@ -95,38 +75,38 @@ impl Component for Variable {
                 item,
                 depth: _,
             } => *item,
-            Variable::ConstantScalar(_, e) => Item::Scalar(*e),
-            Variable::GlobalScalar(_, e, _) => Item::Scalar(*e),
-            Variable::IdxGlobal => Item::Scalar(Elem::U32),
-            Variable::ThreadIdxGlobal => Item::Scalar(Elem::U32),
-            Variable::ThreadIdxX => Item::Scalar(Elem::U32),
-            Variable::ThreadIdxY => Item::Scalar(Elem::U32),
-            Variable::ThreadIdxZ => Item::Scalar(Elem::U32),
-            Variable::Rank => Item::Scalar(Elem::U32),
+            Variable::ConstantScalar(_, e) => Item::scalar(*e),
+            Variable::GlobalScalar(_, e, _) => Item::scalar(*e),
+            Variable::IdxGlobal => Item::scalar(Elem::U32),
+            Variable::ThreadIdxGlobal => Item::scalar(Elem::U32),
+            Variable::ThreadIdxX => Item::scalar(Elem::U32),
+            Variable::ThreadIdxY => Item::scalar(Elem::U32),
+            Variable::ThreadIdxZ => Item::scalar(Elem::U32),
+            Variable::Rank => Item::scalar(Elem::U32),
             Variable::LocalScalar {
                 id: _,
                 elem,
                 depth: _,
-            } => Item::Scalar(*elem),
-            Variable::BlockIdxX => Item::Scalar(Elem::U32),
-            Variable::BlockIdxY => Item::Scalar(Elem::U32),
-            Variable::BlockIdxZ => Item::Scalar(Elem::U32),
-            Variable::AbsoluteIdxX => Item::Scalar(Elem::U32),
-            Variable::AbsoluteIdxY => Item::Scalar(Elem::U32),
-            Variable::AbsoluteIdxZ => Item::Scalar(Elem::U32),
-            Variable::BlockDimX => Item::Scalar(Elem::U32),
-            Variable::BlockDimY => Item::Scalar(Elem::U32),
-            Variable::BlockDimZ => Item::Scalar(Elem::U32),
-            Variable::GridDimX => Item::Scalar(Elem::U32),
-            Variable::GridDimY => Item::Scalar(Elem::U32),
-            Variable::GridDimZ => Item::Scalar(Elem::U32),
+            } => Item::scalar(*elem),
+            Variable::BlockIdxX => Item::scalar(Elem::U32),
+            Variable::BlockIdxY => Item::scalar(Elem::U32),
+            Variable::BlockIdxZ => Item::scalar(Elem::U32),
+            Variable::AbsoluteIdxX => Item::scalar(Elem::U32),
+            Variable::AbsoluteIdxY => Item::scalar(Elem::U32),
+            Variable::AbsoluteIdxZ => Item::scalar(Elem::U32),
+            Variable::BlockDimX => Item::scalar(Elem::U32),
+            Variable::BlockDimY => Item::scalar(Elem::U32),
+            Variable::BlockDimZ => Item::scalar(Elem::U32),
+            Variable::GridDimX => Item::scalar(Elem::U32),
+            Variable::GridDimY => Item::scalar(Elem::U32),
+            Variable::GridDimZ => Item::scalar(Elem::U32),
             Variable::LocalArray(_, e, _, _) => *e,
-            Variable::WarpSize => Item::Scalar(Elem::U32),
+            Variable::WarpSize => Item::scalar(Elem::U32),
             Variable::WmmaFragment {
                 id: _,
                 frag,
                 depth: _,
-            } => Item::Scalar(frag.elem),
+            } => Item::scalar(frag.elem),
         }
     }
 }
@@ -242,6 +222,47 @@ impl Display for Variable {
 }
 
 impl Variable {
+    pub fn is_optimized(&self) -> bool {
+        let item = self.item();
+        match item.elem {
+            Elem::F162 => true,
+            Elem::BF162 => true,
+            _ => false,
+        }
+    }
+    pub fn optimized(&self) -> Self {
+        match self {
+            Variable::GlobalInputArray(id, item) => {
+                Variable::GlobalInputArray(*id, item.optimized())
+            }
+            Variable::GlobalOutputArray(id, item) => {
+                Variable::GlobalOutputArray(*id, item.optimized())
+            }
+            Variable::Local { id, item, depth } => Variable::Local {
+                id: *id,
+                item: item.optimized(),
+                depth: *depth,
+            },
+            Variable::Slice { id, item, depth } => Variable::Slice {
+                id: *id,
+                item: item.optimized(),
+                depth: *depth,
+            },
+            Variable::SharedMemory(id, item, size) => Variable::SharedMemory(
+                *id,
+                item.optimized(),
+                size / 2, // TODO: Fix
+            ),
+            Variable::LocalArray(id, item, vec, size) => Variable::LocalArray(
+                *id,
+                item.optimized(),
+                *vec,
+                size / 2, // TODO: Fix
+            ),
+            _ => self.clone(),
+        }
+    }
+
     pub fn is_always_scalar(&self) -> bool {
         match self {
             Variable::GlobalScalar(_, _, _) => true,
@@ -292,54 +313,78 @@ impl Variable {
         }
     }
 
-    pub fn index(&self, index: usize) -> IndexedVariable {
-        IndexedVariable { var: *self, index }
+    pub fn index(&self, index: usize, optimized: bool) -> IndexedVariable {
+        IndexedVariable {
+            var: *self,
+            index,
+            optimized,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct IndexedVariable {
     var: Variable,
+    optimized: bool,
     index: usize,
 }
 
 impl Display for IndexedVariable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let var = &self.var;
-        let item = self.var.item();
 
-        match item {
-            Item::Vec4(_) => match self.index {
-                0 => f.write_fmt(format_args!("{var}.x"))?,
-                1 => f.write_fmt(format_args!("{var}.y"))?,
-                2 => f.write_fmt(format_args!("{var}.z"))?,
-                3 => f.write_fmt(format_args!("{var}.w"))?,
-                _ => unreachable!(),
-            },
-            Item::Vec3(_) => match self.index {
-                0 => f.write_fmt(format_args!("{var}.x"))?,
-                1 => f.write_fmt(format_args!("{var}.y"))?,
-                2 => f.write_fmt(format_args!("{var}.z"))?,
-                _ => unreachable!(),
-            },
-            Item::Vec2(_) => match self.index {
-                0 => f.write_fmt(format_args!("{var}.x"))?,
-                1 => f.write_fmt(format_args!("{var}.y"))?,
-                _ => unreachable!(),
-            },
-            Item::Scalar(_) => f.write_fmt(format_args!("{var}"))?,
+        if self.var.item().vectorization > 1 {
+            if self.optimized {
+                let item = self.var.item();
+                f.write_fmt(format_args!(
+                    "(reinterpret_cast<{item}*>(&{var}))->i_{}",
+                    self.index
+                ))
+            } else {
+                f.write_fmt(format_args!("{var}.i_{}", self.index))
+            }
+        } else {
+            f.write_fmt(format_args!("{var}"))
         }
-
-        Ok(())
     }
 }
 impl Item {
     pub fn elem(&self) -> &Elem {
-        match self {
-            Item::Vec4(e) => e,
-            Item::Vec3(e) => e,
-            Item::Vec2(e) => e,
-            Item::Scalar(e) => e,
+        &self.elem
+    }
+
+    pub fn new(elem: Elem, vectorization: usize) -> Self {
+        Self {
+            elem,
+            vectorization,
+        }
+    }
+    pub fn scalar(elem: Elem) -> Self {
+        Self {
+            elem,
+            vectorization: 1,
+        }
+    }
+
+    pub fn optimized(&self) -> Item {
+        if self.vectorization == 1 {
+            return self.clone();
+        }
+
+        if self.vectorization % 2 != 0 {
+            return self.clone();
+        }
+
+        match self.elem {
+            Elem::F16 => Item {
+                elem: Elem::F162,
+                vectorization: self.vectorization / 2,
+            },
+            Elem::BF16 => Item {
+                elem: Elem::BF162,
+                vectorization: self.vectorization / 2,
+            },
+            _ => self.clone(),
         }
     }
 }
@@ -347,9 +392,11 @@ impl Item {
 impl Elem {
     pub fn size(&self) -> usize {
         match self {
-            Self::F32 => core::mem::size_of::<f32>(),
             Self::F16 => core::mem::size_of::<f16>(),
+            Self::F162 => 2 * core::mem::size_of::<f16>(),
+            Self::BF162 => 2 * core::mem::size_of::<bf16>(),
             Self::BF16 => core::mem::size_of::<bf16>(),
+            Self::F32 => core::mem::size_of::<f32>(),
             Self::I32 => core::mem::size_of::<i32>(),
             Self::U32 => core::mem::size_of::<u32>(),
             Self::Bool => core::mem::size_of::<bool>(),
