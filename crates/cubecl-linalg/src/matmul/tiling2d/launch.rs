@@ -7,7 +7,7 @@ use crate::{
         base::tiling2d_cube_kernel,
         config::{tiling2d_cube_count, tiling2d_cube_dim, CubeTiling2dConfig},
     },
-    tensor::{matrix_layout, MatrixLayout, TensorHandle},
+    tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle},
 };
 
 use super::config::Tiling2dConfig;
@@ -38,6 +38,51 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
             <= <R::Compiler as Compiler>::max_shared_memory_size(),
         "Shared memory limit will be busted. "
     );
+    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
+        MatrixLayout::Contiguous => true,
+        MatrixLayout::MildlyPermuted {
+            transposed: _,
+            batch_swap: _,
+        } => true,
+        MatrixLayout::HighlyPermuted => false,
+    };
+    let lhs_correct_layout = check_layout(&lhs);
+    let rhs_correct_layout = check_layout(&rhs);
+
+    match (lhs_correct_layout, rhs_correct_layout) {
+        (true, true) => matmul_tiling_2d_ref_no_check::<R, F>(client, lhs, rhs, out, config),
+        (true, false) => matmul_tiling_2d_ref_no_check::<R, F>(
+            client,
+            lhs,
+            into_contiguous::<R, F>(client, rhs).as_ref(),
+            out,
+            config,
+        ),
+        (false, true) => matmul_tiling_2d_ref_no_check::<R, F>(
+            client,
+            into_contiguous::<R, F>(client, lhs).as_ref(),
+            rhs,
+            out,
+            config,
+        ),
+        (false, false) => matmul_tiling_2d_ref_no_check::<R, F>(
+            client,
+            into_contiguous::<R, F>(client, lhs).as_ref(),
+            into_contiguous::<R, F>(client, rhs).as_ref(),
+            out,
+            config,
+        ),
+    }
+}
+
+/// Matrix multiplication using tiling 2d algorithm.
+fn matmul_tiling_2d_ref_no_check<R: Runtime, F: Float>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: TensorHandleRef<'_, R>,
+    rhs: TensorHandleRef<'_, R>,
+    out: TensorHandleRef<'_, R>,
+    config: Tiling2dConfig,
+) {
     let rank = lhs.strides.len();
 
     let m = lhs.shape[rank - 2];
@@ -58,7 +103,8 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
     let rhs_transposed = check_layout(rhs.strides);
 
     let vectorization = |shape: usize| {
-        [].into_iter()
+        [4, 2]
+            .into_iter()
             .filter(|v| shape % v == 0)
             .map(|v| v as u8)
             .next()
