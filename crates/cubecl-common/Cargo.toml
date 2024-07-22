@@ -12,7 +12,7 @@ version.workspace = true
 
 [features]
 default = ["std"]
-std = ["rand/std"]
+std = ["rand/std", "pollster"]
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
@@ -24,7 +24,7 @@ spin = { workspace = true }                      # using in place of use std::sy
 derive-new = { workspace = true }
 serde = { workspace = true }
 rand = { workspace = true }
-pollster = { workspace = true }
+pollster = { workspace = true, optional = true }
 
 [dev-dependencies]
 dashmap = { workspace = true }

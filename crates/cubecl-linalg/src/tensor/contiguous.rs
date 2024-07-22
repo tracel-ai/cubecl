@@ -62,7 +62,7 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
     let vectorization_factor =
-        tensor_vectorization_factor(&[4, 2], &input.shape, &input.strides, rank - 1);
+        tensor_vectorization_factor(&[4, 2], input.shape, input.strides, rank - 1);
 
     let num_elems: usize = input.shape.iter().product();
     let cube_count = calculate_cube_count_elemwise(
@@ -73,14 +73,14 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
     into_contiguous_kernel::launch::<E, R>(
-        &client,
+        client,
         cube_count,
         CubeDim::default(),
         TensorArg::vectorized(
             vectorization_factor,
-            &input.handle,
-            &input.strides,
-            &input.shape,
+            input.handle,
+            input.strides,
+            input.shape,
         ),
         TensorArg::vectorized(
             vectorization_factor,
