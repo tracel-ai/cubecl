@@ -96,6 +96,13 @@ macro_rules! impl_float {
             }
         }
 
+        impl From<$type> for ExpandElement {
+            fn from(value: $type) -> Self {
+                let constant = $type::as_elem().from_constant(value.val.into());
+                ExpandElement::Plain(constant)
+            }
+        }
+
         impl Numeric for $type {
             type Primitive = $primitive;
         }
