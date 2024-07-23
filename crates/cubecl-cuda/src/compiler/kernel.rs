@@ -91,6 +91,14 @@ typedef unsigned int uint;
         )?;
 
         for item in self.items.iter() {
+            if item.vectorization == 2 {
+                match item.elem {
+                    super::Elem::BF16 => continue,
+                    super::Elem::F16 => continue,
+                    _ => (),
+                };
+            }
+
             let elem = item.elem;
             let size = item.vectorization;
             let alignment = elem.size() * size;

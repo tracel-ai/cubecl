@@ -8,7 +8,7 @@ pub trait Binary {
         rhs: &Variable,
         out: &Variable,
     ) -> std::fmt::Result {
-        let item = out.item();
+        let item = out.item().de_optimized();
         Self::unroll_vec(f, lhs, rhs, out, item.elem, item.vectorization.into())
     }
 
@@ -29,34 +29,24 @@ pub trait Binary {
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
-        mut elem: Elem,
+        elem: Elem,
         index: usize,
     ) -> core::fmt::Result {
         if index == 1 {
             return Self::format_scalar(f, *lhs, *rhs, *out, elem);
         }
 
-        let lhs_optimized = lhs.optimized();
-        let rhs_optimized = rhs.optimized();
-        let out_optimized = out.optimized();
-        let lhs_elem = lhs_optimized.elem();
-        let optimized = lhs_elem == rhs_optimized.elem()
-            && lhs_elem == out_optimized.elem()
-            && lhs_elem != elem
-            && lhs_optimized.is_optimized();
-
-        let (lhs, rhs, out, index) = if optimized {
-            let factor = lhs.item().vectorization / lhs_optimized.item().vectorization;
-            elem = lhs_elem;
-            (lhs_optimized, rhs_optimized, out_optimized, index / factor)
-        } else {
-            (*lhs, *rhs, *out, index)
+        let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
+        let [lhs, rhs, out] = optimized.args;
+        let (is_optimized, index) = match optimized.optimization_factor {
+            Some(factor) => (true, index / factor),
+            None => (false, index),
         };
 
         for i in 0..index {
-            let lhsi = lhs.index(i, optimized);
-            let rhsi = rhs.index(i, optimized);
-            let outi = out.index(i, optimized);
+            let lhsi = lhs.index(i, is_optimized);
+            let rhsi = rhs.index(i, is_optimized);
+            let outi = out.index(i, is_optimized);
 
             Self::format_scalar(f, lhsi, rhsi, outi, elem)?;
         }

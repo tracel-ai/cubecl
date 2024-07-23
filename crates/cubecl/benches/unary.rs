@@ -1,6 +1,4 @@
-use cubecl::{
-    calculate_cube_count_elemwise, prelude::*, tensor_vectorization_factor, SUBCUBE_DIM_APPROX,
-};
+use cubecl::{calculate_cube_count_elemwise, prelude::*};
 use std::marker::PhantomData;
 
 use cubecl::benchmark::Benchmark;
@@ -11,8 +9,8 @@ use cubecl_linalg::tensor::TensorHandle;
 #[cube(launch)]
 fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
     if ABSOLUTE_POS < out.len() {
-        for i in range(0, 160, Comptime::new(false)) {
-            out[ABSOLUTE_POS] += F::erf(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS] + F::cast_from(i));
+        for _ in range(0, 256, Comptime::new(false)) {
+            out[ABSOLUTE_POS] += F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
         }
     }
 }
@@ -22,9 +20,9 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
 
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
-        let lhs = TensorHandle::zeros(client.clone(), self.shape.clone());
-        let rhs = TensorHandle::zeros(client.clone(), self.shape.clone());
-        let out = TensorHandle::zeros(client.clone(), self.shape.clone());
+        let lhs = TensorHandle::zeros(&client, self.shape.clone());
+        let rhs = TensorHandle::zeros(&client, self.shape.clone());
+        let out = TensorHandle::zeros(&client, self.shape.clone());
 
         (lhs, rhs, out)
     }
@@ -46,7 +44,7 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     }
 
     fn num_samples(&self) -> usize {
-        10
+        100
     }
 
     fn name(&self) -> String {
@@ -95,17 +93,11 @@ fn run<R: Runtime, E: Float>(device: R::Device, vectorization: u8) {
 
 fn main() {
     #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F32>(Default::default(), 1);
+    run::<cubecl::cuda::CudaRuntime, F16>(Default::default(), 8);
     #[cfg(feature = "cuda")]
     run::<cubecl::cuda::CudaRuntime, F32>(Default::default(), 4);
-    #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F16>(Default::default(), 1);
-    #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F16>(Default::default(), 4);
-    #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F16>(Default::default(), 8);
+    #[cfg(feature = "wgpu")]
+    run::<cubecl::wgpu::WgpuRuntime, F32>(Default::default(), 1);
     #[cfg(feature = "wgpu")]
     run::<cubecl::wgpu::WgpuRuntime, F32>(Default::default(), 4);
-    // #[cfg(feature = "cuda")]
-    // run::<cubecl::cuda::CudaRuntime, F16>(Default::default(), 8);
 }

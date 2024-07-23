@@ -43,6 +43,14 @@ impl Display for Item {
             return f.write_fmt(format_args!("{}", self.elem));
         }
 
+        if 2 == self.vectorization {
+            match self.elem {
+                Elem::F16 => return f.write_fmt(format_args!("{}", Elem::F162)),
+                Elem::BF16 => return f.write_fmt(format_args!("{}", Elem::BF162)),
+                _ => (),
+            }
+        }
+
         return f.write_fmt(format_args!("{}_{}", self.elem, self.vectorization));
     }
 }
@@ -221,6 +229,12 @@ impl Display for Variable {
     }
 }
 
+#[derive(new)]
+pub struct OptimizedArgs<const N: usize> {
+    pub args: [Variable; N],
+    pub optimization_factor: Option<usize>,
+}
+
 impl Variable {
     pub fn is_optimized(&self) -> bool {
         let item = self.item();
@@ -230,6 +244,34 @@ impl Variable {
             _ => false,
         }
     }
+
+    pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N> {
+        let args_after = args.map(|a| a.optimized());
+
+        let item_reference_after = args_after[0].item();
+
+        let is_optimized = args_after
+            .iter()
+            .all(|var| var.elem() == item_reference_after.elem && var.is_optimized());
+
+        if is_optimized {
+            let vectorization_before = args
+                .iter()
+                .map(|var| var.item().vectorization)
+                .max()
+                .unwrap();
+            let vectorization_after = args_after
+                .iter()
+                .map(|var| var.item().vectorization)
+                .max()
+                .unwrap();
+
+            OptimizedArgs::new(args_after, Some(vectorization_before / vectorization_after))
+        } else {
+            OptimizedArgs::new(args, None)
+        }
+    }
+
     pub fn optimized(&self) -> Self {
         match self {
             Variable::GlobalInputArray(id, item) => {
@@ -351,6 +393,14 @@ impl Display for IndexedVariable {
 impl Item {
     pub fn elem(&self) -> &Elem {
         &self.elem
+    }
+
+    pub fn de_optimized(&self) -> Self {
+        match self.elem {
+            Elem::F162 => Item::new(Elem::F16, self.vectorization * 2),
+            Elem::BF162 => Item::new(Elem::BF16, self.vectorization * 2),
+            _ => return *self,
+        }
     }
 
     pub fn new(elem: Elem, vectorization: usize) -> Self {

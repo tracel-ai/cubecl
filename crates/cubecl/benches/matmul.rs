@@ -13,9 +13,9 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     fn prepare(&self) -> Self::Args {
         let (b, m, k, n) = (self.b, self.m, self.k, self.n);
         let client = R::client(&self.device);
-        let lhs = TensorHandle::zeros(client.clone(), vec![b, m, k]);
-        let rhs = TensorHandle::zeros(client.clone(), vec![b, k, n]);
-        let out = TensorHandle::zeros(client.clone(), vec![b, m, n]);
+        let lhs = TensorHandle::zeros(&client, vec![b, m, k]);
+        let rhs = TensorHandle::zeros(&client, vec![b, k, n]);
+        let out = TensorHandle::zeros(&client, vec![b, m, n]);
 
         (lhs, rhs, out)
     }

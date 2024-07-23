@@ -3,6 +3,7 @@ pub mod cmma;
 pub mod launch;
 pub mod slice;
 pub mod subcube;
+pub mod topology;
 
 #[allow(missing_docs)]
 #[macro_export]
@@ -15,5 +16,6 @@ macro_rules! testgen_all {
         cubecl_core::testgen_cmma!();
         cubecl_core::testgen_slice!();
         cubecl_core::testgen_assign!();
+        cubecl_core::testgen_topology!();
     };
 }

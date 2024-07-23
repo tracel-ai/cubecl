@@ -29,23 +29,16 @@ pub trait Unary {
         elem: Elem,
         index: usize,
     ) -> std::fmt::Result {
-        if index == 1 {
-            return Self::format_scalar(f, *input, *out, elem);
-        }
-
-        // let input_optimized = input.optimized();
-        // let output_optimized = out.optimized();
-        // let optimized = input_optimized.elem() == output_optimized.elem();
-
-        // let (input, out) = if optimized {
-        //     (input_optimized, output_optimized)
-        // } else {
-        //     (*input, *out)
-        // };
+        let optimized = Variable::optimized_args([*input, *out]);
+        let [input, out] = optimized.args;
+        let (is_optimized, index, elem) = match optimized.optimization_factor {
+            Some(factor) => (true, index / factor, out.elem()),
+            None => (false, index, elem),
+        };
 
         for i in 0..index {
-            let inputi = input.index(i, false);
-            let outi = out.index(i, false);
+            let inputi = input.index(i, is_optimized);
+            let outi = out.index(i, is_optimized);
 
             Self::format_scalar(f, inputi, outi, elem)?;
         }
@@ -63,9 +56,16 @@ macro_rules! function {
                 f: &mut std::fmt::Formatter<'_>,
                 input: Input,
                 out: Out,
-                _elem: Elem,
+                elem: Elem,
             ) -> std::fmt::Result {
-                f.write_fmt(format_args!("{out} = {}({input});\n", $func))
+                match elem {
+                    Elem::F16 => f.write_fmt(format_args!("{out} = h{}({input});\n", $func)),
+                    Elem::F162 => f.write_fmt(format_args!("{out} = h2{}({input});\n", $func)),
+                    Elem::BF16 => f.write_fmt(format_args!("{out} = h{}({input});\n", $func)),
+                    Elem::BF162 => f.write_fmt(format_args!("{out} = h2{}({input});\n", $func)),
+                    Elem::F32 => f.write_fmt(format_args!("{out} = __{}f({input});\n", $func)),
+                    _ => f.write_fmt(format_args!("{out} = {}({input});\n", $func)),
+                }
             }
         }
     };

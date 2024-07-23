@@ -188,6 +188,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
 
     fn compile_kernel(&mut self, kernel_id: &str, kernel: Box<dyn CubeTask>, arch: i32) {
         let kernel_compiled = kernel.compile();
+        // println!("{}", kernel_compiled.source);
         let shared_mem_bytes = kernel_compiled.shared_mem_bytes;
         let cube_dim = kernel_compiled.cube_dim;
         let arch = format!("--gpu-architecture=sm_{}", arch);
