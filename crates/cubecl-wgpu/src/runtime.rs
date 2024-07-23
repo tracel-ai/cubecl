@@ -155,6 +155,10 @@ pub async fn select_device<G: GraphicsApi>(
                 label: None,
                 required_features: adapter.features(),
                 required_limits: limits,
+                // The default is MemoryHints::Performance, which tries to do some bigger
+                // block allocations. However, we already batch allocations, so we
+                // can use MemoryHints::MemoryUsage to lower memory usage.
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
             },
             None,
         )
