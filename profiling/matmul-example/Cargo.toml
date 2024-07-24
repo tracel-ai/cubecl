@@ -10,9 +10,9 @@ cubecl = { version = "0.1.0", path = "../../crates/cubecl", features = [
     "cuda",
     "linalg",
 ], optional = true }
-burn = { version = "0.13.2", optional = true, features = ["tch"] }
-burn-tensor = { version = "0.13.2", optional = true }
+burn = { git = "https://github.com/tracel-ai/burn", optional = true, features = ["tch"] }
+burn-tensor = { git = "https://github.com/tracel-ai/burn", optional = true }
 
 [features]
-burn-tch-cuda = ["burn", "burn-tensor"]
+burn-tch-cuda = ["burn"]
 cube-cuda = ["cubecl"]

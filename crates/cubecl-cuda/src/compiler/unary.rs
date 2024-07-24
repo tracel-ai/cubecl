@@ -1,4 +1,4 @@
-use super::{Component, Elem, InstructionSettings, Item, Variable};
+use super::{Component, Elem, Variable};
 use std::fmt::Display;
 
 pub trait Unary {
@@ -8,36 +8,8 @@ pub trait Unary {
         out: &Variable,
     ) -> std::fmt::Result {
         let item = out.item();
-        let settings = Self::settings(*item.elem());
 
-        match item {
-            Item::Vec4(elem) => {
-                if settings.native_vec4 {
-                    Self::format_native_vec4(f, input, out, elem)
-                } else {
-                    Self::unroll_vec4(f, input, out, elem)
-                }
-            }
-            Item::Vec3(elem) => {
-                if settings.native_vec3 {
-                    Self::format_native_vec3(f, input, out, elem)
-                } else {
-                    Self::unroll_vec3(f, input, out, elem)
-                }
-            }
-            Item::Vec2(elem) => {
-                if settings.native_vec2 {
-                    Self::format_native_vec2(f, input, out, elem)
-                } else {
-                    Self::unroll_vec2(f, input, out, elem)
-                }
-            }
-            Item::Scalar(elem) => Self::format_scalar(f, *input, *out, elem),
-        }
-    }
-
-    fn settings(_elem: Elem) -> InstructionSettings {
-        InstructionSettings::default()
+        Self::unroll_vec(f, input, out, item.elem, item.vectorization)
     }
 
     fn format_scalar<Input, Out>(
@@ -50,60 +22,6 @@ pub trait Unary {
         Input: Component,
         Out: Component;
 
-    fn format_native_vec4(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::format_scalar(f, *input, *out, elem)
-    }
-
-    fn format_native_vec3(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::format_scalar(f, *input, *out, elem)
-    }
-
-    fn format_native_vec2(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::format_scalar(f, *input, *out, elem)
-    }
-
-    fn unroll_vec2(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::unroll_vec(f, input, out, elem, 2)
-    }
-
-    fn unroll_vec3(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::unroll_vec(f, input, out, elem, 3)
-    }
-
-    fn unroll_vec4(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
-        elem: Elem,
-    ) -> std::fmt::Result {
-        Self::unroll_vec(f, input, out, elem, 4)
-    }
-
     fn unroll_vec(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable,
@@ -111,9 +29,16 @@ pub trait Unary {
         elem: Elem,
         index: usize,
     ) -> std::fmt::Result {
+        let optimized = Variable::optimized_args([*input, *out]);
+        let [input, out] = optimized.args;
+        let (is_optimized, index, elem) = match optimized.optimization_factor {
+            Some(factor) => (true, index / factor, out.elem()),
+            None => (false, index, elem),
+        };
+
         for i in 0..index {
-            let inputi = input.index(i);
-            let outi = out.index(i);
+            let inputi = input.index(i, is_optimized);
+            let outi = out.index(i, is_optimized);
 
             Self::format_scalar(f, inputi, outi, elem)?;
         }
@@ -131,9 +56,16 @@ macro_rules! function {
                 f: &mut std::fmt::Formatter<'_>,
                 input: Input,
                 out: Out,
-                _elem: Elem,
+                elem: Elem,
             ) -> std::fmt::Result {
-                f.write_fmt(format_args!("{out} = {}({input});\n", $func))
+                match elem {
+                    Elem::F16 => f.write_fmt(format_args!("{out} = h{}({input});\n", $func)),
+                    Elem::F162 => f.write_fmt(format_args!("{out} = h2{}({input});\n", $func)),
+                    Elem::BF16 => f.write_fmt(format_args!("{out} = h{}({input});\n", $func)),
+                    Elem::BF162 => f.write_fmt(format_args!("{out} = h2{}({input});\n", $func)),
+                    Elem::F32 => f.write_fmt(format_args!("{out} = __{}f({input});\n", $func)),
+                    _ => f.write_fmt(format_args!("{out} = {}({input});\n", $func)),
+                }
             }
         }
     };

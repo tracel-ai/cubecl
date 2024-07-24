@@ -36,3 +36,7 @@ cubecl-linalg = { path = "../cubecl-linalg", version = "0.1.1", default-features
 [[bench]]
 name = "matmul"
 harness = false
+
+[[bench]]
+name = "unary"
+harness = false
