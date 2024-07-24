@@ -1,0 +1,18 @@
+[package]
+name = "matmul-example"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]
+cubecl = { version = "0.1.0", path = "../../crates/cubecl", features = [
+    "cuda",
+    "linalg",
+], optional = true }
+burn = { version = "0.13.2", optional = true, features = ["tch"] }
+burn-tensor = { version = "0.13.2", optional = true }
+
+[features]
+burn-tch-cuda = ["burn", "burn-tensor"]
+cube-cuda = ["cubecl"]
