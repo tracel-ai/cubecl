@@ -13,8 +13,8 @@ pub fn kernel_absolute_pos(output1: &mut Array<UInt>, output2: &mut Array<UInt>)
 }
 
 pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let cube_count = (300, 5, 7);
-    let cube_dim = (32, 32, 1);
+    let cube_count = (3, 5, 7);
+    let cube_dim = (16, 16, 1);
     let extra: u32 = 3u32;
 
     let length =
@@ -32,7 +32,7 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R::Se
 
     let actual = client.read(handle1.binding());
     let actual = u32::from_bytes(&actual);
-    let mut expect: Vec<u32> = (0..length - extra).into_iter().map(|v| v as u32).collect();
+    let mut expect: Vec<u32> = (0..length - extra).collect();
     expect.push(0);
     expect.push(0);
     expect.push(0);

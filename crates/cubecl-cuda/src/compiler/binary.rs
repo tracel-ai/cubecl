@@ -9,7 +9,7 @@ pub trait Binary {
         out: &Variable,
     ) -> std::fmt::Result {
         let item = out.item().de_optimized();
-        Self::unroll_vec(f, lhs, rhs, out, item.elem, item.vectorization.into())
+        Self::unroll_vec(f, lhs, rhs, out, item.elem, item.vectorization)
     }
 
     fn format_scalar<Lhs, Rhs, Out>(
@@ -144,31 +144,14 @@ impl Binary for IndexAssign {
         lhs: Lhs,
         rhs: Rhs,
         out: Out,
-        elem: Elem,
+        _elem: Elem,
     ) -> std::fmt::Result
     where
         Lhs: Component,
         Rhs: Component,
         Out: Component,
     {
-        let elem_rhs = rhs.elem();
-        // Cast only when necessary.
-        if elem != elem_rhs {
-            // if let Elem::Bool = elem_rhs {
-            //     match rhs.item() {
-            //         Item::Vec4(_) => {
-            //             f.write_fmt(format_args!("{out}[{lhs}] = make_uint4({elem}({rhs}.x), {elem}({rhs}.y), {elem}({rhs}.z), {elem}({rhs}.w));\n"))
-            //         },
-            //         Item::Vec3(_) => todo!(),
-            //         Item::Vec2(_) => todo!(),
-            //         Item::Scalar(_) => todo!(),
-            //     }
-            // } else {
-            // }
-            f.write_fmt(format_args!("{out}[{lhs}] = {elem}({rhs});\n"))
-        } else {
-            f.write_fmt(format_args!("{out}[{lhs}] = {rhs};\n"))
-        }
+        f.write_fmt(format_args!("{out}[{lhs}] = {rhs};\n"))
     }
 
     fn unroll_vec(
@@ -210,7 +193,7 @@ impl Binary for IndexAssign {
         let elem = out.elem();
         let item = lhs.item();
 
-        Self::unroll_vec(f, lhs, rhs, out, elem, item.vectorization.into())
+        Self::unroll_vec(f, lhs, rhs, out, elem, item.vectorization)
     }
 }
 

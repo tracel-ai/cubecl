@@ -43,12 +43,9 @@ impl Display for Item {
             return f.write_fmt(format_args!("{}", self.elem));
         }
 
-        if 2 == self.vectorization {
-            match self.elem {
-                Elem::F16 => return f.write_fmt(format_args!("{}", Elem::F162)),
-                Elem::BF16 => return f.write_fmt(format_args!("{}", Elem::BF162)),
-                _ => (),
-            }
+        if self.is_vec_native() {
+            let elem = self.optimized().elem;
+            return f.write_fmt(format_args!("{elem}"));
         }
 
         return f.write_fmt(format_args!("{}_{}", self.elem, self.vectorization));
@@ -237,12 +234,7 @@ pub struct OptimizedArgs<const N: usize> {
 
 impl Variable {
     pub fn is_optimized(&self) -> bool {
-        let item = self.item();
-        match item.elem {
-            Elem::F162 => true,
-            Elem::BF162 => true,
-            _ => false,
-        }
+        self.item().is_optimized()
     }
 
     pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N> {
@@ -290,18 +282,23 @@ impl Variable {
                 item: item.optimized(),
                 depth: *depth,
             },
-            Variable::SharedMemory(id, item, size) => Variable::SharedMemory(
-                *id,
-                item.optimized(),
-                size / 2, // TODO: Fix
-            ),
-            Variable::LocalArray(id, item, vec, size) => Variable::LocalArray(
-                *id,
-                item.optimized(),
-                *vec,
-                size / 2, // TODO: Fix
-            ),
-            _ => self.clone(),
+            Variable::SharedMemory(id, item, size) => {
+                let before = item.vectorization;
+                let item = item.optimized();
+                let after = item.vectorization;
+                let scaling = (before / after) as u32;
+
+                Variable::SharedMemory(*id, item, size / scaling)
+            }
+            Variable::LocalArray(id, item, vec, size) => {
+                let before = item.vectorization;
+                let item = item.optimized();
+                let after = item.vectorization;
+                let scaling = (before / after) as u32;
+
+                Variable::LocalArray(*id, item.optimized(), *vec, size / scaling)
+            }
+            _ => *self,
         }
     }
 
@@ -399,7 +396,7 @@ impl Item {
         match self.elem {
             Elem::F162 => Item::new(Elem::F16, self.vectorization * 2),
             Elem::BF162 => Item::new(Elem::BF16, self.vectorization * 2),
-            _ => return *self,
+            _ => *self,
         }
     }
 
@@ -416,13 +413,27 @@ impl Item {
         }
     }
 
+    pub fn is_optimized(&self) -> bool {
+        matches!(self.elem, Elem::F162 | Elem::BF162)
+    }
+
+    pub fn is_vec_native(&self) -> bool {
+        match &self.elem {
+            Elem::F16 => self.vectorization == 2,
+            Elem::BF16 => self.vectorization == 2,
+            Elem::F162 => self.vectorization == 1,
+            Elem::BF162 => self.vectorization == 1,
+            _ => false,
+        }
+    }
+
     pub fn optimized(&self) -> Item {
         if self.vectorization == 1 {
-            return self.clone();
+            return *self;
         }
 
         if self.vectorization % 2 != 0 {
-            return self.clone();
+            return *self;
         }
 
         match self.elem {
@@ -434,7 +445,7 @@ impl Item {
                 elem: Elem::BF162,
                 vectorization: self.vectorization / 2,
             },
-            _ => self.clone(),
+            _ => *self,
         }
     }
 }

@@ -291,7 +291,7 @@ impl Fma {
         c: &Variable,
         out: &Variable,
     ) -> core::fmt::Result {
-        let num = out.item().vectorization as usize;
+        let num = out.item().vectorization;
 
         for i in 0..num {
             let ai = a.index(i, false);

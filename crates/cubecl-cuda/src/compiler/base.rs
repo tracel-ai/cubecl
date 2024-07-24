@@ -553,7 +553,7 @@ impl CudaCompiler {
 
     fn compile_item(&mut self, item: gpu::Item) -> super::Item {
         let item = super::Item::new(self.compile_elem(item.elem), item.vectorization.into());
-        self.items.insert(item.clone());
+        self.items.insert(item);
         self.items.insert(item.optimized());
         item
     }

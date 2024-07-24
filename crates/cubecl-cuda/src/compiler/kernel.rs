@@ -91,12 +91,8 @@ typedef unsigned int uint;
         )?;
 
         for item in self.items.iter() {
-            if item.vectorization == 2 {
-                match item.elem {
-                    super::Elem::BF16 => continue,
-                    super::Elem::F16 => continue,
-                    _ => (),
-                };
+            if item.is_vec_native() {
+                continue;
             }
 
             let elem = item.elem;
