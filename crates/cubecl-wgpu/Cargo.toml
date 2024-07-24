@@ -27,7 +27,7 @@ cubecl-common = { path = "../cubecl-common", version = "0.1.1" }
 cubecl-core = { path = "../cubecl-core", version = "0.1.1" }
 
 bytemuck = { workspace = true }
-wgpu = { version = "0.20.1", features = ["fragile-send-sync-non-atomic-wasm"] }
+wgpu = { version = "22.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
 pollster = { workspace = true }
 
 log = { workspace = true }
