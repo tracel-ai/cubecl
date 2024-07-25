@@ -27,6 +27,7 @@ impl ExpandElementBaseInit for UInt {
 }
 
 impl CubePrimitive for UInt {
+    type Primitive = u32;
     fn as_elem() -> Elem {
         Elem::UInt
     }
@@ -48,9 +49,7 @@ impl ScalarArgSettings for u32 {
     }
 }
 
-impl Numeric for UInt {
-    type Primitive = u32;
-}
+impl Numeric for UInt {}
 
 impl UInt {
     pub const fn new(val: u32) -> Self {

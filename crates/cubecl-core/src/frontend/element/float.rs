@@ -77,6 +77,7 @@ macro_rules! impl_float {
         }
 
         impl CubePrimitive for $type {
+            type Primitive = $primitive;
             /// Return the element type to use on GPU
             fn as_elem() -> Elem {
                 Elem::Float(FloatKind::$type)
@@ -103,9 +104,7 @@ macro_rules! impl_float {
             }
         }
 
-        impl Numeric for $type {
-            type Primitive = $primitive;
-        }
+        impl Numeric for $type {}
 
         impl From<u32> for $type {
             fn from(val: u32) -> Self {

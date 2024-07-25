@@ -1,17 +1,12 @@
-use crate::compute::KernelLauncher;
 use crate::frontend::{CubeContext, CubePrimitive, CubeType};
 use crate::ir::{Item, Variable};
 use crate::prelude::Clamp;
-use crate::Runtime;
 use crate::{
     frontend::{index_assign, Abs, Max, Min, Remainder},
     unexpanded,
 };
 
-use super::{
-    ArgSettings, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg,
-    LaunchArgExpand, UInt, I64,
-};
+use super::{ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand, UInt, I64};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -62,8 +57,6 @@ pub trait Numeric:
         unexpanded!()
     }
 
-    type Primitive: ScalarArgSettings;
-
     fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {
         unexpanded!()
     }
@@ -99,26 +92,4 @@ pub trait Numeric:
 
         new_var.into()
     }
-}
-
-/// Similar to [ArgSettings], however only for scalar types that don't depend on the [Runtime]
-/// trait.
-pub trait ScalarArgSettings: Send + Sync {
-    /// Register the information to the [KernelLauncher].
-    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
-}
-
-#[derive(new)]
-pub struct ScalarArg<T: Numeric> {
-    elem: T::Primitive,
-}
-
-impl<T: Numeric, R: Runtime> ArgSettings<R> for ScalarArg<T> {
-    fn register(&self, launcher: &mut crate::compute::KernelLauncher<R>) {
-        self.elem.register(launcher);
-    }
-}
-
-impl<T: Numeric> LaunchArg for T {
-    type RuntimeArg<'a, R: Runtime> = ScalarArg<T>;
 }

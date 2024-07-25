@@ -8,6 +8,7 @@ mod context;
 mod element;
 mod indexation;
 mod operation;
+mod procedure;
 mod subcube;
 mod topology;
 
@@ -15,5 +16,6 @@ pub use comptime::*;
 pub use context::*;
 pub use element::*;
 pub use operation::*;
+pub use procedure::*;
 pub use subcube::*;
 pub use topology::*;

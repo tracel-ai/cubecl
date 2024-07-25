@@ -57,6 +57,7 @@ macro_rules! impl_int {
         }
 
         impl CubePrimitive for $type {
+            type Primitive = $primitive;
             fn as_elem() -> Elem {
                 Elem::Int(IntKind::$type)
             }
@@ -100,9 +101,7 @@ macro_rules! impl_int {
             }
         }
 
-        impl Numeric for $type {
-            type Primitive = $primitive;
-        }
+        impl Numeric for $type {}
 
         impl ExpandElementBaseInit for $type {
             fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
