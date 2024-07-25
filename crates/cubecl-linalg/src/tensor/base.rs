@@ -108,7 +108,7 @@ where
     R: Runtime,
     E: Numeric,
 {
-    pub fn zeros(client: ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
+    pub fn zeros(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
         let num_elements: usize = shape.iter().product();
         let size = E::as_elem().size();
 
@@ -125,7 +125,7 @@ where
         );
 
         init::zeros_array::launch::<E, R>(
-            &client,
+            client,
             cube_count,
             cube_dim,
             ArrayArg::new(&handle, num_elements),
@@ -141,8 +141,10 @@ pub(crate) mod init {
 
     #[cube(launch)]
     pub fn zeros_array<C: Numeric>(output: &mut Array<C>) {
-        if ABSOLUTE_POS < output.len() {
-            output[ABSOLUTE_POS] = C::from_int(0);
+        if ABSOLUTE_POS >= output.len() {
+            return;
         }
+
+        output[ABSOLUTE_POS] = C::from_int(0);
     }
 }
