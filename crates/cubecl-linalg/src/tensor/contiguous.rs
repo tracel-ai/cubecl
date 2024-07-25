@@ -1,6 +1,4 @@
-use cubecl_core::{
-    self as cubecl, calculate_cube_count_elemwise, tensor_vectorization_factor, SUBCUBE_DIM_APPROX,
-};
+use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_vectorization_factor};
 
 use cubecl::prelude::*;
 
@@ -65,17 +63,16 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
         tensor_vectorization_factor(&[4, 2], input.shape, input.strides, rank - 1);
 
     let num_elems: usize = input.shape.iter().product();
-    let cube_count = calculate_cube_count_elemwise(
-        num_elems / vectorization_factor as usize,
-        SUBCUBE_DIM_APPROX,
-    );
+    let cube_dim = CubeDim::default();
+    let cube_count =
+        calculate_cube_count_elemwise(num_elems / vectorization_factor as usize, cube_dim);
     let handle = client.empty(num_elems * E::as_elem().size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
     into_contiguous_kernel::launch::<E, R>(
         client,
         cube_count,
-        CubeDim::default(),
+        cube_dim,
         TensorArg::vectorized(
             vectorization_factor,
             input.handle,

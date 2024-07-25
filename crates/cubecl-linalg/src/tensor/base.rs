@@ -2,7 +2,6 @@ use cubecl_core::calculate_cube_count_elemwise;
 use cubecl_core::prelude::*;
 use cubecl_core::tensor_vectorization_factor;
 use cubecl_core::Runtime;
-use cubecl_core::SUBCUBE_DIM_APPROX;
 use cubecl_runtime::server::Handle;
 use std::marker::PhantomData;
 
@@ -119,15 +118,16 @@ where
         let vectorization_factor =
             tensor_vectorization_factor(&[4, 2], &shape, &strides, shape.len() - 1);
 
+        let cube_dim = CubeDim::default();
         let cube_count = calculate_cube_count_elemwise::<R::Server>(
             num_elements / vectorization_factor as usize,
-            SUBCUBE_DIM_APPROX,
+            cube_dim,
         );
 
         init::zeros_array::launch::<E, R>(
             &client,
             cube_count,
-            CubeDim::default(),
+            cube_dim,
             ArrayArg::new(&handle, num_elements),
         );
 
