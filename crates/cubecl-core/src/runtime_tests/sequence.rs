@@ -27,8 +27,8 @@ pub fn sequence_index(output: &mut Array<F32>) {
     sequence.push(F32::new(2.0));
     sequence.push(F32::new(4.0));
 
-    output[UInt::new(0)] += *sequence.index(UInt::new(0));
-    output[UInt::new(0)] += *Sequence::index(&sequence, UInt::new(1));
+    output[0] += *sequence.index(0);
+    output[0] += *Sequence::index(&sequence, 1);
 }
 
 pub fn test_sequence_for_loop<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {

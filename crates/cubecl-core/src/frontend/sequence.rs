@@ -1,8 +1,6 @@
-use std::{cell::RefCell, rc::Rc};
-
+use super::{indexation::Index, CubeContext, CubeType, Init};
 use crate::unexpanded;
-
-use super::{indexation::Index, CubeContext, CubeType, Init, UInt};
+use std::{cell::RefCell, rc::Rc};
 
 /// A sequence of [cube types](CubeType) that is inlined during compilation.
 ///
@@ -21,12 +19,6 @@ impl<T: CubeType> Sequence<T> {
         Self { values: Vec::new() }
     }
 
-    pub fn __expand_new(_context: &mut CubeContext) -> SequenceExpand<T> {
-        SequenceExpand {
-            values: Rc::new(RefCell::new(Vec::new())),
-        }
-    }
-
     /// Push a new value into the sequence.
     pub fn push(&mut self, value: T) {
         self.values.push(value);
@@ -34,8 +26,15 @@ impl<T: CubeType> Sequence<T> {
 
     /// Get the variable at the given position in the sequence.
     #[allow(unused_variables)]
-    pub fn index<I: super::indexation::Index>(&self, index: I) -> &T {
+    pub fn index<I: Index>(&self, index: I) -> &T {
         unexpanded!();
+    }
+
+    /// Expand function of [new](Self::new).
+    pub fn __expand_new(_context: &mut CubeContext) -> SequenceExpand<T> {
+        SequenceExpand {
+            values: Rc::new(RefCell::new(Vec::new())),
+        }
     }
 
     /// Expand function of [push](Self::push).
@@ -48,10 +47,10 @@ impl<T: CubeType> Sequence<T> {
     }
 
     /// Expand function of [index](Self::index).
-    pub fn __expand_index(
+    pub fn __expand_index<I: Index>(
         context: &mut CubeContext,
         expand: SequenceExpand<T>,
-        index: <UInt as CubeType>::ExpandType,
+        index: I,
     ) -> T::ExpandType {
         expand.__expand_index_method(context, index)
     }
@@ -59,6 +58,8 @@ impl<T: CubeType> Sequence<T> {
 
 /// Expand type of [Sequence].
 pub struct SequenceExpand<T: CubeType> {
+    // We clone the expand type during the compilation phase, but for register reuse, not for
+    // copying data. To achieve the intended behavior, we have to share the same underlying values.
     values: Rc<RefCell<Vec<T::ExpandType>>>,
 }
 

@@ -1,5 +1,6 @@
 use crate::frontend::{CubeContext, ExpandElement};
 use crate::ir::{BinaryOperator, Elem, Item, Operator, UnaryOperator, Variable, Vectorization};
+use crate::prelude::{CubeType, ExpandElementTyped, UInt};
 
 pub(crate) fn binary_expand<F>(
     context: &mut CubeContext,
@@ -205,17 +206,17 @@ fn check_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization 
 }
 
 pub fn array_assign_binary_op_expand<
-    Array: Into<ExpandElement>,
-    Index: Into<ExpandElement>,
-    Value: Into<ExpandElement>,
+    A: CubeType + core::ops::Index<UInt>,
     F: Fn(BinaryOperator) -> Operator,
 >(
     context: &mut CubeContext,
-    array: Array,
-    index: Index,
-    value: Value,
+    array: ExpandElementTyped<A>,
+    index: ExpandElementTyped<UInt>,
+    value: ExpandElementTyped<A::Output>,
     func: F,
-) {
+) where
+    A::Output: CubeType + Sized,
+{
     let array: ExpandElement = array.into();
     let index: ExpandElement = index.into();
     let value: ExpandElement = value.into();
