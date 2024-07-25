@@ -266,6 +266,7 @@ pub(crate) fn codegen_unary(
                     cubecl::frontend::not::expand(context, _inner)
                 }
             },
+            syn::UnOp::Deref(_) => inner,
             _ => todo!("Codegen: unsupported op {:?}", unary.op),
         },
         CodegenKind::Expand,

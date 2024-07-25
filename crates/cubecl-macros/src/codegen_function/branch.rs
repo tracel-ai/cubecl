@@ -80,6 +80,13 @@ pub(crate) fn codegen_for_loop(
                 invalid_for_loop()
             }
         }
+        syn::Expr::Path(pat) => {
+            let block = codegen_block(&for_loop.body, loop_level + 1, variable_tracker);
+
+            quote::quote! {
+                for #i in #pat #block
+            }
+        }
         _ => invalid_for_loop(),
     }
 }
