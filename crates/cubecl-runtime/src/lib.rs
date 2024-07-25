@@ -28,3 +28,6 @@ pub mod storage;
 mod compute;
 pub use compute::*;
 pub use cubecl_common::benchmark;
+
+/// Debugging utilities.
+pub mod debug;

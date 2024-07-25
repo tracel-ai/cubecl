@@ -5,6 +5,7 @@ use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
 use cubecl_core::{prelude::*, FeatureSet};
 use cubecl_runtime::{
+    debug::DebugLogger,
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
@@ -30,6 +31,7 @@ pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
     pipelines: HashMap<String, Arc<ComputePipeline>>,
     tasks_max: usize,
     tasks_count: usize,
+    logger: DebugLogger,
 }
 
 impl<MM> WgpuServer<MM>
@@ -56,6 +58,7 @@ where
             pipelines: HashMap::new(),
             tasks_max,
             tasks_count: 0,
+            logger: DebugLogger::new(),
         }
     }
 
@@ -103,6 +106,7 @@ where
         }
 
         let compile = kernel.compile();
+        let compile = self.logger.debug(compile);
         let pipeline = self.compile_source(&compile.source);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());

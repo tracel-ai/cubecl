@@ -1,4 +1,7 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{
+    fmt::{Debug, Display},
+    marker::PhantomData,
+};
 
 use crate::{codegen::CompilerRepresentation, ir::CubeDim, Compiler, Kernel};
 use alloc::sync::Arc;
@@ -6,12 +9,73 @@ use cubecl_runtime::server::{Binding, ComputeServer};
 
 /// A kernel, compiled in the target language
 pub struct CompiledKernel {
+    pub name: Option<&'static str>,
     /// Source code of the kernel
     pub source: String,
     /// Size of a cube for the compiled kernel
     pub cube_dim: CubeDim,
     /// The number of bytes used by the share memory
     pub shared_mem_bytes: usize,
+}
+
+impl Display for CompiledKernel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("\n======== Compiled Kernel ========")?;
+
+        if let Some(name) = self.name {
+            if name.len() <= 32 {
+                f.write_fmt(format_args!("\nname: {name}"))?;
+            } else {
+                let name = format_type_name(name);
+                f.write_fmt(format_args!("\nname: {name}"))?;
+            }
+        }
+
+        f.write_fmt(format_args!(
+            "
+cube_dim: ({}, {}, {})
+shared_memory: {} bytes
+source:
+```
+{}
+```
+=================================
+",
+            self.cube_dim.x, self.cube_dim.y, self.cube_dim.z, self.shared_mem_bytes, self.source
+        ))
+    }
+}
+
+fn format_type_name(type_name: &str) -> String {
+    let mut result = String::new();
+    let mut depth = 0;
+    let indendation = 4;
+
+    for c in type_name.chars() {
+        if c == ' ' {
+            continue;
+        }
+
+        if c == '<' {
+            depth += 1;
+            result.push_str("<\n");
+            result.push_str(&" ".repeat(indendation * depth));
+            continue;
+        } else if c == '>' {
+            depth -= 1;
+            result.push_str(",\n>");
+            continue;
+        }
+
+        if c == ',' && depth > 0 {
+            result.push_str(",\n");
+            result.push_str(&" ".repeat(indendation * depth));
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
 }
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the
@@ -39,6 +103,7 @@ impl<C: Compiler, K: Kernel> CubeTask for KernelTask<C, K> {
         let source = lower_level_ir.to_string();
 
         CompiledKernel {
+            name: Some(core::any::type_name::<K>()),
             source,
             cube_dim,
             shared_mem_bytes,

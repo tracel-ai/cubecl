@@ -17,6 +17,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let input = &[-1., 0., 1., 5.];
     let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
 
+    cubecl::linalg::tensor::TensorHandle::<R, F32>::zeros(&client, vec![32, 32, 32]);
+
     gelu_array::launch::<F32, R>(
         &client,
         CubeCount::Static(1, 1, 1),

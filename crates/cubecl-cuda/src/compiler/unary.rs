@@ -63,7 +63,7 @@ macro_rules! function {
                     Elem::F162 => f.write_fmt(format_args!("{out} = h2{}({input});\n", $func)),
                     Elem::BF16 => f.write_fmt(format_args!("{out} = h{}({input});\n", $func)),
                     Elem::BF162 => f.write_fmt(format_args!("{out} = h2{}({input});\n", $func)),
-                    Elem::F32 => f.write_fmt(format_args!("{out} = __{}f({input});\n", $func)),
+                    Elem::F32 => f.write_fmt(format_args!("{out} = {}({input});\n", $func)),
                     _ => f.write_fmt(format_args!("{out} = {}({input});\n", $func)),
                 }
             }
@@ -79,7 +79,7 @@ function!(Sin, "sin");
 function!(Tanh, "tanh");
 function!(Sqrt, "sqrt");
 function!(Exp, "exp");
-function!(Erf, "erff");
+function!(Erf, "erf");
 function!(Ceil, "ceil");
 function!(Floor, "floor");
 

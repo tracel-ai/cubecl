@@ -5,6 +5,7 @@ use cubecl_common::sync_type::SyncType;
 use cubecl_core::ir::CubeDim;
 use cubecl_core::prelude::*;
 use cubecl_core::FeatureSet;
+use cubecl_runtime::debug::DebugLogger;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -18,6 +19,7 @@ use std::ffi::CString;
 #[derive(Debug)]
 pub struct CudaServer<MM: MemoryManagement<CudaStorage>> {
     state: CudaServerState<MM>,
+    logger: DebugLogger,
     pub(crate) archs: Vec<i32>,
     pub(crate) minimum_arch_version: i32,
 }
@@ -131,10 +133,10 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
             }
         };
 
-        let ctx = self.get_context();
+        let (ctx, logger) = self.get_context_with_logger();
 
         if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(&kernel_id, kernel, arch);
+            ctx.compile_kernel(&kernel_id, kernel, arch, logger);
         }
 
         let bindings = bindings
@@ -186,7 +188,13 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         };
     }
 
-    fn compile_kernel(&mut self, kernel_id: &str, kernel: Box<dyn CubeTask>, arch: i32) {
+    fn compile_kernel(
+        &mut self,
+        kernel_id: &str,
+        kernel: Box<dyn CubeTask>,
+        arch: i32,
+        logger: &mut DebugLogger,
+    ) {
         let kernel_compiled = kernel.compile();
         let shared_mem_bytes = kernel_compiled.shared_mem_bytes;
         let cube_dim = kernel_compiled.cube_dim;
@@ -198,9 +206,12 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             "--include-path=/usr/include",
             "--include-path=/usr/include/cuda",
             "--include-path=/usr/local/include/cuda",
+            "--include-path=/usr/lib/nvidia-cuda-toolkit/compute-sanitizer",
         ];
         #[cfg(not(target_os = "linux"))] // TODO: add include-path for other OS.
         let options = &[arch.as_str()];
+
+        let kernel_compiled = logger.debug(kernel_compiled);
 
         let ptx = unsafe {
             let program = cudarc::nvrtc::result::create_program(kernel_compiled.source).unwrap();
@@ -281,12 +292,17 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
                 device_index: index,
                 init,
             },
+            logger: DebugLogger::new(),
             archs,
             minimum_arch_version,
         }
     }
 
     fn get_context(&mut self) -> &mut CudaContext<MM> {
+        self.get_context_with_logger().0
+    }
+
+    fn get_context_with_logger(&mut self) -> (&mut CudaContext<MM>, &mut DebugLogger) {
         if let CudaServerState::Uninitialized { device_index, init } = &self.state {
             let ctx = init(*device_index);
             self.state = CudaServerState::Initialized { ctx };
@@ -295,7 +311,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
             unsafe {
                 cudarc::driver::result::ctx::set_current(ctx.context).unwrap();
             };
-            ctx
+            (ctx, &mut self.logger)
         } else {
             panic!("Context should be initialized");
         }
