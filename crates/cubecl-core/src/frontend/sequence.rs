@@ -13,6 +13,12 @@ pub struct Sequence<T: CubeType> {
     values: Vec<T>,
 }
 
+impl<T: CubeType> Default for Sequence<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: CubeType> Sequence<T> {
     /// Create a new empty sequence.
     pub fn new() -> Self {
@@ -25,7 +31,7 @@ impl<T: CubeType> Sequence<T> {
     }
 
     /// Get the variable at the given position in the sequence.
-    #[allow(unused_variables)]
+    #[allow(unused_variables, clippy::should_implement_trait)]
     pub fn index<I: Index>(&self, index: I) -> &T {
         unexpanded!();
     }

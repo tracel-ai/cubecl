@@ -13,7 +13,7 @@ pub fn sequence_for_loop(output: &mut Array<F32>) {
     sequence.push(F32::new(4.0));
 
     for value in sequence {
-        output[UInt::new(0)] += value;
+        output[0] += value;
     }
 }
 
