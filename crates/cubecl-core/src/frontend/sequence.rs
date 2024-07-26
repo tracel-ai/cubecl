@@ -124,11 +124,7 @@ impl<T: CubeType> SequenceExpand<T> {
             crate::ir::Variable::ConstantScalar(value) => match value {
                 crate::ir::ConstantScalarValue::Int(val, _) => val as usize,
                 crate::ir::ConstantScalarValue::UInt(val) => val as usize,
-<<<<<<< HEAD
-                _ => panic!("Only integer types are supporterd"),
-=======
                 _ => panic!("Only integer types are supported"),
->>>>>>> main
             },
             _ => panic!("Only constant are supported"),
         };
