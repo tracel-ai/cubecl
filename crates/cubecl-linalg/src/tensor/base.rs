@@ -119,6 +119,7 @@ where
         let vectorization_factor =
             tensor_vectorization_factor(&[4, 2], &shape, &strides, shape.len() - 1);
 
+        let cube_dim = CubeDim::new(SUBCUBE_DIM_APPROX as u32, SUBCUBE_DIM_APPROX as u32, 1);
         let cube_count = calculate_cube_count_elemwise::<R::Server>(
             num_elements / vectorization_factor as usize,
             SUBCUBE_DIM_APPROX,
@@ -127,8 +128,8 @@ where
         init::zeros_array::launch::<E, R>(
             client,
             cube_count,
-            CubeDim::default(),
-            ArrayArg::new(&handle, num_elements),
+            cube_dim,
+            ArrayArg::vectorized(vectorization_factor, &handle, num_elements),
         );
 
         Self::new(shape, strides, handle)
@@ -141,10 +142,8 @@ pub(crate) mod init {
 
     #[cube(launch)]
     pub fn zeros_array<C: Numeric>(output: &mut Array<C>) {
-        if ABSOLUTE_POS >= output.len() {
-            return;
+        if ABSOLUTE_POS < output.len() {
+            output[ABSOLUTE_POS] = C::from_int(0);
         }
-
-        output[ABSOLUTE_POS] = C::from_int(0);
     }
 }

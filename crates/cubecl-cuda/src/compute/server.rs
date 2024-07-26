@@ -1,10 +1,13 @@
-use super::storage::Binding;
+use crate::compiler::format_cpp_code;
+
 use super::storage::CudaStorage;
+use super::CudaResource;
 use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
 use cubecl_core::ir::CubeDim;
 use cubecl_core::prelude::*;
 use cubecl_core::FeatureSet;
+use cubecl_runtime::debug::DebugLogger;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -14,10 +17,12 @@ use cudarc::driver::sys::CUfunc_st;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct CudaServer<MM: MemoryManagement<CudaStorage>> {
     state: CudaServerState<MM>,
+    logger: DebugLogger,
     pub(crate) archs: Vec<i32>,
     pub(crate) minimum_arch_version: i32,
 }
@@ -131,18 +136,18 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
             }
         };
 
-        let ctx = self.get_context();
+        let (ctx, logger) = self.get_context_with_logger();
 
         if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(&kernel_id, kernel, arch);
+            ctx.compile_kernel(&kernel_id, kernel, arch, logger);
         }
 
-        let bindings = bindings
+        let resources = bindings
             .into_iter()
-            .map(|binding| ctx.memory_management.get(binding.memory).as_binding())
-            .collect();
+            .map(|binding| ctx.memory_management.get(binding.memory))
+            .collect::<Vec<_>>();
 
-        ctx.execute_task(kernel_id, count, bindings);
+        ctx.execute_task(kernel_id, count, resources);
     }
 
     fn sync(&mut self, sync_type: SyncType) {
@@ -186,21 +191,29 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         };
     }
 
-    fn compile_kernel(&mut self, kernel_id: &str, kernel: Box<dyn CubeTask>, arch: i32) {
-        let kernel_compiled = kernel.compile();
+    fn compile_kernel(
+        &mut self,
+        kernel_id: &str,
+        kernel: Box<dyn CubeTask>,
+        arch: i32,
+        logger: &mut DebugLogger,
+    ) {
+        let mut kernel_compiled = kernel.compile();
+        kernel_compiled.lang_tag = Some("cpp");
+
+        if let Ok(formatted) = format_cpp_code(&kernel_compiled.source) {
+            kernel_compiled.source = formatted;
+        }
+
         let shared_mem_bytes = kernel_compiled.shared_mem_bytes;
         let cube_dim = kernel_compiled.cube_dim;
         let arch = format!("--gpu-architecture=sm_{}", arch);
 
-        #[cfg(target_os = "linux")]
-        let options = &[
-            arch.as_str(),
-            "--include-path=/usr/include",
-            "--include-path=/usr/include/cuda",
-            "--include-path=/usr/local/include/cuda",
-        ];
-        #[cfg(not(target_os = "linux"))] // TODO: add include-path for other OS.
-        let options = &[arch.as_str()];
+        let include_path = include_path();
+        let include_option = format!("--include-path={}", include_path.to_str().unwrap());
+        let options = &[arch.as_str(), include_option.as_str()];
+
+        let kernel_compiled = logger.debug(kernel_compiled);
 
         let ptx = unsafe {
             let program = cudarc::nvrtc::result::create_program(kernel_compiled.source).unwrap();
@@ -241,8 +254,13 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         &mut self,
         kernel_id: String,
         dispatch_count: (u32, u32, u32),
-        mut bindings: Vec<Binding>,
+        resources: Vec<CudaResource>,
     ) {
+        let mut bindings = resources
+            .iter()
+            .map(|memory| memory.as_binding())
+            .collect::<Vec<_>>();
+
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         unsafe {
@@ -257,7 +275,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             .unwrap();
         };
 
-        self.memory_management.storage().flush()
+        self.memory_management.storage().flush(resources)
     }
 }
 
@@ -281,12 +299,17 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
                 device_index: index,
                 init,
             },
+            logger: DebugLogger::new(),
             archs,
             minimum_arch_version,
         }
     }
 
     fn get_context(&mut self) -> &mut CudaContext<MM> {
+        self.get_context_with_logger().0
+    }
+
+    fn get_context_with_logger(&mut self) -> (&mut CudaContext<MM>, &mut DebugLogger) {
         if let CudaServerState::Uninitialized { device_index, init } = &self.state {
             let ctx = init(*device_index);
             self.state = CudaServerState::Initialized { ctx };
@@ -295,9 +318,40 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
             unsafe {
                 cudarc::driver::result::ctx::set_current(ctx.context).unwrap();
             };
-            ctx
+            (ctx, &mut self.logger)
         } else {
             panic!("Context should be initialized");
         }
     }
+}
+
+fn include_path() -> PathBuf {
+    let mut path = cuda_path().expect("
+        CUDA installation not found.
+        Please ensure that CUDA is installed and the CUDA_PATH environment variable is set correctly.
+        Note: Default paths are used for Linux (/usr/local/cuda) and Windows (C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/), which may not be correct.
+    ");
+    path.push("include");
+    path
+}
+
+fn cuda_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("CUDA_PATH") {
+        return Some(PathBuf::from(path));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return Some(PathBuf::from("/usr/local/cuda"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return Some(PathBuf::from(
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/",
+        ));
+    }
+
+    #[allow(unreachable_code)]
+    None
 }

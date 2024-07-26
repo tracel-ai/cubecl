@@ -16,12 +16,13 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
     let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
+    let input_handle = client.create(f32::as_bytes(input));
 
     gelu_array::launch::<F32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(input.len() as u32, 1, 1),
-        ArrayArg::new(&client.create(f32::as_bytes(input)), input.len()),
+        ArrayArg::new(&input_handle, input.len()),
         ArrayArg::new(&output_handle, input.len()),
     );
 

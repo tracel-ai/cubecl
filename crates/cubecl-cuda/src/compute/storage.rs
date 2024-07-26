@@ -5,9 +5,16 @@ use std::collections::HashMap;
 /// Buffer storage for cuda.
 pub struct CudaStorage {
     memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
-    active_slices: Vec<cudarc::driver::sys::CUdeviceptr>,
     deallocations: Vec<StorageId>,
     stream: cudarc::driver::sys::CUstream,
+    activate_slices: HashMap<ActiveResource, cudarc::driver::sys::CUdeviceptr>,
+    activate_slices_count: HashMap<ActiveResource, usize>,
+}
+
+#[derive(new, Debug, Hash, PartialEq, Eq, Clone)]
+struct ActiveResource {
+    ptr: u64,
+    kind: CudaResourceKind,
 }
 
 unsafe impl Send for CudaStorage {}
@@ -24,9 +31,10 @@ impl CudaStorage {
     pub fn new(stream: CUstream) -> Self {
         Self {
             memory: HashMap::new(),
-            active_slices: Vec::new(),
             deallocations: Vec::new(),
             stream,
+            activate_slices: HashMap::new(),
+            activate_slices_count: HashMap::new(),
         }
     }
 
@@ -41,8 +49,17 @@ impl CudaStorage {
         }
     }
 
-    pub fn flush(&mut self) {
-        self.active_slices.clear();
+    pub fn flush(&mut self, resources: Vec<CudaResource>) {
+        for resource in resources {
+            let key = ActiveResource::new(resource.ptr, resource.kind);
+            if let Some(count) = self.activate_slices_count.remove(&key) {
+                if count == 1 {
+                    self.activate_slices.remove(&key);
+                } else {
+                    self.activate_slices_count.insert(key, count - 1);
+                }
+            }
+        }
     }
 }
 
@@ -87,7 +104,7 @@ impl CudaResource {
 }
 
 /// How the resource is used, either as a slice or fully.
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub enum CudaResourceKind {
     /// Represents an entire buffer.
     Full { size: usize },
@@ -109,14 +126,23 @@ impl ComputeStorage for CudaStorage {
             ),
             StorageUtilization::Slice { offset, size } => {
                 let ptr = ptr + offset as u64;
-                self.active_slices.push(ptr);
+                let kind = CudaResourceKind::Slice { size, offset };
+                let key = ActiveResource::new(ptr, kind.clone());
+
+                if let Some(count) = self.activate_slices_count.get_mut(&key) {
+                    *count += 1;
+                } else {
+                    self.activate_slices.insert(key.clone(), ptr);
+                    self.activate_slices_count.insert(key.clone(), 1);
+                }
+
                 // The ptr needs to stay alive until we send the task to the server.
-                let ptr = self.active_slices.last().unwrap();
+                let ptr = self.activate_slices.get(&key).unwrap();
 
                 CudaResource::new(
                     *ptr,
                     ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
-                    CudaResourceKind::Slice { size, offset },
+                    kind,
                 )
             }
         }
