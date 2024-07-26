@@ -1,4 +1,4 @@
-use cubecl::{linalg::tensor::TensorHandle, prelude::*};
+use cubecl::prelude::*;
 
 #[cube(launch)]
 fn gelu_array<F: Float>(input: &Array<F>, output: &mut Array<F>) {
@@ -15,7 +15,7 @@ fn gelu_scalar<F: Float>(x: F) -> F {
 pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
-    let output = TensorHandle::<R, F32>::zeros(&client, vec![4]);
+    let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
     let input_handle = client.create(f32::as_bytes(input));
 
     gelu_array::launch::<F32, R>(
@@ -23,10 +23,10 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         CubeCount::Static(1, 1, 1),
         CubeDim::new(input.len() as u32, 1, 1),
         ArrayArg::new(&input_handle, input.len()),
-        ArrayArg::new(&output.handle, input.len()),
+        ArrayArg::new(&output_handle, input.len()),
     );
 
-    let bytes = client.read(output.handle.binding());
+    let bytes = client.read(output_handle.binding());
     let output = f32::from_bytes(&bytes);
 
     // Should be [-0.1587,  0.0000,  0.8413,  5.0000]

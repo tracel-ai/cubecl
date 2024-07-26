@@ -344,5 +344,6 @@ fn cuda_path() -> Option<PathBuf> {
         ));
     }
 
+    #[allow(unreachable_code)]
     None
 }
