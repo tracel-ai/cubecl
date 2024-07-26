@@ -66,7 +66,7 @@ impl<T: CubeType> Sequence<T> {
 pub struct SequenceExpand<T: CubeType> {
     // We clone the expand type during the compilation phase, but for register reuse, not for
     // copying data. To achieve the intended behavior, we have to share the same underlying values.
-    pub values: Rc<RefCell<Vec<T::ExpandType>>>,
+    values: Rc<RefCell<Vec<T::ExpandType>>>,
 }
 
 impl<T: CubeType> Init for SequenceExpand<T> {
@@ -124,7 +124,11 @@ impl<T: CubeType> SequenceExpand<T> {
             crate::ir::Variable::ConstantScalar(value) => match value {
                 crate::ir::ConstantScalarValue::Int(val, _) => val as usize,
                 crate::ir::ConstantScalarValue::UInt(val) => val as usize,
+<<<<<<< HEAD
                 _ => panic!("Only integer types are supporterd"),
+=======
+                _ => panic!("Only integer types are supported"),
+>>>>>>> main
             },
             _ => panic!("Only constant are supported"),
         };
