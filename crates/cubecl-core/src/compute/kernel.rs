@@ -16,6 +16,7 @@ pub struct CompiledKernel {
     pub cube_dim: CubeDim,
     /// The number of bytes used by the share memory
     pub shared_mem_bytes: usize,
+    pub lang_tag: Option<&'static str>,
 }
 
 impl Display for CompiledKernel {
@@ -36,12 +37,17 @@ impl Display for CompiledKernel {
 cube_dim: ({}, {}, {})
 shared_memory: {} bytes
 source:
-```
+```{}
 {}
 ```
 =================================
 ",
-            self.cube_dim.x, self.cube_dim.y, self.cube_dim.z, self.shared_mem_bytes, self.source
+            self.cube_dim.x,
+            self.cube_dim.y,
+            self.cube_dim.z,
+            self.shared_mem_bytes,
+            self.lang_tag.unwrap_or(""),
+            self.source
         ))
     }
 }
@@ -107,6 +113,7 @@ impl<C: Compiler, K: Kernel> CubeTask for KernelTask<C, K> {
             source,
             cube_dim,
             shared_mem_bytes,
+            lang_tag: None,
         }
     }
 

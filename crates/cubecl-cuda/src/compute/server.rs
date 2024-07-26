@@ -1,3 +1,5 @@
+use crate::compiler::format_cpp_code;
+
 use super::storage::CudaStorage;
 use super::CudaResource;
 use cubecl_common::reader::{reader_from_concrete, Reader};
@@ -196,7 +198,13 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         arch: i32,
         logger: &mut DebugLogger,
     ) {
-        let kernel_compiled = kernel.compile();
+        let mut kernel_compiled = kernel.compile();
+        kernel_compiled.lang_tag = Some("cpp");
+
+        if let Ok(formatted) = format_cpp_code(&kernel_compiled.source) {
+            kernel_compiled.source = formatted;
+        }
+
         let shared_mem_bytes = kernel_compiled.shared_mem_bytes;
         let cube_dim = kernel_compiled.cube_dim;
         let arch = format!("--gpu-architecture=sm_{}", arch);

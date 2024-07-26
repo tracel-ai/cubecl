@@ -1,6 +1,6 @@
 use super::{Body, Item};
 use cubecl_core::{ir::CubeDim, CompilerRepresentation};
-use std::{collections::HashSet, fmt::Display};
+use std::{collections::HashSet, fmt::Display, io::Write, process::Command};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding {
@@ -84,11 +84,7 @@ impl Display for ComputeKernel {
             f.write_str("using namespace nvcuda;\n")?;
         }
 
-        f.write_str(
-            "
-typedef unsigned int uint;
-            ",
-        )?;
+        f.write_str("typedef unsigned int uint;\n")?;
 
         for item in self.items.iter() {
             if item.is_vec_native() {
@@ -153,5 +149,29 @@ extern \"C\" __global__ void kernel(
         f.write_str("\n}")?;
 
         Ok(())
+    }
+}
+
+/// Format C++ code, useful when debugging.
+pub(crate) fn format_cpp_code(code: &str) -> Result<String, std::io::Error> {
+    let mut child = Command::new("clang-format")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()?;
+
+    {
+        let stdin = child.stdin.as_mut().expect("Failed to open stdin");
+        stdin.write_all(code.as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "clang-format failed",
+        ))
     }
 }

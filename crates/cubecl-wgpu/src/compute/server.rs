@@ -105,7 +105,9 @@ where
             return pipeline.clone();
         }
 
-        let compile = kernel.compile();
+        let mut compile = kernel.compile();
+        compile.lang_tag = Some("wgsl");
+
         let compile = self.logger.debug(compile);
         let pipeline = self.compile_source(&compile.source);
 
