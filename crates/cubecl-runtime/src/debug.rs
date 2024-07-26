@@ -18,6 +18,12 @@ pub enum DebugLogger {
     None,
 }
 
+impl Default for DebugLogger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DebugLogger {
     #[cfg(not(feature = "std"))]
     /// Create a new debug logger.
@@ -33,31 +39,26 @@ impl DebugLogger {
             Err(_) => return Self::None,
         };
 
-        match str::parse::<u8>(&flag) {
-            Ok(activated) => {
-                if activated == 1 {
-                    return Self::File(DebugFileLogger::new(None));
-                } else {
-                    return Self::None;
-                }
+        if let Ok(activated) = str::parse::<u8>(&flag) {
+            if activated == 1 {
+                return Self::File(DebugFileLogger::new(None));
+            } else {
+                return Self::None;
             }
-            Err(_) => (),
         };
 
-        match str::parse::<bool>(&flag) {
-            Ok(activated) => {
-                if activated {
-                    return Self::File(DebugFileLogger::new(None));
-                } else {
-                    return Self::None;
-                }
+        if let Ok(activated) = str::parse::<bool>(&flag) {
+            if activated {
+                return Self::File(DebugFileLogger::new(None));
+            } else {
+                return Self::None;
             }
-            Err(_) => (),
         };
 
-        match flag.as_str() {
-            "stdout" => Self::Stdout,
-            _ => Self::File(DebugFileLogger::new(Some(&flag))),
+        if let "stdout" = flag.as_str() {
+            Self::Stdout
+        } else {
+            Self::File(DebugFileLogger::new(Some(&flag)))
         }
     }
 

@@ -17,10 +17,11 @@ struct Codegen {
 
 impl Codegen {
     fn from_sig(sig: &syn::Signature) -> Self {
-        let mut codegen = Codegen::default();
-
-        codegen.name = snake_to_pascal_case(&sig.ident.to_string());
-        codegen.generics = sig.generics.clone();
+        let mut codegen = Codegen {
+            name: snake_to_pascal_case(&sig.ident.to_string()),
+            generics: sig.generics.clone(),
+            ..Codegen::default()
+        };
 
         let mut inputs = quote::quote!();
 
