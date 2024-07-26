@@ -15,6 +15,7 @@ use cudarc::driver::sys::CUfunc_st;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct CudaServer<MM: MemoryManagement<CudaStorage>> {
@@ -200,10 +201,9 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         let cube_dim = kernel_compiled.cube_dim;
         let arch = format!("--gpu-architecture=sm_{}", arch);
 
-        #[cfg(target_os = "linux")]
-        let options = &[arch.as_str(), "--include-path=/usr/local/cuda/include"];
-        #[cfg(not(target_os = "linux"))] // TODO: add include-path for other OS.
-        let options = &[arch.as_str()];
+        let include_path = include_path();
+        let include_option = format!("--include-path={}", include_path.to_str().unwrap());
+        let options = &[arch.as_str(), include_option.as_str()];
 
         let kernel_compiled = logger.debug(kernel_compiled);
 
@@ -315,4 +315,34 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
             panic!("Context should be initialized");
         }
     }
+}
+
+fn include_path() -> PathBuf {
+    let mut path = cuda_path().expect("
+        CUDA installation not found.
+        Please ensure that CUDA is installed and the CUDA_PATH environment variable is set correctly.
+        Note: Default paths are used for Linux (/usr/local/cuda) and Windows (C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/), which may not be correct.
+    ");
+    path.push("include");
+    path
+}
+
+fn cuda_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("CUDA_PATH") {
+        return Some(PathBuf::from(path));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return Some(PathBuf::from("/usr/local/cuda"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return Some(PathBuf::from(
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/",
+        ));
+    }
+
+    None
 }

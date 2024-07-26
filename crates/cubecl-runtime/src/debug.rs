@@ -90,11 +90,6 @@ pub struct DebugFileLogger {
     writer: BufWriter<std::fs::File>,
 }
 
-/// Log debugging information into a standard output.
-#[cfg(feature = "std")]
-#[derive(Debug)]
-pub struct DebugStdioLogger;
-
 #[cfg(feature = "std")]
 impl DebugFileLogger {
     fn new(file_path: Option<&str>) -> Self {
