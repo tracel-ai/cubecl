@@ -117,7 +117,7 @@ where
         let strides = Self::contiguous_strides(&shape);
 
         let vectorization_factor =
-            tensor_vectorization_factor(&[1], &shape, &strides, shape.len() - 1);
+            tensor_vectorization_factor(&[4, 2], &shape, &strides, shape.len() - 1);
 
         let cube_dim = CubeDim::new(SUBCUBE_DIM_APPROX as u32, SUBCUBE_DIM_APPROX as u32, 1);
         let cube_count = calculate_cube_count_elemwise::<R::Server>(
@@ -132,8 +132,6 @@ where
             ArrayArg::vectorized(vectorization_factor, &handle, num_elements),
         );
 
-        client.sync(cubecl_core::client::SyncType::Wait);
-
         Self::new(shape, strides, handle)
     }
 }
@@ -144,8 +142,8 @@ pub(crate) mod init {
 
     #[cube(launch)]
     pub fn zeros_array<C: Numeric>(output: &mut Array<C>) {
-        if ABSOLUTE_POS < UInt::new(33554432 / 4) {
-            output[ABSOLUTE_POS] = C::from_int(1);
+        if ABSOLUTE_POS < output.len() {
+            output[ABSOLUTE_POS] = C::from_int(0);
         }
     }
 }

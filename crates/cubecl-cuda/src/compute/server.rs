@@ -1,5 +1,5 @@
-use super::storage::Binding;
 use super::storage::CudaStorage;
+use super::CudaResource;
 use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
 use cubecl_core::ir::CubeDim;
@@ -139,12 +139,12 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
             ctx.compile_kernel(&kernel_id, kernel, arch, logger);
         }
 
-        let bindings = bindings
+        let resources = bindings
             .into_iter()
-            .map(|binding| ctx.memory_management.get(binding.memory).as_binding())
-            .collect();
+            .map(|binding| ctx.memory_management.get(binding.memory))
+            .collect::<Vec<_>>();
 
-        ctx.execute_task(kernel_id, count, bindings);
+        ctx.execute_task(kernel_id, count, resources);
     }
 
     fn sync(&mut self, sync_type: SyncType) {
@@ -201,13 +201,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         let arch = format!("--gpu-architecture=sm_{}", arch);
 
         #[cfg(target_os = "linux")]
-        let options = &[
-            arch.as_str(),
-            "--include-path=/usr/include",
-            "--include-path=/usr/include/cuda",
-            "--include-path=/usr/local/include/cuda",
-            "--include-path=/usr/lib/nvidia-cuda-toolkit/compute-sanitizer",
-        ];
+        let options = &[arch.as_str(), "--include-path=/usr/local/cuda/include"];
         #[cfg(not(target_os = "linux"))] // TODO: add include-path for other OS.
         let options = &[arch.as_str()];
 
@@ -252,8 +246,13 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         &mut self,
         kernel_id: String,
         dispatch_count: (u32, u32, u32),
-        mut bindings: Vec<Binding>,
+        resources: Vec<CudaResource>,
     ) {
+        let mut bindings = resources
+            .iter()
+            .map(|memory| memory.as_binding())
+            .collect::<Vec<_>>();
+
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         unsafe {
@@ -268,7 +267,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             .unwrap();
         };
 
-        self.memory_management.storage().flush()
+        self.memory_management.storage().flush(resources)
     }
 }
 
