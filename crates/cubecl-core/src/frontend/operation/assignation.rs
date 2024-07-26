@@ -207,85 +207,69 @@ pub mod index {
 }
 
 pub mod add_assign_array_op {
-    use crate::prelude::array_assign_binary_op_expand;
-
     use self::ir::Operator;
-
     use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
-    pub fn expand<
-        Array: Into<ExpandElement>,
-        Index: Into<ExpandElement>,
-        Value: Into<ExpandElement>,
-    >(
+    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
         context: &mut CubeContext,
-        array: Array,
-        index: Index,
-        value: Value,
-    ) {
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<UInt>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
         array_assign_binary_op_expand(context, array, index, value, Operator::Add);
     }
 }
 
 pub mod sub_assign_array_op {
-    use crate::prelude::array_assign_binary_op_expand;
-
     use self::ir::Operator;
-
     use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
-    pub fn expand<
-        Array: Into<ExpandElement>,
-        Index: Into<ExpandElement>,
-        Value: Into<ExpandElement>,
-    >(
+    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
         context: &mut CubeContext,
-        array: Array,
-        index: Index,
-        value: Value,
-    ) {
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<UInt>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
         array_assign_binary_op_expand(context, array, index, value, Operator::Sub);
     }
 }
 
 pub mod mul_assign_array_op {
-    use crate::prelude::array_assign_binary_op_expand;
-
     use self::ir::Operator;
-
     use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
-    pub fn expand<
-        Array: Into<ExpandElement>,
-        Index: Into<ExpandElement>,
-        Value: Into<ExpandElement>,
-    >(
+    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
         context: &mut CubeContext,
-        array: Array,
-        index: Index,
-        value: Value,
-    ) {
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<UInt>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
         array_assign_binary_op_expand(context, array, index, value, Operator::Mul);
     }
 }
 
 pub mod div_assign_array_op {
-    use crate::prelude::array_assign_binary_op_expand;
-
     use self::ir::Operator;
-
     use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
-    pub fn expand<
-        Array: Into<ExpandElement>,
-        Index: Into<ExpandElement>,
-        Value: Into<ExpandElement>,
-    >(
+    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
         context: &mut CubeContext,
-        array: Array,
-        index: Index,
-        value: Value,
-    ) {
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<UInt>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
         array_assign_binary_op_expand(context, array, index, value, Operator::Div);
     }
 }

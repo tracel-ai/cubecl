@@ -64,7 +64,7 @@ pub(crate) fn codegen_closure(
 
         if let Some(ty) = ty {
             inputs.extend(quote::quote! {
-                #ident : #ty,
+                #ident: <#ty as CubeType>::ExpandType,
             });
         } else {
             inputs.extend(quote::quote! {
