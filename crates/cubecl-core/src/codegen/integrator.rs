@@ -26,7 +26,7 @@ pub struct KernelExpansion {
 }
 
 /// Simply indicate the output that can be replaced by the input.
-#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(new, Default, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct InplaceMapping {
     /// Input position.
     pub pos_input: usize,
