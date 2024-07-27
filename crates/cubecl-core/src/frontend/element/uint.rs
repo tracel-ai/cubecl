@@ -8,6 +8,7 @@ use super::{
     ScalarArgSettings, Vectorized, __expand_new, __expand_vectorized,
 };
 
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Copy, Hash)]
 /// An unsigned int.
 /// Preferred for indexing operations

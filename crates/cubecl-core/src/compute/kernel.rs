@@ -78,7 +78,7 @@ source:
 }
 
 fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) -> String {
-    let kernel_id = format!("{}", kernel_id);
+    let kernel_id = kernel_id.to_string();
     let mut result = String::new();
     let mut depth = 0;
     let indendation = 4;
@@ -101,7 +101,7 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
                     result.push(' ');
                 }
                 result.push(start);
-                result.push_str("\n");
+                result.push('\n');
                 result.push_str(&" ".repeat(indendation * depth));
                 found_marker = true;
             } else if c == end {
