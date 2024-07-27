@@ -26,7 +26,7 @@ pub struct KernelExpansion {
 }
 
 /// Simply indicate the output that can be replaced by the input.
-#[derive(new, Clone, Copy, Debug)]
+#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct InplaceMapping {
     /// Input position.
     pub pos_input: usize,
@@ -34,7 +34,7 @@ pub struct InplaceMapping {
     pub pos_output: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 enum VectorizationPartial {
     Input {
         pos: usize,
@@ -46,7 +46,7 @@ enum VectorizationPartial {
     },
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct KernelSettings {
     pub mappings: Vec<InplaceMapping>,
     vectorization_global: Option<Vectorization>,

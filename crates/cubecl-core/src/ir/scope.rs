@@ -32,7 +32,7 @@ pub struct Scope {
     undeclared: u16,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Hash, Eq)]
 #[allow(missing_docs)]
 pub enum ReadingStrategy {
     /// Each element will be read in a way to be compatible with the output layout.

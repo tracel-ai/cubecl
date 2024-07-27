@@ -37,13 +37,16 @@ use frontend::LaunchArg;
 pub use prelude::CubeCount;
 pub use prelude::CubeDim;
 
+mod id;
+pub use id::*;
+
 /// Implement this trait to create a [kernel definition](KernelDefinition).
-pub trait Kernel: Send + Sync + 'static {
+pub trait Kernel: Send + Sync + 'static + Sized {
     /// Convert to a kernel definition.
     fn define(&self) -> KernelDefinition;
     /// Identifier for the kernel, used for caching kernel compilation.
-    fn id(&self) -> String {
-        format!("{:?}", core::any::TypeId::of::<Self>())
+    fn id(&self) -> KernelId {
+        KernelId::new::<Self, _>(())
     }
 }
 

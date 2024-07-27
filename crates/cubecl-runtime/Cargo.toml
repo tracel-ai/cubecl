@@ -18,6 +18,7 @@ default = [
     "channel-cell",
     "storage-bytes",
     "autotune-persistent-cache",
+    "cubecl-common/default"
 ]
 std = ["cubecl-common/std"]
 channel-mutex = []

@@ -14,8 +14,8 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/cubecl-cube"
 version.workspace = true
 
 [features]
-default = []
-std = []
+default = ["cubecl-runtime/default"]
+std = ["cubecl-runtime/std"]
 template = []
 export_tests = []
 

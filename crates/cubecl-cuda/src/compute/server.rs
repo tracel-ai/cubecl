@@ -4,9 +4,10 @@ use super::storage::CudaStorage;
 use super::CudaResource;
 use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
+use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
-use cubecl_core::prelude::*;
 use cubecl_core::FeatureSet;
+use cubecl_core::{prelude::*, KernelId};
 use cubecl_runtime::debug::DebugLogger;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -48,7 +49,7 @@ pub(crate) struct CudaContext<MM: MemoryManagement<CudaStorage>> {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
     memory_management: MM,
-    module_names: HashMap<String, CompiledKernel>,
+    module_names: HashMap<KernelId, CompiledKernel>,
 }
 
 #[derive(Debug)]
@@ -98,6 +99,8 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         unsafe {
             cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream).unwrap();
         }
+
+        ctx.sync();
 
         handle
     }
@@ -193,16 +196,19 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
 
     fn compile_kernel(
         &mut self,
-        kernel_id: &str,
+        kernel_id: &KernelId,
         kernel: Box<dyn CubeTask>,
         arch: i32,
         logger: &mut DebugLogger,
     ) {
         let mut kernel_compiled = kernel.compile();
-        kernel_compiled.lang_tag = Some("cpp");
 
-        if let Ok(formatted) = format_cpp_code(&kernel_compiled.source) {
-            kernel_compiled.source = formatted;
+        if logger.activated() {
+            kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
+
+            if let Ok(formatted) = format_cpp_code(&kernel_compiled.source) {
+                kernel_compiled.source = formatted;
+            }
         }
 
         let shared_mem_bytes = kernel_compiled.shared_mem_bytes;
@@ -240,8 +246,9 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             cudarc::driver::result::module::get_function(module, func_name).unwrap()
         };
 
+        println!("{:?}", kernel_id.clone());
         self.module_names.insert(
-            kernel_id.to_string(),
+            kernel_id.clone(),
             CompiledKernel {
                 cube_dim,
                 shared_mem_bytes,
@@ -252,7 +259,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
 
     fn execute_task(
         &mut self,
-        kernel_id: String,
+        kernel_id: KernelId,
         dispatch_count: (u32, u32, u32),
         resources: Vec<CudaResource>,
     ) {
@@ -261,6 +268,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             .map(|memory| memory.as_binding())
             .collect::<Vec<_>>();
 
+        println!("{:?}", kernel_id);
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         unsafe {
