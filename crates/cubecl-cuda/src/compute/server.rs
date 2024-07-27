@@ -100,8 +100,6 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
             cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream).unwrap();
         }
 
-        ctx.sync();
-
         handle
     }
 
@@ -203,7 +201,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
     ) {
         let mut kernel_compiled = kernel.compile();
 
-        if logger.activated() {
+        if logger.is_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
             if let Ok(formatted) = format_cpp_code(&kernel_compiled.source) {
@@ -246,7 +244,6 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             cudarc::driver::result::module::get_function(module, func_name).unwrap()
         };
 
-        println!("{:?}", kernel_id.clone());
         self.module_names.insert(
             kernel_id.clone(),
             CompiledKernel {
@@ -268,7 +265,6 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             .map(|memory| memory.as_binding())
             .collect::<Vec<_>>();
 
-        println!("{:?}", kernel_id);
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         unsafe {

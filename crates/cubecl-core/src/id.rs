@@ -30,13 +30,12 @@ impl KernelId {
 
 /// Extra information
 #[derive(Clone, Debug)]
-pub struct Info {
+struct Info {
     id: Arc<dyn DynId>,
 }
 
 impl Info {
-    /// Create a new info struct.
-    pub fn new<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync>(id: T) -> Self {
+    fn new<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync>(id: T) -> Self {
         Self { id: Arc::new(id) }
     }
 }
@@ -89,18 +88,19 @@ impl<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync> DynId 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     pub fn kernel_id_hash() {
-        let value = KernelId::new::<(), _>("");
+        let value_1 = KernelId::new::<(), _>("1");
+        let value_2 = KernelId::new::<(), _>("2");
 
-        let mut map = HashMap::new();
+        let mut set = HashSet::new();
 
-        map.insert(value.clone(), 1u32);
+        set.insert(value_1.clone());
 
-        assert!(map.contains_key(&value));
+        assert!(set.contains(&value_1));
+        assert!(!set.contains(&value_2));
     }
 }

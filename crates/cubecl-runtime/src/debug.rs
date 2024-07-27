@@ -1,7 +1,8 @@
 use core::fmt::Display;
-use std::fs::OpenOptions;
+
 #[cfg(feature = "std")]
 use std::{
+    fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::PathBuf,
 };
@@ -32,8 +33,8 @@ impl DebugLogger {
         Self::None
     }
 
-    /// Returns wheter the debug logger is activated.
-    pub fn activated(&self) -> bool {
+    /// Returns whether the debug logger is activated.
+    pub fn is_activated(&self) -> bool {
         !matches!(self, Self::None)
     }
 
@@ -93,7 +94,7 @@ impl DebugLogger {
 #[cfg(feature = "std")]
 #[derive(Debug)]
 pub struct DebugFileLogger {
-    writer: BufWriter<std::fs::File>,
+    writer: BufWriter<File>,
 }
 
 #[cfg(feature = "std")]

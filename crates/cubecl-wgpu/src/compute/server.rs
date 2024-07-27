@@ -106,7 +106,7 @@ where
         }
 
         let mut compile = kernel.compile();
-        if self.logger.activated() {
+        if self.logger.is_activated() {
             compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
         }
 
