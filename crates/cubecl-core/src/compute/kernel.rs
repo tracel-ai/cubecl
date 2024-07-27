@@ -37,7 +37,7 @@ impl Display for CompiledKernel {
             if name.len() <= 32 {
                 f.write_fmt(format_args!("\nname: {name}"))?;
             } else {
-                let name = format_type_name(name);
+                let name = format_str(name, &[('<', '>')], false);
                 f.write_fmt(format_args!("\nname: {name}"))?;
             }
         }
@@ -50,7 +50,14 @@ shared_memory: {} bytes",
         ))?;
 
         if let Some(info) = &self.debug_info {
-            f.write_fmt(format_args!("\ncompilation_id: {}", info.id))?;
+            f.write_fmt(format_args!(
+                "\ninfo: {}",
+                format_str(
+                    format!("{}", info.id).as_str(),
+                    &[('(', ')'), ('[', ']'), ('{', '}')],
+                    true
+                )
+            ))?;
         }
 
         f.write_fmt(format_args!(
@@ -70,32 +77,74 @@ source:
     }
 }
 
-fn format_type_name(type_name: &str) -> String {
+fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) -> String {
+    let kernel_id = format!("{}", kernel_id);
     let mut result = String::new();
     let mut depth = 0;
     let indendation = 4;
 
-    for c in type_name.chars() {
+    let mut prev = ' ';
+
+    for c in kernel_id.chars() {
         if c == ' ' {
             continue;
         }
 
-        if c == '<' {
-            depth += 1;
-            result.push_str("<\n");
-            result.push_str(&" ".repeat(indendation * depth));
-            continue;
-        } else if c == '>' {
-            depth -= 1;
-            result.push_str(",\n>");
+        let mut found_marker = false;
+
+        for (start, end) in markers {
+            let (start, end) = (*start, *end);
+
+            if c == start {
+                depth += 1;
+                if prev != ' ' && include_space {
+                    result.push(' ');
+                }
+                result.push(start);
+                result.push_str("\n");
+                result.push_str(&" ".repeat(indendation * depth));
+                found_marker = true;
+            } else if c == end {
+                depth -= 1;
+                if prev != start {
+                    if prev == ' ' {
+                        result.pop();
+                    }
+                    result.push_str(",\n");
+                    result.push_str(&" ".repeat(indendation * depth));
+                    result.push(end);
+                } else {
+                    for _ in 0..(&" ".repeat(indendation * depth).len()) + 1 + indendation {
+                        result.pop();
+                    }
+                    result.push(end);
+                }
+                found_marker = true;
+            }
+        }
+
+        if found_marker {
+            prev = c;
             continue;
         }
 
         if c == ',' && depth > 0 {
+            if prev == ' ' {
+                result.pop();
+            }
+
             result.push_str(",\n");
             result.push_str(&" ".repeat(indendation * depth));
+            continue;
+        }
+
+        if c == ':' && include_space {
+            result.push(c);
+            result.push(' ');
+            prev = ' ';
         } else {
             result.push(c);
+            prev = c;
         }
     }
 
