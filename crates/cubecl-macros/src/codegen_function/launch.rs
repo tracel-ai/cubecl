@@ -360,7 +360,7 @@ impl Codegen {
                 }
 
                 fn id(&self) -> cubecl::KernelId {
-                    cubecl::KernelId::new::<Self, _>((#args))
+                    cubecl::KernelId::new::<Self>().info((#args))
                 }
             }
         }

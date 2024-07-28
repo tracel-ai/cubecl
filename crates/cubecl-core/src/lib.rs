@@ -46,7 +46,7 @@ pub trait Kernel: Send + Sync + 'static + Sized {
     fn define(&self) -> KernelDefinition;
     /// Identifier for the kernel, used for caching kernel compilation.
     fn id(&self) -> KernelId {
-        KernelId::new::<Self, _>(())
+        KernelId::new::<Self>()
     }
 }
 
