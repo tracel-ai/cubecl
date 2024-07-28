@@ -6,7 +6,7 @@ impl Init for CmmaConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Tiling 2D parameters
 pub struct CmmaConfig {
     /// Block size along dimension of lhs

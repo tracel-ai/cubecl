@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
-use cubecl_core::{prelude::*, FeatureSet};
+use cubecl_core::{compute::DebugInformation, prelude::*, FeatureSet, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
     memory_management::MemoryManagement,
@@ -28,7 +28,7 @@ pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
     queue: Arc<wgpu::Queue>,
     encoder: CommandEncoder,
     staging_belt: StagingBelt,
-    pipelines: HashMap<String, Arc<ComputePipeline>>,
+    pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     tasks_max: usize,
     tasks_count: usize,
     logger: DebugLogger,
@@ -106,7 +106,9 @@ where
         }
 
         let mut compile = kernel.compile();
-        compile.lang_tag = Some("wgsl");
+        if self.logger.is_activated() {
+            compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
+        }
 
         let compile = self.logger.debug(compile);
         let pipeline = self.compile_source(&compile.source);

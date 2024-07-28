@@ -343,15 +343,10 @@ impl Codegen {
         let generics = add_runtime(self.generics.clone());
         let (impl_gen, ty_gen, where_gen) = generics.split_for_impl();
 
-        let mut format_str = "{:?}-{}".to_string();
-        for _ in 0..self.state_comptimes.len() {
-            format_str.push_str("-{:?}");
-        }
-
-        let mut format_args = quote::quote! { core::any::TypeId::of::<Self>(), self.settings, };
+        let mut args = quote::quote! { self.settings.clone(), };
 
         for (_, ident) in self.state_comptimes.iter() {
-            format_args.extend(quote::quote! { self.#ident, });
+            args.extend(quote::quote! { self.#ident.clone(), });
         }
 
         let define_args = self.gen_define_args();
@@ -364,8 +359,8 @@ impl Codegen {
                     #define_impl
                 }
 
-                fn id(&self) -> String {
-                    format!(#format_str, #format_args)
+                fn id(&self) -> cubecl::KernelId {
+                    cubecl::KernelId::new::<Self>().info((#args))
                 }
             }
         }

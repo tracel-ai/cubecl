@@ -1,6 +1,8 @@
 use core::fmt::Display;
+
 #[cfg(feature = "std")]
 use std::{
+    fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::PathBuf,
 };
@@ -29,6 +31,11 @@ impl DebugLogger {
     /// Create a new debug logger.
     pub fn new() -> Self {
         Self::None
+    }
+
+    /// Returns whether the debug logger is activated.
+    pub fn is_activated(&self) -> bool {
+        !matches!(self, Self::None)
     }
 
     /// Create a new debug logger.
@@ -87,7 +94,7 @@ impl DebugLogger {
 #[cfg(feature = "std")]
 #[derive(Debug)]
 pub struct DebugFileLogger {
-    writer: BufWriter<std::fs::File>,
+    writer: BufWriter<File>,
 }
 
 #[cfg(feature = "std")]
@@ -98,7 +105,11 @@ impl DebugFileLogger {
             None => PathBuf::from("/tmp/cubecl.log"),
         };
 
-        let file = std::fs::File::create(path).unwrap();
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)
+            .unwrap();
 
         Self {
             writer: BufWriter::new(file),
@@ -106,5 +117,6 @@ impl DebugFileLogger {
     }
     fn log<S: Display>(&mut self, msg: &S) {
         writeln!(self.writer, "{msg}").expect("Should be able to log debug information.");
+        self.writer.flush().expect("Can complete write operation.");
     }
 }

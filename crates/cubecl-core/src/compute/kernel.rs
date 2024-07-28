@@ -3,7 +3,7 @@ use std::{
     marker::PhantomData,
 };
 
-use crate::{codegen::CompilerRepresentation, ir::CubeDim, Compiler, Kernel};
+use crate::{codegen::CompilerRepresentation, ir::CubeDim, Compiler, Kernel, KernelId};
 use alloc::sync::Arc;
 use cubecl_runtime::server::{Binding, ComputeServer};
 
@@ -16,18 +16,28 @@ pub struct CompiledKernel {
     pub cube_dim: CubeDim,
     /// The number of bytes used by the share memory
     pub shared_mem_bytes: usize,
-    pub lang_tag: Option<&'static str>,
+    /// Extra debugging information about the compiled kernel.
+    pub debug_info: Option<DebugInformation>,
+}
+
+/// Extra debugging information about the compiled kernel.
+#[derive(new)]
+pub struct DebugInformation {
+    /// The language tag of the source..
+    pub lang_tag: &'static str,
+    /// The compilation id.
+    pub id: KernelId,
 }
 
 impl Display for CompiledKernel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("\n======== Compiled Kernel ========")?;
+        f.write_str("\n[START_KERNEL_COMPILATION]")?;
 
         if let Some(name) = self.name {
             if name.len() <= 32 {
                 f.write_fmt(format_args!("\nname: {name}"))?;
             } else {
-                let name = format_type_name(name);
+                let name = format_str(name, &[('<', '>')], false);
                 f.write_fmt(format_args!("\nname: {name}"))?;
             }
         }
@@ -35,49 +45,106 @@ impl Display for CompiledKernel {
         f.write_fmt(format_args!(
             "
 cube_dim: ({}, {}, {})
-shared_memory: {} bytes
+shared_memory: {} bytes",
+            self.cube_dim.x, self.cube_dim.y, self.cube_dim.z, self.shared_mem_bytes,
+        ))?;
+
+        if let Some(info) = &self.debug_info {
+            f.write_fmt(format_args!(
+                "\ninfo: {}",
+                format_str(
+                    format!("{}", info.id).as_str(),
+                    &[('(', ')'), ('[', ']'), ('{', '}')],
+                    true
+                )
+            ))?;
+        }
+
+        f.write_fmt(format_args!(
+            "
 source:
 ```{}
 {}
 ```
-=================================
+[END_KERNEL_COMPILATION]
 ",
-            self.cube_dim.x,
-            self.cube_dim.y,
-            self.cube_dim.z,
-            self.shared_mem_bytes,
-            self.lang_tag.unwrap_or(""),
+            self.debug_info
+                .as_ref()
+                .map(|info| info.lang_tag)
+                .unwrap_or(""),
             self.source
         ))
     }
 }
 
-fn format_type_name(type_name: &str) -> String {
+fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) -> String {
+    let kernel_id = kernel_id.to_string();
     let mut result = String::new();
     let mut depth = 0;
     let indendation = 4;
 
-    for c in type_name.chars() {
+    let mut prev = ' ';
+
+    for c in kernel_id.chars() {
         if c == ' ' {
             continue;
         }
 
-        if c == '<' {
-            depth += 1;
-            result.push_str("<\n");
-            result.push_str(&" ".repeat(indendation * depth));
-            continue;
-        } else if c == '>' {
-            depth -= 1;
-            result.push_str(",\n>");
+        let mut found_marker = false;
+
+        for (start, end) in markers {
+            let (start, end) = (*start, *end);
+
+            if c == start {
+                depth += 1;
+                if prev != ' ' && include_space {
+                    result.push(' ');
+                }
+                result.push(start);
+                result.push('\n');
+                result.push_str(&" ".repeat(indendation * depth));
+                found_marker = true;
+            } else if c == end {
+                depth -= 1;
+                if prev != start {
+                    if prev == ' ' {
+                        result.pop();
+                    }
+                    result.push_str(",\n");
+                    result.push_str(&" ".repeat(indendation * depth));
+                    result.push(end);
+                } else {
+                    for _ in 0..(&" ".repeat(indendation * depth).len()) + 1 + indendation {
+                        result.pop();
+                    }
+                    result.push(end);
+                }
+                found_marker = true;
+            }
+        }
+
+        if found_marker {
+            prev = c;
             continue;
         }
 
         if c == ',' && depth > 0 {
+            if prev == ' ' {
+                result.pop();
+            }
+
             result.push_str(",\n");
             result.push_str(&" ".repeat(indendation * depth));
+            continue;
+        }
+
+        if c == ':' && include_space {
+            result.push(c);
+            result.push(' ');
+            prev = ' ';
         } else {
             result.push(c);
+            prev = c;
         }
     }
 
@@ -88,7 +155,7 @@ fn format_type_name(type_name: &str) -> String {
 /// provided id.
 pub trait CubeTask: Send + Sync {
     /// Identifier for the kernel, used for caching kernel compilation.
-    fn id(&self) -> String;
+    fn id(&self) -> KernelId;
     /// Compile the kernel into source
     fn compile(&self) -> CompiledKernel;
 }
@@ -113,11 +180,11 @@ impl<C: Compiler, K: Kernel> CubeTask for KernelTask<C, K> {
             source,
             cube_dim,
             shared_mem_bytes,
-            lang_tag: None,
+            debug_info: None,
         }
     }
 
-    fn id(&self) -> String {
+    fn id(&self) -> KernelId {
         self.kernel_definition.id().clone()
     }
 }
@@ -127,7 +194,7 @@ impl CubeTask for Arc<dyn CubeTask> {
         self.as_ref().compile()
     }
 
-    fn id(&self) -> String {
+    fn id(&self) -> KernelId {
         self.as_ref().id()
     }
 }
@@ -137,7 +204,7 @@ impl CubeTask for Box<dyn CubeTask> {
         self.as_ref().compile()
     }
 
-    fn id(&self) -> String {
+    fn id(&self) -> KernelId {
         self.as_ref().id()
     }
 }
