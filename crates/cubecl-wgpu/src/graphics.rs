@@ -68,7 +68,7 @@ impl GraphicsApi for WebGpu {
 impl GraphicsApi for AutoGraphicsApi {
     fn backend() -> wgpu::Backend {
         // Allow overriding AutoGraphicsApi backend with ENV var in std test environments
-        #[cfg(not(no_std))]
+        #[cfg(feature = "std")]
         #[cfg(test)]
         if let Ok(backend_str) = std::env::var("AUTO_GRAPHICS_BACKEND") {
             match backend_str.to_lowercase().as_str() {
