@@ -3,8 +3,7 @@ use crate::ir::Elem;
 use crate::prelude::{ComptimeType, CubeContext};
 
 use super::{
-    init_expand_element, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand,
-    Vectorized,
+    init_expand_element, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, Vectorized,
 };
 
 // To be consistent with other primitive type.
@@ -37,22 +36,10 @@ impl CubeType for bool {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl LaunchArgExpand for Bool {
-    fn expand(
-        builder: &mut crate::prelude::KernelBuilder,
-        vectorization: crate::ir::Vectorization,
-    ) -> <Self as CubeType>::ExpandType {
-        assert_eq!(vectorization, 1, "Attempted to vectorize a scalar");
-        builder.scalar(Bool::as_elem()).into()
-    }
-}
-
 impl CubePrimitive for Bool {
     fn as_elem() -> Elem {
         Elem::Bool
     }
-
-    type Primitive = u32;
 }
 
 impl ExpandElementBaseInit for bool {
