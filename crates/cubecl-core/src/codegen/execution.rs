@@ -2,7 +2,7 @@ use crate::compute::{CubeCount, KernelTask};
 use crate::frontend::TensorHandleRef;
 use crate::ir::Elem;
 use crate::pod::CubeElement;
-use crate::{calculate_cube_count_elemwise, Kernel, Runtime, SUBCUBE_DIM_APPROX};
+use crate::{calculate_cube_count_elemwise, CubeDim, Kernel, Runtime};
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{Binding, ComputeServer, Handle};
 
@@ -295,7 +295,7 @@ fn execute_settings<'a, R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeEl
 
     let cube_count = match launch {
         CubeCountSettings::Custom(count) => count,
-        _ => calculate_cube_count_elemwise(num_elems_output, SUBCUBE_DIM_APPROX),
+        _ => calculate_cube_count_elemwise(num_elems_output, CubeDim::default()),
     };
 
     ExecuteSettings {

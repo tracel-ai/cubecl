@@ -50,6 +50,8 @@ pub trait Numeric:
     + std::cmp::PartialOrd<u32>
     + std::cmp::PartialEq<u32>
 {
+    type Primitive: ScalarArgSettings;
+
     /// Create a new constant numeric.
     ///
     /// Note: since this must work for both integer and float
@@ -61,8 +63,6 @@ pub trait Numeric:
     fn from_int(_val: u32) -> Self {
         unexpanded!()
     }
-
-    type Primitive: ScalarArgSettings;
 
     fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {
         unexpanded!()

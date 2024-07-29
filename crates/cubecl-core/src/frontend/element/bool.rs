@@ -36,7 +36,7 @@ impl CubeType for bool {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl CubePrimitive for bool {
+impl CubePrimitive for Bool {
     fn as_elem() -> Elem {
         Elem::Bool
     }

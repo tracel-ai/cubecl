@@ -202,6 +202,12 @@ pub struct CubeDim {
     pub z: u32,
 }
 
+impl CubeDim {
+    pub(crate) fn num_elems(&self) -> u32 {
+        self.x * self.y * self.z
+    }
+}
+
 impl Default for CubeDim {
     fn default() -> Self {
         Self {
