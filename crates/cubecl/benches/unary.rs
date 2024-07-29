@@ -34,13 +34,16 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     fn execute(&self, (lhs, rhs, out): Self::Args) {
         let num_elems: usize = out.shape.iter().product();
 
-        let cube_count =
-            calculate_cube_count_elemwise::<R::Server>(num_elems / self.vectorization as usize, 16);
+        let cube_dim = CubeDim::new(16, 16, 1);
+        let cube_count = calculate_cube_count_elemwise::<R::Server>(
+            num_elems / self.vectorization as usize,
+            cube_dim,
+        );
 
         execute::launch::<E, R>(
             &self.client,
             cube_count,
-            CubeDim::new(16, 16, 1),
+            cube_dim,
             TensorArg::vectorized(self.vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
             TensorArg::vectorized(self.vectorization, &rhs.handle, &rhs.strides, &rhs.shape),
             TensorArg::vectorized(self.vectorization, &out.handle, &out.strides, &out.shape),
