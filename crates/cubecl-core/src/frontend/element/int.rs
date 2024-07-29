@@ -46,7 +46,8 @@ pub trait Int:
 
 macro_rules! impl_int {
     ($type:ident, $primitive:ty) => {
-        #[derive(Clone, Copy)]
+        #[allow(clippy::derived_hash_with_manual_eq)]
+        #[derive(Clone, Copy, Hash)]
         pub struct $type {
             pub val: $primitive,
             pub vectorization: u8,

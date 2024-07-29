@@ -151,7 +151,35 @@ impl Binary for IndexAssign {
         Rhs: Component,
         Out: Component,
     {
-        f.write_fmt(format_args!("{out}[{lhs}] = {rhs};\n"))
+        let item_out = out.item();
+        let item_rhs = rhs.item();
+
+        if item_out.vectorization != item_rhs.vectorization {
+            let is_vec_native = item_out.is_vec_native();
+            f.write_str("{\n")?;
+            let var = "scalar_broadcasted";
+            f.write_fmt(format_args!("{item_out} {var};\n"))?;
+            for i in 0..item_out.vectorization {
+                if is_vec_native {
+                    let char = match i {
+                        0 => 'x',
+                        1 => 'y',
+                        2 => 'z',
+                        3 => 'w',
+                        _ => panic!("Invalid"),
+                    };
+                    f.write_fmt(format_args!("{var}.{char} = {rhs};\n"))?;
+                } else {
+                    f.write_fmt(format_args!("{var}.i_{i} = {rhs};\n"))?;
+                }
+            }
+            f.write_fmt(format_args!("{out}[{lhs}] = {var};\n"))?;
+            f.write_str("}")?;
+
+            Ok(())
+        } else {
+            f.write_fmt(format_args!("{out}[{lhs}] = {rhs};\n"))
+        }
     }
 
     fn unroll_vec(

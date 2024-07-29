@@ -18,8 +18,8 @@ version.workspace = true
 rust-version = "1.79"
 
 [features]
-default = ["linalg", "cubecl-wgpu?/default", "cubecl-cuda?/default"]
-std = ["cubecl-wgpu?/std", "cubecl-cuda?/std"]
+default = ["std", "linalg", "cubecl-core/default", "cubecl-wgpu?/default", "cubecl-cuda?/default"]
+std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 linalg = ["dep:cubecl-linalg"]
 

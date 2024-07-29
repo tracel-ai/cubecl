@@ -9,8 +9,12 @@ use cubecl_linalg::tensor::TensorHandle;
 #[cube(launch)]
 fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
     if ABSOLUTE_POS < out.len() {
-        for _ in range(0, 256, Comptime::new(false)) {
-            out[ABSOLUTE_POS] += F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
+        for i in range(0, 256, Comptime::new(false)) {
+            if i % UInt::new(2) == UInt::new(0) {
+                out[ABSOLUTE_POS] -= F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
+            } else {
+                out[ABSOLUTE_POS] += F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
+            }
         }
     }
 }

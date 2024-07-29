@@ -8,12 +8,23 @@ use super::{
     ScalarArgSettings, Vectorized, __expand_new, __expand_vectorized,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[allow(clippy::derived_hash_with_manual_eq)]
+#[derive(Clone, Copy, Hash)]
 /// An unsigned int.
 /// Preferred for indexing operations
 pub struct UInt {
     pub val: u32,
     pub vectorization: u8,
+}
+
+impl core::fmt::Debug for UInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.vectorization == 1 {
+            f.write_fmt(format_args!("{}", self.val))
+        } else {
+            f.write_fmt(format_args!("{}-{}", self.val, self.vectorization))
+        }
+    }
 }
 
 impl CubeType for UInt {

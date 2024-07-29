@@ -40,7 +40,7 @@ impl Init for CubeTiling2dConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Tiling 2D parameters
 pub struct CubeTiling2dConfig {
     /// Block size along dimension of lhs

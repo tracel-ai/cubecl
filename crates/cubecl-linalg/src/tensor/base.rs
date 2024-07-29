@@ -128,7 +128,7 @@ where
             client,
             cube_count,
             cube_dim,
-            ArrayArg::new(&handle, num_elements),
+            ArrayArg::vectorized(vectorization_factor, &handle, num_elements),
         );
 
         Self::new(shape, strides, handle)
@@ -141,10 +141,8 @@ pub(crate) mod init {
 
     #[cube(launch)]
     pub fn zeros_array<C: Numeric>(output: &mut Array<C>) {
-        if ABSOLUTE_POS >= output.len() {
-            return;
+        if ABSOLUTE_POS < output.len() {
+            output[ABSOLUTE_POS] = C::from_int(0);
         }
-
-        output[ABSOLUTE_POS] = C::from_int(0);
     }
 }

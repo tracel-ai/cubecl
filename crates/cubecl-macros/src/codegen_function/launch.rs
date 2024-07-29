@@ -17,13 +17,11 @@ struct Codegen {
 
 impl Codegen {
     fn from_sig(sig: &syn::Signature) -> Self {
-        let mut codegen = Codegen::default();
-
-        let mut first_letter = sig.ident.to_string();
-        let second_part = first_letter.split_off(1);
-
-        codegen.name = format!("{}{}", first_letter.to_uppercase(), second_part);
-        codegen.generics = sig.generics.clone();
+        let mut codegen = Codegen {
+            name: snake_to_pascal_case(&sig.ident.to_string()),
+            generics: sig.generics.clone(),
+            ..Codegen::default()
+        };
 
         let mut inputs = quote::quote!();
 
@@ -345,15 +343,10 @@ impl Codegen {
         let generics = add_runtime(self.generics.clone());
         let (impl_gen, ty_gen, where_gen) = generics.split_for_impl();
 
-        let mut format_str = "{:?}-{}".to_string();
-        for _ in 0..self.state_comptimes.len() {
-            format_str.push_str("-{:?}");
-        }
-
-        let mut format_args = quote::quote! { core::any::TypeId::of::<Self>(), self.settings, };
+        let mut args = quote::quote! { self.settings.clone(), };
 
         for (_, ident) in self.state_comptimes.iter() {
-            format_args.extend(quote::quote! { self.#ident, });
+            args.extend(quote::quote! { self.#ident.clone(), });
         }
 
         let define_args = self.gen_define_args();
@@ -366,8 +359,8 @@ impl Codegen {
                     #define_impl
                 }
 
-                fn id(&self) -> String {
-                    format!(#format_str, #format_args)
+                fn id(&self) -> cubecl::KernelId {
+                    cubecl::KernelId::new::<Self>().info((#args))
                 }
             }
         }
@@ -518,4 +511,18 @@ fn no_ref(ty: &syn::Type) -> &syn::Type {
         syn::Type::Reference(val) => &val.elem,
         _ => ty,
     }
+}
+
+fn snake_to_pascal_case(input: &str) -> String {
+    input
+        .split('_')
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let mut c = s.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            }
+        })
+        .collect()
 }
