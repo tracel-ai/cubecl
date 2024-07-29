@@ -3,7 +3,7 @@ use crate::frontend::{
     ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
     ExpandElementTyped, Numeric,
 };
-use crate::ir::{ConstantScalarValue, Elem, IntKind, Item, Variable, Vectorization};
+use crate::ir::{ConstantScalarValue, Elem, IntKind, Variable, Vectorization};
 use crate::Runtime;
 
 use super::{
@@ -103,19 +103,6 @@ macro_rules! impl_int {
 
         impl Numeric for $type {
             type Primitive = $primitive;
-
-            fn __expand_vectorized_empty(
-                context: &mut CubeContext,
-                vectorization: UInt,
-            ) -> <Self as CubeType>::ExpandType {
-                if vectorization.val == 1 {
-                    Self::__expand_new(context, ExpandElementTyped::from_lit(0.))
-                } else {
-                    context
-                        .create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8))
-                        .into()
-                }
-            }
         }
 
         impl ExpandElementBaseInit for $type {
