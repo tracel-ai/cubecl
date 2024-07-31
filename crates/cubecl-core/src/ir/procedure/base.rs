@@ -1,6 +1,6 @@
 use super::{
-    CheckedIndex, CheckedIndexAssign, ConditionalAssign, IndexOffsetGlobalWithLayout, ReadGlobal,
-    ReadGlobalWithLayout, WriteGlobal,
+    CheckedIndex, CheckedIndexAssign, ConditionalAssign, EarlyReturn, IndexOffsetGlobalWithLayout,
+    ReadGlobal, ReadGlobalWithLayout, WriteGlobal,
 };
 use crate::ir::Vectorization;
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,7 @@ pub enum Procedure {
     CheckedIndex(CheckedIndex),
     CheckedIndexAssign(CheckedIndexAssign),
     ConditionalAssign(ConditionalAssign),
+    EarlyReturn(EarlyReturn),
 }
 
 impl Procedure {
@@ -37,6 +38,7 @@ impl Procedure {
             Procedure::ConditionalAssign(proc) => {
                 Procedure::ConditionalAssign(proc.vectorize(vectorization))
             }
+            Procedure::EarlyReturn(proc) => Procedure::EarlyReturn(proc.vectorize(vectorization)),
         }
     }
 }

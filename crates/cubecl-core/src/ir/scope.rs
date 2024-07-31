@@ -315,6 +315,17 @@ impl Scope {
 
         let mut operations = Vec::new();
 
+        if let Some((_input, global, position)) = self.writes_global.first() {
+            if self.depth == 0 {
+                operations.push(Operation::Procedure(Procedure::EarlyReturn(
+                    super::EarlyReturn {
+                        global: *global,
+                        position: *position,
+                    },
+                )))
+            }
+        }
+
         for (input, strategy, local, position) in self.reads_global.drain(..) {
             match strategy {
                 ReadingStrategy::OutputLayout => {
