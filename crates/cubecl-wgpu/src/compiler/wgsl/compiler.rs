@@ -434,6 +434,10 @@ impl WgslCompiler {
                 proc.expand(scope);
                 compile(scope);
             }
+            cube::Procedure::EarlyReturn(proc) => {
+                proc.expand(scope);
+                compile(scope);
+            }
         }
     }
 

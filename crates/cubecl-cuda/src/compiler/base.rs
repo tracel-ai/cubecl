@@ -314,6 +314,10 @@ impl CudaCompiler {
                 proc.expand(scope);
                 compile(scope);
             }
+            gpu::Procedure::EarlyReturn(proc) => {
+                proc.expand(scope);
+                compile(scope);
+            }
         }
     }
 
