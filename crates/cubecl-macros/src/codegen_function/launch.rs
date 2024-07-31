@@ -300,12 +300,6 @@ impl Codegen {
             let mut outputs: std::collections::BTreeMap<usize, std::sync::Arc<dyn core::any::Any>> = std::collections::BTreeMap::new();
 
             #register_input
-
-            for mapping in self.settings.mappings.iter() {
-                let input = inputs.get(&mapping.pos_input).unwrap();
-                outputs.insert(mapping.pos_output, input.clone());
-            }
-
             #register_output
         };
 
@@ -318,6 +312,13 @@ impl Codegen {
                 }
             });
         }
+
+        tokens.extend(quote::quote! {
+            for mapping in self.settings.mappings.iter() {
+                let input = inputs.get(&mapping.pos_input).unwrap();
+                outputs.insert(mapping.pos_output, input.clone());
+            }
+        });
 
         if num_outputs > 0 {
             tokens.extend(quote::quote! {
