@@ -13,7 +13,7 @@ use crate::matmul::{
     },
 };
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 #[allow(unused_mut)]
 fn tile_outer_product_test<F: Float>(
     register_m: Array<F>,
@@ -50,15 +50,17 @@ pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device)
     const SOME_DIM: usize = 12;
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
-    tile_outer_product_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        ArrayArg::new(&register_m, 4),
-        ArrayArg::new(&register_n, 4),
-        ArrayArg::new(&results, 16),
-        config,
-    );
+    unsafe {
+        tile_outer_product_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            ArrayArg::new(&register_m, 4),
+            ArrayArg::new(&register_n, 4),
+            ArrayArg::new(&results, 16),
+            config,
+        );
+    };
 
     let expected = &[
         64.0, 80.0, 96.0, 112.0, 80.0, 100.0, 120.0, 140.0, 96.0, 120.0, 144.0, 168.0, 112.0,
@@ -67,7 +69,7 @@ pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device)
     assert_equals::<R>(&client, results, expected);
 }
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn compute_loop_test<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
@@ -124,15 +126,17 @@ pub fn tile_outer_product_vectorized_unit_test<R: Runtime>(device: &R::Device) {
     const SOME_DIM: usize = 12;
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
-    tile_outer_product_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        ArrayArg::new(&register_m, 4),
-        ArrayArg::new(&register_n, 4),
-        ArrayArg::new(&results, 16),
-        config,
-    );
+    unsafe {
+        tile_outer_product_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            ArrayArg::new(&register_m, 4),
+            ArrayArg::new(&register_n, 4),
+            ArrayArg::new(&results, 16),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 2.0, 4.0, 6.0, 8.0, 3.0, 6.0, 9.0, 12.0,
@@ -152,19 +156,21 @@ pub fn compute_loop_unit_test<R: Runtime>(device: &R::Device) {
     const SOME_DIM: usize = 12;
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
-    compute_loop_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(TILE_SIZE as u8, &lhs.handle, &lhs.strides, &lhs.shape),
-        TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
-        ScalarArg::new(0),
-        ScalarArg::new(0),
-        ArrayArg::new(&results, 16),
-        UInt::new(16),
-        UInt::new(16),
-        config,
-    );
+    unsafe {
+        compute_loop_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(TILE_SIZE as u8, &lhs.handle, &lhs.strides, &lhs.shape),
+            TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
+            ScalarArg::new(0),
+            ScalarArg::new(0),
+            ArrayArg::new(&results, 16),
+            UInt::new(16),
+            UInt::new(16),
+            config,
+        );
+    };
 
     let expected = &[
         8960.0, 9184.0, 9408.0, 9632.0, 9184.0, 9416.0, 9648.0, 9880.0, 9408.0, 9648.0, 9888.0,
@@ -184,19 +190,21 @@ pub fn compute_loop_unit_offset_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(4, 8, 4);
 
-    compute_loop_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(TILE_SIZE as u8, &lhs.handle, &lhs.strides, &lhs.shape),
-        TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
-        ScalarArg::new(4),
-        ScalarArg::new(4),
-        ArrayArg::new(&results, 16),
-        UInt::new(8),
-        UInt::new(8),
-        config,
-    );
+    unsafe {
+        compute_loop_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(TILE_SIZE as u8, &lhs.handle, &lhs.strides, &lhs.shape),
+            TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
+            ScalarArg::new(4),
+            ScalarArg::new(4),
+            ArrayArg::new(&results, 16),
+            UInt::new(8),
+            UInt::new(8),
+            config,
+        );
+    };
 
     let expected = &[
         1160.0, 1230.0, 1300.0, 1370.0, 1416.0, 1502.0, 1588.0, 1674.0, 1672.0, 1774.0, 1876.0,

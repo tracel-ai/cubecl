@@ -8,7 +8,7 @@ use crate::matmul::{
     tests::test_utils::range_tensor,
 };
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn load_lhs_test<F: Float>(
     lhs_tensor: &Tensor<F>,
     lhs_sm_arr: &mut Array<F>,
@@ -41,7 +41,7 @@ fn load_lhs_test<F: Float>(
     }
 }
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn load_rhs_test<F: Float>(
     rhs_tensor: &Tensor<F>,
     rhs_sm_arr: &mut Array<F>,
@@ -93,23 +93,25 @@ pub fn load_shared_memory_lhs_unit_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_lhs_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &lhs_tensor.handle,
-            &lhs_tensor.strides,
-            &lhs_tensor.shape,
-        ),
-        ArrayArg::new(&lhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_lhs_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -150,23 +152,25 @@ pub fn load_shared_memory_rhs_unit_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_rhs_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &rhs_tensor.handle,
-            &rhs_tensor.strides,
-            &rhs_tensor.shape,
-        ),
-        ArrayArg::new(&rhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_rhs_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &rhs_tensor.handle,
+                &rhs_tensor.strides,
+                &rhs_tensor.shape,
+            ),
+            ArrayArg::new(&rhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -207,23 +211,25 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_lhs_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &lhs_tensor.handle,
-            &lhs_tensor.strides,
-            &lhs_tensor.shape,
-        ),
-        ArrayArg::new(&lhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_lhs_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 64.0,
@@ -269,23 +275,25 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
         unroll: false,
     };
 
-    load_lhs_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &lhs_tensor.handle,
-            &lhs_tensor.strides,
-            &lhs_tensor.shape,
-        ),
-        ArrayArg::new(&lhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(12),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_lhs_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(12),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 64.0,
@@ -329,23 +337,25 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
         unroll: false,
     };
 
-    load_lhs_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &lhs_tensor.handle,
-            &lhs_tensor.strides,
-            &lhs_tensor.shape,
-        ),
-        ArrayArg::new(&lhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(12),
-        ScalarArg::new(12),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_lhs_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(12),
+            ScalarArg::new(12),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 0.0, 0.0, 0.0, 0.0, 12.0,
@@ -389,23 +399,25 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
         unroll: false,
     };
 
-    load_lhs_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &lhs_tensor.handle,
-            &lhs_tensor.strides,
-            &lhs_tensor.shape,
-        ),
-        ArrayArg::new(&lhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(12),
-        ScalarArg::new(12),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_lhs_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(12),
+            ScalarArg::new(12),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 0.0, 0.0, 0.0, 0.0, 12.0,
@@ -448,23 +460,25 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_rhs_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &rhs_tensor.handle,
-            &rhs_tensor.strides,
-            &rhs_tensor.shape,
-        ),
-        ArrayArg::new(&rhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_rhs_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &rhs_tensor.handle,
+                &rhs_tensor.strides,
+                &rhs_tensor.shape,
+            ),
+            ArrayArg::new(&rhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 64.0,
@@ -510,23 +524,25 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_lhs_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &lhs_tensor.handle,
-            &lhs_tensor.strides,
-            &lhs_tensor.shape,
-        ),
-        ArrayArg::new(&lhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_lhs_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         16., 17., 18., 19., 20., 21., 22., 23., 24., 25., 26., 27., 28., 29., 30., 31., 80., 81.,
@@ -571,23 +587,25 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_rhs_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &rhs_tensor.handle,
-            &rhs_tensor.strides,
-            &rhs_tensor.shape,
-        ),
-        ArrayArg::new(&rhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_rhs_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &rhs_tensor.handle,
+                &rhs_tensor.strides,
+                &rhs_tensor.shape,
+            ),
+            ArrayArg::new(&rhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         1024., 1025., 1026., 1027., 1028., 1029., 1030., 1031., 1032., 1033., 1034., 1035., 1036.,
@@ -635,23 +653,25 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_lhs_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &lhs_tensor.handle,
-            &lhs_tensor.strides,
-            &lhs_tensor.shape,
-        ),
-        ArrayArg::new(&lhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_lhs_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         1024., 1025., 1026., 1027., 1028., 1029., 1030., 1031., 1032., 1033., 1034., 1035., 1036.,
@@ -699,23 +719,25 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_rhs_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &rhs_tensor.handle,
-            &rhs_tensor.strides,
-            &rhs_tensor.shape,
-        ),
-        ArrayArg::new(&rhs_sm, 64 * 32),
-        ScalarArg::new(0),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_rhs_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &rhs_tensor.handle,
+                &rhs_tensor.strides,
+                &rhs_tensor.shape,
+            ),
+            ArrayArg::new(&rhs_sm, 64 * 32),
+            ScalarArg::new(0),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         16., 17., 18., 19., 20., 21., 22., 23., 24., 25., 26., 27., 28., 29., 30., 31., 80., 81.,
@@ -760,23 +782,25 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_lhs_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &lhs_tensor.handle,
-            &lhs_tensor.strides,
-            &lhs_tensor.shape,
-        ),
-        ArrayArg::new(&lhs_sm, 64 * 32),
-        ScalarArg::new(32),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_lhs_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &lhs_tensor.handle,
+                &lhs_tensor.strides,
+                &lhs_tensor.shape,
+            ),
+            ArrayArg::new(&lhs_sm, 64 * 32),
+            ScalarArg::new(32),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         32., 33., 34., 35., 36., 37., 38., 39., 40., 41., 42., 43., 44., 45., 46., 47., 96., 97.,
@@ -821,23 +845,25 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    load_rhs_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            4,
-            &rhs_tensor.handle,
-            &rhs_tensor.strides,
-            &rhs_tensor.shape,
-        ),
-        ArrayArg::new(&rhs_sm, 64 * 32),
-        ScalarArg::new(32),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        ScalarArg::new(64),
-        config,
-    );
+    unsafe {
+        load_rhs_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                4,
+                &rhs_tensor.handle,
+                &rhs_tensor.strides,
+                &rhs_tensor.shape,
+            ),
+            ArrayArg::new(&rhs_sm, 64 * 32),
+            ScalarArg::new(32),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            ScalarArg::new(64),
+            config,
+        );
+    };
 
     let expected = &[
         2048., 2049., 2050., 2051., 2052., 2053., 2054., 2055., 2056., 2057., 2058., 2059., 2060.,

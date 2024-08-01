@@ -8,7 +8,7 @@ use crate::matmul::{
     tests::test_utils::range_tensor,
 };
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn write_output_test<F: Float>(
     out: &mut Tensor<F>,
     acc_sm_arr: &mut Array<F>,
@@ -60,16 +60,18 @@ pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    write_output_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&acc_sm.handle, 64 * 64),
-        ScalarArg::new(m as u32),
-        ScalarArg::new(n as u32),
-        config,
-    );
+    unsafe {
+        write_output_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&acc_sm.handle, 64 * 64),
+            ScalarArg::new(m as u32),
+            ScalarArg::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 256.0,
@@ -126,16 +128,18 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    write_output_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&acc_sm.handle, 64 * 64),
-        ScalarArg::new(m as u32),
-        ScalarArg::new(n as u32),
-        config,
-    );
+    unsafe {
+        write_output_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&acc_sm.handle, 64 * 64),
+            ScalarArg::new(m as u32),
+            ScalarArg::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
@@ -202,16 +206,18 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
         unroll: false,
     };
 
-    write_output_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&acc_sm.handle, 64 * 64),
-        ScalarArg::new(m as u32),
-        ScalarArg::new(n as u32),
-        config,
-    );
+    unsafe {
+        write_output_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&acc_sm.handle, 64 * 64),
+            ScalarArg::new(m as u32),
+            ScalarArg::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
@@ -273,16 +279,18 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
         unroll: false,
     };
 
-    write_output_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&acc_sm.handle, 64 * 64),
-        ScalarArg::new(m as u32),
-        ScalarArg::new(n as u32),
-        config,
-    );
+    unsafe {
+        write_output_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&acc_sm.handle, 64 * 64),
+            ScalarArg::new(m as u32),
+            ScalarArg::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
@@ -344,16 +352,18 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
         unroll: false,
     };
 
-    write_output_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&acc_sm.handle, 64 * 64),
-        ScalarArg::new(m as u32),
-        ScalarArg::new(n as u32),
-        config,
-    );
+    unsafe {
+        write_output_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&acc_sm.handle, 64 * 64),
+            ScalarArg::new(m as u32),
+            ScalarArg::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
@@ -411,16 +421,18 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    write_output_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&acc_sm.handle, 64 * 64),
-        ScalarArg::new(m as u32),
-        ScalarArg::new(n as u32),
-        config,
-    );
+    unsafe {
+        write_output_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&acc_sm.handle, 64 * 64),
+            ScalarArg::new(m as u32),
+            ScalarArg::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
@@ -527,16 +539,18 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
         unroll: false,
     };
 
-    write_output_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&acc_sm.handle, 64 * 64),
-        ScalarArg::new(m as u32),
-        ScalarArg::new(n as u32),
-        config,
-    );
+    unsafe {
+        write_output_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(4, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&acc_sm.handle, 64 * 64),
+            ScalarArg::new(m as u32),
+            ScalarArg::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         1024., 1025., 1026., 1027., 1028., 1029., 1030., 1031., 1032., 1033., 1034., 1035., 1036.,

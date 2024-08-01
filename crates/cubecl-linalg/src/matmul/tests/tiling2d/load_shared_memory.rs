@@ -15,7 +15,7 @@ use crate::matmul::{
     },
 };
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn load_tensor_test<F: Float>(
     tensor: &Tensor<F>,
     sm_out: &mut Array<F>,
@@ -80,7 +80,7 @@ fn load_tensor_test<F: Float>(
     }
 }
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn load_tensor_permuted_test<F: Float>(
     tensor: &Tensor<F>,
     sm_out: &mut Array<F>,
@@ -147,7 +147,7 @@ fn load_tensor_permuted_test<F: Float>(
     }
 }
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn load_tensor_multiple_tiles_test<F: Float>(
     tensor: &Tensor<F>,
     sm_out: &mut Array<F>,
@@ -222,18 +222,20 @@ pub fn load_lhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(16, 16, 8);
 
-    load_tensor_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(4),
-        ScalarArg::new(4),
-        ScalarArg::new(8),
-        config,
-        true,
-    );
+    unsafe {
+        load_tensor_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(4),
+            ScalarArg::new(4),
+            ScalarArg::new(8),
+            config,
+            true,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -255,21 +257,23 @@ pub fn load_lhs_transposed_out_of_bounds_cube_test<R: Runtime>(device: &R::Devic
 
     let config = make_tiling2d_config(5, 1, 1);
 
-    load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(
-            vectorization_factor as u8,
-            &lhs.handle,
-            &lhs.strides,
-            &lhs.shape,
-        ),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(0),
-        config,
-        true,
-    );
+    unsafe {
+        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(
+                vectorization_factor as u8,
+                &lhs.handle,
+                &lhs.strides,
+                &lhs.shape,
+            ),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(0),
+            config,
+            true,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -290,16 +294,18 @@ pub fn load_lhs_transposed_cube_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(8, 8, 8);
 
-    load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(0),
-        config,
-        true,
-    );
+    unsafe {
+        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(0),
+            config,
+            true,
+        );
+    };
 
     let expected = &[
         0.0, 8.0, 16.0, 24.0, 32.0, 40.0, 48.0, 56.0, 1.0, 9.0, 17.0, 25.0, 33.0, 41.0, 49.0, 57.0,
@@ -321,16 +327,18 @@ pub fn load_lhs_transposed_offset_cube_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(8, 8, 16);
 
-    load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(8),
-        config,
-        true,
-    );
+    unsafe {
+        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(8),
+            config,
+            true,
+        );
+    };
 
     let expected = &[
         8.0, 24.0, 40.0, 56.0, 72.0, 88.0, 104.0, 120.0, 9.0, 25.0, 41.0, 57.0, 73.0, 89.0, 105.0,
@@ -352,18 +360,20 @@ pub fn load_rhs_plain_unit_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(8, 16, 16);
 
-    load_tensor_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(4),
-        ScalarArg::new(4),
-        ScalarArg::new(8),
-        config,
-        false,
-    );
+    unsafe {
+        load_tensor_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(4),
+            ScalarArg::new(4),
+            ScalarArg::new(8),
+            config,
+            false,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -384,16 +394,18 @@ pub fn load_rhs_plain_cube_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(8, 8, 8);
 
-    load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(0),
-        config,
-        false,
-    );
+    unsafe {
+        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(0),
+            config,
+            false,
+        );
+    };
 
     let expected = &[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
@@ -415,16 +427,18 @@ pub fn load_rhs_plain_cube_offset_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(16, 16, 8);
 
-    load_tensor_multiple_tiles_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(8),
-        config,
-        false,
-    );
+    unsafe {
+        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(TILE_SIZE as u8, &rhs.handle, &rhs.strides, &rhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(8),
+            config,
+            false,
+        );
+    };
 
     let expected = &[
         64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0, 78.0,
@@ -446,18 +460,20 @@ pub fn load_lhs_plain_unit_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(16, 16, 8);
 
-    load_tensor_permuted_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(4),
-        ScalarArg::new(4),
-        ScalarArg::new(8),
-        config,
-        true,
-    );
+    unsafe {
+        load_tensor_permuted_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(4),
+            ScalarArg::new(4),
+            ScalarArg::new(8),
+            config,
+            true,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -479,18 +495,20 @@ pub fn load_lhs_plain_out_of_bounds_unit_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(m, k, 8);
 
-    load_tensor_permuted_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(4),
-        ScalarArg::new(4),
-        ScalarArg::new(8),
-        config,
-        true,
-    );
+    unsafe {
+        load_tensor_permuted_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(4),
+            ScalarArg::new(4),
+            ScalarArg::new(8),
+            config,
+            true,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -511,18 +529,20 @@ pub fn load_rhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(16, 16, 8);
 
-    load_tensor_permuted_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(4),
-        ScalarArg::new(4),
-        ScalarArg::new(8),
-        config,
-        false,
-    );
+    unsafe {
+        load_tensor_permuted_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(4),
+            ScalarArg::new(4),
+            ScalarArg::new(8),
+            config,
+            false,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -544,18 +564,20 @@ pub fn load_rhs_transposed_out_of_bounds_unit_test<R: Runtime>(device: &R::Devic
 
     let config = make_tiling2d_config(8, k, n);
 
-    load_tensor_permuted_test::launch::<F32, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-        ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
-        ScalarArg::new(4),
-        ScalarArg::new(4),
-        ScalarArg::new(8),
-        config,
-        false,
-    );
+    unsafe {
+        load_tensor_permuted_test::launch_unchecked::<F32, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
+            ArrayArg::vectorized(TILE_SIZE as u8, &sm_out, 64),
+            ScalarArg::new(4),
+            ScalarArg::new(4),
+            ScalarArg::new(8),
+            config,
+            false,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,

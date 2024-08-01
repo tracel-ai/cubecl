@@ -14,7 +14,7 @@ use crate::matmul::{
     },
 };
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn write_to_output_test<F: Float>(
     out: &mut Tensor<F>,
     results: &mut Array<F>,
@@ -35,7 +35,7 @@ fn write_to_output_test<F: Float>(
     write_to_output::<F, TileWriter<F>>(out, results, coordinates, UInt::new(0), dims, config);
 }
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn write_results_to_output_out_of_bounds_test<F: Float>(
     out: &mut Tensor<F>,
     results: &mut Array<F>,
@@ -66,14 +66,16 @@ pub fn write_to_output_over_height_unit_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(6, 8, 8);
 
-    write_to_output_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(TILE_SIZE as u8, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&tile.handle, 16),
-        config,
-    );
+    unsafe {
+        write_to_output_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(TILE_SIZE as u8, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&tile.handle, 16),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -93,14 +95,16 @@ pub fn write_to_output_over_width_unit_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(8, 8, 4);
 
-    write_to_output_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(TILE_SIZE as u8, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&tile.handle, 16),
-        config,
-    );
+    unsafe {
+        write_to_output_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(TILE_SIZE as u8, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&tile.handle, 16),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -120,14 +124,16 @@ pub fn write_to_output_vectorized_less_than_tile_unit_test<R: Runtime>(device: &
 
     let config = make_tiling2d_config(8, 8, 8);
 
-    write_to_output_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(vectorization as u8, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&tile.handle, 16),
-        config,
-    );
+    unsafe {
+        write_to_output_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(vectorization as u8, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&tile.handle, 16),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -149,14 +155,16 @@ pub fn write_to_output_scalar_unit_test<R: Runtime>(device: &R::Device) {
 
     let config = make_tiling2d_config(8, 8, 8);
 
-    write_to_output_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(vectorization as u8, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&tile.handle, 16),
-        config,
-    );
+    unsafe {
+        write_to_output_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(vectorization as u8, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&tile.handle, 16),
+            config,
+        );
+    };
 
     let expected = &[
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -178,14 +186,16 @@ pub fn write_to_output_scalar_out_of_bounds_cube_test<R: Runtime>(device: &R::De
 
     let config = make_tiling2d_config(5, 8, 1);
 
-    write_results_to_output_out_of_bounds_test::launch::<F32, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(vectorization, &out.handle, &out.strides, &out.shape),
-        ArrayArg::new(&results.handle, 16),
-        config,
-    );
+    unsafe {
+        write_results_to_output_out_of_bounds_test::launch_unchecked::<F32, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(vectorization, &out.handle, &out.strides, &out.shape),
+            ArrayArg::new(&results.handle, 16),
+            config,
+        );
+    };
 
     let expected = &[0.0, 1.0, 2.0, 3.0, 0.0];
     assert_equals::<R>(&client, out.handle, expected);
