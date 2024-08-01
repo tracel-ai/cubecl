@@ -1,5 +1,5 @@
 use crate::{
-    channel::ComputeChannel,
+    channel::{ComputeChannel, KernelExecutionStrategy},
     server::{Binding, ComputeServer, Handle},
     storage::ComputeStorage,
 };
@@ -77,7 +77,19 @@ where
         count: Server::DispatchOptions,
         bindings: Vec<Binding<Server>>,
     ) {
-        self.channel.execute(kernel, count, bindings)
+        self.channel
+            .execute(kernel, count, bindings, KernelExecutionStrategy::Checked)
+    }
+
+    /// Executes the `kernel` over the given `bindings` without performing any bound checks.
+    pub unsafe fn execute_unchecked(
+        &self,
+        kernel: Server::Kernel,
+        count: Server::DispatchOptions,
+        bindings: Vec<Binding<Server>>,
+    ) {
+        self.channel
+            .execute(kernel, count, bindings, KernelExecutionStrategy::Unchecked)
     }
 
     /// Wait for the completion of every task in the server.

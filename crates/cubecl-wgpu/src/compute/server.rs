@@ -3,7 +3,9 @@ use std::num::NonZeroU64;
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
-use cubecl_core::{compute::DebugInformation, prelude::*, FeatureSet, KernelId};
+use cubecl_core::{
+    channel::KernelExecutionStrategy, compute::DebugInformation, prelude::*, FeatureSet, KernelId,
+};
 use cubecl_runtime::{
     debug::DebugLogger,
     memory_management::MemoryManagement,
@@ -98,31 +100,51 @@ where
         self.tasks_count += 1;
     }
 
-    fn pipeline(&mut self, kernel: <Self as ComputeServer>::Kernel) -> Arc<ComputePipeline> {
-        let kernel_id = kernel.id();
+    fn pipeline(
+        &mut self,
+        kernel: <Self as ComputeServer>::Kernel,
+        strategy: KernelExecutionStrategy,
+    ) -> Arc<ComputePipeline> {
+        let mut kernel_id = kernel.id();
+        kernel_id.kind(strategy);
 
         if let Some(pipeline) = self.pipelines.get(&kernel_id) {
             return pipeline.clone();
         }
 
-        let mut compile = kernel.compile();
+        let mut compile = kernel.compile(strategy);
         if self.logger.is_activated() {
             compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
         }
 
         let compile = self.logger.debug(compile);
-        let pipeline = self.compile_source(&compile.source);
+        let pipeline = self.compile_source(&compile.source, strategy);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         pipeline
     }
 
-    fn compile_source(&self, source: &str) -> Arc<ComputePipeline> {
-        let module = self.device.create_shader_module(ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-        });
+    fn compile_source(
+        &self,
+        source: &str,
+        strategy: KernelExecutionStrategy,
+    ) -> Arc<ComputePipeline> {
+        let module = match strategy {
+            KernelExecutionStrategy::Checked => {
+                self.device.create_shader_module(ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                })
+            }
+            KernelExecutionStrategy::Unchecked => unsafe {
+                self.device
+                    .create_shader_module_unchecked(ShaderModuleDescriptor {
+                        label: None,
+                        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                    })
+            },
+        };
 
         Arc::new(
             self.device
@@ -288,8 +310,9 @@ where
         kernel: Self::Kernel,
         count: Self::DispatchOptions,
         bindings: Vec<server::Binding<Self>>,
+        kind: KernelExecutionStrategy,
     ) {
-        let pipeline = self.pipeline(kernel);
+        let pipeline = self.pipeline(kernel, kind);
         let group_layout = pipeline.get_bind_group_layout(0);
 
         let memory_handles = bindings

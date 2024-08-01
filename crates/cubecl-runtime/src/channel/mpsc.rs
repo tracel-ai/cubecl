@@ -1,7 +1,7 @@
 use cubecl_common::{reader::Reader, sync_type::SyncType};
 use std::{sync::Arc, thread};
 
-use super::ComputeChannel;
+use super::{ComputeChannel, KernelExecutionStrategy};
 use crate::{
     server::{Binding, ComputeServer, Handle},
     storage::ComputeStorage,
@@ -40,7 +40,11 @@ where
     Create(Vec<u8>, Callback<Handle<Server>>),
     Empty(usize, Callback<Handle<Server>>),
     ExecuteKernel(
-        (Server::Kernel, Server::DispatchOptions),
+        (
+            Server::Kernel,
+            Server::DispatchOptions,
+            KernelExecutionStrategy,
+        ),
         Vec<Binding<Server>>,
     ),
     Sync(SyncType, Callback<()>),
@@ -77,7 +81,7 @@ where
                             callback.send(handle).await.unwrap();
                         }
                         Message::ExecuteKernel(kernel, bindings) => {
-                            server.execute(kernel.0, kernel.1, bindings);
+                            server.execute(kernel.0, kernel.1, bindings, kernel.2);
                         }
                         Message::Sync(sync_type, callback) => {
                             server.sync(sync_type);
@@ -156,10 +160,11 @@ where
         kernel: Server::Kernel,
         count: Server::DispatchOptions,
         bindings: Vec<Binding<Server>>,
+        kind: KernelExecutionStrategy,
     ) {
         self.state
             .sender
-            .send_blocking(Message::ExecuteKernel((kernel, count), bindings))
+            .send_blocking(Message::ExecuteKernel((kernel, count, kind), bindings))
             .unwrap()
     }
 

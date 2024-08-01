@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use super::block_loop::block_loop;
 use super::config::CmmaConfig;
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 #[allow(unused_mut)]
 pub fn cmma_kernel<F: Float, FC: Float>(
     lhs: &Tensor<F>,

@@ -157,13 +157,15 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let cube_dim = cmma_cube_dim();
     let launch_config = CmmaLaunchConfig::default();
 
-    cmma_kernel::launch::<F, F16, R>(
-        client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(lhs_vectorization, lhs.handle, lhs.strides, lhs.shape),
-        TensorArg::vectorized(rhs_vectorization, rhs.handle, rhs.strides, rhs.shape),
-        TensorArg::vectorized(out_vectorization, out.handle, out.strides, out.shape),
-        CmmaConfig::new(m, k, n, launch_config),
-    );
+    unsafe {
+        cmma_kernel::launch_unchecked::<F, F16, R>(
+            client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(lhs_vectorization, lhs.handle, lhs.strides, lhs.shape),
+            TensorArg::vectorized(rhs_vectorization, rhs.handle, rhs.strides, rhs.shape),
+            TensorArg::vectorized(out_vectorization, out.handle, out.strides, out.shape),
+            CmmaConfig::new(m, k, n, launch_config),
+        );
+    }
 }

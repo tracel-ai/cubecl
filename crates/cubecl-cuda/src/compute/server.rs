@@ -4,6 +4,7 @@ use super::storage::CudaStorage;
 use super::CudaResource;
 use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
+use cubecl_core::channel::KernelExecutionStrategy;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
 use cubecl_core::FeatureSet;
@@ -116,10 +117,12 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         kernel: Self::Kernel,
         count: Self::DispatchOptions,
         bindings: Vec<server::Binding<Self>>,
+        strategy: KernelExecutionStrategy,
     ) {
         let arch = self.minimum_arch_version;
 
-        let kernel_id = kernel.id();
+        let mut kernel_id = kernel.id();
+        kernel_id.kind(strategy);
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -140,7 +143,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         let (ctx, logger) = self.get_context_with_logger();
 
         if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(&kernel_id, kernel, arch, logger);
+            ctx.compile_kernel(&kernel_id, kernel, arch, logger, strategy);
         }
 
         let resources = bindings
@@ -198,8 +201,9 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         kernel: Box<dyn CubeTask>,
         arch: i32,
         logger: &mut DebugLogger,
+        strategy: KernelExecutionStrategy,
     ) {
-        let mut kernel_compiled = kernel.compile();
+        let mut kernel_compiled = kernel.compile(strategy);
 
         if logger.is_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -231,7 +235,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
                         message += format!("\n    {line}").as_str();
                     }
                 }
-                let source = kernel.compile().source;
+                let source = kernel.compile(strategy).source;
                 panic!("{message}\n[Source]  \n{source}");
             };
             cudarc::nvrtc::result::get_ptx(program).unwrap()

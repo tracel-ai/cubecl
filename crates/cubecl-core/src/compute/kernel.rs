@@ -5,7 +5,10 @@ use std::{
 
 use crate::{codegen::CompilerRepresentation, ir::CubeDim, Compiler, Kernel, KernelId};
 use alloc::sync::Arc;
-use cubecl_runtime::server::{Binding, ComputeServer};
+use cubecl_runtime::{
+    channel::KernelExecutionStrategy,
+    server::{Binding, ComputeServer},
+};
 
 /// A kernel, compiled in the target language
 pub struct CompiledKernel {
@@ -157,7 +160,7 @@ pub trait CubeTask: Send + Sync {
     /// Identifier for the kernel, used for caching kernel compilation.
     fn id(&self) -> KernelId;
     /// Compile the kernel into source
-    fn compile(&self) -> CompiledKernel;
+    fn compile(&self, kind: KernelExecutionStrategy) -> CompiledKernel;
 }
 
 /// Wraps a [kernel](Kernel) to create a [cube task](CubeTask).
@@ -168,10 +171,10 @@ pub struct KernelTask<C: Compiler, K: Kernel> {
 }
 
 impl<C: Compiler, K: Kernel> CubeTask for KernelTask<C, K> {
-    fn compile(&self) -> CompiledKernel {
+    fn compile(&self, strategy: KernelExecutionStrategy) -> CompiledKernel {
         let gpu_ir = self.kernel_definition.define();
         let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = C::compile(gpu_ir);
+        let lower_level_ir = C::compile(gpu_ir, strategy);
         let shared_mem_bytes = lower_level_ir.shared_memory_size();
         let source = lower_level_ir.to_string();
 
@@ -190,8 +193,8 @@ impl<C: Compiler, K: Kernel> CubeTask for KernelTask<C, K> {
 }
 
 impl CubeTask for Arc<dyn CubeTask> {
-    fn compile(&self) -> CompiledKernel {
-        self.as_ref().compile()
+    fn compile(&self, kind: KernelExecutionStrategy) -> CompiledKernel {
+        self.as_ref().compile(kind)
     }
 
     fn id(&self) -> KernelId {
@@ -200,8 +203,8 @@ impl CubeTask for Arc<dyn CubeTask> {
 }
 
 impl CubeTask for Box<dyn CubeTask> {
-    fn compile(&self) -> CompiledKernel {
-        self.as_ref().compile()
+    fn compile(&self, kind: KernelExecutionStrategy) -> CompiledKernel {
+        self.as_ref().compile(kind)
     }
 
     fn id(&self) -> KernelId {

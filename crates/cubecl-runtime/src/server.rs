@@ -1,4 +1,5 @@
 use crate::{
+    channel::KernelExecutionStrategy,
     memory_management::{MemoryHandle, MemoryManagement},
     storage::ComputeStorage,
 };
@@ -49,6 +50,7 @@ where
         kernel: Self::Kernel,
         count: Self::DispatchOptions,
         bindings: Vec<Binding<Self>>,
+        kind: KernelExecutionStrategy,
     );
 
     /// Wait for the completion of every task in the server.

@@ -89,6 +89,20 @@ impl<R: Runtime> KernelLauncher<R> {
         client.execute(kernel, cube_count, bindings);
     }
 
+    /// Launch the kernel without check bounds.
+    pub unsafe fn launch_unchecked<K: Kernel>(
+        self,
+        cube_count: CubeCount<R::Server>,
+        kernel: K,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) {
+        let bindings = self.into_bindings(client);
+
+        let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
+
+        client.execute_unchecked(kernel, cube_count, bindings);
+    }
+
     /// We need to create the bindings in the same order they are defined in the compilation step.
     ///
     /// The function [crate::KernelIntegrator::integrate] stars by registering the input tensors followed

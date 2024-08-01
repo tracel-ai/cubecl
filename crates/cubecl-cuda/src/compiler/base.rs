@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use cubecl_core::{
+    channel::KernelExecutionStrategy,
     ir::{self as gpu, ConstantScalarValue},
     Compiler,
 };
@@ -25,13 +26,18 @@ pub struct CudaCompiler {
     num_inputs: usize,
     num_outputs: usize,
     items: HashSet<super::Item>,
+    strategy: KernelExecutionStrategy,
 }
 
 impl Compiler for CudaCompiler {
     type Representation = super::ComputeKernel;
 
-    fn compile(kernel: cubecl_core::ir::KernelDefinition) -> Self::Representation {
-        let compiler = Self::default();
+    fn compile(
+        kernel: cubecl_core::ir::KernelDefinition,
+        strategy: KernelExecutionStrategy,
+    ) -> Self::Representation {
+        let mut compiler = Self::default();
+        compiler.strategy = strategy;
         compiler.compile_shader(kernel)
     }
 

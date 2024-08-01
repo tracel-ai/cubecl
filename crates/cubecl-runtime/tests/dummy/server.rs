@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use cubecl_common::{reader::reader_from_concrete, sync_type::SyncType};
 use cubecl_runtime::{
+    channel::KernelExecutionStrategy,
     memory_management::{simple::SimpleMemoryManagement, MemoryHandle, MemoryManagement},
     server::{Binding, ComputeServer, Handle},
     storage::{BytesResource, BytesStorage},
@@ -58,6 +59,7 @@ where
         kernel: Self::Kernel,
         _count: Self::DispatchOptions,
         bindings: Vec<Binding<Self>>,
+        _strategy: KernelExecutionStrategy,
     ) {
         let mut resources = bindings
             .into_iter()

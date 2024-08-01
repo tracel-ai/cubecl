@@ -1,4 +1,4 @@
-use super::ComputeChannel;
+use super::{ComputeChannel, KernelExecutionStrategy};
 use crate::server::{Binding, ComputeServer, Handle};
 use crate::storage::ComputeStorage;
 use alloc::sync::Arc;
@@ -68,10 +68,11 @@ where
         kernel_description: Server::Kernel,
         count: Server::DispatchOptions,
         bindings: Vec<Binding<Server>>,
+        kind: KernelExecutionStrategy,
     ) {
         self.server
             .borrow_mut()
-            .execute(kernel_description, count, bindings)
+            .execute(kernel_description, count, bindings, kind)
     }
 
     fn sync(&self, sync_type: SyncType) {

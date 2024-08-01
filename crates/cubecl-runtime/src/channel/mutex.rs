@@ -1,4 +1,4 @@
-use super::ComputeChannel;
+use super::{ComputeChannel, KernelExecutionStrategy};
 use crate::server::{Binding, ComputeServer, Handle};
 use crate::storage::ComputeStorage;
 use alloc::sync::Arc;
@@ -61,8 +61,9 @@ where
         kernel: Server::Kernel,
         count: Server::DispatchOptions,
         handles: Vec<Binding<Server>>,
+        kind: KernelExecutionStrategy,
     ) {
-        self.server.lock().execute(kernel, count, handles)
+        self.server.lock().execute(kernel, count, handles, kind)
     }
 
     fn sync(&self, sync_type: SyncType) {

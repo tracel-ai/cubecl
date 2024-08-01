@@ -125,13 +125,15 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, F: Float>(
     let cube_dim = tiling2d_cube_dim(&config);
     let cube_config = CubeTiling2dConfig::new(&config, m, k, n, lhs_transposed, rhs_transposed);
 
-    tiling2d_cube_kernel::launch::<F, R>(
-        client,
-        cube_count,
-        cube_dim,
-        TensorArg::vectorized(lhs_vectorization, lhs.handle, lhs.strides, lhs.shape),
-        TensorArg::vectorized(rhs_vectorization, rhs.handle, rhs.strides, rhs.shape),
-        TensorArg::vectorized(out_vectorization, out.handle, out.strides, out.shape),
-        cube_config,
-    );
+    unsafe {
+        tiling2d_cube_kernel::launch_unchecked::<F, R>(
+            client,
+            cube_count,
+            cube_dim,
+            TensorArg::vectorized(lhs_vectorization, lhs.handle, lhs.strides, lhs.shape),
+            TensorArg::vectorized(rhs_vectorization, rhs.handle, rhs.strides, rhs.shape),
+            TensorArg::vectorized(out_vectorization, out.handle, out.strides, out.shape),
+            cube_config,
+        );
+    }
 }

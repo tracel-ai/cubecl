@@ -1,3 +1,5 @@
+use cubecl_runtime::channel::KernelExecutionStrategy;
+
 use crate::ir::{Elem, KernelDefinition};
 use std::fmt::Display;
 
@@ -13,7 +15,7 @@ pub trait Compiler: Sync + Send + 'static + Clone + Default + core::fmt::Debug {
     type Representation: CompilerRepresentation;
 
     /// Compiles the [kernel definition](KernelDefinition) into the compiler's representation.
-    fn compile(kernel: KernelDefinition) -> Self::Representation;
+    fn compile(kernel: KernelDefinition, kind: KernelExecutionStrategy) -> Self::Representation;
     /// The size of the given element in bytes.
     fn elem_size(elem: Elem) -> usize;
     /// The maximal size of a shared memory

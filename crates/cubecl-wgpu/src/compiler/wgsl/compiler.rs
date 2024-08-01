@@ -1,6 +1,7 @@
 use super::{shader::ComputeShader, Item, SharedMemory};
 use super::{LocalArray, Subgroup};
 use crate::compiler::wgsl;
+use cubecl_core::channel::KernelExecutionStrategy;
 use cubecl_core::ir as cube;
 
 /// Wgsl Compiler.
@@ -33,7 +34,10 @@ impl core::fmt::Debug for WgslCompiler {
 impl cubecl_core::Compiler for WgslCompiler {
     type Representation = ComputeShader;
 
-    fn compile(shader: cube::KernelDefinition) -> Self::Representation {
+    fn compile(
+        shader: cube::KernelDefinition,
+        _strategy: KernelExecutionStrategy,
+    ) -> Self::Representation {
         let mut compiler = Self::default();
         compiler.compile_shader(shader)
     }
