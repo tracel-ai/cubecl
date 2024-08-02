@@ -54,6 +54,7 @@ impl Display for Item {
 
 pub trait Component: Display {
     fn item(&self) -> Item;
+    fn index(&self, index: usize) -> IndexedVariable;
     fn elem(&self) -> Elem {
         *self.item().elem()
     }
@@ -63,8 +64,16 @@ impl Component for IndexedVariable {
     fn item(&self) -> Item {
         self.var.item()
     }
+
+    fn index(&self, index: usize) -> IndexedVariable {
+        self.var.index(index, self.var.is_optimized())
+    }
 }
 impl Component for Variable {
+    fn index(&self, index: usize) -> IndexedVariable {
+        self.index(index, self.is_optimized())
+    }
+
     fn item(&self) -> Item {
         match self {
             Variable::GlobalInputArray(_, e) => *e,

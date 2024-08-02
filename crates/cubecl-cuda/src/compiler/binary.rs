@@ -1,9 +1,9 @@
 use super::{Component, Elem, Variable};
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 
 pub trait Binary {
     fn format(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
@@ -13,7 +13,7 @@ pub trait Binary {
     }
 
     fn format_scalar<Lhs, Rhs, Out>(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
         out: Out,
@@ -25,7 +25,7 @@ pub trait Binary {
         Out: Component;
 
     fn unroll_vec(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
@@ -140,11 +140,11 @@ pub struct Index;
 
 impl Binary for IndexAssign {
     fn format_scalar<Lhs, Rhs, Out>(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
         out: Out,
-        _elem: Elem,
+        elem: Elem,
     ) -> std::fmt::Result
     where
         Lhs: Component,
@@ -154,10 +154,10 @@ impl Binary for IndexAssign {
         let item_out = out.item();
         let item_rhs = rhs.item();
 
-        if item_out.vectorization != item_rhs.vectorization {
+        let format_vec = |f: &mut Formatter<'_>, cast: bool| {
             let is_vec_native = item_out.is_vec_native();
             f.write_str("{\n")?;
-            let var = "scalar_broadcasted";
+            let var = "broadcasted";
             f.write_fmt(format_args!("{item_out} {var};\n"))?;
             for i in 0..item_out.vectorization {
                 if is_vec_native {
@@ -168,14 +168,33 @@ impl Binary for IndexAssign {
                         3 => 'w',
                         _ => panic!("Invalid"),
                     };
-                    f.write_fmt(format_args!("{var}.{char} = {rhs};\n"))?;
+                    if cast {
+                        f.write_fmt(format_args!("{var}.{char} = ({}){};\n", elem, rhs.index(i)))?;
+                    } else {
+                        f.write_fmt(format_args!("{var}.{char} = {};\n", rhs.index(i)))?;
+                    }
                 } else {
-                    f.write_fmt(format_args!("{var}.i_{i} = {rhs};\n"))?;
+                    if cast {
+                        f.write_fmt(format_args!("{var}.i_{i} = ({}){};\n", elem, rhs.index(i)))?;
+                    } else {
+                        f.write_fmt(format_args!("{var}.i_{i} = {};\n", rhs.index(i)))?;
+                    }
                 }
             }
             f.write_fmt(format_args!("{out}[{lhs}] = {var};\n"))?;
             f.write_str("}")?;
 
+            Ok(())
+        };
+
+        if item_out.vectorization != item_rhs.vectorization {
+            format_vec(f, item_out != item_rhs)
+        } else if elem != item_rhs.elem {
+            if item_out.vectorization > 1 {
+                format_vec(f, true)?;
+            } else {
+                f.write_fmt(format_args!("{out}[{lhs}] = ({elem}){rhs};\n"))?;
+            }
             Ok(())
         } else {
             f.write_fmt(format_args!("{out}[{lhs}] = {rhs};\n"))
@@ -183,7 +202,7 @@ impl Binary for IndexAssign {
     }
 
     fn unroll_vec(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
@@ -195,8 +214,8 @@ impl Binary for IndexAssign {
         }
 
         for i in 0..index {
-            let lhsi = lhs.index(i, false);
-            let rhsi = rhs.index(i, false);
+            let lhsi = lhs.index(i, lhs.item().is_optimized());
+            let rhsi = rhs.index(i, rhs.item().is_optimized());
             Self::format_scalar(f, lhsi, rhsi, *out, elem)?;
         }
 
@@ -204,7 +223,7 @@ impl Binary for IndexAssign {
     }
 
     fn format(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
@@ -227,7 +246,7 @@ impl Binary for IndexAssign {
 
 impl Binary for Index {
     fn format(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
@@ -245,18 +264,55 @@ impl Binary for Index {
     }
 
     fn format_scalar<Lhs, Rhs, Out>(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
         out: Out,
-        _elem: Elem,
+        elem: Elem,
     ) -> std::fmt::Result
     where
         Lhs: Component,
         Rhs: Component,
         Out: Component,
     {
-        f.write_fmt(format_args!("{out} = {lhs}[{rhs}];\n"))
+        let item_out = out.item();
+        let item_lhs = lhs.item();
+
+        let format_vec = |f: &mut Formatter<'_>| {
+            let is_vec_native = item_out.is_vec_native();
+            f.write_str("{\n")?;
+            let var = "broadcasted";
+            f.write_fmt(format_args!("{item_out} {var};\n"))?;
+            for i in 0..item_out.vectorization {
+                if is_vec_native {
+                    let char = match i {
+                        0 => 'x',
+                        1 => 'y',
+                        2 => 'z',
+                        3 => 'w',
+                        _ => panic!("Invalid"),
+                    };
+                    f.write_fmt(format_args!("{var}.{char} = {elem}({lhs}[{rhs}].i_{i});\n",))?;
+                } else {
+                    f.write_fmt(format_args!("{var}.i_{i} = {elem}({lhs}[{rhs}].i_{i});\n",))?;
+                }
+            }
+            f.write_fmt(format_args!("{out} = {var};\n"))?;
+            f.write_str("}")?;
+
+            Ok(())
+        };
+
+        if elem != item_lhs.elem {
+            if item_out.vectorization > 1 {
+                format_vec(f)?;
+            } else {
+                f.write_fmt(format_args!("{out} = ({elem}){lhs}[{rhs}];\n"))?;
+            }
+            Ok(())
+        } else {
+            f.write_fmt(format_args!("{out} = {lhs}[{rhs}];\n"))
+        }
     }
 }
 
@@ -285,7 +341,7 @@ struct IndexAssignVector;
 
 impl IndexVector {
     fn format(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
@@ -307,7 +363,7 @@ impl IndexVector {
 
 impl IndexAssignVector {
     fn format(
-        f: &mut std::fmt::Formatter<'_>,
+        f: &mut Formatter<'_>,
         lhs: &Variable,
         rhs: &Variable,
         out: &Variable,
