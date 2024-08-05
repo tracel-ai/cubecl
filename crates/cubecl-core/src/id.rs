@@ -1,4 +1,4 @@
-use cubecl_runtime::channel::KernelExecutionStrategy;
+use cubecl_runtime::ExecutionMode;
 use std::any::{Any, TypeId};
 use std::fmt::Display;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -9,7 +9,7 @@ use std::sync::Arc;
 pub struct KernelId {
     type_id: core::any::TypeId,
     info: Option<Info>,
-    kind: Option<KernelExecutionStrategy>,
+    mode: Option<ExecutionMode>,
 }
 
 impl Display for KernelId {
@@ -27,7 +27,7 @@ impl KernelId {
         Self {
             type_id: core::any::TypeId::of::<T>(),
             info: None,
-            kind: None,
+            mode: None,
         }
     }
 
@@ -43,9 +43,9 @@ impl KernelId {
         self
     }
 
-    /// Set the kind of checking strategy.
-    pub fn kind(&mut self, kind: KernelExecutionStrategy) {
-        self.kind = Some(kind);
+    /// Set the [execution mode](ExecutionMode).
+    pub fn mode(&mut self, mode: ExecutionMode) {
+        self.mode = Some(mode);
     }
 }
 

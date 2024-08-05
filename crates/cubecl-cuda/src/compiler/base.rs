@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
 use cubecl_core::{
-    channel::KernelExecutionStrategy,
     ir::{self as gpu, ConstantScalarValue},
     Compiler,
 };
+use cubecl_runtime::ExecutionMode;
 
 use super::{Instruction, WarpInstruction};
 
@@ -26,7 +26,7 @@ pub struct CudaCompiler {
     num_inputs: usize,
     num_outputs: usize,
     items: HashSet<super::Item>,
-    strategy: KernelExecutionStrategy,
+    strategy: ExecutionMode,
 }
 
 impl Compiler for CudaCompiler {
@@ -34,7 +34,7 @@ impl Compiler for CudaCompiler {
 
     fn compile(
         kernel: cubecl_core::ir::KernelDefinition,
-        strategy: KernelExecutionStrategy,
+        strategy: ExecutionMode,
     ) -> Self::Representation {
         let mut compiler = Self::default();
         compiler.strategy = strategy;
@@ -348,7 +348,7 @@ impl CudaCompiler {
                 out: self.compile_variable(op.out),
             }),
             gpu::Operator::Index(op) => {
-                if let KernelExecutionStrategy::Checked = self.strategy {
+                if let ExecutionMode::Checked = self.strategy {
                     let has_len = match op.lhs {
                         gpu::Variable::GlobalInputArray { .. } => true,
                         gpu::Variable::GlobalOutputArray { .. } => true,
@@ -376,7 +376,7 @@ impl CudaCompiler {
                 instructions.push(Instruction::Index(self.compile_binary(op)))
             }
             gpu::Operator::IndexAssign(op) => {
-                if let KernelExecutionStrategy::Checked = self.strategy {
+                if let ExecutionMode::Checked = self.strategy {
                     let has_len = match op.out {
                         gpu::Variable::GlobalInputArray { .. } => true,
                         gpu::Variable::GlobalOutputArray { .. } => true,

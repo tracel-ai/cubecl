@@ -1,7 +1,8 @@
 use crate::{
-    channel::{ComputeChannel, KernelExecutionStrategy},
+    channel::ComputeChannel,
     server::{Binding, ComputeServer, Handle},
     storage::ComputeStorage,
+    ExecutionMode,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -77,8 +78,10 @@ where
         count: Server::DispatchOptions,
         bindings: Vec<Binding<Server>>,
     ) {
-        self.channel
-            .execute(kernel, count, bindings, KernelExecutionStrategy::Checked)
+        unsafe {
+            self.channel
+                .execute(kernel, count, bindings, ExecutionMode::Checked)
+        }
     }
 
     /// Executes the `kernel` over the given `bindings` without performing any bound checks.
@@ -89,7 +92,7 @@ where
         bindings: Vec<Binding<Server>>,
     ) {
         self.channel
-            .execute(kernel, count, bindings, KernelExecutionStrategy::Unchecked)
+            .execute(kernel, count, bindings, ExecutionMode::Unchecked)
     }
 
     /// Wait for the completion of every task in the server.

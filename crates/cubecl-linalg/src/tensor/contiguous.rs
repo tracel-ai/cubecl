@@ -73,18 +73,8 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
         client,
         cube_count,
         cube_dim,
-        TensorArg::vectorized(
-            vectorization_factor,
-            input.handle,
-            input.strides,
-            input.shape,
-        ),
-        TensorArg::vectorized(
-            vectorization_factor,
-            &output.handle,
-            &output.strides,
-            &output.shape,
-        ),
+        input.as_tensor_arg(vectorization_factor),
+        output.as_ref().as_tensor_arg(vectorization_factor),
         Some(UInt::new(rank as u32)),
     );
 

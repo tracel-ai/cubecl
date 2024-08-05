@@ -1,6 +1,7 @@
-use super::{ComputeChannel, KernelExecutionStrategy};
+use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, Handle};
 use crate::storage::ComputeStorage;
+use crate::ExecutionMode;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::reader::Reader;
@@ -63,12 +64,12 @@ where
         self.server.borrow_mut().empty(size)
     }
 
-    fn execute(
+    unsafe fn execute(
         &self,
         kernel_description: Server::Kernel,
         count: Server::DispatchOptions,
         bindings: Vec<Binding<Server>>,
-        kind: KernelExecutionStrategy,
+        kind: ExecutionMode,
     ) {
         self.server
             .borrow_mut()

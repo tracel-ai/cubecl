@@ -52,11 +52,34 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),
 /// the strides and the shape.
-#[derive(new)]
 pub struct TensorHandleRef<'a, R: Runtime> {
     pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
     pub strides: &'a [usize],
     pub shape: &'a [usize],
+}
+
+impl<'a, R: Runtime> TensorHandleRef<'a, R> {
+    /// Convert the handle into a [tensor argument](TensorArg).
+    pub fn as_tensor_arg(&'a self, vectorisation: u8) -> TensorArg<'a, R> {
+        unsafe { TensorArg::from_raw_parts(self.handle, self.strides, self.shape, vectorisation) }
+    }
+    /// Create a handle from raw parts.
+    ///
+    /// # Safety
+    ///
+    /// If you provide wrong strides or shapes, it might create undefined behavior caused by
+    /// out of bound reads and writes.
+    pub unsafe fn from_raw_parts(
+        handle: &'a cubecl_runtime::server::Handle<R::Server>,
+        strides: &'a [usize],
+        shape: &'a [usize],
+    ) -> Self {
+        Self {
+            handle,
+            strides,
+            shape,
+        }
+    }
 }
 
 /// Argument to be used for [tensors](Tensor) passed as arguments to kernels.
@@ -76,32 +99,27 @@ pub enum TensorArg<'a, R: Runtime> {
 }
 
 impl<'a, R: Runtime> TensorArg<'a, R> {
-    /// Create a new tensor argument.
-    ///
-    /// Equivalent to using the [vectorized constructor](Self::vectorized) with a vectorization
-    /// factor of 1.
-    pub fn new(
-        handle: &'a cubecl_runtime::server::Handle<R::Server>,
-        strides: &'a [usize],
-        shape: &'a [usize],
-    ) -> Self {
-        Self::Handle {
-            handle: TensorHandleRef::new(handle, strides, shape),
-            vectorization_factor: 1,
-        }
-    }
     /// Create a new tensor argument specified with its vectorization factor.
-    pub fn vectorized(
-        factor: u8,
+    ///
+    /// # Safety
+    ///
+    /// If you provide wrong strides or shapes, it might create undefined behavior caused by
+    /// out of bound reads and writes.
+    pub unsafe fn from_raw_parts(
         handle: &'a cubecl_runtime::server::Handle<R::Server>,
         strides: &'a [usize],
         shape: &'a [usize],
+        factor: u8,
     ) -> Self {
-        Self::Handle {
-            handle: TensorHandleRef::new(handle, strides, shape),
-            vectorization_factor: factor,
+        unsafe {
+            Self::Handle {
+                handle: TensorHandleRef::from_raw_parts(handle, strides, shape),
+                vectorization_factor: factor,
+            }
         }
     }
+
+    /// Create an alias argument.
     pub fn alias(position: usize) -> Self {
         Self::Alias {
             input_pos: position,

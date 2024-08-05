@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use cubecl_common::{reader::reader_from_concrete, sync_type::SyncType};
 use cubecl_runtime::{
-    channel::KernelExecutionStrategy,
     memory_management::{simple::SimpleMemoryManagement, MemoryHandle, MemoryManagement},
     server::{Binding, ComputeServer, Handle},
     storage::{BytesResource, BytesStorage},
+    ExecutionMode,
 };
 use derive_new::new;
 
@@ -54,12 +54,12 @@ where
         Handle::new(self.memory_management.reserve(size, || {}))
     }
 
-    fn execute(
+    unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
         _count: Self::DispatchOptions,
         bindings: Vec<Binding<Self>>,
-        _strategy: KernelExecutionStrategy,
+        _mode: ExecutionMode,
     ) {
         let mut resources = bindings
             .into_iter()

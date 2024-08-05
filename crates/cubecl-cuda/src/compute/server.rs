@@ -4,12 +4,12 @@ use super::storage::CudaStorage;
 use super::CudaResource;
 use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
-use cubecl_core::channel::KernelExecutionStrategy;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
 use cubecl_core::FeatureSet;
 use cubecl_core::{prelude::*, KernelId};
 use cubecl_runtime::debug::DebugLogger;
+use cubecl_runtime::ExecutionMode;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -112,17 +112,17 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         server::Handle::new(handle)
     }
 
-    fn execute(
+    unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
         count: Self::DispatchOptions,
         bindings: Vec<server::Binding<Self>>,
-        strategy: KernelExecutionStrategy,
+        mode: ExecutionMode,
     ) {
         let arch = self.minimum_arch_version;
 
         let mut kernel_id = kernel.id();
-        kernel_id.kind(strategy);
+        kernel_id.mode(mode);
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -143,7 +143,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         let (ctx, logger) = self.get_context_with_logger();
 
         if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(&kernel_id, kernel, arch, logger, strategy);
+            ctx.compile_kernel(&kernel_id, kernel, arch, logger, mode);
         }
 
         let resources = bindings
@@ -201,9 +201,9 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         kernel: Box<dyn CubeTask>,
         arch: i32,
         logger: &mut DebugLogger,
-        strategy: KernelExecutionStrategy,
+        mode: ExecutionMode,
     ) {
-        let mut kernel_compiled = kernel.compile(strategy);
+        let mut kernel_compiled = kernel.compile(mode);
 
         if logger.is_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -235,7 +235,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
                         message += format!("\n    {line}").as_str();
                     }
                 }
-                let source = kernel.compile(strategy).source;
+                let source = kernel.compile(mode).source;
                 panic!("{message}\n[Source]  \n{source}");
             };
             cudarc::nvrtc::result::get_ptx(program).unwrap()

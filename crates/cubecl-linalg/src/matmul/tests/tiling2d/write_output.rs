@@ -71,7 +71,7 @@ pub fn write_to_output_over_height_unit_test<R: Runtime>(device: &R::Device) {
             &R::client(device),
             cube_count,
             cube_dim,
-            TensorArg::vectorized(TILE_SIZE as u8, &out.handle, &out.strides, &out.shape),
+            TensorArg::from_raw_parts(&out.handle, &out.strides, &out.shape, TILE_SIZE as u8),
             ArrayArg::new(&tile.handle, 16),
             config,
         );
@@ -100,7 +100,7 @@ pub fn write_to_output_over_width_unit_test<R: Runtime>(device: &R::Device) {
             &R::client(device),
             cube_count,
             cube_dim,
-            TensorArg::vectorized(TILE_SIZE as u8, &out.handle, &out.strides, &out.shape),
+            TensorArg::from_raw_parts(&out.handle, &out.strides, &out.shape, TILE_SIZE as u8),
             ArrayArg::new(&tile.handle, 16),
             config,
         );
@@ -129,7 +129,7 @@ pub fn write_to_output_vectorized_less_than_tile_unit_test<R: Runtime>(device: &
             &R::client(device),
             cube_count,
             cube_dim,
-            TensorArg::vectorized(vectorization as u8, &out.handle, &out.strides, &out.shape),
+            TensorArg::from_raw_parts(&out.handle, &out.strides, &out.shape, vectorization as u8),
             ArrayArg::new(&tile.handle, 16),
             config,
         );
@@ -160,7 +160,7 @@ pub fn write_to_output_scalar_unit_test<R: Runtime>(device: &R::Device) {
             &R::client(device),
             cube_count,
             cube_dim,
-            TensorArg::vectorized(vectorization as u8, &out.handle, &out.strides, &out.shape),
+            TensorArg::from_raw_parts(&out.handle, &out.strides, &out.shape, vectorization as u8),
             ArrayArg::new(&tile.handle, 16),
             config,
         );
@@ -191,7 +191,7 @@ pub fn write_to_output_scalar_out_of_bounds_cube_test<R: Runtime>(device: &R::De
             &R::client(device),
             cube_count,
             cube_dim,
-            TensorArg::vectorized(vectorization, &out.handle, &out.strides, &out.shape),
+            TensorArg::from_raw_parts(&out.handle, &out.strides, &out.shape, vectorization),
             ArrayArg::new(&results.handle, 16),
             config,
         );

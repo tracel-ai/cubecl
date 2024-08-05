@@ -98,11 +98,11 @@ pub fn load_shared_memory_lhs_unit_test<R: Runtime>(device: &R::Device) {
             &R::client(device),
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &lhs_tensor.handle,
                 &lhs_tensor.strides,
                 &lhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -157,11 +157,11 @@ pub fn load_shared_memory_rhs_unit_test<R: Runtime>(device: &R::Device) {
             &R::client(device),
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &rhs_tensor.handle,
                 &rhs_tensor.strides,
                 &rhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -216,11 +216,11 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
             &R::client(device),
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &lhs_tensor.handle,
                 &lhs_tensor.strides,
                 &lhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -280,11 +280,11 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
             &R::client(device),
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &lhs_tensor.handle,
                 &lhs_tensor.strides,
                 &lhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -342,11 +342,11 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
             &client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &lhs_tensor.handle,
                 &lhs_tensor.strides,
                 &lhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -404,11 +404,11 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
             &client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &lhs_tensor.handle,
                 &lhs_tensor.strides,
                 &lhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -465,11 +465,11 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
             &client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &rhs_tensor.handle,
                 &rhs_tensor.strides,
                 &rhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -529,11 +529,11 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
             &client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &lhs_tensor.handle,
                 &lhs_tensor.strides,
                 &lhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -592,11 +592,11 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
             &client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &rhs_tensor.handle,
                 &rhs_tensor.strides,
                 &rhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -658,11 +658,11 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
             &client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &lhs_tensor.handle,
                 &lhs_tensor.strides,
                 &lhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -724,11 +724,11 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
             &client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &rhs_tensor.handle,
                 &rhs_tensor.strides,
                 &rhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(0),
@@ -787,11 +787,11 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
             &client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &lhs_tensor.handle,
                 &lhs_tensor.strides,
                 &lhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&lhs_sm, 64 * 32),
             ScalarArg::new(32),
@@ -850,11 +850,11 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
             &client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(
-                4,
+            TensorArg::from_raw_parts(
                 &rhs_tensor.handle,
                 &rhs_tensor.strides,
                 &rhs_tensor.shape,
+                4,
             ),
             ArrayArg::new(&rhs_sm, 64 * 32),
             ScalarArg::new(32),

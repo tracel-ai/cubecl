@@ -1,10 +1,11 @@
 use cubecl_common::{reader::Reader, sync_type::SyncType};
 use std::{sync::Arc, thread};
 
-use super::{ComputeChannel, KernelExecutionStrategy};
+use super::ComputeChannel;
 use crate::{
     server::{Binding, ComputeServer, Handle},
     storage::ComputeStorage,
+    ExecutionMode,
 };
 
 /// Create a channel using a [multi-producer, single-consumer channel to communicate with
@@ -40,11 +41,7 @@ where
     Create(Vec<u8>, Callback<Handle<Server>>),
     Empty(usize, Callback<Handle<Server>>),
     ExecuteKernel(
-        (
-            Server::Kernel,
-            Server::DispatchOptions,
-            KernelExecutionStrategy,
-        ),
+        (Server::Kernel, Server::DispatchOptions, ExecutionMode),
         Vec<Binding<Server>>,
     ),
     Sync(SyncType, Callback<()>),
@@ -80,9 +77,9 @@ where
                             let handle = server.empty(size);
                             callback.send(handle).await.unwrap();
                         }
-                        Message::ExecuteKernel(kernel, bindings) => {
+                        Message::ExecuteKernel(kernel, bindings) => unsafe {
                             server.execute(kernel.0, kernel.1, bindings, kernel.2);
-                        }
+                        },
                         Message::Sync(sync_type, callback) => {
                             server.sync(sync_type);
                             callback.send(()).await.unwrap();
@@ -155,12 +152,12 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn execute(
+    unsafe fn execute(
         &self,
         kernel: Server::Kernel,
         count: Server::DispatchOptions,
         bindings: Vec<Binding<Server>>,
-        kind: KernelExecutionStrategy,
+        kind: ExecutionMode,
     ) {
         self.state
             .sender

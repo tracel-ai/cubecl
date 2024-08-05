@@ -109,11 +109,13 @@ fn test_subcube_operation<TestRuntime: Runtime, Launch>(
     let handle = client.create(f32::as_bytes(input));
     let (shape, strides) = ([input.len()], [1]);
 
-    launch(
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new(input.len() as u32, 1, 1),
-        TensorArg::new(&handle, &strides, &shape),
-    );
+    unsafe {
+        launch(
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(input.len() as u32, 1, 1),
+            TensorArg::from_raw_parts(&handle, &strides, &shape, 1),
+        );
+    }
 
     let actual = client.read(handle.binding());
     let actual = f32::from_bytes(&actual);
