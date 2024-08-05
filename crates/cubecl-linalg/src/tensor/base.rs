@@ -91,6 +91,15 @@ where
         }
     }
 
+    /// Return the reference to a tensor argument.
+    pub fn as_arg<'a>(&'a self, vectorisation: u8) -> TensorArg<'a, R> {
+        let handle: TensorHandleRef<'a, R> = self.as_ref();
+
+        unsafe {
+            TensorArg::from_raw_parts(handle.handle, handle.strides, handle.shape, vectorisation)
+        }
+    }
+
     fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
         let mut strides = Vec::with_capacity(shape.len());
 
