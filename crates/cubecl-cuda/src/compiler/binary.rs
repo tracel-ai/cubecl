@@ -169,13 +169,13 @@ impl Binary for IndexAssign {
                         _ => panic!("Invalid"),
                     };
                     if cast {
-                        f.write_fmt(format_args!("{var}.{char} = ({}){};\n", elem, rhs.index(i)))?;
+                        f.write_fmt(format_args!("{var}.{char} = {}({});\n", elem, rhs.index(i)))?;
                     } else {
                         f.write_fmt(format_args!("{var}.{char} = {};\n", rhs.index(i)))?;
                     }
                 } else {
                     if cast {
-                        f.write_fmt(format_args!("{var}.i_{i} = ({}){};\n", elem, rhs.index(i)))?;
+                        f.write_fmt(format_args!("{var}.i_{i} = {}({});\n", elem, rhs.index(i)))?;
                     } else {
                         f.write_fmt(format_args!("{var}.i_{i} = {};\n", rhs.index(i)))?;
                     }
@@ -193,7 +193,7 @@ impl Binary for IndexAssign {
             if item_out.vectorization > 1 {
                 format_vec(f, true)?;
             } else {
-                f.write_fmt(format_args!("{out}[{lhs}] = ({elem}){rhs};\n"))?;
+                f.write_fmt(format_args!("{out}[{lhs}] = {elem}({rhs});\n"))?;
             }
             Ok(())
         } else {
@@ -307,7 +307,7 @@ impl Binary for Index {
             if item_out.vectorization > 1 {
                 format_vec(f)?;
             } else {
-                f.write_fmt(format_args!("{out} = ({elem}){lhs}[{rhs}];\n"))?;
+                f.write_fmt(format_args!("{out} = {elem}({lhs}[{rhs}]);\n"))?;
             }
             Ok(())
         } else {
