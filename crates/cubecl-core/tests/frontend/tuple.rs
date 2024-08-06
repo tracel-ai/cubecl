@@ -8,7 +8,6 @@ pub fn tuple_const() -> (UInt, UInt) {
     (x, y)
 }
 
-
 mod tests {
     use super::*;
     use cubecl_core::{
@@ -25,7 +24,6 @@ mod tests {
 
         assert_eq!(scope.operations, inline_macro_ref_tuple_const());
     }
-
 
     fn inline_macro_ref_tuple_const() -> Vec<Operation> {
         let context = CubeContext::root();

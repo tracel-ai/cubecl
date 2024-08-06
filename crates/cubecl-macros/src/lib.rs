@@ -17,8 +17,8 @@ use codegen_type::generate_cube_type;
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, punctuated::Punctuated, token::Comma, Meta, LitInt};
 use syn::parse::{Parse, ParseStream};
+use syn::{parse_macro_input, punctuated::Punctuated, token::Comma, LitInt, Meta};
 use tracker::VariableTracker;
 
 enum CubeMode {
@@ -179,11 +179,9 @@ fn codegen_cube(
             #signature {
                 #body
             }
-
         }
     })
 }
-
 
 struct AllTuples {
     macro_ident: Ident,

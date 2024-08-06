@@ -103,7 +103,6 @@ pub(crate) fn codegen_tuple(
             #res
             let #var = #expr_tokens;
         };
-        // vars.push(quote::quote! { #var});
         vars.push(var);
     }
     quote::quote! {
@@ -113,7 +112,6 @@ pub(crate) fn codegen_tuple(
         }
     }
 }
-
 
 /// Codegen for an expression containing a block
 pub(crate) fn codegen_expr_block(
