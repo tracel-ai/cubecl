@@ -6,6 +6,7 @@ use crate::{
 };
 use alloc::rc::Rc;
 use std::marker::PhantomData;
+use cubecl_macros::all_tuples;
 
 /// Types used in a cube function must implement this trait
 ///
@@ -22,7 +23,7 @@ use std::marker::PhantomData;
 pub trait CubeType {
     type ExpandType: Clone + Init;
 
-    /// Wrapper around the init method, necesary to type inference.
+    /// Wrapper around the init method, necessary to type inference.
     fn init(context: &mut CubeContext, expand: Self::ExpandType) -> Self::ExpandType {
         expand.init(context)
     }
@@ -152,6 +153,30 @@ from_const!(f64, F64);
 from_const!(f32, F32);
 from_const!(bool, Bool);
 from_const!(val UInt, I32, I64, F32, F64);
+
+macro_rules! tuple_cube_type {
+    ($($P:ident),*) => {
+        impl<$($P: CubeType),*> CubeType for ($($P,)*) {
+            type ExpandType = ($($P::ExpandType,)*);
+        }
+    }
+}
+macro_rules! tuple_init {
+    ($($P:ident),*) => {
+        impl<$($P: Init),*> Init for ($($P,)*) {
+            #[allow(non_snake_case)]
+            fn init(self, context: &mut CubeContext) -> Self {
+                let ($($P,)*) = self;
+                ($(
+                    $P.init(context),
+                )*)
+            }
+        }
+    }
+}
+
+all_tuples!(tuple_cube_type, 1, 16, P);
+all_tuples!(tuple_init, 1, 16, P);
 
 pub trait ExpandElementBaseInit: CubeType {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement;

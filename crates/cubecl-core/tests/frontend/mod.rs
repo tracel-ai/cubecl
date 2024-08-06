@@ -20,4 +20,6 @@ mod r#struct;
 mod tensor;
 mod topology;
 mod r#trait;
+
+mod tuple;
 mod vectorization;

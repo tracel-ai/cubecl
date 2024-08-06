@@ -1,5 +1,5 @@
 use crate::tracker::VariableTracker;
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, Span, TokenStream};
 
 use super::{
     base::{codegen_block, Codegen, CodegenKind},
@@ -74,8 +74,9 @@ pub(crate) fn codegen_expr(
                     "Range is not supported, use [range](cubecl::prelude::range) instead.",
                 )
                 .to_compile_error(),
+                syn::Expr::Tuple(tuple) => codegen_tuple(tuple, loop_level, variable_tracker),
                 _ => {
-                    syn::Error::new_spanned(expr, "Expression is not supported").to_compile_error()
+                    syn::Error::new_spanned(expr, "Expression Is not supported").to_compile_error()
                 }
             };
 
@@ -85,6 +86,34 @@ pub(crate) fn codegen_expr(
         }
     }
 }
+
+/// Codegen for tuple expressions
+pub(crate) fn codegen_tuple(
+    unary: &syn::ExprTuple,
+    loop_level: usize,
+    variable_tracker: &mut VariableTracker,
+) -> TokenStream {
+    let mut res = quote::quote! {};
+    let mut vars = Vec::new();
+    for (i, expr) in unary.elems.iter().enumerate() {
+        let expr_codegen = codegen_expr(expr, loop_level, variable_tracker);
+        let expr_tokens = expr_codegen.tokens();
+        let var = Ident::new(&format!("_tuple_{}", i), Span::call_site());
+        res = quote::quote! {
+            #res
+            let #var = #expr_tokens;
+        };
+        // vars.push(quote::quote! { #var});
+        vars.push(var);
+    }
+    quote::quote! {
+        {
+            #res
+            ( #(#vars),* )
+        }
+    }
+}
+
 
 /// Codegen for an expression containing a block
 pub(crate) fn codegen_expr_block(
