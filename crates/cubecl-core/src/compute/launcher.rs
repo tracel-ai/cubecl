@@ -90,6 +90,10 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Launch the kernel without check bounds.
+    ///
+    /// # Safety
+    ///
+    /// Out-of-bounds reads and writes can happen.
     pub unsafe fn launch_unchecked<K: Kernel>(
         self,
         cube_count: CubeCount<R::Server>,

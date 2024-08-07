@@ -85,6 +85,10 @@ where
     }
 
     /// Executes the `kernel` over the given `bindings` without performing any bound checks.
+    ///
+    /// # Safety
+    ///
+    /// Without checks, the out-of-bound reads and writes can happen.
     pub unsafe fn execute_unchecked(
         &self,
         kernel: Server::Kernel,

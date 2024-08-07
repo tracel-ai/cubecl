@@ -173,12 +173,10 @@ impl Binary for IndexAssign {
                     } else {
                         f.write_fmt(format_args!("{var}.{char} = {};\n", rhs.index(i)))?;
                     }
+                } else if cast {
+                    f.write_fmt(format_args!("{var}.i_{i} = {}({});\n", elem, rhs.index(i)))?;
                 } else {
-                    if cast {
-                        f.write_fmt(format_args!("{var}.i_{i} = {}({});\n", elem, rhs.index(i)))?;
-                    } else {
-                        f.write_fmt(format_args!("{var}.i_{i} = {};\n", rhs.index(i)))?;
-                    }
+                    f.write_fmt(format_args!("{var}.i_{i} = {};\n", rhs.index(i)))?;
                 }
             }
             f.write_fmt(format_args!("{out}[{lhs}] = {var};\n"))?;

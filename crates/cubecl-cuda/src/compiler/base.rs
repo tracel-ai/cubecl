@@ -36,8 +36,10 @@ impl Compiler for CudaCompiler {
         kernel: cubecl_core::ir::KernelDefinition,
         strategy: ExecutionMode,
     ) -> Self::Representation {
-        let mut compiler = Self::default();
-        compiler.strategy = strategy;
+        let compiler = Self {
+            strategy,
+            ..Self::default()
+        };
         compiler.compile_shader(kernel)
     }
 
@@ -349,13 +351,7 @@ impl CudaCompiler {
             }),
             gpu::Operator::Index(op) => {
                 if let ExecutionMode::Checked = self.strategy {
-                    let has_len = match op.lhs {
-                        gpu::Variable::GlobalInputArray { .. } => true,
-                        gpu::Variable::GlobalOutputArray { .. } => true,
-                        gpu::Variable::Slice { .. } => true,
-                        _ => false,
-                    };
-                    if has_len {
+                    if has_length(&op.lhs) {
                         self.compile_procedure(
                             instructions,
                             gpu::Procedure::CheckedIndex(gpu::CheckedIndex {
@@ -377,14 +373,7 @@ impl CudaCompiler {
             }
             gpu::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
-                    let has_len = match op.out {
-                        gpu::Variable::GlobalInputArray { .. } => true,
-                        gpu::Variable::GlobalOutputArray { .. } => true,
-                        gpu::Variable::Slice { .. } => true,
-                        _ => false,
-                    };
-
-                    if has_len {
+                    if has_length(&op.out) {
                         self.compile_procedure(
                             instructions,
                             gpu::Procedure::CheckedIndexAssign(gpu::CheckedIndexAssign {
@@ -678,4 +667,13 @@ impl CudaCompiler {
             gpu::Elem::Bool => super::Elem::Bool,
         }
     }
+}
+
+fn has_length(var: &gpu::Variable) -> bool {
+    matches!(
+        var,
+        gpu::Variable::GlobalInputArray { .. }
+            | gpu::Variable::GlobalOutputArray { .. }
+            | gpu::Variable::Slice { .. }
+    )
 }

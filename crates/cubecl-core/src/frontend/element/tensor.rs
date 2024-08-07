@@ -68,7 +68,7 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
     /// # Safety
     ///
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
-    /// out of bound reads and writes.
+    /// out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
         handle: &'a cubecl_runtime::server::Handle<R::Server>,
         strides: &'a [usize],
@@ -104,7 +104,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
     /// # Safety
     ///
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
-    /// out of bound reads and writes.
+    /// out-of-bound reads and writes.
     pub unsafe fn from_raw_parts(
         handle: &'a cubecl_runtime::server::Handle<R::Server>,
         strides: &'a [usize],

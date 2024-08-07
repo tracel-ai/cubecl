@@ -25,6 +25,10 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     fn empty(&self, size: usize) -> Handle<Server>;
 
     /// Executes the `kernel` over the given `bindings`.
+    ///
+    /// # Safety
+    ///
+    /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
     unsafe fn execute(
         &self,
         kernel: Server::Kernel,
