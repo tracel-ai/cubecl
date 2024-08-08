@@ -8,7 +8,6 @@ The crate contains common linear algebra algorithms.
 - [X] Tiling 2D Matrix Multiplication.
 
   The kernel is very flexible and can be used on pretty much any hardware.
-  
 - [X] Cooperative Matrix Multiplication.
 
   The kernel is using Automatic Mixed Precision (AMP) to leverage cooperative matrix-multiply and accumulate instructions.

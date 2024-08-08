@@ -5,7 +5,6 @@ use crate::{
     KernelSettings, Runtime,
 };
 use alloc::rc::Rc;
-use cubecl_macros::all_tuples;
 use std::marker::PhantomData;
 
 /// Types used in a cube function must implement this trait

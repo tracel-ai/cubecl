@@ -15,7 +15,6 @@ use codegen_function::{codegen_launch, codegen_statement};
 use codegen_trait::{expand_trait_def, expand_trait_impl};
 use codegen_type::generate_cube_type;
 use proc_macro::TokenStream;
-use syn::parse::{Parse};
 use syn::{parse_macro_input, punctuated::Punctuated, token::Comma, Meta};
 use tracker::VariableTracker;
 
