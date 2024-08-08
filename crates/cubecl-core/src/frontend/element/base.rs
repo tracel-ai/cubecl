@@ -175,8 +175,19 @@ macro_rules! tuple_init {
     }
 }
 
-all_tuples!(tuple_cube_type, 1, 16, P);
-all_tuples!(tuple_init, 1, 16, P);
+tuple_cube_type!(P1);
+tuple_cube_type!(P1, P2);
+tuple_cube_type!(P1, P2, P3);
+tuple_cube_type!(P1, P2, P3, P4);
+tuple_cube_type!(P1, P2, P3, P4, P5);
+tuple_cube_type!(P1, P2, P3, P4, P5, P6);
+
+tuple_init!(P1);
+tuple_init!(P1, P2);
+tuple_init!(P1, P2, P3);
+tuple_init!(P1, P2, P3, P4);
+tuple_init!(P1, P2, P3, P4, P5);
+tuple_init!(P1, P2, P3, P4, P5, P6);
 
 pub trait ExpandElementBaseInit: CubeType {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement;
