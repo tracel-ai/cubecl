@@ -64,6 +64,10 @@ pub trait Numeric:
         unexpanded!()
     }
 
+    fn vectorized_empty(_vectorization: UInt) -> Self {
+        unexpanded!()
+    }
+
     fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {
         unexpanded!()
     }
@@ -98,6 +102,19 @@ pub trait Numeric:
         }
 
         new_var.into()
+    }
+
+    fn __expand_vectorized_empty(
+        context: &mut CubeContext,
+        vectorization: UInt,
+    ) -> <Self as CubeType>::ExpandType {
+        if vectorization.val == 1 {
+            Self::__expand_from_int(context, ExpandElementTyped::from_lit(0))
+        } else {
+            context
+                .create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8))
+                .into()
+        }
     }
 }
 

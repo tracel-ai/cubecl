@@ -5,7 +5,7 @@ use crate::frontend::{
     ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
     ExpandElementTyped, Numeric,
 };
-use crate::ir::{ConstantScalarValue, Elem, FloatKind, Item, Variable, Vectorization};
+use crate::ir::{ConstantScalarValue, Elem, FloatKind, Variable, Vectorization};
 
 use super::{
     init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized, __expand_new,
@@ -43,7 +43,6 @@ pub trait Float:
 {
     fn new(val: f32) -> Self;
     fn vectorized(val: f32, vectorization: UInt) -> Self;
-    fn vectorized_empty(vectorization: UInt) -> Self;
     fn __expand_new(
         context: &mut CubeContext,
         val: Self::ExpandType,
@@ -57,11 +56,6 @@ pub trait Float:
     ) -> <Self as CubeType>::ExpandType {
         __expand_vectorized(context, val, vectorization, Self::as_elem())
     }
-
-    fn __expand_vectorized_empty(
-        context: &mut CubeContext,
-        vectorization: UInt,
-    ) -> <Self as CubeType>::ExpandType;
 }
 
 macro_rules! impl_float {
@@ -135,23 +129,6 @@ macro_rules! impl_float {
                         val,
                         vectorization: vectorization.val as u8,
                     }
-                }
-            }
-
-            fn vectorized_empty(vectorization: UInt) -> Self {
-                Self::vectorized(0., vectorization)
-            }
-
-            fn __expand_vectorized_empty(
-                context: &mut CubeContext,
-                vectorization: UInt,
-            ) -> <Self as CubeType>::ExpandType {
-                if vectorization.val == 1 {
-                    Self::__expand_new(context, ExpandElementTyped::from_lit(0.))
-                } else {
-                    context
-                        .create_local(Item::vectorized(Self::as_elem(), vectorization.val as u8))
-                        .into()
                 }
             }
         }
