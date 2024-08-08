@@ -10,7 +10,7 @@ use crate::matmul::tests::test_utils::{
     assert_equals, cmma_available, create_empty, range_tensor_f16,
 };
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn compute_loop_test<F: Float, FC: Float>(
     lhs_tensor: &Tensor<FC>,
     rhs_tensor: &Tensor<FC>,
@@ -84,18 +84,20 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    compute_loop_test::launch::<F32, F16, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-        TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-        ArrayArg::new(&results, m * n),
-        UInt::new(m as u32),
-        UInt::new(k as u32),
-        UInt::new(n as u32),
-        config,
-    );
+    unsafe {
+        compute_loop_test::launch_unchecked::<F32, F16, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, 1),
+            TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, 1),
+            ArrayArg::from_raw_parts(&results, m * n, 1),
+            UInt::new(m as u32),
+            UInt::new(k as u32),
+            UInt::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         1610496., 1614832., 1619168., 1623504., 1627840., 1632176., 1636512., 1640848., 1645184.,
@@ -160,18 +162,20 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
         unroll: false,
     };
 
-    compute_loop_test::launch::<F32, F16, R>(
-        &R::client(device),
-        cube_count,
-        cube_dim,
-        TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-        TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-        ArrayArg::new(&results, m * n),
-        UInt::new(m as u32),
-        UInt::new(k as u32),
-        UInt::new(n as u32),
-        config,
-    );
+    unsafe {
+        compute_loop_test::launch_unchecked::<F32, F16, R>(
+            &R::client(device),
+            cube_count,
+            cube_dim,
+            TensorArg::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, 1),
+            TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, 1),
+            ArrayArg::from_raw_parts(&results, m * n, 1),
+            UInt::new(m as u32),
+            UInt::new(k as u32),
+            UInt::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         1610496., 1614832., 1619168., 1623504., 1627840., 1632176., 1636512., 1640848., 1645184.,
@@ -265,18 +269,20 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
         unroll: false,
     };
 
-    compute_loop_test::launch::<F32, F16, R>(
-        &client,
-        cube_count,
-        cube_dim,
-        TensorArg::new(&lhs.handle, &lhs.strides, &lhs.shape),
-        TensorArg::new(&rhs.handle, &rhs.strides, &rhs.shape),
-        ArrayArg::new(&results, m * n),
-        UInt::new(m as u32),
-        UInt::new(k as u32),
-        UInt::new(n as u32),
-        config,
-    );
+    unsafe {
+        compute_loop_test::launch_unchecked::<F32, F16, R>(
+            &client,
+            cube_count,
+            cube_dim,
+            TensorArg::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, 1),
+            TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, 1),
+            ArrayArg::from_raw_parts(&results, m * n, 1),
+            UInt::new(m as u32),
+            UInt::new(k as u32),
+            UInt::new(n as u32),
+            config,
+        );
+    };
 
     let expected = &[
         1610496.0, 1614832.0, 1619168.0, 1623504.0, 1627840.0, 1632176.0, 1636512.0, 1640848.0,

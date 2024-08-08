@@ -8,6 +8,16 @@ pub struct ComputeRuntime<Device, Server: ComputeServer, Channel> {
     clients: spin::Mutex<Option<HashMap<Device, ComputeClient<Server, Channel>>>>,
 }
 
+/// The kind of execution to be performed.
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
+pub enum ExecutionMode {
+    /// Checked kernels are safe.
+    #[default]
+    Checked,
+    /// Unchecked kernels are unsafe.
+    Unchecked,
+}
+
 impl<Device, Server, Channel> Default for ComputeRuntime<Device, Server, Channel>
 where
     Device: core::hash::Hash + PartialEq + Eq + Clone + core::fmt::Debug,

@@ -124,14 +124,14 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
-                Operator::Index(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt);
-                }
                 Operator::Slice(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
                     sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt);
                     sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt);
+                }
+                Operator::Index(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
+                    sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt);
                 }
                 Operator::UncheckedIndex(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
@@ -142,8 +142,8 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
                 Operator::UncheckedIndexAssign(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt);
+                    sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt);
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
                 Operator::And(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);

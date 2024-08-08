@@ -45,6 +45,7 @@ pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
 struct SupportedAttributes {
     mode: CubeMode,
     launch: bool,
+    launch_unchecked: bool,
 }
 
 /// Derive macro for the module.
@@ -69,7 +70,12 @@ pub fn cube(attr: TokenStream, tokens: TokenStream) -> TokenStream {
 fn cube_fn(func: syn::ItemFn, attrs: &SupportedAttributes) -> TokenStream {
     let mut variable_tracker = VariableAnalyzer::create_tracker(&func);
 
-    match codegen_cube(&func, &mut variable_tracker, attrs.launch) {
+    match codegen_cube(
+        &func,
+        &mut variable_tracker,
+        attrs.launch,
+        attrs.launch_unchecked,
+    ) {
         Ok(code) => code.into(),
         Err(err) => err.into(),
     }
@@ -78,6 +84,7 @@ fn cube_fn(func: syn::ItemFn, attrs: &SupportedAttributes) -> TokenStream {
 fn parse_attributes(args: &Punctuated<Meta, Comma>) -> SupportedAttributes {
     let mut mode = CubeMode::Default;
     let mut launch = false;
+    let mut launch_unchecked = false;
 
     for arg in args.iter() {
         match arg {
@@ -90,7 +97,12 @@ fn parse_attributes(args: &Punctuated<Meta, Comma>) -> SupportedAttributes {
                         "launch" => {
                             launch = true;
                         }
-                        _ => panic!("Attribute {ident} is not supported"),
+                        "launch_unchecked" => {
+                            launch_unchecked = true;
+                        }
+                        _ => {
+                            panic!("Attribute {ident} is not supported")
+                        }
                     }
                 } else {
                     panic!("Only ident attribute supported");
@@ -101,7 +113,11 @@ fn parse_attributes(args: &Punctuated<Meta, Comma>) -> SupportedAttributes {
         }
     }
 
-    SupportedAttributes { mode, launch }
+    SupportedAttributes {
+        mode,
+        launch,
+        launch_unchecked,
+    }
 }
 
 /// Generate the expanded version of a function marked with the cube macro
@@ -109,6 +125,7 @@ fn codegen_cube(
     func: &syn::ItemFn,
     variable_tracker: &mut VariableTracker,
     launch: bool,
+    launch_unchecked: bool,
 ) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
     let signature = expand_sig(
         &func.sig,
@@ -149,11 +166,17 @@ fn codegen_cube(
         "function "
     };
 
-    let launch = if launch {
-        codegen_launch(&func.sig)
+    let mut launch = if launch {
+        codegen_launch(&func.sig, false)
     } else {
         quote::quote! {}
     };
+
+    launch.extend(if launch_unchecked {
+        codegen_launch(&func.sig, true)
+    } else {
+        quote::quote! {}
+    });
 
     let mod_name = &func.sig.ident;
     let vis = &func.vis;

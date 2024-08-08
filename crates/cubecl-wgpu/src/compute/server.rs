@@ -8,6 +8,7 @@ use cubecl_runtime::{
     debug::DebugLogger,
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
+    ExecutionMode,
 };
 use hashbrown::HashMap;
 use wgpu::{
@@ -98,31 +99,45 @@ where
         self.tasks_count += 1;
     }
 
-    fn pipeline(&mut self, kernel: <Self as ComputeServer>::Kernel) -> Arc<ComputePipeline> {
-        let kernel_id = kernel.id();
+    fn pipeline(
+        &mut self,
+        kernel: <Self as ComputeServer>::Kernel,
+        mode: ExecutionMode,
+    ) -> Arc<ComputePipeline> {
+        let mut kernel_id = kernel.id();
+        kernel_id.mode(mode);
 
         if let Some(pipeline) = self.pipelines.get(&kernel_id) {
             return pipeline.clone();
         }
 
-        let mut compile = kernel.compile();
+        let mut compile = kernel.compile(mode);
         if self.logger.is_activated() {
             compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
         }
 
         let compile = self.logger.debug(compile);
-        let pipeline = self.compile_source(&compile.source);
+        let pipeline = self.compile_source(&compile.source, mode);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         pipeline
     }
 
-    fn compile_source(&self, source: &str) -> Arc<ComputePipeline> {
-        let module = self.device.create_shader_module(ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-        });
+    fn compile_source(&self, source: &str, mode: ExecutionMode) -> Arc<ComputePipeline> {
+        let module = match mode {
+            ExecutionMode::Checked => self.device.create_shader_module(ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+            }),
+            ExecutionMode::Unchecked => unsafe {
+                self.device
+                    .create_shader_module_unchecked(ShaderModuleDescriptor {
+                        label: None,
+                        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                    })
+            },
+        };
 
         Arc::new(
             self.device
@@ -283,13 +298,14 @@ where
         }))
     }
 
-    fn execute(
+    unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
         count: Self::DispatchOptions,
         bindings: Vec<server::Binding<Self>>,
+        mode: ExecutionMode,
     ) {
-        let pipeline = self.pipeline(kernel);
+        let pipeline = self.pipeline(kernel, mode);
         let group_layout = pipeline.get_bind_group_layout(0);
 
         let memory_handles = bindings

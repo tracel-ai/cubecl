@@ -5,6 +5,7 @@ use cubecl_runtime::{
     memory_management::{simple::SimpleMemoryManagement, MemoryHandle, MemoryManagement},
     server::{Binding, ComputeServer, Handle},
     storage::{BytesResource, BytesStorage},
+    ExecutionMode,
 };
 use derive_new::new;
 
@@ -53,11 +54,12 @@ where
         Handle::new(self.memory_management.reserve(size, || {}))
     }
 
-    fn execute(
+    unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
         _count: Self::DispatchOptions,
         bindings: Vec<Binding<Self>>,
+        _mode: ExecutionMode,
     ) {
         let mut resources = bindings
             .into_iter()

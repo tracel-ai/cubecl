@@ -65,14 +65,16 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let rhs = client.create(f16::as_bytes(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
-    kernel_simple_1::launch::<R>(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new(16, 16, 1),
-        ArrayArg::new(&lhs, 256),
-        ArrayArg::new(&rhs, 256),
-        ArrayArg::new(&out, 256),
-    );
+    unsafe {
+        kernel_simple_1::launch::<R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(16, 16, 1),
+            ArrayArg::from_raw_parts(&lhs, 256, 1),
+            ArrayArg::from_raw_parts(&rhs, 256, 1),
+            ArrayArg::from_raw_parts(&out, 256, 1),
+        )
+    };
 
     let actual = client.read(out.binding());
     let actual = f32::from_bytes(&actual);

@@ -23,7 +23,7 @@ pub fn test_kernel_with_generics<R: Runtime>(client: ComputeClient<R::Server, R:
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        ArrayArg::new(&handle, 2),
+        unsafe { ArrayArg::from_raw_parts(&handle, 2, 1) },
     );
 
     let actual = client.read(handle.binding());
@@ -39,7 +39,7 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server,
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        ArrayArg::new(&handle, 2),
+        unsafe { ArrayArg::from_raw_parts(&handle, 2, 1) },
     );
 
     let actual = client.read(handle.binding());

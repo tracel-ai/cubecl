@@ -30,13 +30,15 @@ pub fn test_slice_select<R: Runtime>(client: ComputeClient<R::Server, R::Channel
     let input = client.create(f32::as_bytes(&[0.0, 1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(core::mem::size_of::<f32>());
 
-    slice_select::launch::<F32, R>(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new(1, 1, 1),
-        ArrayArg::new(&input, 5),
-        ArrayArg::new(&output, 1),
-    );
+    unsafe {
+        slice_select::launch::<F32, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(1, 1, 1),
+            ArrayArg::from_raw_parts(&input, 5, 1),
+            ArrayArg::from_raw_parts(&output, 1, 1),
+        )
+    };
 
     let actual = client.read(output.binding());
     let actual = f32::from_bytes(&actual);
@@ -48,13 +50,15 @@ pub fn test_slice_len<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) 
     let input = client.create(f32::as_bytes(&[0.0, 1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(core::mem::size_of::<u32>());
 
-    slice_len::launch::<F32, R>(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new(1, 1, 1),
-        ArrayArg::new(&input, 5),
-        ArrayArg::new(&output, 1),
-    );
+    unsafe {
+        slice_len::launch::<F32, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(1, 1, 1),
+            ArrayArg::from_raw_parts(&input, 5, 1),
+            ArrayArg::from_raw_parts(&output, 1, 1),
+        )
+    };
 
     let actual = client.read(output.binding());
     let actual = u32::from_bytes(&actual);
@@ -66,13 +70,15 @@ pub fn test_slice_assign<R: Runtime>(client: ComputeClient<R::Server, R::Channel
     let input = client.create(f32::as_bytes(&[15.0]));
     let output = client.create(f32::as_bytes(&[0.0, 1.0, 2.0, 3.0, 4.0]));
 
-    slice_assign::launch::<F32, R>(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new(1, 1, 1),
-        ArrayArg::new(&input, 5),
-        ArrayArg::new(&output, 1),
-    );
+    unsafe {
+        slice_assign::launch::<F32, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(1, 1, 1),
+            ArrayArg::from_raw_parts(&input, 5, 1),
+            ArrayArg::from_raw_parts(&output, 1, 1),
+        )
+    };
 
     let actual = client.read(output.binding());
     let actual = f32::from_bytes(&actual);

@@ -13,13 +13,15 @@ struct Codegen {
     state_args: Vec<TokenStream>,
     state_inputs: Vec<(Ident, syn::Type)>,
     state_outputs: Vec<(Ident, syn::Type)>,
+    unchecked: bool,
 }
 
 impl Codegen {
-    fn from_sig(sig: &syn::Signature) -> Self {
+    fn from_sig(sig: &syn::Signature, unchecked: bool) -> Self {
         let mut codegen = Codegen {
             name: snake_to_pascal_case(&sig.ident.to_string()),
             generics: sig.generics.clone(),
+            unchecked,
             ..Codegen::default()
         };
 
@@ -425,20 +427,30 @@ impl Codegen {
             }
         };
 
-        quote::quote! {
+        let mut tokens = quote::quote! {
             #settings
 
             let kernel = #kernel;
 
             #body
+        };
 
-            launcher.launch(cube_count, kernel, client);
+        if self.unchecked {
+            tokens.extend(quote::quote! {
+                launcher.launch_unchecked(cube_count, kernel, client);
+            });
+        } else {
+            tokens.extend(quote::quote! {
+                launcher.launch(cube_count, kernel, client);
+            });
         }
+
+        tokens
     }
 }
 
-pub fn codegen_launch(sig: &syn::Signature) -> TokenStream {
-    let codegen = Codegen::from_sig(sig);
+pub fn codegen_launch(sig: &syn::Signature, unchecked: bool) -> TokenStream {
+    let codegen = Codegen::from_sig(sig, unchecked);
 
     let ident = &sig.ident;
 
@@ -453,13 +465,24 @@ pub fn codegen_launch(sig: &syn::Signature) -> TokenStream {
     let (inputs, output) = (codegen.fn_inputs, codegen.fn_output);
     let doc = format!("Launch the kernel [{ident}()] on the given runtime.");
 
+    let maybe_unsafe = if unchecked {
+        quote::quote! {unsafe}
+    } else {
+        quote::quote! {}
+    };
+    let launch_name = if unchecked {
+        quote::quote! { launch_unchecked}
+    } else {
+        quote::quote! { launch}
+    };
+
     quote::quote! {
         #kernel
         #compile
 
         #[allow(clippy::too_many_arguments)]
         #[doc = #doc]
-        pub fn launch #generics (
+        pub #maybe_unsafe fn #launch_name #generics (
             client: &ComputeClient<R::Server, R::Channel>,
             cube_count: CubeCount<R::Server>,
             cube_dim: CubeDim,

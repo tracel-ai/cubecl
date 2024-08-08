@@ -89,6 +89,24 @@ impl<R: Runtime> KernelLauncher<R> {
         client.execute(kernel, cube_count, bindings);
     }
 
+    /// Launch the kernel without check bounds.
+    ///
+    /// # Safety
+    ///
+    /// Out-of-bounds reads and writes can happen.
+    pub unsafe fn launch_unchecked<K: Kernel>(
+        self,
+        cube_count: CubeCount<R::Server>,
+        kernel: K,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) {
+        let bindings = self.into_bindings(client);
+
+        let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
+
+        client.execute_unchecked(kernel, cube_count, bindings);
+    }
+
     /// We need to create the bindings in the same order they are defined in the compilation step.
     ///
     /// The function [crate::KernelIntegrator::integrate] stars by registering the input tensors followed
@@ -174,21 +192,16 @@ impl<R: Runtime> TensorState<R> {
 
         bindings.push(tensor.handle.clone().binding());
 
-        let old_rank = if metadata.is_empty() {
+        if metadata.is_empty() {
             let rank = tensor.strides.len() as u32;
             metadata.push(rank);
-            None
         } else if tensor.strides.len() > metadata[0] as usize {
-            let old_rank = metadata[0];
             let rank = tensor.strides.len() as u32;
-            Self::adjust_rank(metadata, bindings.len(), rank);
-            Some(old_rank)
-        } else {
-            None
-        };
+            Self::adjust_rank(metadata, bindings.len() - 1, rank);
+        }
 
-        Self::register_strides(tensor.strides, tensor.shape, old_rank, metadata);
-        Self::register_shape(tensor.shape, old_rank, metadata);
+        Self::register_strides(tensor.strides, tensor.shape, None, metadata);
+        Self::register_shape(tensor.shape, None, metadata);
 
         if R::require_array_lengths() {
             let len = calculate_num_elems_dyn_rank(tensor.shape);
@@ -200,6 +213,7 @@ impl<R: Runtime> TensorState<R> {
         let old_rank = metadata[0] as usize;
         let rank_diff = rank as usize - old_rank;
         let mut updated_metadata = Vec::with_capacity(2 * rank_diff * num_registered);
+        updated_metadata.push(rank);
 
         for pos in 0..num_registered {
             let stride_index = (pos * old_rank * 2) + 1;
@@ -228,19 +242,14 @@ impl<R: Runtime> TensorState<R> {
     ) {
         let old_rank = if let Some(old_rank) = old_rank {
             let rank = output[0];
-            let rank_diff = old_rank - rank;
-            let padded_strides = if rank_diff > 0 {
-                shape
-                    .iter()
-                    .take(old_rank as usize)
-                    .map(|a| a.to_u32().unwrap())
-                    .sum::<u32>()
-            } else {
-                0
-            };
+            let rank_diff = i32::abs(old_rank as i32 - rank as i32) as usize;
 
-            for _ in 0..rank_diff {
-                output.push(padded_strides.to_u32().unwrap());
+            if rank_diff > 0 {
+                let padded_strides = shape.iter().map(|a| a.to_u32().unwrap()).sum::<u32>();
+
+                for _ in 0..rank_diff {
+                    output.push(padded_strides);
+                }
             }
 
             old_rank as usize
@@ -256,10 +265,12 @@ impl<R: Runtime> TensorState<R> {
     fn register_shape<T: ToPrimitive>(shape: &[T], old_rank: Option<u32>, output: &mut Vec<u32>) {
         let old_rank = if let Some(old_rank) = old_rank {
             let rank = output[0];
-            let rank_diff = rank - old_rank;
+            let rank_diff = i32::abs(old_rank as i32 - rank as i32) as usize;
 
-            for _ in 0..rank_diff {
-                output.push(1);
+            if rank_diff > 0 {
+                for _ in 0..rank_diff {
+                    output.push(1);
+                }
             }
 
             old_rank as usize

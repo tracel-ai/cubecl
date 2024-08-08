@@ -22,13 +22,15 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R::Se
     let handle1 = client.empty(length as usize * core::mem::size_of::<u32>());
     let handle2 = client.empty(length as usize * core::mem::size_of::<u32>());
 
-    kernel_absolute_pos::launch::<R>(
-        &client,
-        CubeCount::Static(cube_count.0, cube_count.1, cube_count.2),
-        CubeDim::new(cube_dim.0, cube_dim.1, cube_dim.2),
-        ArrayArg::new(&handle1, length as usize),
-        ArrayArg::new(&handle2, length as usize),
-    );
+    unsafe {
+        kernel_absolute_pos::launch::<R>(
+            &client,
+            CubeCount::Static(cube_count.0, cube_count.1, cube_count.2),
+            CubeDim::new(cube_dim.0, cube_dim.1, cube_dim.2),
+            ArrayArg::from_raw_parts(&handle1, length as usize, 1),
+            ArrayArg::from_raw_parts(&handle2, length as usize, 1),
+        )
+    };
 
     let actual = client.read(handle1.binding());
     let actual = u32::from_bytes(&actual);

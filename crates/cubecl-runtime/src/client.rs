@@ -2,6 +2,7 @@ use crate::{
     channel::ComputeChannel,
     server::{Binding, ComputeServer, Handle},
     storage::ComputeStorage,
+    ExecutionMode,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -77,7 +78,25 @@ where
         count: Server::DispatchOptions,
         bindings: Vec<Binding<Server>>,
     ) {
-        self.channel.execute(kernel, count, bindings)
+        unsafe {
+            self.channel
+                .execute(kernel, count, bindings, ExecutionMode::Checked)
+        }
+    }
+
+    /// Executes the `kernel` over the given `bindings` without performing any bound checks.
+    ///
+    /// # Safety
+    ///
+    /// Without checks, the out-of-bound reads and writes can happen.
+    pub unsafe fn execute_unchecked(
+        &self,
+        kernel: Server::Kernel,
+        count: Server::DispatchOptions,
+        bindings: Vec<Binding<Server>>,
+    ) {
+        self.channel
+            .execute(kernel, count, bindings, ExecutionMode::Unchecked)
     }
 
     /// Wait for the completion of every task in the server.

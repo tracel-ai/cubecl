@@ -1,6 +1,7 @@
 use crate::{
     server::{Binding, ComputeServer, Handle},
     storage::ComputeStorage,
+    ExecutionMode,
 };
 use alloc::vec::Vec;
 use cubecl_common::{reader::Reader, sync_type::SyncType};
@@ -24,11 +25,16 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     fn empty(&self, size: usize) -> Handle<Server>;
 
     /// Executes the `kernel` over the given `bindings`.
-    fn execute(
+    ///
+    /// # Safety
+    ///
+    /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
+    unsafe fn execute(
         &self,
         kernel: Server::Kernel,
         count: Server::DispatchOptions,
         bindings: Vec<Binding<Server>>,
+        mode: ExecutionMode,
     );
 
     /// Perform some synchronization of commands on the server.

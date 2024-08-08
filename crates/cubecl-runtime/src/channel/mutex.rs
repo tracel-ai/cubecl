@@ -1,6 +1,7 @@
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, Handle};
 use crate::storage::ComputeStorage;
+use crate::ExecutionMode;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::reader::Reader;
@@ -56,13 +57,14 @@ where
         self.server.lock().empty(size)
     }
 
-    fn execute(
+    unsafe fn execute(
         &self,
         kernel: Server::Kernel,
         count: Server::DispatchOptions,
         handles: Vec<Binding<Server>>,
+        kind: ExecutionMode,
     ) {
-        self.server.lock().execute(kernel, count, handles)
+        self.server.lock().execute(kernel, count, handles, kind)
     }
 
     fn sync(&self, sync_type: SyncType) {

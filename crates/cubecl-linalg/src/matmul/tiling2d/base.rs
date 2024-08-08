@@ -6,7 +6,7 @@ use super::{block_loop::block_loop, config::CubeTiling2dConfig};
 /// Most common tile size, the one used in most tests.
 pub(crate) const TILE_SIZE: usize = 4;
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 #[allow(unused_mut)]
 pub fn tiling2d_cube_kernel<F: Float>(
     lhs: &Tensor<F>,

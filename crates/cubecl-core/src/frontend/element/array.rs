@@ -144,7 +144,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct ArrayHandleRef<'a, R: Runtime> {
     pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
-    pub length: [usize; 1],
+    pub(crate) length: [usize; 1],
 }
 
 pub enum ArrayArg<'a, R: Runtime> {
@@ -205,35 +205,38 @@ impl<'a, R: Runtime> ArgSettings<R> for ArrayArg<'a, R> {
 impl<'a, R: Runtime> ArrayArg<'a, R> {
     /// Create a new array argument.
     ///
-    /// Equivalent to using the [vectorized constructor](Self::vectorized) with a vectorization
-    /// factor of 1.
-    pub fn new(handle: &'a cubecl_runtime::server::Handle<R::Server>, length: usize) -> Self {
-        ArrayArg::Handle {
-            handle: ArrayHandleRef::new(handle, length),
-            vectorization_factor: 1,
-        }
-    }
-    /// Create a new array argument specified with its vectorization factor.
-    pub fn vectorized(
-        vectorization_factor: u8,
+    /// # Safety
+    ///
+    /// Specifying the wrong lenght may lead to out-of-bounds reads and writes.
+    pub unsafe fn from_raw_parts(
         handle: &'a cubecl_runtime::server::Handle<R::Server>,
         length: usize,
+        vectorization_factor: u8,
     ) -> Self {
         ArrayArg::Handle {
-            handle: ArrayHandleRef::new(handle, length),
+            handle: ArrayHandleRef::from_raw_parts(handle, length),
             vectorization_factor,
         }
     }
 }
 
 impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
-    pub fn new(handle: &'a cubecl_runtime::server::Handle<R::Server>, length: usize) -> Self {
+    /// Create a new array handle reference.
+    ///
+    /// # Safety
+    ///
+    /// Specifying the wrong lenght may lead to out-of-bounds reads and writes.
+    pub unsafe fn from_raw_parts(
+        handle: &'a cubecl_runtime::server::Handle<R::Server>,
+        length: usize,
+    ) -> Self {
         Self {
             handle,
             length: [length],
         }
     }
 
+    /// Return the handle as a tensor instead of an array.
     pub fn as_tensor(&self) -> TensorHandleRef<'_, R> {
         let shape = &self.length;
 

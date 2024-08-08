@@ -44,9 +44,9 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
             &self.client,
             cube_count,
             cube_dim,
-            TensorArg::vectorized(self.vectorization, &lhs.handle, &lhs.strides, &lhs.shape),
-            TensorArg::vectorized(self.vectorization, &rhs.handle, &rhs.strides, &rhs.shape),
-            TensorArg::vectorized(self.vectorization, &out.handle, &out.strides, &out.shape),
+            lhs.as_arg(self.vectorization),
+            rhs.as_arg(self.vectorization),
+            out.as_arg(self.vectorization),
         )
     }
 

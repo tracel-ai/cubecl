@@ -38,7 +38,7 @@ pub fn test_sequence_for_loop<R: Runtime>(client: ComputeClient<R::Server, R::Ch
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        ArrayArg::new(&handle, 2),
+        unsafe { ArrayArg::from_raw_parts(&handle, 2, 1) },
     );
 
     let actual = client.read(handle.binding());
@@ -54,7 +54,7 @@ pub fn test_sequence_index<R: Runtime>(client: ComputeClient<R::Server, R::Chann
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        ArrayArg::new(&handle, 2),
+        unsafe { ArrayArg::from_raw_parts(&handle, 2, 1) },
     );
 
     let actual = client.read(handle.binding());

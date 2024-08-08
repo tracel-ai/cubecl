@@ -1,6 +1,7 @@
 use crate::{
     memory_management::{MemoryHandle, MemoryManagement},
     storage::ComputeStorage,
+    ExecutionMode,
 };
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -44,11 +45,16 @@ where
     ///
     /// Kernels have mutable access to every resource they are given
     /// and are responsible of determining which should be read or written.
-    fn execute(
+    ///
+    /// # Safety
+    ///
+    /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
+    unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
         count: Self::DispatchOptions,
         bindings: Vec<Binding<Self>>,
+        kind: ExecutionMode,
     );
 
     /// Wait for the completion of every task in the server.

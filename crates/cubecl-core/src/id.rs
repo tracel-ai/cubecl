@@ -1,3 +1,4 @@
+use cubecl_runtime::ExecutionMode;
 use std::any::{Any, TypeId};
 use std::fmt::Display;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -8,6 +9,7 @@ use std::sync::Arc;
 pub struct KernelId {
     type_id: core::any::TypeId,
     info: Option<Info>,
+    mode: Option<ExecutionMode>,
 }
 
 impl Display for KernelId {
@@ -25,6 +27,7 @@ impl KernelId {
         Self {
             type_id: core::any::TypeId::of::<T>(),
             info: None,
+            mode: None,
         }
     }
 
@@ -38,6 +41,11 @@ impl KernelId {
     ) -> Self {
         self.info = Some(Info::new(info));
         self
+    }
+
+    /// Set the [execution mode](ExecutionMode).
+    pub fn mode(&mut self, mode: ExecutionMode) {
+        self.mode = Some(mode);
     }
 }
 
