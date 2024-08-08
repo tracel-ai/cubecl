@@ -259,8 +259,8 @@ impl Display for Variable {
                     FloatKind::BF16 => {
                         todo!("Unsupported")
                     }
-                    FloatKind::F32 => f.write_fmt(format_args!("{}f", *val as f32)),
-                    FloatKind::F64 => f.write_fmt(format_args!("{}f", { *val })),
+                    FloatKind::F32 => f.write_fmt(format_args!("{:.9}f", *val as f32)),
+                    FloatKind::F64 => f.write_fmt(format_args!("{:.17}f", { *val })),
                 },
                 ConstantScalarValue::UInt(val) => f.write_fmt(format_args!("{}u", *val as u32)),
                 ConstantScalarValue::Bool(val) => f.write_fmt(format_args!("{}", val)),
