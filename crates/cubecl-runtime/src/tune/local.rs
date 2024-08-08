@@ -54,6 +54,8 @@ impl<AK: AutotuneKey, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK
         C: ComputeChannel<S>,
     {
         // We avoid locking in write mode when possible.
+        // (this makes us potentially check the cache twice, but allows to avoid
+        // locking the state if the cache is hit)
         if let Some(state) = self.state.read().as_ref() {
             if let Some(tuner) = state.get(id) {
                 let key = autotune_operation_set.key();
