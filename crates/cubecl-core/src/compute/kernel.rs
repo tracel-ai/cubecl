@@ -193,8 +193,8 @@ impl<C: Compiler, K: Kernel> CubeTask for KernelTask<C, K> {
 }
 
 impl CubeTask for Arc<dyn CubeTask> {
-    fn compile(&self, kind: ExecutionMode) -> CompiledKernel {
-        self.as_ref().compile(kind)
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel {
+        self.as_ref().compile(mode)
     }
 
     fn id(&self) -> KernelId {
@@ -203,8 +203,8 @@ impl CubeTask for Arc<dyn CubeTask> {
 }
 
 impl CubeTask for Box<dyn CubeTask> {
-    fn compile(&self, kind: ExecutionMode) -> CompiledKernel {
-        self.as_ref().compile(kind)
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel {
+        self.as_ref().compile(mode)
     }
 
     fn id(&self) -> KernelId {

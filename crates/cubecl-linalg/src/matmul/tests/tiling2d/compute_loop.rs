@@ -55,9 +55,9 @@ pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device)
             &client,
             cube_count,
             cube_dim,
-            ArrayArg::new(&register_m, 4),
-            ArrayArg::new(&register_n, 4),
-            ArrayArg::new(&results, 16),
+            ArrayArg::from_raw_parts(&register_m, 4, 1),
+            ArrayArg::from_raw_parts(&register_n, 4, 1),
+            ArrayArg::from_raw_parts(&results, 16, 1),
             config,
         );
     };
@@ -131,9 +131,9 @@ pub fn tile_outer_product_vectorized_unit_test<R: Runtime>(device: &R::Device) {
             &client,
             cube_count,
             cube_dim,
-            ArrayArg::new(&register_m, 4),
-            ArrayArg::new(&register_n, 4),
-            ArrayArg::new(&results, 16),
+            ArrayArg::from_raw_parts(&register_m, 4, 1),
+            ArrayArg::from_raw_parts(&register_n, 4, 1),
+            ArrayArg::from_raw_parts(&results, 16, 1),
             config,
         );
     };
@@ -165,7 +165,7 @@ pub fn compute_loop_unit_test<R: Runtime>(device: &R::Device) {
             TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, TILE_SIZE as u8),
             ScalarArg::new(0),
             ScalarArg::new(0),
-            ArrayArg::new(&results, 16),
+            ArrayArg::from_raw_parts(&results, 16, 1),
             UInt::new(16),
             UInt::new(16),
             config,
@@ -199,7 +199,7 @@ pub fn compute_loop_unit_offset_test<R: Runtime>(device: &R::Device) {
             TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, TILE_SIZE as u8),
             ScalarArg::new(4),
             ScalarArg::new(4),
-            ArrayArg::new(&results, 16),
+            ArrayArg::from_raw_parts(&results, 16, 1),
             UInt::new(8),
             UInt::new(8),
             config,

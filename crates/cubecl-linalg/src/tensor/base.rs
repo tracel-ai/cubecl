@@ -133,12 +133,14 @@ where
             cube_dim,
         );
 
-        init::zeros_array::launch::<E, R>(
-            client,
-            cube_count,
-            cube_dim,
-            ArrayArg::vectorized(vectorization_factor, &handle, num_elements),
-        );
+        unsafe {
+            init::zeros_array::launch_unchecked::<E, R>(
+                client,
+                cube_count,
+                cube_dim,
+                ArrayArg::from_raw_parts(&handle, num_elements, vectorization_factor),
+            )
+        };
 
         Self::new(shape, strides, handle)
     }
@@ -148,7 +150,7 @@ pub(crate) mod init {
     use cubecl::prelude::*;
     use cubecl_core as cubecl;
 
-    #[cube(launch)]
+    #[cube(launch_unchecked)]
     pub fn zeros_array<C: Numeric>(output: &mut Array<C>) {
         if ABSOLUTE_POS < output.len() {
             output[ABSOLUTE_POS] = C::from_int(0);

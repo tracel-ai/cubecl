@@ -19,7 +19,7 @@ pub fn test_kernel_assign_scalar<R: Runtime>(client: ComputeClient<R::Server, R:
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        ArrayArg::vectorized(vectorization, &handle, 2),
+        unsafe { ArrayArg::from_raw_parts(&handle, 2, vectorization) },
         UInt::new(vectorization as u32),
     );
 
