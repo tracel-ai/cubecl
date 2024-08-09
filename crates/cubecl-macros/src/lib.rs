@@ -199,7 +199,6 @@ fn codegen_cube(
             #signature {
                 #body
             }
-
         }
     })
 }

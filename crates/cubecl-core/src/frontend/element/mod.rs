@@ -11,7 +11,6 @@ mod slice;
 mod tensor;
 mod uint;
 mod vectorized;
-
 pub use array::*;
 pub use base::*;
 pub use bool::*;
