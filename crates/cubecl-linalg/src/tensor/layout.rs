@@ -26,6 +26,10 @@ pub fn matrix_layout(strides: &[usize]) -> MatrixLayout {
     let mut batch_swap = false;
     let row_stride = strides[rank - 2];
     let col_stride = strides[rank - 1];
+    if row_stride == 0 || col_stride == 0 {
+        // Broadcasted last two dims
+        return MatrixLayout::HighlyPermuted;
+    }
     if row_stride < col_stride {
         transposed = true;
     }
@@ -34,7 +38,12 @@ pub fn matrix_layout(strides: &[usize]) -> MatrixLayout {
     for d in 0..rank - 2 {
         let current_stride = strides[rank - 3 - d];
         if current_stride < row_stride || current_stride < col_stride {
-            return MatrixLayout::HighlyPermuted;
+            if current_stride == 0 {
+                // Broadcasted batch dim
+                batch_swap = true;
+            } else {
+                return MatrixLayout::HighlyPermuted;
+            }
         }
         if current_stride < previous_stride {
             batch_swap = true;
@@ -121,5 +130,56 @@ mod tests {
     fn layout_has_batch_swapped_with_col() {
         let strides = &[1, 4, 2, 8];
         assert_eq!(matrix_layout(strides), MatrixLayout::HighlyPermuted);
+    }
+
+    #[test]
+    fn layout_has_multiple_broadcasted_dims() {
+        // E.g., tensor w/ shape [1, 4] expanded to [2, 3, 4]
+        let strides = &[0, 0, 1];
+        assert_eq!(matrix_layout(strides), MatrixLayout::HighlyPermuted);
+    }
+
+    #[test]
+    fn layout_has_row_broadcasted() {
+        // E.g., tensor w/ shape [1, 4] expanded to [3, 4]
+        let strides = &[0, 1];
+        assert_eq!(matrix_layout(strides), MatrixLayout::HighlyPermuted);
+    }
+
+    #[test]
+    fn layout_has_col_broadcasted() {
+        // E.g., tensor w/ shape [2, 1] expanded to [2, 3]
+        let strides = &[1, 0];
+        assert_eq!(matrix_layout(strides), MatrixLayout::HighlyPermuted);
+    }
+
+    #[test]
+    fn layout_has_batch_broadcasted() {
+        // E.g., tensor w/ shape [2, 4] expanded to [2, 2, 4]
+        let strides = &[0, 4, 1];
+        if let MatrixLayout::MildlyPermuted {
+            transposed,
+            batch_swap,
+        } = matrix_layout(strides)
+        {
+            assert!(!transposed && batch_swap);
+        } else {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn layout_has_multiple_batch_broadcasted() {
+        // E.g., tensor w/ shape [2, 4] expanded to [2, 2, 2, 4]
+        let strides = &[0, 0, 4, 1];
+        if let MatrixLayout::MildlyPermuted {
+            transposed,
+            batch_swap,
+        } = matrix_layout(strides)
+        {
+            assert!(!transposed && batch_swap);
+        } else {
+            unreachable!()
+        }
     }
 }
