@@ -38,9 +38,9 @@ pub trait Binary {
 
         let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
         let [lhs, rhs, out] = optimized.args;
-        let (_is_optimized, index) = match optimized.optimization_factor {
-            Some(factor) => (true, index / factor),
-            None => (false, index),
+        let index = match optimized.optimization_factor {
+            Some(factor) => index / factor,
+            None => index,
         };
 
         for i in 0..index {
@@ -134,7 +134,6 @@ operator!(And, "&&");
 function!(Powf, "powf");
 function!(Max, "max");
 function!(Min, "min");
-function!(ModuloF, "fmod");
 
 pub struct IndexAssign;
 pub struct Index;
