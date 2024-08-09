@@ -17,7 +17,6 @@ pub enum MatrixLayout {
 
 /// Return the layout of a matrix given the strides.
 pub fn matrix_layout(strides: &[usize]) -> MatrixLayout {
-    println!("matrix_layout {:?}", strides);
     let rank = strides.len();
     if rank <= 1 {
         return MatrixLayout::Contiguous;
