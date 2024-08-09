@@ -30,6 +30,7 @@ pub enum Instruction {
         var: Variable,
     },
     Modulo(BinaryInstruction),
+    Remainder(BinaryInstruction),
     Add(BinaryInstruction),
     Fma {
         a: Variable,
@@ -238,12 +239,7 @@ for (uint {i} = {start}; {i} < {end}; {i}++) {{
                 min_value,
                 max_value,
                 out,
-            } => f.write_fmt(format_args!(
-                "
-{out} = min({input}, {max_value});
-{out} = max({out}, {min_value});
-                "
-            )),
+            } => Clamp::format(f, input, min_value, max_value, out),
             Instruction::SyncThreads => f.write_str("__syncthreads();\n"),
             Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),
             Instruction::Floor(it) => Floor::format(f, &it.input, &it.out),
@@ -277,6 +273,7 @@ for (uint {i} = {start}; {i} < {end}; {i}++) {{
             Instruction::Wrap(it) => f.write_fmt(format_args!("{it}")),
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
             Instruction::Wmma(it) => f.write_fmt(format_args!("{it}")),
+            Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
         }
     }
 }
@@ -294,12 +291,71 @@ impl Fma {
         let num = out.item().vectorization;
 
         for i in 0..num {
-            let ai = a.index(i, false);
-            let bi = b.index(i, false);
-            let ci = c.index(i, false);
-            let outi = out.index(i, false);
+            let ai = a.index(i);
+            let bi = b.index(i);
+            let ci = c.index(i);
+            let outi = out.index(i);
 
             f.write_fmt(format_args!("{outi} = fma({ai}, {bi}, {ci});\n"))?;
+        }
+
+        Ok(())
+    }
+}
+
+struct Clamp;
+
+impl Clamp {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable,
+        min_value: &Variable,
+        max_value: &Variable,
+        out: &Variable,
+    ) -> core::fmt::Result {
+        let input = input.optimized();
+        let min_value = min_value.optimized();
+        let max_value = max_value.optimized();
+        let out = out.optimized();
+        let num = out.item().vectorization;
+
+        for i in 0..num {
+            let inputi = input.index(i);
+            let mini = min_value.index(i);
+            let maxi = max_value.index(i);
+            let outi = out.index(i);
+
+            f.write_fmt(format_args!(
+                "{outi} = max({mini}, min({maxi}, {inputi}));\n"
+            ))?;
+        }
+
+        Ok(())
+    }
+}
+
+struct Remainder;
+
+impl Remainder {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        lhs: &Variable,
+        rhs: &Variable,
+        out: &Variable,
+    ) -> core::fmt::Result {
+        let lhs = lhs.optimized();
+        let rhs = rhs.optimized();
+        let out = out.optimized();
+        let num = out.item().vectorization;
+
+        for i in 0..num {
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+            let outi = out.index(i);
+
+            f.write_fmt(format_args!(
+                "{outi} = {lhsi} - {rhsi} * floor({lhsi} / {rhsi});\n"
+            ))?;
         }
 
         Ok(())

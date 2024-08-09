@@ -470,7 +470,7 @@ impl CudaCompiler {
             }
             gpu::Operator::Ceil(op) => instructions.push(Instruction::Ceil(self.compile_unary(op))),
             gpu::Operator::Remainder(op) => {
-                instructions.push(Instruction::Modulo(self.compile_binary(op)))
+                instructions.push(Instruction::Remainder(self.compile_binary(op)))
             }
             gpu::Operator::Fma(op) => instructions.push(Instruction::Fma {
                 a: self.compile_variable(op.a),

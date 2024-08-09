@@ -66,12 +66,12 @@ impl Component for IndexedVariable {
     }
 
     fn index(&self, index: usize) -> IndexedVariable {
-        self.var.index(index, self.var.is_optimized())
+        self.var.index(index)
     }
 }
 impl Component for Variable {
     fn index(&self, index: usize) -> IndexedVariable {
-        self.index(index, self.is_optimized())
+        self.index(index)
     }
 
     fn item(&self) -> Item {
@@ -361,11 +361,11 @@ impl Variable {
         }
     }
 
-    pub fn index(&self, index: usize, optimized: bool) -> IndexedVariable {
+    pub fn index(&self, index: usize) -> IndexedVariable {
         IndexedVariable {
             var: *self,
             index,
-            optimized,
+            optimized: self.is_optimized(),
         }
     }
 }
