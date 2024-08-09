@@ -151,7 +151,7 @@ impl ComputeStorage for CudaStorage {
     fn alloc(&mut self, size: usize) -> StorageHandle {
         let id = StorageId::new();
         let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size).unwrap() };
-        self.memory.insert(id.clone(), ptr);
+        self.memory.insert(id, ptr);
         StorageHandle::new(id, StorageUtilization::Full(size))
     }
 

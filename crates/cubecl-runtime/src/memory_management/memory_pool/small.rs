@@ -1,5 +1,5 @@
-use super::{ChunkHandle, ChunkId, MemoryPoolBinding, MemoryPoolHandle, SliceHandle, SliceId};
-use crate::storage::{ComputeStorage, StorageHandle, StorageUtilization};
+use super::{MemoryPoolBinding, MemoryPoolHandle, SliceHandle, SliceId};
+use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
@@ -14,18 +14,15 @@ use hashbrown::HashMap;
 /// - `ring_buffer`: A vector used as a ring buffer to manage chunk reuse.
 /// - `index`: The current position in the ring buffer.
 pub struct SmallMemoryPool {
-    chunks: HashMap<ChunkId, SmallChunk>,
+    chunks: HashMap<StorageId, SmallChunk>,
     slices: HashMap<SliceId, SmallSlice>,
-    ring_buffer: Vec<ChunkId>,
+    ring_buffer: Vec<StorageId>,
     index: usize,
     buffer_storage_alignment_offset: usize,
 }
 
 #[derive(new, Debug)]
 pub struct SmallChunk {
-    pub storage: StorageHandle,
-    #[allow(dead_code)]
-    pub handle: ChunkHandle,
     pub slice: Option<SliceId>,
 }
 
@@ -33,8 +30,6 @@ pub struct SmallChunk {
 pub struct SmallSlice {
     pub storage: StorageHandle,
     pub handle: SliceHandle,
-    #[allow(dead_code)]
-    pub chunk: ChunkHandle,
     pub padding: usize,
 }
 
@@ -56,43 +51,35 @@ impl SmallMemoryPool {
     }
 
     /// Returns the resource from the storage, for the specified handle.
-    pub fn get<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        binding: &MemoryPoolBinding,
-    ) -> Option<Storage::Resource> {
-        self.slices
-            .get(binding.slice.id())
-            .map(|s| &s.storage)
-            .map(|h| storage.get(h))
+    pub fn get(&self, binding: &MemoryPoolBinding) -> Option<&StorageHandle> {
+        self.slices.get(binding.slice.id()).map(|s| &s.storage)
     }
 
     /// Reserves memory of specified size using the reserve algorithm, and return
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
-    pub fn reserve<Storage: ComputeStorage, Sync: FnOnce()>(
+    pub fn reserve<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         size: usize,
-        sync: Sync,
+        exclude: &[StorageId],
     ) -> MemoryPoolHandle {
         assert!(size <= self.buffer_storage_alignment_offset);
-        let slice = self.get_free_slice(size);
+        let slice = self.get_free_slice(size, exclude);
 
         match slice {
             Some(slice) => MemoryPoolHandle {
                 slice: slice.clone(),
             },
-            None => self.alloc(storage, size, sync),
+            None => self.alloc(storage, size),
         }
     }
 
-    pub fn alloc<Storage: ComputeStorage, Sync: FnOnce()>(
+    pub fn alloc<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         size: usize,
-        _sync: Sync,
     ) -> MemoryPoolHandle {
         assert!(size <= self.buffer_storage_alignment_offset);
 
@@ -104,20 +91,19 @@ impl SmallMemoryPool {
         storage: &mut Storage,
         slice_size: usize,
     ) -> MemoryPoolHandle {
-        let handle_chunk = self.create_chunk(storage, self.buffer_storage_alignment_offset);
-        let chunk_id = *handle_chunk.id();
-        let slice = self.allocate_slice(handle_chunk.clone(), slice_size);
+        let storage_id = self.create_chunk(storage, self.buffer_storage_alignment_offset);
+        let slice = self.allocate_slice(storage_id, slice_size);
 
         let handle_slice = slice.handle.clone();
-        self.update_chunk_metadata(chunk_id, slice);
+        self.update_chunk_metadata(slice);
 
         MemoryPoolHandle {
             slice: handle_slice,
         }
     }
 
-    fn allocate_slice(&self, handle_chunk: ChunkHandle, slice_size: usize) -> SmallSlice {
-        let slice = self.create_slice(0, slice_size, handle_chunk.clone());
+    fn allocate_slice(&self, storage_id: StorageId, slice_size: usize) -> SmallSlice {
+        let slice = self.create_slice(0, slice_size, storage_id);
 
         let effective_size = slice.effective_size();
         assert_eq!(effective_size, self.buffer_storage_alignment_offset);
@@ -125,20 +111,21 @@ impl SmallMemoryPool {
         slice
     }
 
-    fn update_chunk_metadata(&mut self, chunk_id: ChunkId, slice: SmallSlice) {
+    fn update_chunk_metadata(&mut self, slice: SmallSlice) {
         let slice_id = *slice.handle.id();
 
+        self.chunks.get_mut(&slice.storage.id).unwrap().slice = Some(slice_id);
         self.slices.insert(slice_id, slice);
-        self.chunks.get_mut(&chunk_id).unwrap().slice = Some(slice_id);
     }
 
-    fn find_free_slice(&mut self) -> Option<SliceId> {
-        if self.ring_buffer.is_empty() {
-            return None;
-        }
+    fn find_free_slice(&mut self, exclude: &[StorageId]) -> Option<SliceId> {
         for _ in 0..self.ring_buffer.len() {
-            let chunk_id = self.ring_buffer.get(self.index).unwrap();
-            let chunk = self.chunks.get(chunk_id).unwrap();
+            let storage_id = self.ring_buffer.get(self.index).unwrap();
+            if exclude.contains(storage_id) {
+                continue;
+            }
+
+            let chunk = self.chunks.get(storage_id).unwrap();
             let slice = self.slices.get(&chunk.slice.unwrap()).unwrap();
             self.index = (self.index + 1) % self.ring_buffer.len();
             if slice.handle.is_free() {
@@ -150,8 +137,8 @@ impl SmallMemoryPool {
 
     /// Finds a free slice that can contain the given size
     /// Returns the chunk's id and size.
-    fn get_free_slice(&mut self, size: usize) -> Option<SliceHandle> {
-        let slice_id = self.find_free_slice()?;
+    fn get_free_slice(&mut self, size: usize, exclude: &[StorageId]) -> Option<SliceHandle> {
+        let slice_id = self.find_free_slice(exclude)?;
 
         let slice = self.slices.get_mut(&slice_id).unwrap();
         let old_slice_size = slice.effective_size();
@@ -174,19 +161,18 @@ impl SmallMemoryPool {
     }
 
     /// Creates a slice of size `size` upon the given chunk with the given offset.
-    fn create_slice(&self, offset: usize, size: usize, handle_chunk: ChunkHandle) -> SmallSlice {
+    fn create_slice(&self, offset: usize, size: usize, storage_id: StorageId) -> SmallSlice {
         assert_eq!(offset, 0);
-        let chunk = self.chunks.get(handle_chunk.id()).unwrap();
         let handle = SliceHandle::new();
 
         let storage = StorageHandle {
-            id: chunk.storage.id.clone(),
+            id: storage_id,
             utilization: StorageUtilization::Slice { offset, size },
         };
 
         let padding = calculate_padding(size, self.buffer_storage_alignment_offset);
 
-        SmallSlice::new(storage, handle, chunk.handle.clone(), padding)
+        SmallSlice::new(storage, handle, padding)
     }
 
     /// Creates a chunk of given size by allocating on the storage.
@@ -194,20 +180,15 @@ impl SmallMemoryPool {
         &mut self,
         storage: &mut Storage,
         size: usize,
-    ) -> ChunkHandle {
+    ) -> StorageId {
         let padding = calculate_padding(size, self.buffer_storage_alignment_offset);
         let effective_size = size + padding;
 
         let storage = storage.alloc(effective_size);
-        let handle = ChunkHandle::new();
-        let id = *handle.id();
-
+        let id = storage.id;
         self.ring_buffer.push(id);
-
-        self.chunks
-            .insert(id, SmallChunk::new(storage, handle.clone(), None));
-
-        handle
+        self.chunks.insert(id, SmallChunk::new(None));
+        id
     }
 
     #[allow(unused)]

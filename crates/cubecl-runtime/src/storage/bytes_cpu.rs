@@ -57,7 +57,7 @@ impl ComputeStorage for BytesStorage {
     type Resource = BytesResource;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let allocated_bytes = self.memory.get_mut(&handle.id).unwrap();
+        let allocated_bytes = self.memory.get(&handle.id).unwrap();
 
         BytesResource {
             ptr: allocated_bytes.ptr,
@@ -68,7 +68,7 @@ impl ComputeStorage for BytesStorage {
     fn alloc(&mut self, size: usize) -> StorageHandle {
         let id = StorageId::new();
         let handle = StorageHandle {
-            id: id.clone(),
+            id,
             utilization: StorageUtilization::Full(size),
         };
 
@@ -127,7 +127,7 @@ mod tests {
         let mut storage = BytesStorage::default();
         let handle_1 = storage.alloc(64);
         let handle_2 = StorageHandle::new(
-            handle_1.id.clone(),
+            handle_1.id,
             StorageUtilization::Slice {
                 offset: 24,
                 size: 8,
