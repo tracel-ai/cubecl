@@ -153,7 +153,6 @@ where
             label: None,
             size,
             usage: wgpu::BufferUsages::MAP_READ
-                | wgpu::BufferUsages::MAP_WRITE
                 | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
