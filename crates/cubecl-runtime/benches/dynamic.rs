@@ -22,7 +22,7 @@ fn main() {
         if handles.len() >= 4000 {
             handles.pop_front();
         }
-        let handle = mm.reserve(MB, || {});
+        let handle = mm.reserve(MB, &[]);
         handles.push_back(handle);
     }
     println!("{:?}", start.elapsed());

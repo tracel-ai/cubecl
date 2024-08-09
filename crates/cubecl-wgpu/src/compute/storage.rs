@@ -116,7 +116,7 @@ impl ComputeStorage for WgpuStorage {
             mapped_at_creation: false,
         }));
 
-        self.memory.insert(id.clone(), buffer);
+        self.memory.insert(id, buffer);
 
         StorageHandle::new(id, StorageUtilization::Full(size))
     }
@@ -126,6 +126,9 @@ impl ComputeStorage for WgpuStorage {
     }
 
     fn copy(&mut self, from: &StorageHandle, to: &StorageHandle) {
+        // TODO: The semantics of this seems really strange, as we might be copying before other commands
+        // are flushed & done. Ideally, we should pass in the actual current encoder and queue commands there
+        // or remove the need to copy entirely. This is not used at the moment.
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });

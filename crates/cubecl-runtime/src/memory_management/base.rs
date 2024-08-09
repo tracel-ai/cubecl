@@ -1,4 +1,4 @@
-use crate::storage::ComputeStorage;
+use crate::storage::{ComputeStorage, StorageHandle, StorageId};
 
 /// The managed tensor buffer handle that points to some memory segment.
 /// It should not contain actual data.
@@ -23,18 +23,24 @@ pub trait MemoryManagement<Storage: ComputeStorage>: Send + core::fmt::Debug {
     /// The associated type that must implement [MemoryBinding]
     type Binding: MemoryBinding;
 
+    /// Returns the storage from the specified binding
+    fn get(&mut self, binding: Self::Binding) -> StorageHandle;
+
     /// Returns the resource from the storage at the specified handle
-    fn get(&mut self, binding: Self::Binding) -> Storage::Resource;
+    fn get_resource(&mut self, binding: Self::Binding) -> Storage::Resource {
+        let handle = self.get(binding);
+        self.storage().get(&handle)
+    }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
-    fn reserve<Sync: FnOnce()>(&mut self, size: usize, sync: Sync) -> Self::Handle;
+    fn reserve(&mut self, size: usize, exclude: &[StorageId]) -> Self::Handle;
 
     /// Bypass the memory allocation algorithm to allocate data directly.
     ///
     /// # Notes
     ///
     /// Can be useful for servers that want specific control over memory.
-    fn alloc<Sync: FnOnce()>(&mut self, size: usize, sync: Sync) -> Self::Handle;
+    fn alloc(&mut self, size: usize) -> Self::Handle;
 
     /// Bypass the memory allocation algorithm to deallocate data directly.
     ///
