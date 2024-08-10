@@ -112,25 +112,7 @@ where
         )
     }
 
-    fn start_compute_pass(&mut self) -> &mut ComputePass<'static> {
-        self.tasks_count += 1;
-
-        // Start a new compute pass if needed. The forget_lifetime allows
-        // to store this with a 'static lifetime, but in reality
-        // the compute pass must be dropped before the encoder.
-        // This isn't unsafe - it's checked at runtime - but panics
-        // otherwise.
-        self.current_pass.get_or_insert_with(|| {
-            self.encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: None,
-                })
-                .forget_lifetime()
-        })
-    }
-
-    fn end_compute_pass(&mut self) {
+    fn clear_compute_pass(&mut self) {
         self.current_pass = None;
     }
 }
@@ -156,7 +138,7 @@ where
             mapped_at_creation: false,
         });
 
-        self.end_compute_pass();
+        self.clear_compute_pass();
 
         self.encoder.copy_buffer_to_buffer(
             &resource.buffer,
@@ -284,7 +266,20 @@ where
             _ => None,
         };
 
-        let pass = self.start_compute_pass();
+        self.tasks_count += 1;
+
+        // Start a new compute pass if needed. The forget_lifetime allows
+        // to store this with a 'static lifetime, but the compute pass must
+        // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
+        let pass = self.current_pass.get_or_insert_with(|| {
+            self.encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: None,
+                })
+                .forget_lifetime()
+        });
+
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
 
@@ -305,7 +300,7 @@ where
 
     fn sync(&mut self, sync_type: SyncType) {
         // End the current compute pass.
-        self.end_compute_pass();
+        self.clear_compute_pass();
         let new_encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
