@@ -20,13 +20,10 @@ pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
     memory_management: MM,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-
     encoder: CommandEncoder,
     current_pass: Option<ComputePass<'static>>,
     tasks_count: usize,
-    // TODO: Is this better as a hashset?
     compute_storage_used: Vec<StorageId>,
-
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     tasks_max: usize,
     logger: DebugLogger,
