@@ -32,6 +32,12 @@ pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
     logger: DebugLogger,
 }
 
+fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
+    device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("CubeCL Command Encoder"),
+    })
+}
+
 impl<MM> WgpuServer<MM>
 where
     MM: MemoryManagement<WgpuStorage>,
@@ -47,9 +53,7 @@ where
             memory_management,
             device: device.clone(),
             queue: queue.clone(),
-            encoder: device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Command Encoder"),
-            }),
+            encoder: create_encoder(&device),
             current_pass: None,
             tasks_count: 0,
             compute_storage_used: Vec::new(),
@@ -301,11 +305,7 @@ where
     fn sync(&mut self, sync_type: SyncType) {
         // End the current compute pass.
         self.clear_compute_pass();
-        let new_encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Command Encoder"),
-            });
+        let new_encoder = create_encoder(&self.device);
         let encoder = std::mem::replace(&mut self.encoder, new_encoder);
         self.queue.submit([encoder.finish()]);
 
