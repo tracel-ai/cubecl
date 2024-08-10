@@ -31,20 +31,6 @@ impl RingBuffer {
             .insert(storage_id, self.queue.len() - 1);
     }
 
-    pub fn remove_chunk(&mut self, storage_id: StorageId) {
-        if let Some(position) = self.chunk_positions.remove(&storage_id) {
-            self.queue.remove(position);
-        }
-
-        self.chunk_positions.clear();
-
-        for (pos, id) in self.queue.iter().enumerate() {
-            self.chunk_positions.insert(*id, pos);
-        }
-        self.cursor_chunk = 0;
-        self.cursor_slice = 0;
-    }
-
     pub fn find_free_slice(
         &mut self,
         size: usize,
