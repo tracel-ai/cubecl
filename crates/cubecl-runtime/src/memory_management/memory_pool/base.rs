@@ -2,7 +2,7 @@ use super::index::SearchIndex;
 use super::{MemoryPoolBinding, MemoryPoolHandle, RingBuffer, SliceHandle, SliceId};
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::vec::Vec;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 
 pub struct MemoryPool {
     chunks: HashMap<StorageId, Chunk>,
@@ -15,11 +15,6 @@ pub struct MemoryPool {
     recently_added_chunks: Vec<StorageId>,
     recently_allocated_size: usize,
     buffer_alignment: usize,
-}
-
-struct SliceUpdate {
-    slice_id: SliceId,
-    size: usize,
 }
 
 #[derive(new, Debug)]
@@ -83,13 +78,6 @@ impl MemoryPage {
 
     fn insert_slice(&mut self, address: usize, slice: SliceId) {
         self.slices.insert(address, slice);
-    }
-
-    fn slices_sorted_by_address(&self) -> Vec<SliceId> {
-        let mut entries: Vec<(usize, SliceId)> = self.slices.clone().into_iter().collect();
-        entries.sort_by_key(|&(key, _)| key);
-        let sorted_slices: Vec<SliceId> = entries.into_iter().map(|(_, values)| values).collect();
-        sorted_slices
     }
 }
 
@@ -371,98 +359,6 @@ impl MemoryPool {
         self.storage_index.insert(id, size);
 
         id
-    }
-
-    #[allow(unused)]
-    fn extend_max_memory<Storage: ComputeStorage>(&mut self, storage: &mut Storage) {
-        let mut slices = Vec::<SliceUpdate>::new();
-
-        let mut deallocations = HashSet::<StorageId>::new();
-
-        let mut chunks_total_size: usize = 0;
-
-        for id in &self.recently_added_chunks {
-            let chunk = self.chunks.get(id).unwrap();
-            let sorted_slice = chunk.slices.slices_sorted_by_address();
-            for slice_id in sorted_slice {
-                let slice = self.slices.get(&slice_id).unwrap();
-                let size = slice.storage.size();
-
-                slices.push(SliceUpdate { slice_id, size });
-            }
-            chunks_total_size += chunk.alloc_size;
-            deallocations.insert(*id);
-        }
-
-        if !slices.is_empty() {
-            self.move_to_new_chunk(chunks_total_size, storage, &mut slices, &mut deallocations);
-        } else {
-            self.deallocate(storage, &mut deallocations);
-        }
-    }
-
-    fn deallocate<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        deallocations: &mut HashSet<StorageId>,
-    ) {
-        for id in deallocations.drain() {
-            let mut chunk = self.chunks.remove(&id).unwrap();
-            self.ring.remove_chunk(id);
-
-            for (_address, slice_id) in chunk.slices.slices.drain() {
-                let slice = self.slices.get(&slice_id).unwrap();
-                let new_storage_id = slice.storage.id;
-
-                assert_ne!(new_storage_id, id, "Chunk id should be updated");
-            }
-
-            self.storage_index.remove(&id);
-            storage.dealloc(id);
-        }
-    }
-
-    fn move_to_new_chunk<Storage: ComputeStorage>(
-        &mut self,
-        alloc_size: usize,
-        storage: &mut Storage,
-        slices: &mut Vec<SliceUpdate>,
-        deallocations: &mut HashSet<StorageId>,
-    ) {
-        let storage_id = self.create_chunk(storage, alloc_size);
-
-        let mut offset = 0;
-        let mut slices_ids: Vec<(usize, SliceId)> = Vec::new();
-
-        for update in slices.drain(..) {
-            let slice_id = update.slice_id;
-
-            let slice = self.slices.get_mut(&slice_id).unwrap();
-            let old_storage = slice.storage.clone();
-
-            slice.storage = StorageHandle {
-                id: storage_id,
-                utilization: StorageUtilization::Slice {
-                    offset,
-                    size: update.size,
-                },
-            };
-            storage.copy(&old_storage, &slice.storage);
-            slices_ids.push((offset, slice_id));
-            offset += slice.effective_size();
-        }
-
-        let chunk = self.chunks.get_mut(&storage_id).unwrap();
-        for (address, slice_id) in slices_ids.drain(..) {
-            chunk.slices.insert_slice(address, slice_id);
-        }
-        let last_slice_size = chunk.alloc_size - offset;
-        assert_eq!(last_slice_size % self.buffer_alignment, 0);
-        if last_slice_size != 0 {
-            self.create_slice(offset, last_slice_size, storage_id);
-        }
-
-        self.deallocate(storage, deallocations);
     }
 }
 

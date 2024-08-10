@@ -7,7 +7,6 @@ pub struct WgpuStorage {
     memory: HashMap<StorageId, Arc<wgpu::Buffer>>,
     deallocations: Vec<StorageId>,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
 }
 
 impl core::fmt::Debug for WgpuStorage {
@@ -68,12 +67,11 @@ pub enum WgpuResourceKind {
 /// Keeps actual wgpu buffer references in a hashmap with ids as key.
 impl WgpuStorage {
     /// Create a new storage on the given [device](wgpu::Device).
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+    pub fn new(device: Arc<wgpu::Device>) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             device,
-            queue,
         }
     }
 
@@ -123,27 +121,5 @@ impl ComputeStorage for WgpuStorage {
 
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
-    }
-
-    fn copy(&mut self, from: &StorageHandle, to: &StorageHandle) {
-        // TODO: The semantics of this seems really strange, as we might be copying before other commands
-        // are flushed & done. Ideally, we should pass in the actual current encoder and queue commands there
-        // or remove the need to copy entirely. This is not used at the moment.
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        let from = self.get(from);
-        let to = self.get(to);
-
-        encoder.copy_buffer_to_buffer(
-            &from.buffer,
-            from.offset(),
-            &to.buffer,
-            to.offset(),
-            to.size(),
-        );
-
-        self.queue.submit(Some(encoder.finish()));
     }
 }
