@@ -1,4 +1,4 @@
-use super::{binary::*, unary::*, Component, Variable, WarpInstruction, WmmaInstruction};
+use super::{binary::*, unary::*, Component, Elem, Variable, WarpInstruction, WmmaInstruction};
 use std::fmt::Display;
 
 #[derive(Debug, Clone)]
@@ -116,6 +116,13 @@ pub enum Instruction {
     Floor(UnaryInstruction),
     Wrap(WarpInstruction),
     Wmma(WmmaInstruction),
+    Bitcast(UnaryInstruction),
+    AtomicCAS {
+        input: Variable,
+        cmp: Variable,
+        val: Variable,
+        out: Variable,
+    },
 }
 
 impl Display for Instruction {
@@ -277,6 +284,53 @@ for (uint {i} = {start}; {i} < {end}; {i}++) {{
             Instruction::Wrap(it) => f.write_fmt(format_args!("{it}")),
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
             Instruction::Wmma(it) => f.write_fmt(format_args!("{it}")),
+            Instruction::Bitcast(UnaryInstruction { input, out }) => {
+                match (input.elem(), out.elem()) {
+                    (Elem::F32, Elem::I32) => {
+                        f.write_fmt(format_args!("{out} = __float_as_int({input});\n"))
+                    }
+                    (Elem::F32, Elem::U32) => {
+                        f.write_fmt(format_args!("{out} = __float_as_uint({input});\n"))
+                    }
+                    (Elem::F16, Elem::I32) => {
+                        f.write_fmt(format_args!("{out} = __half_as_short({input});\n"))
+                    }
+                    (Elem::F16, Elem::U32) => {
+                        f.write_fmt(format_args!("{out} = __half_as_ushort({input});\n"))
+                    }
+                    (Elem::BF16, Elem::I32) => {
+                        f.write_fmt(format_args!("{out} = __bfloat16_as_short({input});\n"))
+                    }
+                    (Elem::BF16, Elem::U32) => {
+                        f.write_fmt(format_args!("{out} = __bfloat16_as_ushort({input});\n"))
+                    }
+                    (Elem::I32, Elem::F32) => {
+                        f.write_fmt(format_args!("{out} = __int_as_float({input});\n"))
+                    }
+                    (Elem::I32, Elem::F16) => {
+                        f.write_fmt(format_args!("{out} = __short_as_half({input});\n"))
+                    }
+                    (Elem::I32, Elem::BF16) => {
+                        f.write_fmt(format_args!("{out} = __short_as_bfloat16({input});\n"))
+                    }
+                    (Elem::U32, Elem::F32) => {
+                        f.write_fmt(format_args!("{out} = __uint_as_float({input});\n"))
+                    }
+                    (Elem::U32, Elem::F16) => {
+                        f.write_fmt(format_args!("{out} = __ushort_as_half({input});\n"))
+                    }
+                    (Elem::U32, Elem::BF16) => {
+                        f.write_fmt(format_args!("{out} = __ushort_as_bfloat16({input});\n"))
+                    }
+                    _ => panic!("Unsupported type for bitcasting"),
+                }
+            }
+            Instruction::AtomicCAS {
+                input,
+                cmp,
+                val,
+                out,
+            } => f.write_fmt(format_args!("{out} = atomicCAS({input}, {cmp}, {val});\n")),
         }
     }
 }

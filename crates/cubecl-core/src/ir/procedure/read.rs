@@ -81,6 +81,8 @@ impl ReadGlobalWithLayout {
             .map(|_| scope.create_local(Elem::UInt))
             .collect::<Vec<_>>();
 
+        panic!("Read with layout expanded, using rank");
+
         IndexOffsetGlobalWithLayout {
             tensors: tensors.clone(),
             layout: self.layout,

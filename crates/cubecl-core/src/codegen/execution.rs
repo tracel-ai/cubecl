@@ -313,10 +313,13 @@ fn create_scalar_handles<R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeE
     client: &ComputeClient<R::Server, R::Channel>,
 ) -> Vec<Handle<R::Server>> {
     // It is crucial that scalars follow this order: float, int, uint
+    // TODO: Figure out why and how this works
     let element_priority = |elem: Elem| match elem {
         Elem::Float(_) => 0,
         Elem::Int(_) => 1,
-        Elem::UInt => 2,
+        Elem::AtomicInt(_) => 2,
+        Elem::UInt => 3,
+        Elem::AtomicUInt => 4,
         Elem::Bool => panic!("Bool scalars are not supported"),
     };
     let scalar_priorities: [usize; 3] = [

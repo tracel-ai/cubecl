@@ -133,7 +133,12 @@ impl<R: Runtime> KernelLauncher<R> {
                     IntKind::I32 => self.scalar_i32.register::<R>(client, &mut bindings),
                     IntKind::I64 => self.scalar_i64.register::<R>(client, &mut bindings),
                 },
+                Elem::AtomicInt(kind) => match kind {
+                    IntKind::I32 => self.scalar_i32.register::<R>(client, &mut bindings),
+                    IntKind::I64 => self.scalar_i64.register::<R>(client, &mut bindings),
+                },
                 Elem::UInt => self.scalar_u32.register::<R>(client, &mut bindings),
+                Elem::AtomicUInt => self.scalar_u32.register::<R>(client, &mut bindings),
                 Elem::Bool => panic!("Bool can't be passed as bindings."),
             }
         }

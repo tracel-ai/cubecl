@@ -67,6 +67,10 @@ pub enum Operator {
     ShiftLeft(BinaryOperator),
     ShiftRight(BinaryOperator),
     Remainder(BinaryOperator),
+    Bitcast(UnaryOperator),
+    AtomicLoad(UnaryOperator),
+    AtomicStore(BinaryOperator),
+    AtomicCompareAndSwap(CompareAndSwapOperator),
 }
 
 /// All metadata that can be access in a shader.
@@ -127,6 +131,15 @@ pub struct SliceOperator {
     pub input: Variable,
     pub start: Variable,
     pub end: Variable,
+    pub out: Variable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(missing_docs)]
+pub struct CompareAndSwapOperator {
+    pub input: Variable,
+    pub cmp: Variable,
+    pub val: Variable,
     pub out: Variable,
 }
 

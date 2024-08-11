@@ -1,5 +1,8 @@
 use crate::frontend::operation::base::cmp_expand;
-use crate::frontend::{CubeContext, ExpandElementTyped, UInt, BF16, F16, F32, F64, I32, I64};
+use crate::frontend::{
+    AtomicI32, AtomicI64, AtomicUInt, CubeContext, ExpandElementTyped, UInt, BF16, F16, F32, F64,
+    I32, I64,
+};
 use crate::ir::Operator;
 use crate::prelude::CubePrimitive;
 
@@ -56,9 +59,11 @@ impl_cmp!(
         I32 | i32;u32,
         I64 | i32;u32,
         UInt | u32
-
     }
 );
+impl_cmp!(AtomicI32);
+impl_cmp!(AtomicI64);
+impl_cmp!(AtomicUInt);
 
 pub mod ne {
 

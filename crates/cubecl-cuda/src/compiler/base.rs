@@ -457,6 +457,9 @@ impl CudaCompiler {
                     gpu::Elem::Int(kind) => ConstantScalarValue::Int(1, kind),
                     gpu::Elem::UInt => ConstantScalarValue::UInt(1),
                     gpu::Elem::Bool => ConstantScalarValue::Bool(true),
+                    gpu::Elem::AtomicInt(_) | gpu::Elem::AtomicUInt => {
+                        panic!("Cannot use recip with atomics")
+                    }
                 };
 
                 instructions.push(Instruction::Div(super::BinaryInstruction {
@@ -476,6 +479,24 @@ impl CudaCompiler {
                 a: self.compile_variable(op.a),
                 b: self.compile_variable(op.b),
                 c: self.compile_variable(op.c),
+                out: self.compile_variable(op.out),
+            }),
+            gpu::Operator::Bitcast(op) => {
+                instructions.push(Instruction::Bitcast(self.compile_unary(op)))
+            }
+            gpu::Operator::AtomicLoad(op) => {
+                instructions.push(Instruction::Assign(self.compile_unary(op)))
+            }
+            gpu::Operator::AtomicStore(op) => {
+                instructions.push(Instruction::Assign(super::UnaryInstruction {
+                    input: self.compile_variable(op.rhs),
+                    out: self.compile_variable(op.lhs),
+                }))
+            }
+            gpu::Operator::AtomicCompareAndSwap(op) => instructions.push(Instruction::AtomicCAS {
+                input: self.compile_variable(op.input),
+                cmp: self.compile_variable(op.cmp),
+                val: self.compile_variable(op.val),
                 out: self.compile_variable(op.out),
             }),
         };
@@ -663,7 +684,12 @@ impl CudaCompiler {
                 gpu::IntKind::I32 => super::Elem::I32,
                 gpu::IntKind::I64 => panic!("i64 isn't supported yet"),
             },
+            gpu::Elem::AtomicInt(kind) => match kind {
+                gpu::IntKind::I32 => super::Elem::I32,
+                gpu::IntKind::I64 => panic!("atomic<i64> isn't supported yet"),
+            },
             gpu::Elem::UInt => super::Elem::U32,
+            gpu::Elem::AtomicUInt => super::Elem::U32,
             gpu::Elem::Bool => super::Elem::Bool,
         }
     }

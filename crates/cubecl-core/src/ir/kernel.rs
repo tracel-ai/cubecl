@@ -48,7 +48,9 @@ pub enum IntKind {
 pub enum Elem {
     Float(FloatKind),
     Int(IntKind),
+    AtomicInt(IntKind),
     UInt,
+    AtomicUInt,
     Bool,
 }
 
@@ -62,6 +64,8 @@ impl Elem {
             Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::UInt => ConstantScalarValue::UInt(val as u64),
             Elem::Bool => ConstantScalarValue::Bool(val > 0.0),
+            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
         })
     }
     /// Create a constant scalar from a signed integer.
@@ -73,6 +77,8 @@ impl Elem {
             Elem::Int(kind) => ConstantScalarValue::Int(val, *kind),
             Elem::UInt => ConstantScalarValue::UInt(val as u64),
             Elem::Bool => ConstantScalarValue::Bool(val > 0),
+            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val, *kind),
+            Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
         })
     }
     /// Create a constant scalar from a unsigned integer.
@@ -84,6 +90,8 @@ impl Elem {
             Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::UInt => ConstantScalarValue::UInt(val),
             Elem::Bool => ConstantScalarValue::Bool(val > 0),
+            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
         })
     }
     /// Create a constant scalar from a boolean.
@@ -93,7 +101,9 @@ impl Elem {
         Variable::ConstantScalar(match self {
             Elem::Float(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
             Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::UInt => ConstantScalarValue::UInt(val as u64),
+            Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
             Elem::Bool => ConstantScalarValue::Bool(val),
         })
     }
@@ -125,7 +135,12 @@ impl Elem {
                 IntKind::I32 => core::mem::size_of::<i32>(),
                 IntKind::I64 => core::mem::size_of::<i64>(),
             },
+            Elem::AtomicInt(kind) => match kind {
+                IntKind::I32 => core::mem::size_of::<i32>(),
+                IntKind::I64 => core::mem::size_of::<i64>(),
+            },
             Elem::UInt => core::mem::size_of::<u32>(),
+            Elem::AtomicUInt => core::mem::size_of::<u32>(),
             Elem::Bool => core::mem::size_of::<bool>(),
         }
     }
@@ -150,7 +165,12 @@ impl Display for Elem {
                 IntKind::I32 => f.write_str("i32"),
                 IntKind::I64 => f.write_str("i64"),
             },
+            Self::AtomicInt(kind) => match kind {
+                IntKind::I32 => f.write_str("atomic<i32>"),
+                IntKind::I64 => f.write_str("atomic<i64>"),
+            },
             Self::UInt => f.write_str("uint"),
+            Self::AtomicUInt => f.write_str("atomic<uint>"),
             Self::Bool => f.write_str("bool"),
         }
     }

@@ -264,7 +264,9 @@ mod tests {
         match from_item.elem() {
             Elem::Float(_) => cpa!(scope, x = x + 2f32),
             Elem::Int(_) => cpa!(scope, x = x + 2i32),
+            Elem::AtomicInt(_) => cpa!(scope, x = x + 2i32),
             Elem::UInt => cpa!(scope, x = x + 2u32),
+            Elem::AtomicUInt => cpa!(scope, x = x + 2u32),
             Elem::Bool => cpa!(scope, x = x && false),
         }
 
@@ -273,7 +275,9 @@ mod tests {
         match to_item.elem() {
             Elem::Float(_) => cpa!(scope, y = y + 34f32),
             Elem::Int(_) => cpa!(scope, y = y + 34i32),
+            Elem::AtomicInt(_) => cpa!(scope, y = y + 34i32),
             Elem::UInt => cpa!(scope, y = y + 34u32),
+            Elem::AtomicUInt => cpa!(scope, y = y + 34u32),
             Elem::Bool => cpa!(scope, y = y || true),
         }
 

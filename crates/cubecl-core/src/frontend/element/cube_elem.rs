@@ -2,7 +2,7 @@ use crate::frontend::UInt;
 use crate::frontend::{CubeType, ExpandElement};
 use crate::ir::{Elem, Variable};
 
-use super::{ExpandElementTyped, Vectorized};
+use super::{AtomicI32, AtomicI64, AtomicUInt, ExpandElementTyped, Vectorized};
 
 /// Form of CubeType that encapsulates all primitive types:
 /// Numeric, UInt, Bool
@@ -48,5 +48,23 @@ impl From<UInt> for ExpandElement {
         ExpandElement::Plain(crate::ir::Variable::ConstantScalar(
             crate::ir::ConstantScalarValue::UInt(value.val as u64),
         ))
+    }
+}
+
+impl From<AtomicI32> for ExpandElement {
+    fn from(_value: AtomicI32) -> Self {
+        todo!()
+    }
+}
+
+impl From<AtomicI64> for ExpandElement {
+    fn from(_value: AtomicI64) -> Self {
+        todo!()
+    }
+}
+
+impl From<AtomicUInt> for ExpandElement {
+    fn from(_value: AtomicUInt) -> Self {
+        todo!()
     }
 }

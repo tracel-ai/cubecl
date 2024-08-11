@@ -1,7 +1,7 @@
 use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, IntKind};
 use std::fmt::Display;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
     SubgroupSize,
     GlobalInputArray(u16, Item),
@@ -57,7 +57,9 @@ pub enum Variable {
 pub enum Elem {
     F32,
     I32,
+    AtomicI32,
     U32,
+    AtomicU32,
     Bool,
 }
 
@@ -120,6 +122,20 @@ impl Variable {
         IndexedVariable {
             var: self.clone(),
             index,
+        }
+    }
+    pub fn is_atomic(&self) -> bool {
+        match self {
+            Variable::GlobalInputArray(_, item) => item.elem().is_atomic(),
+            Variable::GlobalOutputArray(_, item) => item.elem().is_atomic(),
+            Variable::GlobalScalar(_, elem, _) => elem.is_atomic(),
+            Variable::Local { item, .. } => item.elem().is_atomic(),
+            Variable::Named { item, .. } => item.elem().is_atomic(),
+            Variable::Slice { item, .. } => item.elem().is_atomic(),
+            Variable::LocalScalar { elem, .. } => elem.is_atomic(),
+            Variable::SharedMemory(_, item, _) => item.elem().is_atomic(),
+            Variable::LocalArray(_, item, _, _) => item.elem().is_atomic(),
+            _ => false,
         }
     }
 
@@ -189,8 +205,18 @@ impl Elem {
         match self {
             Self::F32 => core::mem::size_of::<f32>(),
             Self::I32 => core::mem::size_of::<i32>(),
+            Self::AtomicI32 => core::mem::size_of::<i32>(),
             Self::U32 => core::mem::size_of::<u32>(),
+            Self::AtomicU32 => core::mem::size_of::<u32>(),
             Self::Bool => core::mem::size_of::<bool>(),
+        }
+    }
+
+    pub fn is_atomic(&self) -> bool {
+        match self {
+            Self::AtomicI32 => true,
+            Self::AtomicU32 => true,
+            _ => false,
         }
     }
 }
@@ -200,7 +226,9 @@ impl Display for Elem {
         match self {
             Self::F32 => f.write_str("f32"),
             Self::I32 => f.write_str("i32"),
+            Self::AtomicI32 => f.write_str("atomic<i32>"),
             Self::U32 => f.write_str("u32"),
+            Self::AtomicU32 => f.write_str("atomic<u32>"),
             Self::Bool => f.write_str("bool"),
         }
     }

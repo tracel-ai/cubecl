@@ -184,6 +184,15 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
+                Operator::AtomicLoad(_) => {}
+                Operator::AtomicStore(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
+                Operator::AtomicCompareAndSwap(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.cmp, &op.out);
+                    sanitize_constant_scalar_ref_var(&mut op.val, &op.out);
+                }
+                Operator::Bitcast(_) => {}
             },
             Operation::Metadata(op) => match op {
                 Metadata::Stride { dim, .. } => {

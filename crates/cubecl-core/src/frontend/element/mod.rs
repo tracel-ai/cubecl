@@ -1,4 +1,5 @@
 mod array;
+mod atomic;
 mod base;
 mod bool;
 mod cast;
@@ -12,6 +13,7 @@ mod tensor;
 mod uint;
 mod vectorized;
 pub use array::*;
+pub use atomic::*;
 pub use base::*;
 pub use bool::*;
 pub use cast::*;

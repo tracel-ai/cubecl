@@ -1,5 +1,5 @@
 use crate::frontend::{Array, CubeContext, ExpandElement, SharedMemory, Tensor, UInt};
-use crate::frontend::{BF16, F16, F32, F64, I32, I64};
+use crate::frontend::{AtomicI32, AtomicI64, AtomicUInt, BF16, F16, F32, F64, I32, I64};
 use crate::{ir, unexpanded};
 
 macro_rules! impl_op_assign {
@@ -102,7 +102,7 @@ pub mod index_assign {
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index_vec!(I64, I32, F16, BF16, F32, F64, UInt);
+    impl_index_vec!(I64, I32, F16, BF16, F32, F64, UInt, AtomicI32, AtomicI64, AtomicUInt);
 
     impl<'a, E: CubeType, I: Into<UInt>> core::ops::IndexMut<I> for SliceMut<'a, E> {
         fn index_mut(&mut self, _index: I) -> &mut Self::Output {
@@ -189,7 +189,7 @@ pub mod index {
     impl_index!(Tensor);
     impl_index!(SharedMemory);
 
-    impl_index_vec!(I64, I32, F16, BF16, F32, F64, UInt);
+    impl_index_vec!(I64, I32, F16, BF16, F32, F64, UInt, AtomicI32, AtomicI64, AtomicUInt);
 
     impl<'a, E: CubeType, I: Into<UInt>> core::ops::Index<I> for SliceMut<'a, E> {
         type Output = E;
@@ -298,7 +298,10 @@ pub mod add_assign_op {
             F64 | f32;u32,
             I32 | i32;u32,
             I64 | i32;u32,
-            UInt | u32
+            UInt | u32,
+            AtomicI32 | i32;u32,
+            AtomicI64 | i32;u32,
+            AtomicUInt | u32
         }
     );
 }
