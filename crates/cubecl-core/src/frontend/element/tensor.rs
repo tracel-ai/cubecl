@@ -237,7 +237,6 @@ impl<T: CubeType> ExpandElementTyped<T> {
 
     // Expanded version of rank.
     pub fn __expand_rank_method(self, _context: &mut CubeContext) -> ExpandElementTyped<UInt> {
-        panic!("Rank method expanded");
         ExpandElement::Plain(Variable::Rank).into()
     }
 }
