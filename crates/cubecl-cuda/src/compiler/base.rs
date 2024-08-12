@@ -485,10 +485,10 @@ impl CudaCompiler {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op)))
             }
             gpu::Operator::AtomicLoad(op) => {
-                instructions.push(Instruction::Assign(self.compile_unary(op)))
+                instructions.push(Instruction::Deref(self.compile_unary(op)))
             }
             gpu::Operator::AtomicStore(op) => {
-                instructions.push(Instruction::Assign(self.compile_unary(op)))
+                instructions.push(Instruction::DerefAssign(self.compile_unary(op)))
             }
             gpu::Operator::AtomicSwap(op) => {
                 instructions.push(Instruction::AtomicSwap(self.compile_binary(op)))
