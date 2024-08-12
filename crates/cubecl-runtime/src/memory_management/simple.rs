@@ -1,6 +1,6 @@
 use crate::{
     memory_id_type,
-    storage::{ComputeStorage, StorageHandle, StorageUtilization},
+    storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -175,35 +175,31 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for SimpleMemoryManageme
     type Binding = SimpleBinding;
 
     /// Returns the resource from the storage, for the specified handle.
-    fn get(&mut self, binding: Self::Binding) -> Storage::Resource {
-        let storage = match binding {
-            SimpleBinding::Chunk(chunk) => {
-                &self
-                    .chunks
-                    .get(chunk.id())
-                    .expect("Storage found for the given execution buffer handle")
-                    .storage
-            }
-            SimpleBinding::Slice(slice) => {
-                &self
-                    .slices
-                    .get(slice.id())
-                    .expect("Storage found for the given execution buffer handle")
-                    .storage
-            }
-        };
-
-        self.storage.get(storage)
+    fn get(&mut self, binding: Self::Binding) -> StorageHandle {
+        match binding {
+            SimpleBinding::Chunk(chunk) => self
+                .chunks
+                .get(chunk.id())
+                .expect("Storage found for the given execution buffer handle")
+                .storage
+                .clone(),
+            SimpleBinding::Slice(slice) => self
+                .slices
+                .get(slice.id())
+                .expect("Storage found for the given execution buffer handle")
+                .storage
+                .clone(),
+        }
     }
 
     /// Reserves memory of specified size using the reserve algorithm, and return
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, removing unused slices, and chunks if permitted by deallocation strategy.
-    fn reserve<Sync: FnOnce()>(&mut self, size: usize, _sync: Sync) -> Self::Handle {
+    fn reserve(&mut self, size: usize, exclude: &[StorageId]) -> Self::Handle {
         self.cleanup_slices();
 
-        let handle = self.reserve_algorithm(size);
+        let handle = self.reserve_algorithm(size, exclude);
 
         if self.dealloc_strategy.should_dealloc() {
             self.cleanup_chunks();
@@ -212,7 +208,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for SimpleMemoryManageme
         handle
     }
 
-    fn alloc<Sync: FnOnce()>(&mut self, size: usize, _sync: Sync) -> Self::Handle {
+    fn alloc(&mut self, size: usize) -> Self::Handle {
         self.create_chunk(size)
     }
 
@@ -248,9 +244,9 @@ impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {
         }
     }
 
-    fn reserve_algorithm(&mut self, size: usize) -> SimpleHandle {
+    fn reserve_algorithm(&mut self, size: usize, exclude: &[StorageId]) -> SimpleHandle {
         // Looks for a large enough, existing but unused chunk of memory.
-        let chunk = self.find_free_chunk(size);
+        let chunk = self.find_free_chunk(size, exclude);
 
         match chunk {
             Some(chunk) => {
@@ -269,13 +265,17 @@ impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {
 
     /// Finds the smallest of the free and large enough chunks to fit `size`
     /// Returns the chunk's id and size.
-    fn find_free_chunk(&self, size: usize) -> Option<&Chunk> {
+    fn find_free_chunk(&self, size: usize, exclude: &[StorageId]) -> Option<&Chunk> {
         let mut size_diff_current = usize::MAX;
         let mut current = None;
 
         for chunk in self.chunks.values() {
             // If chunk is already used, we do not choose it
             if !chunk.handle.is_free() {
+                continue;
+            }
+
+            if exclude.contains(&chunk.storage.id) {
                 continue;
             }
 
@@ -310,7 +310,7 @@ impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {
         let handle_slice = SliceHandle::new();
 
         let storage = StorageHandle {
-            id: chunk.storage.id.clone(),
+            id: chunk.storage.id,
             utilization: StorageUtilization::Slice { offset: 0, size },
         };
 
@@ -389,7 +389,7 @@ mod tests {
 
     impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {
         fn reserve_no_sync(&mut self, size: usize) -> SimpleHandle {
-            self.reserve(size, || {})
+            self.reserve(size, &[])
         }
     }
 

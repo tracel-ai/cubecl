@@ -2,7 +2,7 @@ use super::memory_pool::{
     MemoryExtensionStrategy, MemoryPool, MemoryPoolBinding, MemoryPoolHandle, RoundingStrategy,
     SmallMemoryPool,
 };
-use crate::storage::ComputeStorage;
+use crate::storage::{ComputeStorage, StorageHandle, StorageId};
 use alloc::vec::Vec;
 
 use super::MemoryManagement;
@@ -92,7 +92,7 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
                 );
 
                 for _ in 0..option.chunk_num_prealloc {
-                    pool.alloc(&mut storage, option.chunk_size, || {});
+                    pool.alloc(&mut storage, option.chunk_size);
                 }
 
                 pool
@@ -125,46 +125,46 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for DynamicMemoryManagem
     type Handle = MemoryPoolHandle;
     type Binding = MemoryPoolBinding;
 
-    fn get(&mut self, binding: Self::Binding) -> Storage::Resource {
-        if let Some(handle) = self.small_memory_pool.get(&mut self.storage, &binding) {
-            return handle;
+    fn get(&mut self, binding: Self::Binding) -> StorageHandle {
+        if let Some(handle) = self.small_memory_pool.get(&binding) {
+            return handle.clone();
         }
 
-        for pool in &mut self.pools {
-            if let Some(handle) = pool.get(&mut self.storage, &binding) {
-                return handle;
+        for pool in &self.pools {
+            if let Some(handle) = pool.get(&binding) {
+                return handle.clone();
             }
         }
 
         panic!("No handle found in memory pools");
     }
 
-    fn reserve<Sync: FnOnce()>(&mut self, size: usize, sync: Sync) -> Self::Handle {
+    fn reserve(&mut self, size: usize, exclude: &[StorageId]) -> Self::Handle {
         if size <= self.min_chunk_alignment_offset {
             return self
                 .small_memory_pool
-                .reserve(&mut self.storage, size, sync);
+                .reserve(&mut self.storage, size, exclude);
         }
 
         for (index, option) in self.options.iter().enumerate() {
             if size <= option.slice_max_size {
                 let pool = &mut self.pools[index];
-                return pool.reserve(&mut self.storage, size, sync);
+                return pool.reserve(&mut self.storage, size, exclude);
             }
         }
 
         panic!("No memory pool big enough to reserve {size} bytes.");
     }
 
-    fn alloc<Sync: FnOnce()>(&mut self, size: usize, sync: Sync) -> Self::Handle {
+    fn alloc(&mut self, size: usize) -> Self::Handle {
         if size <= self.min_chunk_alignment_offset {
-            return self.small_memory_pool.alloc(&mut self.storage, size, sync);
+            return self.small_memory_pool.alloc(&mut self.storage, size);
         }
 
         for (index, option) in self.options.iter().enumerate() {
             if size <= option.slice_max_size {
                 let pool = &mut self.pools[index];
-                return pool.alloc(&mut self.storage, size, sync);
+                return pool.alloc(&mut self.storage, size);
             }
         }
 

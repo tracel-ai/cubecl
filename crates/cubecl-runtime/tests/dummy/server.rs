@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use cubecl_common::{reader::reader_from_concrete, sync_type::SyncType};
+use cubecl_runtime::storage::ComputeStorage;
 use cubecl_runtime::{
-    memory_management::{simple::SimpleMemoryManagement, MemoryHandle, MemoryManagement},
+    memory_management::{simple::SimpleMemoryManagement, MemoryManagement},
     server::{Binding, ComputeServer, Handle},
     storage::{BytesResource, BytesStorage},
     ExecutionMode,
@@ -29,17 +30,19 @@ where
     type FeatureSet = ();
 
     fn read(&mut self, binding: Binding<Self>) -> cubecl_common::reader::Reader {
-        let bytes = self.memory_management.get(binding.memory);
+        let bytes_handle = self.memory_management.get(binding.memory);
+        let bytes = self.memory_management.storage().get(&bytes_handle);
         reader_from_concrete(bytes.read().to_vec())
     }
 
     fn get_resource(&mut self, binding: Binding<Self>) -> BytesResource {
-        self.memory_management.get(binding.memory)
+        let handle = self.memory_management.get(binding.memory);
+        self.memory_management.storage().get(&handle)
     }
 
     fn create(&mut self, data: &[u8]) -> Handle<Self> {
-        let handle = self.memory_management.reserve(data.len(), || {});
-        let resource = self.memory_management.get(handle.clone().binding());
+        let handle = self.empty(data.len());
+        let resource = self.get_resource(handle.clone().binding());
 
         let bytes = resource.write();
 
@@ -47,11 +50,11 @@ where
             bytes[i] = *val;
         }
 
-        Handle::new(handle)
+        handle
     }
 
     fn empty(&mut self, size: usize) -> Handle<Self> {
-        Handle::new(self.memory_management.reserve(size, || {}))
+        Handle::new(self.memory_management.reserve(size, &[]))
     }
 
     unsafe fn execute(
@@ -63,7 +66,7 @@ where
     ) {
         let mut resources = bindings
             .into_iter()
-            .map(|binding| self.memory_management.get(binding.memory))
+            .map(|binding| self.get_resource(binding))
             .collect::<Vec<_>>();
 
         kernel.compute(&mut resources);

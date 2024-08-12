@@ -58,7 +58,4 @@ pub trait ComputeStorage: Send {
 
     /// Deallocates the memory pointed by the given storage id.
     fn dealloc(&mut self, id: StorageId);
-
-    /// Copy
-    fn copy(&mut self, from: &StorageHandle, to: &StorageHandle);
 }

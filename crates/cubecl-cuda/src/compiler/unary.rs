@@ -31,14 +31,14 @@ pub trait Unary {
     ) -> std::fmt::Result {
         let optimized = Variable::optimized_args([*input, *out]);
         let [input, out] = optimized.args;
-        let (is_optimized, index, elem) = match optimized.optimization_factor {
-            Some(factor) => (true, index / factor, out.elem()),
-            None => (false, index, elem),
+        let (index, elem) = match optimized.optimization_factor {
+            Some(factor) => (index / factor, out.elem()),
+            None => (index, elem),
         };
 
         for i in 0..index {
-            let inputi = input.index(i, is_optimized);
-            let outi = out.index(i, is_optimized);
+            let inputi = input.index(i);
+            let outi = out.index(i);
 
             Self::format_scalar(f, inputi, outi, elem)?;
         }
