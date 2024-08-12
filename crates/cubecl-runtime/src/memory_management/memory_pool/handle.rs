@@ -1,8 +1,6 @@
 use crate::memory_id_type;
 use crate::memory_management::{MemoryBinding, MemoryHandle};
 
-// The ChunkId allows to keep track of how many references there are to a specific chunk.
-memory_id_type!(ChunkId, ChunkHandle);
 // The SliceId allows to keep track of how many references there are to a specific slice.
 memory_id_type!(SliceId, SliceHandle, SliceBinding);
 

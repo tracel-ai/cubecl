@@ -7,7 +7,6 @@ pub struct WgpuStorage {
     memory: HashMap<StorageId, Arc<wgpu::Buffer>>,
     deallocations: Vec<StorageId>,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
 }
 
 impl core::fmt::Debug for WgpuStorage {
@@ -68,12 +67,11 @@ pub enum WgpuResourceKind {
 /// Keeps actual wgpu buffer references in a hashmap with ids as key.
 impl WgpuStorage {
     /// Create a new storage on the given [device](wgpu::Device).
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+    pub fn new(device: Arc<wgpu::Device>) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             device,
-            queue,
         }
     }
 
@@ -116,31 +114,12 @@ impl ComputeStorage for WgpuStorage {
             mapped_at_creation: false,
         }));
 
-        self.memory.insert(id.clone(), buffer);
+        self.memory.insert(id, buffer);
 
         StorageHandle::new(id, StorageUtilization::Full(size))
     }
 
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
-    }
-
-    fn copy(&mut self, from: &StorageHandle, to: &StorageHandle) {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        let from = self.get(from);
-        let to = self.get(to);
-
-        encoder.copy_buffer_to_buffer(
-            &from.buffer,
-            from.offset(),
-            &to.buffer,
-            to.offset(),
-            to.size(),
-        );
-
-        self.queue.submit(Some(encoder.finish()));
     }
 }

@@ -117,7 +117,7 @@ fn create_client(
     MutexComputeChannel<WgpuServer<DynamicMemoryManagement<WgpuStorage>>>,
 > {
     let limits = device_wgpu.limits();
-    let storage = WgpuStorage::new(device_wgpu.clone(), queue.clone());
+    let storage = WgpuStorage::new(device_wgpu.clone());
     let memory_management = DynamicMemoryManagement::new(
         storage,
         DynamicMemoryManagementOptions::preset(
