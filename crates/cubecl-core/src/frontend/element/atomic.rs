@@ -12,28 +12,40 @@ use crate::{
     unexpanded,
 };
 
+/// An atomic type. Represents an shared value that can be operated on atomically.
 pub trait Atomic: Sized + CubeType
 where
     ExpandElement: From<<Self::Primitive as CubeType>::ExpandType>,
     ExpandElement: From<<Self as CubeType>::ExpandType>,
 {
+    /// The numeric primitive represented by the atomic wrapper.
     type Primitive: Numeric;
 
+    /// Load the value of the atomic. This operation is only atomic in `wgpu`, CUDA does not support
+    /// atomic loads.
     #[allow(unused_variables)]
     fn load(pointer: &Self) -> Self::Primitive {
         unexpanded!()
     }
 
+    /// Store the value of the atomic. This is only actually atomic in `wgpu`, CUDA does not support
+    /// atomic stores.
     #[allow(unused_variables)]
     fn store(pointer: &Self, value: Self::Primitive) {
         unexpanded!()
     }
 
+    /// Atomically stores the value into the atomic and returns the old value.
     #[allow(unused_variables)]
     fn swap(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
+    /// Compare the value at `pointer` to `cmp` and set it to `value` only if they are the same.
+    /// Returns the old value of the pointer before the store.
+    ///
+    /// ### Tip
+    /// Compare the returned value to `cmp` to determine whether the store was successful.
     #[allow(unused_variables)]
     fn compare_and_swap(
         pointer: &Self,
@@ -43,36 +55,45 @@ where
         unexpanded!()
     }
 
+    /// Atomically add a number to the atomic variable. Returns the old value.
     #[allow(unused_variables)]
     fn add(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
+    /// Atomically subtracts a number from the atomic variable. Returns the old value.
     #[allow(unused_variables)]
     fn sub(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
+    /// Atomically sets the value of the atomic variable to `max(current_value, value)`. Returns
+    /// the old value.
     #[allow(unused_variables)]
     fn max(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
+    /// Atomically sets the value of the atomic variable to `min(current_value, value)`. Returns the
+    /// old value.
     #[allow(unused_variables)]
     fn min(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
+    /// Executes an atomic bitwise and operation on the atomic variable. Returns the old value.
     #[allow(unused_variables)]
     fn and(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
+    /// Executes an atomic bitwise or operation on the atomic variable. Returns the old value.
     #[allow(unused_variables)]
     fn or(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
+    /// Executes an atomic bitwise xor operation on the atomic variable. Returns the old value.
     #[allow(unused_variables)]
     fn xor(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
@@ -254,6 +275,7 @@ where
 
 macro_rules! impl_atomic_int {
     ($type:ident, $inner_type:ident, $primitive:ty) => {
+        /// An unsigned atomic integer. Can only be acted on atomically.
         #[allow(clippy::derived_hash_with_manual_eq)]
         #[derive(Clone, Copy, Hash, PartialEq, Eq)]
         pub struct $type {
@@ -306,6 +328,7 @@ macro_rules! impl_atomic_int {
 impl_atomic_int!(AtomicI32, I32, i32);
 impl_atomic_int!(AtomicI64, I64, i64);
 
+/// An atomic version of `UInt`. Can only be acted on atomically.
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 /// An atomic unsigned int.

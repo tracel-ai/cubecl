@@ -33,7 +33,10 @@ impl<P: CubePrimitive> Cast for P {
     }
 }
 
+/// Enables reinterpet-casting/bitcasting from any floating point value to any integer value and vice
+/// versa
 pub trait BitCast: CubePrimitive {
+    /// Reinterpret the bits of another primitive as this primitive without conversion.
     #[allow(unused_variables)]
     fn bitcast_from<From: CubePrimitive>(value: From) -> Self {
         unexpanded!()
