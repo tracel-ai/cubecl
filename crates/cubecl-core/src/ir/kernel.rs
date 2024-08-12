@@ -91,7 +91,7 @@ impl Elem {
             Elem::UInt => ConstantScalarValue::UInt(val),
             Elem::Bool => ConstantScalarValue::Bool(val > 0),
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
+            Elem::AtomicUInt => ConstantScalarValue::UInt(val),
         })
     }
     /// Create a constant scalar from a boolean.

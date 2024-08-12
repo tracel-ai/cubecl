@@ -326,6 +326,7 @@ struct ExecuteSettings<R: Runtime> {
     cube_count: CubeCount<R::Server>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_settings<
     'a,
     R: Runtime,
