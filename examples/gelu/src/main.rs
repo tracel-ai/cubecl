@@ -12,7 +12,7 @@ fn gelu_scalar<F: Float>(x: F) -> F {
     x * (F::erf(x / F::sqrt(2.0.into())) + 1.0) / 2.0
 }
 
-pub fn launch<R: Runtime>(device: &R::Device) {
+fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
     let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
@@ -33,4 +33,11 @@ pub fn launch<R: Runtime>(device: &R::Device) {
 
     // Should be [-0.1587,  0.0000,  0.8413,  5.0000]
     println!("Executed gelu with runtime {:?} => {output:?}", R::name());
+}
+
+fn main() {
+    #[cfg(feature = "cuda")]
+    launch::<cubecl::cuda::CudaRuntime>(&Default::default());
+    #[cfg(feature = "wgpu")]
+    launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
 }
