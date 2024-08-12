@@ -38,15 +38,15 @@ pub trait Binary {
 
         let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
         let [lhs, rhs, out] = optimized.args;
-        let (is_optimized, index) = match optimized.optimization_factor {
-            Some(factor) => (true, index / factor),
-            None => (false, index),
+        let index = match optimized.optimization_factor {
+            Some(factor) => index / factor,
+            None => index,
         };
 
         for i in 0..index {
-            let lhsi = lhs.index(i, is_optimized);
-            let rhsi = rhs.index(i, is_optimized);
-            let outi = out.index(i, is_optimized);
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+            let outi = out.index(i);
 
             Self::format_scalar(f, lhsi, rhsi, outi, elem)?;
         }
@@ -212,8 +212,8 @@ impl Binary for IndexAssign {
         }
 
         for i in 0..index {
-            let lhsi = lhs.index(i, lhs.item().is_optimized());
-            let rhsi = rhs.index(i, rhs.item().is_optimized());
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
             Self::format_scalar(f, lhsi, rhsi, *out, elem)?;
         }
 
@@ -352,8 +352,8 @@ impl IndexVector {
             }
         };
 
-        let out = out.index(index, false);
-        let lhs = lhs.index(index, false);
+        let out = out.index(index);
+        let lhs = lhs.index(index);
 
         f.write_fmt(format_args!("{out} = {lhs};\n"))
     }
@@ -374,8 +374,8 @@ impl IndexAssignVector {
             }
         };
 
-        let out = out.index(index, false);
-        let rhs = rhs.index(index, false);
+        let out = out.index(index);
+        let rhs = rhs.index(index);
 
         f.write_fmt(format_args!("{out} = {rhs};\n"))
     }
