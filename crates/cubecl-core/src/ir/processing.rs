@@ -184,16 +184,35 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
+                Operator::Bitcast(_) => {}
                 Operator::AtomicLoad(_) => {}
-                Operator::AtomicStore(op) => {
+                Operator::AtomicStore(_) => {}
+                Operator::AtomicSwap(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
                 Operator::AtomicCompareAndSwap(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.cmp, &op.out);
                     sanitize_constant_scalar_ref_var(&mut op.val, &op.out);
                 }
-                Operator::Bitcast(_) => {}
                 Operator::AtomicAdd(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
+                Operator::AtomicSub(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
+                Operator::AtomicMax(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
+                Operator::AtomicMin(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
+                Operator::AtomicAnd(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
+                Operator::AtomicOr(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
+                Operator::AtomicXor(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
             },

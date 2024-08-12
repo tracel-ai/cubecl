@@ -488,13 +488,31 @@ impl CudaCompiler {
                 instructions.push(Instruction::Assign(self.compile_unary(op)))
             }
             gpu::Operator::AtomicStore(op) => {
-                instructions.push(Instruction::Assign(super::UnaryInstruction {
-                    input: self.compile_variable(op.rhs),
-                    out: self.compile_variable(op.lhs),
-                }))
+                instructions.push(Instruction::Assign(self.compile_unary(op)))
+            }
+            gpu::Operator::AtomicSwap(op) => {
+                instructions.push(Instruction::AtomicSwap(self.compile_binary(op)))
             }
             gpu::Operator::AtomicAdd(op) => {
                 instructions.push(Instruction::AtomicAdd(self.compile_binary(op)))
+            }
+            gpu::Operator::AtomicSub(op) => {
+                instructions.push(Instruction::AtomicSub(self.compile_binary(op)))
+            }
+            gpu::Operator::AtomicMax(op) => {
+                instructions.push(Instruction::AtomicMax(self.compile_binary(op)))
+            }
+            gpu::Operator::AtomicMin(op) => {
+                instructions.push(Instruction::AtomicMin(self.compile_binary(op)))
+            }
+            gpu::Operator::AtomicAnd(op) => {
+                instructions.push(Instruction::AtomicAnd(self.compile_binary(op)))
+            }
+            gpu::Operator::AtomicOr(op) => {
+                instructions.push(Instruction::AtomicOr(self.compile_binary(op)))
+            }
+            gpu::Operator::AtomicXor(op) => {
+                instructions.push(Instruction::AtomicXor(self.compile_binary(op)))
             }
             gpu::Operator::AtomicCompareAndSwap(op) => instructions.push(Instruction::AtomicCAS {
                 input: self.compile_variable(op.input),

@@ -69,8 +69,15 @@ pub enum Operator {
     Remainder(BinaryOperator),
     Bitcast(UnaryOperator),
     AtomicLoad(UnaryOperator),
-    AtomicStore(BinaryOperator),
+    AtomicStore(UnaryOperator),
+    AtomicSwap(BinaryOperator),
     AtomicAdd(BinaryOperator),
+    AtomicSub(BinaryOperator),
+    AtomicMax(BinaryOperator),
+    AtomicMin(BinaryOperator),
+    AtomicAnd(BinaryOperator),
+    AtomicOr(BinaryOperator),
+    AtomicXor(BinaryOperator),
     AtomicCompareAndSwap(CompareAndSwapOperator),
 }
 

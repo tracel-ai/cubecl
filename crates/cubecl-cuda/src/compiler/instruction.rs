@@ -117,7 +117,14 @@ pub enum Instruction {
     Wrap(WarpInstruction),
     Wmma(WmmaInstruction),
     Bitcast(UnaryInstruction),
+    AtomicSwap(BinaryInstruction),
     AtomicAdd(BinaryInstruction),
+    AtomicSub(BinaryInstruction),
+    AtomicMax(BinaryInstruction),
+    AtomicMin(BinaryInstruction),
+    AtomicAnd(BinaryInstruction),
+    AtomicOr(BinaryInstruction),
+    AtomicXor(BinaryInstruction),
     AtomicCAS {
         input: Variable,
         cmp: Variable,
@@ -332,8 +339,29 @@ for (uint {i} = {start}; {i} < {end}; {i}++) {{
                 val,
                 out,
             } => f.write_fmt(format_args!("{out} = atomicCAS({input}, {cmp}, {val});\n")),
+            Instruction::AtomicSwap(BinaryInstruction { lhs, rhs, out }) => {
+                f.write_fmt(format_args!("{out} = atomicExch({lhs}, {rhs});\n"))
+            }
             Instruction::AtomicAdd(BinaryInstruction { lhs, rhs, out }) => {
                 f.write_fmt(format_args!("{out} = atomicAdd({lhs}, {rhs});\n"))
+            }
+            Instruction::AtomicSub(BinaryInstruction { lhs, rhs, out }) => {
+                f.write_fmt(format_args!("{out} = atomicSub({lhs}, {rhs});\n"))
+            }
+            Instruction::AtomicMax(BinaryInstruction { lhs, rhs, out }) => {
+                f.write_fmt(format_args!("{out} = atomicMax({lhs}, {rhs});\n"))
+            }
+            Instruction::AtomicMin(BinaryInstruction { lhs, rhs, out }) => {
+                f.write_fmt(format_args!("{out} = atomicMin({lhs}, {rhs});\n"))
+            }
+            Instruction::AtomicAnd(BinaryInstruction { lhs, rhs, out }) => {
+                f.write_fmt(format_args!("{out} = atomicAnd({lhs}, {rhs});\n"))
+            }
+            Instruction::AtomicOr(BinaryInstruction { lhs, rhs, out }) => {
+                f.write_fmt(format_args!("{out} = atomicOr({lhs}, {rhs});\n"))
+            }
+            Instruction::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
+                f.write_fmt(format_args!("{out} = atomicXor({lhs}, {rhs});\n"))
             }
         }
     }

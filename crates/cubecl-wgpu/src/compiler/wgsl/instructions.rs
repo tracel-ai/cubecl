@@ -247,11 +247,10 @@ pub enum Instruction {
         out: Variable,
     },
     AtomicStore {
-        lhs: Variable,
-        rhs: Variable,
+        input: Variable,
         out: Variable,
     },
-    AtomicAdd {
+    AtomicSwap {
         lhs: Variable,
         rhs: Variable,
         out: Variable,
@@ -260,6 +259,41 @@ pub enum Instruction {
         lhs: Variable,
         cmp: Variable,
         value: Variable,
+        out: Variable,
+    },
+    AtomicAdd {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    AtomicSub {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    AtomicMax {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    AtomicMin {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    AtomicAnd {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    AtomicOr {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    AtomicXor {
+        lhs: Variable,
+        rhs: Variable,
         out: Variable,
     },
     Subgroup(Subgroup),
@@ -573,11 +607,32 @@ for (var {i}: u32 = {start}; {i} < {end}; {i}++) {{
             Instruction::AtomicLoad { input, out } => {
                 f.write_fmt(format_args!("{out} = atomicLoad({input});\n"))
             }
-            Instruction::AtomicStore { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicStore({lhs}, {rhs});"))
+            Instruction::AtomicStore { input, out } => {
+                f.write_fmt(format_args!("{out} = atomicStore({input});\n"))
+            }
+            Instruction::AtomicSwap { lhs, rhs, out } => {
+                f.write_fmt(format_args!("{out} = atomicExchange({lhs}, {rhs});"))
             }
             Instruction::AtomicAdd { lhs, rhs, out } => {
                 f.write_fmt(format_args!("{out} = atomicAdd({lhs}, {rhs});"))
+            }
+            Instruction::AtomicSub { lhs, rhs, out } => {
+                f.write_fmt(format_args!("{out} = atomicSub({lhs}, {rhs});"))
+            }
+            Instruction::AtomicMax { lhs, rhs, out } => {
+                f.write_fmt(format_args!("{out} = atomicMax({lhs}, {rhs});"))
+            }
+            Instruction::AtomicMin { lhs, rhs, out } => {
+                f.write_fmt(format_args!("{out} = atomicMin({lhs}, {rhs});"))
+            }
+            Instruction::AtomicAnd { lhs, rhs, out } => {
+                f.write_fmt(format_args!("{out} = atomicAnd({lhs}, {rhs});"))
+            }
+            Instruction::AtomicOr { lhs, rhs, out } => {
+                f.write_fmt(format_args!("{out} = atomicOr({lhs}, {rhs});"))
+            }
+            Instruction::AtomicXor { lhs, rhs, out } => {
+                f.write_fmt(format_args!("{out} = atomicXor({lhs}, {rhs});"))
             }
             Instruction::AtomicCompareExchangeWeak {
                 lhs,

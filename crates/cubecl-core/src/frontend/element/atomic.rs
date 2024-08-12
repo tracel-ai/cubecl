@@ -25,7 +25,12 @@ where
     }
 
     #[allow(unused_variables)]
-    fn store(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
+    fn store(pointer: &Self, value: Self::Primitive) {
+        unexpanded!()
+    }
+
+    #[allow(unused_variables)]
+    fn swap(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
@@ -40,6 +45,36 @@ where
 
     #[allow(unused_variables)]
     fn add(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
+        unexpanded!()
+    }
+
+    #[allow(unused_variables)]
+    fn sub(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
+        unexpanded!()
+    }
+
+    #[allow(unused_variables)]
+    fn max(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
+        unexpanded!()
+    }
+
+    #[allow(unused_variables)]
+    fn min(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
+        unexpanded!()
+    }
+
+    #[allow(unused_variables)]
+    fn and(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
+        unexpanded!()
+    }
+
+    #[allow(unused_variables)]
+    fn or(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
+        unexpanded!()
+    }
+
+    #[allow(unused_variables)]
+    fn xor(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
@@ -60,11 +95,24 @@ where
         context: &mut CubeContext,
         pointer: <Self as CubeType>::ExpandType,
         value: <Self::Primitive as CubeType>::ExpandType,
+    ) {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        context.register(Operator::AtomicStore(UnaryOperator {
+            input: *value,
+            out: *ptr,
+        }));
+    }
+
+    fn __expand_swap(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicStore(BinaryOperator {
+        context.register(Operator::AtomicSwap(BinaryOperator {
             lhs: *ptr,
             rhs: *value,
             out: *new_var,
@@ -100,6 +148,102 @@ where
         let value: ExpandElement = value.into();
         let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicAdd(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_sub(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicSub(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_max(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicMax(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_min(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicMin(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_and(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicAnd(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_or(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicOr(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_xor(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicXor(BinaryOperator {
             lhs: *ptr,
             rhs: *value,
             out: *new_var,

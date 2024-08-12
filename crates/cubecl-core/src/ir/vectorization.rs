@@ -85,10 +85,17 @@ impl Operator {
             Operator::Bitcast(op) => Operator::Bitcast(op.vectorize(vectorization)),
             Operator::AtomicLoad(op) => Operator::AtomicLoad(op.vectorize(vectorization)),
             Operator::AtomicStore(op) => Operator::AtomicStore(op.vectorize(vectorization)),
+            Operator::AtomicSwap(op) => Operator::AtomicSwap(op.vectorize(vectorization)),
             Operator::AtomicCompareAndSwap(op) => {
                 Operator::AtomicCompareAndSwap(op.vectorize(vectorization))
             }
             Operator::AtomicAdd(op) => Operator::AtomicAdd(op.vectorize(vectorization)),
+            Operator::AtomicSub(op) => Operator::AtomicSub(op.vectorize(vectorization)),
+            Operator::AtomicMax(op) => Operator::AtomicMax(op.vectorize(vectorization)),
+            Operator::AtomicMin(op) => Operator::AtomicMin(op.vectorize(vectorization)),
+            Operator::AtomicAnd(op) => Operator::AtomicAnd(op.vectorize(vectorization)),
+            Operator::AtomicOr(op) => Operator::AtomicOr(op.vectorize(vectorization)),
+            Operator::AtomicXor(op) => Operator::AtomicXor(op.vectorize(vectorization)),
         }
     }
 }
