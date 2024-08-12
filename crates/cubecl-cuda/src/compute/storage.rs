@@ -8,7 +8,6 @@ pub struct CudaStorage {
     deallocations: Vec<StorageId>,
     stream: cudarc::driver::sys::CUstream,
     activate_slices: HashMap<ActiveResource, cudarc::driver::sys::CUdeviceptr>,
-    activate_slices_count: HashMap<ActiveResource, usize>,
 }
 
 #[derive(new, Debug, Hash, PartialEq, Eq, Clone)]
@@ -34,7 +33,6 @@ impl CudaStorage {
             deallocations: Vec::new(),
             stream,
             activate_slices: HashMap::new(),
-            activate_slices_count: HashMap::new(),
         }
     }
 
@@ -49,17 +47,8 @@ impl CudaStorage {
         }
     }
 
-    pub fn flush(&mut self, resources: Vec<CudaResource>) {
-        for resource in resources {
-            let key = ActiveResource::new(resource.ptr, resource.kind);
-            if let Some(count) = self.activate_slices_count.remove(&key) {
-                if count == 1 {
-                    self.activate_slices.remove(&key);
-                } else {
-                    self.activate_slices_count.insert(key, count - 1);
-                }
-            }
-        }
+    pub fn flush(&mut self) {
+        self.activate_slices.clear();
     }
 }
 
@@ -129,12 +118,7 @@ impl ComputeStorage for CudaStorage {
                 let kind = CudaResourceKind::Slice { size, offset };
                 let key = ActiveResource::new(ptr, kind.clone());
 
-                if let Some(count) = self.activate_slices_count.get_mut(&key) {
-                    *count += 1;
-                } else {
-                    self.activate_slices.insert(key.clone(), ptr);
-                    self.activate_slices_count.insert(key.clone(), 1);
-                }
+                self.activate_slices.insert(key.clone(), ptr);
 
                 // The ptr needs to stay alive until we send the task to the server.
                 let ptr = self.activate_slices.get(&key).unwrap();
