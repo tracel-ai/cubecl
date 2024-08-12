@@ -74,11 +74,9 @@ where
     /// Execute a dynamic kernel.
     #[allow(unused)]
     pub fn execute(self, launch: CubeCountSettings<R::Server>) {
-        execute_dynamic::<R, K, f32, f32, f32, f32, f32>(
+        execute_dynamic::<R, K, f32, f32, f32>(
             self.inputs,
             self.outputs,
-            None,
-            None,
             None,
             None,
             None,
@@ -111,12 +109,10 @@ where
     /// Execute a dynamic kernel.
     #[allow(unused)]
     pub fn execute(self, launch: CubeCountSettings<R::Server>) {
-        execute_dynamic::<R, K, E, f32, f32, f32, f32>(
+        execute_dynamic::<R, K, E, f32, f32>(
             self.inputs,
             self.outputs,
             Some(self.scalars.0),
-            None,
-            None,
             None,
             None,
             self.kernel,
@@ -153,13 +149,11 @@ where
         K: Kernel + 'static,
         R: Runtime,
     {
-        execute_dynamic::<R, K, E1, E2, f32, f32, f32>(
+        execute_dynamic::<R, K, E1, E2, f32>(
             self.inputs,
             self.outputs,
             Some(self.scalars.0),
             Some(self.scalars.1),
-            None,
-            None,
             None,
             self.kernel,
             launch,
@@ -176,106 +170,15 @@ where
     E2: CubeElement,
     E3: CubeElement,
 {
-    #[allow(unused, clippy::type_complexity)]
-    pub fn with_scalars<'d, E4>(
-        self,
-        scalars: &'d [E4],
-    ) -> Execution<'h, K, R, (&'a [E1], &'b [E2], &'c [E3], &'d [E4])> {
-        Execution {
-            scalars: (self.scalars.0, self.scalars.1, self.scalars.2, scalars),
-            client: self.client,
-            kernel: self.kernel,
-            inputs: self.inputs,
-            outputs: self.outputs,
-        }
-    }
     /// Execute a dynamic kernel.
     #[allow(unused)]
     pub fn execute(self, launch: CubeCountSettings<R::Server>) {
-        execute_dynamic::<R, K, E1, E2, E3, f32, f32>(
+        execute_dynamic::<R, K, E1, E2, E3>(
             self.inputs,
             self.outputs,
             Some(self.scalars.0),
             Some(self.scalars.1),
             Some(self.scalars.2),
-            None,
-            None,
-            self.kernel,
-            launch,
-            self.client,
-        )
-    }
-}
-
-impl<'h, 'a, 'b, 'c, 'd, K, R, E1, E2, E3, E4>
-    Execution<'h, K, R, (&'a [E1], &'b [E2], &'c [E3], &'d [E4])>
-where
-    K: Kernel + 'static,
-    R: Runtime,
-    E1: CubeElement,
-    E2: CubeElement,
-    E3: CubeElement,
-    E4: CubeElement,
-{
-    #[allow(unused, clippy::type_complexity)]
-    pub fn with_scalars<'e, E5>(
-        self,
-        scalars: &'e [E5],
-    ) -> Execution<'h, K, R, (&'a [E1], &'b [E2], &'c [E3], &'d [E4], &'e [E5])> {
-        Execution {
-            scalars: (
-                self.scalars.0,
-                self.scalars.1,
-                self.scalars.2,
-                self.scalars.3,
-                scalars,
-            ),
-            client: self.client,
-            kernel: self.kernel,
-            inputs: self.inputs,
-            outputs: self.outputs,
-        }
-    }
-    /// Execute a dynamic kernel.
-    #[allow(unused)]
-    pub fn execute(self, launch: CubeCountSettings<R::Server>) {
-        execute_dynamic::<R, K, E1, E2, E3, E4, f32>(
-            self.inputs,
-            self.outputs,
-            Some(self.scalars.0),
-            Some(self.scalars.1),
-            Some(self.scalars.2),
-            Some(self.scalars.3),
-            None,
-            self.kernel,
-            launch,
-            self.client,
-        )
-    }
-}
-
-impl<'h, 'a, 'b, 'c, 'd, 'e, K, R, E1, E2, E3, E4, E5>
-    Execution<'h, K, R, (&'a [E1], &'b [E2], &'c [E3], &'d [E4], &'e [E5])>
-where
-    K: Kernel + 'static,
-    R: Runtime,
-    E1: CubeElement,
-    E2: CubeElement,
-    E3: CubeElement,
-    E4: CubeElement,
-    E5: CubeElement,
-{
-    /// Execute a dynamic kernel.
-    #[allow(unused)]
-    pub fn execute(self, launch: CubeCountSettings<R::Server>) {
-        execute_dynamic::<R, K, E1, E2, E3, E4, E5>(
-            self.inputs,
-            self.outputs,
-            Some(self.scalars.0),
-            Some(self.scalars.1),
-            Some(self.scalars.2),
-            Some(self.scalars.3),
-            Some(self.scalars.4),
             self.kernel,
             launch,
             self.client,
@@ -284,14 +187,12 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn execute_dynamic<R, K, E1, E2, E3, E4, E5>(
+fn execute_dynamic<R, K, E1, E2, E3>(
     inputs: &[TensorHandleRef<R>],
     outputs: &[TensorHandleRef<R>],
     scalars_1: Option<&[E1]>,
     scalars_2: Option<&[E2]>,
     scalars_3: Option<&[E3]>,
-    scalars_4: Option<&[E4]>,
-    scalars_5: Option<&[E5]>,
     kernel: K,
     launch: CubeCountSettings<R::Server>,
     client: ComputeClient<R::Server, R::Channel>,
@@ -301,11 +202,9 @@ fn execute_dynamic<R, K, E1, E2, E3, E4, E5>(
     E1: CubeElement,
     E2: CubeElement,
     E3: CubeElement,
-    E4: CubeElement,
-    E5: CubeElement,
 {
     let settings = execute_settings(
-        inputs, outputs, scalars_1, scalars_2, scalars_3, scalars_4, scalars_5, launch, &client,
+        inputs, outputs, scalars_1, scalars_2, scalars_3, launch, &client,
     );
 
     let mut handles = settings.handles_tensors;
@@ -327,22 +226,12 @@ struct ExecuteSettings<R: Runtime> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn execute_settings<
-    'a,
-    R: Runtime,
-    E1: CubeElement,
-    E2: CubeElement,
-    E3: CubeElement,
-    E4: CubeElement,
-    E5: CubeElement,
->(
+fn execute_settings<'a, R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeElement>(
     inputs: &'a [TensorHandleRef<R>],
     outputs: &'a [TensorHandleRef<R>],
     scalars_1: Option<&[E1]>,
     scalars_2: Option<&[E2]>,
     scalars_3: Option<&[E3]>,
-    scalars_4: Option<&[E4]>,
-    scalars_5: Option<&[E5]>,
     launch: CubeCountSettings<R::Server>,
     client: &ComputeClient<R::Server, R::Channel>,
 ) -> ExecuteSettings<R> {
@@ -403,9 +292,8 @@ fn execute_settings<
     let info = client.create(bytemuck::cast_slice(&info));
 
     // Finally we finish with the named bindings.
-    let handles_scalars = create_scalar_handles::<R, E1, E2, E3, E4, E5>(
-        scalars_1, scalars_2, scalars_3, scalars_4, scalars_5, client,
-    );
+    let handles_scalars =
+        create_scalar_handles::<R, E1, E2, E3>(scalars_1, scalars_2, scalars_3, client);
 
     let cube_count = match launch {
         CubeCountSettings::Custom(count) => count,
@@ -420,36 +308,25 @@ fn execute_settings<
     }
 }
 
-fn create_scalar_handles<
-    R: Runtime,
-    E1: CubeElement,
-    E2: CubeElement,
-    E3: CubeElement,
-    E4: CubeElement,
-    E5: CubeElement,
->(
+fn create_scalar_handles<R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeElement>(
     scalars_0: Option<&[E1]>,
     scalars_1: Option<&[E2]>,
     scalars_2: Option<&[E3]>,
-    scalars_3: Option<&[E4]>,
-    scalars_4: Option<&[E5]>,
     client: &ComputeClient<R::Server, R::Channel>,
 ) -> Vec<Handle<R::Server>> {
     // It is crucial that scalars follow this order: float, int, uint
     let element_priority = |elem: Elem| match elem {
         Elem::Float(_) => 0,
         Elem::Int(_) => 1,
+        Elem::AtomicInt(_) => 1,
         Elem::UInt => 2,
-        Elem::AtomicInt(_) => 3,
-        Elem::AtomicUInt => 4,
+        Elem::AtomicUInt => 2,
         Elem::Bool => panic!("Bool scalars are not supported"),
     };
-    let scalar_priorities: [usize; 5] = [
+    let scalar_priorities: [usize; 3] = [
         element_priority(E1::cube_elem()),
         element_priority(E2::cube_elem()),
         element_priority(E3::cube_elem()),
-        element_priority(E4::cube_elem()),
-        element_priority(E5::cube_elem()),
     ];
 
     let mut handles_scalars = Vec::new();
@@ -466,14 +343,6 @@ fn create_scalar_handles<
                     }
                 } else if j == 2 {
                     if let Some(values) = &scalars_2 {
-                        handles_scalars.push(client.create(bytemuck::cast_slice(values)));
-                    }
-                } else if j == 3 {
-                    if let Some(values) = &scalars_3 {
-                        handles_scalars.push(client.create(bytemuck::cast_slice(values)));
-                    }
-                } else if j == 4 {
-                    if let Some(values) = &scalars_4 {
                         handles_scalars.push(client.create(bytemuck::cast_slice(values)));
                     }
                 }
