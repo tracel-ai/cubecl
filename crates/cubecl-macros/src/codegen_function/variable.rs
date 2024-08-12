@@ -42,6 +42,7 @@ pub(crate) fn codegen_array_lit(array: &syn::ExprArray) -> TokenStream {
 /// let x = ...
 /// let x: T = ...
 /// let _ = ...
+/// let (a, b) = ...
 /// let mut _ = ...
 pub(crate) fn codegen_local(
     local: &syn::Local,
@@ -57,6 +58,12 @@ pub(crate) fn codegen_local(
             _ => todo!("Codegen: Unsupported typed path {:?}", pat_type.pat),
         },
         syn::Pat::Wild(wild) => wild.underscore_token.to_token_stream(),
+        syn::Pat::Tuple(_) => {
+            // destructuring pattern; we can just return it as is
+            return quote::quote! {
+                #local
+            };
+        }
         _ => todo!("Codegen: Declaration {:?} is unsupported.", local.pat),
     };
 

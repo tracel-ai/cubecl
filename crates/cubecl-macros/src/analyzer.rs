@@ -75,22 +75,23 @@ impl VariableAnalyzer {
             match stmt {
                 // Declaration
                 syn::Stmt::Local(local) => {
-                    let mut is_comptime = false;
-                    let id = match &local.pat {
-                        syn::Pat::Ident(pat_ident) => Some(&pat_ident.ident),
-                        syn::Pat::Type(pat_type) => {
-                            is_comptime = is_ty_comptime(&pat_type.ty);
-                            match &*pat_type.pat {
-                                syn::Pat::Ident(pat_ident) => Some(&pat_ident.ident),
-                                _ => todo!("Analysis: unsupported typed path {:?}", pat_type.pat),
+                    match &local.pat {
+                        syn::Pat::Tuple(pat_tuple) => {
+                            for pat in pat_tuple.elems.iter() {
+                                let (id, is_comptime) = find_local_declaration_ident(pat);
+                                if let Some(id) = id {
+                                    self.variable_tracker
+                                        .analyze_declare(id.to_string(), depth, is_comptime);
+                                }
                             }
                         }
-                        syn::Pat::Wild(_) => None,
-                        _ => todo!("Analysis: unsupported path {:?}", local.pat),
-                    };
-                    if let Some(id) = id {
-                        self.variable_tracker
-                            .analyze_declare(id.to_string(), depth, is_comptime);
+                        _ => {
+                            let (id, is_comptime) = find_local_declaration_ident(&local.pat);
+                            if let Some(id) = id {
+                                self.variable_tracker
+                                    .analyze_declare(id.to_string(), depth, is_comptime);
+                            }
+                        }
                     }
                     if let Some(local_init) = &local.init {
                         self.find_occurrences_in_expr(&local_init.expr, depth)
@@ -266,6 +267,23 @@ impl VariableAnalyzer {
             }
         }
     }
+}
+
+fn find_local_declaration_ident(pat: &syn::Pat) -> (Option<&syn::Ident>, bool) {
+    let mut is_comptime = false;
+    let id = match &pat {
+        syn::Pat::Ident(pat_ident) => Some(&pat_ident.ident),
+        syn::Pat::Type(pat_type) => {
+            is_comptime = is_ty_comptime(&pat_type.ty);
+            match &*pat_type.pat {
+                syn::Pat::Ident(pat_ident) => Some(&pat_ident.ident),
+                _ => todo!("Analysis: unsupported typed path {:?}", pat_type.pat),
+            }
+        }
+        syn::Pat::Wild(_) => None,
+        _ => todo!("Analysis: unsupported path {:?}", pat),
+    };
+    (id, is_comptime)
 }
 
 fn is_ty_comptime(ty: &syn::Type) -> bool {
