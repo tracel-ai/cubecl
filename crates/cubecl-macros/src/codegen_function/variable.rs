@@ -167,6 +167,18 @@ pub(crate) fn codegen_assign(
                 }
             }
         }
+        syn::Expr::Unary(_) => {
+            let lhs = codegen_expr(&assign.left, loop_level, variable_tracker);
+            let rhs = codegen_expr(&assign.right, loop_level, variable_tracker);
+
+            quote::quote! {
+                {
+                    let _assign_lhs = #lhs;
+                    let _assign_rhs = #rhs;
+                    cubecl::frontend::assign::expand(context, _assign_rhs, _assign_lhs)
+                }
+            }
+        }
         _ => todo!("Assign of expr {:?} unsupported", assign.left),
     }
 }

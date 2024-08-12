@@ -28,6 +28,12 @@ pub fn assign_vectorized(y: UInt) -> UInt {
     x + y
 }
 
+#[cube]
+pub fn assign_deref(y: &mut UInt) -> UInt {
+    *y = UInt::new(1);
+    *y
+}
+
 mod tests {
     use super::*;
     use cubecl_core::{
@@ -79,6 +85,18 @@ mod tests {
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_ref_assign_vectorized());
+    }
+
+    #[test]
+    fn cube_assign_deref_test() {
+        let mut context = CubeContext::root();
+
+        let y = context.create_local(Item::new(UInt::as_elem()));
+        assign_deref::__expand(&mut context, y.into());
+
+        let scope = context.into_scope();
+
+        assert_eq!(scope.operations, inline_macro_ref_assign_deref());
     }
 
     fn inline_macro_ref_mut_assign() -> Vec<Operation> {
@@ -153,6 +171,18 @@ mod tests {
         cpa!(scope, x[two] = one);
         cpa!(scope, x[three] = one);
         cpa!(scope, x = x + y);
+
+        scope.operations
+    }
+
+    fn inline_macro_ref_assign_deref() -> Vec<Operation> {
+        let context = CubeContext::root();
+        let mut scope = context.into_scope();
+        let y = scope.create_local(Item::new(Elem::UInt));
+
+        let one: Variable = 1u32.into();
+
+        cpa!(scope, y = one);
 
         scope.operations
     }
