@@ -190,6 +190,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         unsafe {
             cudarc::driver::result::stream::synchronize(self.stream).unwrap();
         };
+        self.memory_management.storage().flush();
     }
 
     fn compile_kernel(
@@ -279,8 +280,6 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             )
             .unwrap();
         };
-
-        self.memory_management.storage().flush(resources)
     }
 }
 

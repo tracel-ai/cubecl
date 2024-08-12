@@ -47,7 +47,7 @@ impl Runtime for CudaRuntime {
             )
             .unwrap();
             let storage = CudaStorage::new(stream);
-            let options = DynamicMemoryManagementOptions::preset(2048 * 1024 * 1024, 32);
+            let options = DynamicMemoryManagementOptions::preset(2048 + 512 * 1024 * 1024, 32);
             let memory_management = DynamicMemoryManagement::new(storage, options);
             CudaContext::new(memory_management, stream, ctx)
         }
