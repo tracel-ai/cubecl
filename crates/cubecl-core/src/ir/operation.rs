@@ -70,6 +70,7 @@ pub enum Operator {
     Bitcast(UnaryOperator),
     AtomicLoad(UnaryOperator),
     AtomicStore(BinaryOperator),
+    AtomicAdd(BinaryOperator),
     AtomicCompareAndSwap(CompareAndSwapOperator),
 }
 

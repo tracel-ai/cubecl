@@ -251,6 +251,11 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
+    AtomicAdd {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
     AtomicCompareExchangeWeak {
         lhs: Variable,
         cmp: Variable,
@@ -268,9 +273,9 @@ impl Display for Instruction {
                 f.write_fmt(format_args!("var {var}: {item};\n"))
             }
             Instruction::Add { lhs, rhs, out } => {
-                if lhs.is_atomic() {
+                if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular addition on atomic");
-                    f.write_fmt(format_args!("atomicAdd(&{out}, {rhs});\n"))
+                    f.write_fmt(format_args!("atomicAdd({out}, {rhs});\n"))
                 } else {
                     f.write_fmt(format_args!("{out} = {lhs} + {rhs};\n"))
                 }
@@ -289,33 +294,33 @@ impl Display for Instruction {
                 f.write_fmt(format_args!("{out} = fma({a}, {b}, {c});\n"))
             }
             Instruction::Min { lhs, rhs, out } => {
-                if lhs.is_atomic() {
+                if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular min on atomic");
-                    f.write_fmt(format_args!("atomicMin(&{out}, {rhs});\n"))
+                    f.write_fmt(format_args!("atomicMin({out}, {rhs});\n"))
                 } else {
                     f.write_fmt(format_args!("{out} = min({lhs}, {rhs});\n"))
                 }
             }
             Instruction::Max { lhs, rhs, out } => {
-                if lhs.is_atomic() {
+                if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular max on atomic");
-                    f.write_fmt(format_args!("atomicMax(&{out}, {rhs});\n"))
+                    f.write_fmt(format_args!("atomicMax({out}, {rhs});\n"))
                 } else {
                     f.write_fmt(format_args!("{out} = max({lhs}, {rhs});\n"))
                 }
             }
             Instruction::And { lhs, rhs, out } => {
-                if lhs.is_atomic() {
+                if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular and on atomic");
-                    f.write_fmt(format_args!("atomicAnd(&{out}, {rhs});\n"))
+                    f.write_fmt(format_args!("atomicAnd({out}, {rhs});\n"))
                 } else {
                     f.write_fmt(format_args!("{out} = {lhs} && {rhs};\n"))
                 }
             }
             Instruction::Or { lhs, rhs, out } => {
-                if lhs.is_atomic() {
+                if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular or on atomic");
-                    f.write_fmt(format_args!("atomicOr(&{out}, {rhs});\n"))
+                    f.write_fmt(format_args!("atomicOr({out}, {rhs});\n"))
                 } else {
                     f.write_fmt(format_args!("{out} = {lhs} || {rhs};\n"))
                 }
@@ -344,9 +349,9 @@ impl Display for Instruction {
                 "{out} = {lhs} - {rhs} * floor({lhs} / {rhs});\n"
             )),
             Instruction::Sub { lhs, rhs, out } => {
-                if lhs.is_atomic() {
+                if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular sub on atomic");
-                    f.write_fmt(format_args!("atomicSub(&{out}, {rhs});\n"))
+                    f.write_fmt(format_args!("atomicSub({out}, {rhs});\n"))
                 } else {
                     f.write_fmt(format_args!("{out} = {lhs} - {rhs};\n"))
                 }
@@ -458,7 +463,13 @@ impl Display for Instruction {
 "
                     ))
                 }
-                Item::Scalar(elem) => f.write_fmt(format_args!("{out} = {elem}({input});\n")),
+                Item::Scalar(elem) => {
+                    if elem.is_atomic() {
+                        f.write_fmt(format_args!("let {out} = &{input};\n"))
+                    } else {
+                        f.write_fmt(format_args!("{out} = {elem}({input});\n"))
+                    }
+                }
             },
             Instruction::Stride { dim, position, out } => f.write_fmt(format_args!(
                 "{out} = info[({position}u * rank_2) + {dim} + 1u];\n"
@@ -557,13 +568,16 @@ for (var {i}: u32 = {start}; {i} < {end}; {i}++) {{
             }
             Instruction::Subgroup(op) => f.write_fmt(format_args!("{op}")),
             Instruction::Bitcast { input, out } => {
-                f.write_fmt(format_args!("{out} = bitcast<{}>({input})", input.elem()))
+                f.write_fmt(format_args!("{out} = bitcast<{}>({input});\n", out.elem()))
             }
             Instruction::AtomicLoad { input, out } => {
-                f.write_fmt(format_args!("{out} = atomicLoad(&{input});\n"))
+                f.write_fmt(format_args!("{out} = atomicLoad({input});\n"))
             }
             Instruction::AtomicStore { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicStore(&{lhs}, {rhs});"))
+                f.write_fmt(format_args!("{out} = atomicStore({lhs}, {rhs});"))
+            }
+            Instruction::AtomicAdd { lhs, rhs, out } => {
+                f.write_fmt(format_args!("{out} = atomicAdd({lhs}, {rhs});"))
             }
             Instruction::AtomicCompareExchangeWeak {
                 lhs,
@@ -572,7 +586,7 @@ for (var {i}: u32 = {start}; {i} < {end}; {i}++) {{
                 out,
             } => f.write_fmt(format_args!(
                 // For compatibility with cuda, only return old_value
-                "{out} = atomicCompareExchangeWeak(&{lhs}, {cmp}, {value}).old_value;\n"
+                "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;\n"
             )),
         }
     }
@@ -692,10 +706,22 @@ fn index(
     out: &Variable,
     offset: Option<Variable>,
 ) -> core::fmt::Result {
-    let item = out.item();
-    match offset {
-        Some(offset) => f.write_fmt(format_args!("{out} = {item}({lhs}[{rhs} + {offset}]);\n")),
-        None => f.write_fmt(format_args!("{out} = {item}({lhs}[{rhs}]);\n")),
+    if out.item().elem().is_atomic() {
+        match offset {
+            Some(offset) => f.write_fmt(format_args!("let {out} = &{lhs}[{rhs} + {offset}];\n")),
+            None => f.write_fmt(format_args!("let {out} = &{lhs}[{rhs}];\n")),
+        }
+    } else if lhs.elem() != out.elem() {
+        let item = out.item();
+        match offset {
+            Some(offset) => f.write_fmt(format_args!("{out} = {item}({lhs}[{rhs} + {offset}]);\n")),
+            None => f.write_fmt(format_args!("{out} = {item}({lhs}[{rhs}]);\n")),
+        }
+    } else {
+        match offset {
+            Some(offset) => f.write_fmt(format_args!("{out} = {lhs}[{rhs} + {offset}];\n")),
+            None => f.write_fmt(format_args!("{out} = {lhs}[{rhs}];\n")),
+        }
     }
 }
 
@@ -785,8 +811,7 @@ fn index_assign(
                     }
                     f.write_str(");\n")
                 } else {
-                    let casting_type = item_out;
-                    f.write_fmt(format_args!("{out}[{lhs}] = {casting_type}({rhs});\n"))
+                    f.write_fmt(format_args!("{out}[{lhs}] = {item_out}({rhs});\n"))
                 }
             }
         }

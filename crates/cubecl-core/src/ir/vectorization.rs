@@ -88,6 +88,7 @@ impl Operator {
             Operator::AtomicCompareAndSwap(op) => {
                 Operator::AtomicCompareAndSwap(op.vectorize(vectorization))
             }
+            Operator::AtomicAdd(op) => Operator::AtomicAdd(op.vectorize(vectorization)),
         }
     }
 }

@@ -493,6 +493,9 @@ impl CudaCompiler {
                     out: self.compile_variable(op.lhs),
                 }))
             }
+            gpu::Operator::AtomicAdd(op) => {
+                instructions.push(Instruction::AtomicAdd(self.compile_binary(op)))
+            }
             gpu::Operator::AtomicCompareAndSwap(op) => instructions.push(Instruction::AtomicCAS {
                 input: self.compile_variable(op.input),
                 cmp: self.compile_variable(op.cmp),

@@ -117,6 +117,7 @@ pub enum Instruction {
     Wrap(WarpInstruction),
     Wmma(WmmaInstruction),
     Bitcast(UnaryInstruction),
+    AtomicAdd(BinaryInstruction),
     AtomicCAS {
         input: Variable,
         cmp: Variable,
@@ -331,6 +332,9 @@ for (uint {i} = {start}; {i} < {end}; {i}++) {{
                 val,
                 out,
             } => f.write_fmt(format_args!("{out} = atomicCAS({input}, {cmp}, {val});\n")),
+            Instruction::AtomicAdd(BinaryInstruction { lhs, rhs, out }) => {
+                f.write_fmt(format_args!("{out} = atomicAdd({lhs}, {rhs});\n"))
+            }
         }
     }
 }

@@ -38,6 +38,11 @@ where
         unexpanded!()
     }
 
+    #[allow(unused_variables)]
+    fn add(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
+        unexpanded!()
+    }
+
     fn __expand_load(
         context: &mut CubeContext,
         pointer: <Self as CubeType>::ExpandType,
@@ -85,12 +90,28 @@ where
         }));
         new_var.into()
     }
+
+    fn __expand_add(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicAdd(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
 }
 
 macro_rules! impl_atomic_int {
     ($type:ident, $inner_type:ident, $primitive:ty) => {
         #[allow(clippy::derived_hash_with_manual_eq)]
-        #[derive(Clone, Copy, Hash)]
+        #[derive(Clone, Copy, Hash, PartialEq, Eq)]
         pub struct $type {
             pub val: $primitive,
             pub vectorization: u8,
@@ -142,7 +163,7 @@ impl_atomic_int!(AtomicI32, I32, i32);
 impl_atomic_int!(AtomicI64, I64, i64);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Copy, Hash)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 /// An atomic unsigned int.
 pub struct AtomicUInt {
     pub val: u32,

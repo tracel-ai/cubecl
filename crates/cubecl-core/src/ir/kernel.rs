@@ -144,6 +144,10 @@ impl Elem {
             Elem::Bool => core::mem::size_of::<bool>(),
         }
     }
+
+    pub fn is_atomic(&self) -> bool {
+        matches!(self, Elem::AtomicInt(_) | Elem::AtomicUInt)
+    }
 }
 
 impl From<Elem> for Item {

@@ -193,6 +193,9 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_var(&mut op.val, &op.out);
                 }
                 Operator::Bitcast(_) => {}
+                Operator::AtomicAdd(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
             },
             Operation::Metadata(op) => match op {
                 Metadata::Stride { dim, .. } => {

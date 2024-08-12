@@ -93,6 +93,11 @@ impl CubeContext {
     /// When a new variable is required, we check if we can reuse an old one
     /// Otherwise we create a new one.
     pub fn create_local(&mut self, item: Item) -> ExpandElement {
+        if item.elem.is_atomic() {
+            let new = self.scope.borrow_mut().create_local_undeclared(item);
+            return ExpandElement::Plain(new);
+        }
+
         // Reuse an old variable if possible
         if let Some(var) = self.pool.reuse(item) {
             return var;

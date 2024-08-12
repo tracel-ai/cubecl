@@ -704,6 +704,11 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),
             },
+            cube::Operator::AtomicAdd(op) => wgsl::Instruction::AtomicAdd {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(op.out),
+            },
         }
     }
 
