@@ -1,4 +1,10 @@
-use alloc::{boxed::Box, sync::Arc, task::Wake, vec::Vec};
+#[cfg(target_has_atomic = "ptr")]
+use alloc::{sync::Arc, task::Wake};
+
+#[cfg(not(target_has_atomic = "ptr"))]
+use portable_atomic_util::{task::Wake, Arc};
+
+use alloc::{boxed::Box, vec::Vec};
 use core::{
     future::Future,
     pin::Pin,
@@ -16,8 +22,15 @@ pub fn reader_from_concrete(val: Vec<u8>) -> Reader {
 struct DummyWaker;
 
 impl Wake for DummyWaker {
+    #[cfg(target_has_atomic = "ptr")]
     fn wake(self: Arc<Self>) {}
+    #[cfg(target_has_atomic = "ptr")]
     fn wake_by_ref(self: &Arc<Self>) {}
+
+    #[cfg(not(target_has_atomic = "ptr"))]
+    fn wake(_this: Arc<Self>) {}
+    #[cfg(not(target_has_atomic = "ptr"))]
+    fn wake_by_ref(_this: &Arc<Self>) {}
 }
 
 /// Read a future synchronously.
