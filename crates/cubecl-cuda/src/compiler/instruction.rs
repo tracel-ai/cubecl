@@ -118,8 +118,8 @@ pub enum Instruction {
     Wrap(WarpInstruction),
     Wmma(WmmaInstruction),
     Bitcast(UnaryInstruction),
-    Deref(UnaryInstruction),
-    DerefAssign(UnaryInstruction),
+    AtomicLoad(UnaryInstruction),
+    AtomicStore(UnaryInstruction),
     AtomicSwap(BinaryInstruction),
     AtomicAdd(BinaryInstruction),
     AtomicSub(BinaryInstruction),
@@ -361,11 +361,11 @@ for (uint {i} = {start}; {i} < {end}; {i}++) {{
             Instruction::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
                 f.write_fmt(format_args!("{out} = atomicXor({lhs}, {rhs});\n"))
             }
-            Instruction::Deref(UnaryInstruction { input, out }) => {
-                f.write_fmt(format_args!("{out} = *{input};\n"))
+            Instruction::AtomicLoad(UnaryInstruction { input, out }) => {
+                f.write_fmt(format_args!("{out} = atomicAdd({input}, 0);\n"))
             }
-            Instruction::DerefAssign(UnaryInstruction { input, out }) => {
-                f.write_fmt(format_args!("*{out} = {input};\n"))
+            Instruction::AtomicStore(UnaryInstruction { input, out }) => {
+                f.write_fmt(format_args!("atomicExch({out}, {input});\n"))
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
         }

@@ -21,15 +21,13 @@ where
     /// The numeric primitive represented by the atomic wrapper.
     type Primitive: Numeric;
 
-    /// Load the value of the atomic. This operation is only atomic in `wgpu`, CUDA does not support
-    /// atomic loads.
+    /// Load the value of the atomic.
     #[allow(unused_variables)]
     fn load(pointer: &Self) -> Self::Primitive {
         unexpanded!()
     }
 
-    /// Store the value of the atomic. This is only actually atomic in `wgpu`, CUDA does not support
-    /// atomic stores.
+    /// Store the value of the atomic.
     #[allow(unused_variables)]
     fn store(pointer: &Self, value: Self::Primitive) {
         unexpanded!()
