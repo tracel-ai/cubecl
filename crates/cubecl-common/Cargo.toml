@@ -26,5 +26,12 @@ serde = { workspace = true }
 rand = { workspace = true }
 pollster = { workspace = true, optional = true }
 
+[target.'cfg(target_has_atomic = "ptr")'.dependencies]
+spin = { workspace = true, features = ["mutex", "spin_mutex"] }
+
+[target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
+portable-atomic-util = { workspace = true }
+spin = { workspace = true, features = ["mutex", "spin_mutex", "portable_atomic"] }
+
 [dev-dependencies]
 dashmap = { workspace = true }

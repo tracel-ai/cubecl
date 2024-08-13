@@ -28,7 +28,6 @@ storage-bytes = []
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.1.1", default-features = false }
 derive-new = { workspace = true }
-spin = { workspace = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
 
@@ -41,6 +40,13 @@ dirs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
 md5 = { workspace = true }
+
+[target.'cfg(target_has_atomic = "ptr")'.dependencies]
+spin = { workspace = true, features = ["mutex", "spin_mutex"] }
+
+[target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
+spin = { workspace = true, features = ["mutex", "spin_mutex", "portable_atomic"] }
+
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 web-time = { workspace = true }
