@@ -1,4 +1,4 @@
-#[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
 mod std_imports {
     pub use std::fs;
     pub use std::fs::File;
@@ -6,10 +6,10 @@ mod std_imports {
     pub use std::path::Path;
     pub use std::path::PathBuf;
 }
-#[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
 use std_imports::*;
 
-#[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
 use serde::{Deserialize, Serialize};
 
 use super::AutotuneKey;
@@ -18,7 +18,7 @@ use super::AutotuneOperationSet;
 use alloc::boxed::Box;
 use hashbrown::HashMap;
 
-#[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
 /// Return the file path for the persistent cache on disk
 /// prefix should be the device id computed at the backend level
 pub fn get_persistent_cache_file_path(prefix: &str) -> PathBuf {
@@ -31,13 +31,13 @@ pub fn get_persistent_cache_file_path(prefix: &str) -> PathBuf {
 /// In-memory cache entry
 #[derive(Debug)]
 pub(crate) struct InMemoryCacheEntry {
-    #[cfg(feature = "autotune-persistent-cache")]
+    #[cfg(autotune_persistent_cache)]
     checksum_checked: bool,
     fastest_index: usize,
 }
 
 /// Persistent cache entry
-#[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct PersistentCacheEntry {
     checksum: String,
@@ -48,11 +48,11 @@ pub(crate) struct PersistentCacheEntry {
 #[derive(Debug)]
 pub(crate) struct TuneCache<K> {
     in_memory_cache: HashMap<K, InMemoryCacheEntry>,
-    #[cfg(feature = "autotune-persistent-cache")]
+    #[cfg(autotune_persistent_cache)]
     persistent_cache: HashMap<K, PersistentCacheEntry>,
-    #[cfg(feature = "autotune-persistent-cache")]
+    #[cfg(autotune_persistent_cache)]
     device_id: String,
-    #[cfg(feature = "autotune-persistent-cache")]
+    #[cfg(autotune_persistent_cache)]
     name: String,
 }
 
@@ -66,11 +66,10 @@ pub enum TuneCacheResult<K> {
 
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
-        #[cfg_attr(not(feature = "autotune-persistent-cache"), allow(unused_variables))] name: &str,
-        #[cfg_attr(not(feature = "autotune-persistent-cache"), allow(unused_variables))]
-        device_id: &str,
+        #[cfg_attr(not(autotune_persistent_cache), allow(unused_variables))] name: &str,
+        #[cfg_attr(not(autotune_persistent_cache), allow(unused_variables))] device_id: &str,
     ) -> Self {
-        #[cfg(feature = "autotune-persistent-cache")]
+        #[cfg(autotune_persistent_cache)]
         {
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
@@ -87,7 +86,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             cache
         }
 
-        #[cfg(not(feature = "autotune-persistent-cache"))]
+        #[cfg(not(autotune_persistent_cache))]
         {
             TuneCache {
                 in_memory_cache: HashMap::new(),
@@ -98,14 +97,14 @@ impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn find_fastest(&self, key: &K) -> Option<usize> {
         let val = self.in_memory_cache.get(key)?;
 
-        #[cfg(feature = "autotune-persistent-cache")]
+        #[cfg(autotune_persistent_cache)]
         if val.checksum_checked {
             Some(val.fastest_index)
         } else {
             None
         }
 
-        #[cfg(not(feature = "autotune-persistent-cache"))]
+        #[cfg(not(autotune_persistent_cache))]
         Some(val.fastest_index)
     }
 
@@ -116,7 +115,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         let key = autotune_operation_set.key();
         let result = self.in_memory_cache.get_mut(&key);
 
-        #[cfg(feature = "autotune-persistent-cache")]
+        #[cfg(autotune_persistent_cache)]
         {
             if let Some(InMemoryCacheEntry {
                 checksum_checked,
@@ -138,7 +137,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             }
         }
 
-        #[cfg(not(feature = "autotune-persistent-cache"))]
+        #[cfg(not(autotune_persistent_cache))]
         {
             if let Some(InMemoryCacheEntry { fastest_index, .. }) = result {
                 return TuneCacheResult::Hit(autotune_operation_set.fastest(*fastest_index));
@@ -152,14 +151,16 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.in_memory_cache.insert(
             key,
             InMemoryCacheEntry {
-                #[cfg(feature = "autotune-persistent-cache")]
+                #[cfg(autotune_persistent_cache)]
                 checksum_checked: true,
                 fastest_index,
             },
         );
     }
+}
 
-    #[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
+impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn persistent_cache_insert(
         &mut self,
         key: K,
@@ -176,7 +177,6 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     /// Load the persistent cache data from disk
-    #[cfg(feature = "autotune-persistent-cache")]
     pub(crate) fn load(&mut self) -> Result<(), io::Error> {
         let file_path = self.get_persistent_cache_file_path();
         // note: reading file from memory is faster than using
@@ -212,7 +212,6 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     /// Save the persistent cache on disk
-    #[cfg(feature = "autotune-persistent-cache")]
     pub(crate) fn save(&self) {
         let file_path = self.get_persistent_cache_file_path();
         if let Some(parent_dir) = file_path.parent() {
@@ -236,7 +235,6 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     /// Return the file path for the persistent cache on disk
-    #[cfg(feature = "autotune-persistent-cache")]
     pub fn get_persistent_cache_file_path(&self) -> PathBuf {
         get_persistent_cache_file_path(&format!("{}/{}", self.name, self.device_id))
     }

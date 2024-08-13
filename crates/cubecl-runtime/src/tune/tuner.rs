@@ -80,7 +80,7 @@ impl<K: AutotuneKey> Tuner<K> {
         log::info!("Fastest result {fastest_name}-{key}");
 
         self.tune_cache.cache_insert(key.clone(), fastest_index);
-        #[cfg(feature = "autotune-persistent-cache")]
+        #[cfg(autotune_persistent_cache)]
         {
             let checksum = autotune_operation_set.compute_checksum();
             self.tune_cache

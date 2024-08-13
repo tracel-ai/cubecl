@@ -3,8 +3,11 @@ mod dummy;
 use std::sync::Arc;
 
 use crate::dummy::autotune_execute;
+use crate::dummy::TEST_TUNER;
 use crate::dummy::{client, DummyDevice, DummyElementwiseAddition};
-use crate::dummy::{TEST_TUNER, TUNER_DEVICE_ID, TUNER_PREFIX};
+
+#[cfg(autotune_persistent_cache)]
+use crate::dummy::{TUNER_DEVICE_ID, TUNER_PREFIX};
 
 use cubecl_runtime::ComputeRuntime;
 
@@ -139,7 +142,7 @@ fn autotune_cache_same_key_return_a_cache_hit() {
 
 #[test]
 #[serial]
-#[cfg(feature = "std")]
+#[cfg(autotune_persistent_cache)]
 fn autotune_cache_no_cache_on_disk_return_a_cache_miss() {
     TEST_TUNER.clear();
 
@@ -184,7 +187,7 @@ fn autotune_cache_no_cache_on_disk_return_a_cache_miss() {
 
 #[test]
 #[serial]
-#[cfg(feature = "std")]
+#[cfg(autotune_persistent_cache)]
 fn autotune_cache_file_path_creation_works_when_path_does_not_exist_yet() {
     TEST_TUNER.clear();
     // delete the cache file

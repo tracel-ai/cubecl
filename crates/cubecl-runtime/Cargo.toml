@@ -17,15 +17,13 @@ default = [
     "channel-mpsc",
     "channel-cell",
     "storage-bytes",
-    "autotune-persistent-cache",
-    "cubecl-common/default"
+    "cubecl-common/default",
 ]
 std = ["cubecl-common/std"]
 channel-mutex = []
 channel-cell = []
 channel-mpsc = ["dep:async-channel", "dep:pollster"] # Assume std
 storage-bytes = []
-autotune-persistent-cache = ["dirs", "md5", "serde", "serde_json"] # Assume std
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.1.1", default-features = false }
@@ -33,12 +31,16 @@ derive-new = { workspace = true }
 spin = { workspace = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
-dirs = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, features = ["std"], optional = true }
-md5 = { workspace = true, optional = true }
+
 pollster = { workspace = true, optional = true }
 async-channel = { workspace = true, optional = true }
+
+# Persistent cache deps - has to match the autotune_persistent_cache cfg.
+[target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
+dirs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
+md5 = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 web-time = { workspace = true }
@@ -46,6 +48,9 @@ web-time = { workspace = true }
 [dev-dependencies]
 serial_test = { workspace = true }
 rand = { workspace = true }
+
+[build-dependencies]
+cfg_aliases = "0.2.1"
 
 [[bench]]
 name = "dynamic"
