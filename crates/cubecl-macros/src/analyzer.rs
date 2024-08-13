@@ -80,16 +80,22 @@ impl VariableAnalyzer {
                             for pat in pat_tuple.elems.iter() {
                                 let (id, is_comptime) = find_local_declaration_ident(pat);
                                 if let Some(id) = id {
-                                    self.variable_tracker
-                                        .analyze_declare(id.to_string(), depth, is_comptime);
+                                    self.variable_tracker.analyze_declare(
+                                        id.to_string(),
+                                        depth,
+                                        is_comptime,
+                                    );
                                 }
                             }
                         }
                         _ => {
                             let (id, is_comptime) = find_local_declaration_ident(&local.pat);
                             if let Some(id) = id {
-                                self.variable_tracker
-                                    .analyze_declare(id.to_string(), depth, is_comptime);
+                                self.variable_tracker.analyze_declare(
+                                    id.to_string(),
+                                    depth,
+                                    is_comptime,
+                                );
                             }
                         }
                     }

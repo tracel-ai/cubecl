@@ -5,7 +5,7 @@ use core::fmt::{Debug, Display};
 use core::hash::Hash;
 
 /// Default checksum for an operation set
-#[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
 pub fn compute_checksum(autotunables: &[Box<dyn AutotuneOperation>]) -> String {
     let mut checksum = String::new();
     autotunables.iter().for_each(|op| {
@@ -28,7 +28,7 @@ pub trait AutotuneOperationSet<K>: Send {
     fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation>;
 
     /// Compute a checksum that can invalidate outdated cached auto-tune results.
-    #[cfg(feature = "autotune-persistent-cache")]
+    #[cfg(autotune_persistent_cache)]
     fn compute_checksum(&self) -> String {
         compute_checksum(&self.autotunables())
     }
@@ -48,7 +48,7 @@ pub trait AutotuneOperation {
     fn clone(&self) -> Box<dyn AutotuneOperation>;
 }
 
-#[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
 /// Trait alias with support for persistent caching
 pub trait AutotuneKey:
     Clone
@@ -63,7 +63,8 @@ pub trait AutotuneKey:
     + Sync
 {
 }
-#[cfg(not(feature = "autotune-persistent-cache"))]
+#[cfg(not(autotune_persistent_cache))]
 /// Trait alias
 pub trait AutotuneKey: Clone + Debug + PartialEq + Eq + Hash + Display {}
+
 impl AutotuneKey for String {}

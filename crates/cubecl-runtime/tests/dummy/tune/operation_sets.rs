@@ -1,8 +1,8 @@
-#[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
 use rand::{distributions::Alphanumeric, Rng};
 use std::sync::Arc;
 
-#[cfg(feature = "autotune-persistent-cache")]
+#[cfg(autotune_persistent_cache)]
 use cubecl_runtime::tune::compute_checksum;
 use cubecl_runtime::{
     server::Binding,
@@ -167,7 +167,7 @@ impl AutotuneOperationSet<String> for CacheTestAutotuneOperationSet {
         self.autotunables()[fastest_index].clone()
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(autotune_persistent_cache)]
     fn compute_checksum(&self) -> String {
         if self.generate_random_checksum {
             let rand_string: String = rand::thread_rng()
