@@ -1,6 +1,6 @@
 use super::{
-    BinaryOperator, ClampOperator, FmaOperator, InitOperator, Item, Operation, Operator,
-    SliceOperator, Subcube, UnaryOperator, Variable,
+    BinaryOperator, ClampOperator, CompareAndSwapOperator, FmaOperator, InitOperator, Item,
+    Operation, Operator, SliceOperator, Subcube, UnaryOperator, Variable,
 };
 
 pub type Vectorization = u8;
@@ -82,6 +82,20 @@ impl Operator {
             Operator::ShiftRight(op) => Operator::ShiftRight(op.vectorize(vectorization)),
             Operator::Remainder(op) => Operator::Remainder(op.vectorize(vectorization)),
             Operator::Slice(op) => Operator::Slice(op.vectorize(vectorization)),
+            Operator::Bitcast(op) => Operator::Bitcast(op.vectorize(vectorization)),
+            Operator::AtomicLoad(op) => Operator::AtomicLoad(op.vectorize(vectorization)),
+            Operator::AtomicStore(op) => Operator::AtomicStore(op.vectorize(vectorization)),
+            Operator::AtomicSwap(op) => Operator::AtomicSwap(op.vectorize(vectorization)),
+            Operator::AtomicCompareAndSwap(op) => {
+                Operator::AtomicCompareAndSwap(op.vectorize(vectorization))
+            }
+            Operator::AtomicAdd(op) => Operator::AtomicAdd(op.vectorize(vectorization)),
+            Operator::AtomicSub(op) => Operator::AtomicSub(op.vectorize(vectorization)),
+            Operator::AtomicMax(op) => Operator::AtomicMax(op.vectorize(vectorization)),
+            Operator::AtomicMin(op) => Operator::AtomicMin(op.vectorize(vectorization)),
+            Operator::AtomicAnd(op) => Operator::AtomicAnd(op.vectorize(vectorization)),
+            Operator::AtomicOr(op) => Operator::AtomicOr(op.vectorize(vectorization)),
+            Operator::AtomicXor(op) => Operator::AtomicXor(op.vectorize(vectorization)),
         }
     }
 }
@@ -116,6 +130,22 @@ impl SliceOperator {
             input,
             start,
             end,
+            out,
+        }
+    }
+}
+
+impl CompareAndSwapOperator {
+    pub(crate) fn vectorize(&self, vectorization: Vectorization) -> Self {
+        let input = self.input.vectorize(vectorization);
+        let cmp = self.cmp.vectorize(vectorization);
+        let val = self.val.vectorize(vectorization);
+        let out = self.out.vectorize(vectorization);
+
+        Self {
+            input,
+            cmp,
+            val,
             out,
         }
     }

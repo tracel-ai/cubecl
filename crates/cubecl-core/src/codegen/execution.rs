@@ -206,6 +206,7 @@ fn execute_dynamic<R, K, E1, E2, E3>(
     let settings = execute_settings(
         inputs, outputs, scalars_1, scalars_2, scalars_3, launch, &client,
     );
+
     let mut handles = settings.handles_tensors;
 
     handles.push(settings.handle_info.binding());
@@ -224,6 +225,7 @@ struct ExecuteSettings<R: Runtime> {
     cube_count: CubeCount<R::Server>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_settings<'a, R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeElement>(
     inputs: &'a [TensorHandleRef<R>],
     outputs: &'a [TensorHandleRef<R>],
@@ -316,7 +318,9 @@ fn create_scalar_handles<R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeE
     let element_priority = |elem: Elem| match elem {
         Elem::Float(_) => 0,
         Elem::Int(_) => 1,
+        Elem::AtomicInt(_) => 1,
         Elem::UInt => 2,
+        Elem::AtomicUInt => 2,
         Elem::Bool => panic!("Bool scalars are not supported"),
     };
     let scalar_priorities: [usize; 3] = [

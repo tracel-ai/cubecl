@@ -1,6 +1,7 @@
 use crate::frontend::operation::base::binary_expand;
 use crate::frontend::{
-    CubeContext, CubePrimitive, ExpandElementTyped, UInt, BF16, F16, F32, F64, I32, I64,
+    AtomicI32, AtomicI64, AtomicUInt, CubeContext, CubePrimitive, ExpandElementTyped, UInt, BF16,
+    F16, F32, F64, I32, I64,
 };
 use crate::ir::Operator;
 use crate::{frontend::CubeType, unexpanded};
@@ -305,7 +306,10 @@ impl_binary_func!(
     F64,
     I32,
     I64,
-    UInt
+    UInt,
+    AtomicI32,
+    AtomicI64,
+    AtomicUInt
 );
 impl_binary_func!(
     Min,
