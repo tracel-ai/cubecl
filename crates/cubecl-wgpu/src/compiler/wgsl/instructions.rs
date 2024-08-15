@@ -522,7 +522,7 @@ impl Display for Instruction {
                 let increment = step
                     .as_ref()
                     .map(|step| format!("{i} += {step}"))
-                    .unwrap_or_else(|| format!("++{i}"));
+                    .unwrap_or_else(|| format!("{i}++"));
 
                 f.write_fmt(format_args!(
                     "
