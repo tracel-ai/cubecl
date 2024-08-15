@@ -6,6 +6,10 @@ use crate::ir::{Branch, Elem, If, IfElse, Item, Loop, RangeLoop, Variable};
 use super::comptime::Comptime;
 use super::ExpandElementTyped;
 
+/// UInt range. Equivalent to:
+/// ```no_run
+/// for i in start..end { ... }
+/// ```
 pub fn range<S, E>(start: S, end: E, _unroll: Comptime<bool>) -> impl Iterator<Item = UInt>
 where
     S: Into<UInt>,
@@ -15,6 +19,30 @@ where
     let end: UInt = end.into();
 
     (start.val..end.val).map(UInt::new)
+}
+
+/// Stepped range. Equivalent to:
+/// ```no_run
+/// for i in (start..end).step_by(step) { ... }
+/// ```
+pub fn range_stepped<S, E, Step>(
+    start: S,
+    end: E,
+    step: Step,
+    _unroll: Comptime<bool>,
+) -> impl Iterator<Item = UInt>
+where
+    S: Into<UInt>,
+    E: Into<UInt>,
+    Step: Into<UInt>,
+{
+    let start: UInt = start.into();
+    let end: UInt = end.into();
+    let step: UInt = step.into();
+
+    (start.val..end.val)
+        .step_by(step.val as usize)
+        .map(UInt::new)
 }
 
 pub fn range_expand<F, S, E>(context: &mut CubeContext, start: S, end: E, unroll: bool, mut func: F)
@@ -54,6 +82,63 @@ where
             i: *i,
             start: *start,
             end: *end,
+            step: None,
+            scope: child.into_scope(),
+        }));
+    }
+}
+
+pub fn range_stepped_expand<F, S, E, Step>(
+    context: &mut CubeContext,
+    start: S,
+    end: E,
+    step: Step,
+    unroll: bool,
+    mut func: F,
+) where
+    F: FnMut(&mut CubeContext, ExpandElementTyped<UInt>),
+    S: Into<ExpandElementTyped<UInt>>,
+    E: Into<ExpandElementTyped<UInt>>,
+    Step: Into<ExpandElementTyped<UInt>>,
+{
+    let start: ExpandElementTyped<UInt> = start.into();
+    let end: ExpandElementTyped<UInt> = end.into();
+    let step: ExpandElementTyped<UInt> = step.into();
+    let start = start.expand;
+    let end = end.expand;
+    let step = step.expand;
+
+    if unroll {
+        let start = match start.deref() {
+            Variable::ConstantScalar(value) => value.as_usize(),
+            _ => panic!("Only constant start can be unrolled."),
+        };
+        let end = match end.deref() {
+            Variable::ConstantScalar(value) => value.as_usize(),
+            _ => panic!("Only constant end can be unrolled."),
+        };
+        let step: usize = match step.deref() {
+            Variable::ConstantScalar(value) => value.as_usize(),
+            _ => panic!("Only constant step can be unrolled."),
+        };
+
+        for i in (start..end).step_by(step) {
+            let var: ExpandElement = i.into();
+            func(context, var.into())
+        }
+    } else {
+        let mut child = context.child();
+        let index_ty = Item::new(Elem::UInt);
+        let i = child.scope.borrow_mut().create_local_undeclared(index_ty);
+        let i = ExpandElement::Plain(i);
+
+        func(&mut child, i.clone().into());
+
+        context.register(Branch::RangeLoop(RangeLoop {
+            i: *i,
+            start: *start,
+            end: *end,
+            step: Some(*step),
             scope: child.into_scope(),
         }));
     }

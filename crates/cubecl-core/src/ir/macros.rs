@@ -361,16 +361,28 @@ macro_rules! cpa {
     };
     // range(start, end).for_each(|i, scope| { ... })
     ($scope:expr, range($start:expr, $end:expr).for_each($arg:expr)) => {
-        $crate::ir::RangeLoop::register($scope, $start.into(), $end.into(), $arg);
+        $crate::ir::RangeLoop::register($scope, $start.into(), $end.into(), None, $arg);
     };
     // range(start, end, unroll).for_each(|i, scope| { ... })
     ($scope:expr, range($start:expr, $end:expr, $unroll:expr).for_each($arg:expr)) => {
         if $unroll {
-            $crate::ir::UnrolledRangeLoop::register($scope, $start.into(), $end.into(), $arg);
+            $crate::ir::UnrolledRangeLoop::register($scope, $start.into(), $end.into(), None, $arg);
         } else {
-            $crate::ir::RangeLoop::register($scope, $start.into(), $end.into(), $arg);
+            $crate::ir::RangeLoop::register($scope, $start.into(), $end.into(), None, $arg);
         }
     };
+        // range_stepped(start, end, step).for_each(|i, scope| { ... })
+        ($scope:expr, range($start:expr, $end:expr, $step:expr).for_each($arg:expr)) => {
+            $crate::ir::RangeLoop::register($scope, $start.into(), $end.into(), Some($step), $arg);
+        };
+        // range_stepped(start, end, step, unroll).for_each(|i, scope| { ... })
+        ($scope:expr, range($start:expr, $end:expr, $step:expr, $unroll:expr).for_each($arg:expr)) => {
+            if $unroll {
+                $crate::ir::UnrolledRangeLoop::register($scope, $start.into(), $end.into(), Some($step), $arg);
+            } else {
+                $crate::ir::RangeLoop::register($scope, $start.into(), $end.into(), Some($step), $arg);
+            }
+        };
     // loop(|scope| { ... })
     ($scope:expr, loop($arg:expr)) => {
         $crate::ir::Loop::register($scope, $arg);

@@ -49,6 +49,7 @@ pub enum Instruction {
         i: Variable,
         start: Variable,
         end: Variable,
+        step: Option<Variable>,
         instructions: Vec<Self>,
     },
     Loop {
@@ -181,11 +182,16 @@ impl Display for Instruction {
                 i,
                 start,
                 end,
+                step,
                 instructions,
             } => {
+                let increment = step
+                    .map(|step| format!("{i} += {step}"))
+                    .unwrap_or_else(|| format!("++{i}"));
+
                 f.write_fmt(format_args!(
                     "
-for (uint {i} = {start}; {i} < {end}; {i}++) {{
+for (uint {i} = {start}; {i} < {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {
