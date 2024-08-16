@@ -3,6 +3,8 @@ use web_time::Duration;
 
 #[cfg(not(target_family = "wasm"))]
 use core::time::Duration;
+use core::{any::Any, mem::ManuallyDrop, panic::AssertUnwindSafe};
+use std::panic::{catch_unwind, resume_unwind};
 
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -15,6 +17,10 @@ use crate::server::ComputeServer;
 use crate::tune::{AutotuneOperation, AutotuneOperationSet, TuneBenchmark, TuneCache};
 
 use super::AutotuneKey;
+
+/// An error that occured during benchmarking. If other benches succeeded, ignore this bench and
+/// continue gracefully. If all benches fail, panic.
+type BenchError = ManuallyDrop<Box<dyn Any + Send>>;
 
 #[derive(Debug)]
 /// Executes autotune benchmarking and caching
@@ -66,13 +72,19 @@ impl<K: AutotuneKey> Tuner<K> {
         let autotunables = autotune_operation_set.autotunables();
         let mut names = Vec::with_capacity(autotunables.len());
 
-        let results: Vec<BenchmarkDurations> = autotunables
+        let results: Vec<Result<BenchmarkDurations, BenchError>> = autotunables
             .into_iter()
             .map(|op| {
                 names.push(op.name().to_string());
                 self.run_benchmark(op, client)
             })
             .collect();
+
+        if results.iter().all(|it| it.is_err()) {
+            let first_error = results.into_iter().next().unwrap().err().unwrap();
+            resume_unwind(ManuallyDrop::into_inner(first_error));
+        }
+        let results = results.into_iter().filter_map(Result::ok).collect();
 
         // Finds the fastest operation, stores it and returns it
         let fastest_index = self.find_fastest(results);
@@ -98,12 +110,15 @@ impl<K: AutotuneKey> Tuner<K> {
         &mut self,
         operation: Box<dyn AutotuneOperation>,
         client: &ComputeClient<S, C>,
-    ) -> BenchmarkDurations
+    ) -> Result<BenchmarkDurations, BenchError>
     where
         S: ComputeServer,
         C: ComputeChannel<S>,
     {
-        TuneBenchmark::new(operation, client.clone()).run()
+        catch_unwind(AssertUnwindSafe(|| {
+            TuneBenchmark::new(operation, client.clone()).run()
+        }))
+        .map_err(ManuallyDrop::new)
     }
 
     fn find_fastest(&self, results: Vec<BenchmarkDurations>) -> usize {
