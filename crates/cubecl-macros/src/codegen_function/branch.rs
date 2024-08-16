@@ -14,7 +14,13 @@ use super::{
 
 /// Codegen of for loops
 /// Supports range:
+/// ```norun
 /// for i in range(start, end, unroll) {...}
+/// ```
+/// and range_stepped:
+/// ```norun
+/// for i in range_stepped(start, end, step, unroll) {...}
+/// ```
 pub(crate) fn codegen_for_loop(
     for_loop: &syn::ExprForLoop,
     loop_level: usize,
@@ -30,7 +36,7 @@ pub(crate) fn codegen_for_loop(
     let invalid_for_loop = || {
         syn::Error::new_spanned(
             &for_loop.expr,
-            "Invalid for loop: use [range](cubecl::prelude::range] instead.",
+            "Invalid for loop: use [range](cubecl::prelude::range] or [range_stepped](cubecl::prelude::range_stepped) instead.",
         )
         .into_compile_error()
     };
