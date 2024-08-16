@@ -135,8 +135,14 @@ impl UnrolledRangeLoop {
         step: Option<u32>,
         func: F,
     ) {
-        for i in (start..end).step_by(step.unwrap_or(1) as usize) {
-            func(i.into(), scope);
+        if let Some(step) = step {
+            for i in (start..end).step_by(step as usize) {
+                func(i.into(), scope);
+            }
+        } else {
+            for i in start..end {
+                func(i.into(), scope);
+            }
         }
     }
 }
