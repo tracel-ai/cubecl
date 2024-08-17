@@ -3,8 +3,9 @@ use web_time::Duration;
 
 #[cfg(not(target_family = "wasm"))]
 use core::time::Duration;
-use core::{any::Any, mem::ManuallyDrop, panic::AssertUnwindSafe};
-use std::panic::{catch_unwind, resume_unwind};
+use core::{any::Any, mem::ManuallyDrop};
+#[cfg(feature = "std")]
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -80,6 +81,7 @@ impl<K: AutotuneKey> Tuner<K> {
             })
             .collect();
 
+        #[cfg(feature = "std")]
         if results.iter().all(|it| it.is_err()) {
             let first_error = results.into_iter().next().unwrap().err().unwrap();
             resume_unwind(ManuallyDrop::into_inner(first_error));
@@ -115,10 +117,15 @@ impl<K: AutotuneKey> Tuner<K> {
         S: ComputeServer,
         C: ComputeChannel<S>,
     {
-        catch_unwind(AssertUnwindSafe(|| {
-            TuneBenchmark::new(operation, client.clone()).run()
-        }))
-        .map_err(ManuallyDrop::new)
+        #[cfg(feature = "std")]
+        {
+            catch_unwind(AssertUnwindSafe(|| {
+                TuneBenchmark::new(operation, client.clone()).run()
+            }))
+            .map_err(ManuallyDrop::new)
+        }
+        #[cfg(not(feature = "std"))]
+        Ok(TuneBenchmark::new(operation, client.clone()).run())
     }
 
     fn find_fastest(&self, results: Vec<BenchmarkDurations>) -> usize {
