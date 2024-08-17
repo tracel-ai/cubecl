@@ -122,7 +122,10 @@ impl<K: AutotuneKey> Tuner<K> {
             catch_unwind(AssertUnwindSafe(|| {
                 TuneBenchmark::new(operation, client.clone()).run()
             }))
-            .map_err(ManuallyDrop::new)
+            .map_err(|e| {
+                println!("Caught error while benchmarking, falling back to next operation.");
+                ManuallyDrop::new(e)
+            })
         }
         #[cfg(not(feature = "std"))]
         Ok(TuneBenchmark::new(operation, client.clone()).run())
