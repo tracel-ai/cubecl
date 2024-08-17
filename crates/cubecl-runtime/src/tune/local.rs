@@ -44,12 +44,13 @@ impl<AK: AutotuneKey, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK
     }
 
     /// Execute the best operation in the provided [autotune operation set](AutotuneOperationSet)
-    pub fn execute<S, C>(
+    pub fn execute<S, C, Out>(
         &self,
         id: &ID,
         client: &ComputeClient<S, C>,
-        autotune_operation_set: Box<dyn AutotuneOperationSet<AK>>,
-    ) where
+        autotune_operation_set: Box<dyn AutotuneOperationSet<AK, Out>>,
+    ) -> Out
+    where
         S: ComputeServer,
         C: ComputeChannel<S>,
     {
@@ -61,8 +62,7 @@ impl<AK: AutotuneKey, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK
                 let key = autotune_operation_set.key();
                 if let Some(index) = tuner.autotune_fastest(&key) {
                     let op = autotune_operation_set.fastest(index);
-                    op.execute();
-                    return;
+                    return op.execute();
                 }
             }
         }
@@ -80,7 +80,7 @@ impl<AK: AutotuneKey, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK
             map.get_mut(id).unwrap()
         };
 
-        tuner.execute_autotune(autotune_operation_set, client);
+        tuner.execute_autotune(autotune_operation_set, client)
     }
 
     /// Return the autotune result given a key.
