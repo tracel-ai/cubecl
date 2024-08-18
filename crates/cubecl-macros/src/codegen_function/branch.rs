@@ -14,7 +14,13 @@ use super::{
 
 /// Codegen of for loops
 /// Supports range:
+/// ```norun
 /// for i in range(start, end, unroll) {...}
+/// ```
+/// and range_stepped:
+/// ```norun
+/// for i in range_stepped(start, end, step, unroll) {...}
+/// ```
 pub(crate) fn codegen_for_loop(
     for_loop: &syn::ExprForLoop,
     loop_level: usize,
@@ -30,7 +36,7 @@ pub(crate) fn codegen_for_loop(
     let invalid_for_loop = || {
         syn::Error::new_spanned(
             &for_loop.expr,
-            "Invalid for loop: use [range](cubecl::prelude::range] instead.",
+            "Invalid for loop: use [range](cubecl::prelude::range] or [range_stepped](cubecl::prelude::range_stepped) instead.",
         )
         .into_compile_error()
     };
@@ -74,6 +80,41 @@ pub(crate) fn codegen_for_loop(
                         let _end = #end;
                         let _unroll = #unroll;
                         cubecl::frontend::branch::range_expand(context, _start, _end, _unroll, |context, #i| #block);
+                    }
+                }
+            } else if &func_name.to_string() == "range_stepped" {
+                let mut args = call.args.clone();
+
+                let unroll = codegen_expr(
+                    &args.pop().unwrap().into_value(),
+                    loop_level,
+                    variable_tracker,
+                );
+                let step = codegen_expr(
+                    &args.pop().unwrap().into_value(),
+                    loop_level,
+                    variable_tracker,
+                );
+                let end = codegen_expr(
+                    &args.pop().unwrap().into_value(),
+                    loop_level,
+                    variable_tracker,
+                );
+                let start = codegen_expr(
+                    &args.pop().unwrap().into_value(),
+                    loop_level,
+                    variable_tracker,
+                );
+
+                let block = codegen_block(&for_loop.body, loop_level + 1, variable_tracker);
+
+                quote::quote! {
+                    {
+                        let _start = #start;
+                        let _end = #end;
+                        let _step = #step;
+                        let _unroll = #unroll;
+                        cubecl::frontend::branch::range_stepped_expand(context, _start, _end, _step, _unroll, |context, #i| #block);
                     }
                 }
             } else {

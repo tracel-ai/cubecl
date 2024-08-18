@@ -180,6 +180,7 @@ pub enum Instruction {
         i: Variable,
         start: Variable,
         end: Variable,
+        step: Option<Variable>,
         instructions: Vec<Instruction>,
     },
     And {
@@ -515,11 +516,17 @@ impl Display for Instruction {
                 i,
                 start,
                 end,
+                step,
                 instructions,
             } => {
+                let increment = step
+                    .as_ref()
+                    .map(|step| format!("{i} += {step}"))
+                    .unwrap_or_else(|| format!("{i}++"));
+
                 f.write_fmt(format_args!(
                     "
-for (var {i}: u32 = {start}; {i} < {end}; {i}++) {{
+for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {

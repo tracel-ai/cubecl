@@ -39,6 +39,7 @@ pub struct RangeLoop {
     pub i: Variable,
     pub start: Variable,
     pub end: Variable,
+    pub step: Option<Variable>,
     pub scope: Scope,
 }
 
@@ -91,6 +92,7 @@ impl RangeLoop {
         parent_scope: &mut Scope,
         start: Variable,
         end: Variable,
+        step: Option<Variable>,
         func: F,
     ) {
         let mut scope = parent_scope.child();
@@ -103,6 +105,7 @@ impl RangeLoop {
             i,
             start,
             end,
+            step,
             scope,
         }));
     }
@@ -125,9 +128,21 @@ pub struct UnrolledRangeLoop;
 
 impl UnrolledRangeLoop {
     /// Registers an unrolled range loop to the given scope.
-    pub fn register<F: Fn(Variable, &mut Scope)>(scope: &mut Scope, start: u32, end: u32, func: F) {
-        for i in start..end {
-            func(i.into(), scope);
+    pub fn register<F: Fn(Variable, &mut Scope)>(
+        scope: &mut Scope,
+        start: u32,
+        end: u32,
+        step: Option<u32>,
+        func: F,
+    ) {
+        if let Some(step) = step {
+            for i in (start..end).step_by(step as usize) {
+                func(i.into(), scope);
+            }
+        } else {
+            for i in start..end {
+                func(i.into(), scope);
+            }
         }
     }
 }
