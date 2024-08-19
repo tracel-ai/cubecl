@@ -610,7 +610,7 @@ for (var {i}: u32 = {start}; {i} < {end}; {i}++) {{
                 f.write_fmt(format_args!("{out} = atomicLoad({input});\n"))
             }
             Instruction::AtomicStore { input, out } => {
-                f.write_fmt(format_args!(" atomicStore({out},{input});\n"))
+                f.write_fmt(format_args!("atomicStore({out},{input});\n"))
             }
             Instruction::AtomicSwap { lhs, rhs, out } => {
                 f.write_fmt(format_args!("{out} = atomicExchange({lhs}, {rhs});"))
