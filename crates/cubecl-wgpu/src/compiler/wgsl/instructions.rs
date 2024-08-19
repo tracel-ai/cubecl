@@ -44,6 +44,7 @@ pub enum Instruction {
     Return,
     Break,
     WorkgroupBarrier,
+    StorageBarrier,
     // Index handles casting to correct local variable.
     Index {
         lhs: Variable,
@@ -571,6 +572,7 @@ for (var {i}: u32 = {start}; {i} < {end}; {i}++) {{
             Instruction::Return => f.write_str("return;\n"),
             Instruction::Break => f.write_str("break;\n"),
             Instruction::WorkgroupBarrier => f.write_str("workgroupBarrier();\n"),
+            Instruction::StorageBarrier => f.write_str("storageBarrier();\n"),
             Instruction::Length { var, out } => match var {
                 Variable::Slice { .. } => f.write_fmt(format_args!("{out} = {var}_length;\n")),
                 _ => f.write_fmt(format_args!("{out} = arrayLength(&{var});\n")),
@@ -608,7 +610,7 @@ for (var {i}: u32 = {start}; {i} < {end}; {i}++) {{
                 f.write_fmt(format_args!("{out} = atomicLoad({input});\n"))
             }
             Instruction::AtomicStore { input, out } => {
-                f.write_fmt(format_args!("{out} = atomicStore({input});\n"))
+                f.write_fmt(format_args!(" atomicStore({out},{input});\n"))
             }
             Instruction::AtomicSwap { lhs, rhs, out } => {
                 f.write_fmt(format_args!("{out} = atomicExchange({lhs}, {rhs});"))

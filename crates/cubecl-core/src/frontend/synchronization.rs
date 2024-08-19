@@ -10,3 +10,13 @@ pub mod sync_units {
         context.register(Synchronization::SyncUnits)
     }
 }
+
+pub fn sync_storage() {}
+
+pub mod sync_storage {
+    use super::*;
+
+    pub fn __expand(context: &mut CubeContext) {
+        context.register(Synchronization::SyncStorage)
+    }
+}
