@@ -96,11 +96,13 @@ impl Codegen {
     pub fn tokens(self) -> TokenStream {
         self.into_token_stream()
     }
+
     pub fn pop_array_indexing(&mut self) -> Option<ArrayIndexing> {
         let mut result = None;
         core::mem::swap(&mut result, &mut self.array_indexing);
         result
     }
+
     pub fn set_array_indexing(&mut self, array_indexing: Option<ArrayIndexing>) {
         self.array_indexing = array_indexing;
     }

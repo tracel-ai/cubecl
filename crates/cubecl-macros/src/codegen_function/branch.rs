@@ -1,4 +1,5 @@
 use proc_macro2::TokenStream;
+use syn::{Expr, ExprUnary, UnOp};
 
 use crate::{
     codegen_function::{base::CodegenKind, expr::codegen_expr},
@@ -8,7 +9,7 @@ use crate::{
 use super::{
     base::{codegen_block, Codegen},
     function::codegen_call,
-    operation::codegen_binary,
+    operation::{codegen_binary, codegen_unary},
     variable::{codegen_lit, codegen_path_var},
 };
 
@@ -139,6 +140,7 @@ pub(crate) fn codegen_cond(
     variable_tracker: &mut VariableTracker,
 ) -> Codegen {
     match cond {
+        syn::Expr::Unary(expr) => codegen_unary(expr, loop_level, variable_tracker),
         syn::Expr::Binary(expr) => codegen_binary(expr, loop_level, variable_tracker),
         syn::Expr::Lit(expr) => Codegen::new(codegen_lit(expr), CodegenKind::Literal),
         syn::Expr::Path(expr) => codegen_path_var(expr, loop_level, variable_tracker),
@@ -228,8 +230,13 @@ pub(crate) fn codegen_while_loop(
     loop_level: usize,
     variable_tracker: &mut VariableTracker,
 ) -> TokenStream {
-    let (cond, kind, _) =
-        codegen_cond(&while_loop.cond, loop_level + 1, variable_tracker).process();
+    let inverted_cond = Expr::Unary(ExprUnary {
+        attrs: vec![],
+        op: UnOp::Not(Default::default()),
+        expr: Box::new(*while_loop.cond.clone()),
+    });
+
+    let (cond, kind, _) = codegen_cond(&inverted_cond, loop_level + 1, variable_tracker).process();
 
     if let CodegenKind::Comptime = kind {
         return syn::Error::new_spanned(while_loop.while_token, "Comptime not supported for while")

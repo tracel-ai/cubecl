@@ -11,7 +11,7 @@ pub fn while_not<I: Int>(lhs: I) {
 #[cube]
 pub fn manual_loop_break<I: Int>(lhs: I) {
     loop {
-        if lhs != I::from_int(0) {
+        if lhs == I::from_int(0) {
             break;
         }
         let _ = lhs % I::from_int(1);
@@ -21,7 +21,7 @@ pub fn manual_loop_break<I: Int>(lhs: I) {
 #[cube]
 pub fn loop_with_return<I: Int>(lhs: I) {
     loop {
-        if lhs != I::from_int(0) {
+        if lhs == I::from_int(0) {
             return;
         }
         let _ = lhs % I::from_int(1);
@@ -46,7 +46,7 @@ mod tests {
         while_not::__expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
-        assert_eq!(format!("{:?}", scope.operations), inline_macro_ref(false));
+        assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_while());
     }
 
     #[test]
@@ -58,7 +58,10 @@ mod tests {
         manual_loop_break::__expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
-        assert_eq!(format!("{:?}", scope.operations), inline_macro_ref(false));
+        assert_eq!(
+            format!("{:?}", scope.operations),
+            inline_macro_ref_loop(false)
+        );
     }
 
     #[test]
@@ -70,10 +73,13 @@ mod tests {
         loop_with_return::__expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
-        assert_eq!(format!("{:?}", scope.operations), inline_macro_ref(true));
+        assert_eq!(
+            format!("{:?}", scope.operations),
+            inline_macro_ref_loop(true)
+        );
     }
 
-    fn inline_macro_ref(is_return: bool) -> String {
+    fn inline_macro_ref_while() -> String {
         let mut context = CubeContext::root();
         let item = Item::new(ElemType::as_elem());
         let lhs = context.create_local(item);
@@ -87,6 +93,32 @@ mod tests {
             &mut scope,
             loop(|scope| {
                 cpa!(scope, cond = lhs != 0);
+                cpa!(scope, cond = !cond);
+                cpa!(scope, if(cond).then(|scope|{
+                        scope.register(Branch::Break)
+                }));
+
+                cpa!(scope, rhs = lhs % 1i32);
+            })
+        );
+
+        format!("{:?}", scope.operations)
+    }
+
+    fn inline_macro_ref_loop(is_return: bool) -> String {
+        let mut context = CubeContext::root();
+        let item = Item::new(ElemType::as_elem());
+        let lhs = context.create_local(item);
+
+        let mut scope = context.into_scope();
+        let cond = scope.create_local(Item::new(Elem::Bool));
+        let lhs: Variable = lhs.into();
+        let rhs = scope.create_local(item);
+
+        cpa!(
+            &mut scope,
+            loop(|scope| {
+                cpa!(scope, cond = lhs == 0);
                 cpa!(scope, if(cond).then(|scope|{
                     match is_return {
                         true => scope.register(Branch::Return),

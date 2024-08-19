@@ -65,6 +65,7 @@ mod tests {
             &mut scope,
             loop(|scope| {
                 cpa!(scope, cond = x < 10);
+                cpa!(scope, cond = !cond);
                 cpa!(scope, if(cond).then(|scope|{
                     scope.register(Branch::Break);
                 }));
@@ -90,6 +91,7 @@ mod tests {
             &mut scope,
             loop(|scope| {
                 cpa!(scope, cond = x < 10);
+                cpa!(scope, cond = !cond);
                 cpa!(scope, if(cond).then(|scope|{
                     scope.register(Branch::Break);
                 }));
