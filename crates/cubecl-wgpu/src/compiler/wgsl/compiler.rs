@@ -398,6 +398,9 @@ impl WgslCompiler {
         match synchronization {
             cube::Synchronization::SyncUnits => {
                 instructions.push(wgsl::Instruction::WorkgroupBarrier)
+            },
+            cube::Synchronization::SyncStorage=> {
+                instructions.push(wgsl::Instruction::StorageBarrier)
             }
         };
     }
