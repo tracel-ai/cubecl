@@ -11,19 +11,19 @@ use alloc::string::{String, ToString};
 
 /// A benchmark that runs on server handles
 #[derive(new)]
-pub struct TuneBenchmark<S: ComputeServer, C> {
-    operation: Box<dyn AutotuneOperation>,
+pub struct TuneBenchmark<S: ComputeServer, C, Out = ()> {
+    operation: Box<dyn AutotuneOperation<Out>>,
     client: ComputeClient<S, C>,
 }
 
-impl Clone for Box<dyn AutotuneOperation> {
+impl<Out> Clone for Box<dyn AutotuneOperation<Out>> {
     fn clone(&self) -> Self {
         self.as_ref().clone()
     }
 }
 
-impl<S: ComputeServer, C: ComputeChannel<S>> Benchmark for TuneBenchmark<S, C> {
-    type Args = Box<dyn AutotuneOperation>;
+impl<S: ComputeServer, C: ComputeChannel<S>, Out> Benchmark for TuneBenchmark<S, C, Out> {
+    type Args = Box<dyn AutotuneOperation<Out>>;
 
     fn prepare(&self) -> Self::Args {
         self.operation.clone()

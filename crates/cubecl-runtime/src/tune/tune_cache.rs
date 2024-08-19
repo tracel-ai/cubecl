@@ -57,11 +57,11 @@ pub(crate) struct TuneCache<K> {
 }
 
 /// Result of the cache try
-pub enum TuneCacheResult<K> {
+pub enum TuneCacheResult<K, Out = ()> {
     /// An operation is found and given
-    Hit(Box<dyn AutotuneOperation>),
+    Hit(Box<dyn AutotuneOperation<Out>>),
     /// No operation is found and the set is given back for ownership
-    Miss(Box<dyn AutotuneOperationSet<K>>),
+    Miss(Box<dyn AutotuneOperationSet<K, Out>>),
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
@@ -108,10 +108,10 @@ impl<K: AutotuneKey> TuneCache<K> {
         Some(val.fastest_index)
     }
 
-    pub(crate) fn try_cache(
+    pub(crate) fn try_cache<Out>(
         &mut self,
-        autotune_operation_set: Box<dyn AutotuneOperationSet<K>>,
-    ) -> TuneCacheResult<K> {
+        autotune_operation_set: Box<dyn AutotuneOperationSet<K, Out>>,
+    ) -> TuneCacheResult<K, Out> {
         let key = autotune_operation_set.key();
         let result = self.in_memory_cache.get_mut(&key);
 
