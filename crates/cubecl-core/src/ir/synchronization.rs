@@ -6,5 +6,5 @@ use serde::{Deserialize, Serialize};
 pub enum Synchronization {
     // Synchronizize units in a cube.
     SyncUnits,
-    SyncStorage
+    SyncStorage,
 }
