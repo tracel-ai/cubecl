@@ -21,6 +21,9 @@ use super::AutotuneKey;
 
 /// An error that occured during benchmarking. If other benches succeeded, ignore this bench and
 /// continue gracefully. If all benches fail, panic.
+/// This error cannot be acted on in any way, because it's an opaque unwind object, and must be
+/// `ManuallyDrop` because dropping it can cause unwinding to proceed. It can only
+/// be passed to `resume_unwind` to continue the panic.
 type BenchError = ManuallyDrop<Box<dyn Any + Send>>;
 
 #[derive(Debug)]
