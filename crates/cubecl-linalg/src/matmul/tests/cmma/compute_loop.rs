@@ -34,15 +34,15 @@ fn compute_loop_test<F: Float, FC: Float>(
     }
 
     let shared_memories = SharedMemories { lhs, rhs };
-    let accumulators = make_accumulators::<F>();
+    let mut accumulators = make_accumulators::<F>();
 
-    compute_loop(shared_memories, accumulators, config);
+    compute_loop(shared_memories, &mut accumulators, config);
 
     let offset = UNIT_POS_Y * UInt::new(512);
     let slice_0 = accumulate_array.slice_mut(offset, offset + UInt::new(256));
     cmma::store::<F>(
         slice_0,
-        &accumulators.first,
+        &accumulators.index(0),
         UInt::new(16),
         cmma::MatrixLayout::RowMajor,
     );
@@ -50,7 +50,7 @@ fn compute_loop_test<F: Float, FC: Float>(
     let slice_1 = accumulate_array.slice_mut(offset + UInt::new(256), offset + UInt::new(512));
     cmma::store::<F>(
         slice_1,
-        &accumulators.second,
+        &accumulators.index(1),
         UInt::new(16),
         cmma::MatrixLayout::RowMajor,
     );

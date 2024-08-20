@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    base::{Accumulators, Dimensions, Offsets},
+    base::{Dimensions, Offsets},
     block_io::{
         base::BlockWriter, horizontal_block_check::HorizontalCheckBlockIO,
         unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
@@ -14,7 +14,7 @@ use super::{
 #[cube]
 pub(crate) fn write_to_output<F: Float>(
     out: &mut Tensor<F>,
-    accumulators: Accumulators<F>,
+    accumulators: Sequence<cmma::Matrix<F>>,
     offsets: Offsets,
     dims: Dimensions,
     config: Comptime<CmmaConfig>,
@@ -24,7 +24,7 @@ pub(crate) fn write_to_output<F: Float>(
 }
 
 #[cube]
-fn fragment_to_shared_memory<F: Float>(accumulators: Accumulators<F>) -> SharedMemory<F> {
+fn fragment_to_shared_memory<F: Float>(accumulators: Sequence<cmma::Matrix<F>>) -> SharedMemory<F> {
     let mut acc_sm = SharedMemory::<F>::new(4096);
 
     let coop_id = UNIT_POS_Y;
@@ -35,7 +35,7 @@ fn fragment_to_shared_memory<F: Float>(accumulators: Accumulators<F>) -> SharedM
     let slice = acc_sm.slice_mut(slice_offset_0, slice_offset_1);
     cmma::store::<F>(
         slice,
-        &accumulators.first,
+        accumulators.index(0),
         UInt::new(16),
         cmma::MatrixLayout::RowMajor,
     );
@@ -43,7 +43,7 @@ fn fragment_to_shared_memory<F: Float>(accumulators: Accumulators<F>) -> SharedM
     let slice = acc_sm.slice_mut(slice_offset_1, slice_offset_2);
     cmma::store::<F>(
         slice,
-        &accumulators.second,
+        accumulators.index(1),
         UInt::new(16),
         cmma::MatrixLayout::RowMajor,
     );

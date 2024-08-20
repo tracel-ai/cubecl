@@ -42,12 +42,6 @@ pub(crate) struct SharedMemories<FC: Float> {
 }
 
 #[derive(CubeType, Copy, Clone)]
-pub(crate) struct Accumulators<F: Float> {
-    pub first: cmma::Matrix<F>,
-    pub second: cmma::Matrix<F>,
-}
-
-#[derive(CubeType, Copy, Clone)]
 /// Not divided by vectorization factor
 ///
 /// Note: batch offsets take stride into account, but not the others
@@ -126,28 +120,22 @@ fn make_shared_memories<FC: Float>(config: Comptime<CmmaConfig>) -> SharedMemori
 }
 
 #[cube]
-pub(crate) fn make_accumulators<F: Float>() -> Accumulators<F> {
-    // Assumes two per warp. TODO generalize
-    let acc0 = cmma::Matrix::<F>::new(
-        cmma::MatrixIdent::Accumulator,
-        16,
-        16,
-        16,
-        cmma::MatrixLayout::Undefined,
-    );
-    let acc1 = cmma::Matrix::<F>::new(
-        cmma::MatrixIdent::Accumulator,
-        16,
-        16,
-        16,
-        cmma::MatrixLayout::Undefined,
-    );
+pub(crate) fn make_accumulators<F: Float>() -> Sequence<cmma::Matrix<F>> {
+    let mut acc = Sequence::<cmma::Matrix<F>>::new();
 
-    cmma::fill::<F>(&acc0, F::new(0.0));
-    cmma::fill::<F>(&acc1, F::new(0.0));
+    for _ in range(0u32, 2u32, Comptime::new(true)) {
+        let acc0 = cmma::Matrix::<F>::new(
+            cmma::MatrixIdent::Accumulator,
+            16,
+            16,
+            16,
+            cmma::MatrixLayout::Undefined,
+        );
 
-    Accumulators {
-        first: acc0,
-        second: acc1,
+        cmma::fill::<F>(&acc0, F::new(0.0));
+
+        acc.push(acc0);
     }
+
+    acc
 }

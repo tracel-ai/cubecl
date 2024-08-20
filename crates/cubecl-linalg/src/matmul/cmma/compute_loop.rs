@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::base::{Accumulators, SharedMemories};
+use super::base::SharedMemories;
 use super::config::CmmaConfig;
 
 #[cube]
 #[allow(unused_mut)]
 pub(crate) fn compute_loop<F: Float, FC: Float>(
     shared_memories: SharedMemories<FC>,
-    mut accumulators: Accumulators<F>,
+    accumulators: &mut Sequence<cmma::Matrix<F>>,
     config: Comptime<CmmaConfig>,
 ) {
     // Other values not supported
@@ -27,7 +27,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
         tile_row,
         tile_col_base,
         shared_memories,
-        accumulators.first,
+        *accumulators.index(0),
         config,
     );
     compute_tile::<F, FC>(
@@ -35,7 +35,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
         tile_row,
         tile_col_base,
         shared_memories,
-        accumulators.second,
+        *accumulators.index(1),
         config,
     );
 }
