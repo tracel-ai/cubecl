@@ -40,6 +40,8 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
 ) {
     let check_m_bounds = Comptime::map(config, |c| c.check_m_bounds);
     let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
+    let tile_row = UNIT_POS_Y / k_tiles;
+    let tile_col = UNIT_POS_Y % k_tiles;
 
     if Comptime::get(check_m_bounds) {
         if Comptime::get(check_k_bounds) {
@@ -47,8 +49,8 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
                 lhs,
                 shared_lhs,
                 offsets.batch_lhs,
-                UNIT_POS_Y / k_tiles,
-                UNIT_POS_Y % k_tiles,
+                tile_row,
+                tile_col,
                 dims.m,
                 dims.k,
                 offsets.cube_row,
@@ -60,8 +62,8 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
                 lhs,
                 shared_lhs,
                 offsets.batch_lhs,
-                UNIT_POS_Y / k_tiles,
-                UNIT_POS_Y % k_tiles,
+                tile_row,
+                tile_col,
                 dims.m,
                 dims.k,
                 offsets.cube_row,
@@ -74,8 +76,8 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
             lhs,
             shared_lhs,
             offsets.batch_lhs,
-            UNIT_POS_Y / k_tiles,
-            UNIT_POS_Y % k_tiles,
+            tile_row,
+            tile_col,
             dims.m,
             dims.k,
             offsets.cube_row,
@@ -87,8 +89,8 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
             lhs,
             shared_lhs,
             offsets.batch_lhs,
-            UNIT_POS_Y / k_tiles,
-            UNIT_POS_Y % k_tiles,
+            tile_row,
+            tile_col,
             dims.m,
             dims.k,
             offsets.cube_row,
@@ -109,6 +111,8 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
 ) {
     let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
     let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
+    let tile_row = UNIT_POS_Y % k_tiles;
+    let tile_col = UNIT_POS_Y / k_tiles;
 
     if Comptime::get(check_k_bounds) {
         if Comptime::get(check_n_bounds) {
@@ -116,8 +120,8 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
                 rhs,
                 shared_rhs,
                 offsets.batch_rhs,
-                UNIT_POS_Y % k_tiles,
-                UNIT_POS_Y / k_tiles,
+                tile_row,
+                tile_col,
                 dims.k,
                 dims.n,
                 offsets.k,
@@ -129,8 +133,8 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
                 rhs,
                 shared_rhs,
                 offsets.batch_rhs,
-                UNIT_POS_Y % k_tiles,
-                UNIT_POS_Y / k_tiles,
+                tile_row,
+                tile_col,
                 dims.k,
                 dims.n,
                 offsets.k,
@@ -143,8 +147,8 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
             rhs,
             shared_rhs,
             offsets.batch_rhs,
-            UNIT_POS_Y % k_tiles,
-            UNIT_POS_Y / k_tiles,
+            tile_row,
+            tile_col,
             dims.k,
             dims.n,
             offsets.k,
@@ -156,8 +160,8 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
             rhs,
             shared_rhs,
             offsets.batch_rhs,
-            UNIT_POS_Y % k_tiles,
-            UNIT_POS_Y / k_tiles,
+            tile_row,
+            tile_col,
             dims.k,
             dims.n,
             offsets.k,
