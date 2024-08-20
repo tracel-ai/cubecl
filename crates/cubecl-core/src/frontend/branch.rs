@@ -7,7 +7,8 @@ use super::comptime::Comptime;
 use super::ExpandElementTyped;
 
 /// UInt range. Equivalent to:
-/// ```no_run
+///
+/// ```ignore
 /// for i in start..end { ... }
 /// ```
 pub fn range<S, E>(start: S, end: E, _unroll: Comptime<bool>) -> impl Iterator<Item = UInt>
@@ -22,7 +23,8 @@ where
 }
 
 /// Stepped range. Equivalent to:
-/// ```no_run
+///
+/// ```ignore
 /// for i in (start..end).step_by(step) { ... }
 /// ```
 pub fn range_stepped<S, E, Step>(

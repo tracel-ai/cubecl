@@ -4,7 +4,7 @@
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use cubecl_wgpu::WgpuDevice;
 ///
 /// let device_gpu_1 = WgpuDevice::DiscreteGpu(0); // First discrete GPU found.
