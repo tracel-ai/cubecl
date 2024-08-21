@@ -23,5 +23,10 @@ macro_rules! testgen_cmma_matmul {
         pub fn test_matmul_cmma_with_batches() {
             tests::matmul_tests::test_matmul_cmma_with_batches::<TestRuntime>(&Default::default())
         }
+
+        #[test]
+        pub fn test_matmul_cmma_unvectorizable_shapes() {
+            tests::matmul_tests::test_matmul_cmma_unvectorizable_shapes::<TestRuntime>(&Default::default())
+        }
     };
 }
