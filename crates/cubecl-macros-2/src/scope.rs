@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZero};
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
@@ -127,7 +127,7 @@ impl Scope {
             .iter()
             .map(|ManagedVar { name, ty, .. }| {
                 let mut span = name.span();
-                let var = generate_var(name, ty, span.clone());
+                let var = generate_var(name, ty, span.clone(), None);
                 quote_spanned! {span=>
                     let #name = #var;
                 }

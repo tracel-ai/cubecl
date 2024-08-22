@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{spanned::Spanned, Ident, Type};
@@ -39,7 +41,7 @@ impl ToTokens for Expression {
                     ))
                 }
             }
-            Expression::Variable { name, span, ty } => {
+            Expression::Variable { name, span, .. } => {
                 let span = span.clone();
                 quote_spanned! {span=>
                     #name.clone()
@@ -50,6 +52,7 @@ impl ToTokens for Expression {
                 field,
                 span,
                 struct_ty,
+                ..
             } => {
                 let span = span.clone();
                 let access = ir_type("FieldAccess");
@@ -163,7 +166,12 @@ impl ToTokens for Expression {
                 span,
             } => {
                 let span = span.clone();
-                let variable = generate_var(var_name, var_ty, span.clone());
+                let variable = generate_var(
+                    var_name,
+                    var_ty,
+                    span.clone(),
+                    Some(quote![::core::num::NonZero::new(1)]),
+                );
                 let for_ty = ir_type("ForLoop");
                 let block_ty = ir_type("Block");
                 let step = if let Some(step) = step {
@@ -172,12 +180,9 @@ impl ToTokens for Expression {
                     quote![None]
                 };
                 let block = quote_spanned! {span=>
-                    #block_ty::<()> {
-                        statements: vec![
-                            #(#block,)*
-                        ],
-                        _ty: ::core::marker::PhantomData
-                    }
+                    #block_ty::<()>::new(vec![
+                        #(#block,)*
+                    ])
                 };
                 quote_spanned! {span=>
                     #for_ty {
@@ -203,7 +208,12 @@ impl ToTokens for Expression {
     }
 }
 
-pub fn generate_var(name: &Ident, ty: &Option<Type>, span: Span) -> TokenStream {
+pub fn generate_var(
+    name: &Ident,
+    ty: &Option<Type>,
+    span: Span,
+    vectorization: Option<TokenStream>,
+) -> TokenStream {
     let var = ir_type("Variable");
     let name = name.to_token_stream().to_string();
     let ty = ty.as_ref().map(|ty| {
@@ -211,10 +221,8 @@ pub fn generate_var(name: &Ident, ty: &Option<Type>, span: Span) -> TokenStream 
             ::<#ty>
         }
     });
+    let vectorization = vectorization.unwrap_or(quote![None]);
     quote_spanned! {span=>
-        #var #ty {
-            name: #name,
-            _type: ::core::marker::PhantomData
-        }
+        #var #ty ::new(#name, #vectorization)
     }
 }

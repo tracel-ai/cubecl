@@ -34,6 +34,7 @@ fn simple_arithmetic() {
                     right: lit(3u32),
                     operator: Operator::Mul,
                     ty: Elem::UInt,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -45,6 +46,7 @@ fn simple_arithmetic() {
                     operator: Operator::Add,
                     right: var("a", Elem::UInt),
                     ty: Elem::UInt,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -56,6 +58,7 @@ fn simple_arithmetic() {
                     operator: Operator::Div,
                     right: var("a", Elem::UInt),
                     ty: Elem::UInt,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -67,6 +70,7 @@ fn simple_arithmetic() {
                     operator: Operator::Rem,
                     right: var("b", Elem::UInt),
                     ty: Elem::UInt,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -78,6 +82,7 @@ fn simple_arithmetic() {
                     operator: Operator::Sub,
                     right: var("a", Elem::UInt),
                     ty: Elem::UInt,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -114,6 +119,7 @@ fn cmp_ops() {
                     operator: Operator::Gt,
                     right: lit(1u32),
                     ty: Elem::Bool,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -125,6 +131,7 @@ fn cmp_ops() {
                     operator: Operator::Le,
                     right: lit(1u32),
                     ty: Elem::Bool,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -136,6 +143,7 @@ fn cmp_ops() {
                     operator: Operator::Lt,
                     right: lit(11u32),
                     ty: Elem::Bool,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -147,6 +155,7 @@ fn cmp_ops() {
                     operator: Operator::Ge,
                     right: var("a", Elem::UInt),
                     ty: Elem::Bool,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -158,6 +167,7 @@ fn cmp_ops() {
                     operator: Operator::Eq,
                     right: lit(2u32),
                     ty: Elem::Bool,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -169,6 +179,7 @@ fn cmp_ops() {
                     operator: Operator::Ne,
                     right: lit(2u32),
                     ty: Elem::Bool,
+                    vectorization: None,
                 }),
                 true,
                 None,
@@ -194,42 +205,44 @@ fn assign_arithmetic() {
     }
 
     let expansion = assign_arithmetic::expand();
-    let expected = Block::<()> {
-        statements: vec![
-            local_init("a", lit(1u32), true, Some(Elem::UInt)),
-            expr(Box::new(Expression::Binary {
-                left: var("a", Elem::UInt),
-                right: lit(3u32),
-                operator: Operator::MulAssign,
-                ty: Elem::UInt,
-            })),
-            expr(Box::new(Expression::Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::AddAssign,
-                right: lit(2u32),
-                ty: Elem::UInt,
-            })),
-            expr(Box::new(Expression::Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::DivAssign,
-                right: lit(2u32),
-                ty: Elem::UInt,
-            })),
-            expr(Box::new(Expression::Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::RemAssign,
-                right: lit(1u32),
-                ty: Elem::UInt,
-            })),
-            expr(Box::new(Expression::Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::SubAssign,
-                right: lit(0u32),
-                ty: Elem::UInt,
-            })),
-        ],
-        _ty: PhantomData,
-    };
+    let expected = Block::<()>::new(vec![
+        local_init("a", lit(1u32), true, Some(Elem::UInt)),
+        expr(Box::new(Expression::Binary {
+            left: var("a", Elem::UInt),
+            right: lit(3u32),
+            operator: Operator::MulAssign,
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+        expr(Box::new(Expression::Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::AddAssign,
+            right: lit(2u32),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+        expr(Box::new(Expression::Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::DivAssign,
+            right: lit(2u32),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+        expr(Box::new(Expression::Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::RemAssign,
+            right: lit(1u32),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+        expr(Box::new(Expression::Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::SubAssign,
+            right: lit(0u32),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+    ]);
 
     assert_eq!(expansion, expected);
 }
@@ -249,48 +262,50 @@ fn boolean_ops() {
     }
 
     let expanded = bool_ops::expand();
-    let expected = Block::<()> {
-        statements: vec![
-            local_init("a", lit(false), true, None),
-            local_init(
-                "b",
-                Box::new(Binary {
-                    left: var("a", Elem::Bool),
-                    operator: Operator::And,
-                    right: lit(true),
-                    ty: Elem::Bool,
-                }),
-                true,
-                None,
-            ),
-            local_init("c", lit(1), true, None),
-            expr(Box::new(Binary {
-                left: var("b", Elem::Bool),
-                operator: Operator::Or,
-                right: var("a", Elem::Bool),
+    let expected = Block::<()>::new(vec![
+        local_init("a", lit(false), true, None),
+        local_init(
+            "b",
+            Box::new(Binary {
+                left: var("a", Elem::Bool),
+                operator: Operator::And,
+                right: lit(true),
                 ty: Elem::Bool,
-            })),
-            expr(Box::new(Binary {
-                left: var("c", Elem::Int(IntKind::I32)),
-                operator: Operator::BitXor,
-                right: lit(2),
-                ty: Elem::Int(IntKind::I32),
-            })),
-            expr(Box::new(Binary {
-                left: var("c", Elem::Int(IntKind::I32)),
-                operator: Operator::BitOr,
-                right: lit(3),
-                ty: Elem::Int(IntKind::I32),
-            })),
-            expr(Box::new(Binary {
-                left: var("c", Elem::Int(IntKind::I32)),
-                operator: Operator::BitAnd,
-                right: lit(1),
-                ty: Elem::Int(IntKind::I32),
-            })),
-        ],
-        _ty: PhantomData,
-    };
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init("c", lit(1), true, None),
+        expr(Box::new(Binary {
+            left: var("b", Elem::Bool),
+            operator: Operator::Or,
+            right: var("a", Elem::Bool),
+            ty: Elem::Bool,
+            vectorization: None,
+        })),
+        expr(Box::new(Binary {
+            left: var("c", Elem::Int(IntKind::I32)),
+            operator: Operator::BitXor,
+            right: lit(2),
+            ty: Elem::Int(IntKind::I32),
+            vectorization: None,
+        })),
+        expr(Box::new(Binary {
+            left: var("c", Elem::Int(IntKind::I32)),
+            operator: Operator::BitOr,
+            right: lit(3),
+            ty: Elem::Int(IntKind::I32),
+            vectorization: None,
+        })),
+        expr(Box::new(Binary {
+            left: var("c", Elem::Int(IntKind::I32)),
+            operator: Operator::BitAnd,
+            right: lit(1),
+            ty: Elem::Int(IntKind::I32),
+            vectorization: None,
+        })),
+    ]);
 
     assert_eq!(expanded, expected);
 }
@@ -307,30 +322,30 @@ fn boolean_assign_ops() {
     }
 
     let expanded = bool_assign_ops::expand();
-    let expected = Block::<()> {
-        statements: vec![
-            local_init("a", lit(10u32), true, None),
-            expr(Box::new(Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::BitOrAssign,
-                right: lit(5u32),
-                ty: Elem::UInt,
-            })),
-            expr(Box::new(Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::BitAndAssign,
-                right: lit(10u32),
-                ty: Elem::UInt,
-            })),
-            expr(Box::new(Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::BitXorAssign,
-                right: lit(3u32),
-                ty: Elem::UInt,
-            })),
-        ],
-        _ty: PhantomData,
-    };
+    let expected = Block::<()>::new(vec![
+        local_init("a", lit(10u32), true, None),
+        expr(Box::new(Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::BitOrAssign,
+            right: lit(5u32),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+        expr(Box::new(Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::BitAndAssign,
+            right: lit(10u32),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+        expr(Box::new(Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::BitXorAssign,
+            right: lit(3u32),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+    ]);
 
     assert_eq!(expanded, expected);
 }
@@ -348,36 +363,37 @@ fn shift_ops() {
     }
 
     let expanded = shift_ops::expand();
-    let expected = Block::<()> {
-        _ty: PhantomData,
-        statements: vec![
-            local_init("a", lit(10u32), true, None),
-            expr(Box::new(Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::Shl,
-                right: lit(5),
-                ty: Elem::UInt,
-            })),
-            expr(Box::new(Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::Shr,
-                right: lit(2),
-                ty: Elem::UInt,
-            })),
-            expr(Box::new(Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::ShlAssign,
-                right: lit(1),
-                ty: Elem::UInt,
-            })),
-            expr(Box::new(Binary {
-                left: var("a", Elem::UInt),
-                operator: Operator::ShrAssign,
-                right: lit(2),
-                ty: Elem::UInt,
-            })),
-        ],
-    };
+    let expected = Block::<()>::new(vec![
+        local_init("a", lit(10u32), true, None),
+        expr(Box::new(Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::Shl,
+            right: lit(5),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+        expr(Box::new(Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::Shr,
+            right: lit(2),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+        expr(Box::new(Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::ShlAssign,
+            right: lit(1),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+        expr(Box::new(Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::ShrAssign,
+            right: lit(2),
+            ty: Elem::UInt,
+            vectorization: None,
+        })),
+    ]);
 
     assert_eq!(expanded, expected);
 }
@@ -392,21 +408,20 @@ fn unary_ops() {
     }
 
     let expanded = unary_ops::expand();
-    let expected = Block::<()> {
-        _ty: PhantomData,
-        statements: vec![
-            expr(Box::new(Expression::Unary {
-                input: lit(true),
-                operator: Operator::Not,
-                ty: Elem::Bool,
-            })),
-            expr(Box::new(Expression::Unary {
-                input: lit(1.0),
-                operator: Operator::Neg,
-                ty: Elem::Float(FloatKind::F64),
-            })),
-        ],
-    };
+    let expected = Block::<()>::new(vec![
+        expr(Box::new(Expression::Unary {
+            input: lit(true),
+            operator: Operator::Not,
+            ty: Elem::Bool,
+            vectorization: None,
+        })),
+        expr(Box::new(Expression::Unary {
+            input: lit(1.0),
+            operator: Operator::Neg,
+            ty: Elem::Float(FloatKind::F64),
+            vectorization: None,
+        })),
+    ]);
 
     assert_eq!(expanded, expected);
 }

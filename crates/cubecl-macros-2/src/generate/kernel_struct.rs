@@ -34,6 +34,10 @@ impl ToTokens for KernelStruct {
                 fn expression_untyped(&self) -> #expression {
                     panic!("Can't expand struct directly");
                 }
+
+                fn vectorization(&self) -> Option<::core::num::NonZero<u8>> {
+                    None
+                }
             }
             impl #square_ty for #name {
                 fn ir_type() -> #elem {

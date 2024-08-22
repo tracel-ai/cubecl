@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use cubecl_common::operator::Operator;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};

@@ -1,7 +1,10 @@
 use core::{marker::PhantomData, ops::*};
-use std::ops::{Shr, ShrAssign};
+use std::{
+    num::NonZero,
+    ops::{Shr, ShrAssign},
+};
 
-use super::{Expr, Expression, Operator, SquareType};
+use super::{largest_common_vectorization, Expr, Expression, Operator, SquareType};
 
 #[derive(new)]
 pub struct BinaryOp<TLeft, TRight, TOut> {
@@ -18,11 +21,14 @@ pub struct UnaryOp<TIn, TOut> {
 
 macro_rules! bin_op {
     ($name:ident, $trait:ident, $operator:path) => {
-        pub struct $name<TLeft, TRight, TOut: SquareType>(pub BinaryOp<TLeft, TRight, TOut>)
+        pub struct $name<TLeft: SquareType, TRight: SquareType, TOut: SquareType>(
+            pub BinaryOp<TLeft, TRight, TOut>,
+        )
         where
             TLeft: $trait<TRight, Output = TOut>;
 
-        impl<TLeft, TRight, TOut: SquareType> Expr for $name<TLeft, TRight, TOut>
+        impl<TLeft: SquareType, TRight: SquareType, TOut: SquareType> Expr
+            for $name<TLeft, TRight, TOut>
         where
             TLeft: $trait<TRight, Output = TOut>,
         {
@@ -34,7 +40,15 @@ macro_rules! bin_op {
                     right: Box::new(self.0.right.expression_untyped()),
                     operator: $operator,
                     ty: <TOut as SquareType>::ir_type(),
+                    vectorization: self.vectorization(),
                 }
+            }
+
+            fn vectorization(&self) -> Option<NonZero<u8>> {
+                largest_common_vectorization(
+                    self.0.left.vectorization(),
+                    self.0.right.vectorization(),
+                )
             }
         }
     };
@@ -53,7 +67,15 @@ macro_rules! cmp_op {
                     right: Box::new(self.0.right.expression_untyped()),
                     operator: $operator,
                     ty: <bool as SquareType>::ir_type(),
+                    vectorization: self.vectorization(),
                 }
+            }
+
+            fn vectorization(&self) -> Option<NonZero<u8>> {
+                largest_common_vectorization(
+                    self.0.left.vectorization(),
+                    self.0.right.vectorization(),
+                )
             }
         }
     };
@@ -74,7 +96,15 @@ macro_rules! assign_bin_op {
                     right: Box::new(self.0.right.expression_untyped()),
                     operator: $operator,
                     ty: <TLeft as SquareType>::ir_type(),
+                    vectorization: self.vectorization(),
                 }
+            }
+
+            fn vectorization(&self) -> Option<NonZero<u8>> {
+                largest_common_vectorization(
+                    self.0.left.vectorization(),
+                    self.0.right.vectorization(),
+                )
             }
         }
     };
@@ -92,7 +122,12 @@ macro_rules! unary_op {
                     input: Box::new(self.0.input.expression_untyped()),
                     operator: $operator,
                     ty: <TOut as SquareType>::ir_type(),
+                    vectorization: self.vectorization(),
                 }
+            }
+
+            fn vectorization(&self) -> Option<NonZero<u8>> {
+                self.0.input.vectorization()
             }
         }
     };
@@ -154,7 +189,12 @@ impl Expr for AndExpr {
             operator: Operator::And,
             right: Box::new(self.0.right.expression_untyped()),
             ty: bool::ir_type(),
+            vectorization: self.vectorization(),
         }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        None
     }
 }
 
@@ -167,6 +207,11 @@ impl Expr for OrExpr {
             operator: Operator::Or,
             right: Box::new(self.0.right.expression_untyped()),
             ty: bool::ir_type(),
+            vectorization: self.vectorization(),
         }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        None
     }
 }

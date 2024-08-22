@@ -1,7 +1,10 @@
 use super::{Expr, Expression, SquareType};
 use core::fmt::Display;
 use derive_more::derive::Display;
-use std::ops::{Add, Deref, Mul};
+use std::{
+    num::NonZero,
+    ops::{Add, Deref, Mul},
+};
 
 #[derive(Clone, Copy, new, Display)]
 pub struct Literal<T: Display + SquareType + Copy> {
@@ -15,7 +18,12 @@ impl<T: Display + SquareType + Clone + Copy> Expr for Literal<T> {
         Expression::Literal {
             value: self.value.to_string(),
             ty: <T as SquareType>::ir_type(),
+            vectorization: self.vectorization(),
         }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.value.vectorization()
     }
 }
 

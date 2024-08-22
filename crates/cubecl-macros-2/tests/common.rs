@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use cubecl_core::{
     ir::Elem,
     new_ir::{Expression, SquareType, Statement},
@@ -8,6 +10,16 @@ pub fn var(name: &str, ty: Elem) -> Box<Expression> {
     Box::new(Expression::Variable {
         name: name.to_string(),
         ty,
+        vectorization: None,
+    })
+}
+
+#[allow(unused)]
+pub fn vec_var(name: &str, ty: Elem, vectorization: u8) -> Box<Expression> {
+    Box::new(Expression::Variable {
+        name: name.to_string(),
+        ty,
+        vectorization: NonZero::new(vectorization),
     })
 }
 
@@ -16,6 +28,7 @@ pub fn lit<T: ToString + SquareType>(value: T) -> Box<Expression> {
     Box::new(Expression::Literal {
         value: value.to_string(),
         ty: <T as SquareType>::ir_type(),
+        vectorization: None,
     })
 }
 
@@ -31,6 +44,26 @@ pub fn local_init(
             left: var(name, right.ir_type()),
             ty: right.ir_type(),
             right,
+            vectorization: None,
+        }),
+        mutable,
+        ty,
+    }
+}
+#[allow(unused)]
+pub fn init_vec(
+    name: &str,
+    right: Box<Expression>,
+    mutable: bool,
+    ty: Option<Elem>,
+    vectorization: u8,
+) -> Statement {
+    Statement::Local {
+        variable: Box::new(Expression::Init {
+            left: vec_var(name, right.ir_type(), vectorization),
+            ty: right.ir_type(),
+            right,
+            vectorization: NonZero::new(vectorization),
         }),
         mutable,
         ty,

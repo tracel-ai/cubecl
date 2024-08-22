@@ -1,7 +1,9 @@
 use crate::ir::Elem;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, num::NonZero};
 
-use super::{Operator, SquareType, Statement};
+use super::{largest_common_vectorization, Operator, SquareType, Statement};
+
+type Vectorization = Option<NonZero<u8>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expression {
@@ -9,45 +11,55 @@ pub enum Expression {
         left: Box<Expression>,
         operator: Operator,
         right: Box<Expression>,
+        vectorization: Vectorization,
         ty: Elem,
     },
     Unary {
         input: Box<Expression>,
         operator: Operator,
+        vectorization: Vectorization,
         ty: Elem,
     },
     Variable {
         name: String,
+        vectorization: Vectorization,
         ty: Elem,
     },
     FieldAccess {
         base: Box<Expression>,
         name: String,
+        vectorization: Vectorization,
         ty: Elem,
     },
     Literal {
         // Stringified value for outputting directly to generated code
         value: String,
+        vectorization: Vectorization,
         ty: Elem,
     },
     Assigment {
         left: Box<Expression>,
         right: Box<Expression>,
+        vectorization: Vectorization,
         ty: Elem,
     },
     /// Local variable initializer
     Init {
         left: Box<Expression>,
         right: Box<Expression>,
+        vectorization: Vectorization,
         ty: Elem,
     },
     Block {
         inner: Vec<Statement>,
         ret: Option<Box<Expression>>,
+        vectorization: Vectorization,
+        ty: Option<Elem>,
     },
     Break,
     Cast {
         from: Box<Expression>,
+        vectorization: Vectorization,
         to: Elem,
     },
     Continue,
@@ -84,11 +96,13 @@ pub trait Expr {
     type Output;
 
     fn expression_untyped(&self) -> Expression;
+    fn vectorization(&self) -> Option<NonZero<u8>>;
 }
 
-#[derive(Debug, new)]
+#[derive(Debug, new, Hash)]
 pub struct Variable<T: SquareType> {
     pub name: &'static str,
+    pub vectorization: Option<NonZero<u8>>,
     pub _type: PhantomData<T>,
 }
 
@@ -97,6 +111,7 @@ impl<T: SquareType> Clone for Variable<T> {
     fn clone(&self) -> Self {
         Self {
             name: self.name,
+            vectorization: self.vectorization.clone(),
             _type: PhantomData,
         }
     }
@@ -109,11 +124,16 @@ impl<T: SquareType> Expr for Variable<T> {
         Expression::Variable {
             name: self.name.to_string(),
             ty: <T as SquareType>::ir_type(),
+            vectorization: self.vectorization(),
         }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.vectorization.clone()
     }
 }
 
-#[derive(new)]
+#[derive(new, Hash)]
 pub struct FieldAccess<T: SquareType, TBase: Expr + Clone> {
     pub base: Box<TBase>,
     pub name: &'static str,
@@ -138,7 +158,12 @@ impl<T: SquareType, TBase: Expr + Clone> Expr for FieldAccess<T, TBase> {
             base: Box::new(self.base.expression_untyped()),
             name: self.name.to_string(),
             ty: <T as SquareType>::ir_type(),
+            vectorization: self.vectorization(),
         }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.base.vectorization()
     }
 }
 
@@ -155,7 +180,12 @@ impl<T: SquareType> Expr for Assignment<T> {
             left: Box::new(self.left.expression_untyped()),
             right: Box::new(self.right.expression_untyped()),
             ty: <T as SquareType>::ir_type(),
+            vectorization: self.vectorization(),
         }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        largest_common_vectorization(self.left.vectorization(), self.right.vectorization())
     }
 }
 
@@ -172,7 +202,12 @@ impl<T: SquareType> Expr for Initializer<T> {
             left: Box::new(self.left.expression_untyped()),
             right: Box::new(self.right.expression_untyped()),
             ty: <T as SquareType>::ir_type(),
+            vectorization: self.vectorization(),
         }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.right.vectorization()
     }
 }
 
@@ -188,7 +223,12 @@ impl<TFrom: SquareType, TTo: SquareType> Expr for Cast<TFrom, TTo> {
         Expression::Cast {
             from: Box::new(self.from.expression_untyped()),
             to: <TTo as SquareType>::ir_type(),
+            vectorization: self.vectorization(),
         }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.from.vectorization()
     }
 }
 
@@ -198,5 +238,10 @@ impl<T: Expr> Expr for Box<T> {
     fn expression_untyped(&self) -> Expression {
         let this: &T = &**self;
         this.expression_untyped()
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        let this: &T = &**self;
+        this.vectorization()
     }
 }

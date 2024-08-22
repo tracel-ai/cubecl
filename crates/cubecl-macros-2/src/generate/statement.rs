@@ -52,7 +52,12 @@ impl ToTokens for Statement {
                     } else {
                         quote![Box::new(#name)]
                     };
-                    let variable = generate_var(name, ty, span);
+                    let expr = ir_type("Expr");
+                    let vectorization = initializer
+                        .is_some()
+                        .then(|| quote![#expr::vectorization(&__init)]);
+                    let variable: proc_macro2::TokenStream =
+                        generate_var(name, ty, span, vectorization);
                     let variable_decl = quote_spanned! {span=>
                         let #name = #variable;
                     };

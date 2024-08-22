@@ -34,6 +34,7 @@ pub fn const_param() {
     let expanded = const_param::expand(
         Variable::<u32> {
             name: "a",
+            vectorization: None,
             _type: PhantomData,
         },
         2,
@@ -46,6 +47,7 @@ pub fn const_param() {
             operator: Operator::Mul,
             right: lit(2u32),
             ty: UInt,
+            vectorization: None,
         }))],
     };
 
@@ -63,25 +65,25 @@ pub fn const_generic() {
     let expanded = const_generic::expand::<3>(
         Variable::<u32> {
             name: "a",
+            vectorization: None,
             _type: PhantomData,
         },
         2,
     );
 
-    let expected = Block::<()> {
-        _ty: PhantomData,
-        statements: vec![expr(Box::new(Expression::Binary {
-            left: Box::new(Expression::Binary {
-                left: var("a", UInt),
-                operator: Operator::Mul,
-                right: lit(2u32),
-                ty: UInt,
-            }),
-            operator: Operator::Add,
-            right: lit(3u32),
-            ty: Elem::UInt,
-        }))],
-    };
+    let expected = Block::<()>::new(vec![expr(Box::new(Expression::Binary {
+        left: Box::new(Expression::Binary {
+            left: var("a", UInt),
+            operator: Operator::Mul,
+            right: lit(2u32),
+            ty: UInt,
+            vectorization: None,
+        }),
+        operator: Operator::Add,
+        right: lit(3u32),
+        ty: Elem::UInt,
+        vectorization: None,
+    }))]);
 
     assert_eq!(expanded, expected);
 }
@@ -100,20 +102,23 @@ pub fn struct_param() {
         arg.a * arg.b
     }
 
-    let expanded = struct_param::expand(Variable::new("param"));
+    let expanded = struct_param::expand(Variable::new("param", None));
     let expected = Block::<u32>::new(vec![Statement::Return(Box::new(Expression::Binary {
         left: Box::new(Expression::FieldAccess {
             base: var("param", Elem::Pointer),
             name: "a".to_string(),
             ty: Elem::UInt,
+            vectorization: None,
         }),
         operator: Operator::Mul,
         right: Box::new(Expression::FieldAccess {
             base: var("param", Elem::Pointer),
             name: "b".to_string(),
             ty: Elem::UInt,
+            vectorization: None,
         }),
         ty: Elem::UInt,
+        vectorization: None,
     }))]);
 
     assert_eq!(expanded, expected);

@@ -8,6 +8,10 @@ impl Expr for Break {
     fn expression_untyped(&self) -> super::Expression {
         Expression::Break
     }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        None
+    }
 }
 
 pub struct Continue;
@@ -17,6 +21,10 @@ impl Expr for Continue {
 
     fn expression_untyped(&self) -> Expression {
         Expression::Continue
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        None
     }
 }
 
@@ -45,5 +53,9 @@ impl<TNum: SquareType> Expr for ForLoop<TNum> {
             variable: Box::new(self.variable.expression_untyped()),
             block: self.block.statements.iter().cloned().collect(),
         }
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        None
     }
 }
