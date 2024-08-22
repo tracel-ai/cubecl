@@ -22,6 +22,9 @@ impl ToTokens for Kernel {
         let input_checks = self
             .parameters
             .iter()
+            // Const can be anything as long as the accessed fields are cube types, since the access
+            // gets resolved at expansion time and collapsed into a literal in the kernel
+            .filter(|(_, _, is_const)| !is_const)
             .map(|(_, ty, _)| {
                 let span = ty.span();
                 let check = prefix_ir(format_ident!("assert_valid_type"));
