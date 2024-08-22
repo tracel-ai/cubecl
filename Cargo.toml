@@ -4,17 +4,13 @@
 # https://doc.rust-lang.org/cargo/reference/resolver.html#feature-resolver-version-2
 resolver = "2"
 
-members = [
-    "crates/*",
-    "examples/*", "profiling/matmul-example",
-    "xtask",
-]
+members = ["crates/*", "examples/*", "profiling/matmul-example", "xtask"]
 
 [workspace.package]
 edition = "2021"
-version = "0.1.1"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+version = "0.1.1"
 
 
 [workspace.dependencies]
@@ -29,23 +25,23 @@ serde = { version = "1.0.204", default-features = false, features = [
 serde_json = { version = "1.0.119", default-features = false }
 
 dashmap = "5.5.3"
-spin = { version = "0.9.8", features = ["mutex", "spin_mutex"] }
 hashbrown = "0.14.5"
+spin = { version = "0.9.8", features = ["mutex", "spin_mutex"] }
 
+getrandom = { version = "0.2.15", default-features = false }
 rand = { version = "0.8.5", default-features = false, features = [
     "std_rng",
 ] } # std_rng is for no_std
-getrandom = { version = "0.2.15", default-features = false }
 
-pollster = "0.3"
-dirs = "5.0.1"
-web-time = "1.1.0"
-md5 = "0.7.0"
 async-channel = "2.3"
+dirs = "5.0.1"
+md5 = "0.7.0"
+pollster = "0.3"
+web-time = "1.1.0"
 
 # Testing
-serial_test = "3.1.1"
 rstest = "0.19.0"
+serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
 half = { version = "2.4.1", features = [
@@ -58,17 +54,23 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 ] } # libm is for no_std
 
 proc-macro2 = "1.0.86"
-syn = { version = "2.0.69", features = ["full", "extra-traits"] }
 quote = "1.0.36"
+syn = { version = "2.0.69", features = ["full", "extra-traits"] }
 
 # xtask
 anyhow = "1.0.86"
 clap = { version = "4.5.9", features = ["derive"] }
-derive_more = { version = "0.99.18", features = ["display"], default-features = false }
+derive_more = { version = "1", features = [
+    "display",
+    "add",
+    "mul",
+], default-features = false }
 env_logger = "0.11.3"
-strum = {version = "0.26.3", features = ["derive"]}
+strum = { version = "0.26.3", features = ["derive"] }
 
-portable-atomic-util = { version = "0.2.2", features = ["alloc"] } # alloc is for no_std
+portable-atomic-util = { version = "0.2.2", features = [
+    "alloc",
+] } # alloc is for no_std
 
 [profile.dev]
 opt-level = 2

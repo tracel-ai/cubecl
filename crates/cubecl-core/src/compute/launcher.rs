@@ -140,6 +140,7 @@ impl<R: Runtime> KernelLauncher<R> {
                 Elem::UInt => self.scalar_u32.register::<R>(client, &mut bindings),
                 Elem::AtomicUInt => self.scalar_u32.register::<R>(client, &mut bindings),
                 Elem::Bool => panic!("Bool can't be passed as bindings."),
+                Elem::Pointer => panic!("Pointer can't be passed as bindings."),
             }
         }
 

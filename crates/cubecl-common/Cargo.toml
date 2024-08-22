@@ -1,5 +1,8 @@
 [package]
-authors = ["Dilshod Tadjibaev (@antimora)", "Nathaniel Simard (@nathanielsimard)"]
+authors = [
+    "Dilshod Tadjibaev (@antimora)",
+    "Nathaniel Simard (@nathanielsimard)",
+]
 categories = ["science", "mathematics", "algorithms"]
 description = "Common crate for CubeCL"
 edition.workspace = true
@@ -20,18 +23,23 @@ web-time = { version = "1.1.0" }
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
-spin = { workspace = true }                      # using in place of use std::sync::Mutex;
 derive-new = { workspace = true }
-serde = { workspace = true }
-rand = { workspace = true }
+derive_more = { workspace = true }
 pollster = { workspace = true, optional = true }
+rand = { workspace = true }
+serde = { workspace = true }
+spin = { workspace = true }                      # using in place of use std::sync::Mutex;
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
 portable-atomic-util = { workspace = true }
-spin = { workspace = true, features = ["mutex", "spin_mutex", "portable_atomic"] }
+spin = { workspace = true, features = [
+    "mutex",
+    "spin_mutex",
+    "portable_atomic",
+] }
 
 [dev-dependencies]
 dashmap = { workspace = true }

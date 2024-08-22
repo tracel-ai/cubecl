@@ -61,6 +61,7 @@ pub enum Elem {
     U32,
     AtomicU32,
     Bool,
+    Pointer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -209,6 +210,7 @@ impl Elem {
             Self::U32 => core::mem::size_of::<u32>(),
             Self::AtomicU32 => core::mem::size_of::<u32>(),
             Self::Bool => core::mem::size_of::<bool>(),
+            Self::Pointer => core::mem::size_of::<usize>(),
         }
     }
 
@@ -226,6 +228,7 @@ impl Display for Elem {
             Self::U32 => f.write_str("u32"),
             Self::AtomicU32 => f.write_str("atomic<u32>"),
             Self::Bool => f.write_str("bool"),
+            Self::Pointer => f.write_str("ptr"),
         }
     }
 }

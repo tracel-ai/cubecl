@@ -268,6 +268,7 @@ mod tests {
             Elem::UInt => cpa!(scope, x = x + 2u32),
             Elem::AtomicUInt => cpa!(scope, x = x + 2u32),
             Elem::Bool => cpa!(scope, x = x && false),
+            Elem::Pointer => cpa!(scope, x = x),
         }
 
         cpa!(scope, y = cast(x));
@@ -279,6 +280,7 @@ mod tests {
             Elem::UInt => cpa!(scope, y = y + 34u32),
             Elem::AtomicUInt => cpa!(scope, y = y + 34u32),
             Elem::Bool => cpa!(scope, y = y || true),
+            Elem::Pointer => cpa!(scope, y = y),
         }
 
         format!("{:?}", scope.operations)

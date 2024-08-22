@@ -19,6 +19,8 @@ pub mod prelude;
 mod pod;
 mod runtime;
 
+pub mod new_ir;
+
 pub use codegen::*;
 pub use pod::*;
 pub use runtime::*;

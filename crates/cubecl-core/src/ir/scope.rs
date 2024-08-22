@@ -86,6 +86,7 @@ impl Scope {
             Elem::UInt => ConstantScalarValue::UInt(value.to_u64().unwrap()),
             Elem::AtomicUInt => ConstantScalarValue::UInt(value.to_u64().unwrap()),
             Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
+            Elem::Pointer => panic!("Can't initialize pointer with a value"),
         };
         let local = self.create_local(item);
         let value = Variable::ConstantScalar(value);
