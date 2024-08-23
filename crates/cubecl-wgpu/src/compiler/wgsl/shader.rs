@@ -229,10 +229,10 @@ impl Display for Visibility {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             // With the dynamic memory strategy we have to put everywhing read_write.
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(not(simple_memory_management))]
             Visibility::Read => f.write_str("read_write"),
             // With the simple memory strategy we can use the correct visibility.
-            #[cfg(target_family = "wasm")]
+            #[cfg(simple_memory_management)]
             Visibility::Read => f.write_str("read"),
             Visibility::ReadWrite => f.write_str("read_write"),
         }

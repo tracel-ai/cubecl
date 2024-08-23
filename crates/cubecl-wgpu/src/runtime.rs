@@ -21,12 +21,12 @@ static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> 
 
 type Server = WgpuServer<MemoryManagement>;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(simple_memory_management))]
 type MemoryManagement = memory_management::dynamic::DynamicMemoryManagement<WgpuStorage>;
-#[cfg(target_family = "wasm")]
+#[cfg(simple_memory_management)]
 type MemoryManagement = memory_management::simple::SimpleMemoryManagement<WgpuStorage>;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(simple_memory_management))]
 fn init_memory_management(device: Arc<wgpu::Device>, limits: &Limits) -> MemoryManagement {
     let storage = WgpuStorage::new(device.clone());
 
@@ -39,8 +39,8 @@ fn init_memory_management(device: Arc<wgpu::Device>, limits: &Limits) -> MemoryM
     )
 }
 
-#[cfg(target_family = "wasm")]
-fn init_memory_management(device: Arc<wgpu::Device>, limits: &Limits) -> MemoryManagement {
+#[cfg(simple_memory_management)]
+fn init_memory_management(device: Arc<wgpu::Device>, _limits: &Limits) -> MemoryManagement {
     let storage = WgpuStorage::new(device.clone());
 
     memory_management::simple::SimpleMemoryManagement::new(
