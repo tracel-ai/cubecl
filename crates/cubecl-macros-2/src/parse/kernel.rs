@@ -5,6 +5,8 @@ use syn::{parse::Parse, Attribute, FnArg, Generics, Ident, ItemFn, Meta, Pat, Ty
 
 use crate::{scope::Context, statement::Statement};
 
+use super::helpers::is_comptime_attr;
+
 pub struct Kernel {
     pub(crate) visibility: Visibility,
     pub(crate) name: Ident,
@@ -16,11 +18,10 @@ pub struct Kernel {
     pub(crate) context: RefCell<Context>,
 }
 
-impl Parse for Kernel {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+impl Kernel {
+    pub fn from_item_fn(function: ItemFn) -> syn::Result<Self> {
         let mut context = Context::default();
 
-        let function: ItemFn = input.parse()?;
         let name = function.sig.ident;
         let vis = function.vis;
         let generics = function.sig.generics;
@@ -86,7 +87,5 @@ impl Parse for Kernel {
 }
 
 fn is_const(attrs: &[Attribute]) -> bool {
-    attrs.iter().any(
-        |attr| matches!(&attr.meta, Meta::Path(path) if path.is_ident(&format_ident!("comptime"))),
-    )
+    attrs.iter().any(is_comptime_attr)
 }

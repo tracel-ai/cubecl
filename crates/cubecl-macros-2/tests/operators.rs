@@ -1,6 +1,4 @@
 mod common;
-use std::marker::PhantomData;
-
 use common::*;
 use cubecl_core::{
     ir::{Elem, FloatKind, IntKind},
@@ -24,72 +22,69 @@ fn simple_arithmetic() {
     }
 
     let expansion = simple_arithmetic::expand();
-    let expected = Block::<()> {
-        statements: vec![
-            local_init("a", lit(1u32), true, Some(Elem::UInt)),
-            local_init(
-                "b",
-                Box::new(Expression::Binary {
-                    left: var("a", Elem::UInt),
-                    right: lit(3u32),
-                    operator: Operator::Mul,
-                    ty: Elem::UInt,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-            local_init(
-                "c",
-                Box::new(Expression::Binary {
-                    left: var("b", Elem::UInt),
-                    operator: Operator::Add,
-                    right: var("a", Elem::UInt),
-                    ty: Elem::UInt,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-            local_init(
-                "d",
-                Box::new(Expression::Binary {
-                    left: lit(2u32),
-                    operator: Operator::Div,
-                    right: var("a", Elem::UInt),
-                    ty: Elem::UInt,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-            local_init(
-                "e",
-                Box::new(Expression::Binary {
-                    left: lit(3u32),
-                    operator: Operator::Rem,
-                    right: var("b", Elem::UInt),
-                    ty: Elem::UInt,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-            local_init(
-                "f",
-                Box::new(Expression::Binary {
-                    left: var("b", Elem::UInt),
-                    operator: Operator::Sub,
-                    right: var("a", Elem::UInt),
-                    ty: Elem::UInt,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-        ],
-        _ty: PhantomData,
-    };
+    let expected = Block::<()>::new(vec![
+        local_init("a", lit(1u32), true, Some(Elem::UInt)),
+        local_init(
+            "b",
+            Box::new(Expression::Binary {
+                left: var("a", Elem::UInt),
+                right: lit(3u32),
+                operator: Operator::Mul,
+                ty: Elem::UInt,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init(
+            "c",
+            Box::new(Expression::Binary {
+                left: var("b", Elem::UInt),
+                operator: Operator::Add,
+                right: var("a", Elem::UInt),
+                ty: Elem::UInt,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init(
+            "d",
+            Box::new(Expression::Binary {
+                left: lit(2u32),
+                operator: Operator::Div,
+                right: var("a", Elem::UInt),
+                ty: Elem::UInt,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init(
+            "e",
+            Box::new(Expression::Binary {
+                left: lit(3u32),
+                operator: Operator::Rem,
+                right: var("b", Elem::UInt),
+                ty: Elem::UInt,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init(
+            "f",
+            Box::new(Expression::Binary {
+                left: var("b", Elem::UInt),
+                operator: Operator::Sub,
+                right: var("a", Elem::UInt),
+                ty: Elem::UInt,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+    ]);
 
     assert_eq!(expansion, expected);
 }
@@ -100,93 +95,90 @@ fn cmp_ops() {
     #[cube2]
     fn cmp_ops() {
         let mut a = 1u32;
-        let mut b = a > 1;
-        let mut c = a <= 1;
-        let mut d = a < 11;
-        let mut e = 1 >= a;
-        let mut f = a == 2;
-        let mut g = a != 2;
+        let mut b = a > 1u32;
+        let mut c = a <= 1u32;
+        let mut d = a < 11u32;
+        let mut e = 1u32 >= a;
+        let mut f = a == 2u32;
+        let mut g = a != 2u32;
     }
 
     let expanded = cmp_ops::expand();
-    let expected = Block::<()> {
-        statements: vec![
-            local_init("a", lit(1u32), true, None),
-            local_init(
-                "b",
-                Box::new(Binary {
-                    left: var("a", Elem::UInt),
-                    operator: Operator::Gt,
-                    right: lit(1u32),
-                    ty: Elem::Bool,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-            local_init(
-                "c",
-                Box::new(Binary {
-                    left: var("a", Elem::UInt),
-                    operator: Operator::Le,
-                    right: lit(1u32),
-                    ty: Elem::Bool,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-            local_init(
-                "d",
-                Box::new(Binary {
-                    left: var("a", Elem::UInt),
-                    operator: Operator::Lt,
-                    right: lit(11u32),
-                    ty: Elem::Bool,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-            local_init(
-                "e",
-                Box::new(Binary {
-                    left: lit(1u32),
-                    operator: Operator::Ge,
-                    right: var("a", Elem::UInt),
-                    ty: Elem::Bool,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-            local_init(
-                "f",
-                Box::new(Binary {
-                    left: var("a", Elem::UInt),
-                    operator: Operator::Eq,
-                    right: lit(2u32),
-                    ty: Elem::Bool,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-            local_init(
-                "g",
-                Box::new(Binary {
-                    left: var("a", Elem::UInt),
-                    operator: Operator::Ne,
-                    right: lit(2u32),
-                    ty: Elem::Bool,
-                    vectorization: None,
-                }),
-                true,
-                None,
-            ),
-        ],
-        _ty: PhantomData,
-    };
+    let expected = Block::<()>::new(vec![
+        local_init("a", lit(1u32), true, None),
+        local_init(
+            "b",
+            Box::new(Binary {
+                left: var("a", Elem::UInt),
+                operator: Operator::Gt,
+                right: lit(1u32),
+                ty: Elem::Bool,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init(
+            "c",
+            Box::new(Binary {
+                left: var("a", Elem::UInt),
+                operator: Operator::Le,
+                right: lit(1u32),
+                ty: Elem::Bool,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init(
+            "d",
+            Box::new(Binary {
+                left: var("a", Elem::UInt),
+                operator: Operator::Lt,
+                right: lit(11u32),
+                ty: Elem::Bool,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init(
+            "e",
+            Box::new(Binary {
+                left: lit(1u32),
+                operator: Operator::Ge,
+                right: var("a", Elem::UInt),
+                ty: Elem::Bool,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init(
+            "f",
+            Box::new(Binary {
+                left: var("a", Elem::UInt),
+                operator: Operator::Eq,
+                right: lit(2u32),
+                ty: Elem::Bool,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+        local_init(
+            "g",
+            Box::new(Binary {
+                left: var("a", Elem::UInt),
+                operator: Operator::Ne,
+                right: lit(2u32),
+                ty: Elem::Bool,
+                vectorization: None,
+            }),
+            true,
+            None,
+        ),
+    ]);
 
     assert_eq!(expanded, expected);
 }

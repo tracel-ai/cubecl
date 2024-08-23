@@ -7,7 +7,9 @@ use syn::{
     Pat, PatType, Receiver, Type, Visibility,
 };
 
-use crate::{ir_type, parse::kernel::Kernel, prefix_ir, scope::Context, statement::Statement};
+use crate::{
+    ir_type, parse::kernel::Kernel, prefix_ir, scope::Context, statement::Statement, IR_PATH,
+};
 
 impl ToTokens for Kernel {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
@@ -34,9 +36,11 @@ impl ToTokens for Kernel {
             })
             .collect::<Vec<_>>();
         let block = ir_type("Block");
+        let ir_path = IR_PATH.clone();
         tokens.extend(quote! {
             #vis mod #name {
                 use super::*;
+                use #ir_path::{FieldExpandExpr as _, MethodExpandExpr as _};
 
                 fn __check_inputs() {
                     #(#input_checks)*

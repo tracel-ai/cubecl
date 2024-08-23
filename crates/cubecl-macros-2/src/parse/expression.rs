@@ -132,6 +132,21 @@ impl Expression {
                     .collect::<Result<Vec<_>, _>>()?;
                 Expression::FunctionCall { func, args, span }
             }
+            Expr::MethodCall(method) => {
+                let span = method.span();
+                let receiver = Expression::from_expr(*method.receiver, context)?;
+                let args = method
+                    .args
+                    .into_iter()
+                    .map(|arg| Expression::from_expr(arg, context))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Expression::MethodCall {
+                    receiver: Box::new(receiver),
+                    method: method.method,
+                    args,
+                    span,
+                }
+            }
             Expr::Cast(cast) => {
                 let span = cast.span();
                 let from = Expression::from_expr(*cast.expr, context)?;
@@ -149,13 +164,9 @@ impl Expression {
             Expr::Field(field) => {
                 let span = field.span();
                 let base = Expression::from_expr(*field.base.clone(), context)?;
-                let struct_ty = base.ty().ok_or_else(|| {
-                    syn::Error::new(span, "Type of struct must be known when accessing fields")
-                })?;
                 Expression::FieldAccess {
                     base: Box::new(base),
                     field: field.member,
-                    struct_ty,
                     span,
                 }
             }
@@ -166,7 +177,6 @@ impl Expression {
             Expr::Loop(_) => todo!(),
             Expr::Macro(_) => todo!(),
             Expr::Match(_) => todo!(),
-            Expr::MethodCall(_) => todo!(),
             Expr::Paren(_) => todo!(),
             Expr::Range(_) => todo!(),
             Expr::Reference(_) => todo!(),

@@ -7,6 +7,9 @@ use crate::{
 
 use super::Expr;
 
+pub trait TypeEq<T> {}
+impl<T> TypeEq<T> for T {}
+
 pub trait SquareType {
     fn ir_type() -> Elem;
     fn vectorization(&self) -> Option<NonZero<u8>> {
@@ -18,10 +21,44 @@ pub trait KernelArg {}
 
 impl<T: SquareType> KernelArg for T {}
 
-pub trait KernelStruct: SquareType + Sized {
-    type Expanded<Base: Expr<Output = Self> + Clone>;
+pub trait FieldExpand: SquareType + Sized {
+    type Expanded<Base: Expr<Output = Self>>;
 
-    fn expand<Base: Expr<Output = Self> + Clone>(base: Base) -> Self::Expanded<Base>;
+    fn expand_fields<Base: Expr<Output = Self>>(base: Base) -> Self::Expanded<Base>;
+}
+
+pub trait FieldExpandExpr<Inner: FieldExpand>: Expr<Output = Inner> + Sized {
+    fn expand_fields(self) -> Inner::Expanded<Self> {
+        Inner::expand_fields(self)
+    }
+}
+
+impl<Expression: Expr> FieldExpandExpr<Expression::Output> for Expression where
+    Expression::Output: FieldExpand
+{
+}
+
+pub trait MethodExpand: Sized {
+    type Expanded<Inner: Expr<Output = Self>>;
+
+    fn expand_methods<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner>;
+}
+
+pub trait MethodExpandExpr<Inner: MethodExpand>: Expr<Output = Inner> + Sized {
+    fn expand_methods(self) -> Inner::Expanded<Self> {
+        Inner::expand_methods(self)
+    }
+}
+
+impl<Expression: Expr> MethodExpandExpr<Expression::Output> for Expression where
+    Expression::Output: MethodExpand
+{
+}
+
+impl SquareType for () {
+    fn ir_type() -> Elem {
+        Elem::Pointer
+    }
 }
 
 macro_rules! primitive {
@@ -48,16 +85,68 @@ macro_rules! vectorized_primitive {
     };
 }
 
-primitive!(i32, Elem::Int(IntKind::I32));
-primitive!(i64, Elem::Int(IntKind::I64));
-primitive!(u32, Elem::UInt);
+macro_rules! int_primitive {
+    ($primitive:ident, $var_type:expr) => {
+        primitive!($primitive, $var_type);
+    };
+}
+
+macro_rules! vectorized_int_primitive {
+    ($primitive:ident, $var_type:expr) => {
+        vectorized_primitive!($primitive, $var_type);
+    };
+}
+
+int_primitive!(i32, Elem::Int(IntKind::I32));
+int_primitive!(i64, Elem::Int(IntKind::I64));
+int_primitive!(u32, Elem::UInt);
 primitive!(f32, Elem::Float(FloatKind::F32));
 primitive!(f64, Elem::Float(FloatKind::F64));
 
-vectorized_primitive!(UInt, Elem::UInt);
-vectorized_primitive!(I32, Elem::Int(IntKind::I32));
-vectorized_primitive!(I64, Elem::Int(IntKind::I64));
+vectorized_int_primitive!(UInt, Elem::UInt);
+vectorized_int_primitive!(I32, Elem::Int(IntKind::I32));
+vectorized_int_primitive!(I64, Elem::Int(IntKind::I64));
 vectorized_primitive!(F32, Elem::Float(FloatKind::F32));
 vectorized_primitive!(F64, Elem::Float(FloatKind::F64));
 
 primitive!(bool, Elem::Bool);
+
+// impl NumCast for UInt {
+//     fn from<T: ToPrimitive>(n: T) -> Option<Self> {
+//         n.to_u32().map(Into::into)
+//     }
+// }
+
+// impl ToPrimitive for UInt {
+//     fn to_i64(&self) -> Option<i64> {
+//         Some(self.val as i64)
+//     }
+
+//     fn to_u64(&self) -> Option<u64> {
+//         Some(self.val as u64)
+//     }
+// }
+
+// impl Num for UInt {
+//     type FromStrRadixErr = <u32 as Num>::FromStrRadixErr;
+
+//     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
+//         u32::from_str_radix(str, radix).map(Into::into)
+//     }
+// }
+
+// impl One for UInt {
+//     fn one() -> Self {
+//         1.into()
+//     }
+// }
+
+// impl Zero for UInt {
+//     fn zero() -> Self {
+//         0.into()
+//     }
+
+//     fn is_zero(&self) -> bool {
+//         self.val == 0
+//     }
+// }

@@ -2,15 +2,14 @@
 
 use std::{cell::LazyCell, collections::HashSet};
 
-use generate::strip_comptime;
-use parse::{args::Args, kernel::Kernel, kernel_struct::KernelStruct};
+use parse::{args::Args, helpers::RemoveHelpers, kernel::Kernel, kernel_struct::FieldExpand};
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{format_ident, quote};
 use statement::Statement;
 use syn::{
-    parse::Parse, parse_macro_input, punctuated::Punctuated, Ident, ItemFn, Path, PathSegment,
-    Token,
+    parse::Parse, parse_macro_input, punctuated::Punctuated, visit_mut::VisitMut, Ident, ItemFn,
+    Path, PathSegment, Token,
 };
 
 mod expression;
@@ -43,10 +42,12 @@ pub(crate) fn ir_type(ty: &str) -> Path {
 #[proc_macro_attribute]
 pub fn cube2(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as Args);
-    let in_2 = input.clone();
-    let kernel = parse_macro_input!(in_2 as Kernel);
     let mut function = parse_macro_input!(input as ItemFn);
-    strip_comptime(&mut function);
+    let kernel = match Kernel::from_item_fn(function.clone()) {
+        Ok(kernel) => kernel,
+        Err(e) => return TokenStream::from(e.to_compile_error()),
+    };
+    RemoveHelpers.visit_item_fn_mut(&mut function);
 
     TokenStream::from(quote! {
         #function
@@ -56,7 +57,7 @@ pub fn cube2(args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[proc_macro_derive(KernelArg)]
 pub fn derive_square_type(input: TokenStream) -> TokenStream {
-    let kernel_struct = parse_macro_input!(input as KernelStruct);
+    let kernel_struct = parse_macro_input!(input as FieldExpand);
 
     TokenStream::from(quote![#kernel_struct])
 }

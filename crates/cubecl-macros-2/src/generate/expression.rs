@@ -21,8 +21,8 @@ impl ToTokens for Expression {
                 let binop = ir_type("BinaryOp");
                 quote_spanned! {span=>
                     #expr_ty(#binop::new(
-                        Box::new(#left),
-                        Box::new(#right)
+                        #left,
+                        #right
                     ))
                 }
             }
@@ -37,7 +37,7 @@ impl ToTokens for Expression {
                 let ty_un = prefix_ir(format_ident!("UnaryOp"));
                 quote_spanned! {span=>
                     #ty(#ty_un::new(
-                        Box::new(#input),
+                        #input,
                     ))
                 }
             }
@@ -48,17 +48,16 @@ impl ToTokens for Expression {
                 }
             }
             Expression::FieldAccess {
-                base,
-                field,
-                span,
-                struct_ty,
-                ..
+                base, field, span, ..
             } => {
                 let span = span.clone();
                 let access = ir_type("FieldAccess");
-                let kernel_struct = ir_type("KernelStruct");
+                let field = match field {
+                    syn::Member::Named(ident) => format_ident!("field_{ident}"),
+                    syn::Member::Unnamed(index) => format_ident!("field_{}", index.index),
+                };
                 quote_spanned! {span=>
-                    <#struct_ty as #kernel_struct>::expand(#base).#field
+                    #base.expand_fields().#field()
                 }
             }
             Expression::Literal { value, span, ty } => {
@@ -123,11 +122,22 @@ impl ToTokens for Expression {
             }
             Expression::FunctionCall { func, span, args } => {
                 let span = span.clone();
-                // TODO: Make expand return Block<T>
+                let func = func.as_const().unwrap_or_else(|| quote![#func]);
                 // We pass in the `Variable`s and `Literal`s into the expansion so they can be rebound
                 // in the function root scope
                 quote_spanned! {span=>
-                    #func ::expand(#(#args.into()),*)
+                    #func::expand(#(#args),*)
+                }
+            }
+            Expression::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => {
+                let span = span.clone();
+                quote_spanned! {span=>
+                    #receiver.expand_methods().#method(#(#args),*)
                 }
             }
             Expression::Break { span } => {
@@ -155,9 +165,7 @@ impl ToTokens for Expression {
                 }
             }
             Expression::ForLoop {
-                from,
-                to,
-                step,
+                range,
                 unroll,
                 var_name,
                 var_ty,
@@ -174,11 +182,6 @@ impl ToTokens for Expression {
                 );
                 let for_ty = ir_type("ForLoop");
                 let block_ty = ir_type("Block");
-                let step = if let Some(step) = step {
-                    quote![Some(Box::new(#step))]
-                } else {
-                    quote![None]
-                };
                 let block = quote_spanned! {span=>
                     #block_ty::<()>::new(vec![
                         #(#block,)*
@@ -186,9 +189,7 @@ impl ToTokens for Expression {
                 };
                 quote_spanned! {span=>
                     #for_ty {
-                        from: Box::new(#from),
-                        to: Box::new(#to),
-                        step: #step,
+                        range: #range,
                         unroll: #unroll,
                         variable: #variable,
                         block: #block,

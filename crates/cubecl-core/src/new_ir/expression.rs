@@ -1,7 +1,7 @@
 use crate::ir::Elem;
 use std::{marker::PhantomData, num::NonZero};
 
-use super::{largest_common_vectorization, Operator, SquareType, Statement};
+use super::{largest_common_vectorization, Operator, SquareType, Statement, TypeEq};
 
 type Vectorization = Option<NonZero<u8>>;
 
@@ -54,7 +54,7 @@ pub enum Expression {
         inner: Vec<Statement>,
         ret: Option<Box<Expression>>,
         vectorization: Vectorization,
-        ty: Option<Elem>,
+        ty: Elem,
     },
     Break,
     Cast {
@@ -66,7 +66,7 @@ pub enum Expression {
     ForLoop {
         from: Box<Expression>,
         to: Box<Expression>,
-        step: Option<Box<Expression>>,
+        step: Box<Expression>,
         unroll: bool,
         variable: Box<Expression>,
         block: Vec<Statement>,
@@ -134,8 +134,8 @@ impl<T: SquareType> Expr for Variable<T> {
 }
 
 #[derive(new, Hash)]
-pub struct FieldAccess<T: SquareType, TBase: Expr + Clone> {
-    pub base: Box<TBase>,
+pub struct FieldAccess<T: SquareType, TBase: Expr> {
+    pub base: TBase,
     pub name: &'static str,
     pub _type: PhantomData<T>,
 }
@@ -150,7 +150,7 @@ impl<T: SquareType, TBase: Expr + Clone + Copy> Clone for FieldAccess<T, TBase> 
     }
 }
 
-impl<T: SquareType, TBase: Expr + Clone> Expr for FieldAccess<T, TBase> {
+impl<T: SquareType, TBase: Expr> Expr for FieldAccess<T, TBase> {
     type Output = T;
 
     fn expression_untyped(&self) -> Expression {
@@ -167,19 +167,25 @@ impl<T: SquareType, TBase: Expr + Clone> Expr for FieldAccess<T, TBase> {
     }
 }
 
-pub struct Assignment<T: SquareType> {
-    pub left: Box<dyn Expr<Output = T>>,
-    pub right: Box<dyn Expr<Output = T>>,
+pub struct Assignment<Left: Expr, Right: Expr>
+where
+    Left::Output: SquareType + TypeEq<Right::Output>,
+{
+    pub left: Left,
+    pub right: Right,
 }
 
-impl<T: SquareType> Expr for Assignment<T> {
+impl<Left: Expr, Right: Expr> Expr for Assignment<Left, Right>
+where
+    Left::Output: SquareType + TypeEq<Right::Output>,
+{
     type Output = ();
 
     fn expression_untyped(&self) -> Expression {
         Expression::Assigment {
             left: Box::new(self.left.expression_untyped()),
             right: Box::new(self.right.expression_untyped()),
-            ty: <T as SquareType>::ir_type(),
+            ty: <Left::Output as SquareType>::ir_type(),
             vectorization: self.vectorization(),
         }
     }
@@ -189,19 +195,25 @@ impl<T: SquareType> Expr for Assignment<T> {
     }
 }
 
-pub struct Initializer<T: SquareType> {
-    pub left: Box<dyn Expr<Output = T>>,
-    pub right: Box<dyn Expr<Output = T>>,
+pub struct Initializer<Left: Expr, Right: Expr>
+where
+    Right::Output: SquareType + TypeEq<Left::Output>,
+{
+    pub left: Left,
+    pub right: Right,
 }
 
-impl<T: SquareType> Expr for Initializer<T> {
-    type Output = T;
+impl<Left: Expr, Right: Expr> Expr for Initializer<Left, Right>
+where
+    Right::Output: SquareType + TypeEq<Left::Output>,
+{
+    type Output = Right::Output;
 
     fn expression_untyped(&self) -> Expression {
         Expression::Init {
             left: Box::new(self.left.expression_untyped()),
             right: Box::new(self.right.expression_untyped()),
-            ty: <T as SquareType>::ir_type(),
+            ty: <Right::Output as SquareType>::ir_type(),
             vectorization: self.vectorization(),
         }
     }
@@ -211,12 +223,18 @@ impl<T: SquareType> Expr for Initializer<T> {
     }
 }
 
-pub struct Cast<TFrom: SquareType, TTo: SquareType> {
-    pub from: Box<dyn Expr<Output = TFrom>>,
+pub struct Cast<From: Expr, TTo: SquareType>
+where
+    From::Output: SquareType,
+{
+    pub from: From,
     pub _to: PhantomData<TTo>,
 }
 
-impl<TFrom: SquareType, TTo: SquareType> Expr for Cast<TFrom, TTo> {
+impl<From: Expr, TTo: SquareType> Expr for Cast<From, TTo>
+where
+    From::Output: SquareType,
+{
     type Output = TTo;
 
     fn expression_untyped(&self) -> Expression {

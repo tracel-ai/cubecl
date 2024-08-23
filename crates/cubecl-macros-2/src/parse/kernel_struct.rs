@@ -1,10 +1,10 @@
 use syn::{parse::Parse, ItemStruct};
 
-pub struct KernelStruct {
+pub struct FieldExpand {
     pub strct: ItemStruct,
 }
 
-impl Parse for KernelStruct {
+impl Parse for FieldExpand {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let strct: ItemStruct = input.parse()?;
 

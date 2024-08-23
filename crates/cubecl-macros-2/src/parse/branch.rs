@@ -1,5 +1,5 @@
-use quote::quote;
-use syn::{spanned::Spanned, Block, ExprForLoop};
+use quote::{format_ident, quote};
+use syn::{spanned::Spanned, Block, Expr, ExprForLoop, Meta};
 
 use crate::{
     expression::Expression,
@@ -9,28 +9,10 @@ use crate::{
 
 pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Result<Expression> {
     let span = for_loop.span();
+    let unroll = unroll(&for_loop, context)?;
     let right = Expression::from_expr(*for_loop.expr, context)
         .map_err(|_| syn::Error::new(span, "Unsupported for loop expression"))?;
-    let (from, to, step, unroll) = match right {
-        Expression::FunctionCall { func, args, span } => {
-            let func_name = quote![#func].to_string();
-            if func_name == "range" {
-                let from = args[0].clone();
-                let to = args[1].clone();
-                let unroll = args[2].clone();
-                (from, to, None, unroll)
-            } else if func_name == "range_stepped" {
-                let from = args[0].clone();
-                let to = args[1].clone();
-                let step = args[2].clone();
-                let unroll = args[3].clone();
-                (from, to, Some(step), unroll)
-            } else {
-                Err(syn::Error::new(span, "Unsupported for loop expression"))?
-            }
-        }
-        expr => Err(syn::Error::new(span, "Unsupported for loop expression"))?,
-    };
+
     let (var_name, ty, mutable) = parse_pat(*for_loop.pat)?;
     context.push_scope();
     context.push_variable(var_name.clone(), ty.clone(), false);
@@ -42,9 +24,7 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
         .collect::<Result<Vec<_>, _>>()?;
     context.pop_scope();
     Ok(Expression::ForLoop {
-        from: Box::new(from),
-        to: Box::new(to),
-        step: step.map(Box::new),
+        range: Box::new(right),
         unroll: Box::new(unroll),
         var_name,
         var_ty: ty,
@@ -52,4 +32,28 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
         block: statements,
         span,
     })
+}
+
+fn unroll(for_loop: &ExprForLoop, context: &mut Context) -> syn::Result<Expression> {
+    let attribute = for_loop
+        .attrs
+        .iter()
+        .find(|attr| {
+            attr.path()
+                .get_ident()
+                .map(ToString::to_string)
+                .map(|it| it == "unroll")
+                .unwrap_or(false)
+        })
+        .map(|attr| match &attr.meta {
+            Meta::Path(_) => quote![true],
+            Meta::List(list) => list.tokens.clone(),
+            Meta::NameValue(name_value) => {
+                let value = &name_value.value;
+                quote![#value]
+            }
+        });
+    let attribute = attribute.unwrap_or_else(|| quote![false]);
+    let expr: Expr = syn::parse2(attribute)?;
+    Expression::from_expr(expr, context)
 }

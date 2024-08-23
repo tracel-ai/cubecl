@@ -40,16 +40,13 @@ pub fn const_param() {
         2,
     );
 
-    let expected = Block::<()> {
-        _ty: PhantomData,
-        statements: vec![expr(Box::new(Expression::Binary {
-            left: var("a", UInt),
-            operator: Operator::Mul,
-            right: lit(2u32),
-            ty: UInt,
-            vectorization: None,
-        }))],
-    };
+    let expected = Block::<()>::new(vec![expr(Box::new(Expression::Binary {
+        left: var("a", UInt),
+        operator: Operator::Mul,
+        right: lit(2u32),
+        ty: UInt,
+        vectorization: None,
+    }))]);
 
     assert_eq!(expanded, expected);
 }

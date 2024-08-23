@@ -29,7 +29,7 @@ pub fn largest_common_vectorization(
         (Some(left), None) => Some(left),
         (Some(left), Some(right)) => {
             let smaller = left.min(right).get();
-            let common = (0..=smaller)
+            let common = (1..=smaller)
                 .rev()
                 .find(|divisor| left.get() % divisor == 0 && right.get() % divisor == 0)
                 .unwrap_or(1);

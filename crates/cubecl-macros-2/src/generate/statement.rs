@@ -37,20 +37,18 @@ impl ToTokens for Statement {
                 } else {
                     // Separate init and declaration in case initializer uses an identically named
                     // variable that would be overwritten by the declaration.
-                    let initializer = init
-                        .as_ref()
-                        .map(|init| quote![let __init = Box::new(#init);]);
+                    let initializer = init.as_ref().map(|init| quote![let __init = #init;]);
                     let left = if let Some(init) = init {
                         let span = span.clone();
                         let init_ty = ir_type("Initializer");
                         quote_spanned! {span=>
-                            Box::new(#init_ty {
-                                left: Box::new(#name),
+                            #init_ty {
+                                left: #name,
                                 right: __init
-                            })
+                            }
                         }
                     } else {
-                        quote![Box::new(#name)]
+                        quote![#name]
                     };
                     let expr = ir_type("Expr");
                     let vectorization = initializer

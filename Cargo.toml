@@ -55,7 +55,7 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 
 proc-macro2 = "1.0.86"
 quote = "1.0.36"
-syn = { version = "2.0.69", features = ["full", "extra-traits"] }
+syn = { version = "2.0.69", features = ["full", "extra-traits", "visit-mut"] }
 
 # xtask
 anyhow = "1.0.86"

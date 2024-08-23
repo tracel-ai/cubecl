@@ -7,30 +7,35 @@ use std::{
 use super::{largest_common_vectorization, Expr, Expression, Operator, SquareType};
 
 #[derive(new)]
-pub struct BinaryOp<TLeft, TRight, TOut> {
-    pub left: Box<dyn Expr<Output = TLeft>>,
-    pub right: Box<dyn Expr<Output = TRight>>,
+pub struct BinaryOp<Left: Expr, Right: Expr, TOut>
+where
+    Left::Output: SquareType,
+    Right::Output: SquareType,
+{
+    pub left: Left,
+    pub right: Right,
     pub _out: PhantomData<TOut>,
 }
 
 #[derive(new)]
-pub struct UnaryOp<TIn, TOut> {
-    pub input: Box<dyn Expr<Output = TIn>>,
+pub struct UnaryOp<In: Expr, TOut> {
+    pub input: In,
     pub _out: PhantomData<TOut>,
 }
 
 macro_rules! bin_op {
     ($name:ident, $trait:ident, $operator:path) => {
-        pub struct $name<TLeft: SquareType, TRight: SquareType, TOut: SquareType>(
-            pub BinaryOp<TLeft, TRight, TOut>,
+        pub struct $name<Left: Expr, Right: Expr, TOut: SquareType>(
+            pub BinaryOp<Left, Right, TOut>,
         )
         where
-            TLeft: $trait<TRight, Output = TOut>;
+            Left::Output: $trait<Right::Output, Output = TOut> + SquareType,
+            Right::Output: SquareType;
 
-        impl<TLeft: SquareType, TRight: SquareType, TOut: SquareType> Expr
-            for $name<TLeft, TRight, TOut>
+        impl<Left: Expr, Right: Expr, TOut: SquareType> Expr for $name<Left, Right, TOut>
         where
-            TLeft: $trait<TRight, Output = TOut>,
+            Left::Output: $trait<Right::Output, Output = TOut> + SquareType,
+            Right::Output: SquareType,
         {
             type Output = TOut;
 
@@ -56,9 +61,16 @@ macro_rules! bin_op {
 
 macro_rules! cmp_op {
     ($name:ident, $trait:ident, $operator:path) => {
-        pub struct $name<TLeft: $trait<TRight>, TRight>(pub BinaryOp<TLeft, TRight, bool>);
+        pub struct $name<Left: Expr, Right: Expr>(pub BinaryOp<Left, Right, bool>)
+        where
+            Left::Output: SquareType,
+            Right::Output: SquareType;
 
-        impl<TLeft: $trait<TRight>, TRight> Expr for $name<TLeft, TRight> {
+        impl<Left: Expr, Right: Expr> Expr for $name<Left, Right>
+        where
+            Left::Output: SquareType,
+            Right::Output: SquareType,
+        {
             type Output = bool;
 
             fn expression_untyped(&self) -> Expression {
@@ -83,19 +95,24 @@ macro_rules! cmp_op {
 
 macro_rules! assign_bin_op {
     ($name:ident, $trait:ident, $operator:path) => {
-        pub struct $name<TLeft, TRight>(pub BinaryOp<TLeft, TRight, TLeft>)
+        pub struct $name<Left: Expr, Right: Expr>(pub BinaryOp<Left, Right, Left::Output>)
         where
-            TLeft: $trait<TRight> + SquareType;
+            Left::Output: $trait<Right::Output> + SquareType,
+            Right::Output: SquareType;
 
-        impl<TLeft: $trait<TRight> + SquareType, TRight> Expr for $name<TLeft, TRight> {
-            type Output = TLeft;
+        impl<Left: Expr, Right: Expr> Expr for $name<Left, Right>
+        where
+            Left::Output: $trait<Right::Output> + SquareType,
+            Right::Output: SquareType,
+        {
+            type Output = Left::Output;
 
             fn expression_untyped(&self) -> Expression {
                 Expression::Binary {
                     left: Box::new(self.0.left.expression_untyped()),
                     right: Box::new(self.0.right.expression_untyped()),
                     operator: $operator,
-                    ty: <TLeft as SquareType>::ir_type(),
+                    ty: <Left::Output as SquareType>::ir_type(),
                     vectorization: self.vectorization(),
                 }
             }
@@ -112,9 +129,14 @@ macro_rules! assign_bin_op {
 
 macro_rules! unary_op {
     ($name:ident, $trait:ident, $operator:path, $target:ident) => {
-        pub struct $name<TIn: $trait<$target = TOut>, TOut>(pub UnaryOp<TIn, TOut>);
+        pub struct $name<In: Expr, TOut>(pub UnaryOp<In, TOut>)
+        where
+            In::Output: $trait<$target = TOut> + SquareType;
 
-        impl<TIn: $trait<$target = TOut>, TOut: SquareType> Expr for $name<TIn, TOut> {
+        impl<In: Expr, TOut: SquareType> Expr for $name<In, TOut>
+        where
+            In::Output: $trait<$target = TOut> + SquareType,
+        {
             type Output = TOut;
 
             fn expression_untyped(&self) -> Expression {
@@ -177,10 +199,14 @@ unary_op!(NotExpr, Not, Operator::Not, Output);
 unary_op!(NegExpr, Neg, Operator::Neg, Output);
 unary_op!(DerefExpr, Deref, Operator::Deref, Target);
 
-pub struct AndExpr(pub BinaryOp<bool, bool, bool>);
-pub struct OrExpr(pub BinaryOp<bool, bool, bool>);
+pub struct AndExpr<Left: Expr<Output = bool>, Right: Expr<Output = bool>>(
+    pub BinaryOp<Left, Right, bool>,
+);
+pub struct OrExpr<Left: Expr<Output = bool>, Right: Expr<Output = bool>>(
+    pub BinaryOp<Left, Right, bool>,
+);
 
-impl Expr for AndExpr {
+impl<Left: Expr<Output = bool>, Right: Expr<Output = bool>> Expr for AndExpr<Left, Right> {
     type Output = bool;
 
     fn expression_untyped(&self) -> Expression {
@@ -198,7 +224,7 @@ impl Expr for AndExpr {
     }
 }
 
-impl Expr for OrExpr {
+impl<Left: Expr<Output = bool>, Right: Expr<Output = bool>> Expr for OrExpr<Left, Right> {
     type Output = bool;
 
     fn expression_untyped(&self) -> Expression {

@@ -39,7 +39,6 @@ pub enum Expression {
     FieldAccess {
         base: Box<Expression>,
         field: Member,
-        struct_ty: Type,
         span: Span,
     },
     Literal {
@@ -70,6 +69,12 @@ pub enum Expression {
         args: Vec<Expression>,
         span: Span,
     },
+    MethodCall {
+        receiver: Box<Expression>,
+        method: Ident,
+        args: Vec<Expression>,
+        span: Span,
+    },
     Cast {
         from: Box<Expression>,
         to: Type,
@@ -86,9 +91,7 @@ pub enum Expression {
         span: Span,
     },
     ForLoop {
-        from: Box<Expression>,
-        to: Box<Expression>,
-        step: Option<Box<Expression>>,
+        range: Box<Expression>,
         unroll: Box<Expression>,
         var_name: syn::Ident,
         var_ty: Option<syn::Type>,
@@ -116,6 +119,7 @@ impl Expression {
             Expression::Continue { .. } => None,
             Expression::ForLoop { .. } => None,
             Expression::FieldAccess { .. } => None,
+            Expression::MethodCall { .. } => None,
         }
     }
 
