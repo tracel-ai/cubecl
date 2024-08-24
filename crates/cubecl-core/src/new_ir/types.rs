@@ -27,6 +27,15 @@ pub trait Expand: Sized {
     fn expand<Inner: Expr<Output = Self>>(base: Inner) -> Self::Expanded<Inner>;
 }
 
+pub trait StaticExpand: Sized {
+    type Expanded;
+}
+
+/// Auto impl `StaticExpand for all `Expand` types, with `Self` as the inner expression
+impl<T: Expand + Expr<Output = T>> StaticExpand for T {
+    type Expanded = <T as Expand>::Expanded<T>;
+}
+
 pub trait ExpandExpr<Inner: Expand>: Expr<Output = Inner> + Sized {
     fn expand(self) -> Inner::Expanded<Self> {
         Inner::expand(self)

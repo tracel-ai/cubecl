@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{spanned::Spanned, Ident, Type};
+use syn::{spanned::Spanned, Generics, Ident, Path, PathArguments, PathSegment, Type};
 
 use crate::{expression::Expression, ir_type, prefix_ir};
 
@@ -111,11 +111,20 @@ impl ToTokens for Expression {
                 }
             }
             Expression::FunctionCall { func, span, args } => {
-                let func = func.as_const().unwrap_or_else(|| quote![#func]);
+                let func: TokenStream = func.as_const().unwrap_or_else(|| quote![#func]);
+                let associated_type = fn_associated_type(func.clone());
                 // We pass in the `Variable`s and `Literal`s into the expansion so they can be rebound
                 // in the function root scope
-                quote_spanned! {*span=>
-                    #func::expand(#(#args),*)
+                if let Some((ty_path, name)) = associated_type {
+                    let static_expand = ir_type("StaticExpand");
+                    quote_spanned! {*span=>
+                        <#ty_path as #static_expand>::Expanded::#name(#(#args),*)
+                    }
+                } else {
+                    let (generics, path) = split_generics(func);
+                    quote_spanned! {*span=>
+                        #path::expand #generics(#(#args),*)
+                    }
                 }
             }
             Expression::MethodCall {
@@ -209,4 +218,33 @@ pub fn generate_var(
     quote_spanned! {span=>
         #var #ty ::new(#name, #vectorization)
     }
+}
+
+fn fn_associated_type(path: TokenStream) -> Option<(Path, PathSegment)> {
+    let path: Path = syn::parse2(path).ok()?;
+    let is_assoc = path
+        .segments
+        .iter()
+        .nth_back(1)
+        .and_then(|it| it.ident.to_string().chars().next())
+        .map(|ch| ch.is_uppercase())
+        .unwrap_or(false);
+    if is_assoc {
+        let mut path = path.clone();
+        let name = path.segments.pop().unwrap().into_value();
+        path.segments.pop_punct();
+        Some((path, name))
+    } else {
+        None
+    }
+}
+
+fn split_generics(tokens: TokenStream) -> (PathArguments, Path) {
+    let mut path: Path = syn::parse2(tokens).unwrap();
+    let generics = if let Some(last) = path.segments.last_mut() {
+        core::mem::replace(&mut last.arguments, PathArguments::None)
+    } else {
+        PathArguments::None
+    };
+    (generics, path)
 }

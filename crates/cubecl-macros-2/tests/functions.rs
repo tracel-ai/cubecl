@@ -77,22 +77,29 @@ fn method_call() {
     assert_eq!(expanded, expected);
 }
 
+#[expand_impl]
+impl Dummy {
+    fn associated(b: u32) -> u32 {
+        b * 2
+    }
+
+    #[expanded]
+    pub fn associated<B: Expr<Output = u32>>(b: B) -> impl Expr<Output = u32> {
+        MulExpr::new(b, Literal::new(2))
+    }
+}
+
 #[test]
 fn associated_call() {
     #[allow(unused)]
     #[cube2]
-    fn method_call(a: Dummy) -> u32 {
-        a.method(2)
+    fn associated_call() -> u32 {
+        Dummy::associated(4)
     }
 
-    let expanded = method_call::expand(Variable::new("a", None));
+    let expanded = associated_call::expand();
     let expected = Block::<u32>::new(vec![Statement::Return(Box::new(Expression::Binary {
-        left: Box::new(Expression::FieldAccess {
-            base: var("a", Elem::Pointer),
-            name: "a".to_string(),
-            vectorization: None,
-            ty: Elem::UInt,
-        }),
+        left: lit(4u32),
         operator: Operator::Mul,
         right: lit(2u32),
         vectorization: None,
