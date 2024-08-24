@@ -21,39 +21,22 @@ pub trait KernelArg {}
 
 impl<T: SquareType> KernelArg for T {}
 
-pub trait FieldExpand: SquareType + Sized {
-    type Expanded<Base: Expr<Output = Self>>;
-
-    fn expand_fields<Base: Expr<Output = Self>>(base: Base) -> Self::Expanded<Base>;
-}
-
-pub trait FieldExpandExpr<Inner: FieldExpand>: Expr<Output = Inner> + Sized {
-    fn expand_fields(self) -> Inner::Expanded<Self> {
-        Inner::expand_fields(self)
-    }
-}
-
-impl<Expression: Expr> FieldExpandExpr<Expression::Output> for Expression where
-    Expression::Output: FieldExpand
-{
-}
-
-pub trait MethodExpand: Sized {
+pub trait Expand: Sized {
     type Expanded<Inner: Expr<Output = Self>>;
 
-    fn expand_methods<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner>;
+    fn expand<Inner: Expr<Output = Self>>(base: Inner) -> Self::Expanded<Inner>;
 }
 
-pub trait MethodExpandExpr<Inner: MethodExpand>: Expr<Output = Inner> + Sized {
-    fn expand_methods(self) -> Inner::Expanded<Self> {
-        Inner::expand_methods(self)
+pub trait ExpandExpr<Inner: Expand>: Expr<Output = Inner> + Sized {
+    fn expand(self) -> Inner::Expanded<Self> {
+        Inner::expand(self)
     }
 }
 
-impl<Expression: Expr> MethodExpandExpr<Expression::Output> for Expression where
-    Expression::Output: MethodExpand
-{
-}
+impl<Expression: Expr> ExpandExpr<Expression::Output> for Expression where Expression::Output: Expand
+{}
+
+pub trait MethodExpand: Sized {}
 
 impl SquareType for () {
     fn ir_type() -> Elem {

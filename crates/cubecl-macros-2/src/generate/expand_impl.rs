@@ -12,7 +12,7 @@ impl ToTokens for ExpandImpl {
         let args = &ty.arguments;
         let mut expanded_path = ty_path.clone();
         let expanded_ty = expanded_path.last_mut().unwrap();
-        expanded_ty.ident = format_ident!("{}Methods", ty.ident);
+        expanded_ty.ident = format_ident!("{}Expand", ty.ident);
         apply_generic_names(&mut expanded_ty.arguments);
         let mut generics = self.generics.clone();
         apply_generic_params(&mut generics, &path);

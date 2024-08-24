@@ -68,13 +68,6 @@ pub fn derive_square_type(input: TokenStream) -> TokenStream {
     TokenStream::from(quote![#kernel_struct])
 }
 
-#[proc_macro_derive(CubeMethods)]
-pub fn derive_cube_methods(input: TokenStream) -> TokenStream {
-    let cube_methods = parse_macro_input!(input as MethodExpand);
-
-    TokenStream::from(quote![#cube_methods])
-}
-
 #[proc_macro_attribute]
 pub fn expand_impl(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut impl_block = parse_macro_input!(input as ItemImpl);

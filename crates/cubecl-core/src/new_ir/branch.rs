@@ -1,7 +1,7 @@
 use crate::prelude::Int;
 use std::fmt::Display;
 
-use super::{AddExpr, Block, Expr, Expression, Literal, MethodExpand, SquareType, Variable};
+use super::{AddExpr, Block, Expand, Expr, Expression, Literal, SquareType, Variable};
 
 pub struct Break;
 
@@ -122,12 +122,12 @@ impl<
     }
 }
 
-impl<TNum: SquareType + Int + Display, Start: Expr<Output = TNum>, End: Expr<Output = TNum>>
-    MethodExpand for RangeExpr<TNum, Start, End>
+impl<TNum: SquareType + Int + Display, Start: Expr<Output = TNum>, End: Expr<Output = TNum>> Expand
+    for RangeExpr<TNum, Start, End>
 {
     type Expanded<Inner: Expr<Output = Self>> = RangeExprExpand<TNum, Start, End, Inner>;
 
-    fn expand_methods<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
+    fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
         RangeExprExpand(inner)
     }
 }

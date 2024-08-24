@@ -51,11 +51,11 @@ impl ToTokens for Expression {
                 let span = span.clone();
                 let access = ir_type("FieldAccess");
                 let field = match field {
-                    syn::Member::Named(ident) => format_ident!("field_{ident}"),
-                    syn::Member::Unnamed(index) => format_ident!("field_{}", index.index),
+                    syn::Member::Named(ident) => format_ident!("__{ident}"),
+                    syn::Member::Unnamed(index) => format_ident!("__{}", index.index),
                 };
                 quote_spanned! {span=>
-                    #base.expand_fields().#field()
+                    #base.expand().#field()
                 }
             }
             Expression::Literal { value, span, ty } => {
@@ -135,7 +135,7 @@ impl ToTokens for Expression {
             } => {
                 let span = span.clone();
                 quote_spanned! {span=>
-                    #receiver.expand_methods().#method(#(#args),*)
+                    #receiver.expand().#method(#(#args),*)
                 }
             }
             Expression::Break { span } => {

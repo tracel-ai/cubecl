@@ -26,7 +26,7 @@ impl ToTokens for FieldExpand {
         let expand = generate_expansion(&mut item);
         let expr = ir_type("Expr");
         let expression = ir_type("Expression");
-        let expand_impl = ir_type("FieldExpand");
+        let expand_impl = ir_type("Expand");
         let square_ty = ir_type("SquareType");
         let elem = ir_type("Elem");
         let expand_name = &item.ident;
@@ -50,51 +50,71 @@ impl ToTokens for FieldExpand {
                     #elem::Pointer
                 }
             }
-            // impl<Base: #expr<Output = #name> + Clone> #expand_name<Base> {
-            //     pub fn new(base: Base) -> Self {
-            //         #expand_init
-            //     }
-            // }
-            impl #expand_impl for #name {
-                type Expanded<Base: #expr<Output = #name>> = #expand_name<Base>;
-
-                fn expand_fields<Base: #expr<Output = #name>>(base: Base) -> #expand_name<Base> {
-                    #expand_name(base)
-                }
-            }
         };
         tokens.extend(out);
     }
 }
 
-impl ToTokens for MethodExpand {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let span = tokens.span();
-        let name = &self.strct.ident;
-        let expand_name = format_ident!("{name}Methods");
-        let expr = ir_type("Expr");
-        let vis = &self.strct.vis;
-        let base_generics = &self.strct.generics;
-        let mut generics = base_generics.clone();
-        generics.params.push(
-            syn::parse2(quote![__Inner: #expr<Output = #name>]).expect("Failed to parse generic"),
-        );
-        let method_expand = ir_type("MethodExpand");
-        let mut generic_names = generics.clone();
-        StripBounds.visit_generics_mut(&mut generic_names);
-
-        let out = quote_spanned! {span=>
-            #vis struct #expand_name #generics(__Inner);
-
-            impl #base_generics #method_expand for #name #base_generics {
-                type Expanded<__Inner: Expr<Output = Self>> = #expand_name #generic_names;
-
-                fn expand_methods<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
-                    #expand_name(inner)
-                }
+fn generate_expansion(item: &mut ItemStruct) -> TokenStream {
+    let span = item.span();
+    let fields: Vec<(Ident, Type, Span)> = match &item.fields {
+        Fields::Named(named) => named
+            .named
+            .iter()
+            .map(|field| (field.ident.clone().unwrap(), field.ty.clone(), field.span()))
+            .collect(),
+        Fields::Unnamed(unnamed) => unnamed
+            .unnamed
+            .iter()
+            .enumerate()
+            .map(|(i, field)| (format_ident!("r#{i}"), field.ty.clone(), field.span()))
+            .collect(),
+        Fields::Unit => vec![],
+    };
+    let fields = fields.into_iter().map(|(name, ty, span)| {
+        let func = format_ident!("__{name}");
+        let name = name.to_string();
+        let access = ir_type("FieldAccess");
+        quote_spanned! {span=>
+            pub fn #func(self) -> #access<#ty, __Inner> {
+                #access::new(self.0, #name)
             }
-        };
-        tokens.extend(out);
+        }
+    });
+
+    let name = &item.ident;
+    let expand_name = format_ident!("{name}Expand");
+    let expr = ir_type("Expr");
+    let vis = &item.vis;
+    let base_generics = &item.generics;
+    let mut generics = base_generics.clone();
+    generics.params.push(
+        syn::parse2(quote![__Inner: #expr<Output = #name>]).expect("Failed to parse generic"),
+    );
+    let expand_ty = ir_type("Expand");
+    let mut generic_names = generics.clone();
+    StripBounds.visit_generics_mut(&mut generic_names);
+
+    /*     let generic = generic_param(&item.ident);
+    let span = item.span();
+    item.generics.params.push(generic.clone());
+    item.ident = format_ident!("{}Expand", item.ident);
+    item.fields = Fields::Unnamed(syn::parse2(quote![(Base)]).unwrap()); */
+
+    quote_spanned! {span=>
+        #vis struct #expand_name #generics(__Inner);
+
+        impl #base_generics #expand_ty for #name #base_generics {
+            type Expanded<__Inner: #expr<Output = Self>> = #expand_name #generic_names;
+
+            fn expand<Inner: #expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
+                #expand_name(inner)
+            }
+        }
+
+        impl #generics #expand_name #generic_names {
+            #(#fields)*
+        }
     }
 }
 
@@ -182,49 +202,7 @@ fn expand_init_unnamed(fields: &FieldsUnnamed, name: &Ident) -> TokenStream {
 
 fn generic_param(name: &Ident) -> GenericParam {
     let expr = ir_type("Expr");
-    syn::parse2(quote![Base: #expr<Output = #name>]).unwrap()
-}
-
-fn generate_expansion(item: &mut ItemStruct) -> TokenStream {
-    let fields: Vec<(Ident, Type, Span)> = match &item.fields {
-        Fields::Named(named) => named
-            .named
-            .iter()
-            .map(|field| (field.ident.clone().unwrap(), field.ty.clone(), field.span()))
-            .collect(),
-        Fields::Unnamed(unnamed) => unnamed
-            .unnamed
-            .iter()
-            .enumerate()
-            .map(|(i, field)| (format_ident!("r#{i}"), field.ty.clone(), field.span()))
-            .collect(),
-        Fields::Unit => vec![],
-    };
-    let fields = fields.into_iter().map(|(name, ty, span)| {
-        let func = format_ident!("field_{name}");
-        let name = name.to_string();
-        let access = ir_type("FieldAccess");
-        quote_spanned! {span=>
-            pub fn #func(self) -> #access<#ty, Base> {
-                #access::new(self.0, #name)
-            }
-        }
-    });
-
-    let generic = generic_param(&item.ident);
-    let span = item.span();
-    item.generics.params.push(generic.clone());
-    item.ident = format_ident!("{}Expand", item.ident);
-    item.fields = Fields::Unnamed(syn::parse2(quote![(Base)]).unwrap());
-    let name = &item.ident;
-
-    quote_spanned! {span=>
-        #item
-
-        impl<#generic> #name<Base> {
-            #(#fields)*
-        }
-    }
+    syn::parse2(quote![__Inner: #expr<Output = #name>]).unwrap()
 }
 
 // fn display_impl(item: &ItemStruct) -> TokenStream {

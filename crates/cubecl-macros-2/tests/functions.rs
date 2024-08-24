@@ -1,8 +1,5 @@
-use cubecl_core::{
-    ir::Elem,
-    new_ir::{Block, Expr, Expression, FieldExpandExpr, MulExpr, Operator, Statement, Variable},
-};
-use cubecl_macros_2::{cube2, expand_impl, CubeMethods, KernelArg};
+use cubecl_core::{ir::Elem, new_ir::*};
+use cubecl_macros_2::{cube2, expand_impl, KernelArg};
 use pretty_assertions::assert_eq;
 
 mod common;
@@ -38,7 +35,7 @@ fn function_call() {
     assert_eq!(expanded, expected);
 }
 
-#[derive(KernelArg, CubeMethods)]
+#[derive(KernelArg)]
 struct Dummy {
     a: u32,
 }
@@ -51,7 +48,7 @@ impl Dummy {
 
     #[expanded]
     pub fn method<B: Expr<Output = u32>>(self, b: B) -> impl Expr<Output = u32> {
-        MulExpr::new(self.0.expand_fields().field_a(), b)
+        MulExpr::new(self.0.expand().__a(), b)
     }
 }
 
