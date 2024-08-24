@@ -17,7 +17,7 @@ pub mod sync_units {
 
 /// storageBarrier()
 /// See https://github.com/gpuweb/gpuweb/discussions/3935
-/// https://github.com/gpuweb/gpuweb/discussions/4821#discussioncomment-10397124
+/// https://github.com/gpuweb/gpuweb/discussions/4821
 pub fn sync_storage() {}
 
 pub mod sync_storage {
