@@ -18,12 +18,11 @@ impl ToTokens for Expression {
             } => {
                 let span = span.clone();
                 let expr_ty = prefix_ir(format_ident!("{}Expr", operator.to_string()));
-                let binop = ir_type("BinaryOp");
                 quote_spanned! {span=>
-                    #expr_ty(#binop::new(
+                    #expr_ty::new(
                         #left,
                         #right
-                    ))
+                    )
                 }
             }
             Expression::Unary {
@@ -34,11 +33,10 @@ impl ToTokens for Expression {
             } => {
                 let span = span.clone();
                 let ty = prefix_ir(format_ident!("{}Expr", operator.to_string()));
-                let ty_un = prefix_ir(format_ident!("UnaryOp"));
                 quote_spanned! {span=>
-                    #ty(#ty_un::new(
+                    #ty::new(
                         #input,
-                    ))
+                    )
                 }
             }
             Expression::Variable { name, span, .. } => {

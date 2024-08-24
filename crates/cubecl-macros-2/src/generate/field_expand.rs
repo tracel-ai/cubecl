@@ -3,11 +3,14 @@ use std::iter;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{
-    spanned::Spanned, Field, Fields, FieldsNamed, FieldsUnnamed, GenericParam, Ident, ItemStruct,
-    Type, TypeParam,
+    spanned::Spanned, visit_mut::VisitMut, Field, Fields, FieldsNamed, FieldsUnnamed, GenericParam,
+    Ident, ItemStruct, Type, TypeParam,
 };
 
-use crate::{ir_type, parse::kernel_struct::FieldExpand};
+use crate::{
+    ir_type,
+    parse::kernel_struct::{FieldExpand, MethodExpand},
+};
 
 impl ToTokens for FieldExpand {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
@@ -61,6 +64,66 @@ impl ToTokens for FieldExpand {
             }
         };
         tokens.extend(out);
+    }
+}
+
+impl ToTokens for MethodExpand {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let span = tokens.span();
+        let name = &self.strct.ident;
+        let expand_name = format_ident!("{name}Methods");
+        let expr = ir_type("Expr");
+        let vis = &self.strct.vis;
+        let base_generics = &self.strct.generics;
+        let mut generics = base_generics.clone();
+        generics.params.push(
+            syn::parse2(quote![__Inner: #expr<Output = #name>]).expect("Failed to parse generic"),
+        );
+        let method_expand = ir_type("MethodExpand");
+        let mut generic_names = generics.clone();
+        StripBounds.visit_generics_mut(&mut generic_names);
+
+        let out = quote_spanned! {span=>
+            #vis struct #expand_name #generics(__Inner);
+
+            impl #base_generics #method_expand for #name #base_generics {
+                type Expanded<__Inner: Expr<Output = Self>> = #expand_name #generic_names;
+
+                fn expand_methods<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
+                    #expand_name(inner)
+                }
+            }
+        };
+        tokens.extend(out);
+    }
+}
+
+struct StripBounds;
+
+impl VisitMut for StripBounds {
+    fn visit_generics_mut(&mut self, i: &mut syn::Generics) {
+        for generic in i.params.iter_mut() {
+            match generic {
+                GenericParam::Lifetime(lifetime) => {
+                    lifetime.bounds.clear();
+                    lifetime.colon_token.take();
+                }
+                GenericParam::Type(ty) => {
+                    ty.bounds.clear();
+                    ty.colon_token.take();
+                }
+                GenericParam::Const(con) => {
+                    *generic = GenericParam::Type(TypeParam {
+                        attrs: con.attrs.clone(),
+                        ident: con.ident.clone(),
+                        colon_token: None,
+                        bounds: Default::default(),
+                        eq_token: None,
+                        default: None,
+                    })
+                }
+            }
+        }
     }
 }
 

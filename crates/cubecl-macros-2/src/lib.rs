@@ -2,14 +2,20 @@
 
 use std::{cell::LazyCell, collections::HashSet};
 
-use parse::{args::Args, helpers::RemoveHelpers, kernel::Kernel, kernel_struct::FieldExpand};
+use parse::{
+    args::Args,
+    expand_impl::ExpandImplVisitor,
+    helpers::RemoveHelpers,
+    kernel::Kernel,
+    kernel_struct::{FieldExpand, MethodExpand},
+};
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{format_ident, quote};
 use statement::Statement;
 use syn::{
     parse::Parse, parse_macro_input, punctuated::Punctuated, visit_mut::VisitMut, Ident, ItemFn,
-    Path, PathSegment, Token,
+    ItemImpl, Path, PathSegment, Token,
 };
 
 mod expression;
@@ -60,4 +66,24 @@ pub fn derive_square_type(input: TokenStream) -> TokenStream {
     let kernel_struct = parse_macro_input!(input as FieldExpand);
 
     TokenStream::from(quote![#kernel_struct])
+}
+
+#[proc_macro_derive(CubeMethods)]
+pub fn derive_cube_methods(input: TokenStream) -> TokenStream {
+    let cube_methods = parse_macro_input!(input as MethodExpand);
+
+    TokenStream::from(quote![#cube_methods])
+}
+
+#[proc_macro_attribute]
+pub fn expand_impl(args: TokenStream, input: TokenStream) -> TokenStream {
+    let mut impl_block = parse_macro_input!(input as ItemImpl);
+    let mut visitor = ExpandImplVisitor::default();
+    visitor.visit_item_impl_mut(&mut impl_block);
+    let expansion = visitor.0.unwrap();
+
+    TokenStream::from(quote! {
+        #impl_block
+        #expansion
+    })
 }

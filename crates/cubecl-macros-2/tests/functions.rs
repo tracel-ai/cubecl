@@ -1,11 +1,8 @@
 use cubecl_core::{
     ir::Elem,
-    new_ir::{
-        BinaryOp, Block, Expr, Expression, FieldExpandExpr, MethodExpand, MethodExpandExpr,
-        MulExpr, Operator, Statement, Variable,
-    },
+    new_ir::{Block, Expr, Expression, FieldExpandExpr, MulExpr, Operator, Statement, Variable},
 };
-use cubecl_macros_2::{cube2, KernelArg};
+use cubecl_macros_2::{cube2, expand_impl, CubeMethods, KernelArg};
 use pretty_assertions::assert_eq;
 
 mod common;
@@ -40,35 +37,51 @@ fn function_call() {
 
     assert_eq!(expanded, expected);
 }
-#[derive(KernelArg)]
+
+#[derive(KernelArg, CubeMethods)]
 struct Dummy {
     a: u32,
 }
 
+#[expand_impl]
 impl Dummy {
     fn method(&self, b: u32) -> u32 {
         self.a * b
     }
-}
 
-struct DummyMethods<E: Expr<Output = Dummy>>(E);
-
-impl<E: Expr<Output = Dummy>> DummyMethods<E> {
+    #[expanded]
     pub fn method<B: Expr<Output = u32>>(self, b: B) -> impl Expr<Output = u32> {
-        MulExpr(BinaryOp::new(self.0.expand_fields().field_a(), b))
-    }
-}
-
-impl MethodExpand for Dummy {
-    type Expanded<Inner: Expr<Output = Self>> = DummyMethods<Inner>;
-
-    fn expand_methods<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
-        DummyMethods(inner)
+        MulExpr::new(self.0.expand_fields().field_a(), b)
     }
 }
 
 #[test]
 fn method_call() {
+    #[allow(unused)]
+    #[cube2]
+    fn method_call(a: Dummy) -> u32 {
+        a.method(2)
+    }
+
+    let expanded = method_call::expand(Variable::new("a", None));
+    let expected = Block::<u32>::new(vec![Statement::Return(Box::new(Expression::Binary {
+        left: Box::new(Expression::FieldAccess {
+            base: var("a", Elem::Pointer),
+            name: "a".to_string(),
+            vectorization: None,
+            ty: Elem::UInt,
+        }),
+        operator: Operator::Mul,
+        right: lit(2u32),
+        vectorization: None,
+        ty: Elem::UInt,
+    }))]);
+
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn associated_call() {
     #[allow(unused)]
     #[cube2]
     fn method_call(a: Dummy) -> u32 {

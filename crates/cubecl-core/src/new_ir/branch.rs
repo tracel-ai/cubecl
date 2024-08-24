@@ -1,9 +1,7 @@
 use crate::prelude::Int;
 use std::fmt::Display;
 
-use super::{
-    AddExpr, BinaryOp, Block, Expr, Expression, Literal, MethodExpand, SquareType, Variable,
-};
+use super::{AddExpr, Block, Expr, Expression, Literal, MethodExpand, SquareType, Variable};
 
 pub struct Break;
 
@@ -85,7 +83,7 @@ impl<TNum: SquareType + Int + Display, Start: Expr<Output = TNum>, End: Expr<Out
     pub fn new_inclusive(start: Start, end: End) -> Self {
         RangeExpr {
             start,
-            end: AddExpr(BinaryOp::new(end, Literal::new(TNum::from(1)))),
+            end: AddExpr::new(end, Literal::new(TNum::from(1))),
         }
     }
 }

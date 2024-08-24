@@ -32,6 +32,16 @@ macro_rules! bin_op {
             Left::Output: $trait<Right::Output, Output = TOut> + SquareType,
             Right::Output: SquareType;
 
+        impl<Left: Expr, Right: Expr, TOut: SquareType> $name<Left, Right, TOut>
+        where
+            Left::Output: $trait<Right::Output, Output = TOut> + SquareType,
+            Right::Output: SquareType,
+        {
+            pub fn new(left: Left, right: Right) -> Self {
+                Self(BinaryOp::new(left, right))
+            }
+        }
+
         impl<Left: Expr, Right: Expr, TOut: SquareType> Expr for $name<Left, Right, TOut>
         where
             Left::Output: $trait<Right::Output, Output = TOut> + SquareType,
@@ -63,12 +73,22 @@ macro_rules! cmp_op {
     ($name:ident, $trait:ident, $operator:path) => {
         pub struct $name<Left: Expr, Right: Expr>(pub BinaryOp<Left, Right, bool>)
         where
-            Left::Output: SquareType,
+            Left::Output: $trait<Right::Output> + SquareType,
             Right::Output: SquareType;
+
+        impl<Left: Expr, Right: Expr> $name<Left, Right>
+        where
+            Left::Output: $trait<Right::Output> + SquareType,
+            Right::Output: SquareType,
+        {
+            pub fn new(left: Left, right: Right) -> Self {
+                Self(BinaryOp::new(left, right))
+            }
+        }
 
         impl<Left: Expr, Right: Expr> Expr for $name<Left, Right>
         where
-            Left::Output: SquareType,
+            Left::Output: $trait<Right::Output> + SquareType,
             Right::Output: SquareType,
         {
             type Output = bool;
@@ -99,6 +119,16 @@ macro_rules! assign_bin_op {
         where
             Left::Output: $trait<Right::Output> + SquareType,
             Right::Output: SquareType;
+
+        impl<Left: Expr, Right: Expr> $name<Left, Right>
+        where
+            Left::Output: $trait<Right::Output> + SquareType,
+            Right::Output: SquareType,
+        {
+            pub fn new(left: Left, right: Right) -> Self {
+                Self(BinaryOp::new(left, right))
+            }
+        }
 
         impl<Left: Expr, Right: Expr> Expr for $name<Left, Right>
         where
@@ -132,6 +162,15 @@ macro_rules! unary_op {
         pub struct $name<In: Expr, TOut>(pub UnaryOp<In, TOut>)
         where
             In::Output: $trait<$target = TOut> + SquareType;
+
+        impl<In: Expr, TOut: SquareType> $name<In, TOut>
+        where
+            In::Output: $trait<$target = TOut> + SquareType,
+        {
+            pub fn new(input: In) -> Self {
+                Self(UnaryOp::new(input))
+            }
+        }
 
         impl<In: Expr, TOut: SquareType> Expr for $name<In, TOut>
         where
@@ -205,6 +244,18 @@ pub struct AndExpr<Left: Expr<Output = bool>, Right: Expr<Output = bool>>(
 pub struct OrExpr<Left: Expr<Output = bool>, Right: Expr<Output = bool>>(
     pub BinaryOp<Left, Right, bool>,
 );
+
+impl<Left: Expr<Output = bool>, Right: Expr<Output = bool>> AndExpr<Left, Right> {
+    pub fn new(left: Left, right: Right) -> Self {
+        Self(BinaryOp::new(left, right))
+    }
+}
+
+impl<Left: Expr<Output = bool>, Right: Expr<Output = bool>> OrExpr<Left, Right> {
+    pub fn new(left: Left, right: Right) -> Self {
+        Self(BinaryOp::new(left, right))
+    }
+}
 
 impl<Left: Expr<Output = bool>, Right: Expr<Output = bool>> Expr for AndExpr<Left, Right> {
     type Output = bool;
