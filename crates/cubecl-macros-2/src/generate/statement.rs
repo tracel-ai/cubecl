@@ -7,8 +7,8 @@ use crate::{
 
 impl ToTokens for Statement {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let statement = ir_type(("Statement"));
-        let expr = ir_type(("Expr"));
+        let statement = ir_type("Statement");
+        let expr = ir_type("Expr");
 
         let out = match self {
             Statement::Local {
@@ -18,8 +18,6 @@ impl ToTokens for Statement {
                 span,
                 ty,
             } => {
-                let span = span.clone();
-
                 let name = match &**left {
                     Expression::Variable { name, .. } => name,
                     Expression::Init { left, .. } => match &**left {
@@ -31,7 +29,7 @@ impl ToTokens for Statement {
                 let as_const = init.as_ref().and_then(|init| init.as_const());
                 if as_const.is_some() && !mutable {
                     let init = as_const.unwrap();
-                    quote_spanned! {span=>
+                    quote_spanned! {*span=>
                         let #name = #init;
                     }
                 } else {
@@ -39,9 +37,8 @@ impl ToTokens for Statement {
                     // variable that would be overwritten by the declaration.
                     let initializer = init.as_ref().map(|init| quote![let __init = #init;]);
                     let left = if let Some(init) = init {
-                        let span = span.clone();
                         let init_ty = ir_type("Initializer");
-                        quote_spanned! {span=>
+                        quote_spanned! {*span=>
                             #init_ty {
                                 left: #name,
                                 right: __init
@@ -55,14 +52,14 @@ impl ToTokens for Statement {
                         .is_some()
                         .then(|| quote![#expr::vectorization(&__init)]);
                     let variable: proc_macro2::TokenStream =
-                        generate_var(name, ty, span, vectorization);
-                    let variable_decl = quote_spanned! {span=>
+                        generate_var(name, ty, *span, vectorization);
+                    let variable_decl = quote_spanned! {*span=>
                         let #name = #variable;
                     };
 
                     let ty = if let Some(ty) = ty {
                         let span = ty.span();
-                        let sq_type = ir_type(("SquareType"));
+                        let sq_type = ir_type("SquareType");
                         quote_spanned! {span=>
                             Some(<#ty as #sq_type>::ir_type())
                         }
@@ -70,7 +67,7 @@ impl ToTokens for Statement {
                         quote![None]
                     };
 
-                    quote_spanned! {span=>
+                    quote_spanned! {*span=>
                         #initializer
                         #variable_decl
                         __statements.push({
@@ -88,15 +85,14 @@ impl ToTokens for Statement {
                 terminated,
                 span,
             } => {
-                let span = span.clone();
                 if *terminated {
-                    quote_spanned! {span=>
+                    quote_spanned! {*span=>
                         __statements.push(#statement::Expression(
                             Box::new(#expr::expression_untyped(&#expression))
                         ));
                     }
                 } else {
-                    quote_spanned! {span=>
+                    quote_spanned! {*span=>
                         __statements.push(#statement::Return(
                             Box::new(#expr::expression_untyped(&#expression))
                         ));

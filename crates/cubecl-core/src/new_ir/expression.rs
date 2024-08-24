@@ -107,11 +107,12 @@ pub struct Variable<T: SquareType> {
 }
 
 impl<T: SquareType> Copy for Variable<T> {}
+#[allow(clippy::non_canonical_clone_impl)]
 impl<T: SquareType> Clone for Variable<T> {
     fn clone(&self) -> Self {
         Self {
             name: self.name,
-            vectorization: self.vectorization.clone(),
+            vectorization: self.vectorization,
             _type: PhantomData,
         }
     }
@@ -129,7 +130,7 @@ impl<T: SquareType> Expr for Variable<T> {
     }
 
     fn vectorization(&self) -> Option<NonZero<u8>> {
-        self.vectorization.clone()
+        self.vectorization
     }
 }
 
@@ -140,7 +141,7 @@ pub struct FieldAccess<T: SquareType, TBase: Expr> {
     pub _type: PhantomData<T>,
 }
 
-impl<T: SquareType, TBase: Expr + Clone + Copy> Clone for FieldAccess<T, TBase> {
+impl<T: SquareType, TBase: Expr + Clone> Clone for FieldAccess<T, TBase> {
     fn clone(&self) -> Self {
         Self {
             base: self.base.clone(),
@@ -254,12 +255,12 @@ impl<T: Expr> Expr for Box<T> {
     type Output = T::Output;
 
     fn expression_untyped(&self) -> Expression {
-        let this: &T = &**self;
+        let this: &T = self;
         this.expression_untyped()
     }
 
     fn vectorization(&self) -> Option<NonZero<u8>> {
-        let this: &T = &**self;
+        let this: &T = self;
         this.vectorization()
     }
 }

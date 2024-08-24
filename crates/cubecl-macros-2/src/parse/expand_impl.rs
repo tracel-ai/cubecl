@@ -32,8 +32,8 @@ impl VisitMut for ExpandImplVisitor {
     fn visit_item_impl_mut(&mut self, i: &mut ItemImpl) {
         let expand = ExpandImpl {
             attrs: i.attrs.clone(),
-            defaultness: i.defaultness.clone(),
-            unsafety: i.unsafety.clone(),
+            defaultness: i.defaultness,
+            unsafety: i.unsafety,
             generics: i.generics.clone(),
             self_ty: *i.self_ty.clone(),
             expanded_fns: Default::default(),

@@ -16,9 +16,8 @@ impl ToTokens for Expression {
                 span,
                 ..
             } => {
-                let span = span.clone();
                 let expr_ty = prefix_ir(format_ident!("{}Expr", operator.to_string()));
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #expr_ty::new(
                         #left,
                         #right
@@ -31,37 +30,33 @@ impl ToTokens for Expression {
                 span,
                 ..
             } => {
-                let span = span.clone();
                 let ty = prefix_ir(format_ident!("{}Expr", operator.to_string()));
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #ty::new(
                         #input,
                     )
                 }
             }
             Expression::Variable { name, span, .. } => {
-                let span = span.clone();
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #name.clone()
                 }
             }
             Expression::FieldAccess {
                 base, field, span, ..
             } => {
-                let span = span.clone();
                 let access = ir_type("FieldAccess");
                 let field = match field {
                     syn::Member::Named(ident) => format_ident!("__{ident}"),
                     syn::Member::Unnamed(index) => format_ident!("__{}", index.index),
                 };
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #base.expand().#field()
                 }
             }
             Expression::Literal { value, span, ty } => {
-                let span = span.clone();
                 let ir_ty = prefix_ir(format_ident!("Literal"));
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #ir_ty {
                         value: #value
                     }
@@ -70,9 +65,8 @@ impl ToTokens for Expression {
             Expression::Assigment {
                 left, right, span, ..
             } => {
-                let span = span.clone();
                 let ty = prefix_ir(format_ident!("Assignment"));
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #ty {
                         left: #left,
                         right: #right
@@ -85,10 +79,9 @@ impl ToTokens for Expression {
                 ty,
                 span,
             } => {
-                let span = span.clone();
                 let ir_type = ir_type("Initializer");
                 let ty = right.ty().map(|ty| quote![::<#ty>]);
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #ir_type #ty {
                         left: #left,
                         right: #right
@@ -110,8 +103,7 @@ impl ToTokens for Expression {
                 ty,
                 span,
             } => {
-                let span = span.clone();
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     {
                         #(#inner)*
                         #ret
@@ -119,11 +111,10 @@ impl ToTokens for Expression {
                 }
             }
             Expression::FunctionCall { func, span, args } => {
-                let span = span.clone();
                 let func = func.as_const().unwrap_or_else(|| quote![#func]);
                 // We pass in the `Variable`s and `Literal`s into the expansion so they can be rebound
                 // in the function root scope
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #func::expand(#(#args),*)
                 }
             }
@@ -133,22 +124,19 @@ impl ToTokens for Expression {
                 args,
                 span,
             } => {
-                let span = span.clone();
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #receiver.expand().#method(#(#args),*)
                 }
             }
             Expression::Break { span } => {
-                let span = span.clone();
                 let brk = ir_type("Break");
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #brk
                 }
             }
             Expression::Cast { from, to, span } => {
-                let span = span.clone();
                 let cast = ir_type("Cast");
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #cast {
                         from: #from,
                         _to: PhantomData::<#to>
@@ -156,9 +144,8 @@ impl ToTokens for Expression {
                 }
             }
             Expression::Continue { span } => {
-                let span = span.clone();
                 let cont = ir_type("Continue");
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #cont
                 }
             }
@@ -171,21 +158,20 @@ impl ToTokens for Expression {
                 block,
                 span,
             } => {
-                let span = span.clone();
                 let variable = generate_var(
                     var_name,
                     var_ty,
-                    span.clone(),
+                    *span,
                     Some(quote![::core::num::NonZero::new(1)]),
                 );
                 let for_ty = ir_type("ForLoop");
                 let block_ty = ir_type("Block");
-                let block = quote_spanned! {span=>
+                let block = quote_spanned! {*span=>
                     #block_ty::<()>::new(vec![
                         #(#block,)*
                     ])
                 };
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #for_ty {
                         range: #range,
                         unroll: #unroll,
@@ -195,9 +181,8 @@ impl ToTokens for Expression {
                 }
             }
             Expression::ConstVariable { name, ty, span } => {
-                let span = span.clone();
                 let lit_ty = ir_type("Literal");
-                quote_spanned! {span=>
+                quote_spanned! {*span=>
                     #lit_ty::new(#name)
                 }
             }

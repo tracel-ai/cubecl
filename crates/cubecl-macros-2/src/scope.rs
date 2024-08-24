@@ -93,8 +93,8 @@ impl Context {
             .iter()
             .rev()
             .flat_map(|scope| scope.variables.iter().rev())
-            .find(|var| name.to_string() == var.name.to_string())
-            .map(|var| var.clone())
+            .find(|var| name == &var.name)
+            .cloned()
     }
 
     pub fn extend(&mut self, vars: impl IntoIterator<Item = (Ident, Option<Type>, bool)>) {
@@ -127,7 +127,7 @@ impl Scope {
             .iter()
             .map(|ManagedVar { name, ty, .. }| {
                 let mut span = name.span();
-                let var = generate_var(name, ty, span.clone(), None);
+                let var = generate_var(name, ty, span, None);
                 quote_spanned! {span=>
                     let #name = #var;
                 }

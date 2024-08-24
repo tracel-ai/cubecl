@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 mod common;
 use common::*;
 use cubecl_core::{

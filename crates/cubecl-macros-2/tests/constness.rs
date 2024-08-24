@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 use cubecl_core::new_ir::{Block, Statement};
 use cubecl_macros_2::cube2;
 use pretty_assertions::assert_eq;

@@ -1,5 +1,5 @@
 use cubecl_core::{ir::Elem, new_ir::*};
-use cubecl_macros_2::{cube2, expand_impl, KernelArg};
+use cubecl_macros_2::{cube2, expand_impl, Expand};
 use pretty_assertions::assert_eq;
 
 mod common;
@@ -35,7 +35,7 @@ fn function_call() {
     assert_eq!(expanded, expected);
 }
 
-#[derive(KernelArg)]
+#[derive(Expand)]
 struct Dummy {
     a: u32,
 }

@@ -55,7 +55,7 @@ impl<TNum: SquareType + Int, Range: ForLoopRange<TNum>> Expr for ForLoop<TNum, R
             step: Box::new(self.range.step().expression_untyped()),
             unroll: self.unroll,
             variable: Box::new(self.variable.expression_untyped()),
-            block: self.block.statements.iter().cloned().collect(),
+            block: self.block.statements.clone(),
         }
     }
 

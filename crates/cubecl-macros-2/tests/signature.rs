@@ -1,10 +1,12 @@
+#![allow(clippy::all)]
+
 use std::marker::PhantomData;
 
 use cubecl_core::{
     ir::Elem,
     new_ir::{Block, Expression, Operator, Statement, Variable},
 };
-use cubecl_macros_2::{cube2, KernelArg};
+use cubecl_macros_2::{cube2, Expand};
 use pretty_assertions::assert_eq;
 use Elem::UInt;
 
@@ -85,7 +87,7 @@ pub fn const_generic() {
     assert_eq!(expanded, expected);
 }
 
-#[derive(KernelArg)]
+#[derive(Expand)]
 struct Param {
     a: u32,
     b: u32,

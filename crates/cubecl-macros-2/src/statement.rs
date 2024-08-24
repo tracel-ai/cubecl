@@ -36,7 +36,7 @@ impl Statement {
 
                 let variable = Box::new(Expression::Variable {
                     name: ident.clone(),
-                    span: span.clone(),
+                    span,
                     ty: ty.clone(),
                 });
 

@@ -8,7 +8,8 @@ use syn::{
 };
 
 use crate::{
-    ir_type, parse::kernel::Kernel, prefix_ir, scope::Context, statement::Statement, IR_PATH,
+    ir_path, ir_type, parse::kernel::Kernel, prefix_ir, scope::Context, statement::Statement,
+    IR_PATH,
 };
 
 impl ToTokens for Kernel {
@@ -36,7 +37,7 @@ impl ToTokens for Kernel {
             })
             .collect::<Vec<_>>();
         let block = ir_type("Block");
-        let ir_path = IR_PATH.clone();
+        let ir_path = ir_path();
         tokens.extend(quote! {
             #vis mod #name {
                 use super::*;
@@ -46,7 +47,7 @@ impl ToTokens for Kernel {
                     #(#input_checks)*
                 }
 
-                #[allow(unused)]
+                #[allow(unused, clippy::clone_on_copy)]
                 pub fn expand #generics(#(#args),*) -> #block<#return_type> {
                     #(#global_vars)*
                     {

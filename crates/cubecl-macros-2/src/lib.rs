@@ -3,11 +3,8 @@
 use std::{cell::LazyCell, collections::HashSet};
 
 use parse::{
-    args::Args,
-    expand_impl::ExpandImplVisitor,
-    helpers::RemoveHelpers,
-    kernel::Kernel,
-    kernel_struct::{FieldExpand, MethodExpand},
+    args::Args, expand_impl::ExpandImplVisitor, helpers::RemoveHelpers, kernel::Kernel,
+    kernel_struct::Expand,
 };
 use proc_macro::TokenStream;
 use proc_macro2::Span;
@@ -24,7 +21,8 @@ mod parse;
 mod scope;
 mod statement;
 
-const IR_PREFIX: &'static str = "::cubecl_core::new_ir::";
+const IR_PREFIX: &str = "::cubecl_core::new_ir::";
+#[allow(clippy::declare_interior_mutable_const)]
 const IR_PATH: LazyCell<Path> = LazyCell::new(|| {
     let span = Span::call_site();
     let mut path = Path::from(format_ident!("cubecl_core"));
@@ -33,14 +31,19 @@ const IR_PATH: LazyCell<Path> = LazyCell::new(|| {
     path
 });
 
+pub(crate) fn ir_path() -> Path {
+    #[allow(clippy::borrow_interior_mutable_const)]
+    IR_PATH.clone()
+}
+
 pub(crate) fn prefix_ir(ident: Ident) -> Path {
-    let mut path = IR_PATH.clone();
+    let mut path = ir_path();
     path.segments.push(ident.into());
     path
 }
 pub(crate) fn ir_type(ty: &str) -> Path {
+    let mut path = ir_path();
     let ident = format_ident!("{ty}");
-    let mut path = IR_PATH.clone();
     path.segments.push(ident.into());
     path
 }
@@ -61,9 +64,9 @@ pub fn cube2(args: TokenStream, input: TokenStream) -> TokenStream {
     })
 }
 
-#[proc_macro_derive(KernelArg)]
+#[proc_macro_derive(Expand)]
 pub fn derive_square_type(input: TokenStream) -> TokenStream {
-    let kernel_struct = parse_macro_input!(input as FieldExpand);
+    let kernel_struct = parse_macro_input!(input as Expand);
 
     TokenStream::from(quote![#kernel_struct])
 }

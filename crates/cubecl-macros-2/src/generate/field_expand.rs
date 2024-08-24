@@ -7,22 +7,15 @@ use syn::{
     Ident, ItemStruct, Type, TypeParam,
 };
 
-use crate::{
-    ir_type,
-    parse::kernel_struct::{FieldExpand, MethodExpand},
-};
+use crate::{ir_type, parse::kernel_struct::Expand};
 
-impl ToTokens for FieldExpand {
+impl ToTokens for Expand {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let span = self.strct.span();
         let mut item = self.strct.clone();
         let original = quote![#item];
         let name = item.ident.clone();
 
-        // item.fields = parse_fields(item.fields, &item.ident);
-        // item.ident = format_ident!("{}Expand", item.ident);
-        // item.generics.params.push(generic_param(&name));
-        // let expand = quote![#item];
         let expand = generate_expansion(&mut item);
         let expr = ir_type("Expr");
         let expression = ir_type("Expression");
@@ -30,7 +23,7 @@ impl ToTokens for FieldExpand {
         let square_ty = ir_type("SquareType");
         let elem = ir_type("Elem");
         let expand_name = &item.ident;
-        let expand_init = expand_init(&item.fields, &expand_name);
+        let expand_init = expand_init(&item.fields, expand_name);
 
         let out = quote_spanned! {span=>
             #expand
@@ -94,12 +87,6 @@ fn generate_expansion(item: &mut ItemStruct) -> TokenStream {
     let expand_ty = ir_type("Expand");
     let mut generic_names = generics.clone();
     StripBounds.visit_generics_mut(&mut generic_names);
-
-    /*     let generic = generic_param(&item.ident);
-    let span = item.span();
-    item.generics.params.push(generic.clone());
-    item.ident = format_ident!("{}Expand", item.ident);
-    item.fields = Fields::Unnamed(syn::parse2(quote![(Base)]).unwrap()); */
 
     quote_spanned! {span=>
         #vis struct #expand_name #generics(__Inner);
