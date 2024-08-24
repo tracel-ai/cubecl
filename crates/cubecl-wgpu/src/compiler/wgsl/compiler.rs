@@ -261,7 +261,7 @@ impl WgslCompiler {
             cube::Variable::SubcubeDim => {
                 self.subgroup_size = true;
                 wgsl::Variable::SubgroupSize
-            },
+            }
             cube::Variable::Matrix { .. } => {
                 panic!("Cooperative matrix-multiply and accumulate not supported.")
             }
