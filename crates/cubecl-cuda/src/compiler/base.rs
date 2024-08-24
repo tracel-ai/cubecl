@@ -135,7 +135,7 @@ impl CudaCompiler {
             gpu::Operation::Branch(val) => self.compile_branch(instructions, val),
             gpu::Operation::Synchronization(val) => match val {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
-                gpu::Synchronization::SyncStorage => instructions.push(Instruction::ThreadFence),
+                gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
             },
             gpu::Operation::Subcube(op) => {
                 self.wrap_size_checked = true;
