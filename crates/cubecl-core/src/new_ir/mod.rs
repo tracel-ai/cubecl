@@ -1,6 +1,7 @@
 mod branch;
 mod expression;
 mod operators;
+mod option;
 mod statement;
 mod types;
 
@@ -9,6 +10,7 @@ use std::num::NonZero;
 pub use branch::*;
 pub use expression::*;
 pub use operators::*;
+pub use option::*;
 pub use statement::*;
 pub use types::*;
 

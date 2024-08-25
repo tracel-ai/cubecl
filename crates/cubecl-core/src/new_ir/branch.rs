@@ -1,8 +1,6 @@
 use std::num::NonZero;
 
-use super::{
-    Block, Expand, Expr, Expression, Integer, Primitive, Range, SquareType, TypeEq, Variable,
-};
+use super::{Block, Expand, Expr, Expression, Integer, Range, SquareType, TypeEq, Variable};
 
 pub struct Break;
 
@@ -36,8 +34,6 @@ pub trait ForLoopRange {
     type Primitive: SquareType;
 }
 
-pub trait CanUnroll {}
-
 pub struct ForLoop<Range: Expr>
 where
     Range::Output: ForLoopRange,
@@ -67,7 +63,7 @@ where
     }
 }
 
-impl<Range: Expr + CanUnroll> ForLoop<Range>
+impl<Range: Expr> ForLoop<Range>
 where
     Range::Output: ForLoopRange,
 {
@@ -93,6 +89,22 @@ where
 
     fn expression_untyped(&self) -> Expression {
         let range = self.range.expression_untyped().as_range().unwrap().clone();
+        if self.unroll {
+            assert!(
+                matches!(*range.start, Expression::Literal { .. }),
+                "Can't unroll loop with dynamic start"
+            );
+            assert!(
+                matches!(*range.end, Expression::Literal { .. }),
+                "Can't unroll loop with dynamic end"
+            );
+            if let Some(step) = &range.step {
+                assert!(
+                    matches!(**step, Expression::Literal { .. }),
+                    "Can't unroll loop with dynamic step"
+                );
+            }
+        }
         Expression::ForLoop {
             range,
             unroll: self.unroll,
@@ -183,15 +195,6 @@ where
     type Primitive = Start::Output;
 }
 
-/// Only allow unroll for primitive expressions (literals)
-impl<Start: Expr, End: Expr> CanUnroll for RangeExpr<Start, End>
-where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
-    Start: Primitive,
-    End: Primitive,
-{
-}
-
 impl<Start: Expr, End: Expr, Step: Expr, Inner> Expr for SteppedRangeExpr<Start, End, Step, Inner>
 where
     Start::Output: SquareType + Integer + TypeEq<End::Output>,
@@ -221,17 +224,4 @@ where
     Inner: Expr<Output = RangeExpr<Start, End>>,
 {
     type Primitive = Start::Output;
-}
-
-/// Only allow unroll for primitive expressions (literals)
-impl<Start: Expr, End: Expr, Step: Expr, Inner> CanUnroll
-    for SteppedRangeExpr<Start, End, Step, Inner>
-where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
-    End::Output: TypeEq<Step::Output>,
-    Inner: Expr<Output = RangeExpr<Start, End>>,
-    Start: Primitive,
-    End: Primitive,
-    Step: Primitive,
-{
 }

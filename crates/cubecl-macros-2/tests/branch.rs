@@ -210,14 +210,14 @@ fn for_loop_unroll_comptime() {
     assert_eq!(expanded, expected);
 }
 
-// Compile tests broken on windows, remove comment for test
 #[test]
+#[should_panic(expected = "Can't unroll loop with dynamic end")]
 fn for_loop_unroll_dynamic_fails() {
     #[allow(unused)]
     #[cube2]
     fn for_loop(loop_end: u32) -> u32 {
         let mut a = 0;
-        //#[unroll]
+        #[unroll]
         for i in 0..loop_end {
             a += i;
         }
@@ -227,6 +227,50 @@ fn for_loop_unroll_dynamic_fails() {
     let expanded = for_loop::expand(Variable::new("end", None)).expression_untyped();
     let expected = block(
         vec![
+            local_init("a", lit(0u32), true, None),
+            Statement::Expression(Expression::ForLoop {
+                range: Range {
+                    start: Box::new(lit(0u32)),
+                    end: var("end", Elem::UInt),
+                    step: None,
+                    inclusive: false,
+                },
+                unroll: false,
+                variable: var("i", Elem::UInt),
+                block: vec![expr(Expression::Binary {
+                    left: var("a", Elem::UInt),
+                    operator: Operator::AddAssign,
+                    right: var("i", Elem::UInt),
+                    vectorization: None,
+                    ty: Elem::UInt,
+                })],
+            }),
+        ],
+        Some(*var("a", Elem::UInt)),
+    );
+
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn for_loop_unroll_comptime_bounds() {
+    #[allow(unused)]
+    #[cube2]
+    fn for_loop(dyn_end: u32, #[comptime] end: Option<u32>) -> u32 {
+        let should_unroll = end.is_some();
+        let end = end.unwrap_or(dyn_end);
+        let mut a = 0;
+        #[unroll(should_unroll)]
+        for i in 0..end {
+            a += i;
+        }
+        a
+    }
+
+    let expanded = for_loop::expand(Variable::new("a", None), None).expression_untyped();
+    let expected = block(
+        vec![
+            local_init("end", *var("a", Elem::UInt), false, None),
             local_init("a", lit(0u32), true, None),
             Statement::Expression(Expression::ForLoop {
                 range: Range {

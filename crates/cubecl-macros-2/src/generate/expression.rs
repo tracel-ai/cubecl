@@ -132,8 +132,13 @@ impl ToTokens for Expression {
                 args,
                 span,
             } => {
+                let expand = if receiver.is_const() {
+                    format_ident!("partial_expand")
+                } else {
+                    format_ident!("expand")
+                };
                 quote_spanned! {*span=>
-                    #receiver.expand().#method(#(#args),*)
+                    #receiver.#expand().#method(#(#args),*)
                 }
             }
             Expression::Break { span } => {

@@ -10,6 +10,7 @@ use crate::{
 pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Result<Expression> {
     let span = for_loop.span();
     let unroll = unroll(&for_loop, context)?;
+
     let right = Expression::from_expr(*for_loop.expr, context)
         .map_err(|_| syn::Error::new(span, "Unsupported for loop expression"))?;
 

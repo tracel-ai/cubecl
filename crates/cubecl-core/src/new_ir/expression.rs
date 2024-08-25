@@ -269,3 +269,17 @@ where
         self.from.vectorization()
     }
 }
+
+pub struct DynamicExpr<T>(pub Box<dyn Expr<Output = T>>);
+
+impl<T> Expr for DynamicExpr<T> {
+    type Output = T;
+
+    fn expression_untyped(&self) -> Expression {
+        self.0.expression_untyped()
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.0.vectorization()
+    }
+}

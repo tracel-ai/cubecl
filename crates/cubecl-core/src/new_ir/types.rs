@@ -54,16 +54,31 @@ impl<T: SquareType> KernelArg for T {}
 pub trait Expand: Sized {
     type Expanded<Inner: Expr<Output = Self>>;
 
-    fn expand<Inner: Expr<Output = Self>>(base: Inner) -> Self::Expanded<Inner>;
+    fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner>;
 }
 
 pub trait StaticExpand: Sized {
     type Expanded;
 }
 
+pub trait PartialExpand: Sized {
+    type Expanded;
+
+    fn partial_expand(self) -> Self::Expanded;
+}
+
 /// Auto impl `StaticExpand for all `Expand` types, with `Self` as the inner expression
-impl<T: Expand + Expr<Output = T>> StaticExpand for T {
-    type Expanded = <T as Expand>::Expanded<T>;
+impl<T: PartialExpand + Expr<Output = T>> StaticExpand for T {
+    type Expanded = <T as PartialExpand>::Expanded;
+}
+
+/// All fully expanded types can also be partially expanded if receiver is const
+impl<T: Expand + Expr<Output = T>> PartialExpand for T {
+    type Expanded = <T as Expand>::Expanded<Self>;
+
+    fn partial_expand(self) -> Self::Expanded {
+        <T as Expand>::expand(self)
+    }
 }
 
 pub trait ExpandExpr<Inner: Expand>: Expr<Output = Inner> + Sized {

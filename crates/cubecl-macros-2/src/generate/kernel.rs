@@ -41,7 +41,7 @@ impl ToTokens for Kernel {
         tokens.extend(quote! {
             #vis mod #name {
                 use super::*;
-                use #ir_path::ExpandExpr as _;
+                use #ir_path::{ExpandExpr as _, PartialExpand as _};
 
                 fn __check_inputs() {
                     #(#input_checks)*

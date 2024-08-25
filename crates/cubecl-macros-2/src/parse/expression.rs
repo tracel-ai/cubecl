@@ -110,17 +110,23 @@ impl Expression {
             }
             Expr::MethodCall(method) => {
                 let span = method.span();
-                let receiver = Expression::from_expr(*method.receiver, context)?;
+                let receiver = Expression::from_expr(*method.receiver.clone(), context)?;
                 let args = method
                     .args
-                    .into_iter()
-                    .map(|arg| Expression::from_expr(arg, context))
+                    .iter()
+                    .map(|arg| Expression::from_expr(arg.clone(), context))
                     .collect::<Result<Vec<_>, _>>()?;
-                Expression::MethodCall {
-                    receiver: Box::new(receiver),
-                    method: method.method,
-                    args,
-                    span,
+                if receiver.is_const() && args.iter().all(|arg| arg.is_const()) {
+                    Expression::Verbatim {
+                        tokens: quote![#method],
+                    }
+                } else {
+                    Expression::MethodCall {
+                        receiver: Box::new(receiver),
+                        method: method.method,
+                        args,
+                        span,
+                    }
                 }
             }
             Expr::Cast(cast) => {
