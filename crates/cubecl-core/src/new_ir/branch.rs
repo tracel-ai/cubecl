@@ -263,3 +263,39 @@ impl Expr for Loop {
         None
     }
 }
+
+#[derive(new)]
+pub struct If<Condition: Expr<Output = bool>, OutIf: Expr = (), OutElse: Expr = ()>
+where
+    OutIf::Output: SquareType + TypeEq<OutElse::Output>,
+    OutElse::Output: SquareType,
+{
+    pub condition: Condition,
+    pub then_block: Block<OutIf>,
+    pub else_branch: Option<OutElse>,
+}
+
+impl<Condition: Expr<Output = bool>, OutIf: Expr, OutElse: Expr> Expr
+    for If<Condition, OutIf, OutElse>
+where
+    OutIf::Output: SquareType + TypeEq<OutElse::Output>,
+    OutElse::Output: SquareType,
+{
+    type Output = OutIf::Output;
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::If {
+            condition: Box::new(self.condition.expression_untyped()),
+            then_block: Box::new(self.then_block.expression_untyped()),
+            else_branch: self
+                .else_branch
+                .as_ref()
+                .map(|it| it.expression_untyped())
+                .map(Box::new),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        None
+    }
+}

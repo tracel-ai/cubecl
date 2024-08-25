@@ -8,7 +8,7 @@ use crate::{
 };
 
 use super::{
-    branch::{expand_for_loop, expand_loop, expand_while_loop, parse_block},
+    branch::{expand_for_loop, expand_if, expand_loop, expand_while_loop, parse_block},
     operator::{parse_binop, parse_unop},
 };
 
@@ -145,6 +145,7 @@ impl Expression {
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
             Expr::While(while_loop) => expand_while_loop(while_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
+            Expr::If(if_expr) => expand_if(if_expr, context)?,
             Expr::Range(range) => {
                 let span = range.span();
                 let start = *range
@@ -171,7 +172,6 @@ impl Expression {
             }
             Expr::Group(group) => Expression::from_expr(*group.expr, context)?,
             Expr::Paren(paren) => Expression::from_expr(*paren.expr, context)?,
-            Expr::If(_) => todo!("if"),
             Expr::Index(_) => todo!("index"),
             Expr::Infer(_) => todo!("infer"),
             Expr::Let(_) => todo!("let"),

@@ -112,6 +112,13 @@ pub enum Expression {
         block: Box<Expression>,
         span: Span,
     },
+    If {
+        condition: Box<Expression>,
+        then_block: Box<Expression>,
+        else_branch: Option<Box<Expression>>,
+        span: Span,
+    },
+
     Range {
         start: Box<Expression>,
         end: Box<Expression>,
@@ -143,6 +150,7 @@ impl Expression {
             Expression::Range { start, .. } => start.ty(),
             Expression::WhileLoop { .. } => None,
             Expression::Loop { .. } => None,
+            Expression::If { then_block, .. } => then_block.ty(),
         }
     }
 

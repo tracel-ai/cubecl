@@ -216,6 +216,21 @@ impl ToTokens for Expression {
                     }
                 }
             }
+            Expression::If {
+                condition,
+                then_block,
+                else_branch,
+                span,
+            } => {
+                let if_ty = ir_type("If");
+                let else_branch = else_branch
+                    .as_ref()
+                    .map(|it| quote![Some(#it)])
+                    .unwrap_or_else(|| quote![None]);
+                quote_spanned! {*span=>
+                    #if_ty::new(#condition, #then_block, #else_branch)
+                }
+            }
             Expression::ConstVariable { name, .. } => quote![#name],
             Expression::Path { path, .. } => quote![#path],
             Expression::Range {

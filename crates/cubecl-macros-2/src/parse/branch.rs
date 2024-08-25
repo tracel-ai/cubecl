@@ -1,5 +1,5 @@
 use quote::{format_ident, quote};
-use syn::{spanned::Spanned, Block, Expr, ExprForLoop, ExprLoop, ExprWhile, Meta};
+use syn::{spanned::Spanned, Block, Expr, ExprForLoop, ExprIf, ExprLoop, ExprWhile, Meta};
 
 use crate::{
     expression::Expression,
@@ -80,6 +80,27 @@ pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Ex
     context.pop_scope();
     Ok(Expression::Loop {
         block: Box::new(block),
+        span,
+    })
+}
+
+pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expression> {
+    let span = if_expr.span();
+    let condition = Expression::from_expr(*if_expr.cond, context)
+        .map_err(|_| syn::Error::new(span, "Unsupported while condition"))?;
+
+    context.push_scope();
+    let then_block = parse_block(if_expr.then_branch, context)?;
+    context.pop_scope();
+    let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
+        Some(Expression::from_expr(*else_branch, context)?)
+    } else {
+        None
+    };
+    Ok(Expression::If {
+        condition: Box::new(condition),
+        then_block: Box::new(then_block),
+        else_branch: else_branch.map(Box::new),
         span,
     })
 }

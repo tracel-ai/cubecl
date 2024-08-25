@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 use cubecl_core::{
     ir::Elem,
     new_ir::{Expr, Expression, Operator, Range, Statement, Variable},
@@ -394,6 +396,119 @@ fn loop_expr() {
                 )),
             }),
         ],
+        Some(*var("a", Elem::UInt)),
+    );
+
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn if_expr() {
+    #[allow(unused)]
+    #[cube2]
+    fn if_expr(cond: bool) -> u32 {
+        let mut a = 0;
+        if cond {
+            a += 1;
+        } else {
+            a += 2;
+        }
+        a
+    }
+
+    let expanded = if_expr::expand(Variable::new("cond", None)).expression_untyped();
+    let expected = block(
+        vec![
+            local_init("a", lit(0u32), true, None),
+            Statement::Expression(Expression::If {
+                condition: var("cond", Elem::Bool),
+                then_block: Box::new(block(
+                    vec![expr(Expression::Binary {
+                        left: var("a", Elem::UInt),
+                        operator: Operator::AddAssign,
+                        right: Box::new(lit(1u32)),
+                        vectorization: None,
+                        ty: Elem::UInt,
+                    })],
+                    None,
+                )),
+                else_branch: Some(Box::new(block(
+                    vec![expr(Expression::Binary {
+                        left: var("a", Elem::UInt),
+                        operator: Operator::AddAssign,
+                        right: Box::new(lit(2u32)),
+                        vectorization: None,
+                        ty: Elem::UInt,
+                    })],
+                    None,
+                ))),
+            }),
+        ],
+        Some(*var("a", Elem::UInt)),
+    );
+
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn if_returns() {
+    #[allow(unused)]
+    #[cube2]
+    fn if_returns(cond: bool) -> u32 {
+        let a = if cond { 1 } else { 2 };
+        a
+    }
+
+    let expanded = if_returns::expand(Variable::new("cond", None)).expression_untyped();
+    let expected = block(
+        vec![local_init(
+            "a",
+            Expression::If {
+                condition: var("cond", Elem::Bool),
+                then_block: Box::new(block(vec![], Some(lit(1u32)))),
+                else_branch: Some(Box::new(block(vec![], Some(lit(2u32))))),
+            },
+            false,
+            None,
+        )],
+        Some(*var("a", Elem::UInt)),
+    );
+
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn chained_if() {
+    #[allow(unused)]
+    #[cube2]
+    fn if_returns(cond1: bool, cond2: bool) -> u32 {
+        let a = if cond1 {
+            1
+        } else if cond2 {
+            2
+        } else {
+            3
+        };
+        a
+    }
+
+    let expanded = if_returns::expand(Variable::new("cond1", None), Variable::new("cond2", None))
+        .expression_untyped();
+    let expected = block(
+        vec![local_init(
+            "a",
+            Expression::If {
+                condition: var("cond1", Elem::Bool),
+                then_block: Box::new(block(vec![], Some(lit(1u32)))),
+                else_branch: Some(Box::new(Expression::If {
+                    condition: var("cond2", Elem::Bool),
+                    then_block: Box::new(block(vec![], Some(lit(2u32)))),
+                    else_branch: Some(Box::new(block(vec![], Some(lit(3u32))))),
+                })),
+            },
+            false,
+            None,
+        )],
         Some(*var("a", Elem::UInt)),
     );
 

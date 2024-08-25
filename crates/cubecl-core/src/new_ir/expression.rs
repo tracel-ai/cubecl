@@ -79,6 +79,11 @@ pub enum Expression {
     Loop {
         block: Box<Expression>,
     },
+    If {
+        condition: Box<Expression>,
+        then_block: Box<Expression>,
+        else_branch: Option<Box<Expression>>,
+    },
     /// A range used in for loops. Currently doesn't exist at runtime, so can be ignored in codegen.
     /// This only exists to pass the range down to the for loop it applies to
     __Range(Range),
@@ -109,6 +114,7 @@ impl Expression {
             Expression::Unit => Elem::Unit,
             Expression::WhileLoop { .. } => Elem::Unit,
             Expression::Loop { .. } => Elem::Unit,
+            Expression::If { then_block, .. } => then_block.ir_type(),
         }
     }
 

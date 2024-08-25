@@ -30,7 +30,7 @@ impl ToTokens for ExpandImpl {
 fn type_path(ty: &Type) -> Path {
     match ty {
         Type::Path(path) => path.path.clone(),
-        _ => todo!(),
+        ty => panic!("type_path: {ty:?}"),
     }
 }
 
