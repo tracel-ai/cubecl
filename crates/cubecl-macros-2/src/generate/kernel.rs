@@ -17,7 +17,9 @@ impl ToTokens for Kernel {
         let vis = &self.visibility;
         let name = &self.name;
         let generics = &self.generics;
-        let global_vars = Context::default().current_scope().generate_vars();
+        let global_vars = Context::new(self.returns.clone())
+            .current_scope()
+            .generate_vars();
         let block = &self.block;
         let return_type = &self.returns;
         let args = transform_args(&self.parameters);

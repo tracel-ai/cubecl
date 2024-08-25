@@ -20,8 +20,6 @@ pub struct Kernel {
 
 impl Kernel {
     pub fn from_item_fn(function: ItemFn) -> syn::Result<Self> {
-        let mut context = Context::default();
-
         let name = function.sig.ident;
         let vis = function.vis;
         let generics = function.sig.generics;
@@ -29,6 +27,7 @@ impl Kernel {
             syn::ReturnType::Default => syn::parse2(quote![()]).unwrap(),
             syn::ReturnType::Type(_, ty) => *ty,
         };
+        let mut context = Context::new(returns.clone());
         let parameters = function
             .sig
             .inputs

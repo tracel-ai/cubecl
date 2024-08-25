@@ -514,3 +514,32 @@ fn chained_if() {
 
     assert_eq!(expanded, expected);
 }
+
+#[test]
+fn explicit_return() {
+    #[allow(unused)]
+    #[cube2]
+    fn if_returns(cond: bool) -> u32 {
+        if cond {
+            return 10;
+        }
+        1
+    }
+
+    let expanded = if_returns::expand(Variable::new("cond", None)).expression_untyped();
+    let expected = block(
+        vec![expr(Expression::If {
+            condition: var("cond", Elem::Bool),
+            then_block: Box::new(block(
+                vec![expr(Expression::Return {
+                    expr: Some(Box::new(lit(10u32))),
+                })],
+                None,
+            )),
+            else_branch: None,
+        })],
+        Some(lit(1u32)),
+    );
+
+    assert_eq!(expanded, expected);
+}

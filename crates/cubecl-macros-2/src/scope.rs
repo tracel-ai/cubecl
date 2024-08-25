@@ -31,13 +31,14 @@ pub const KEYWORDS: [&str; 21] = [
 ];
 
 pub struct Context {
+    pub return_type: Type,
     scopes: Vec<Scope>,
     // Allows for global variable analysis
     scope_history: Vec<Scope>,
 }
 
-impl Default for Context {
-    fn default() -> Self {
+impl Context {
+    pub fn new(return_type: Type) -> Self {
         let mut root_scope = Scope::default();
         root_scope.variables.extend(KEYWORDS.iter().map(|it| {
             let name = format_ident!("{it}");
@@ -50,13 +51,12 @@ impl Default for Context {
             }
         }));
         Self {
+            return_type,
             scopes: vec![root_scope],
             scope_history: Default::default(),
         }
     }
-}
 
-impl Context {
     pub fn push_variable(&mut self, name: Ident, ty: Option<Type>, is_const: bool) {
         self.scopes
             .last_mut()
@@ -72,6 +72,13 @@ impl Context {
     pub fn pop_scope(&mut self) {
         let scope = self.scopes.pop().expect("Can't pop root scope");
         self.scope_history.push(scope);
+    }
+
+    pub fn with_scope<T>(&mut self, with: impl FnOnce(&mut Self) -> T) -> T {
+        self.push_scope();
+        let res = with(self);
+        self.pop_scope();
+        res
     }
 
     pub fn restore_scope(&mut self) {

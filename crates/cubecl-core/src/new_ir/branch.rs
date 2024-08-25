@@ -299,3 +299,24 @@ where
         None
     }
 }
+
+#[derive(new)]
+pub struct Return<Type: SquareType, Ret: Expr<Output = Type>>(pub Option<Ret>);
+
+impl<Type: SquareType, Ret: Expr<Output = Type>> Expr for Return<Type, Ret> {
+    type Output = Ret;
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::Return {
+            expr: self
+                .0
+                .as_ref()
+                .map(|it| it.expression_untyped())
+                .map(Box::new),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        None
+    }
+}

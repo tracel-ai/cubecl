@@ -226,7 +226,7 @@ impl ToTokens for Expression {
                 let else_branch = else_branch
                     .as_ref()
                     .map(|it| quote![Some(#it)])
-                    .unwrap_or_else(|| quote![None]);
+                    .unwrap_or_else(|| quote![None::<()>]);
                 quote_spanned! {*span=>
                     #if_ty::new(#condition, #then_block, #else_branch)
                 }
@@ -242,6 +242,16 @@ impl ToTokens for Expression {
                 let range = ir_type("RangeExpr");
                 quote_spanned! {*span=>
                     #range::new(#start, #end, #inclusive)
+                }
+            }
+            Expression::Return { expr, ty, span } => {
+                let ret_ty = ir_type("Return");
+                let ret_expr = expr
+                    .as_ref()
+                    .map(|it| quote![Some(#it)])
+                    .unwrap_or_else(|| quote![None]);
+                quote_spanned! {*span=>
+                    #ret_ty::<#ty, _>::new(#ret_expr)
                 }
             }
         };

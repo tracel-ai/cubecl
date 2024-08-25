@@ -172,22 +172,40 @@ impl Expression {
             }
             Expr::Group(group) => Expression::from_expr(*group.expr, context)?,
             Expr::Paren(paren) => Expression::from_expr(*paren.expr, context)?,
+            Expr::Return(ret) => Expression::Return {
+                span: ret.span(),
+                expr: ret
+                    .expr
+                    .map(|expr| Expression::from_expr(*expr, context))
+                    .transpose()?
+                    .map(Box::new),
+                ty: context.return_type.clone(),
+            },
             Expr::Index(_) => todo!("index"),
             Expr::Infer(_) => todo!("infer"),
             Expr::Let(_) => todo!("let"),
-
             Expr::Macro(_) => todo!("macro"),
             Expr::Match(_) => todo!("match"),
             Expr::Reference(_) => todo!("reference"),
             Expr::Repeat(_) => todo!("repeat"),
-            Expr::Return(_) => todo!("return"),
             Expr::Struct(_) => todo!("struct"),
-            Expr::Try(_) => todo!("try"),
-            Expr::TryBlock(_) => todo!("try_block"),
             Expr::Tuple(_) => todo!("tuple"),
-            Expr::Unsafe(_) => todo!("unsafe"),
-            Expr::Verbatim(_) => todo!("verbatim"),
-            _ => Err(syn::Error::new_spanned(expr, "Unsupported expression"))?,
+            Expr::Unsafe(unsafe_expr) => {
+                context.with_scope(|context| parse_block(unsafe_expr.block, context))?
+            }
+            Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
+            Expr::Try(_) => Err(syn::Error::new_spanned(
+                expr,
+                "? Operator is not supported in kernels",
+            ))?,
+            Expr::TryBlock(_) => Err(syn::Error::new_spanned(
+                expr,
+                "try_blocks is unstable and not supported in kernels",
+            ))?,
+            e => Err(syn::Error::new_spanned(
+                expr,
+                format!("Unsupported expression {e:?}"),
+            ))?,
         };
         Ok(result)
     }
