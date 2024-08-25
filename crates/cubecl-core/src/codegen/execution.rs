@@ -322,7 +322,7 @@ fn create_scalar_handles<R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeE
         Elem::UInt => 2,
         Elem::AtomicUInt => 2,
         Elem::Bool => panic!("Bool scalars are not supported"),
-        Elem::Pointer => panic!("Pointer scalars are not supported"),
+        Elem::Unit => panic!("Pointer scalars are not supported"),
     };
     let scalar_priorities: [usize; 3] = [
         element_priority(E1::cube_elem()),

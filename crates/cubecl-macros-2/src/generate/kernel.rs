@@ -18,7 +18,7 @@ impl ToTokens for Kernel {
         let name = &self.name;
         let generics = &self.generics;
         let global_vars = Context::default().current_scope().generate_vars();
-        let statements = &self.statements;
+        let block = &self.block;
         let return_type = &self.returns;
         let args = transform_args(&self.parameters);
         let statement_ty = prefix_ir(format_ident!("Statement"));
@@ -36,7 +36,7 @@ impl ToTokens for Kernel {
                 }
             })
             .collect::<Vec<_>>();
-        let block = ir_type("Block");
+        let expr = ir_type("Expr");
         let ir_path = ir_path();
         tokens.extend(quote! {
             #vis mod #name {
@@ -47,13 +47,11 @@ impl ToTokens for Kernel {
                     #(#input_checks)*
                 }
 
-                #[allow(unused, clippy::clone_on_copy)]
-                pub fn expand #generics(#(#args),*) -> #block<#return_type> {
+                #[allow(unused, clippy::all)]
+                pub fn expand #generics(#(#args),*) -> impl #expr<Output = #return_type> {
                     #(#global_vars)*
                     {
-                        let mut __statements = Vec::new();
-                        #(#statements)*
-                        #block::new(__statements)
+                        #block
                     }
                 }
             }

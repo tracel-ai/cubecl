@@ -18,19 +18,20 @@ fn function_call() {
         helper_fn(a)
     }
 
-    let expanded = function_call::expand(Variable::new("a", None));
-    let expected = Block::<u32>::new(vec![Statement::Return(Expression::Block {
-        inner: vec![],
-        ret: Some(Box::new(Expression::Binary {
-            left: var("a", Elem::UInt),
-            operator: Operator::Mul,
-            right: Box::new(lit(2u32)),
-            vectorization: None,
-            ty: Elem::UInt,
-        })),
-        vectorization: None,
-        ty: Elem::UInt,
-    })]);
+    let expanded = function_call::expand(Variable::new("a", None)).expression_untyped();
+    let expected = block(
+        vec![],
+        Some(block(
+            vec![],
+            Some(Expression::Binary {
+                left: var("a", Elem::UInt),
+                operator: Operator::Mul,
+                right: Box::new(lit(2u32)),
+                vectorization: None,
+                ty: Elem::UInt,
+            }),
+        )),
+    );
 
     assert_eq!(expanded, expected);
 }
@@ -60,19 +61,22 @@ fn method_call() {
         a.method(2)
     }
 
-    let expanded = method_call::expand(Variable::new("a", None));
-    let expected = Block::<u32>::new(vec![Statement::Return(Expression::Binary {
-        left: Box::new(Expression::FieldAccess {
-            base: var("a", Elem::Pointer),
-            name: "a".to_string(),
+    let expanded = method_call::expand(Variable::new("a", None)).expression_untyped();
+    let expected = block(
+        vec![],
+        Some(Expression::Binary {
+            left: Box::new(Expression::FieldAccess {
+                base: var("a", Elem::Unit),
+                name: "a".to_string(),
+                vectorization: None,
+                ty: Elem::UInt,
+            }),
+            operator: Operator::Mul,
+            right: Box::new(lit(2u32)),
             vectorization: None,
             ty: Elem::UInt,
         }),
-        operator: Operator::Mul,
-        right: Box::new(lit(2u32)),
-        vectorization: None,
-        ty: Elem::UInt,
-    })]);
+    );
 
     assert_eq!(expanded, expected);
 }
@@ -97,14 +101,17 @@ fn associated_call() {
         Dummy::associated(4)
     }
 
-    let expanded = associated_call::expand();
-    let expected = Block::<u32>::new(vec![Statement::Return(Expression::Binary {
-        left: Box::new(lit(4u32)),
-        operator: Operator::Mul,
-        right: Box::new(lit(2u32)),
-        vectorization: None,
-        ty: Elem::UInt,
-    })]);
+    let expanded = associated_call::expand().expression_untyped();
+    let expected = block(
+        vec![],
+        Some(Expression::Binary {
+            left: Box::new(lit(4u32)),
+            operator: Operator::Mul,
+            right: Box::new(lit(2u32)),
+            vectorization: None,
+            ty: Elem::UInt,
+        }),
+    );
 
     assert_eq!(expanded, expected);
 }

@@ -2,8 +2,21 @@ use std::num::NonZero;
 
 use cubecl_core::{
     ir::Elem,
-    new_ir::{Expression, SquareType, Statement},
+    new_ir::{Expr, Expression, Primitive, SquareType, Statement},
 };
+
+#[allow(unused)]
+pub fn block(statements: Vec<Statement>, ret: Option<Expression>) -> Expression {
+    let ty = ret.as_ref().map(|ret| ret.ir_type()).unwrap_or(Elem::Unit);
+    Expression::Block {
+        inner: statements,
+        ret: ret
+            .map(Box::new)
+            .unwrap_or_else(|| Box::new(().expression_untyped())),
+        vectorization: None,
+        ty,
+    }
+}
 
 #[allow(unused)]
 pub fn var(name: &str, ty: Elem) -> Box<Expression> {
@@ -24,9 +37,9 @@ pub fn vec_var(name: &str, ty: Elem, vectorization: u8) -> Expression {
 }
 
 #[allow(unused)]
-pub fn lit<T: ToString + SquareType>(value: T) -> Expression {
+pub fn lit<T: Primitive>(value: T) -> Expression {
     Expression::Literal {
-        value: value.to_string(),
+        value: value.value(),
         ty: <T as SquareType>::ir_type(),
         vectorization: None,
     }

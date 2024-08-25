@@ -3,15 +3,15 @@ use std::cell::RefCell;
 use quote::{format_ident, quote};
 use syn::{parse::Parse, Attribute, FnArg, Generics, Ident, ItemFn, Meta, Pat, Type, Visibility};
 
-use crate::{scope::Context, statement::Statement};
+use crate::{expression::Expression, scope::Context, statement::Statement};
 
-use super::helpers::is_comptime_attr;
+use super::{branch::parse_block, helpers::is_comptime_attr};
 
 pub struct Kernel {
     pub(crate) visibility: Visibility,
     pub(crate) name: Ident,
     pub(crate) parameters: Vec<(Ident, Type, bool)>,
-    pub(crate) statements: Vec<Statement>,
+    pub(crate) block: Expression,
     pub(crate) returns: Type,
     pub(crate) generics: Generics,
 
@@ -64,14 +64,7 @@ impl Kernel {
                 .map(|(ident, ty, is_const)| (ident, Some(ty), is_const)),
         );
         context.push_scope(); // Push function local scope
-
-        let statements = function
-            .block
-            .stmts
-            .into_iter()
-            .map(|statement| Statement::from_stmt(statement, &mut context))
-            .collect::<Result<Vec<_>, _>>()?;
-
+        let block = parse_block(*function.block, &mut context)?;
         context.pop_scope(); // Pop function local scope
 
         Ok(Kernel {
@@ -79,7 +72,7 @@ impl Kernel {
             generics,
             name,
             parameters: variables,
-            statements,
+            block,
             context: RefCell::new(context),
             returns,
         })

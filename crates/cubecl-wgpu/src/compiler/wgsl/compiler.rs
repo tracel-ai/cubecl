@@ -128,7 +128,7 @@ impl WgslCompiler {
                 cube::IntKind::I64 => panic!("atomic<i64> is not a valid WgpuElement"),
             },
             cube::Elem::AtomicUInt => wgsl::Elem::AtomicU32,
-            cube::Elem::Pointer => wgsl::Elem::Pointer,
+            cube::Elem::Unit => wgsl::Elem::Pointer,
         }
     }
 

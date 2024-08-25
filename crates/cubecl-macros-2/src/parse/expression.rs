@@ -1,5 +1,5 @@
 use quote::{format_ident, quote};
-use syn::{spanned::Spanned, Expr, Lit, Type};
+use syn::{spanned::Spanned, Expr, ExprBlock, Lit, RangeLimits, Type};
 
 use crate::{
     expression::Expression,
@@ -8,7 +8,7 @@ use crate::{
 };
 
 use super::{
-    branch::expand_for_loop,
+    branch::{expand_for_loop, parse_block},
     operator::{parse_binop, parse_unop},
 };
 
@@ -92,35 +92,10 @@ impl Expression {
                 }
             }
             Expr::Block(block) => {
-                let span = block.span();
                 context.push_scope();
-                let mut statements = block
-                    .block
-                    .stmts
-                    .into_iter()
-                    .map(|stmt| Statement::from_stmt(stmt, context))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let block = parse_block(block.block, context)?;
                 context.pop_scope();
-                // Pop implicit return so we can deal with it separately instead of generating a return
-                let ret = match statements.pop() {
-                    Some(Statement::Expression {
-                        expression,
-                        terminated: false,
-                        ..
-                    }) => Some(expression),
-                    Some(stmt) => {
-                        statements.push(stmt);
-                        None
-                    }
-                    _ => None,
-                };
-                let ty = ret.as_ref().and_then(|ret| ret.ty());
-                Expression::Block {
-                    inner: statements,
-                    ret,
-                    ty,
-                    span,
-                }
+                block
             }
             Expr::Break(br) => Expression::Break { span: br.span() },
             Expr::Call(call) => {
@@ -162,6 +137,21 @@ impl Expression {
             },
             Expr::Continue(cont) => Expression::Continue { span: cont.span() },
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
+            Expr::Range(range) => {
+                let span = range.span();
+                let start = *range
+                    .start
+                    .ok_or_else(|| syn::Error::new(span, "Open ranges not supported"))?;
+                let end = *range
+                    .end
+                    .ok_or_else(|| syn::Error::new(span, "Open ranges not supported"))?;
+                Expression::Range {
+                    start: Box::new(Expression::from_expr(start, context)?),
+                    end: Box::new(Expression::from_expr(end, context)?),
+                    inclusive: matches!(range.limits, RangeLimits::Closed(..)),
+                    span,
+                }
+            }
             Expr::Field(field) => {
                 let span = field.span();
                 let base = Expression::from_expr(*field.base.clone(), context)?;
@@ -171,26 +161,26 @@ impl Expression {
                     span,
                 }
             }
-            Expr::If(_) => todo!(),
-            Expr::Index(_) => todo!(),
-            Expr::Infer(_) => todo!(),
-            Expr::Let(_) => todo!(),
-            Expr::Loop(_) => todo!(),
-            Expr::Macro(_) => todo!(),
-            Expr::Match(_) => todo!(),
-            Expr::Paren(_) => todo!(),
-            Expr::Range(_) => todo!(),
-            Expr::Reference(_) => todo!(),
-            Expr::Repeat(_) => todo!(),
-            Expr::Return(_) => todo!(),
-            Expr::Struct(_) => todo!(),
-            Expr::Try(_) => todo!(),
-            Expr::TryBlock(_) => todo!(),
-            Expr::Tuple(_) => todo!(),
-            Expr::Unsafe(_) => todo!(),
-            Expr::Verbatim(_) => todo!(),
-            Expr::While(_) => todo!(),
-            Expr::Group(_) => todo!(),
+            Expr::Group(group) => Expression::from_expr(*group.expr, context)?,
+            // If something has wrong precedence, look here
+            Expr::Paren(paren) => Expression::from_expr(*paren.expr, context)?,
+            Expr::If(_) => todo!("if"),
+            Expr::Index(_) => todo!("index"),
+            Expr::Infer(_) => todo!("infer"),
+            Expr::Let(_) => todo!("let"),
+            Expr::Loop(_) => todo!("loop"),
+            Expr::Macro(_) => todo!("macro"),
+            Expr::Match(_) => todo!("match"),
+            Expr::Reference(_) => todo!("reference"),
+            Expr::Repeat(_) => todo!("repeat"),
+            Expr::Return(_) => todo!("return"),
+            Expr::Struct(_) => todo!("struct"),
+            Expr::Try(_) => todo!("try"),
+            Expr::TryBlock(_) => todo!("try_block"),
+            Expr::Tuple(_) => todo!("tuple"),
+            Expr::Unsafe(_) => todo!("unsafe"),
+            Expr::Verbatim(_) => todo!("verbatim"),
+            Expr::While(_) => todo!("while"),
             _ => Err(syn::Error::new_spanned(expr, "Unsupported expression"))?,
         };
         Ok(result)

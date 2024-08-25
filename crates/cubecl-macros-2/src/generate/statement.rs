@@ -85,18 +85,10 @@ impl ToTokens for Statement {
                 terminated,
                 span,
             } => {
-                if *terminated {
-                    quote_spanned! {*span=>
-                        __statements.push(#statement::Expression(
-                            #expr::expression_untyped(&(#expression))
-                        ));
-                    }
-                } else {
-                    quote_spanned! {*span=>
-                        __statements.push(#statement::Return(
-                            #expr::expression_untyped(&(#expression))
-                        ));
-                    }
+                quote_spanned! {*span=>
+                    __statements.push(#statement::Expression(
+                        #expr::expression_untyped(&(#expression))
+                    ));
                 }
             }
         };

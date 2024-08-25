@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use cubecl_core::{
     ir::Elem,
-    new_ir::{Block, Expression, Operator, Statement, Variable},
+    new_ir::{Expr, Expression, Operator, Variable},
 };
 use cubecl_macros_2::cube2;
 use pretty_assertions::assert_eq;
@@ -22,9 +22,10 @@ pub fn vectorization_simple() {
     let expanded = vectorized::expand(
         Variable::new("a", NonZero::new(4)),
         Variable::new("b", None),
-    );
-    let expected = Block::<u32>::new(vec![
-        init_vec(
+    )
+    .expression_untyped();
+    let expected = block(
+        vec![init_vec(
             "c",
             Expression::Binary {
                 left: Box::new(vec_var("a", Elem::UInt, 4)),
@@ -36,15 +37,15 @@ pub fn vectorization_simple() {
             false,
             None,
             4,
-        ),
-        Statement::Return(Expression::Binary {
+        )],
+        Some(Expression::Binary {
             left: Box::new(vec_var("c", Elem::UInt, 4)),
             operator: Operator::Mul,
             right: Box::new(vec_var("a", Elem::UInt, 4)),
             vectorization: NonZero::new(4),
             ty: Elem::UInt,
         }),
-    ]);
+    );
 
     assert_eq!(expanded, expected);
 }

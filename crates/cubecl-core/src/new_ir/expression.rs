@@ -1,12 +1,16 @@
 use crate::ir::Elem;
 use std::{marker::PhantomData, num::NonZero};
 
-use super::{largest_common_vectorization, Operator, SquareType, Statement, TypeEq};
+use super::{
+    largest_common_vectorization, Operator, PrimitiveValue, SquareType, Statement, TypeEq,
+};
 
 type Vectorization = Option<NonZero<u8>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expression {
+    /// Unit type expression, returned by void functions
+    Unit,
     Binary {
         left: Box<Expression>,
         operator: Operator,
@@ -32,8 +36,7 @@ pub enum Expression {
         ty: Elem,
     },
     Literal {
-        // Stringified value for outputting directly to generated code
-        value: String,
+        value: PrimitiveValue,
         vectorization: Vectorization,
         ty: Elem,
     },
@@ -52,7 +55,7 @@ pub enum Expression {
     },
     Block {
         inner: Vec<Statement>,
-        ret: Option<Box<Expression>>,
+        ret: Box<Expression>,
         vectorization: Vectorization,
         ty: Elem,
     },
@@ -64,13 +67,22 @@ pub enum Expression {
     },
     Continue,
     ForLoop {
-        from: Box<Expression>,
-        to: Box<Expression>,
-        step: Box<Expression>,
+        range: Range,
         unroll: bool,
         variable: Box<Expression>,
         block: Vec<Statement>,
     },
+    /// A range used in for loops. Currently doesn't exist at runtime, so can be ignored in codegen.
+    /// This only exists to pass the range down to the for loop it applies to
+    __Range(Range),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Range {
+    pub start: Box<Expression>,
+    pub end: Box<Expression>,
+    pub step: Option<Box<Expression>>,
+    pub inclusive: bool,
 }
 
 impl Expression {
@@ -82,12 +94,19 @@ impl Expression {
             Expression::Literal { ty, .. } => *ty,
             Expression::Assigment { ty, .. } => *ty,
             Expression::Init { ty, .. } => *ty,
-            Expression::Block { ret, .. } => {
-                ret.as_ref().map(|ret| ret.ir_type()).unwrap_or(Elem::UInt)
-            }
+            Expression::Block { ret, .. } => ret.ir_type(),
             Expression::Cast { to, .. } => *to,
-            Expression::Break | Expression::Continue | Expression::ForLoop { .. } => Elem::UInt,
+            Expression::Break | Expression::Continue | Expression::ForLoop { .. } => Elem::Unit,
             Expression::FieldAccess { ty, .. } => *ty,
+            Expression::__Range(_) => Elem::Unit,
+            Expression::Unit => Elem::Unit,
+        }
+    }
+
+    pub fn as_range(&self) -> Option<&Range> {
+        match self {
+            Expression::__Range(range) => Some(range),
+            _ => None,
         }
     }
 }
@@ -99,7 +118,7 @@ pub trait Expr {
     fn vectorization(&self) -> Option<NonZero<u8>>;
 }
 
-#[derive(Debug, new, Hash)]
+#[derive(Debug, new, Hash, PartialEq)]
 pub struct Variable<T: SquareType> {
     pub name: &'static str,
     pub vectorization: Option<NonZero<u8>>,

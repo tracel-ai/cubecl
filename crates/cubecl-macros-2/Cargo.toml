@@ -30,5 +30,6 @@ syn = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "0.1.1", default-features = false }
 
 [dev-dependencies]
+compiletest_rs = { version = "0.11", features = ["tmp"] }
 cubecl-core = { path = "../cubecl-core", version = "0.1.1", default-features = false }
 pretty_assertions = "1.4"

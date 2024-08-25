@@ -16,25 +16,20 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
     let (var_name, ty, mutable) = parse_pat(*for_loop.pat)?;
     context.push_scope();
     context.push_variable(var_name.clone(), ty.clone(), false);
-    let statements = for_loop
-        .body
-        .stmts
-        .into_iter()
-        .map(|stmt| Statement::from_stmt(stmt, context))
-        .collect::<Result<Vec<_>, _>>()?;
+    let block = parse_block(for_loop.body, context)?;
     context.pop_scope();
     Ok(Expression::ForLoop {
         range: Box::new(right),
-        unroll: Box::new(unroll),
+        unroll: unroll.map(Box::new),
         var_name,
         var_ty: ty,
         var_mut: mutable,
-        block: statements,
+        block: Box::new(block),
         span,
     })
 }
 
-fn unroll(for_loop: &ExprForLoop, context: &mut Context) -> syn::Result<Expression> {
+fn unroll(for_loop: &ExprForLoop, context: &mut Context) -> syn::Result<Option<Expression>> {
     let attribute = for_loop
         .attrs
         .iter()
@@ -53,7 +48,40 @@ fn unroll(for_loop: &ExprForLoop, context: &mut Context) -> syn::Result<Expressi
                 quote![#value]
             }
         });
-    let attribute = attribute.unwrap_or_else(|| quote![false]);
-    let expr: Expr = syn::parse2(attribute)?;
-    Expression::from_expr(expr, context)
+    if let Some(attribute) = attribute {
+        let expr: Expr = syn::parse2(attribute)?;
+        Ok(Some(Expression::from_expr(expr, context)?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn parse_block(block: Block, context: &mut Context) -> syn::Result<Expression> {
+    let span = block.span();
+
+    let mut statements = block
+        .stmts
+        .into_iter()
+        .map(|stmt| Statement::from_stmt(stmt, context))
+        .collect::<Result<Vec<_>, _>>()?;
+    // Pop implicit return if it exists so we can assign it as the block output
+    let ret = match statements.pop() {
+        Some(Statement::Expression {
+            expression,
+            terminated: false,
+            ..
+        }) => Some(expression),
+        Some(stmt) => {
+            statements.push(stmt);
+            None
+        }
+        _ => None,
+    };
+    let ty = ret.as_ref().and_then(|ret| ret.ty());
+    Ok(Expression::Block {
+        inner: statements,
+        ret,
+        ty,
+        span,
+    })
 }

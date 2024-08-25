@@ -52,7 +52,7 @@ pub enum Elem {
     UInt,
     AtomicUInt,
     Bool,
-    Pointer,
+    Unit,
 }
 
 impl Elem {
@@ -67,7 +67,7 @@ impl Elem {
             Elem::Bool => ConstantScalarValue::Bool(val > 0.0),
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
-            Elem::Pointer => panic!("Can't create pointer from constant"),
+            Elem::Unit => panic!("Can't create pointer from constant"),
         })
     }
     /// Create a constant scalar from a signed integer.
@@ -81,7 +81,7 @@ impl Elem {
             Elem::Bool => ConstantScalarValue::Bool(val > 0),
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(val, *kind),
             Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
-            Elem::Pointer => panic!("Can't create pointer from constant"),
+            Elem::Unit => panic!("Can't create pointer from constant"),
         })
     }
     /// Create a constant scalar from a unsigned integer.
@@ -95,7 +95,7 @@ impl Elem {
             Elem::Bool => ConstantScalarValue::Bool(val > 0),
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::AtomicUInt => ConstantScalarValue::UInt(val),
-            Elem::Pointer => panic!("Can't create pointer from constant"),
+            Elem::Unit => panic!("Can't create pointer from constant"),
         })
     }
     /// Create a constant scalar from a boolean.
@@ -109,7 +109,7 @@ impl Elem {
             Elem::UInt => ConstantScalarValue::UInt(val as u64),
             Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
             Elem::Bool => ConstantScalarValue::Bool(val),
-            Elem::Pointer => panic!("Can't create pointer from constant"),
+            Elem::Unit => panic!("Can't create pointer from constant"),
         })
     }
 
@@ -147,7 +147,7 @@ impl Elem {
             Elem::UInt => core::mem::size_of::<u32>(),
             Elem::AtomicUInt => core::mem::size_of::<u32>(),
             Elem::Bool => core::mem::size_of::<bool>(),
-            Elem::Pointer => core::mem::size_of::<usize>(),
+            Elem::Unit => core::mem::size_of::<usize>(),
         }
     }
 
@@ -182,7 +182,7 @@ impl Display for Elem {
             Self::UInt => f.write_str("uint"),
             Self::AtomicUInt => f.write_str("atomic<uint>"),
             Self::Bool => f.write_str("bool"),
-            Self::Pointer => f.write_str("ptr"),
+            Self::Unit => f.write_str("ptr"),
         }
     }
 }

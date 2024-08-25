@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::ir::Elem;
 
 use super::{Expr, Expression, SquareType};
@@ -12,43 +10,29 @@ pub enum Statement {
         ty: Option<Elem>,
     },
     Expression(Expression),
-    Return(Expression),
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Block<T: SquareType> {
+#[derive(Clone, Debug, PartialEq, new)]
+pub struct Block<Ret: Expr>
+where
+    Ret::Output: SquareType,
+{
     pub statements: Vec<Statement>,
-    pub ret: Option<Expression>,
-    pub _ty: PhantomData<T>,
+    pub ret: Ret,
 }
 
-impl<T: SquareType> Block<T> {
-    pub fn new(mut statements: Vec<Statement>) -> Self {
-        let ret = match statements.pop() {
-            Some(Statement::Return(ret)) => Some(ret),
-            Some(last) => {
-                statements.push(last);
-                None
-            }
-            _ => None,
-        };
-        Self {
-            statements,
-            ret,
-            _ty: PhantomData,
-        }
-    }
-}
-
-impl<T: SquareType> Expr for Block<T> {
-    type Output = T;
+impl<Ret: Expr> Expr for Block<Ret>
+where
+    Ret::Output: SquareType,
+{
+    type Output = Ret::Output;
 
     fn expression_untyped(&self) -> Expression {
         Expression::Block {
             inner: self.statements.clone(),
-            ret: self.ret.as_ref().map(ToOwned::to_owned).map(Box::new),
+            ret: Box::new(self.ret.expression_untyped()),
             vectorization: None,
-            ty: <T as SquareType>::ir_type(),
+            ty: <Ret::Output as SquareType>::ir_type(),
         }
     }
 

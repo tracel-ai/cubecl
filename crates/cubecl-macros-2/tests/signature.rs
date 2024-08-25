@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::{
     ir::Elem,
-    new_ir::{Block, Expression, Operator, Statement, Variable},
+    new_ir::{Expr, Expression, Operator, Variable},
 };
 use cubecl_macros_2::{cube2, Expand};
 use pretty_assertions::assert_eq;
@@ -40,15 +40,19 @@ pub fn const_param() {
             _type: PhantomData,
         },
         2,
-    );
+    )
+    .expression_untyped();
 
-    let expected = Block::<()>::new(vec![expr(Expression::Binary {
-        left: var("a", UInt),
-        operator: Operator::Mul,
-        right: Box::new(lit(2u32)),
-        ty: UInt,
-        vectorization: None,
-    })]);
+    let expected = block(
+        vec![expr(Expression::Binary {
+            left: var("a", UInt),
+            operator: Operator::Mul,
+            right: Box::new(lit(2u32)),
+            ty: UInt,
+            vectorization: None,
+        })],
+        None,
+    );
 
     assert_eq!(expanded, expected);
 }
@@ -68,21 +72,25 @@ pub fn const_generic() {
             _type: PhantomData,
         },
         2,
-    );
+    )
+    .expression_untyped();
 
-    let expected = Block::<()>::new(vec![expr(Expression::Binary {
-        left: Box::new(Expression::Binary {
-            left: var("a", UInt),
-            operator: Operator::Mul,
-            right: Box::new(lit(2u32)),
-            ty: UInt,
+    let expected = block(
+        vec![expr(Expression::Binary {
+            left: Box::new(Expression::Binary {
+                left: var("a", UInt),
+                operator: Operator::Mul,
+                right: Box::new(lit(2u32)),
+                ty: UInt,
+                vectorization: None,
+            }),
+            operator: Operator::Add,
+            right: Box::new(lit(3u32)),
+            ty: Elem::UInt,
             vectorization: None,
-        }),
-        operator: Operator::Add,
-        right: Box::new(lit(3u32)),
-        ty: Elem::UInt,
-        vectorization: None,
-    })]);
+        })],
+        None,
+    );
 
     assert_eq!(expanded, expected);
 }
@@ -101,24 +109,27 @@ pub fn struct_param() {
         arg.a * arg.b
     }
 
-    let expanded = struct_param::expand(Variable::new("param", None));
-    let expected = Block::<u32>::new(vec![Statement::Return(Expression::Binary {
-        left: Box::new(Expression::FieldAccess {
-            base: var("param", Elem::Pointer),
-            name: "a".to_string(),
+    let expanded = struct_param::expand(Variable::new("param", None)).expression_untyped();
+    let expected = block(
+        vec![],
+        Some(Expression::Binary {
+            left: Box::new(Expression::FieldAccess {
+                base: var("param", Elem::Unit),
+                name: "a".to_string(),
+                ty: Elem::UInt,
+                vectorization: None,
+            }),
+            operator: Operator::Mul,
+            right: Box::new(Expression::FieldAccess {
+                base: var("param", Elem::Unit),
+                name: "b".to_string(),
+                ty: Elem::UInt,
+                vectorization: None,
+            }),
             ty: Elem::UInt,
             vectorization: None,
         }),
-        operator: Operator::Mul,
-        right: Box::new(Expression::FieldAccess {
-            base: var("param", Elem::Pointer),
-            name: "b".to_string(),
-            ty: Elem::UInt,
-            vectorization: None,
-        }),
-        ty: Elem::UInt,
-        vectorization: None,
-    })]);
+    );
 
     assert_eq!(expanded, expected);
 }
@@ -131,8 +142,8 @@ pub fn comptime_struct_param() {
         arg.a * arg.b
     }
 
-    let expanded = struct_param::expand(Param { a: 2, b: 3 });
-    let expected = Block::<u32>::new(vec![Statement::Return(lit(6u32))]);
+    let expanded = struct_param::expand(Param { a: 2, b: 3 }).expression_untyped();
+    let expected = block(vec![], Some(lit(6u32)));
 
     assert_eq!(expanded, expected);
 }

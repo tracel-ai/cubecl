@@ -462,7 +462,7 @@ impl CudaCompiler {
                     gpu::Elem::AtomicInt(_) | gpu::Elem::AtomicUInt => {
                         panic!("Cannot use recip with atomics")
                     }
-                    gpu::Elem::Pointer => {
+                    gpu::Elem::Unit => {
                         panic!("Cannot use recip with pointers")
                     }
                 };
@@ -717,7 +717,7 @@ impl CudaCompiler {
             gpu::Elem::UInt => super::Elem::U32,
             gpu::Elem::AtomicUInt => super::Elem::U32,
             gpu::Elem::Bool => super::Elem::Bool,
-            gpu::Elem::Pointer => super::Elem::Pointer,
+            gpu::Elem::Unit => super::Elem::Pointer,
         }
     }
 }

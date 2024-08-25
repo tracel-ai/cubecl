@@ -1,6 +1,6 @@
 #![allow(clippy::all)]
 
-use cubecl_core::new_ir::{Block, Statement};
+use cubecl_core::new_ir::Expr;
 use cubecl_macros_2::cube2;
 use pretty_assertions::assert_eq;
 
@@ -19,8 +19,7 @@ fn collapses_constants() {
         d
     }
 
-    let expanded = collapses_constants::expand(1);
-    let expected = Block::<u32>::new(vec![Statement::Return(lit(3u32))]);
-
+    let expanded = collapses_constants::expand(1).expression_untyped();
+    let expected = block(vec![], Some(lit(3u32)));
     assert_eq!(expanded, expected);
 }

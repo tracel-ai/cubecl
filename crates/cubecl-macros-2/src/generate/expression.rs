@@ -97,10 +97,16 @@ impl ToTokens for Expression {
                 ty,
                 span,
             } => {
+                let block = ir_type("Block");
+                let ret = ret
+                    .as_ref()
+                    .map(|ret| quote![#ret])
+                    .unwrap_or_else(|| quote![()]);
                 quote_spanned! {*span=>
                     {
+                        let mut __statements = Vec::new();
                         #(#inner)*
-                        #ret
+                        #block::new(__statements, #ret)
                     }
                 }
             }
@@ -160,36 +166,42 @@ impl ToTokens for Expression {
                 block,
                 span,
             } => {
-                let variable = generate_var(
-                    var_name,
-                    var_ty,
-                    *span,
-                    Some(quote![::core::num::NonZero::new(1)]),
-                );
+                let variable = generate_var(var_name, var_ty, *span, None);
                 let for_ty = ir_type("ForLoop");
-                let block_ty = ir_type("Block");
-                let block = quote_spanned! {*span=>
-                    #block_ty::<()>::new(vec![
-                        #(#block,)*
-                    ])
-                };
-                quote_spanned! {*span=>
-                    #for_ty {
-                        range: #range,
-                        unroll: #unroll,
-                        variable: #variable,
-                        block: #block,
+
+                if let Some(unroll) = unroll {
+                    quote_spanned! {*span=>
+                        {
+                            let #var_name = #variable;
+                            if #unroll {
+                                #for_ty::new_unroll(#range, #var_name, #block)
+                            } else {
+                                #for_ty::new(#range, #var_name, #block)
+                            }
+                        }
+                    }
+                } else {
+                    quote_spanned! {*span=>
+                        {
+                            let #var_name = #variable;
+                            #for_ty::new(#range, #var_name, #block)
+                        }
                     }
                 }
             }
-            Expression::ConstVariable { name, ty, span } => {
+            Expression::ConstVariable { name, .. } => quote![#name],
+            Expression::Path { path, .. } => quote![#path],
+            Expression::Range {
+                start,
+                end,
+                inclusive,
+                span,
+            } => {
+                let range = ir_type("RangeExpr");
                 quote_spanned! {*span=>
-                    #name
+                    #range::new(#start, #end, #inclusive)
                 }
             }
-            Expression::Path { path, span } => quote_spanned! {*span=>
-                #path
-            },
         };
 
         tokens.extend(out);

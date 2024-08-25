@@ -96,11 +96,17 @@ pub enum Expression {
     },
     ForLoop {
         range: Box<Expression>,
-        unroll: Box<Expression>,
+        unroll: Option<Box<Expression>>,
         var_name: syn::Ident,
         var_ty: Option<syn::Type>,
         var_mut: bool,
-        block: Vec<Statement>,
+        block: Box<Expression>,
+        span: Span,
+    },
+    Range {
+        start: Box<Expression>,
+        end: Box<Expression>,
+        inclusive: bool,
         span: Span,
     },
 }
@@ -125,6 +131,7 @@ impl Expression {
             Expression::FieldAccess { .. } => None,
             Expression::MethodCall { .. } => None,
             Expression::Path { .. } => None,
+            Expression::Range { start, .. } => start.ty(),
         }
     }
 

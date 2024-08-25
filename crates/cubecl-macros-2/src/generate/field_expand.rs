@@ -40,7 +40,7 @@ impl ToTokens for Expand {
             }
             impl #square_ty for #name {
                 fn ir_type() -> #elem {
-                    #elem::Pointer
+                    #elem::Unit
                 }
             }
         };
