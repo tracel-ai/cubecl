@@ -194,6 +194,28 @@ impl ToTokens for Expression {
                     }
                 }
             }
+            Expression::WhileLoop {
+                condition,
+                block,
+                span,
+            } => {
+                let while_ty = ir_type("WhileLoop");
+
+                quote_spanned! {*span=>
+                    {
+                        #while_ty::new(#condition, #block)
+                    }
+                }
+            }
+            Expression::Loop { block, span } => {
+                let loop_ty = ir_type("Loop");
+
+                quote_spanned! {*span=>
+                    {
+                        #loop_ty::new(#block)
+                    }
+                }
+            }
             Expression::ConstVariable { name, .. } => quote![#name],
             Expression::Path { path, .. } => quote![#path],
             Expression::Range {

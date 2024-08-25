@@ -8,7 +8,7 @@ use crate::{
 };
 
 use super::{
-    branch::{expand_for_loop, parse_block},
+    branch::{expand_for_loop, expand_loop, expand_while_loop, parse_block},
     operator::{parse_binop, parse_unop},
 };
 
@@ -143,6 +143,8 @@ impl Expression {
             },
             Expr::Continue(cont) => Expression::Continue { span: cont.span() },
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
+            Expr::While(while_loop) => expand_while_loop(while_loop, context)?,
+            Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
             Expr::Range(range) => {
                 let span = range.span();
                 let start = *range
@@ -168,13 +170,12 @@ impl Expression {
                 }
             }
             Expr::Group(group) => Expression::from_expr(*group.expr, context)?,
-            // If something has wrong precedence, look here
             Expr::Paren(paren) => Expression::from_expr(*paren.expr, context)?,
             Expr::If(_) => todo!("if"),
             Expr::Index(_) => todo!("index"),
             Expr::Infer(_) => todo!("infer"),
             Expr::Let(_) => todo!("let"),
-            Expr::Loop(_) => todo!("loop"),
+
             Expr::Macro(_) => todo!("macro"),
             Expr::Match(_) => todo!("match"),
             Expr::Reference(_) => todo!("reference"),
@@ -186,7 +187,6 @@ impl Expression {
             Expr::Tuple(_) => todo!("tuple"),
             Expr::Unsafe(_) => todo!("unsafe"),
             Expr::Verbatim(_) => todo!("verbatim"),
-            Expr::While(_) => todo!("while"),
             _ => Err(syn::Error::new_spanned(expr, "Unsupported expression"))?,
         };
         Ok(result)

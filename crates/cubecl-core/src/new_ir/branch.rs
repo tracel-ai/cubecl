@@ -109,7 +109,7 @@ where
             range,
             unroll: self.unroll,
             variable: Box::new(self.variable.expression_untyped()),
-            block: self.block.statements.clone(),
+            block: Box::new(self.block.expression_untyped()),
         }
     }
 
@@ -224,4 +224,42 @@ where
     Inner: Expr<Output = RangeExpr<Start, End>>,
 {
     type Primitive = Start::Output;
+}
+
+#[derive(new)]
+pub struct WhileLoop<Condition: Expr<Output = bool>> {
+    pub condition: Condition,
+    pub block: Block<()>,
+}
+
+impl<Condition: Expr<Output = bool>> Expr for WhileLoop<Condition> {
+    type Output = ();
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::WhileLoop {
+            condition: Box::new(self.condition.expression_untyped()),
+            block: Box::new(self.block.expression_untyped()),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        None
+    }
+}
+
+#[derive(new)]
+pub struct Loop(pub Block<()>);
+
+impl Expr for Loop {
+    type Output = ();
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::Loop {
+            block: Box::new(self.0.expression_untyped()),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        None
+    }
 }

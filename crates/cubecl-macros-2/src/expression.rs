@@ -103,6 +103,15 @@ pub enum Expression {
         block: Box<Expression>,
         span: Span,
     },
+    WhileLoop {
+        condition: Box<Expression>,
+        block: Box<Expression>,
+        span: Span,
+    },
+    Loop {
+        block: Box<Expression>,
+        span: Span,
+    },
     Range {
         start: Box<Expression>,
         end: Box<Expression>,
@@ -132,6 +141,8 @@ impl Expression {
             Expression::MethodCall { .. } => None,
             Expression::Path { .. } => None,
             Expression::Range { start, .. } => start.ty(),
+            Expression::WhileLoop { .. } => None,
+            Expression::Loop { .. } => None,
         }
     }
 
@@ -155,6 +166,16 @@ impl Expression {
                 base.as_const().map(|base| quote![#base.#field])
             }
             _ => None,
+        }
+    }
+
+    pub fn needs_terminator(&self) -> bool {
+        match self {
+            Expression::Block { ret, .. } => ret.is_some(),
+            Expression::ForLoop { .. } => false,
+            Expression::WhileLoop { .. } => false,
+            Expression::Loop { .. } => false,
+            _ => true,
         }
     }
 }

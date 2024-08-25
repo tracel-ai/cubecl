@@ -51,20 +51,23 @@ pub trait KernelArg {}
 
 impl<T: SquareType> KernelArg for T {}
 
+/// Type that has runtime fields or methods
 pub trait Expand: Sized {
     type Expanded<Inner: Expr<Output = Self>>;
 
     fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner>;
 }
 
-pub trait StaticExpand: Sized {
-    type Expanded;
-}
-
+/// Comptime type that has fields or methods that create runtime values (i.e. `Option<SquareType>`)
 pub trait PartialExpand: Sized {
     type Expanded;
 
     fn partial_expand(self) -> Self::Expanded;
+}
+
+/// Type that has associated functions to expand into runtime functions
+pub trait StaticExpand: Sized {
+    type Expanded;
 }
 
 /// Auto impl `StaticExpand for all `Expand` types, with `Self` as the inner expression

@@ -49,11 +49,15 @@ impl Statement {
                     span,
                 }
             }
-            Stmt::Expr(expr, semi) => Statement::Expression {
-                terminated: semi.is_some(),
-                span: expr.span(),
-                expression: Box::new(Expression::from_expr(expr, context)?),
-            },
+            Stmt::Expr(expr, semi) => {
+                let span = expr.span();
+                let expression = Box::new(Expression::from_expr(expr, context)?);
+                Statement::Expression {
+                    terminated: semi.is_some() || !expression.needs_terminator(),
+                    span,
+                    expression,
+                }
+            }
             stmt => Err(syn::Error::new_spanned(stmt, "Unsupported statement"))?,
         };
         Ok(statement)
