@@ -5,13 +5,9 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_core::{Feature, FeatureSet, Runtime};
-use cubecl_runtime::{
-    channel::MutexComputeChannel,
-    client::ComputeClient,
-    memory_management::dynamic::{DynamicMemoryManagement, DynamicMemoryManagementOptions},
-    ComputeRuntime,
-};
-use wgpu::DeviceDescriptor;
+use cubecl_runtime::memory_management;
+use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
+use wgpu::{DeviceDescriptor, Limits};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
@@ -23,13 +19,42 @@ pub struct WgpuRuntime;
 static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
-type Server = WgpuServer<DynamicMemoryManagement<WgpuStorage>>;
+type Server = WgpuServer<MemoryManagement>;
+
+#[cfg(not(simple_memory_management))]
+type MemoryManagement = memory_management::dynamic::DynamicMemoryManagement<WgpuStorage>;
+#[cfg(simple_memory_management)]
+type MemoryManagement = memory_management::simple::SimpleMemoryManagement<WgpuStorage>;
+
+#[cfg(not(simple_memory_management))]
+fn init_memory_management(device: Arc<wgpu::Device>, limits: &Limits) -> MemoryManagement {
+    let storage = WgpuStorage::new(device.clone());
+
+    memory_management::dynamic::DynamicMemoryManagement::new(
+        storage,
+        memory_management::dynamic::DynamicMemoryManagementOptions::preset(
+            limits.max_storage_buffer_binding_size as usize,
+            limits.min_storage_buffer_offset_alignment as usize,
+        ),
+    )
+}
+
+#[cfg(simple_memory_management)]
+fn init_memory_management(device: Arc<wgpu::Device>, _limits: &Limits) -> MemoryManagement {
+    let storage = WgpuStorage::new(device.clone());
+
+    memory_management::simple::SimpleMemoryManagement::new(
+        storage,
+        memory_management::simple::DeallocStrategy::new_period_tick(32),
+        memory_management::simple::SliceStrategy::Ratio(0.8),
+    )
+}
 
 impl Runtime for WgpuRuntime {
     type Compiler = wgsl::WgslCompiler;
-    type Server = WgpuServer<DynamicMemoryManagement<WgpuStorage>>;
+    type Server = WgpuServer<MemoryManagement>;
 
-    type Channel = MutexComputeChannel<WgpuServer<DynamicMemoryManagement<WgpuStorage>>>;
+    type Channel = MutexComputeChannel<WgpuServer<MemoryManagement>>;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
@@ -112,19 +137,10 @@ fn create_client(
     device_wgpu: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     options: RuntimeOptions,
-) -> ComputeClient<
-    WgpuServer<DynamicMemoryManagement<WgpuStorage>>,
-    MutexComputeChannel<WgpuServer<DynamicMemoryManagement<WgpuStorage>>>,
-> {
+) -> ComputeClient<WgpuServer<MemoryManagement>, MutexComputeChannel<WgpuServer<MemoryManagement>>>
+{
     let limits = device_wgpu.limits();
-    let storage = WgpuStorage::new(device_wgpu.clone());
-    let memory_management = DynamicMemoryManagement::new(
-        storage,
-        DynamicMemoryManagementOptions::preset(
-            limits.max_storage_buffer_binding_size as usize,
-            limits.min_storage_buffer_offset_alignment as usize,
-        ),
-    );
+    let memory_management = init_memory_management(device_wgpu.clone(), &limits);
     let server = WgpuServer::new(memory_management, device_wgpu, queue, options.tasks_max);
     let channel = MutexComputeChannel::new(server);
 
