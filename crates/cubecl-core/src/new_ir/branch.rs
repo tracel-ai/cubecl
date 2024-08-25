@@ -1,7 +1,7 @@
 use crate::prelude::Int;
 use std::fmt::Display;
 
-use super::{AddExpr, Block, Expand, Expr, Expression, Literal, SquareType, Variable};
+use super::{AddExpr, Block, Expand, Expr, Expression, SquareType, Variable};
 
 pub struct Break;
 
@@ -78,12 +78,12 @@ impl<TNum: SquareType + Int + Display, Start: Expr<Output = TNum>, End: Expr<Out
 }
 
 impl<TNum: SquareType + Int + Display, Start: Expr<Output = TNum>, End: Expr<Output = TNum>>
-    RangeExpr<TNum, Start, AddExpr<End, Literal<TNum>, TNum>>
+    RangeExpr<TNum, Start, AddExpr<End, TNum, TNum>>
 {
     pub fn new_inclusive(start: Start, end: End) -> Self {
         RangeExpr {
             start,
-            end: AddExpr::new(end, Literal::new(TNum::from(1))),
+            end: AddExpr::new(end, TNum::from(1)),
         }
     }
 }

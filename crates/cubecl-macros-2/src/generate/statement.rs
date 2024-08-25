@@ -71,8 +71,8 @@ impl ToTokens for Statement {
                         #initializer
                         #variable_decl
                         __statements.push({
-                                #statement::Local {
-                                variable: Box::new(#expr::expression_untyped(&#left)),
+                            #statement::Local {
+                                variable: #expr::expression_untyped(&(#left)),
                                 mutable: #mutable,
                                 ty: #ty
                             }
@@ -88,13 +88,13 @@ impl ToTokens for Statement {
                 if *terminated {
                     quote_spanned! {*span=>
                         __statements.push(#statement::Expression(
-                            Box::new(#expr::expression_untyped(&#expression))
+                            #expr::expression_untyped(&(#expression))
                         ));
                     }
                 } else {
                     quote_spanned! {*span=>
                         __statements.push(#statement::Return(
-                            Box::new(#expr::expression_untyped(&#expression))
+                            #expr::expression_untyped(&(#expression))
                         ));
                     }
                 }

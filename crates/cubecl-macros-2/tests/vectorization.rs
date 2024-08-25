@@ -26,24 +26,24 @@ pub fn vectorization_simple() {
     let expected = Block::<u32>::new(vec![
         init_vec(
             "c",
-            Box::new(Expression::Binary {
-                left: vec_var("a", Elem::UInt, 4),
+            Expression::Binary {
+                left: Box::new(vec_var("a", Elem::UInt, 4)),
                 operator: Operator::Mul,
                 right: var("b", Elem::UInt),
                 vectorization: NonZero::new(4),
                 ty: Elem::UInt,
-            }),
+            },
             false,
             None,
             4,
         ),
-        Statement::Return(Box::new(Expression::Binary {
-            left: vec_var("c", Elem::UInt, 4),
+        Statement::Return(Expression::Binary {
+            left: Box::new(vec_var("c", Elem::UInt, 4)),
             operator: Operator::Mul,
-            right: vec_var("a", Elem::UInt, 4),
+            right: Box::new(vec_var("a", Elem::UInt, 4)),
             vectorization: NonZero::new(4),
             ty: Elem::UInt,
-        })),
+        }),
     ]);
 
     assert_eq!(expanded, expected);

@@ -41,6 +41,10 @@ pub enum Expression {
         field: Member,
         span: Span,
     },
+    Path {
+        path: Path,
+        span: Span,
+    },
     Literal {
         value: Lit,
         ty: Type,
@@ -120,6 +124,7 @@ impl Expression {
             Expression::ForLoop { .. } => None,
             Expression::FieldAccess { .. } => None,
             Expression::MethodCall { .. } => None,
+            Expression::Path { .. } => None,
         }
     }
 
@@ -138,6 +143,7 @@ impl Expression {
             Expression::Literal { value, .. } => Some(quote![#value]),
             Expression::Verbatim { tokens, .. } => Some(tokens.clone()),
             Expression::ConstVariable { name, .. } => Some(quote![#name]),
+            Expression::Path { path, .. } => Some(quote![#path]),
             Expression::FieldAccess { base, field, .. } => {
                 base.as_const().map(|base| quote![#base.#field])
             }

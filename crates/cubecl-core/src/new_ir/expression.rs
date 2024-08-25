@@ -250,17 +250,3 @@ where
         self.from.vectorization()
     }
 }
-
-impl<T: Expr> Expr for Box<T> {
-    type Output = T::Output;
-
-    fn expression_untyped(&self) -> Expression {
-        let this: &T = self;
-        this.expression_untyped()
-    }
-
-    fn vectorization(&self) -> Option<NonZero<u8>> {
-        let this: &T = self;
-        this.vectorization()
-    }
-}

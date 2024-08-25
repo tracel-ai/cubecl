@@ -42,13 +42,13 @@ pub fn const_param() {
         2,
     );
 
-    let expected = Block::<()>::new(vec![expr(Box::new(Expression::Binary {
+    let expected = Block::<()>::new(vec![expr(Expression::Binary {
         left: var("a", UInt),
         operator: Operator::Mul,
-        right: lit(2u32),
+        right: Box::new(lit(2u32)),
         ty: UInt,
         vectorization: None,
-    }))]);
+    })]);
 
     assert_eq!(expanded, expected);
 }
@@ -70,19 +70,19 @@ pub fn const_generic() {
         2,
     );
 
-    let expected = Block::<()>::new(vec![expr(Box::new(Expression::Binary {
+    let expected = Block::<()>::new(vec![expr(Expression::Binary {
         left: Box::new(Expression::Binary {
             left: var("a", UInt),
             operator: Operator::Mul,
-            right: lit(2u32),
+            right: Box::new(lit(2u32)),
             ty: UInt,
             vectorization: None,
         }),
         operator: Operator::Add,
-        right: lit(3u32),
+        right: Box::new(lit(3u32)),
         ty: Elem::UInt,
         vectorization: None,
-    }))]);
+    })]);
 
     assert_eq!(expanded, expected);
 }
@@ -102,7 +102,7 @@ pub fn struct_param() {
     }
 
     let expanded = struct_param::expand(Variable::new("param", None));
-    let expected = Block::<u32>::new(vec![Statement::Return(Box::new(Expression::Binary {
+    let expected = Block::<u32>::new(vec![Statement::Return(Expression::Binary {
         left: Box::new(Expression::FieldAccess {
             base: var("param", Elem::Pointer),
             name: "a".to_string(),
@@ -118,7 +118,7 @@ pub fn struct_param() {
         }),
         ty: Elem::UInt,
         vectorization: None,
-    }))]);
+    })]);
 
     assert_eq!(expanded, expected);
 }

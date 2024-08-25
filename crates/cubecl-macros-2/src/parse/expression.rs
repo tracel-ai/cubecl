@@ -74,8 +74,9 @@ impl Expression {
                 } else {
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
                     // external value like a Rust `const`.
-                    Expression::Verbatim {
-                        tokens: quote![#path],
+                    Expression::Path {
+                        span: path.span(),
+                        path: path.path,
                     }
                 }
             }

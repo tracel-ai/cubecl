@@ -1,11 +1,11 @@
-use std::num::NonZero;
+use std::{fmt::Display, num::NonZero};
 
 use crate::{
     ir::{Elem, FloatKind, IntKind},
     prelude::{UInt, F32, F64, I32, I64},
 };
 
-use super::Expr;
+use super::{Expr, Expression};
 
 pub trait TypeEq<T> {}
 impl<T> TypeEq<T> for T {}
@@ -14,6 +14,22 @@ pub trait SquareType {
     fn ir_type() -> Elem;
     fn vectorization(&self) -> Option<NonZero<u8>> {
         None
+    }
+}
+
+impl<T: SquareType + Display> Expr for T {
+    type Output = T;
+
+    fn expression_untyped(&self) -> super::Expression {
+        Expression::Literal {
+            value: self.to_string(),
+            vectorization: self.vectorization(),
+            ty: <T as SquareType>::ir_type(),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.vectorization()
     }
 }
 

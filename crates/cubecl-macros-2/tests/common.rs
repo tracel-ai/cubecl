@@ -15,37 +15,32 @@ pub fn var(name: &str, ty: Elem) -> Box<Expression> {
 }
 
 #[allow(unused)]
-pub fn vec_var(name: &str, ty: Elem, vectorization: u8) -> Box<Expression> {
-    Box::new(Expression::Variable {
+pub fn vec_var(name: &str, ty: Elem, vectorization: u8) -> Expression {
+    Expression::Variable {
         name: name.to_string(),
         ty,
         vectorization: NonZero::new(vectorization),
-    })
+    }
 }
 
 #[allow(unused)]
-pub fn lit<T: ToString + SquareType>(value: T) -> Box<Expression> {
-    Box::new(Expression::Literal {
+pub fn lit<T: ToString + SquareType>(value: T) -> Expression {
+    Expression::Literal {
         value: value.to_string(),
         ty: <T as SquareType>::ir_type(),
         vectorization: None,
-    })
+    }
 }
 
 #[allow(unused)]
-pub fn local_init(
-    name: &str,
-    right: Box<Expression>,
-    mutable: bool,
-    ty: Option<Elem>,
-) -> Statement {
+pub fn local_init(name: &str, right: Expression, mutable: bool, ty: Option<Elem>) -> Statement {
     Statement::Local {
-        variable: Box::new(Expression::Init {
+        variable: Expression::Init {
             left: var(name, right.ir_type()),
             ty: right.ir_type(),
-            right,
+            right: Box::new(right),
             vectorization: None,
-        }),
+        },
         mutable,
         ty,
     }
@@ -53,24 +48,24 @@ pub fn local_init(
 #[allow(unused)]
 pub fn init_vec(
     name: &str,
-    right: Box<Expression>,
+    right: Expression,
     mutable: bool,
     ty: Option<Elem>,
     vectorization: u8,
 ) -> Statement {
     Statement::Local {
-        variable: Box::new(Expression::Init {
-            left: vec_var(name, right.ir_type(), vectorization),
+        variable: Expression::Init {
+            left: Box::new(vec_var(name, right.ir_type(), vectorization)),
             ty: right.ir_type(),
-            right,
+            right: Box::new(right),
             vectorization: NonZero::new(vectorization),
-        }),
+        },
         mutable,
         ty,
     }
 }
 
 #[allow(unused)]
-pub fn expr(expr: Box<Expression>) -> Statement {
+pub fn expr(expr: Expression) -> Statement {
     Statement::Expression(expr)
 }

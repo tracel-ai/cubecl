@@ -19,18 +19,18 @@ fn function_call() {
     }
 
     let expanded = function_call::expand(Variable::new("a", None));
-    let expected = Block::<u32>::new(vec![Statement::Return(Box::new(Expression::Block {
+    let expected = Block::<u32>::new(vec![Statement::Return(Expression::Block {
         inner: vec![],
         ret: Some(Box::new(Expression::Binary {
             left: var("a", Elem::UInt),
             operator: Operator::Mul,
-            right: lit(2u32),
+            right: Box::new(lit(2u32)),
             vectorization: None,
             ty: Elem::UInt,
         })),
         vectorization: None,
         ty: Elem::UInt,
-    }))]);
+    })]);
 
     assert_eq!(expanded, expected);
 }
@@ -61,7 +61,7 @@ fn method_call() {
     }
 
     let expanded = method_call::expand(Variable::new("a", None));
-    let expected = Block::<u32>::new(vec![Statement::Return(Box::new(Expression::Binary {
+    let expected = Block::<u32>::new(vec![Statement::Return(Expression::Binary {
         left: Box::new(Expression::FieldAccess {
             base: var("a", Elem::Pointer),
             name: "a".to_string(),
@@ -69,10 +69,10 @@ fn method_call() {
             ty: Elem::UInt,
         }),
         operator: Operator::Mul,
-        right: lit(2u32),
+        right: Box::new(lit(2u32)),
         vectorization: None,
         ty: Elem::UInt,
-    }))]);
+    })]);
 
     assert_eq!(expanded, expected);
 }
@@ -85,7 +85,7 @@ impl Dummy {
 
     #[expanded]
     pub fn associated<B: Expr<Output = u32>>(b: B) -> impl Expr<Output = u32> {
-        MulExpr::new(b, Literal::new(2))
+        MulExpr::new(b, 2)
     }
 }
 
@@ -98,13 +98,13 @@ fn associated_call() {
     }
 
     let expanded = associated_call::expand();
-    let expected = Block::<u32>::new(vec![Statement::Return(Box::new(Expression::Binary {
-        left: lit(4u32),
+    let expected = Block::<u32>::new(vec![Statement::Return(Expression::Binary {
+        left: Box::new(lit(4u32)),
         operator: Operator::Mul,
-        right: lit(2u32),
+        right: Box::new(lit(2u32)),
         vectorization: None,
         ty: Elem::UInt,
-    }))]);
+    })]);
 
     assert_eq!(expanded, expected);
 }

@@ -55,11 +55,8 @@ impl ToTokens for Expression {
                 }
             }
             Expression::Literal { value, span, ty } => {
-                let ir_ty = prefix_ir(format_ident!("Literal"));
                 quote_spanned! {*span=>
-                    #ir_ty {
-                        value: #value
-                    }
+                    #value
                 }
             }
             Expression::Assigment {
@@ -90,11 +87,8 @@ impl ToTokens for Expression {
             }
             Expression::Verbatim { tokens } => {
                 let span = tokens.span();
-                let ty = prefix_ir(format_ident!("Literal"));
                 quote_spanned! {span=>
-                    #ty {
-                        value: #tokens
-                    }
+                    #tokens
                 }
             }
             Expression::Block {
@@ -111,8 +105,7 @@ impl ToTokens for Expression {
                 }
             }
             Expression::FunctionCall { func, span, args } => {
-                let func: TokenStream = func.as_const().unwrap_or_else(|| quote![#func]);
-                let associated_type = fn_associated_type(func.clone());
+                let associated_type = fn_associated_type(func);
                 // We pass in the `Variable`s and `Literal`s into the expansion so they can be rebound
                 // in the function root scope
                 if let Some((ty_path, name)) = associated_type {
@@ -190,11 +183,13 @@ impl ToTokens for Expression {
                 }
             }
             Expression::ConstVariable { name, ty, span } => {
-                let lit_ty = ir_type("Literal");
                 quote_spanned! {*span=>
-                    #lit_ty::new(#name)
+                    #name
                 }
             }
+            Expression::Path { path, span } => quote_spanned! {*span=>
+                #path
+            },
         };
 
         tokens.extend(out);
@@ -220,31 +215,41 @@ pub fn generate_var(
     }
 }
 
-fn fn_associated_type(path: TokenStream) -> Option<(Path, PathSegment)> {
-    let path: Path = syn::parse2(path).ok()?;
-    let is_assoc = path
-        .segments
-        .iter()
-        .nth_back(1)
-        .and_then(|it| it.ident.to_string().chars().next())
-        .map(|ch| ch.is_uppercase())
-        .unwrap_or(false);
-    if is_assoc {
-        let mut path = path.clone();
-        let name = path.segments.pop().unwrap().into_value();
-        path.segments.pop_punct();
-        Some((path, name))
-    } else {
-        None
+fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
+    if !matches!(path, Expression::Path { .. }) {
+        panic!("path: {path:?}");
+    }
+    match path {
+        Expression::Path { path, .. } => {
+            let is_assoc = path
+                .segments
+                .iter()
+                .nth_back(1)
+                .and_then(|it| it.ident.to_string().chars().next())
+                .map(|ch| ch.is_uppercase())
+                .unwrap_or(false);
+            if is_assoc {
+                let mut path = path.clone();
+                let name = path.segments.pop().unwrap().into_value();
+                path.segments.pop_punct();
+                Some((path, name))
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 
-fn split_generics(tokens: TokenStream) -> (PathArguments, Path) {
-    let mut path: Path = syn::parse2(tokens).unwrap();
+fn split_generics(path: &Expression) -> (PathArguments, TokenStream) {
+    let mut path = match path {
+        Expression::Path { path, .. } => path.clone(),
+        _ => return (PathArguments::None, quote![#path]),
+    };
     let generics = if let Some(last) = path.segments.last_mut() {
         core::mem::replace(&mut last.arguments, PathArguments::None)
     } else {
         PathArguments::None
     };
-    (generics, path)
+    (generics, quote![#path])
 }

@@ -7,18 +7,18 @@ use super::{Expr, Expression, SquareType};
 #[derive(Clone, Debug, PartialEq)]
 pub enum Statement {
     Local {
-        variable: Box<Expression>,
+        variable: Expression,
         mutable: bool,
         ty: Option<Elem>,
     },
-    Expression(Box<Expression>),
-    Return(Box<Expression>),
+    Expression(Expression),
+    Return(Expression),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Block<T: SquareType> {
     pub statements: Vec<Statement>,
-    pub ret: Option<Box<Expression>>,
+    pub ret: Option<Expression>,
     pub _ty: PhantomData<T>,
 }
 
@@ -46,7 +46,7 @@ impl<T: SquareType> Expr for Block<T> {
     fn expression_untyped(&self) -> Expression {
         Expression::Block {
             inner: self.statements.clone(),
-            ret: self.ret.as_ref().map(|it| it.to_owned()),
+            ret: self.ret.as_ref().map(ToOwned::to_owned).map(Box::new),
             vectorization: None,
             ty: <T as SquareType>::ir_type(),
         }
