@@ -2,6 +2,7 @@
 
 use std::{cell::LazyCell, collections::HashSet};
 
+use error::error_into_token_stream;
 use parse::{
     args::Args, expand_impl::ExpandImplVisitor, helpers::RemoveHelpers, kernel::Kernel,
     kernel_struct::Expand,
@@ -15,6 +16,7 @@ use syn::{
     ItemImpl, Path, PathSegment, Token,
 };
 
+mod error;
 mod expression;
 mod generate;
 mod parse;
@@ -50,18 +52,22 @@ pub(crate) fn ir_type(ty: &str) -> Path {
 
 #[proc_macro_attribute]
 pub fn cube2(args: TokenStream, input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(args as Args);
-    let mut function = parse_macro_input!(input as ItemFn);
-    let kernel = match Kernel::from_item_fn(function.clone()) {
-        Ok(kernel) => kernel,
-        Err(e) => return TokenStream::from(e.to_compile_error()),
-    };
+    match cube2_impl(args, input.clone()) {
+        Ok(tokens) => tokens,
+        Err(e) => error_into_token_stream(e, input.into()).into(),
+    }
+}
+
+fn cube2_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let args: Args = syn::parse(args)?;
+    let mut function: ItemFn = syn::parse(input)?;
+    let kernel = Kernel::from_item_fn(function.clone())?;
     RemoveHelpers.visit_item_fn_mut(&mut function);
 
-    TokenStream::from(quote! {
+    Ok(TokenStream::from(quote! {
         #function
         #kernel
-    })
+    }))
 }
 
 #[proc_macro_derive(Expand)]

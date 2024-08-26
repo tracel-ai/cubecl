@@ -16,17 +16,13 @@ impl VisitMut for RemoveHelpers {
 }
 
 pub fn is_comptime_attr(attr: &Attribute) -> bool {
-    attr.path()
-        .get_ident()
-        .map(ToString::to_string)
-        .map(|it| it == "comptime")
-        .unwrap_or(false)
+    attr.path().is_ident("comptime")
 }
 
 pub fn is_unroll_attr(attr: &Attribute) -> bool {
-    attr.path()
-        .get_ident()
-        .map(ToString::to_string)
-        .map(|it| it == "unroll")
-        .unwrap_or(false)
+    attr.path().is_ident("unroll")
+}
+
+pub fn is_helper(attr: &Attribute) -> bool {
+    is_comptime_attr(attr) || is_unroll_attr(attr)
 }

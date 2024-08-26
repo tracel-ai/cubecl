@@ -7,6 +7,8 @@ use crate::{
     statement::{parse_pat, Statement},
 };
 
+use super::helpers::is_unroll_attr;
+
 pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Result<Expression> {
     let span = for_loop.span();
     let unroll = unroll(&for_loop, context)?;
@@ -34,13 +36,7 @@ fn unroll(for_loop: &ExprForLoop, context: &mut Context) -> syn::Result<Option<E
     let attribute = for_loop
         .attrs
         .iter()
-        .find(|attr| {
-            attr.path()
-                .get_ident()
-                .map(ToString::to_string)
-                .map(|it| it == "unroll")
-                .unwrap_or(false)
-        })
+        .find(|attr| is_unroll_attr(attr))
         .map(|attr| match &attr.meta {
             Meta::Path(_) => quote![true],
             Meta::List(list) => list.tokens.clone(),
