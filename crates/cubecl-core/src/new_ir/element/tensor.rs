@@ -1,6 +1,14 @@
-use crate::new_ir::{Expand, Expr, IndexExpr, Integer, Length, Rank, Shape, Stride, Strided};
+use crate::new_ir::{
+    Expand, Expr, IndexExpr, Integer, Length, Rank, Shape, SliceExpr, SliceRangeExpr, Stride,
+    Strided,
+};
 use crate::{frontend::UInt, ir::Elem, new_ir::SquareType, unexpanded, Runtime};
-use std::{marker::PhantomData, ops::Index};
+use std::{
+    marker::PhantomData,
+    ops::{
+        Index, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
+    },
+};
 
 pub struct Dyn;
 pub struct Dim1;
@@ -193,7 +201,82 @@ impl<T: SquareType, Dims, Inner: Expr<Output = Tensor<T, Dims>>> TensorExpanded<
     {
         IndexExpr::new(self.0, index)
     }
+
+    pub fn slice<TNum: Integer>(
+        self,
+        ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<TNum>>>>,
+    ) -> impl Expr<Output = Inner::Output> {
+        SliceExpr::new(self.0, ranges)
+    }
 }
+
+macro_rules! slice_impl {
+    ($range:ident) => {
+        impl<T: SquareType, Dims, Idx: Integer> Index<$range<Idx>> for Tensor<T, Dims> {
+            type Output = Self;
+
+            fn index(&self, _index: $range<Idx>) -> &Self::Output {
+                unexpanded!()
+            }
+        }
+    };
+    ($dims:ident, $range:ident, $dim_count:literal) => {
+        impl<T: SquareType, Idx: Integer> Index<[$range<Idx>; $dim_count]> for Tensor<T, $dims> {
+            type Output = Self;
+
+            fn index(&self, _index: [$range<Idx>; $dim_count]) -> &Self::Output {
+                unexpanded!()
+            }
+        }
+    };
+    ($dims:ident, $ty:ident, $($args:ident),*) => {
+        impl<T: SquareType, $($args: RangeBounds<$ty>),*> Index<($($args),*)> for Tensor<T, $dims> {
+            type Output = Self;
+
+            fn index(&self, _index: ($($args),*)) -> &Self::Output {
+                unexpanded!()
+            }
+        }
+    };
+}
+
+macro_rules! slice_impls {
+    () => {
+        slice_impl!(Range);
+        slice_impl!(RangeFrom);
+        slice_impl!(RangeInclusive);
+        slice_impl!(RangeTo);
+        slice_impl!(RangeToInclusive);
+
+        impl<T: SquareType, Dims> Index<RangeFull> for Tensor<T, Dims> {
+            type Output = Self;
+
+            fn index(&self, _index: RangeFull) -> &Self::Output {
+                unexpanded!()
+            }
+        }
+    };
+    ($dims:ident, $dim_count:literal) => {
+        slice_impl!($dims, Range, $dim_count);
+        slice_impl!($dims, RangeFrom, $dim_count);
+        slice_impl!($dims, RangeInclusive, $dim_count);
+        slice_impl!($dims, RangeTo, $dim_count);
+        slice_impl!($dims, RangeToInclusive, $dim_count);
+
+        impl<T: SquareType> Index<[RangeFull; $dim_count]> for Tensor<T, $dims> {
+            type Output = Self;
+
+            fn index(&self, _index: [RangeFull; $dim_count]) -> &Self::Output {
+                unexpanded!()
+            }
+        }
+    };
+    ($dims:ident, $($args:ident),*) => {
+        slice_impl!($dims, u32, $($args),*);
+    };
+}
+
+slice_impls!();
 
 macro_rules! impl_index_array {
     ($dim:ident, $num_dims:literal) => {
@@ -212,3 +295,15 @@ impl_index_array!(Dim3, 3);
 impl_index_array!(Dim4, 4);
 impl_index_array!(Dim5, 5);
 impl_index_array!(Dim6, 6);
+
+slice_impls!(Dim2, 2);
+slice_impls!(Dim3, 3);
+slice_impls!(Dim4, 4);
+slice_impls!(Dim5, 5);
+slice_impls!(Dim6, 6);
+
+slice_impls!(Dim2, Range1, Range2);
+slice_impls!(Dim3, Range1, Range2, Range3);
+slice_impls!(Dim4, Range1, Range2, Range3, Range4);
+slice_impls!(Dim5, Range1, Range2, Range3, Range4, Range5);
+slice_impls!(Dim6, Range1, Range2, Range3, Range4, Range5, Range6);

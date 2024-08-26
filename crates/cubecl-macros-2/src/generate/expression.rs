@@ -239,9 +239,20 @@ impl ToTokens for Expression {
                 inclusive,
                 span,
             } => {
-                let range = ir_type("RangeExpr");
-                quote_spanned! {*span=>
-                    #range::new(#start, #end, #inclusive)
+                if let Some(end) = end {
+                    let range = ir_type("RangeExpr");
+                    quote_spanned! {*span=>
+                        #range::new(#start, #end, #inclusive)
+                    }
+                } else {
+                    let range = ir_type("SliceRangeExpr");
+                    let end = end
+                        .as_ref()
+                        .map(|it| quote![Some(Box::new(#it))])
+                        .unwrap_or_else(|| quote![None]);
+                    quote_spanned! {*span=>
+                        #range::new(Box::new(#start), #end, #inclusive)
+                    }
                 }
             }
             Expression::Return { expr, ty, span } => {
@@ -262,10 +273,25 @@ impl ToTokens for Expression {
                         .to_compile_error()
                 }
             }
+            Expression::Tuple { elements, span } => {
+                if let Some(constant) = self.as_const() {
+                    constant
+                } else {
+                    syn::Error::new(*span, "Tuple expressions can't be used at runtime")
+                        .to_compile_error()
+                }
+            }
             Expression::Index { expr, index, span } => {
                 let index_ty = ir_type("IndexExpr");
                 quote_spanned! {*span=>
                     #expr.expand().index(#index)
+                }
+            }
+            Expression::Slice { expr, ranges, span } => {
+                let slice_ty = ir_type("SliceExpr");
+                let range_ty = ir_type("SliceRangeExpr");
+                quote_spanned! {*span=>
+                    #expr.expand().slice(vec![#(Box::new(#range_ty::from(#ranges))),*])
                 }
             }
         };

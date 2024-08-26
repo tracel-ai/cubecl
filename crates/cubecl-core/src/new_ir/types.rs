@@ -46,7 +46,7 @@ impl<T: Primitive> Expr for T {
     }
 }
 
-pub trait Integer: Clone {}
+pub trait Integer: SquareType + Clone {}
 pub trait KernelArg {}
 
 impl<T: SquareType> KernelArg for T {}

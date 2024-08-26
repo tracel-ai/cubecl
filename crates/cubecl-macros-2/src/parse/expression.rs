@@ -150,15 +150,26 @@ impl Expression {
             Expr::If(if_expr) => expand_if(if_expr, context)?,
             Expr::Range(range) => {
                 let span = range.span();
-                let start = *range
+                let start = range
                     .start
-                    .ok_or_else(|| syn::Error::new(span, "Open ranges not supported"))?;
-                let end = *range
+                    .map(|start| Expression::from_expr(*start, context))
+                    .transpose()?
+                    .unwrap_or_else(|| {
+                        let lit = Lit::Int(LitInt::new("0", span));
+                        Expression::Literal {
+                            value: lit,
+                            ty: syn::parse2(quote![i32]).unwrap(),
+                            span,
+                        }
+                    });
+                let end = range
                     .end
-                    .ok_or_else(|| syn::Error::new(span, "Open ranges not supported"))?;
+                    .map(|end| Expression::from_expr(*end, context))
+                    .transpose()?
+                    .map(Box::new);
                 Expression::Range {
-                    start: Box::new(Expression::from_expr(start, context)?),
-                    end: Box::new(Expression::from_expr(end, context)?),
+                    start: Box::new(start),
+                    end,
                     inclusive: matches!(range.limits, RangeLimits::Closed(..)),
                     span,
                 }
@@ -192,34 +203,55 @@ impl Expression {
                     .collect::<Result<_, _>>()?;
                 Expression::Array { elements, span }
             }
+            Expr::Tuple(tuple) => {
+                let span = tuple.span();
+                let elements = tuple
+                    .elems
+                    .into_iter()
+                    .map(|elem| Expression::from_expr(elem, context))
+                    .collect::<Result<_, _>>()?;
+                Expression::Tuple { elements, span }
+            }
             Expr::Index(index) => {
                 let span = index.span();
                 let expr = Expression::from_expr(*index.expr, context)?;
                 let index = Expression::from_expr(*index.index, context)?;
-                let index = match index {
-                    Expression::Array { elements, span } => {
-                        generate_strided_index(&expr, elements, span, context)?
+                if is_slice(&index) {
+                    let ranges = match index {
+                        Expression::Array { elements, .. } => elements.clone(),
+                        Expression::Tuple { elements, .. } => elements.clone(),
+                        index => vec![index],
+                    };
+                    Expression::Slice {
+                        expr: Box::new(expr),
+                        ranges,
+                        span,
                     }
-                    index => index,
-                };
-                Expression::Index {
-                    expr: Box::new(expr),
-                    index: Box::new(index),
-                    span,
+                } else {
+                    let index = match index {
+                        Expression::Array { elements, span } => {
+                            generate_strided_index(&expr, elements, span, context)?
+                        }
+                        index => index,
+                    };
+                    Expression::Index {
+                        expr: Box::new(expr),
+                        index: Box::new(index),
+                        span,
+                    }
                 }
             }
-            Expr::Infer(_) => todo!("infer"),
             Expr::Let(_) => todo!("let"),
             Expr::Macro(_) => todo!("macro"),
             Expr::Match(_) => todo!("match"),
-            Expr::Reference(_) => todo!("reference"),
             Expr::Repeat(_) => todo!("repeat"),
             Expr::Struct(_) => todo!("struct"),
-            Expr::Tuple(_) => todo!("tuple"),
             Expr::Unsafe(unsafe_expr) => {
                 context.with_scope(|context| parse_block(unsafe_expr.block, context))?
             }
+            Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
+            Expr::Reference(reference) => Expression::from_expr(*reference.expr, context)?,
             Expr::Try(_) => Err(syn::Error::new_spanned(
                 expr,
                 "? Operator is not supported in kernels",
@@ -299,4 +331,13 @@ fn generate_strided_index(
         })
         .unwrap();
     Ok(sum)
+}
+
+fn is_slice(index: &Expression) -> bool {
+    match index {
+        Expression::Range { .. } => true,
+        Expression::Array { elements, .. } => elements.iter().any(is_slice),
+        Expression::Tuple { elements, .. } => elements.iter().any(is_slice),
+        _ => false,
+    }
 }

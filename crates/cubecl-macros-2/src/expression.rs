@@ -125,7 +125,7 @@ pub enum Expression {
     },
     Range {
         start: Box<Expression>,
-        end: Box<Expression>,
+        end: Option<Box<Expression>>,
         inclusive: bool,
         span: Span,
     },
@@ -133,9 +133,18 @@ pub enum Expression {
         elements: Vec<Expression>,
         span: Span,
     },
+    Tuple {
+        elements: Vec<Expression>,
+        span: Span,
+    },
     Index {
         expr: Box<Expression>,
         index: Box<Expression>,
+        span: Span,
+    },
+    Slice {
+        expr: Box<Expression>,
+        ranges: Vec<Expression>,
         span: Span,
     },
 }
@@ -160,13 +169,15 @@ impl Expression {
             Expression::FieldAccess { .. } => None,
             Expression::MethodCall { .. } => None,
             Expression::Path { .. } => None,
-            Expression::Range { start, .. } => start.ty(),
+            Expression::Range { start, end, .. } => start.ty(),
             Expression::WhileLoop { .. } => None,
             Expression::Loop { .. } => None,
             Expression::If { then_block, .. } => then_block.ty(),
             Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
             Expression::Array { .. } => None,
             Expression::Index { .. } => None,
+            Expression::Tuple { .. } => None,
+            Expression::Slice { expr, .. } => expr.ty(),
         }
     }
 
