@@ -17,6 +17,18 @@ pub trait SquareType {
     }
 }
 
+impl<T: SquareType> SquareType for &T {
+    fn ir_type() -> Elem {
+        T::ir_type()
+    }
+}
+
+impl<T: SquareType> SquareType for &mut T {
+    fn ir_type() -> Elem {
+        T::ir_type()
+    }
+}
+
 pub trait Primitive: SquareType {
     fn value(&self) -> PrimitiveValue;
 }

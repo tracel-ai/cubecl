@@ -105,7 +105,7 @@ struct Param {
 pub fn struct_param() {
     #[allow(unused)]
     #[cube2]
-    fn struct_param(arg: Param) -> u32 {
+    fn struct_param(arg: &Param) -> u32 {
         arg.a * arg.b
     }
 

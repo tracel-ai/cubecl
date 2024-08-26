@@ -1,10 +1,11 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, iter};
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{
-    parse::Parse, spanned::Spanned, Attribute, FnArg, GenericParam, Generics, Ident, ItemFn, Meta,
-    Pat, PatType, Receiver, Type, Visibility,
+    parse::Parse, punctuated::Punctuated, spanned::Spanned, Attribute, FnArg, GenericParam,
+    Generics, Ident, ItemFn, Lifetime, LifetimeParam, Meta, Pat, PatType, Receiver, Type,
+    Visibility,
 };
 
 use crate::{
@@ -64,6 +65,7 @@ impl ToTokens for Kernel {
 fn transform_args(args: &[(Ident, Type, bool)]) -> Vec<TokenStream> {
     args.iter()
         .map(|(name, ty, is_const)| {
+            let ty = strip_ref(ty);
             let expr = ir_type("Expr");
             if *is_const {
                 quote_spanned! {name.span()=>
@@ -76,4 +78,11 @@ fn transform_args(args: &[(Ident, Type, bool)]) -> Vec<TokenStream> {
             }
         })
         .collect()
+}
+
+fn strip_ref(ty: &Type) -> Type {
+    match ty {
+        Type::Reference(reference) => *reference.elem.clone(),
+        ty => ty.clone(),
+    }
 }

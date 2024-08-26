@@ -6,7 +6,8 @@ use crate::{frontend::UInt, ir::Elem, new_ir::SquareType, unexpanded, Runtime};
 use std::{
     marker::PhantomData,
     ops::{
-        Index, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
+        Index, IndexMut, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo,
+        RangeToInclusive,
     },
 };
 
@@ -39,7 +40,31 @@ impl<T: SquareType, Dim> SquareType for Tensor<T, Dim> {
     }
 }
 
-/// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),
+impl<T: SquareType, Dims> Expr for &Tensor<T, Dims> {
+    type Output = Tensor<T, Dims>;
+
+    fn expression_untyped(&self) -> crate::new_ir::Expression {
+        panic!("Can't expand struct directly");
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        None
+    }
+}
+
+impl<T: SquareType, Dims> Expr for &mut Tensor<T, Dims> {
+    type Output = Tensor<T, Dims>;
+
+    fn expression_untyped(&self) -> crate::new_ir::Expression {
+        panic!("Can't expand struct directly");
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        None
+    }
+}
+
+/// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),1``
 /// the strides and the shape.
 pub struct TensorHandleRef<'a, R: Runtime> {
     pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
@@ -143,20 +168,20 @@ impl<T: SquareType, Dim> Tensor<T, Dim> {
     }
 }
 
-pub struct TensorExpanded<T: SquareType, Dim, Inner: Expr<Output = Tensor<T, Dim>>>(Inner);
+pub struct TensorExpand<T: SquareType, Dim, Inner: Expr<Output = Tensor<T, Dim>>>(Inner);
 
 impl<T: SquareType, Dim> Expand for Tensor<T, Dim> {
-    type Expanded<Inner: Expr<Output = Self>> = TensorExpanded<T, Dim, Inner>;
+    type Expanded<Inner: Expr<Output = Self>> = TensorExpand<T, Dim, Inner>;
 
     fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
-        TensorExpanded(inner)
+        TensorExpand(inner)
     }
 }
 
 impl<T: SquareType, Dimensions> Strided for Tensor<T, Dimensions> {}
 
 impl<T: SquareType, Dimensions, Inner: Expr<Output = Tensor<T, Dimensions>>>
-    TensorExpanded<T, Dimensions, Inner>
+    TensorExpand<T, Dimensions, Inner>
 {
     // Expanded version of stride
     pub fn stride<Dim: Expr>(self, dim: Dim) -> impl Expr<Output = Dim::Output>
@@ -193,7 +218,13 @@ impl<T: SquareType, Dims, Idx: Integer> Index<Idx> for Tensor<T, Dims> {
     }
 }
 
-impl<T: SquareType, Dims, Inner: Expr<Output = Tensor<T, Dims>>> TensorExpanded<T, Dims, Inner> {
+impl<T: SquareType, Dims, Idx: Integer> IndexMut<Idx> for Tensor<T, Dims> {
+    fn index_mut(&mut self, _index: Idx) -> &mut Self::Output {
+        unexpanded!()
+    }
+}
+
+impl<T: SquareType, Dims, Inner: Expr<Output = Tensor<T, Dims>>> TensorExpand<T, Dims, Inner> {
     pub fn index<Idx: Expr>(self, index: Idx) -> impl Expr<Output = T>
     where
         Inner::Output: Index<Idx::Output>,
@@ -270,6 +301,7 @@ macro_rules! slice_impls {
                 unexpanded!()
             }
         }
+
     };
     ($dims:ident, $($args:ident),*) => {
         slice_impl!($dims, u32, $($args),*);

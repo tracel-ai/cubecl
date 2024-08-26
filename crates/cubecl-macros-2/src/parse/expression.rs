@@ -245,17 +245,39 @@ impl Expression {
             Expr::Macro(_) => todo!("macro"),
             Expr::Match(_) => todo!("match"),
             Expr::Repeat(_) => todo!("repeat"),
-            Expr::Struct(_) => todo!("struct"),
+            Expr::Struct(strct) => {
+                if !strct.fields.iter().all(|field| {
+                    Expression::from_expr(field.expr.clone(), context)
+                        .map(|field| field.is_const())
+                        .unwrap_or(false)
+                }) {
+                    Err(syn::Error::new_spanned(
+                        strct,
+                        "Struct initializers aren't supported at runtime",
+                    ))?
+                } else {
+                    Expression::Verbatim {
+                        tokens: quote![#strct],
+                    }
+                }
+            }
             Expr::Unsafe(unsafe_expr) => {
                 context.with_scope(|context| parse_block(unsafe_expr.block, context))?
             }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
             Expr::Reference(reference) => Expression::from_expr(*reference.expr, context)?,
-            Expr::Try(_) => Err(syn::Error::new_spanned(
-                expr,
-                "? Operator is not supported in kernels",
-            ))?,
+            Expr::Try(expr) => {
+                let span = expr.span();
+                let expr = Expression::from_expr(*expr.expr, context)?
+                    .as_const()
+                    .ok_or_else(|| syn::Error::new(span, "? Operator not supported at runtime"))?;
+                Expression::Verbatim {
+                    tokens: quote_spanned![span=>
+                        #expr?
+                    ],
+                }
+            }
             Expr::TryBlock(_) => Err(syn::Error::new_spanned(
                 expr,
                 "try_blocks is unstable and not supported in kernels",

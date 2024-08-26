@@ -40,6 +40,16 @@ pub struct Context {
 impl Context {
     pub fn new(return_type: Type) -> Self {
         let mut root_scope = Scope::default();
+
+        Self {
+            return_type,
+            scopes: vec![root_scope],
+            scope_history: Default::default(),
+        }
+    }
+
+    pub fn new_launch(return_type: Type) -> Self {
+        let mut root_scope = Scope::default();
         root_scope.variables.extend(KEYWORDS.iter().map(|it| {
             let name = format_ident!("{it}");
             let tokens = quote![u32];
