@@ -9,11 +9,20 @@ use crate::{
 };
 use std::marker::PhantomData;
 
+pub struct Dyn;
+pub struct Dim1;
+pub struct Dim2;
+pub struct Dim3;
+pub struct Dim4;
+pub struct Dim5;
+pub struct Dim6;
+
 /// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
 /// metadata such as [stride](Tensor::stride) and [shape](Tensor::shape).
 #[derive(new)]
-pub struct Tensor<T: CubeType> {
+pub struct Tensor<T: CubeType, Dimensionality = Dyn> {
     _val: PhantomData<T>,
+    _dim: PhantomData<Dimensionality>,
 }
 
 impl<T: CubeType> CubeType for Tensor<T> {

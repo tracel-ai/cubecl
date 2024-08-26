@@ -1,5 +1,7 @@
-use quote::{format_ident, quote};
-use syn::{spanned::Spanned, Expr, ExprBlock, Lit, RangeLimits, Type};
+use cubecl_common::operator::Operator;
+use proc_macro2::Span;
+use quote::{format_ident, quote, quote_spanned};
+use syn::{spanned::Spanned, Expr, ExprBlock, Lit, LitInt, RangeLimits, Type};
 
 use crate::{
     expression::Expression,
@@ -181,7 +183,31 @@ impl Expression {
                     .map(Box::new),
                 ty: context.return_type.clone(),
             },
-            Expr::Index(_) => todo!("index"),
+            Expr::Array(array) => {
+                let span = array.span();
+                let elements = array
+                    .elems
+                    .into_iter()
+                    .map(|elem| Expression::from_expr(elem, context))
+                    .collect::<Result<_, _>>()?;
+                Expression::Array { elements, span }
+            }
+            Expr::Index(index) => {
+                let span = index.span();
+                let expr = Expression::from_expr(*index.expr, context)?;
+                let index = Expression::from_expr(*index.index, context)?;
+                let index = match index {
+                    Expression::Array { elements, span } => {
+                        generate_strided_index(&expr, elements, span, context)?
+                    }
+                    index => index,
+                };
+                Expression::Index {
+                    expr: Box::new(expr),
+                    index: Box::new(index),
+                    span,
+                }
+            }
             Expr::Infer(_) => todo!("infer"),
             Expr::Let(_) => todo!("let"),
             Expr::Macro(_) => todo!("macro"),
@@ -230,4 +256,47 @@ fn lit_ty(lit: &Lit) -> syn::Result<Type> {
         ))?,
     };
     Ok(res)
+}
+
+fn generate_strided_index(
+    tensor: &Expression,
+    elements: Vec<Expression>,
+    span: Span,
+    context: &mut Context,
+) -> syn::Result<Expression> {
+    let index_ty = elements
+        .first()
+        .unwrap()
+        .ty()
+        .unwrap_or_else(|| syn::parse2(quote![u32]).unwrap());
+    let strided_indices = elements.into_iter().enumerate().map(|(i, elem)| {
+        let i = Lit::Int(LitInt::new(&i.to_string(), span));
+        let stride = Expression::MethodCall {
+            receiver: Box::new(tensor.clone()),
+            method: format_ident!("stride"),
+            args: vec![Expression::Literal {
+                value: i,
+                ty: index_ty.clone(),
+                span,
+            }],
+            span,
+        };
+        Expression::Binary {
+            left: Box::new(elem),
+            operator: Operator::Mul,
+            right: Box::new(stride),
+            ty: None,
+            span,
+        }
+    });
+    let sum = strided_indices
+        .reduce(|a, b| Expression::Binary {
+            left: Box::new(a),
+            operator: Operator::Add,
+            right: Box::new(b),
+            ty: None,
+            span,
+        })
+        .unwrap();
+    Ok(sum)
 }

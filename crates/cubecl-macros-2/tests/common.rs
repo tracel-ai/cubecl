@@ -28,12 +28,12 @@ pub fn var(name: &str, ty: Elem) -> Box<Expression> {
 }
 
 #[allow(unused)]
-pub fn vec_var(name: &str, ty: Elem, vectorization: u8) -> Expression {
-    Expression::Variable {
+pub fn vec_var(name: &str, ty: Elem, vectorization: u8) -> Box<Expression> {
+    Box::new(Expression::Variable {
         name: name.to_string(),
         ty,
         vectorization: NonZero::new(vectorization),
-    }
+    })
 }
 
 #[allow(unused)]
@@ -68,7 +68,7 @@ pub fn init_vec(
 ) -> Statement {
     Statement::Local {
         variable: Expression::Init {
-            left: Box::new(vec_var(name, right.ir_type(), vectorization)),
+            left: vec_var(name, right.ir_type(), vectorization),
             ty: right.ir_type(),
             right: Box::new(right),
             vectorization: NonZero::new(vectorization),

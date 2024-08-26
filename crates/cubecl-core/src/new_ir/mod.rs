@@ -1,8 +1,10 @@
 mod branch;
+pub mod element;
 mod expression;
 mod operators;
 mod option;
 mod statement;
+mod tensor;
 mod types;
 
 use std::num::NonZero;
@@ -12,6 +14,7 @@ pub use expression::*;
 pub use operators::*;
 pub use option::*;
 pub use statement::*;
+pub use tensor::*;
 pub use types::*;
 
 pub use crate::ir::Elem;

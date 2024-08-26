@@ -129,6 +129,15 @@ pub enum Expression {
         inclusive: bool,
         span: Span,
     },
+    Array {
+        elements: Vec<Expression>,
+        span: Span,
+    },
+    Index {
+        expr: Box<Expression>,
+        index: Box<Expression>,
+        span: Span,
+    },
 }
 
 impl Expression {
@@ -156,6 +165,8 @@ impl Expression {
             Expression::Loop { .. } => None,
             Expression::If { then_block, .. } => then_block.ty(),
             Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
+            Expression::Array { .. } => None,
+            Expression::Index { .. } => None,
         }
     }
 
@@ -165,6 +176,7 @@ impl Expression {
             Expression::Verbatim { .. } => true,
             Expression::ConstVariable { .. } => true,
             Expression::FieldAccess { base, .. } => base.is_const(),
+            Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
             _ => false,
         }
     }
@@ -175,6 +187,13 @@ impl Expression {
             Expression::Verbatim { tokens, .. } => Some(tokens.clone()),
             Expression::ConstVariable { name, .. } => Some(quote![#name]),
             Expression::Path { path, .. } => Some(quote![#path]),
+            Expression::Array { elements, .. } => {
+                let elements = elements
+                    .iter()
+                    .map(|it| it.as_const())
+                    .collect::<Option<Vec<_>>>()?;
+                Some(quote![[#(#elements),*]])
+            }
             Expression::FieldAccess { base, field, .. } => {
                 base.as_const().map(|base| quote![#base.#field])
             }

@@ -254,6 +254,20 @@ impl ToTokens for Expression {
                     #ret_ty::<#ty, _>::new(#ret_expr)
                 }
             }
+            Expression::Array { elements, span } => {
+                if let Some(constant) = self.as_const() {
+                    constant
+                } else {
+                    syn::Error::new(*span, "Array expressions can't be used at runtime")
+                        .to_compile_error()
+                }
+            }
+            Expression::Index { expr, index, span } => {
+                let index_ty = ir_type("IndexExpr");
+                quote_spanned! {*span=>
+                    #expr.expand().index(#index)
+                }
+            }
         };
 
         tokens.extend(out);

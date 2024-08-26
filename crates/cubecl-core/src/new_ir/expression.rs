@@ -2,7 +2,8 @@ use crate::ir::Elem;
 use std::{marker::PhantomData, num::NonZero};
 
 use super::{
-    largest_common_vectorization, Operator, PrimitiveValue, SquareType, Statement, TypeEq,
+    largest_common_vectorization, Operator, PrimitiveValue, SquareType, Statement,
+    TensorExpression, TypeEq,
 };
 
 type Vectorization = Option<NonZero<u8>>;
@@ -87,7 +88,8 @@ pub enum Expression {
     Return {
         expr: Option<Box<Expression>>,
     },
-
+    /// Subtype for tensor specific operations
+    Tensor(TensorExpression),
     /// A range used in for loops. Currently doesn't exist at runtime, so can be ignored in codegen.
     /// This only exists to pass the range down to the for loop it applies to
     __Range(Range),
@@ -122,6 +124,7 @@ impl Expression {
             Expression::Return { expr } => {
                 expr.as_ref().map(|it| it.ir_type()).unwrap_or(Elem::Unit)
             }
+            Expression::Tensor(tensor) => tensor.ir_type(),
         }
     }
 
