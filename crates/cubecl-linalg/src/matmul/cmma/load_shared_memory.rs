@@ -41,7 +41,7 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
     let check_m_bounds = Comptime::map(config, |c| c.check_m_bounds);
     let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
 
-    let coop_id = coop_id();
+    let coop_id = coop_id(config);
     let tile_row = coop_id / num_tiles_in_k;
     let tile_col = coop_id % num_tiles_in_k;
 
@@ -114,7 +114,7 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
     let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
     let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
 
-    let coop_id = coop_id();
+    let coop_id = coop_id(config);
     let tile_row = coop_id % k_tiles;
     let tile_col = coop_id / k_tiles;
 
@@ -195,8 +195,8 @@ fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
     // Must equal SUBCUBE_DIM, but must be known comptime too
     let coop_dim = Comptime::map(config, |c| c.coop_dim);
 
-    let coop_id = coop_id();
-    let lane_id = lane_id();
+    let coop_id = coop_id(config);
+    let lane_id = lane_id(config);
 
     let num_unit_reads = tile_size * tile_size / (tensor_vec * coop_dim);
     let num_units_per_row = Comptime::runtime(tile_size / tensor_vec);

@@ -137,7 +137,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
 
     let launch_config = CmmaLaunchConfig::default();
     let cube_count = cmma_cube_count::<R>(out.shape, &launch_config);
-    let cube_dim = CubeDim::new(32, 8, 1);
+    let cube_dim = CubeDim::new(16, 16, 1);
 
     unsafe {
         cmma_kernel::launch_unchecked::<F, F16, R>(

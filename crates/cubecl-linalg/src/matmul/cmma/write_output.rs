@@ -19,15 +19,18 @@ pub(crate) fn write_to_output<F: Float>(
     dims: Dimensions,
     config: Comptime<CmmaConfig>,
 ) {
-    let accumulator_sm = fragment_to_shared_memory(accumulators);
+    let accumulator_sm = fragment_to_shared_memory(accumulators, config);
     shared_memory_to_output(out, offsets, accumulator_sm, dims, config);
 }
 
 #[cube]
-fn fragment_to_shared_memory<F: Float>(accumulators: Sequence<cmma::Matrix<F>>) -> SharedMemory<F> {
+fn fragment_to_shared_memory<F: Float>(
+    accumulators: Sequence<cmma::Matrix<F>>,
+    config: Comptime<CmmaConfig>,
+) -> SharedMemory<F> {
     let mut acc_sm = SharedMemory::<F>::new(4096);
 
-    let coop_id = coop_id();
+    let coop_id = coop_id(config);
     let slice_offset_0 = coop_id * UInt::new(512);
     let slice_offset_1 = slice_offset_0 + UInt::new(256);
     let slice_offset_2 = slice_offset_1 + UInt::new(256);
@@ -98,8 +101,8 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let sm_stride = Comptime::runtime(tile_size * tile_size);
     let coop_dim = Comptime::map(config, |c| c.coop_dim);
 
-    let coop_id = coop_id();
-    let lane_id = lane_id();
+    let coop_id = coop_id(config);
+    let lane_id = lane_id(config);
 
     let tile_row = coop_id / num_tiles_in_n_r;
     let tile_col = (coop_id % num_tiles_in_n_r) * num_tiles_in_n_r;

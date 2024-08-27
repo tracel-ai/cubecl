@@ -141,11 +141,11 @@ pub(crate) fn make_accumulators<F: Float>() -> Sequence<cmma::Matrix<F>> {
 }
 
 #[cube]
-pub(crate) fn coop_id() -> UInt {
-    UNIT_POS_Y
+pub(crate) fn coop_id(config: Comptime<CmmaConfig>) -> UInt {
+    UNIT_POS / Comptime::runtime(Comptime::map(config, |c| c.coop_dim))
 }
 
 #[cube]
-pub(crate) fn lane_id() -> UInt {
-    UNIT_POS_X
+pub(crate) fn lane_id(config: Comptime<CmmaConfig>) -> UInt {
+    UNIT_POS % Comptime::runtime(Comptime::map(config, |c| c.coop_dim))
 }
