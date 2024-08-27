@@ -75,6 +75,19 @@ pub fn test_matmul_cmma_unvectorizable_shapes<R: Runtime>(device: &R::Device) {
     .test_cmma::<R>(device);
 }
 
+pub fn test_matmul_cmma_vec2_shapes<R: Runtime>(device: &R::Device) {
+    MatmulTestCase {
+        m: 62,
+        k: 62,
+        n: 62,
+        batch: 3,
+        factor: 10000.,
+        epsilon: 0.1,
+        compute_f16: true,
+    }
+    .test_cmma::<R>(device);
+}
+
 pub fn test_matmul_tiling2d_one_cube<R: Runtime>(device: &R::Device) {
     MatmulTestCase {
         m: 64,

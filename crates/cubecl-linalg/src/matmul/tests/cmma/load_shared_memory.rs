@@ -29,7 +29,7 @@ fn load_lhs_test<F: Float>(
 
     let mut lhs_sm = SharedMemory::<F>::new(2048);
     for i in range(0u32, 2048u32, Comptime::new(false)) {
-        lhs_sm[i] = lhs_sm_arr[i];
+        lhs_sm[i] = F::new(0.);
     }
 
     let dims = Dimensions { m, k, n };
@@ -62,7 +62,7 @@ fn load_rhs_test<F: Float>(
 
     let mut rhs_sm = SharedMemory::<F>::new(2048);
     for i in range(0u32, 2048u32, Comptime::new(false)) {
-        rhs_sm[i] = rhs_sm_arr[i];
+        rhs_sm[i] = F::new(0.);
     }
 
     let dims = Dimensions { m, k, n };
