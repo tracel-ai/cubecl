@@ -11,33 +11,29 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     accumulators: &mut Sequence<cmma::Matrix<F>>,
     config: Comptime<CmmaConfig>,
 ) {
-    // Other values not supported
-    let num_tiles_in_n = UInt::new(2);
-
+    let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
     let tile_size = Comptime::map(config, |c| c.tile_size);
-    let num_coop_per_row = Comptime::runtime(block_size_n / tile_size) / num_tiles_in_n;
+    let cube_dim_y = Comptime::map(config, |c| c.cube_dim_y);
+    let n_tiles = (block_size_m * block_size_n) / (tile_size * tile_size);
+    let num_tiles_in_n = n_tiles / cube_dim_y;
+
+    let num_coop_per_row = Comptime::runtime(block_size_n / (tile_size / num_tiles_in_n));
 
     let coop_id = UNIT_POS_Y;
     let tile_row = coop_id / num_coop_per_row;
-    let tile_col_base = (coop_id % num_coop_per_row) * num_tiles_in_n;
+    let tile_col_base = (coop_id % num_coop_per_row) * Comptime::runtime(num_tiles_in_n);
 
-    compute_tile::<F, FC>(
-        UInt::new(0),
-        tile_row,
-        tile_col_base,
-        shared_memories,
-        *accumulators.index(0),
-        config,
-    );
-    compute_tile::<F, FC>(
-        UInt::new(1),
-        tile_row,
-        tile_col_base,
-        shared_memories,
-        *accumulators.index(1),
-        config,
-    );
+    for n in range(0u32, Comptime::get(num_tiles_in_n), Comptime::new(true)) {
+        compute_tile::<F, FC>(
+            n,
+            tile_row,
+            tile_col_base,
+            shared_memories,
+            *accumulators.index(n),
+            config,
+        );
+    }
 }
 
 #[cube]

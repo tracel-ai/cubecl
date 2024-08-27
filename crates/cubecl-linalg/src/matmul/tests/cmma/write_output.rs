@@ -59,6 +59,7 @@ pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {
@@ -128,6 +129,7 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: true,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {
@@ -207,6 +209,7 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
         check_n_bounds: true,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {
@@ -281,6 +284,7 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
         check_n_bounds: true,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {
@@ -355,6 +359,7 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
         check_n_bounds: true,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {
@@ -425,6 +430,7 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {
@@ -544,6 +550,7 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {

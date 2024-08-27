@@ -83,6 +83,7 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {
@@ -162,6 +163,7 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {
@@ -270,6 +272,7 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        cube_dim_y: UInt::new(8),
     };
 
     unsafe {
