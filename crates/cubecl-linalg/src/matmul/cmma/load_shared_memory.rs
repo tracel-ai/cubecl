@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    base::{Dimensions, Offsets, SharedMemories},
+    base::{coop_id, lane_id, Dimensions, Offsets, SharedMemories},
     config::CmmaConfig,
 };
 
@@ -40,8 +40,10 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
 ) {
     let check_m_bounds = Comptime::map(config, |c| c.check_m_bounds);
     let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
-    let tile_row = UNIT_POS_Y / num_tiles_in_k;
-    let tile_col = UNIT_POS_Y % num_tiles_in_k;
+
+    let coop_id = coop_id();
+    let tile_row = coop_id / num_tiles_in_k;
+    let tile_col = coop_id % num_tiles_in_k;
 
     if Comptime::get(check_m_bounds) {
         if Comptime::get(check_k_bounds) {
@@ -111,8 +113,10 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
 ) {
     let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
     let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
-    let tile_row = UNIT_POS_Y % k_tiles;
-    let tile_col = UNIT_POS_Y / k_tiles;
+
+    let coop_id = coop_id();
+    let tile_row = coop_id % k_tiles;
+    let tile_col = coop_id / k_tiles;
 
     if Comptime::get(check_k_bounds) {
         if Comptime::get(check_n_bounds) {
@@ -191,8 +195,8 @@ fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
     // Must equal SUBCUBE_DIM, but must be known comptime too
     let coop_dim = Comptime::map(config, |c| c.coop_dim);
 
-    let coop_id = UNIT_POS_Y;
-    let lane_id = UNIT_POS_X;
+    let coop_id = coop_id();
+    let lane_id = lane_id();
 
     let num_unit_reads = tile_size * tile_size / (tensor_vec * coop_dim);
     let num_units_per_row = Comptime::runtime(tile_size / tensor_vec);

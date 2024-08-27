@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    base::{Dimensions, Offsets},
+    base::{coop_id, lane_id, Dimensions, Offsets},
     block_io::{
         base::BlockWriter, horizontal_block_check::HorizontalCheckBlockIO,
         unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
@@ -27,7 +27,7 @@ pub(crate) fn write_to_output<F: Float>(
 fn fragment_to_shared_memory<F: Float>(accumulators: Sequence<cmma::Matrix<F>>) -> SharedMemory<F> {
     let mut acc_sm = SharedMemory::<F>::new(4096);
 
-    let coop_id = UNIT_POS_Y;
+    let coop_id = coop_id();
     let slice_offset_0 = coop_id * UInt::new(512);
     let slice_offset_1 = slice_offset_0 + UInt::new(256);
     let slice_offset_2 = slice_offset_1 + UInt::new(256);
@@ -87,9 +87,9 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);
-    let cube_dim_y = Comptime::map(config, |c| c.lane_dim);
+    let lane_dim = Comptime::map(config, |c| c.lane_dim);
     let n_tiles = (block_size_m * block_size_n) / (tile_size * tile_size);
-    let num_tiles_in_n = n_tiles / cube_dim_y;
+    let num_tiles_in_n = n_tiles / lane_dim;
     let num_tiles_in_n_r = Comptime::runtime(num_tiles_in_n);
 
     let out_vec = Comptime::vectorization(out);
@@ -98,8 +98,8 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let sm_stride = Comptime::runtime(tile_size * tile_size);
     let coop_dim = Comptime::map(config, |c| c.coop_dim);
 
-    let coop_id = UNIT_POS_Y;
-    let lane_id = UNIT_POS_X;
+    let coop_id = coop_id();
+    let lane_id = lane_id();
 
     let tile_row = coop_id / num_tiles_in_n_r;
     let tile_col = (coop_id % num_tiles_in_n_r) * num_tiles_in_n_r;

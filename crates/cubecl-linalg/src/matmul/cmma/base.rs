@@ -139,3 +139,13 @@ pub(crate) fn make_accumulators<F: Float>() -> Sequence<cmma::Matrix<F>> {
 
     accumulators
 }
+
+#[cube]
+pub(crate) fn coop_id() -> UInt {
+    UNIT_POS_Y
+}
+
+#[cube]
+pub(crate) fn lane_id() -> UInt {
+    UNIT_POS_X
+}
