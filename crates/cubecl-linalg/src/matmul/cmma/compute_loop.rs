@@ -14,7 +14,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
     let tile_size = Comptime::map(config, |c| c.tile_size);
-    let cube_dim_y = Comptime::map(config, |c| c.cube_dim_y);
+    let cube_dim_y = Comptime::map(config, |c| c.lane_dim);
     let n_tiles = (block_size_m * block_size_n) / (tile_size * tile_size);
     let num_tiles_in_n = n_tiles / cube_dim_y;
 

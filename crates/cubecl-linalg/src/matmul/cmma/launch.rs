@@ -4,13 +4,13 @@ use cubecl_core::{
     client::ComputeClient,
     frontend::{Float, TensorArg, TensorHandleRef, F16},
     ir::{Elem, FloatKind},
-    Compiler, Feature, Runtime,
+    Compiler, CubeDim, Feature, Runtime,
 };
 
 use crate::{
     matmul::cmma::{
         base::cmma_kernel,
-        config::{cmma_cube_count, cmma_cube_dim, CmmaConfig, CmmaLaunchConfig},
+        config::{cmma_cube_count, CmmaConfig, CmmaLaunchConfig},
     },
     tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle},
 };
@@ -28,8 +28,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
 
 #[derive(Debug)]
 pub enum UnavailabilityReason {
-    NotMultipleOf4, // TODO: Support that case.
-    HiglyPermutatedInput,
+    HighlyPermutatedInput,
     ShapeMemoryLimitBusted,
     InvalidConfig(String),
     CmmaInstructionsUnsupported,
@@ -38,8 +37,6 @@ pub enum UnavailabilityReason {
 /// Checks if the matmul cmma can be used.
 pub fn check_cmma_availability<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    rhs: &TensorHandleRef<'_, R>,
     config: Option<&CmmaLaunchConfig>,
 ) -> Result<(), UnavailabilityReason> {
     if !client.features().enabled(Feature::Cmma {
@@ -51,15 +48,6 @@ pub fn check_cmma_availability<R: Runtime>(
         n: 16,
     }) {
         return Err(UnavailabilityReason::CmmaInstructionsUnsupported);
-    }
-
-    let rank = lhs.shape.len();
-    let m = lhs.shape[rank - 2];
-    let k = lhs.shape[rank - 1];
-    let n = rhs.shape[rank - 1];
-
-    if !(m % 4 == 0 && k % 4 == 0 && n % 4 == 0) {
-        return Err(UnavailabilityReason::NotMultipleOf4);
     }
 
     if let Some(config) = config {
@@ -75,12 +63,6 @@ pub fn check_cmma_availability<R: Runtime>(
 
         if b_m * b_n > <R::Compiler as Compiler>::max_shared_memory_size() {
             return Err(UnavailabilityReason::ShapeMemoryLimitBusted);
-        }
-
-        if b_k != 2 * config.tile_size {
-            return Err(UnavailabilityReason::InvalidConfig(
-                "Variable tile number per coop_units not supported".to_string(),
-            ));
         }
     }
 
@@ -153,9 +135,9 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let rhs_vectorization = vectorization(n);
     let out_vectorization = vectorization(n);
 
-    let cube_count = cmma_cube_count::<R>(out.shape, 64, 64);
-    let cube_dim = cmma_cube_dim();
     let launch_config = CmmaLaunchConfig::default();
+    let cube_count = cmma_cube_count::<R>(out.shape, &launch_config);
+    let cube_dim = CubeDim::new(32, 8, 1);
 
     unsafe {
         cmma_kernel::launch_unchecked::<F, F16, R>(
@@ -165,7 +147,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
             TensorArg::from_raw_parts(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
             TensorArg::from_raw_parts(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
             TensorArg::from_raw_parts(out.handle, out.strides, out.shape, out_vectorization),
-            CmmaConfig::new(m, k, n, launch_config),
+            CmmaConfig::new(m, k, n, cube_dim, launch_config),
         );
     }
 }

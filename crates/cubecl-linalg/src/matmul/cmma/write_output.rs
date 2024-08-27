@@ -87,7 +87,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);
-    let cube_dim_y = Comptime::map(config, |c| c.cube_dim_y);
+    let cube_dim_y = Comptime::map(config, |c| c.lane_dim);
     let n_tiles = (block_size_m * block_size_n) / (tile_size * tile_size);
     let num_tiles_in_n = n_tiles / cube_dim_y;
     let num_tiles_in_n_r = Comptime::runtime(num_tiles_in_n);
