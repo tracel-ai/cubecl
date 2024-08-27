@@ -121,10 +121,10 @@ fn make_shared_memories<FC: Float>(config: Comptime<CmmaConfig>) -> SharedMemori
 
 #[cube]
 pub(crate) fn make_accumulators<F: Float>() -> Sequence<cmma::Matrix<F>> {
-    let mut acc = Sequence::<cmma::Matrix<F>>::new();
+    let mut accumulators = Sequence::<cmma::Matrix<F>>::new();
 
     for _ in range(0u32, 2u32, Comptime::new(true)) {
-        let acc0 = cmma::Matrix::<F>::new(
+        let acc = cmma::Matrix::<F>::new(
             cmma::MatrixIdent::Accumulator,
             16,
             16,
@@ -132,10 +132,10 @@ pub(crate) fn make_accumulators<F: Float>() -> Sequence<cmma::Matrix<F>> {
             cmma::MatrixLayout::Undefined,
         );
 
-        cmma::fill::<F>(&acc0, F::new(0.0));
+        cmma::fill::<F>(&acc, F::new(0.0));
 
-        acc.push(acc0);
+        accumulators.push(acc);
     }
 
-    acc
+    accumulators
 }

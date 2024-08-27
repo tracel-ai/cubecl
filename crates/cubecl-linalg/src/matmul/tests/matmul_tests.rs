@@ -62,6 +62,19 @@ pub fn test_matmul_cmma_with_batches<R: Runtime>(device: &R::Device) {
     .test_cmma::<R>(device);
 }
 
+pub fn test_matmul_cmma_unvectorizable_shapes<R: Runtime>(device: &R::Device) {
+    MatmulTestCase {
+        m: 63,
+        k: 63,
+        n: 63,
+        batch: 3,
+        factor: 10000.,
+        epsilon: 0.1,
+        compute_f16: true,
+    }
+    .test_cmma::<R>(device);
+}
+
 pub fn test_matmul_tiling2d_one_cube<R: Runtime>(device: &R::Device) {
     MatmulTestCase {
         m: 64,
@@ -112,18 +125,6 @@ pub fn test_matmul_tiling2d_with_batches<R: Runtime>(device: &R::Device) {
         compute_f16: true,
     }
     .test_tiling2d::<R>(device);
-}
-
-pub fn test_matmul_cmma_unvectorizable_shapes<R: Runtime>(device: &R::Device) {
-    MatmulTestCase {
-        m: 63,
-        k: 63,
-        n: 63,
-        batch: 3,
-        factor: 10000.,
-        epsilon: 0.1,
-        compute_f16: true,
-    }.test_cmma::<R>(device);
 }
 
 struct MatmulTestCase {

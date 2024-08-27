@@ -25,6 +25,8 @@ pub struct CmmaConfig {
     pub check_n_bounds: bool,
     /// Unroll
     pub unroll: bool,
+    /// The number of units that can collaborate
+    pub coop_dim: UInt,
 }
 
 pub struct CmmaLaunchConfig {
@@ -63,6 +65,7 @@ impl CmmaConfig {
             check_m_bounds: m % launch_config.block_size_m != 0,
             check_k_bounds: k % launch_config.block_size_k != 0,
             check_n_bounds: n % launch_config.block_size_n != 0,
+            coop_dim: UInt::new(32),
         }
     }
 }

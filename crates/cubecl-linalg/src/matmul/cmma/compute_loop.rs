@@ -12,15 +12,15 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     config: Comptime<CmmaConfig>,
 ) {
     // Other values not supported
-    let n_tiles = UInt::new(2);
+    let num_tiles_in_n = UInt::new(2);
 
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
     let tile_size = Comptime::map(config, |c| c.tile_size);
-    let num_coop_per_row = Comptime::runtime(block_size_n / tile_size) / n_tiles;
+    let num_coop_per_row = Comptime::runtime(block_size_n / tile_size) / num_tiles_in_n;
 
     let coop_id = UNIT_POS_Y;
     let tile_row = coop_id / num_coop_per_row;
-    let tile_col_base = (coop_id % num_coop_per_row) * n_tiles;
+    let tile_col_base = (coop_id % num_coop_per_row) * num_tiles_in_n;
 
     compute_tile::<F, FC>(
         UInt::new(0),
@@ -54,13 +54,13 @@ fn compute_tile<F: Float, FC: Float>(
     let unroll = Comptime::map(config, |c| c.unroll);
 
     let num_tile_elems = Comptime::runtime(tile_size * tile_size);
-    let k_tiles = Comptime::runtime(block_size_k / tile_size);
+    let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size);
 
     let tile_col = tile_col_base + n_iter;
 
-    for k_iter in range(0u32, k_tiles, unroll) {
-        let shared_lhs_tile = tile_row * k_tiles + k_iter;
-        let shared_rhs_tile = tile_col * k_tiles + k_iter;
+    for k_iter in range(0u32, num_tiles_in_k, unroll) {
+        let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
+        let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
         let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
         let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
 

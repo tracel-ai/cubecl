@@ -65,7 +65,7 @@ impl<F: Float> BlockWriter<F> for WholeCheckBlockIO {
 
                 let mut value = F::vectorized_empty(Comptime::get(out_vec));
 
-                for i in range(0u32, 4u32, Comptime::new(true)) {
+                for i in range(0u32, Comptime::get(out_vec), Comptime::new(true)) {
                     value[i] = accumulator_sm[read_position + i];
                 }
 

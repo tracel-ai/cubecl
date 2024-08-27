@@ -84,7 +84,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     config: Comptime<CmmaConfig>,
 ) {
     // Other values not supported
-    let n_tiles = UInt::new(2);
+    let num_tiles_in_n = UInt::new(2);
 
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);
@@ -92,15 +92,17 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let out_vec_r = Comptime::runtime(out_vec);
     let n_units_per_tile_row = Comptime::runtime(tile_size / out_vec);
     let num_tile_elems = Comptime::runtime(tile_size * tile_size);
+    let coop_dim = Comptime::map(config, |c| c.coop_dim);
 
-    let coop_dim = UInt::new(32);
     let coop_id = UNIT_POS_Y;
     let lane_id = UNIT_POS_X;
 
-    let tile_row = coop_id / n_tiles;
-    let tile_col = (coop_id % n_tiles) * n_tiles;
+    let tile_row = coop_id / num_tiles_in_n;
+    let tile_col = (coop_id % num_tiles_in_n) * num_tiles_in_n;
 
-    let read_offset = n_tiles * coop_id * num_tile_elems;
+    let num_unit_writes = tile_size * tile_size / (out_vec * coop_dim);
+
+    let read_offset = num_tiles_in_n * coop_id * num_tile_elems;
     let read_0 = read_offset + lane_id * out_vec_r;
     let read_1 = read_0 + coop_dim * out_vec_r;
 
@@ -112,6 +114,26 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let write_row_0 = row_offset + unit_write_row_0;
     let write_row_1 = row_offset + unit_write_row_1;
     let write_col = offsets.cube_col + tile_col * tile_size_r + unit_write_col;
+
+    for i in range(0u32, num_unit_writes, Comptime::new(true)) {
+        // let read_pos = ;
+        // let write_row = ;
+
+        // TODO make comptime?
+        for n in range(0u32, num_tiles_in_n, Comptime::new(false)) {
+            W::write_output(
+                out,
+                accumulator_sm,
+                UInt::new(0),
+                offsets.batch_out,
+                read_pos,
+                write_row,
+                write_col,
+                dims,
+                config,
+            );
+        }
+    }
 
     W::write_output(
         out,

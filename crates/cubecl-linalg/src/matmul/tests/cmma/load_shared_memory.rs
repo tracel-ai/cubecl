@@ -91,6 +91,7 @@ pub fn load_shared_memory_lhs_unit_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -150,6 +151,7 @@ pub fn load_shared_memory_rhs_unit_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -209,6 +211,7 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -273,6 +276,7 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -335,6 +339,7 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
         check_k_bounds: true,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -397,6 +402,7 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
         check_k_bounds: true,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -458,6 +464,7 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -522,6 +529,7 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -585,6 +593,7 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -651,6 +660,7 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -717,6 +727,7 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -780,6 +791,7 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {
@@ -843,6 +855,7 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
         check_k_bounds: false,
         check_n_bounds: false,
         unroll: false,
+        coop_dim: UInt::new(32),
     };
 
     unsafe {

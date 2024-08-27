@@ -21,9 +21,11 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     dims: Dimensions,
 ) {
     let block_size_k = Comptime::runtime(Comptime::map(config, |c| c.block_size_k));
-    let n_loops = (dims.k + block_size_k - 1) / block_size_k;
 
-    for block in range(0u32, n_loops, Comptime::new(false)) {
+    // Equals ceil(dims.k / block_size_k)
+    let num_loops = (dims.k + block_size_k - 1) / block_size_k;
+
+    for block in range(0u32, num_loops, Comptime::new(false)) {
         offsets.k = block * block_size_k;
 
         load_to_shared_memories::<F, FC>(lhs, rhs, offsets, shared_memories, dims, config);
