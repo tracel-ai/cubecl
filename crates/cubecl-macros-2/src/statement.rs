@@ -1,6 +1,6 @@
 use crate::{expression::Expression, scope::Context};
 use proc_macro2::Span;
-use syn::{spanned::Spanned, Ident, Pat, Stmt, Type};
+use syn::{spanned::Spanned, Ident, Pat, PatStruct, Stmt, Type};
 
 #[derive(Clone, Debug)]
 pub enum Statement {
@@ -9,6 +9,10 @@ pub enum Statement {
         init: Option<Box<Expression>>,
         mutable: bool,
         ty: Option<Type>,
+        span: Span,
+    },
+    Destructure {
+        fields: Vec<(Pat, Expression)>,
         span: Span,
     },
     Expression {
@@ -23,12 +27,18 @@ impl Statement {
         let statement = match stmt {
             Stmt::Local(local) => {
                 let span = local.span();
-                let (ident, ty, mutable) = parse_pat(local.pat)?;
+
                 let init = local
                     .init
                     .map(|init| Expression::from_expr(*init.expr, context))
                     .transpose()?
                     .map(Box::new);
+                let (ident, ty, mutable) = match local.pat {
+                    Pat::Struct(pat) => {
+                        return parse_struct_destructure(pat, *init.unwrap(), context);
+                    }
+                    pat => parse_pat(pat)?,
+                };
                 let is_const = init.as_ref().map(|init| init.is_const()).unwrap_or(false);
                 let variable = Box::new(Expression::Variable {
                     name: ident.clone(),
@@ -74,4 +84,31 @@ pub fn parse_pat(pat: Pat) -> syn::Result<(Ident, Option<Type>, bool)> {
         ))?,
     };
     Ok(res)
+}
+
+fn parse_struct_destructure(
+    pat: PatStruct,
+    init: Expression,
+    context: &mut Context,
+) -> syn::Result<Statement> {
+    let fields = pat
+        .fields
+        .into_iter()
+        .map(|field| {
+            let span = field.span();
+            let access = Expression::FieldAccess {
+                base: Box::new(init.clone()),
+                field: field.member,
+                span,
+            };
+            let (ident, ty, _) = parse_pat(*field.pat.clone())?;
+            context.push_variable(ident.clone(), ty.clone(), init.is_const());
+            Ok((*field.pat, access))
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    Ok(Statement::Destructure {
+        fields,
+        span: Span::call_site(),
+    })
 }

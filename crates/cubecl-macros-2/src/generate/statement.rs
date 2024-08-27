@@ -1,8 +1,12 @@
+use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
-use syn::spanned::Spanned;
+use syn::{spanned::Spanned, Pat};
 
 use crate::{
-    expression::Expression, generate::expression::generate_var, ir_type, statement::Statement,
+    expression::Expression,
+    generate::expression::generate_var,
+    ir_type,
+    statement::{parse_pat, Statement},
 };
 
 impl ToTokens for Statement {
@@ -76,6 +80,13 @@ impl ToTokens for Statement {
                     }
                 }
             }
+            Statement::Destructure { fields, span } => {
+                let fields = generate_struct_destructure(fields, *span);
+                match fields {
+                    Ok(fields) => fields,
+                    Err(e) => e.to_compile_error(),
+                }
+            }
             Statement::Expression {
                 expression, span, ..
             } => {
@@ -89,4 +100,33 @@ impl ToTokens for Statement {
 
         tokens.extend(out);
     }
+}
+
+fn generate_struct_destructure(
+    fields: &[(Pat, Expression)],
+    span: Span,
+) -> syn::Result<TokenStream> {
+    let fields = fields
+        .iter()
+        .map(|(pat, init)| {
+            let span = pat.span();
+            let (ident, ty, mutable) = parse_pat(pat.clone())?;
+            let statement = Statement::Local {
+                left: Box::new(Expression::Variable {
+                    name: ident,
+                    ty: None,
+                    span,
+                }),
+                init: Some(Box::new(init.clone())),
+                mutable,
+                ty,
+                span,
+            };
+            Ok(quote![#statement])
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    Ok(quote_spanned! {span=>
+        #(#fields)*
+    })
 }

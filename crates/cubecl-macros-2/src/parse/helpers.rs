@@ -11,38 +11,34 @@ impl Unroll {
     pub fn from_attributes(
         attrs: &[Attribute],
         context: &mut Context,
-    ) -> Option<syn::Result<Self>> {
+    ) -> syn::Result<Option<Self>> {
         #[derive(FromMeta)]
         struct NameVal {
             pub value: Expr,
         }
 
-        let attr = attrs.iter().find(|attr| attr.path().is_ident("unroll"))?;
+        let attr = attrs.iter().find(|attr| attr.path().is_ident("unroll"));
+        let attr = match attr {
+            Some(attr) => attr,
+            None => return Ok(None),
+        };
+
         let res = match &attr.meta {
             syn::Meta::Path(_) => Self {
                 value: Expression::from_expr(parse_quote![true], context).unwrap(),
             },
             syn::Meta::List(list) => {
-                let expr = syn::parse2(list.tokens.clone())
-                    .and_then(|expr| Expression::from_expr(expr, context));
-                let expr = match expr {
-                    Ok(expr) => expr,
-                    Err(e) => return Some(Err(e)),
-                };
+                let expr = syn::parse2(list.tokens.clone())?;
+                let expr = Expression::from_expr(expr, context)?;
                 Self { value: expr }
             }
             meta => {
-                let expr = NameVal::from_meta(meta)
-                    .map_err(Into::into)
-                    .and_then(|expr| Expression::from_expr(expr.value, context));
-                let expr = match expr {
-                    Ok(expr) => expr,
-                    Err(e) => return Some(Err(e)),
-                };
+                let expr = NameVal::from_meta(meta)?;
+                let expr = Expression::from_expr(expr.value, context)?;
                 Self { value: expr }
             }
         };
-        Some(Ok(res))
+        Ok(Some(res))
     }
 }
 

@@ -147,3 +147,50 @@ pub fn comptime_struct_param() {
 
     assert_eq!(expanded, expected);
 }
+
+#[test]
+pub fn destructure() {
+    #[allow(unused)]
+    #[cube2]
+    fn destructure(arg: &Param) -> u32 {
+        let Param { a, b } = arg;
+        a * b
+    }
+
+    let expanded = destructure::expand(Variable::new("arg", None)).expression_untyped();
+    let expected = block(
+        vec![
+            local_init(
+                "a",
+                Expression::FieldAccess {
+                    base: var("arg", Elem::Unit),
+                    name: "a".to_string(),
+                    vectorization: None,
+                    ty: Elem::UInt,
+                },
+                false,
+                None,
+            ),
+            local_init(
+                "b",
+                Expression::FieldAccess {
+                    base: var("arg", Elem::Unit),
+                    name: "b".to_string(),
+                    vectorization: None,
+                    ty: Elem::UInt,
+                },
+                false,
+                None,
+            ),
+        ],
+        Some(Expression::Binary {
+            left: var("a", Elem::UInt),
+            operator: Operator::Mul,
+            right: var("b", Elem::UInt),
+            vectorization: None,
+            ty: Elem::UInt,
+        }),
+    );
+
+    assert_eq!(expanded, expected);
+}

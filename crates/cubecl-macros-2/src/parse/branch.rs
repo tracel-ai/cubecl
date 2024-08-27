@@ -10,9 +10,7 @@ use super::helpers::Unroll;
 
 pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Result<Expression> {
     let span = for_loop.span();
-    let unroll = Unroll::from_attributes(&for_loop.attrs, context)
-        .transpose()?
-        .map(|it| it.value);
+    let unroll = Unroll::from_attributes(&for_loop.attrs, context)?.map(|it| it.value);
 
     let right = Expression::from_expr(*for_loop.expr, context)
         .map_err(|_| syn::Error::new(span, "Unsupported for loop expression"))?;
