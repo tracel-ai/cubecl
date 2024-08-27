@@ -22,6 +22,7 @@ default = ["std", "linalg", "cubecl-core/default", "cubecl-wgpu?/default", "cube
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 linalg = ["dep:cubecl-linalg"]
+simple-memory-management = ["cubecl-wgpu?/simple-memory-management"]
 
 # Runtimes
 wgpu = ["cubecl-wgpu"]
