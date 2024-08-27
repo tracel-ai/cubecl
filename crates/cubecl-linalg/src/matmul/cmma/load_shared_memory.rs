@@ -207,7 +207,8 @@ fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
     let sm_stride = Comptime::runtime(tile_size * tile_size);
 
     let write_offset = coop_id * sm_stride + lane_id * tensor_vec_r;
-    let sm_step = Comptime::runtime(tile_size * tensor_vec);
+    let sm_step = Comptime::runtime(coop_dim * tensor_vec);
+    // let sm_step = Comptime::runtime(tile_size * tensor_vec); // ?
 
     for i in range(0u32, Comptime::get(num_unit_reads), Comptime::new(true)) {
         let read_row = read_row_offset + i * lane_row_step;

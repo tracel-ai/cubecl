@@ -91,7 +91,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let out_vec = Comptime::vectorization(out);
     let out_vec_r = Comptime::runtime(out_vec);
     let n_units_per_tile_row = Comptime::runtime(tile_size / out_vec);
-    let num_tile_elems = Comptime::runtime(tile_size * tile_size);
+    let sm_stride = Comptime::runtime(tile_size * tile_size);
     let coop_dim = Comptime::map(config, |c| c.coop_dim);
 
     let coop_id = UNIT_POS_Y;
@@ -102,29 +102,25 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
 
     let num_unit_writes = tile_size * tile_size / (out_vec * coop_dim);
 
-    let read_offset = num_tiles_in_n * coop_id * num_tile_elems;
-    let read_0 = read_offset + lane_id * out_vec_r;
-    let read_1 = read_0 + coop_dim * out_vec_r;
+    let read_offset = num_tiles_in_n * coop_id * sm_stride + lane_id * out_vec_r;
+    let sm_step = Comptime::runtime(coop_dim * out_vec);
 
-    let unit_write_row_0 = lane_id / n_units_per_tile_row;
-    let unit_write_row_1 = unit_write_row_0 + coop_dim / out_vec_r;
-    let unit_write_col = (lane_id % n_units_per_tile_row) * n_units_per_tile_row;
+    let lane_row_step = Comptime::runtime(coop_dim * out_vec / tile_size);
+    let unit_write_row = lane_id / n_units_per_tile_row;
+    let unit_write_col = lane_id % n_units_per_tile_row * out_vec_r;
 
     let row_offset = offsets.cube_row + tile_row * tile_size_r;
-    let write_row_0 = row_offset + unit_write_row_0;
-    let write_row_1 = row_offset + unit_write_row_1;
     let write_col = offsets.cube_col + tile_col * tile_size_r + unit_write_col;
 
-    for i in range(0u32, num_unit_writes, Comptime::new(true)) {
-        // let read_pos = ;
-        // let write_row = ;
+    for i in range(0u32, Comptime::get(num_unit_writes), Comptime::new(true)) {
+        let read_pos = read_offset + i * sm_step;
+        let write_row = row_offset + unit_write_row + i * lane_row_step;
 
-        // TODO make comptime?
         for n in range(0u32, num_tiles_in_n, Comptime::new(false)) {
             W::write_output(
                 out,
                 accumulator_sm,
-                UInt::new(0),
+                n,
                 offsets.batch_out,
                 read_pos,
                 write_row,
@@ -134,49 +130,4 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
             );
         }
     }
-
-    W::write_output(
-        out,
-        accumulator_sm,
-        UInt::new(0),
-        offsets.batch_out,
-        read_0,
-        write_row_0,
-        write_col,
-        dims,
-        config,
-    );
-    W::write_output(
-        out,
-        accumulator_sm,
-        UInt::new(0),
-        offsets.batch_out,
-        read_1,
-        write_row_1,
-        write_col,
-        dims,
-        config,
-    );
-    W::write_output(
-        out,
-        accumulator_sm,
-        UInt::new(1),
-        offsets.batch_out,
-        read_0,
-        write_row_0,
-        write_col,
-        dims,
-        config,
-    );
-    W::write_output(
-        out,
-        accumulator_sm,
-        UInt::new(1),
-        offsets.batch_out,
-        read_1,
-        write_row_1,
-        write_col,
-        dims,
-        config,
-    );
 }
