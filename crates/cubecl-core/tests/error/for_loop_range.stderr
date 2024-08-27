@@ -1,4 +1,4 @@
-error: Invalid for loop: use [range](cubecl::prelude::range] instead.
+error: Invalid for loop: use [range](cubecl::prelude::range] or [range_stepped](cubecl::prelude::range_stepped) instead.
  --> tests/error/for_loop_range.rs:6:14
   |
 6 |     for _ in 0..10 {}

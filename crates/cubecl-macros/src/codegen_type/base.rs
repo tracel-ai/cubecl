@@ -54,9 +54,10 @@ impl TypeCodegen {
         }
 
         let generics = self.generics.all_definitions();
+        let vis = &self.vis;
 
         quote! {
-            struct #name #generics {
+            #vis struct #name #generics {
                 #fields
             }
         }
