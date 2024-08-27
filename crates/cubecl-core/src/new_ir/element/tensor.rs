@@ -1,8 +1,9 @@
+use cubecl_macros_2::{expand_impl, Expand};
+
 use crate::new_ir::{
-    Expand, Expr, IndexExpr, Integer, Length, Rank, Shape, SliceExpr, SliceRangeExpr, Stride,
-    Strided,
+    Expr, IndexExpr, Integer, Length, Rank, Shape, SliceExpr, SliceRangeExpr, Stride, Strided,
 };
-use crate::{frontend::UInt, ir::Elem, new_ir::SquareType, unexpanded, Runtime};
+use crate::{frontend::UInt, new_ir::SquareType, unexpanded};
 use std::{
     marker::PhantomData,
     ops::{
@@ -10,6 +11,8 @@ use std::{
         RangeToInclusive,
     },
 };
+
+use super::{Container, Slice};
 
 pub struct Dyn;
 pub struct Dim1;
@@ -28,120 +31,22 @@ pub type Tensor6<T> = Tensor<T, Dim6>;
 
 /// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
 /// metadata such as [stride](Tensor::stride) and [shape](Tensor::shape).
-#[derive(new)]
+#[derive(new, Expand)]
+#[expand(ir_type = T::ir_type())]
 pub struct Tensor<T: SquareType, Dimensionality = Dyn> {
     _val: PhantomData<T>,
     _dim: PhantomData<Dimensionality>,
 }
 
-impl<T: SquareType, Dim> SquareType for Tensor<T, Dim> {
-    fn ir_type() -> Elem {
-        <T as SquareType>::ir_type()
-    }
+impl<T: SquareType, Dims> Strided for Tensor<T, Dims> {
+    type Dims = Dims;
+}
+impl<T: SquareType, Dims> Container for Tensor<T, Dims> {
+    type Item = T;
 }
 
-impl<T: SquareType, Dims> Expr for &Tensor<T, Dims> {
-    type Output = Tensor<T, Dims>;
-
-    fn expression_untyped(&self) -> crate::new_ir::Expression {
-        panic!("Can't expand struct directly");
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        None
-    }
-}
-
-impl<T: SquareType, Dims> Expr for &mut Tensor<T, Dims> {
-    type Output = Tensor<T, Dims>;
-
-    fn expression_untyped(&self) -> crate::new_ir::Expression {
-        panic!("Can't expand struct directly");
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        None
-    }
-}
-
-/// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),1``
-/// the strides and the shape.
-pub struct TensorHandleRef<'a, R: Runtime> {
-    pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
-    pub strides: &'a [usize],
-    pub shape: &'a [usize],
-}
-
-impl<'a, R: Runtime> TensorHandleRef<'a, R> {
-    /// Convert the handle into a [tensor argument](TensorArg).
-    pub fn as_tensor_arg(&'a self, vectorisation: u8) -> TensorArg<'a, R> {
-        unsafe { TensorArg::from_raw_parts(self.handle, self.strides, self.shape, vectorisation) }
-    }
-    /// Create a handle from raw parts.
-    ///
-    /// # Safety
-    ///
-    /// If you provide wrong strides or shapes, it might create undefined behavior caused by
-    /// out-of-bounds reads and writes.
-    pub unsafe fn from_raw_parts(
-        handle: &'a cubecl_runtime::server::Handle<R::Server>,
-        strides: &'a [usize],
-        shape: &'a [usize],
-    ) -> Self {
-        Self {
-            handle,
-            strides,
-            shape,
-        }
-    }
-}
-
-/// Argument to be used for [tensors](Tensor) passed as arguments to kernels.
-pub enum TensorArg<'a, R: Runtime> {
-    /// The tensor is passed with a tensor handle.
-    Handle {
-        /// The tensor handle.
-        handle: TensorHandleRef<'a, R>,
-        /// The vectorization factor.
-        vectorization_factor: u8,
-    },
-    /// The tensor is aliasing another input tensor.
-    Alias {
-        /// The position of the input tensor.
-        input_pos: usize,
-    },
-}
-
-impl<'a, R: Runtime> TensorArg<'a, R> {
-    /// Create a new tensor argument specified with its vectorization factor.
-    ///
-    /// # Safety
-    ///
-    /// If you provide wrong strides or shapes, it might create undefined behavior caused by
-    /// out-of-bound reads and writes.
-    pub unsafe fn from_raw_parts(
-        handle: &'a cubecl_runtime::server::Handle<R::Server>,
-        strides: &'a [usize],
-        shape: &'a [usize],
-        factor: u8,
-    ) -> Self {
-        unsafe {
-            Self::Handle {
-                handle: TensorHandleRef::from_raw_parts(handle, strides, shape),
-                vectorization_factor: factor,
-            }
-        }
-    }
-
-    /// Create an alias argument.
-    pub fn alias(position: usize) -> Self {
-        Self::Alias {
-            input_pos: position,
-        }
-    }
-}
-
-impl<T: SquareType, Dim> Tensor<T, Dim> {
+#[expand_impl]
+impl<T: SquareType, Dims> Tensor<T, Dims> {
     /// Obtain the stride of input at dimension dim
     pub fn stride<C: Integer>(&self, _dim: C) -> UInt {
         unexpanded!()
@@ -166,24 +71,9 @@ impl<T: SquareType, Dim> Tensor<T, Dim> {
     pub fn rank(&self) -> UInt {
         unexpanded!()
     }
-}
 
-pub struct TensorExpand<T: SquareType, Dim, Inner: Expr<Output = Tensor<T, Dim>>>(Inner);
-
-impl<T: SquareType, Dim> Expand for Tensor<T, Dim> {
-    type Expanded<Inner: Expr<Output = Self>> = TensorExpand<T, Dim, Inner>;
-
-    fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
-        TensorExpand(inner)
-    }
-}
-
-impl<T: SquareType, Dimensions> Strided for Tensor<T, Dimensions> {}
-
-impl<T: SquareType, Dimensions, Inner: Expr<Output = Tensor<T, Dimensions>>>
-    TensorExpand<T, Dimensions, Inner>
-{
     // Expanded version of stride
+    #[expanded]
     pub fn stride<Dim: Expr>(self, dim: Dim) -> impl Expr<Output = Dim::Output>
     where
         Dim::Output: Integer,
@@ -192,6 +82,7 @@ impl<T: SquareType, Dimensions, Inner: Expr<Output = Tensor<T, Dimensions>>>
     }
 
     // Expanded version of shape
+    #[expanded]
     pub fn shape<Dim: Expr>(self, dim: Dim) -> impl Expr<Output = Dim::Output>
     where
         Dim::Output: Integer,
@@ -200,11 +91,13 @@ impl<T: SquareType, Dimensions, Inner: Expr<Output = Tensor<T, Dimensions>>>
     }
 
     // Expanded version of len
+    #[expanded]
     pub fn len<Out: Integer>(self) -> impl Expr<Output = Out> {
         Length::new(self.0)
     }
 
     // Expanded version of rank.
+    #[expanded]
     pub fn rank<Out: Integer>(self) -> impl Expr<Output = Out> {
         Rank::new(self.0)
     }
@@ -224,19 +117,22 @@ impl<T: SquareType, Dims, Idx: Integer> IndexMut<Idx> for Tensor<T, Dims> {
     }
 }
 
-impl<T: SquareType, Dims, Inner: Expr<Output = Tensor<T, Dims>>> TensorExpand<T, Dims, Inner> {
+#[expand_impl]
+impl<T: SquareType, Dims> Tensor<T, Dims> {
+    #[expanded]
     pub fn index<Idx: Expr>(self, index: Idx) -> impl Expr<Output = T>
     where
-        Inner::Output: Index<Idx::Output>,
+        __Inner::Output: Index<Idx::Output>,
         Idx::Output: Integer,
     {
         IndexExpr::new(self.0, index)
     }
 
+    #[expanded]
     pub fn slice<TNum: Integer>(
         self,
         ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<TNum>>>>,
-    ) -> impl Expr<Output = Inner::Output> {
+    ) -> impl Expr<Output = Slice<__Inner, TNum>> {
         SliceExpr::new(self.0, ranges)
     }
 }
@@ -244,7 +140,7 @@ impl<T: SquareType, Dims, Inner: Expr<Output = Tensor<T, Dims>>> TensorExpand<T,
 macro_rules! slice_impl {
     ($range:ident) => {
         impl<T: SquareType, Dims, Idx: Integer> Index<$range<Idx>> for Tensor<T, Dims> {
-            type Output = Self;
+            type Output = Slice<Self, Idx>;
 
             fn index(&self, _index: $range<Idx>) -> &Self::Output {
                 unexpanded!()
@@ -253,7 +149,7 @@ macro_rules! slice_impl {
     };
     ($dims:ident, $range:ident, $dim_count:literal) => {
         impl<T: SquareType, Idx: Integer> Index<[$range<Idx>; $dim_count]> for Tensor<T, $dims> {
-            type Output = Self;
+            type Output = Slice<Self, Idx>;
 
             fn index(&self, _index: [$range<Idx>; $dim_count]) -> &Self::Output {
                 unexpanded!()
@@ -262,7 +158,7 @@ macro_rules! slice_impl {
     };
     ($dims:ident, $ty:ident, $($args:ident),*) => {
         impl<T: SquareType, $($args: RangeBounds<$ty>),*> Index<($($args),*)> for Tensor<T, $dims> {
-            type Output = Self;
+            type Output = Slice<Self, $ty>;
 
             fn index(&self, _index: ($($args),*)) -> &Self::Output {
                 unexpanded!()
@@ -280,7 +176,7 @@ macro_rules! slice_impls {
         slice_impl!(RangeToInclusive);
 
         impl<T: SquareType, Dims> Index<RangeFull> for Tensor<T, Dims> {
-            type Output = Self;
+            type Output = Slice<Self, u32>;
 
             fn index(&self, _index: RangeFull) -> &Self::Output {
                 unexpanded!()
@@ -295,7 +191,7 @@ macro_rules! slice_impls {
         slice_impl!($dims, RangeToInclusive, $dim_count);
 
         impl<T: SquareType> Index<[RangeFull; $dim_count]> for Tensor<T, $dims> {
-            type Output = Self;
+            type Output = Slice<Self, u32>;
 
             fn index(&self, _index: [RangeFull; $dim_count]) -> &Self::Output {
                 unexpanded!()

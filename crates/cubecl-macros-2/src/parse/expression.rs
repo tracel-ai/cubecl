@@ -1,12 +1,11 @@
 use cubecl_common::operator::Operator;
 use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned};
-use syn::{spanned::Spanned, Expr, ExprBlock, Lit, LitInt, RangeLimits, Type};
+use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, RangeLimits, Type};
 
 use crate::{
     expression::Expression,
     scope::{Context, ManagedVar},
-    statement::Statement,
 };
 
 use super::{
@@ -61,11 +60,7 @@ impl Expression {
                     .and_then(|ident| context.variable(ident));
                 if let Some(ManagedVar { name, ty, is_const }) = variable {
                     if is_const {
-                        Expression::ConstVariable {
-                            span: path.span(),
-                            name,
-                            ty,
-                        }
+                        Expression::ConstVariable { name, ty }
                     } else {
                         Expression::Variable {
                             span: path.span(),
@@ -76,10 +71,7 @@ impl Expression {
                 } else {
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
                     // external value like a Rust `const`.
-                    Expression::Path {
-                        span: path.span(),
-                        path: path.path,
-                    }
+                    Expression::Path { path: path.path }
                 }
             }
             Expr::Unary(unary) => {
@@ -158,7 +150,7 @@ impl Expression {
                         let lit = Lit::Int(LitInt::new("0", span));
                         Expression::Literal {
                             value: lit,
-                            ty: syn::parse2(quote![i32]).unwrap(),
+                            ty: parse_quote![i32],
                             span,
                         }
                     });
@@ -230,7 +222,7 @@ impl Expression {
                 } else {
                     let index = match index {
                         Expression::Array { elements, span } => {
-                            generate_strided_index(&expr, elements, span, context)?
+                            generate_strided_index(&expr, elements, span)?
                         }
                         index => index,
                     };
@@ -241,10 +233,24 @@ impl Expression {
                     }
                 }
             }
+            Expr::Repeat(repeat) => {
+                let span = repeat.span();
+                let len = Expression::from_expr(*repeat.len, context)?;
+                if !len.is_const() {
+                    Err(syn::Error::new(
+                        span,
+                        "Array initializer length must be known at compile time",
+                    ))?
+                }
+                Expression::ArrayInit {
+                    init: Box::new(Expression::from_expr(*repeat.expr, context)?),
+                    len: Box::new(len),
+                    span,
+                }
+            }
             Expr::Let(_) => todo!("let"),
             Expr::Macro(_) => todo!("macro"),
             Expr::Match(_) => todo!("match"),
-            Expr::Repeat(_) => todo!("repeat"),
             Expr::Struct(strct) => {
                 if !strct.fields.iter().all(|field| {
                     Expression::from_expr(field.expr.clone(), context)
@@ -297,13 +303,13 @@ fn lit_ty(lit: &Lit) -> syn::Result<Type> {
             .then(|| int.suffix())
             .map(|suffix| format_ident!("{suffix}"))
             .and_then(|ident| syn::parse2(quote![#ident]).ok())
-            .unwrap_or_else(|| syn::parse2(quote![i32]).unwrap()),
+            .unwrap_or_else(|| parse_quote![i32]),
         Lit::Float(float) => (!float.suffix().is_empty())
             .then(|| float.suffix())
             .map(|suffix| format_ident!("{suffix}"))
             .and_then(|ident| syn::parse2(quote![#ident]).ok())
-            .unwrap_or_else(|| syn::parse2(quote![f32]).unwrap()),
-        Lit::Bool(_) => syn::parse2(quote![bool]).unwrap(),
+            .unwrap_or_else(|| parse_quote![f32]),
+        Lit::Bool(_) => parse_quote![bool],
         lit => Err(syn::Error::new_spanned(
             lit,
             format!("Unsupported literal type: {lit:?}"),
@@ -316,13 +322,12 @@ fn generate_strided_index(
     tensor: &Expression,
     elements: Vec<Expression>,
     span: Span,
-    context: &mut Context,
 ) -> syn::Result<Expression> {
     let index_ty = elements
         .first()
         .unwrap()
         .ty()
-        .unwrap_or_else(|| syn::parse2(quote![u32]).unwrap());
+        .unwrap_or_else(|| parse_quote![u32]);
     let strided_indices = elements.into_iter().enumerate().map(|(i, elem)| {
         let i = Lit::Int(LitInt::new(&i.to_string(), span));
         let stride = Expression::MethodCall {

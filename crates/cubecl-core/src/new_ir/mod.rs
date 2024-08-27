@@ -1,3 +1,4 @@
+mod array;
 mod branch;
 pub mod element;
 mod expression;
@@ -9,6 +10,7 @@ mod types;
 
 use std::num::NonZero;
 
+pub use array::*;
 pub use branch::*;
 pub use expression::*;
 pub use operators::*;

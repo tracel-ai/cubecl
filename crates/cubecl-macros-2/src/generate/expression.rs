@@ -1,8 +1,6 @@
-use std::num::NonZero;
-
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{spanned::Spanned, Generics, Ident, Path, PathArguments, PathSegment, Type};
+use syn::{spanned::Spanned, Ident, Path, PathArguments, PathSegment, Type};
 
 use crate::{expression::Expression, ir_type, prefix_ir};
 
@@ -45,7 +43,6 @@ impl ToTokens for Expression {
             Expression::FieldAccess {
                 base, field, span, ..
             } => {
-                let access = ir_type("FieldAccess");
                 let field = match field {
                     syn::Member::Named(ident) => format_ident!("__{ident}"),
                     syn::Member::Unnamed(index) => format_ident!("__{}", index.index),
@@ -54,7 +51,7 @@ impl ToTokens for Expression {
                     #base.expand().#field()
                 }
             }
-            Expression::Literal { value, span, ty } => {
+            Expression::Literal { value, span, .. } => {
                 quote_spanned! {*span=>
                     #value
                 }
@@ -70,21 +67,6 @@ impl ToTokens for Expression {
                     }
                 }
             }
-            Expression::Init {
-                left,
-                right,
-                ty,
-                span,
-            } => {
-                let ir_type = ir_type("Initializer");
-                let ty = right.ty().map(|ty| quote![::<#ty>]);
-                quote_spanned! {*span=>
-                    #ir_type #ty {
-                        left: #left,
-                        right: #right
-                    }
-                }
-            }
             Expression::Verbatim { tokens } => {
                 let span = tokens.span();
                 quote_spanned! {span=>
@@ -92,10 +74,7 @@ impl ToTokens for Expression {
                 }
             }
             Expression::Block {
-                inner,
-                ret,
-                ty,
-                span,
+                inner, ret, span, ..
             } => {
                 let block = ir_type("Block");
                 let ret = ret
@@ -167,7 +146,6 @@ impl ToTokens for Expression {
                 unroll,
                 var_name,
                 var_ty,
-                var_mut,
                 block,
                 span,
             } => {
@@ -265,7 +243,7 @@ impl ToTokens for Expression {
                     #ret_ty::<#ty, _>::new(#ret_expr)
                 }
             }
-            Expression::Array { elements, span } => {
+            Expression::Array { span, .. } => {
                 if let Some(constant) = self.as_const() {
                     constant
                 } else {
@@ -273,7 +251,7 @@ impl ToTokens for Expression {
                         .to_compile_error()
                 }
             }
-            Expression::Tuple { elements, span } => {
+            Expression::Tuple { span, .. } => {
                 if let Some(constant) = self.as_const() {
                     constant
                 } else {
@@ -282,16 +260,20 @@ impl ToTokens for Expression {
                 }
             }
             Expression::Index { expr, index, span } => {
-                let index_ty = ir_type("IndexExpr");
                 quote_spanned! {*span=>
                     #expr.expand().index(#index)
                 }
             }
             Expression::Slice { expr, ranges, span } => {
-                let slice_ty = ir_type("SliceExpr");
                 let range_ty = ir_type("SliceRangeExpr");
                 quote_spanned! {*span=>
                     #expr.expand().slice(vec![#(Box::new(#range_ty::from(#ranges))),*])
+                }
+            }
+            Expression::ArrayInit { init, len, span } => {
+                let init_ty = ir_type("ArrayInit");
+                quote_spanned! {*span=>
+                    #init_ty::new(#len, #init)
                 }
             }
         };

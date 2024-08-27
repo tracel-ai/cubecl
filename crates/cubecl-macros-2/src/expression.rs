@@ -1,15 +1,9 @@
-use std::num::NonZero;
-
 use cubecl_common::operator::Operator;
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{parse::Parse, spanned::Spanned, Expr, Ident, Lit, Member, Pat, Path, Type};
+use quote::quote;
+use syn::{Ident, Lit, Member, Path, Type};
 
-use crate::{
-    ir_type, prefix_ir,
-    scope::{Context, ManagedVar},
-    statement::{parse_pat, Statement},
-};
+use crate::statement::Statement;
 
 #[derive(Clone, Debug)]
 pub enum Expression {
@@ -34,7 +28,6 @@ pub enum Expression {
     ConstVariable {
         name: Ident,
         ty: Option<Type>,
-        span: Span,
     },
     FieldAccess {
         base: Box<Expression>,
@@ -43,7 +36,6 @@ pub enum Expression {
     },
     Path {
         path: Path,
-        span: Span,
     },
     Literal {
         value: Lit,
@@ -51,12 +43,6 @@ pub enum Expression {
         span: Span,
     },
     Assigment {
-        left: Box<Expression>,
-        right: Box<Expression>,
-        ty: Option<Type>,
-        span: Span,
-    },
-    Init {
         left: Box<Expression>,
         right: Box<Expression>,
         ty: Option<Type>,
@@ -99,7 +85,6 @@ pub enum Expression {
         unroll: Option<Box<Expression>>,
         var_name: syn::Ident,
         var_ty: Option<syn::Type>,
-        var_mut: bool,
         block: Box<Expression>,
         span: Span,
     },
@@ -147,6 +132,11 @@ pub enum Expression {
         ranges: Vec<Expression>,
         span: Span,
     },
+    ArrayInit {
+        init: Box<Expression>,
+        len: Box<Expression>,
+        span: Span,
+    },
 }
 
 impl Expression {
@@ -159,7 +149,6 @@ impl Expression {
             Expression::Literal { ty, .. } => Some(ty.clone()),
             Expression::Assigment { ty, .. } => ty.clone(),
             Expression::Verbatim { .. } => None,
-            Expression::Init { ty, .. } => ty.clone(),
             Expression::Block { ty, .. } => ty.clone(),
             Expression::FunctionCall { .. } => None,
             Expression::Break { .. } => None,
@@ -169,7 +158,7 @@ impl Expression {
             Expression::FieldAccess { .. } => None,
             Expression::MethodCall { .. } => None,
             Expression::Path { .. } => None,
-            Expression::Range { start, end, .. } => start.ty(),
+            Expression::Range { start, .. } => start.ty(),
             Expression::WhileLoop { .. } => None,
             Expression::Loop { .. } => None,
             Expression::If { then_block, .. } => then_block.ty(),
@@ -178,6 +167,7 @@ impl Expression {
             Expression::Index { .. } => None,
             Expression::Tuple { .. } => None,
             Expression::Slice { expr, .. } => expr.ty(),
+            Expression::ArrayInit { init, .. } => init.ty(),
         }
     }
 

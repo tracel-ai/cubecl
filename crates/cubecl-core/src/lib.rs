@@ -3,6 +3,9 @@ extern crate alloc;
 #[macro_use]
 extern crate derive_new;
 
+// For using macros in self
+extern crate self as cubecl_core;
+
 /// Cube Frontend Types.
 pub mod frontend;
 

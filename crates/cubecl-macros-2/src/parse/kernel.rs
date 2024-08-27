@@ -1,9 +1,6 @@
-use std::cell::RefCell;
+use syn::{parse_quote, Attribute, FnArg, Generics, Ident, ItemFn, Pat, Type, Visibility};
 
-use quote::{format_ident, quote};
-use syn::{parse::Parse, Attribute, FnArg, Generics, Ident, ItemFn, Meta, Pat, Type, Visibility};
-
-use crate::{expression::Expression, scope::Context, statement::Statement};
+use crate::{expression::Expression, scope::Context};
 
 use super::{branch::parse_block, helpers::is_comptime_attr};
 
@@ -14,8 +11,6 @@ pub struct Kernel {
     pub(crate) block: Expression,
     pub(crate) returns: Type,
     pub(crate) generics: Generics,
-
-    pub(crate) context: RefCell<Context>,
 }
 
 impl Kernel {
@@ -24,7 +19,7 @@ impl Kernel {
         let vis = function.vis;
         let generics = function.sig.generics;
         let returns = match function.sig.output {
-            syn::ReturnType::Default => syn::parse2(quote![()]).unwrap(),
+            syn::ReturnType::Default => parse_quote![()],
             syn::ReturnType::Type(_, ty) => *ty,
         };
         let mut context = Context::new(returns.clone());
@@ -72,7 +67,6 @@ impl Kernel {
             name,
             parameters: variables,
             block,
-            context: RefCell::new(context),
             returns,
         })
     }

@@ -1,8 +1,6 @@
+use crate::{expression::Expression, scope::Context};
 use proc_macro2::Span;
-use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{spanned::Spanned, Ident, Pat, Path, Stmt, Type};
-
-use crate::{expression::Expression, ir_type, prefix_ir, scope::Context};
+use syn::{spanned::Spanned, Ident, Pat, Stmt, Type};
 
 #[derive(Clone, Debug)]
 pub enum Statement {
@@ -32,8 +30,6 @@ impl Statement {
                     .transpose()?
                     .map(Box::new);
                 let is_const = init.as_ref().map(|init| init.is_const()).unwrap_or(false);
-                let init_ty = init.as_ref().and_then(|init| init.ty());
-
                 let variable = Box::new(Expression::Variable {
                     name: ident.clone(),
                     span,

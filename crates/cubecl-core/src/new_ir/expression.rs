@@ -10,8 +10,6 @@ type Vectorization = Option<NonZero<u8>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expression {
-    /// Unit type expression, returned by void functions
-    Unit,
     Binary {
         left: Box<Expression>,
         operator: Operator,
@@ -93,6 +91,10 @@ pub enum Expression {
     /// A range used in for loops. Currently doesn't exist at runtime, so can be ignored in codegen.
     /// This only exists to pass the range down to the for loop it applies to
     __Range(Range),
+    ArrayInit {
+        size: Box<Expression>,
+        init: Box<Expression>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -117,7 +119,6 @@ impl Expression {
             Expression::Break | Expression::Continue | Expression::ForLoop { .. } => Elem::Unit,
             Expression::FieldAccess { ty, .. } => *ty,
             Expression::__Range(_) => Elem::Unit,
-            Expression::Unit => Elem::Unit,
             Expression::WhileLoop { .. } => Elem::Unit,
             Expression::Loop { .. } => Elem::Unit,
             Expression::If { then_block, .. } => then_block.ir_type(),
@@ -125,6 +126,7 @@ impl Expression {
                 expr.as_ref().map(|it| it.ir_type()).unwrap_or(Elem::Unit)
             }
             Expression::Tensor(tensor) => tensor.ir_type(),
+            Expression::ArrayInit { init, .. } => init.ir_type(),
         }
     }
 

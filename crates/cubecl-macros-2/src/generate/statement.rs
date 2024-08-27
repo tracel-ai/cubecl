@@ -20,10 +20,6 @@ impl ToTokens for Statement {
             } => {
                 let name = match &**left {
                     Expression::Variable { name, .. } => name,
-                    Expression::Init { left, .. } => match &**left {
-                        Expression::Variable { name, .. } => name,
-                        _ => panic!("Init left is always variable"),
-                    },
                     _ => panic!("Local is always variable or init"),
                 };
                 let as_const = init.as_ref().and_then(|init| init.as_const());
@@ -36,7 +32,7 @@ impl ToTokens for Statement {
                     // Separate init and declaration in case initializer uses an identically named
                     // variable that would be overwritten by the declaration.
                     let initializer = init.as_ref().map(|init| quote![let __init = #init;]);
-                    let left = if let Some(init) = init {
+                    let left = if init.is_some() {
                         let init_ty = ir_type("Initializer");
                         quote_spanned! {*span=>
                             #init_ty {
@@ -81,9 +77,7 @@ impl ToTokens for Statement {
                 }
             }
             Statement::Expression {
-                expression,
-                terminated,
-                span,
+                expression, span, ..
             } => {
                 quote_spanned! {*span=>
                     __statements.push(#statement::Expression(

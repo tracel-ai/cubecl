@@ -1,8 +1,6 @@
-use std::{collections::HashMap, num::NonZero};
-
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, quote_spanned};
-use syn::{spanned::Spanned, Ident, Type};
+use quote::{format_ident, quote_spanned};
+use syn::{parse_quote, Ident, Type};
 
 use crate::generate::expression::generate_var;
 
@@ -39,21 +37,19 @@ pub struct Context {
 
 impl Context {
     pub fn new(return_type: Type) -> Self {
-        let mut root_scope = Scope::default();
-
         Self {
             return_type,
-            scopes: vec![root_scope],
+            scopes: vec![Scope::default()],
             scope_history: Default::default(),
         }
     }
 
+    #[allow(unused)]
     pub fn new_launch(return_type: Type) -> Self {
         let mut root_scope = Scope::default();
         root_scope.variables.extend(KEYWORDS.iter().map(|it| {
             let name = format_ident!("{it}");
-            let tokens = quote![u32];
-            let ty = syn::parse2(tokens).unwrap();
+            let ty = parse_quote![u32];
             ManagedVar {
                 name,
                 ty: Some(ty),
@@ -91,6 +87,7 @@ impl Context {
         res
     }
 
+    #[allow(unused)]
     pub fn restore_scope(&mut self) {
         let scope = self.scope_history.pop();
         if let Some(scope) = scope {
@@ -143,7 +140,7 @@ impl Scope {
         self.variables
             .iter()
             .map(|ManagedVar { name, ty, .. }| {
-                let mut span = name.span();
+                let span = name.span();
                 let var = generate_var(name, ty, span, None);
                 quote_spanned! {span=>
                     let #name = #var;

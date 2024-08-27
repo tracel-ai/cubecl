@@ -1,7 +1,4 @@
-use std::fmt::Display;
-
 use cubecl_common::operator::Operator;
-use derive_more::derive::Display;
 use syn::{BinOp, UnOp};
 
 pub fn parse_binop(op: &BinOp) -> syn::Result<Operator> {

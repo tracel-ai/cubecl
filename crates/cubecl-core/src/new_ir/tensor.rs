@@ -1,6 +1,9 @@
 use std::{marker::PhantomData, ops::Index};
 
-use super::{Elem, Expr, Expression, Integer, RangeExpr, SquareType, TypeEq};
+use super::{
+    element::{Container, Slice},
+    Elem, Expr, Expression, Integer, RangeExpr, SquareType, TypeEq,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TensorExpression {
@@ -50,7 +53,9 @@ impl TensorExpression {
     }
 }
 
-pub trait Strided {}
+pub trait Strided {
+    type Dims;
+}
 
 #[derive(new)]
 pub struct Stride<Tensor: Expr, Dim: Expr>
@@ -203,9 +208,9 @@ where
 
 impl<TNum: Integer, Tensor: Expr> Expr for SliceExpr<TNum, Tensor>
 where
-    Tensor::Output: Strided,
+    Tensor::Output: Strided + Container,
 {
-    type Output = Tensor::Output;
+    type Output = Slice<Tensor, TNum>;
 
     fn expression_untyped(&self) -> Expression {
         let ranges = self

@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use syn::{
     visit_mut::{self, VisitMut},
-    Attribute, Generics, ImplItem, ImplItemFn, ItemFn, ItemImpl, Token, Type,
+    Attribute, Generics, ImplItem, ImplItemFn, ItemImpl, Token, Type,
 };
 
 #[derive(Default)]

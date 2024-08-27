@@ -1,17 +1,8 @@
-use std::{cell::RefCell, iter};
-
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{
-    parse::Parse, punctuated::Punctuated, spanned::Spanned, Attribute, FnArg, GenericParam,
-    Generics, Ident, ItemFn, Lifetime, LifetimeParam, Meta, Pat, PatType, Receiver, Type,
-    Visibility,
-};
+use syn::{spanned::Spanned, Ident, Type};
 
-use crate::{
-    ir_path, ir_type, parse::kernel::Kernel, prefix_ir, scope::Context, statement::Statement,
-    IR_PATH,
-};
+use crate::{ir_path, ir_type, parse::kernel::Kernel, prefix_ir, scope::Context};
 
 impl ToTokens for Kernel {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
@@ -24,7 +15,6 @@ impl ToTokens for Kernel {
         let block = &self.block;
         let return_type = &self.returns;
         let args = transform_args(&self.parameters);
-        let statement_ty = prefix_ir(format_ident!("Statement"));
         let input_checks = self
             .parameters
             .iter()
