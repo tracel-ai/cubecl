@@ -18,7 +18,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     let n_tiles = (block_size_m * block_size_n) / (tile_size * tile_size);
     let num_tiles_in_n = n_tiles / cube_dim_y;
 
-    let num_coop_per_row = Comptime::runtime(block_size_n / (tile_size / num_tiles_in_n));
+    let num_coop_per_row = Comptime::runtime((block_size_n / tile_size) / num_tiles_in_n);
 
     let coop_id = UNIT_POS_Y;
     let tile_row = coop_id / num_coop_per_row;
