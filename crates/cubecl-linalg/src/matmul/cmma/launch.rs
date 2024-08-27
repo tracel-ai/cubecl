@@ -135,7 +135,12 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let rhs_vectorization = vectorization(n);
     let out_vectorization = vectorization(n);
 
-    let launch_config = CmmaLaunchConfig::default();
+    let launch_config = CmmaLaunchConfig {
+        block_size_m: 128,
+        block_size_k: 32,
+        block_size_n: 128,
+        unroll: true,
+    };
     let cube_count = cmma_cube_count::<R>(out.shape, &launch_config);
     let cube_dim = CubeDim::new(16, 16, 1);
 
