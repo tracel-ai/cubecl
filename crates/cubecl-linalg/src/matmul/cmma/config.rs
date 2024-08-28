@@ -1,8 +1,8 @@
 use cubecl_core::prelude::*;
 
 // CMMA uses 32 units to compute 16x16x16 tiles
-const COOP_DIM: u32 = 32;
-const TILE_SIZE: u32 = 16;
+pub(crate) const CMMA_COOP_DIM: usize = 32;
+pub(crate) const CMMA_TILE_SIZE: usize = 16;
 
 impl Init for CmmaConfig {
     fn init(self, _context: &mut CubeContext) -> Self {
@@ -42,6 +42,10 @@ pub struct CmmaLaunchConfig {
     pub block_size_k: usize,
     /// Block size along dimension of rhs
     pub block_size_n: usize,
+    /// Cube dim in x
+    pub cube_dim_x: usize,
+    /// Cube dim in x
+    pub cube_dim_y: usize,
     /// Unroll
     pub unroll: bool,
 }
@@ -52,35 +56,31 @@ impl Default for CmmaLaunchConfig {
             block_size_m: 64,
             block_size_k: 32,
             block_size_n: 64,
+            cube_dim_x: 32,
+            cube_dim_y: 8,
             unroll: false,
         }
     }
 }
 
 impl CmmaConfig {
-    pub(crate) fn new(
-        m: usize,
-        k: usize,
-        n: usize,
-        cube_dim: CubeDim,
-        launch_config: CmmaLaunchConfig,
-    ) -> Self {
-        let n_tiles = (launch_config.block_size_m * launch_config.block_size_n) as u32
-            / (TILE_SIZE * TILE_SIZE);
-        let lane_dim = cube_dim.x * cube_dim.y / COOP_DIM;
+    pub(crate) fn new(m: usize, k: usize, n: usize, launch_config: CmmaLaunchConfig) -> Self {
+        let n_tiles = launch_config.block_size_m * launch_config.block_size_n
+            / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
+        let lane_dim = launch_config.cube_dim_x * launch_config.cube_dim_y / CMMA_COOP_DIM;
         let num_accumulators = n_tiles / lane_dim;
 
         CmmaConfig {
             block_size_m: launch_config.block_size_m.into(),
             block_size_k: launch_config.block_size_k.into(),
             block_size_n: launch_config.block_size_n.into(),
-            tile_size: TILE_SIZE.into(),
+            tile_size: CMMA_TILE_SIZE.into(),
             unroll: launch_config.unroll,
             check_m_bounds: m % launch_config.block_size_m != 0,
             check_k_bounds: k % launch_config.block_size_k != 0,
             check_n_bounds: n % launch_config.block_size_n != 0,
-            coop_dim: COOP_DIM.into(),
-            num_accumulators: UInt::new(num_accumulators),
+            coop_dim: CMMA_COOP_DIM.into(),
+            num_accumulators: UInt::new(num_accumulators as u32),
         }
     }
 }

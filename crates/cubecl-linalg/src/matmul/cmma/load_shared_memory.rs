@@ -107,7 +107,7 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
     rhs: &Tensor<F>,
     offsets: Offsets,
     shared_rhs: &mut SharedMemory<FC>,
-    k_tiles: UInt,
+    num_tiles_in_k: UInt,
     dims: Dimensions,
     config: Comptime<CmmaConfig>,
 ) {
@@ -115,8 +115,8 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
     let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
 
     let coop_id = coop_id(config);
-    let tile_row = coop_id % k_tiles;
-    let tile_col = coop_id / k_tiles;
+    let tile_row = coop_id % num_tiles_in_k;
+    let tile_col = coop_id / num_tiles_in_k;
 
     if Comptime::get(check_k_bounds) {
         if Comptime::get(check_n_bounds) {
