@@ -207,9 +207,13 @@ where
             .copied()
             .chain(self.copy_handles_used.iter().map(|x| x.0))
             .collect::<Vec<_>>();
-        let memory = self.memory_management.reserve(data.len(), &total_handles);
+        let num_bytes = data.len();
 
-        if let Some(len) = NonZero::new(data.len() as u64) {
+        // Handle empty tensors (must bind at minimum 4 bytes)
+        let reserve_size = core::cmp::max(num_bytes, 4);
+        let memory = self.memory_management.reserve(reserve_size, &total_handles);
+
+        if let Some(len) = NonZero::new(num_bytes as u64) {
             let resource_handle = self.memory_management.get(memory.clone().binding());
 
             // Dont re-use this handle for writing until the queue is flushed. All writes
