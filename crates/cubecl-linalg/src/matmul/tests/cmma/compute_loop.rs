@@ -43,8 +43,9 @@ fn compute_loop_test<F: Float, FC: Float>(
     let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
     let slice_offset = UInt::new(256);
 
-    for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)){
-        let slice = accumulate_array.slice_mut(offset + n * slice_offset, offset + (n+1) * slice_offset);
+    for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
+        let slice =
+            accumulate_array.slice_mut(offset + n * slice_offset, offset + (n + 1) * slice_offset);
         cmma::store::<F>(
             slice,
             &accumulators.index(n),
@@ -81,6 +82,7 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((m * n / 256) as u32),
         num_accumulators: UInt::new(1),
     };
 
@@ -161,6 +163,7 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((m * n / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -270,6 +273,7 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((m * n / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
