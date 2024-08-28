@@ -78,3 +78,25 @@ pub enum Operator {
     /// Negation unary operator (-)
     Neg,
 }
+
+impl Operator {
+    /// Whether this is an assign op, aka whether the output is the same as the left hand side
+    pub fn is_assign(&self) -> bool {
+        matches!(
+            self,
+            Operator::AddAssign
+                | Operator::SubAssign
+                | Operator::MulAssign
+                | Operator::DivAssign
+                | Operator::RemAssign
+                | Operator::BitXorAssign
+                | Operator::BitAndAssign
+                | Operator::BitOrAssign
+                | Operator::ShlAssign
+                | Operator::ShrAssign
+                | Operator::Deref
+                | Operator::Not
+                | Operator::Neg
+        )
+    }
+}

@@ -1,18 +1,25 @@
 mod array;
 mod branch;
-pub mod element;
 mod expression;
+mod globals;
+mod launch;
 mod operators;
 mod option;
 mod statement;
 mod tensor;
 mod types;
 
+pub mod compute;
+pub mod element;
+
 use std::num::NonZero;
 
 pub use array::*;
 pub use branch::*;
+pub use compute::*;
 pub use expression::*;
+pub use globals::*;
+pub use launch::*;
 pub use operators::*;
 pub use option::*;
 pub use statement::*;
@@ -22,7 +29,7 @@ pub use types::*;
 pub use crate::ir::Elem;
 pub use cubecl_common::operator::Operator;
 
-pub fn assert_valid_type<T: KernelArg>() {}
+pub fn assert_valid_type<T: LaunchArg>() {}
 
 /// Calculate the lergest common vectorization of two optional vectorizations
 pub fn largest_common_vectorization(

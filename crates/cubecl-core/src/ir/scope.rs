@@ -1,4 +1,6 @@
-use crate::ir::ConstantScalarValue;
+use std::collections::HashMap;
+
+use crate::{ir::ConstantScalarValue, prelude::ExpandElement};
 
 use super::{
     cpa, processing::ScopeProcessing, Elem, IndexOffsetGlobalWithLayout, Item, Matrix, Operation,
@@ -30,6 +32,8 @@ pub struct Scope {
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
     undeclared: u16,
+    #[serde(skip)]
+    var_map: HashMap<String, ExpandElement>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Hash, Eq)]
@@ -61,6 +65,7 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: None,
             undeclared: 0,
+            var_map: HashMap::new(),
         }
     }
 
@@ -284,6 +289,7 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: self.layout_ref,
             undeclared: 0,
+            var_map: self.var_map.clone(),
         }
     }
 
@@ -454,5 +460,13 @@ impl Scope {
         };
         self.local_arrays.push(local_array);
         local_array
+    }
+
+    pub fn register_local(&mut self, name: String, value: ExpandElement) {
+        self.var_map.insert(name, value);
+    }
+
+    pub fn get_local(&self, name: &str) -> Option<ExpandElement> {
+        self.var_map.get(name).cloned()
     }
 }

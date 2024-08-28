@@ -1,7 +1,7 @@
 use std::num::NonZero;
 
 use crate::{
-    ir::{Elem, FloatKind, IntKind},
+    ir::{ConstantScalarValue, Elem, FloatKind, IntKind},
     prelude::{UInt, F32, F64, I32, I64},
 };
 
@@ -30,16 +30,7 @@ impl<T: SquareType> SquareType for &mut T {
 }
 
 pub trait Primitive: SquareType {
-    fn value(&self) -> PrimitiveValue;
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PrimitiveValue {
-    Int(i64),
-    UInt(u64),
-    Float(f64),
-    Bool(bool),
-    Unit,
+    fn value(&self) -> ConstantScalarValue;
 }
 
 impl<T: Primitive> Expr for T {
@@ -114,8 +105,8 @@ impl SquareType for () {
 }
 
 impl Primitive for () {
-    fn value(&self) -> PrimitiveValue {
-        PrimitiveValue::Unit
+    fn value(&self) -> ConstantScalarValue {
+        ConstantScalarValue::UInt(0)
     }
 }
 
@@ -144,13 +135,13 @@ macro_rules! vectorized_primitive {
 }
 
 macro_rules! int_primitive {
-    ($primitive:ident, $var_type:expr) => {
-        primitive!($primitive, $var_type);
+    ($primitive:ident, $var_type:expr, $kind:expr) => {
+        primitive!($primitive, $var_type($kind));
 
         impl Integer for $primitive {}
         impl Primitive for $primitive {
-            fn value(&self) -> PrimitiveValue {
-                PrimitiveValue::Int(*self as i64)
+            fn value(&self) -> ConstantScalarValue {
+                ConstantScalarValue::Int(*self as i64, $kind)
             }
         }
     };
@@ -162,33 +153,33 @@ macro_rules! uint_primitive {
 
         impl Integer for $primitive {}
         impl Primitive for $primitive {
-            fn value(&self) -> PrimitiveValue {
-                PrimitiveValue::UInt(*self as u64)
+            fn value(&self) -> ConstantScalarValue {
+                ConstantScalarValue::UInt(*self as u64)
             }
         }
     };
 }
 
 macro_rules! float_primitive {
-    ($primitive:ident, $var_type:expr) => {
-        primitive!($primitive, $var_type);
+    ($primitive:ident, $var_type:expr, $kind:expr) => {
+        primitive!($primitive, $var_type($kind));
 
         impl Primitive for $primitive {
-            fn value(&self) -> PrimitiveValue {
-                PrimitiveValue::Float(*self as f64)
+            fn value(&self) -> ConstantScalarValue {
+                ConstantScalarValue::Float(*self as f64, $kind)
             }
         }
     };
 }
 
 macro_rules! vectorized_int_primitive {
-    ($primitive:ident, $var_type:expr) => {
-        vectorized_primitive!($primitive, $var_type);
+    ($primitive:ident, $var_type:expr, $kind:expr) => {
+        vectorized_primitive!($primitive, $var_type($kind));
 
         impl Integer for $primitive {}
         impl Primitive for $primitive {
-            fn value(&self) -> PrimitiveValue {
-                PrimitiveValue::Int(self.val as i64)
+            fn value(&self) -> ConstantScalarValue {
+                ConstantScalarValue::Int(self.val as i64, $kind)
             }
         }
     };
@@ -200,41 +191,41 @@ macro_rules! vectorized_uint_primitive {
 
         impl Integer for $primitive {}
         impl Primitive for $primitive {
-            fn value(&self) -> PrimitiveValue {
-                PrimitiveValue::UInt(self.val as u64)
+            fn value(&self) -> ConstantScalarValue {
+                ConstantScalarValue::UInt(self.val as u64)
             }
         }
     };
 }
 
 macro_rules! vectorized_float_primitive {
-    ($primitive:ident, $var_type:expr) => {
-        vectorized_primitive!($primitive, $var_type);
+    ($primitive:ident, $var_type:expr, $kind:expr) => {
+        vectorized_primitive!($primitive, $var_type($kind));
 
         impl Primitive for $primitive {
-            fn value(&self) -> PrimitiveValue {
-                PrimitiveValue::Float(self.val as f64)
+            fn value(&self) -> ConstantScalarValue {
+                ConstantScalarValue::Float(self.val as f64, $kind)
             }
         }
     };
 }
 
-int_primitive!(i32, Elem::Int(IntKind::I32));
-int_primitive!(i64, Elem::Int(IntKind::I64));
+int_primitive!(i32, Elem::Int, IntKind::I32);
+int_primitive!(i64, Elem::Int, IntKind::I64);
 uint_primitive!(u32, Elem::UInt);
-float_primitive!(f32, Elem::Float(FloatKind::F32));
-float_primitive!(f64, Elem::Float(FloatKind::F64));
+float_primitive!(f32, Elem::Float, FloatKind::F32);
+float_primitive!(f64, Elem::Float, FloatKind::F64);
 
 vectorized_uint_primitive!(UInt, Elem::UInt);
-vectorized_int_primitive!(I32, Elem::Int(IntKind::I32));
-vectorized_int_primitive!(I64, Elem::Int(IntKind::I64));
-vectorized_float_primitive!(F32, Elem::Float(FloatKind::F32));
-vectorized_float_primitive!(F64, Elem::Float(FloatKind::F64));
+vectorized_int_primitive!(I32, Elem::Int, IntKind::I32);
+vectorized_int_primitive!(I64, Elem::Int, IntKind::I64);
+vectorized_float_primitive!(F32, Elem::Float, FloatKind::F32);
+vectorized_float_primitive!(F64, Elem::Float, FloatKind::F64);
 
 primitive!(bool, Elem::Bool);
 
 impl Primitive for bool {
-    fn value(&self) -> PrimitiveValue {
-        PrimitiveValue::Bool(*self)
+    fn value(&self) -> ConstantScalarValue {
+        ConstantScalarValue::Bool(*self)
     }
 }

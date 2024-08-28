@@ -96,6 +96,7 @@ impl Operator {
             Operator::AtomicAnd(op) => Operator::AtomicAnd(op.vectorize(vectorization)),
             Operator::AtomicOr(op) => Operator::AtomicOr(op.vectorize(vectorization)),
             Operator::AtomicXor(op) => Operator::AtomicXor(op.vectorize(vectorization)),
+            Operator::Neg(op) => Operator::Neg(op.vectorize(vectorization)),
         }
     }
 }

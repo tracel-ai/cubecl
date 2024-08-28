@@ -215,6 +215,9 @@ impl ScopeProcessing {
                 Operator::AtomicXor(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
+                Operator::Neg(_) => {
+                    // Only supported with new macro, which already checks types with compiler
+                }
             },
             Operation::Metadata(op) => match op {
                 Metadata::Stride { dim, .. } => {

@@ -107,7 +107,7 @@ pub trait ArgSettings<R: Runtime>: Send + Sync {
 }
 
 /// Reference to a JIT variable
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExpandElement {
     /// Variable kept in the variable pool.
     Managed(Rc<Variable>),

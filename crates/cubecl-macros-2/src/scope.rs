@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote_spanned};
 use syn::{parse_quote, Ident, Type};
 
-use crate::generate::expression::generate_var;
+use crate::{generate::expression::generate_var, ir_type, parse::kernel::KernelParam};
 
 pub const KEYWORDS: [&str; 21] = [
     "ABSOLUTE_POS",
@@ -36,15 +36,18 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(return_type: Type) -> Self {
-        Self {
-            return_type,
-            scopes: vec![Scope::default()],
-            scope_history: Default::default(),
+    pub fn new(return_type: Type, launch: bool) -> Self {
+        if launch {
+            Self::new_launch(return_type)
+        } else {
+            Self {
+                return_type,
+                scopes: vec![Scope::default()],
+                scope_history: Default::default(),
+            }
         }
     }
 
-    #[allow(unused)]
     pub fn new_launch(return_type: Type) -> Self {
         let mut root_scope = Scope::default();
         root_scope.variables.extend(KEYWORDS.iter().map(|it| {
@@ -111,15 +114,12 @@ impl Context {
             .cloned()
     }
 
-    pub fn extend(&mut self, vars: impl IntoIterator<Item = (Ident, Option<Type>, bool)>) {
+    pub fn extend(&mut self, vars: impl IntoIterator<Item = KernelParam>) {
         self.scopes
             .last_mut()
             .expect("Scopes must at least have root scope")
             .variables
-            .extend(
-                vars.into_iter()
-                    .map(|(name, ty, is_const)| ManagedVar { name, ty, is_const }),
-            )
+            .extend(vars.into_iter().map(Into::into))
     }
 }
 
@@ -135,15 +135,27 @@ pub struct ManagedVar {
     pub is_const: bool,
 }
 
+impl From<KernelParam> for ManagedVar {
+    fn from(value: KernelParam) -> Self {
+        ManagedVar {
+            name: value.name,
+            ty: Some(value.ty),
+            is_const: value.is_const,
+        }
+    }
+}
+
 impl Scope {
-    pub fn generate_vars(&self) -> Vec<TokenStream> {
+    pub fn generate_vars_as_const(&self) -> Vec<TokenStream> {
         self.variables
             .iter()
             .map(|ManagedVar { name, ty, .. }| {
                 let span = name.span();
                 let var = generate_var(name, ty, span, None);
+                let var_ty = ir_type("Variable");
+                let ty = ty.as_ref().unwrap();
                 quote_spanned! {span=>
-                    let #name = #var;
+                    const #name: #var_ty<#ty> = #var;
                 }
             })
             .collect()

@@ -1,12 +1,12 @@
-use crate::ir::Elem;
+use crate::ir::{ConstantScalarValue, Elem};
 use std::{marker::PhantomData, num::NonZero};
 
 use super::{
-    largest_common_vectorization, Operator, PrimitiveValue, SquareType, Statement,
+    compute::GlobalType, largest_common_vectorization, Operator, SquareType, Statement,
     TensorExpression, TypeEq,
 };
 
-type Vectorization = Option<NonZero<u8>>;
+pub type Vectorization = Option<NonZero<u8>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expression {
@@ -28,6 +28,12 @@ pub enum Expression {
         vectorization: Vectorization,
         ty: Elem,
     },
+    Global {
+        index: u16,
+        global_ty: GlobalType,
+        vectorization: Vectorization,
+        ty: Elem,
+    },
     FieldAccess {
         base: Box<Expression>,
         name: String,
@@ -35,7 +41,7 @@ pub enum Expression {
         ty: Elem,
     },
     Literal {
-        value: PrimitiveValue,
+        value: ConstantScalarValue,
         vectorization: Vectorization,
         ty: Elem,
     },
@@ -127,6 +133,7 @@ impl Expression {
             }
             Expression::Tensor(tensor) => tensor.ir_type(),
             Expression::ArrayInit { init, .. } => init.ir_type(),
+            Expression::Global { ty, .. } => *ty,
         }
     }
 
@@ -145,11 +152,21 @@ pub trait Expr {
     fn vectorization(&self) -> Option<NonZero<u8>>;
 }
 
-#[derive(Debug, new, Hash, PartialEq)]
+#[derive(Debug, Hash, PartialEq)]
 pub struct Variable<T: SquareType> {
     pub name: &'static str,
-    pub vectorization: Option<NonZero<u8>>,
+    pub vectorization: Vectorization,
     pub _type: PhantomData<T>,
+}
+
+impl<T: SquareType> Variable<T> {
+    pub const fn new(name: &'static str, vectorization: Vectorization) -> Self {
+        Self {
+            name,
+            vectorization,
+            _type: PhantomData,
+        }
+    }
 }
 
 impl<T: SquareType> Copy for Variable<T> {}
@@ -170,6 +187,44 @@ impl<T: SquareType> Expr for Variable<T> {
     fn expression_untyped(&self) -> Expression {
         Expression::Variable {
             name: self.name.to_string(),
+            ty: <T as SquareType>::ir_type(),
+            vectorization: self.vectorization(),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.vectorization
+    }
+}
+
+#[derive(Debug, new, Hash, PartialEq)]
+pub struct GlobalVariable<T: SquareType> {
+    pub index: u16,
+    pub ty: GlobalType,
+    pub vectorization: Vectorization,
+    pub _type: PhantomData<T>,
+}
+
+impl<T: SquareType> Copy for GlobalVariable<T> {}
+#[allow(clippy::non_canonical_clone_impl)]
+impl<T: SquareType> Clone for GlobalVariable<T> {
+    fn clone(&self) -> Self {
+        Self {
+            index: self.index,
+            ty: self.ty,
+            vectorization: self.vectorization,
+            _type: PhantomData,
+        }
+    }
+}
+
+impl<T: SquareType> Expr for GlobalVariable<T> {
+    type Output = T;
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::Global {
+            index: self.index,
+            global_ty: self.ty,
             ty: <T as SquareType>::ir_type(),
             vectorization: self.vectorization(),
         }

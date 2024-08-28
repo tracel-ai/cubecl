@@ -60,6 +60,7 @@ pub enum Operator {
     And(BinaryOperator),
     Or(BinaryOperator),
     Not(UnaryOperator),
+    Neg(UnaryOperator),
     Max(BinaryOperator),
     Min(BinaryOperator),
     BitwiseAnd(BinaryOperator),

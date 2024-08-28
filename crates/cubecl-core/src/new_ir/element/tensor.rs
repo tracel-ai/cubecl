@@ -1,9 +1,18 @@
 use cubecl_macros_2::{expand_impl, Expand};
 
-use crate::new_ir::{
-    Expr, IndexExpr, Integer, Length, Rank, Shape, SliceExpr, SliceRangeExpr, Stride, Strided,
+use crate::{
+    frontend::UInt,
+    ir::Item,
+    new_ir::{GlobalVariable, SquareType},
+    unexpanded, Runtime,
 };
-use crate::{frontend::UInt, new_ir::SquareType, unexpanded};
+use crate::{
+    new_ir::{
+        compute::KernelBuilder, Expr, IndexExpr, Integer, LaunchArg, LaunchArgExpand, Length, Rank,
+        Shape, SliceExpr, SliceRangeExpr, Stride, Strided,
+    },
+    prelude::TensorArg,
+};
 use std::{
     marker::PhantomData,
     ops::{
@@ -38,11 +47,27 @@ pub struct Tensor<T: SquareType, Dimensionality = Dyn> {
     _dim: PhantomData<Dimensionality>,
 }
 
+unsafe impl<T: SquareType, Dims> Send for Tensor<T, Dims> {}
+unsafe impl<T: SquareType, Dims> Sync for Tensor<T, Dims> {}
+
 impl<T: SquareType, Dims> Strided for Tensor<T, Dims> {
     type Dims = Dims;
 }
 impl<T: SquareType, Dims> Container for Tensor<T, Dims> {
     type Item = T;
+}
+
+impl<T: SquareType + 'static, Dims: 'static> LaunchArgExpand for Tensor<T, Dims> {
+    fn expand(builder: &mut KernelBuilder, vectorization: u8) -> GlobalVariable<Self> {
+        builder.input_array(Item::vectorized(T::ir_type(), vectorization))
+    }
+    fn expand_output(builder: &mut KernelBuilder, vectorization: u8) -> GlobalVariable<Self> {
+        builder.output_array(Item::vectorized(T::ir_type(), vectorization))
+    }
+}
+
+impl<T: SquareType + 'static, Dims: 'static> LaunchArg for Tensor<T, Dims> {
+    type RuntimeArg<'a, R: Runtime> = TensorArg<'a, R>;
 }
 
 #[expand_impl]

@@ -248,9 +248,37 @@ impl Expression {
                     span,
                 }
             }
-            Expr::Let(_) => todo!("let"),
-            Expr::Macro(_) => todo!("macro"),
-            Expr::Match(_) => todo!("match"),
+            Expr::Let(expr) => {
+                let span = expr.span();
+                let elem = Expression::from_expr(*expr.expr.clone(), context)?;
+                if elem.is_const() {
+                    Expression::Verbatim {
+                        tokens: quote![#expr],
+                    }
+                } else {
+                    Err(syn::Error::new(
+                        span,
+                        "let bindings aren't yet supported at runtime",
+                    ))?
+                }
+            }
+            Expr::Match(mat) => {
+                let span = mat.span();
+                let elem = Expression::from_expr(*mat.expr.clone(), context)?;
+                if elem.is_const() {
+                    Expression::Verbatim {
+                        tokens: quote![#mat],
+                    }
+                } else {
+                    Err(syn::Error::new(
+                        span,
+                        "match expressions aren't yet supported at runtime",
+                    ))?
+                }
+            }
+            Expr::Macro(mac) => Expression::Verbatim {
+                tokens: quote![#mac],
+            },
             Expr::Struct(strct) => {
                 if !strct.fields.iter().all(|field| {
                     Expression::from_expr(field.expr.clone(), context)

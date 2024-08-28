@@ -1,15 +1,14 @@
 use darling::FromDeriveInput;
 use error::error_into_token_stream;
 use parse::{
-    expand::Expand, expand_impl::ExpandImplVisitor, helpers::RemoveHelpers, kernel::Kernel,
+    expand::Expand,
+    expand_impl::ExpandImplVisitor,
+    helpers::RemoveHelpers,
+    kernel::{Kernel, KernelArgs},
 };
 use proc_macro::TokenStream;
-use proc_macro2::Span;
-use quote::{format_ident, quote};
-use std::cell::LazyCell;
-use syn::{
-    parse_macro_input, visit_mut::VisitMut, DeriveInput, Ident, ItemFn, ItemImpl, Path, Token,
-};
+use quote::quote;
+use syn::{parse_macro_input, visit_mut::VisitMut, DeriveInput, ItemFn, ItemImpl};
 
 mod error;
 mod expression;
@@ -18,45 +17,75 @@ mod parse;
 mod scope;
 mod statement;
 
-// #[derive(Default, FromMeta)]
-// #[darling(default)]
-// pub(crate) struct KernelArgs {
-//     pub launch: bool,
-//     pub launch_unchecked: bool,
-// }
+mod paths {
+    use proc_macro2::Span;
+    use quote::format_ident;
+    use std::cell::LazyCell;
+    use syn::{Ident, Path, Token};
 
-// impl KernelArgs {
-//     fn from_tokens(tokens: TokenStream) -> syn::Result<Self> {
-//         let meta = NestedMeta::parse_meta_list(tokens.into())?;
-//         KernelArgs::from_list(&meta).map_err(syn::Error::from)
-//     }
-// }
+    #[allow(clippy::declare_interior_mutable_const)]
+    const CORE_PATH: LazyCell<Path> = LazyCell::new(|| {
+        let span = Span::call_site();
+        let mut path = Path::from(format_ident!("cubecl_core"));
+        path.leading_colon = Some(Token![::](span));
+        path
+    });
+    #[allow(clippy::declare_interior_mutable_const)]
+    const IR_PATH: LazyCell<Path> = LazyCell::new(|| {
+        let mut path = core_path();
+        path.segments.push(format_ident!("new_ir").into());
+        path
+    });
+    #[allow(clippy::declare_interior_mutable_const)]
+    const PRELUDE_PATH: LazyCell<Path> = LazyCell::new(|| {
+        let mut path = core_path();
+        path.segments.push(format_ident!("prelude").into());
+        path
+    });
 
-#[allow(clippy::declare_interior_mutable_const)]
-const IR_PATH: LazyCell<Path> = LazyCell::new(|| {
-    let span = Span::call_site();
-    let mut path = Path::from(format_ident!("cubecl_core"));
-    path.segments.push(format_ident!("new_ir").into());
-    path.leading_colon = Some(Token![::](span));
-    path
-});
+    pub fn ir_path() -> Path {
+        #[allow(clippy::borrow_interior_mutable_const)]
+        IR_PATH.clone()
+    }
 
-pub(crate) fn ir_path() -> Path {
-    #[allow(clippy::borrow_interior_mutable_const)]
-    IR_PATH.clone()
+    pub fn prelude_path() -> Path {
+        #[allow(clippy::borrow_interior_mutable_const)]
+        PRELUDE_PATH.clone()
+    }
+
+    pub fn core_path() -> Path {
+        #[allow(clippy::borrow_interior_mutable_const)]
+        CORE_PATH.clone()
+    }
+
+    pub fn prefix_ir(ident: Ident) -> Path {
+        let mut path = ir_path();
+        path.segments.push(ident.into());
+        path
+    }
+
+    pub fn core_type(ty: &str) -> Path {
+        let mut path = core_path();
+        let ident = format_ident!("{ty}");
+        path.segments.push(ident.into());
+        path
+    }
+
+    pub fn ir_type(ty: &str) -> Path {
+        let mut path = ir_path();
+        let ident = format_ident!("{ty}");
+        path.segments.push(ident.into());
+        path
+    }
+
+    pub fn prelude_type(ty: &str) -> Path {
+        let mut path = prelude_path();
+        let ident = format_ident!("{ty}");
+        path.segments.push(ident.into());
+        path
+    }
 }
-
-pub(crate) fn prefix_ir(ident: Ident) -> Path {
-    let mut path = ir_path();
-    path.segments.push(ident.into());
-    path
-}
-pub(crate) fn ir_type(ty: &str) -> Path {
-    let mut path = ir_path();
-    let ident = format_ident!("{ty}");
-    path.segments.push(ident.into());
-    path
-}
+pub(crate) use paths::{core_type, ir_path, ir_type, prefix_ir, prelude_type};
 
 #[proc_macro_attribute]
 pub fn cube2(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -66,10 +95,10 @@ pub fn cube2(args: TokenStream, input: TokenStream) -> TokenStream {
     }
 }
 
-fn cube2_impl(_args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
-    //let _args = KernelArgs::from_tokens(args);
+fn cube2_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let args = KernelArgs::from_tokens(args.into())?;
     let mut function: ItemFn = syn::parse(input)?;
-    let kernel = Kernel::from_item_fn(function.clone())?;
+    let kernel = Kernel::from_item_fn(function.clone(), args)?;
     RemoveHelpers.visit_item_fn_mut(&mut function);
 
     Ok(TokenStream::from(quote! {
