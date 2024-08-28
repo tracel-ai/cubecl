@@ -34,7 +34,7 @@ fn compute_loop_test<F: Float, FC: Float>(
     }
 
     let shared_memories = SharedMemories { lhs, rhs };
-    let mut accumulators = make_accumulators::<F>();
+    let mut accumulators = make_accumulators::<F>(config);
 
     compute_loop(shared_memories, &mut accumulators, config);
 
@@ -83,7 +83,7 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
-        lane_dim: UInt::new((m*n/512) as u32),
+        num_accumulators: UInt::new(2),
     };
 
     unsafe {
@@ -163,7 +163,7 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
-        lane_dim: UInt::new((m*n/512) as u32),
+        num_accumulators: UInt::new(2),
     };
 
     unsafe {
@@ -272,7 +272,7 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
-        lane_dim: UInt::new((m*n/512) as u32),
+        num_accumulators: UInt::new(2),
     };
 
     unsafe {

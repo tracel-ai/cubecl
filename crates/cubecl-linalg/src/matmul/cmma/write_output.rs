@@ -86,14 +86,10 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     dims: Dimensions,
     config: Comptime<CmmaConfig>,
 ) {
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
-    let block_size_n = Comptime::map(config, |c| c.block_size_n);
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);
-    let lane_dim = Comptime::map(config, |c| c.lane_dim);
-    let n_tiles = (block_size_m * block_size_n) / (tile_size * tile_size);
-    let num_tiles_in_n = n_tiles / lane_dim;
-    let num_tiles_in_n_r = Comptime::runtime(num_tiles_in_n);
+    let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
+    let num_accumulators_r = Comptime::runtime(num_accumulators);
 
     let out_vec = Comptime::vectorization(out);
     let out_vec_r = Comptime::runtime(out_vec);
@@ -104,12 +100,12 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let coop_id = coop_id(config);
     let lane_id = lane_id(config);
 
-    let tile_row = coop_id / num_tiles_in_n_r;
-    let tile_col = (coop_id % num_tiles_in_n_r) * num_tiles_in_n_r;
+    let tile_row = coop_id / num_accumulators_r;
+    let tile_col = (coop_id % num_accumulators_r) * num_accumulators_r;
 
     let num_unit_writes = tile_size * tile_size / (out_vec * coop_dim);
 
-    let read_offset = num_tiles_in_n_r * coop_id * sm_stride + lane_id * out_vec_r;
+    let read_offset = num_accumulators_r * coop_id * sm_stride + lane_id * out_vec_r;
     let sm_step = Comptime::runtime(coop_dim * out_vec);
 
     let lane_row_step = Comptime::runtime(coop_dim * out_vec / tile_size);
@@ -123,7 +119,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
         let read_pos = read_offset + i * sm_step;
         let write_row = row_offset + unit_write_row + i * lane_row_step;
 
-        for n in range(0u32, num_tiles_in_n_r, Comptime::new(true)) {
+        for n in range(0u32, num_accumulators_r, Comptime::new(true)) {
             W::write_output(
                 out,
                 accumulator_sm,

@@ -31,8 +31,8 @@ pub struct CmmaConfig {
     pub unroll: bool,
     /// The number of units that can collaborate
     pub coop_dim: UInt,
-    /// The number of collaboration groups
-    pub lane_dim: UInt,
+    /// Number of cmma per subcube performed in one pass
+    pub num_accumulators: UInt,
 }
 
 pub struct CmmaLaunchConfig {
@@ -65,6 +65,11 @@ impl CmmaConfig {
         cube_dim: CubeDim,
         launch_config: CmmaLaunchConfig,
     ) -> Self {
+        let n_tiles = (launch_config.block_size_m * launch_config.block_size_n) as u32
+            / (TILE_SIZE * TILE_SIZE);
+        let lane_dim = cube_dim.x * cube_dim.y / COOP_DIM;
+        let num_accumulators = n_tiles / lane_dim;
+
         CmmaConfig {
             block_size_m: launch_config.block_size_m.into(),
             block_size_k: launch_config.block_size_k.into(),
@@ -75,7 +80,7 @@ impl CmmaConfig {
             check_k_bounds: k % launch_config.block_size_k != 0,
             check_n_bounds: n % launch_config.block_size_n != 0,
             coop_dim: COOP_DIM.into(),
-            lane_dim: ((cube_dim.x * cube_dim.y) / COOP_DIM).into(),
+            num_accumulators: UInt::new(num_accumulators),
         }
     }
 }

@@ -15,7 +15,7 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     let dims = get_dims::<F>(lhs, rhs);
     let offsets = calculate_offsets::<F>(lhs, rhs, out, config);
     let shared_memories = make_shared_memories::<FC>(config);
-    let accumulate = make_accumulators::<F>();
+    let accumulate = make_accumulators::<F>(config);
     block_loop::<F, FC>(
         lhs,
         rhs,
@@ -120,10 +120,13 @@ fn make_shared_memories<FC: Float>(config: Comptime<CmmaConfig>) -> SharedMemori
 }
 
 #[cube]
-pub(crate) fn make_accumulators<F: Float>() -> Sequence<cmma::Matrix<F>> {
+pub(crate) fn make_accumulators<F: Float>(
+    config: Comptime<CmmaConfig>,
+) -> Sequence<cmma::Matrix<F>> {
+    let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
     let mut accumulators = Sequence::<cmma::Matrix<F>>::new();
 
-    for _ in range(0u32, 2u32, Comptime::new(true)) {
+    for _ in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
         let acc = cmma::Matrix::<F>::new(
             cmma::MatrixIdent::Accumulator,
             16,
