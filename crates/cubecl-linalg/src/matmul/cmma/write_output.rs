@@ -28,28 +28,31 @@ fn fragment_to_shared_memory<F: Float>(
     accumulators: Sequence<cmma::Matrix<F>>,
     config: Comptime<CmmaConfig>,
 ) -> SharedMemory<F> {
-    let mut acc_sm = SharedMemory::<F>::new(4096);
+    let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
+    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let lane_dim = Comptime::map(config, |c| c.lane_dim);
+
+    let sm_stride = tile_size * tile_size;
+    let sm_size = num_accumulators * lane_dim * sm_stride;
+
+    let mut acc_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
 
     let coop_id = coop_id(config);
-    let slice_offset_0 = coop_id * UInt::new(512);
-    let slice_offset_1 = slice_offset_0 + UInt::new(256);
-    let slice_offset_2 = slice_offset_1 + UInt::new(256);
+    let slice_offset = coop_id * Comptime::runtime(num_accumulators * sm_stride);
 
-    let slice = acc_sm.slice_mut(slice_offset_0, slice_offset_1);
-    cmma::store::<F>(
-        slice,
-        accumulators.index(0),
-        UInt::new(16),
-        cmma::MatrixLayout::RowMajor,
-    );
+    for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
+        let slice_start = slice_offset + n * Comptime::runtime(sm_stride);
+        let slice_end = slice_start + Comptime::runtime(sm_stride);
 
-    let slice = acc_sm.slice_mut(slice_offset_1, slice_offset_2);
-    cmma::store::<F>(
-        slice,
-        accumulators.index(1),
-        UInt::new(16),
-        cmma::MatrixLayout::RowMajor,
-    );
+        let slice = acc_sm.slice_mut(slice_start, slice_end);
+
+        cmma::store::<F>(
+            slice,
+            accumulators.index(n),
+            UInt::new(16),
+            cmma::MatrixLayout::RowMajor,
+        );
+    }
 
     acc_sm
 }

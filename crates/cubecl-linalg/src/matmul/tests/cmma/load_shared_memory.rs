@@ -92,6 +92,7 @@ pub fn load_shared_memory_lhs_unit_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -153,6 +154,7 @@ pub fn load_shared_memory_rhs_unit_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -214,6 +216,7 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -280,6 +283,7 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -344,6 +348,7 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -408,6 +413,7 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -471,6 +477,7 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -537,6 +544,7 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -602,6 +610,7 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -670,6 +679,7 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -738,6 +748,7 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -803,6 +814,7 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
@@ -868,6 +880,7 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
+        lane_dim: UInt::new((64 * 64 / 256) as u32),
         num_accumulators: UInt::new(2),
     };
 
