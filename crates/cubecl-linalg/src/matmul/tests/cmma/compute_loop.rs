@@ -39,21 +39,19 @@ fn compute_loop_test<F: Float, FC: Float>(
     compute_loop(shared_memories, &mut accumulators, config);
 
     let offset = UNIT_POS_Y * UInt::new(512);
-    let slice_0 = accumulate_array.slice_mut(offset, offset + UInt::new(256));
-    cmma::store::<F>(
-        slice_0,
-        &accumulators.index(0),
-        UInt::new(16),
-        cmma::MatrixLayout::RowMajor,
-    );
 
-    let slice_1 = accumulate_array.slice_mut(offset + UInt::new(256), offset + UInt::new(512));
-    cmma::store::<F>(
-        slice_1,
-        &accumulators.index(1),
-        UInt::new(16),
-        cmma::MatrixLayout::RowMajor,
-    );
+    let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
+    let slice_offset = UInt::new(256);
+
+    for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)){
+        let slice = accumulate_array.slice_mut(offset + n * slice_offset, offset + (n+1) * slice_offset);
+        cmma::store::<F>(
+            slice,
+            &accumulators.index(n),
+            UInt::new(16),
+            cmma::MatrixLayout::RowMajor,
+        );
+    }
 }
 
 /// Exported test
@@ -83,7 +81,7 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
         check_n_bounds: false,
         unroll: false,
         coop_dim: UInt::new(32),
-        num_accumulators: UInt::new(2),
+        num_accumulators: UInt::new(1),
     };
 
     unsafe {

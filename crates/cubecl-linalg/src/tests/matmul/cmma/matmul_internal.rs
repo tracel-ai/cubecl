@@ -3,7 +3,6 @@
 macro_rules! testgen_cmma_internal {
     () => {
         #[test]
-        #[ignore] // does not work with n_tiles = 2 hardcoded
         pub fn cmma_compute_loop_k_test() {
             tests::cmma::compute_loop::compute_loop_k_test::<TestRuntime>(&Default::default())
         }
