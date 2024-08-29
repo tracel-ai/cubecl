@@ -28,18 +28,6 @@ pub enum Subgroup {
         input: Variable,
         out: Variable,
     },
-    And {
-        input: Variable,
-        out: Variable,
-    },
-    Or {
-        input: Variable,
-        out: Variable,
-    },
-    Xor {
-        input: Variable,
-        out: Variable,
-    },
     Min {
         input: Variable,
         out: Variable,
@@ -68,15 +56,6 @@ impl Display for Subgroup {
             }
             Subgroup::Prod { input, out } => {
                 f.write_fmt(format_args!("{out} = subgroupMul({input});\n"))
-            }
-            Subgroup::And { input, out } => {
-                f.write_fmt(format_args!("{out} = subgroupAnd({input});\n"))
-            }
-            Subgroup::Or { input, out } => {
-                f.write_fmt(format_args!("{out} = subgroupOr({input});\n"))
-            }
-            Subgroup::Xor { input, out } => {
-                f.write_fmt(format_args!("{out} = subgroupXor({input});\n"))
             }
             Subgroup::Min { input, out } => {
                 f.write_fmt(format_args!("{out} = subgroupMin({input});\n"))
