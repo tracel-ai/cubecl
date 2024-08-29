@@ -57,10 +57,22 @@ pub fn kernel_any<F: Float>(output: &mut Tensor<F>) {
 }
 
 #[cube(launch)]
-pub fn kernel_or<F: Float>(output: &mut Tensor<F>) {
+pub fn kernel_elect<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_any(val < 5);
-    output[UNIT_POS] = F::cast_from(val2);
+    let elect = subcube_elect();
+    if elect {
+        output[4] += val;
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_broadcast<F: Float>(output: &mut Tensor<F>) {
+    let val = output[UNIT_POS];
+    let val2 = subcube_broadcast::<F>(val, UInt::new(2));
+
+    if UNIT_POS == 0 {
+        output[0] = val2;
+    }
 }
 
 pub fn test_subcube_sum<TestRuntime: Runtime>(
@@ -156,6 +168,32 @@ pub fn test_subcube_any<TestRuntime: Runtime>(
     );
 }
 
+pub fn test_subcube_elect<TestRuntime: Runtime>(
+    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+) {
+    test_subcube_operation::<TestRuntime, _>(
+        &[2.0, 1.0, -6.0, 3.0],
+        &[2.0, 1.0, 1.0, 5.0],
+        client.clone(),
+        |cube_dim, settings, handle| {
+            kernel_elect::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+        },
+    );
+}
+
+pub fn test_subcube_broadcast<TestRuntime: Runtime>(
+    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+) {
+    test_subcube_operation::<TestRuntime, _>(
+        &[2.0, 1.0, -6.0, 3.0],
+        &[-6.0, 1.0, -6.0, 3.0],
+        client.clone(),
+        |cube_dim, settings, handle| {
+            kernel_broadcast::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+        },
+    );
+}
+
 fn test_subcube_operation<TestRuntime: Runtime, Launch>(
     input: &[f32],
     expected: &[f32],
@@ -226,6 +264,18 @@ macro_rules! testgen_subcube {
         fn test_subcube_any() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::subcube::test_subcube_any::<TestRuntime>(client);
+        }
+
+        #[test]
+        fn test_subcube_elect() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::subcube::test_subcube_any::<TestRuntime>(client);
+        }
+
+        #[test]
+        fn test_subcube_broadcast() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::subcube::test_subcube_broadcast::<TestRuntime>(client);
         }
     };
 }

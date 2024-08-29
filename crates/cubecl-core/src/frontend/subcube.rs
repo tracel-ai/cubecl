@@ -1,4 +1,4 @@
-use super::{CubeContext, CubePrimitive, ExpandElement};
+use super::{CubeContext, CubePrimitive, ExpandElement, UInt};
 use crate::prelude::{Bool, ExpandElementTyped};
 use crate::{
     ir::{Elem, InitOperator, Item, Operation, Subcube, UnaryOperator},
@@ -6,18 +6,55 @@ use crate::{
 };
 
 /// Returns true if the cube unit has the lowest subcube_unit_id among active unit in the subcube
-pub fn subcube_elect() -> bool {
+pub fn subcube_elect() -> Bool {
     unexpanded!()
 }
 
-pub fn subcube_elect_expand<E: CubePrimitive>(context: &mut CubeContext) -> ExpandElement {
-    let output = context.create_local(Item::new(Elem::Bool));
+/// Module containing the expand function for [subcube_elect()].
+pub mod subcube_elect {
 
-    let out = *output;
+    use super::*;
 
-    context.register(Operation::Subcube(Subcube::Elect(InitOperator { out })));
+    /// Expand method of [subcube_elect()].
+    pub fn __expand(context: &mut CubeContext) -> ExpandElementTyped<Bool> {
+        let output = context.create_local(Item::new(Elem::Bool));
+        let out = *output;
 
-    output
+        context.register(Operation::Subcube(Subcube::Elect(InitOperator { out })));
+
+        output.into()
+    }
+}
+
+/// Broadcasts the value from the specified subcube unit at the given index
+/// to all active units within that subcube.
+#[allow(unused_variables)]
+pub fn subcube_broadcast<E: CubePrimitive>(value: E, index: UInt) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [subcube_broadcast()].
+pub mod subcube_broadcast {
+
+    use super::*;
+
+    /// Expand method of [subcube_broadcast()].
+    pub fn __expand<E: CubePrimitive>(
+        context: &mut CubeContext,
+        value: ExpandElementTyped<E>,
+        id: ExpandElementTyped<UInt>,
+    ) -> ExpandElementTyped<E> {
+        let output = context.create_local(value.expand.item());
+        let out = *output;
+        let lhs = *value.expand;
+        let rhs = *id.expand;
+
+        context.register(Operation::Subcube(Subcube::Broadcast(
+            crate::ir::BinaryOperator { lhs, rhs, out },
+        )));
+
+        output.into()
+    }
 }
 
 /// Perform a reduce sum operation across all units in a subcube.
