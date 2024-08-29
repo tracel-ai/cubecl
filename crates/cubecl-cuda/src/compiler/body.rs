@@ -9,19 +9,28 @@ pub struct Body {
     pub local_arrays: Vec<super::LocalArray>,
     pub stride: bool,
     pub shape: bool,
-    pub idx_global: bool,
     pub rank: bool,
-    pub thread_idx_global: bool,
-    pub global_invocation_id: (bool, bool, bool),
     pub wrap_size_checked: bool,
+    pub settings: VariableSettings,
+}
+
+/// The settings to generate the right variables.
+#[derive(Debug, Clone, Default)]
+pub struct VariableSettings {
+    pub idx_global: bool,
+    pub thread_idx_global: bool,
+    pub absolute_idx: (bool, bool, bool),
+    pub block_idx_global: bool,
+    pub block_dim_global: bool,
+    pub grid_dim_global: bool,
 }
 
 impl Display for Body {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.idx_global
-            || self.global_invocation_id.0
-            || self.global_invocation_id.1
-            || self.global_invocation_id.2
+        if self.settings.idx_global
+            || self.settings.absolute_idx.0
+            || self.settings.absolute_idx.1
+            || self.settings.absolute_idx.2
         {
             f.write_str(
                 "
@@ -34,7 +43,7 @@ impl Display for Body {
             )?;
         }
 
-        if self.idx_global {
+        if self.settings.idx_global {
             f.write_str(
                 "
     uint idxGlobal = (absoluteIdx.z * gridDim.x * blockDim.x * gridDim.y * blockDim.y) + (absoluteIdx.y * gridDim.x * blockDim.x) + absoluteIdx.x;
@@ -42,13 +51,37 @@ impl Display for Body {
             )?;
         }
 
-        if self.thread_idx_global {
+        if self.settings.thread_idx_global {
             f.write_str(
                 "
     int threadIdxGlobal = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * (blockDim.x * blockDim.y);
             ",
             )?;
         }
+        if self.settings.block_idx_global {
+            f.write_str(
+                "
+    int blockIdxGlobal = blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * (gridDim.x * gridDim.y);
+            ",
+            )?;
+        }
+
+        if self.settings.block_dim_global {
+            f.write_str(
+                "
+    int blockDimGlobal = blockDim.x * blockDim.y * blockDim.z;;
+            ",
+            )?;
+        }
+
+        if self.settings.grid_dim_global {
+            f.write_str(
+                "
+    int gridDimGlobal = gridDim.x * gridDim.y * gridDim.z;;
+            ",
+            )?;
+        }
+
         if self.wrap_size_checked {
             f.write_str(
                 "
