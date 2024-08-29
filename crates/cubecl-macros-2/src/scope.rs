@@ -1,10 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote_spanned};
-use syn::{parse_quote, Ident, PathSegment, Type};
+use syn::{parse_quote, Ident, Type};
 
-use crate::{
-    generate::expression::generate_var, ir_type, parse::kernel::KernelParam, paths::ir_path,
-};
+use crate::{ir_type, parse::kernel::KernelParam, paths::ir_path};
 
 pub const KEYWORDS: [&str; 21] = [
     "ABSOLUTE_POS",

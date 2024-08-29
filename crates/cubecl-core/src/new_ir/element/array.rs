@@ -1,7 +1,9 @@
 use cubecl_macros_2::{expand_impl, Expand};
 use std::{
     marker::PhantomData,
-    ops::{Index, IndexMut},
+    ops::{
+        Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
+    },
 };
 
 use crate::{
@@ -75,6 +77,43 @@ impl<T: SquareType> Array<T> {
 
 impl<T: SquareType, Idx: Integer> IndexMut<Idx> for Array<T> {
     fn index_mut(&mut self, _index: Idx) -> &mut Self::Output {
+        unexpanded!()
+    }
+}
+
+macro_rules! slice_impl {
+    ($range:ident) => {
+        impl<T: SquareType, Idx: Integer> Index<$range<Idx>> for Array<T> {
+            type Output = Slice<Self, Idx>;
+
+            fn index(&self, _index: $range<Idx>) -> &Self::Output {
+                unexpanded!()
+            }
+        }
+
+        impl<T: SquareType, Idx: Integer> IndexMut<$range<Idx>> for Array<T> {
+            fn index_mut(&mut self, _index: $range<Idx>) -> &mut Self::Output {
+                unexpanded!()
+            }
+        }
+    };
+}
+
+slice_impl!(Range);
+slice_impl!(RangeFrom);
+slice_impl!(RangeInclusive);
+slice_impl!(RangeTo);
+slice_impl!(RangeToInclusive);
+
+impl<T: SquareType> Index<RangeFull> for Array<T> {
+    type Output = Slice<Self, u32>;
+
+    fn index(&self, _index: RangeFull) -> &Self::Output {
+        unexpanded!()
+    }
+}
+impl<T: SquareType> IndexMut<RangeFull> for Array<T> {
+    fn index_mut(&mut self, _index: RangeFull) -> &mut Self::Output {
         unexpanded!()
     }
 }

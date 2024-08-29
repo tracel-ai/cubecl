@@ -79,12 +79,7 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
             super::GlobalType::InputArray => context.input(index, item(ty, vectorization)),
             super::GlobalType::OutputArray => context.output(index, item(ty, vectorization)),
         },
-        Expression::FieldAccess {
-            base,
-            name,
-            vectorization,
-            ty,
-        } => todo!(),
+        Expression::FieldAccess { .. } => todo!("Field access"),
         Expression::Literal { value, .. } => ExpandElement::Plain(Variable::ConstantScalar(value)),
         Expression::Assigment { left, right, .. } => {
             let right = flatten_expr(*right, context).unwrap();
@@ -123,11 +118,7 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
             context.register(Branch::Break);
             None?
         }
-        Expression::Cast {
-            from,
-            vectorization,
-            to,
-        } => {
+        Expression::Cast { .. } => {
             unimplemented!("Cast not yet implemented")
         }
         Expression::Continue => {
@@ -139,21 +130,59 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
             variable,
             block,
         } => {
-            let start = flatten_expr(*range.start, context).unwrap();
-            let end = flatten_expr(*range.end, context).unwrap();
-            let step = range.step.and_then(|expr| flatten_expr(*expr, context));
-            let i = flatten_expr(*variable, context).unwrap();
-            let mut scope = context.child();
-            flatten_block(block, &mut scope);
+            if unroll {
+                let start = range.start.as_lit().unwrap().as_usize();
+                let end = range.end.as_lit().unwrap().as_usize();
+                let step = range.step.map(|it| it.as_lit().unwrap().as_usize());
+                let (var, _, var_ty) = variable.as_variable().unwrap();
 
-            context.register(Branch::RangeLoop(RangeLoop {
-                i: *i,
-                start: *start,
-                end: *end,
-                step: step.map(Into::into),
-                scope: scope.into_scope(),
-            }));
-            None?
+                let mut func = |i: usize| {
+                    let value = ExpandElement::Plain(var_ty.constant_from_u64(i as u64));
+                    let mut scope = context.child();
+                    scope.register_local(var.clone(), value);
+                    flatten_block(block.clone(), &mut scope)
+                };
+
+                match (step, range.inclusive) {
+                    (None, true) => {
+                        for i in start..=end {
+                            func(i);
+                        }
+                    }
+                    (None, false) => {
+                        for i in start..end {
+                            func(i);
+                        }
+                    }
+                    (Some(step), true) => {
+                        for i in (start..=end).step_by(step) {
+                            func(i);
+                        }
+                    }
+                    (Some(step), false) => {
+                        for i in (start..end).step_by(step) {
+                            func(i);
+                        }
+                    }
+                }
+                None?
+            } else {
+                let start = flatten_expr(*range.start, context).unwrap();
+                let end = flatten_expr(*range.end, context).unwrap();
+                let step = range.step.and_then(|expr| flatten_expr(*expr, context));
+                let i = flatten_expr(*variable, context).unwrap();
+                let mut scope = context.child();
+                flatten_block(block, &mut scope);
+
+                context.register(Branch::RangeLoop(RangeLoop {
+                    i: *i,
+                    start: *start,
+                    end: *end,
+                    step: step.map(Into::into),
+                    scope: scope.into_scope(),
+                }));
+                None?
+            }
         }
         Expression::WhileLoop {
             condition,

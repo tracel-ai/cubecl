@@ -2,7 +2,7 @@ use crate::ir::{self, ConstantScalarValue, Elem};
 use std::{marker::PhantomData, num::NonZero, rc::Rc};
 
 use super::{
-    compute::GlobalType, largest_common_vectorization, Operator, Primitive, SquareType, Statement,
+    compute::GlobalType, largest_common_vectorization, Operator, SquareType, Statement,
     TensorExpression, TypeEq,
 };
 
@@ -188,6 +188,17 @@ impl Expression {
     pub fn as_lit(self) -> Option<ConstantScalarValue> {
         match self {
             Expression::Literal { value, .. } => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_variable(self) -> Option<(String, Vectorization, Elem)> {
+        match self {
+            Expression::Variable {
+                name,
+                vectorization,
+                ty,
+            } => Some((name, vectorization, ty)),
             _ => None,
         }
     }

@@ -11,6 +11,7 @@ pub(crate) struct KernelArgs {
     pub launch: Flag,
     pub launch_unchecked: Flag,
     pub debug: Flag,
+    pub create_dummy_kernel: Flag,
 }
 
 impl KernelArgs {

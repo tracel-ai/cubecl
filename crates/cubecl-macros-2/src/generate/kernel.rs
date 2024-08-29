@@ -32,6 +32,7 @@ impl ToTokens for Kernel {
 
         let launch = self.launch();
         let launch_unchecked = self.launch_unchecked();
+        let dummy = self.create_dummy_kernel();
         let kernel = self.kernel_definition();
         let checks = self.check_args();
 
@@ -51,6 +52,7 @@ impl ToTokens for Kernel {
                 #kernel
                 #launch
                 #launch_unchecked
+                #dummy
                 #checks
             }
         };
@@ -89,12 +91,8 @@ impl Kernel {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
-            let kernel_settings = prelude_type("KernelSettings");
             let kernel_launcher = prelude_type("KernelLauncher");
             let builder = ir_type("KernelBuilder");
-            let global_var = ir_type("GlobalVariable");
-            let arg_settings = prelude_type("ArgSettings");
-            let launch_arg_expand = ir_type("LaunchArgExpand");
 
             let kernel_doc = format!("Launch the kernel [{}()] on the given runtime", self.name);
             let generics = self.launch_generics();
@@ -102,74 +100,14 @@ impl Kernel {
             let mut expand_generics = self.generics.clone();
             StripBounds.visit_generics_mut(&mut expand_generics);
             let expand_inputs = self.parameters.iter().map(|it| &it.name);
-            let input_configs = self.runtime_inputs().enumerate().map(|(i, arg)| {
-                let name = &arg.name;
-                quote![__settings = #arg_settings::<__R>::configure_input(&#name, #i, __settings);]
-            });
-            let output_configs = self.runtime_outputs().enumerate().map(|(i, arg)| {
-                let name = &arg.name;
-                quote![__settings = #arg_settings::<__R>::configure_output(&#name, #i, __settings);]
-            });
-
-            let input_expands = self.runtime_inputs().enumerate().map(|(i, arg)| {
-                let name = &arg.name;
-                let ty = arg.ty_owned();
-                quote![let #name = <#ty as #launch_arg_expand>::expand(&mut __builder, __settings.vectorization_output(#i));]
-            });
-            let input_fn_mappings = self.runtime_inputs().enumerate().map(|(i, arg)| {
-                let name = &arg.name;
-                quote! {
-                    #i => Box::new(#name)
-                }
-            });
-
-            let output_declarations = self.runtime_outputs().map(|arg| {
-                let name = &arg.name;
-                let ty = arg.ty_owned();
-                quote![let mut #name: Option<#global_var<#ty>> = None;]
-            });
-
-            let set_out_mappings = self.runtime_outputs().enumerate().map(|(i, arg)| {
-                let name = &arg.name;
-                quote! {
-                    #i => {
-                        #name = Some(*__input.downcast().unwrap());
-                    }
-                }
-            });
-            let map_input = quote! {
-                let mut __map_assign = |__in_pos: usize, __out_pos: usize| {
-                    let __input: Box<dyn ::core::any::Any> = match __in_pos {
-                        #(#input_fn_mappings,)*
-                        _ => unreachable!()
-                    };
-                    match __out_pos {
-                        #(#set_out_mappings,)*
-                        _ => unreachable!()
-                    }
-                };
-            };
-
-            let mappings = quote! {
-                for __mapping in __settings.mappings.iter() {
-                    __map_assign(__mapping.pos_input, __mapping.pos_output);
-                }
-            };
-            let output_expands = self.runtime_outputs().enumerate().map(|(i, arg)| {
-                let name = &arg.name;
-                let ty = arg.ty_owned();
-                quote! {
-                    let #name = #name.unwrap_or_else(|| <#ty as #launch_arg_expand>::expand_output(
-                        &mut __builder, __settings.vectorization_output(#i)
-                    ));
-                }
-            });
 
             let registers = self.runtime_params().map(|arg| {
                 let name = &arg.name;
                 quote![#name.register(&mut launcher);]
             });
 
+            let settings = self.configure_settings();
+            let io_mappings = self.io_mappings();
             let kernel_name = self.kernel_name();
             let hash = self.comptime_hash();
 
@@ -185,18 +123,12 @@ impl Kernel {
                     use ::cubecl_core::frontend::ArgSettings as _;
                     use ::cubecl_core::new_ir::Expr as _;
 
-                    let mut __settings = #kernel_settings::default().cube_dim(__cube_dim);
-                    #(#input_configs)*
-                    #(#output_configs)*
+                    #settings
                     #hash
                     let __settings__ = __settings.clone();
                     let __expand = move || {
                         let mut __builder = #builder::default();
-                        #(#input_expands)*
-                        #(#output_declarations)*
-                        #map_input
-                        #mappings
-                        #(#output_expands)*
+                        #io_mappings
                         let expansion = expand #expand_generics(#(#expand_inputs),*);
                         __builder.apply_expansion(expansion.expression_untyped());
                         __builder.build(__settings.clone())
@@ -209,6 +141,145 @@ impl Kernel {
                     let mut launcher = #kernel_launcher::<__R>::default();
                     #(#registers)*
                     launcher.launch_unchecked(__cube_count, kernel, __client);
+                }
+            }
+        } else {
+            TokenStream::new()
+        }
+    }
+
+    fn configure_settings(&self) -> TokenStream {
+        let kernel_settings = prelude_type("KernelSettings");
+        let arg_settings = prelude_type("ArgSettings");
+
+        let input_configs = self.runtime_inputs().enumerate().map(|(i, arg)| {
+            let name = &arg.name;
+            quote![__settings = #arg_settings::<__R>::configure_input(&#name, #i, __settings);]
+        });
+        let output_configs = self.runtime_outputs().enumerate().map(|(i, arg)| {
+            let name = &arg.name;
+            quote![__settings = #arg_settings::<__R>::configure_output(&#name, #i, __settings);]
+        });
+
+        quote! {
+            let mut __settings = #kernel_settings::default().cube_dim(__cube_dim);
+            #(#input_configs)*
+            #(#output_configs)*
+        }
+    }
+
+    fn io_mappings(&self) -> TokenStream {
+        let launch_arg_expand = ir_type("LaunchArgExpand");
+        let global_var = ir_type("GlobalVariable");
+
+        let input_expands = self.runtime_inputs().enumerate().map(|(i, arg)| {
+            let name = &arg.name;
+            let ty = arg.ty_owned();
+            quote![let #name = <#ty as #launch_arg_expand>::expand(&mut __builder, __settings.vectorization_output(#i));]
+        });
+        let input_fn_mappings = self.runtime_inputs().enumerate().map(|(i, arg)| {
+            let name = &arg.name;
+            quote! {
+                #i => Box::new(#name)
+            }
+        });
+
+        let mappings = quote! {
+            for __mapping in __settings.mappings.iter() {
+                __map_assign(__mapping.pos_input, __mapping.pos_output);
+            }
+        };
+        let output_expands = self.runtime_outputs().enumerate().map(|(i, arg)| {
+            let name = &arg.name;
+            let ty = arg.ty_owned();
+            quote! {
+                let #name = #name.unwrap_or_else(|| <#ty as #launch_arg_expand>::expand_output(
+                    &mut __builder, __settings.vectorization_output(#i)
+                ));
+            }
+        });
+
+        let output_declarations = self.runtime_outputs().map(|arg| {
+            let name = &arg.name;
+            let ty = arg.ty_owned();
+            quote![let mut #name: Option<#global_var<#ty>> = None;]
+        });
+
+        let set_out_mappings = self.runtime_outputs().enumerate().map(|(i, arg)| {
+            let name = &arg.name;
+            quote! {
+                #i => {
+                    #name = Some(*__input.downcast().unwrap());
+                }
+            }
+        });
+        let map_input = quote! {
+            let mut __map_assign = |__in_pos: usize, __out_pos: usize| {
+                let __input: Box<dyn ::core::any::Any> = match __in_pos {
+                    #(#input_fn_mappings,)*
+                    _ => unreachable!()
+                };
+                match __out_pos {
+                    #(#set_out_mappings,)*
+                    _ => unreachable!()
+                }
+            };
+        };
+
+        quote! {
+            #(#input_expands)*
+            #(#output_declarations)*
+            #map_input
+            #mappings
+            #(#output_expands)*
+        }
+    }
+
+    fn create_dummy_kernel(&self) -> TokenStream {
+        if self.args.create_dummy_kernel.is_present() {
+            let cube_count = prelude_type("CubeCount");
+            let cube_dim = prelude_type("CubeDim");
+            let builder = ir_type("KernelBuilder");
+            let kernel = core_type("Kernel");
+
+            let kernel_doc = format!("Launch the kernel [{}()] on the given runtime", self.name);
+            let generics = self.launch_generics();
+            let args = self.launch_args();
+            let mut expand_generics = self.generics.clone();
+            StripBounds.visit_generics_mut(&mut expand_generics);
+            let expand_inputs = self.parameters.iter().map(|it| &it.name);
+
+            let settings = self.configure_settings();
+            let io_mappings = self.io_mappings();
+            let kernel_name = self.kernel_name();
+            let hash = self.comptime_hash();
+
+            quote! {
+                #[allow(clippy::too_many_arguments)]
+                #[doc = #kernel_doc]
+                pub fn create_dummy_kernel #generics(
+                    __cube_count: #cube_count<__R::Server>,
+                    __cube_dim: #cube_dim,
+                    #(#args),*
+                ) -> impl #kernel {
+                    use ::cubecl_core::frontend::ArgSettings as _;
+                    use ::cubecl_core::new_ir::Expr as _;
+
+                    #settings
+                    #hash
+                    let __settings__ = __settings.clone();
+                    let __expand = move || {
+                        let mut __builder = #builder::default();
+                        #io_mappings
+                        let expansion = expand #expand_generics(#(#expand_inputs),*);
+                        __builder.apply_expansion(expansion.expression_untyped());
+                        __builder.build(__settings.clone())
+                    };
+                    #kernel_name {
+                        settings: __settings__,
+                        definition: __expand,
+                        comptime_hash: __comptime_hash
+                    }
                 }
             }
         } else {

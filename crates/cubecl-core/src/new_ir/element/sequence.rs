@@ -2,7 +2,7 @@ use cubecl_macros_2::{expand_impl, Expand};
 
 use crate::{
     ir::Elem,
-    new_ir::{DynamicExpr, Expr, Integer, RcExpr, SquareType, Variable},
+    new_ir::{Expr, Integer, RcExpr, SquareType},
     unexpanded,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -49,6 +49,7 @@ impl<T: SquareType> Sequence<T> {
     }
 
     /// Expand function of [new](Self::new).
+    #[allow(clippy::new_ret_no_self)]
     #[expanded]
     pub fn new() -> SequenceExpanded<T> {
         SequenceExpanded {
