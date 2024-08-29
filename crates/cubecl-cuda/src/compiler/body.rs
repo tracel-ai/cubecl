@@ -69,7 +69,7 @@ impl Display for Body {
         if self.settings.block_dim_global {
             f.write_str(
                 "
-    int blockDimGlobal = blockDim.x * blockDim.y * blockDim.z;;
+    int blockDimGlobal = blockDim.x * blockDim.y * blockDim.z;
             ",
             )?;
         }
@@ -77,7 +77,7 @@ impl Display for Body {
         if self.settings.grid_dim_global {
             f.write_str(
                 "
-    int gridDimGlobal = gridDim.x * gridDim.y * gridDim.z;;
+    int gridDimGlobal = gridDim.x * gridDim.y * gridDim.z;
             ",
             )?;
         }

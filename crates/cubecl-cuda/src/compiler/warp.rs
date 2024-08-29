@@ -31,18 +31,6 @@ pub enum WarpInstruction {
         input: Variable,
         out: Variable,
     },
-    And {
-        input: Variable,
-        out: Variable,
-    },
-    Or {
-        input: Variable,
-        out: Variable,
-    },
-    Xor {
-        input: Variable,
-        out: Variable,
-    },
     Broadcast {
         input: Variable,
         id: Variable,
@@ -53,8 +41,8 @@ pub enum WarpInstruction {
 impl Display for WarpInstruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WarpInstruction::ReduceSum { input, out } => reduce_operator(f, input, out, "+"),
-            WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*"),
+            WarpInstruction::ReduceSum { input, out } => reduce_operator(f, input, out, "+="),
+            WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
             WarpInstruction::ReduceMax { input, out } => f.write_fmt(format_args!(
                 "
 {out} = {input};
@@ -82,11 +70,22 @@ unsigned int leader = __ffs(mask) - 1;
 {out} = threadIdx.x % warpSize == leader;
             "
             )),
-            WarpInstruction::All { input, out } => reduce_operator(f, input, out, "&&"),
-            WarpInstruction::Any { input, out } => reduce_operator(f, input, out, "||"),
-            WarpInstruction::And { input, out } => reduce_operator(f, input, out, "&"),
-            WarpInstruction::Or { input, out } => reduce_operator(f, input, out, "|"),
-            WarpInstruction::Xor { input, out } => reduce_operator(f, input, out, "^"),
+            WarpInstruction::All { input, out } => f.write_fmt(format_args!(
+                "
+    {out} = {input};
+{{
+    {out} =  __all_sync(0xFFFFFFFF, {out});
+}}
+"
+            )),
+            WarpInstruction::Any { input, out } => f.write_fmt(format_args!(
+                "
+    {out} = {input};
+{{
+    {out} =  __any_sync(0xFFFFFFFF, {out});
+}}
+"
+            )),
             WarpInstruction::Broadcast { input, id, out } => f.write_fmt(format_args!(
                 "
 {out} = __shfl_sync(0xFFFFFFFF, {input}, {id});
@@ -105,11 +104,11 @@ fn reduce_operator(
     f.write_fmt(format_args!(
         "
     {out} = {input};
-                    {{
+{{
     for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
-        {out} = {out} {op} __shfl_down_sync(0xFFFFFFFF, {out}, offset);
+        {out} {op} __shfl_down_sync(0xFFFFFFFF, {out}, offset);
     }}
-    }}
-                        "
+}}
+"
     ))
 }

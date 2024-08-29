@@ -1,5 +1,5 @@
 use super::{CubeContext, CubePrimitive, ExpandElement};
-use crate::prelude::ExpandElementTyped;
+use crate::prelude::{Bool, ExpandElementTyped};
 use crate::{
     ir::{Elem, InitOperator, Item, Operation, Subcube, UnaryOperator},
     unexpanded,
@@ -138,19 +138,20 @@ pub mod subcube_min {
 }
 
 /// Perform a reduce all operation across all units in a subcube.
-pub fn subcube_all<E: CubePrimitive>(_elem: E) -> E {
+pub fn subcube_all(_elem: Bool) -> Bool {
     unexpanded!()
 }
 
 /// Module containing the expand function for [subcube_all()].
 pub mod subcube_all {
+
     use super::*;
 
     /// Expand method of [subcube_all()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn __expand(
         context: &mut CubeContext,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
+        elem: ExpandElementTyped<Bool>,
+    ) -> ExpandElementTyped<Bool> {
         let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item());
 
@@ -158,6 +159,36 @@ pub mod subcube_all {
         let input = *elem;
 
         context.register(Operation::Subcube(Subcube::All(UnaryOperator {
+            input,
+            out,
+        })));
+
+        output.into()
+    }
+}
+
+/// Perform a reduce any operation across all units in a subcube.
+pub fn subcube_any(_elem: Bool) -> Bool {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [subcube_any()].
+pub mod subcube_any {
+
+    use super::*;
+
+    /// Expand method of [subcube_any()].
+    pub fn __expand(
+        context: &mut CubeContext,
+        elem: ExpandElementTyped<Bool>,
+    ) -> ExpandElementTyped<Bool> {
+        let elem: ExpandElement = elem.into();
+        let output = context.create_local(elem.item());
+
+        let out = *output;
+        let input = *elem;
+
+        context.register(Operation::Subcube(Subcube::Any(UnaryOperator {
             input,
             out,
         })));

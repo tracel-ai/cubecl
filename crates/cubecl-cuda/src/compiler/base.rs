@@ -177,24 +177,6 @@ impl CudaCompiler {
                             out: self.compile_variable(op.out),
                         }))
                     }
-                    gpu::Subcube::And(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::And {
-                            input: self.compile_variable(op.input),
-                            out: self.compile_variable(op.out),
-                        }))
-                    }
-                    gpu::Subcube::Or(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::Or {
-                            input: self.compile_variable(op.input),
-                            out: self.compile_variable(op.out),
-                        }))
-                    }
-                    gpu::Subcube::Xor(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::Xor {
-                            input: self.compile_variable(op.input),
-                            out: self.compile_variable(op.out),
-                        }))
-                    }
                     gpu::Subcube::Broadcast(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::Broadcast {
                             input: self.compile_variable(op.lhs),
