@@ -2,7 +2,7 @@ use std::{marker::PhantomData, ops::Index};
 
 use super::{
     element::{Container, Slice},
-    Elem, Expr, Expression, Integer, RangeExpr, SquareType, TypeEq,
+    Elem, Expr, Expression, Integer, RangeExpr, SquareType, TypeEq, Vectorization,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -49,6 +49,18 @@ impl TensorExpression {
             TensorExpression::Index { tensor, .. } => tensor.ir_type(),
             TensorExpression::Slice { tensor, .. } => tensor.ir_type(),
             TensorExpression::__SliceRange(SliceRange { start, .. }) => start.ir_type(),
+        }
+    }
+
+    pub fn vectorization(&self) -> Vectorization {
+        match self {
+            TensorExpression::Stride { tensor, .. } => tensor.vectorization(),
+            TensorExpression::Shape { tensor, .. } => tensor.vectorization(),
+            TensorExpression::Length { tensor } => tensor.vectorization(),
+            TensorExpression::Rank { tensor } => tensor.vectorization(),
+            TensorExpression::Index { tensor, .. } => tensor.vectorization(),
+            TensorExpression::Slice { tensor, .. } => tensor.vectorization(),
+            TensorExpression::__SliceRange(_) => None,
         }
     }
 }

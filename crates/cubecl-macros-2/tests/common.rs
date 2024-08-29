@@ -2,13 +2,13 @@ use std::num::NonZero;
 
 use cubecl_core::{
     ir::Elem,
-    new_ir::{Expr, Expression, Primitive, SquareType, Statement},
+    new_ir::{Block, Expr, Expression, Primitive, SquareType, Statement},
 };
 
 #[allow(unused)]
-pub fn block(statements: Vec<Statement>, ret: Option<Expression>) -> Expression {
+pub fn block(statements: Vec<Statement>, ret: Option<Expression>) -> Block {
     let ty = ret.as_ref().map(|ret| ret.ir_type()).unwrap_or(Elem::Unit);
-    Expression::Block {
+    Block {
         inner: statements,
         ret: ret
             .map(Box::new)
@@ -16,6 +16,11 @@ pub fn block(statements: Vec<Statement>, ret: Option<Expression>) -> Expression 
         vectorization: None,
         ty,
     }
+}
+
+#[allow(unused)]
+pub fn block_expr(statements: Vec<Statement>, ret: Option<Expression>) -> Expression {
+    Expression::Block(block(statements, ret))
 }
 
 #[allow(unused)]

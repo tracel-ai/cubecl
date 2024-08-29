@@ -525,6 +525,9 @@ impl CudaCompiler {
                 val: self.compile_variable(op.val),
                 out: self.compile_variable(op.out),
             }),
+            gpu::Operator::Neg(op) => {
+                instructions.push(Instruction::Negate(self.compile_unary(op)))
+            }
         };
     }
 

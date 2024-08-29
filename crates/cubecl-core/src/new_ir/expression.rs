@@ -1,8 +1,8 @@
-use crate::ir::{ConstantScalarValue, Elem};
-use std::{marker::PhantomData, num::NonZero};
+use crate::ir::{self, ConstantScalarValue, Elem};
+use std::{marker::PhantomData, num::NonZero, rc::Rc};
 
 use super::{
-    compute::GlobalType, largest_common_vectorization, Operator, SquareType, Statement,
+    compute::GlobalType, largest_common_vectorization, Operator, Primitive, SquareType, Statement,
     TensorExpression, TypeEq,
 };
 
@@ -58,12 +58,7 @@ pub enum Expression {
         vectorization: Vectorization,
         ty: Elem,
     },
-    Block {
-        inner: Vec<Statement>,
-        ret: Box<Expression>,
-        vectorization: Vectorization,
-        ty: Elem,
-    },
+    Block(Block),
     Break,
     Cast {
         from: Box<Expression>,
@@ -75,18 +70,18 @@ pub enum Expression {
         range: Range,
         unroll: bool,
         variable: Box<Expression>,
-        block: Box<Expression>,
+        block: Block,
     },
     WhileLoop {
         condition: Box<Expression>,
-        block: Box<Expression>,
+        block: Block,
     },
     Loop {
-        block: Box<Expression>,
+        block: Block,
     },
     If {
         condition: Box<Expression>,
-        then_block: Box<Expression>,
+        then_block: Block,
         else_branch: Option<Box<Expression>>,
     },
     Return {
@@ -101,6 +96,10 @@ pub enum Expression {
         size: Box<Expression>,
         init: Box<Expression>,
     },
+    KernelVar {
+        kind: ir::Variable,
+        ty: Elem,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -109,6 +108,14 @@ pub struct Range {
     pub end: Box<Expression>,
     pub step: Option<Box<Expression>>,
     pub inclusive: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Block {
+    pub inner: Vec<Statement>,
+    pub ret: Box<Expression>,
+    pub vectorization: Vectorization,
+    pub ty: Elem,
 }
 
 impl Expression {
@@ -120,26 +127,67 @@ impl Expression {
             Expression::Literal { ty, .. } => *ty,
             Expression::Assigment { ty, .. } => *ty,
             Expression::Init { ty, .. } => *ty,
-            Expression::Block { ret, .. } => ret.ir_type(),
+            Expression::Block(block) => block.ret.ir_type(),
             Expression::Cast { to, .. } => *to,
             Expression::Break | Expression::Continue | Expression::ForLoop { .. } => Elem::Unit,
             Expression::FieldAccess { ty, .. } => *ty,
             Expression::__Range(_) => Elem::Unit,
             Expression::WhileLoop { .. } => Elem::Unit,
             Expression::Loop { .. } => Elem::Unit,
-            Expression::If { then_block, .. } => then_block.ir_type(),
+            Expression::If { then_block, .. } => then_block.ret.ir_type(),
             Expression::Return { expr } => {
                 expr.as_ref().map(|it| it.ir_type()).unwrap_or(Elem::Unit)
             }
             Expression::Tensor(tensor) => tensor.ir_type(),
             Expression::ArrayInit { init, .. } => init.ir_type(),
             Expression::Global { ty, .. } => *ty,
+            Expression::KernelVar { ty, .. } => *ty,
+        }
+    }
+
+    pub fn vectorization(&self) -> Vectorization {
+        match self {
+            Expression::Binary { vectorization, .. } => *vectorization,
+            Expression::Unary { vectorization, .. } => *vectorization,
+            Expression::Variable { vectorization, .. } => *vectorization,
+            Expression::Global { vectorization, .. } => *vectorization,
+            Expression::FieldAccess { vectorization, .. } => *vectorization,
+            Expression::Literal { vectorization, .. } => *vectorization,
+            Expression::Assigment { vectorization, .. } => *vectorization,
+            Expression::Init { vectorization, .. } => *vectorization,
+            Expression::Block(block) => block.vectorization,
+            Expression::Break => None,
+            Expression::Cast { vectorization, .. } => *vectorization,
+            Expression::Continue => None,
+            Expression::ForLoop { .. } => None,
+            Expression::WhileLoop { block, .. } => block.vectorization,
+            Expression::Loop { .. } => None,
+            Expression::If { then_block, .. } => then_block.vectorization,
+            Expression::Return { .. } => None,
+            Expression::Tensor(tensor) => tensor.vectorization(),
+            Expression::ArrayInit { init, .. } => init.vectorization(),
+            Expression::__Range(_) => None,
+            Expression::KernelVar { .. } => None,
         }
     }
 
     pub fn as_range(&self) -> Option<&Range> {
         match self {
             Expression::__Range(range) => Some(range),
+            _ => None,
+        }
+    }
+
+    pub fn as_block(self) -> Option<Block> {
+        match self {
+            Expression::Block(block) => Some(block),
+            _ => None,
+        }
+    }
+
+    pub fn as_lit(self) -> Option<ConstantScalarValue> {
+        match self {
+            Expression::Literal { value, .. } => Some(value),
             _ => None,
         }
     }
@@ -157,6 +205,34 @@ pub struct Variable<T: SquareType> {
     pub name: &'static str,
     pub vectorization: Vectorization,
     pub _type: PhantomData<T>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct KernelVariable<T: SquareType> {
+    pub kind: ir::Variable,
+    pub _type: PhantomData<T>,
+}
+
+impl<T: SquareType> Copy for KernelVariable<T> {}
+impl<T: SquareType> Clone for KernelVariable<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: SquareType> Expr for KernelVariable<T> {
+    type Output = T;
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::KernelVar {
+            kind: self.kind,
+            ty: T::ir_type(),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        None
+    }
 }
 
 impl<T: SquareType> Variable<T> {
@@ -297,25 +373,25 @@ where
     }
 }
 
-pub struct Initializer<Left: Expr, Right: Expr>
+pub struct Initializer<Init: Expr>
 where
-    Right::Output: SquareType + TypeEq<Left::Output>,
+    Init::Output: SquareType,
 {
-    pub left: Left,
-    pub right: Right,
+    pub left: Variable<Init::Output>,
+    pub right: Init,
 }
 
-impl<Left: Expr, Right: Expr> Expr for Initializer<Left, Right>
+impl<Init: Expr> Expr for Initializer<Init>
 where
-    Right::Output: SquareType + TypeEq<Left::Output>,
+    Init::Output: SquareType,
 {
-    type Output = Right::Output;
+    type Output = Init::Output;
 
     fn expression_untyped(&self) -> Expression {
         Expression::Init {
             left: Box::new(self.left.expression_untyped()),
             right: Box::new(self.right.expression_untyped()),
-            ty: <Right::Output as SquareType>::ir_type(),
+            ty: <Init::Output as SquareType>::ir_type(),
             vectorization: self.vectorization(),
         }
     }
@@ -354,6 +430,12 @@ where
 
 pub struct DynamicExpr<T>(pub Box<dyn Expr<Output = T>>);
 
+impl<T> DynamicExpr<T> {
+    pub fn new(value: impl Expr<Output = T> + 'static) -> Self {
+        Self(Box::new(value))
+    }
+}
+
 impl<T> Expr for DynamicExpr<T> {
     type Output = T;
 
@@ -363,5 +445,31 @@ impl<T> Expr for DynamicExpr<T> {
 
     fn vectorization(&self) -> Option<NonZero<u8>> {
         self.0.vectorization()
+    }
+}
+
+pub struct RcExpr<T>(pub Rc<dyn Expr<Output = T>>);
+
+impl<T> RcExpr<T> {
+    pub fn new(value: impl Expr<Output = T> + 'static) -> Self {
+        Self(Rc::new(value))
+    }
+}
+
+impl<T> Expr for RcExpr<T> {
+    type Output = T;
+
+    fn expression_untyped(&self) -> Expression {
+        self.0.expression_untyped()
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.0.vectorization()
+    }
+}
+
+impl<T> Clone for RcExpr<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }

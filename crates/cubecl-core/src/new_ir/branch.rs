@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use super::{Block, Expand, Expr, Expression, Integer, Range, SquareType, TypeEq, Variable};
+use super::{BlockExpr, Expand, Expr, Expression, Integer, Range, SquareType, TypeEq, Variable};
 
 pub struct Break;
 
@@ -42,7 +42,7 @@ where
     pub unroll: bool,
     pub variable: Variable<<Range::Output as ForLoopRange>::Primitive>,
 
-    pub block: Block<()>,
+    pub block: BlockExpr<()>,
 }
 
 impl<Range: Expr> ForLoop<Range>
@@ -52,7 +52,7 @@ where
     pub fn new(
         range: Range,
         variable: Variable<<Range::Output as ForLoopRange>::Primitive>,
-        block: Block<()>,
+        block: BlockExpr<()>,
     ) -> Self {
         Self {
             range,
@@ -70,7 +70,7 @@ where
     pub fn new_unroll(
         range: Range,
         variable: Variable<<Range::Output as ForLoopRange>::Primitive>,
-        block: Block<()>,
+        block: BlockExpr<()>,
     ) -> Self {
         Self {
             range,
@@ -109,7 +109,7 @@ where
             range,
             unroll: self.unroll,
             variable: Box::new(self.variable.expression_untyped()),
-            block: Box::new(self.block.expression_untyped()),
+            block: self.block.expression_untyped().as_block().unwrap(),
         }
     }
 
@@ -229,7 +229,7 @@ where
 #[derive(new)]
 pub struct WhileLoop<Condition: Expr<Output = bool>> {
     pub condition: Condition,
-    pub block: Block<()>,
+    pub block: BlockExpr<()>,
 }
 
 impl<Condition: Expr<Output = bool>> Expr for WhileLoop<Condition> {
@@ -238,7 +238,7 @@ impl<Condition: Expr<Output = bool>> Expr for WhileLoop<Condition> {
     fn expression_untyped(&self) -> Expression {
         Expression::WhileLoop {
             condition: Box::new(self.condition.expression_untyped()),
-            block: Box::new(self.block.expression_untyped()),
+            block: self.block.expression_untyped().as_block().unwrap(),
         }
     }
 
@@ -248,14 +248,14 @@ impl<Condition: Expr<Output = bool>> Expr for WhileLoop<Condition> {
 }
 
 #[derive(new)]
-pub struct Loop(pub Block<()>);
+pub struct Loop(pub BlockExpr<()>);
 
 impl Expr for Loop {
     type Output = ();
 
     fn expression_untyped(&self) -> Expression {
         Expression::Loop {
-            block: Box::new(self.0.expression_untyped()),
+            block: self.0.expression_untyped().as_block().unwrap(),
         }
     }
 
@@ -271,7 +271,7 @@ where
     OutElse::Output: SquareType,
 {
     pub condition: Condition,
-    pub then_block: Block<OutIf>,
+    pub then_block: BlockExpr<OutIf>,
     pub else_branch: Option<OutElse>,
 }
 
@@ -286,7 +286,7 @@ where
     fn expression_untyped(&self) -> Expression {
         Expression::If {
             condition: Box::new(self.condition.expression_untyped()),
-            then_block: Box::new(self.then_block.expression_untyped()),
+            then_block: self.then_block.expression_untyped().as_block().unwrap(),
             else_branch: self
                 .else_branch
                 .as_ref()

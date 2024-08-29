@@ -136,6 +136,7 @@ pub enum Instruction {
         val: Variable,
         out: Variable,
     },
+    Negate(UnaryInstruction),
 }
 
 impl Display for Instruction {
@@ -376,6 +377,9 @@ for (uint {i} = {start}; {i} < {end}; {increment}) {{
                 f.write_fmt(format_args!("atomicExch({out}, {input});\n"))
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::Negate(UnaryInstruction { input, out }) => {
+                f.write_fmt(format_args!("{out} = !{input};\n"))
+            }
         }
     }
 }

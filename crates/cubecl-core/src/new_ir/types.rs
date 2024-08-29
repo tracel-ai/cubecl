@@ -29,7 +29,7 @@ impl<T: SquareType> SquareType for &mut T {
     }
 }
 
-pub trait Primitive: SquareType {
+pub trait Primitive: SquareType + 'static {
     fn value(&self) -> ConstantScalarValue;
 }
 

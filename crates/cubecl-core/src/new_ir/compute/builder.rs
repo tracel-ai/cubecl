@@ -10,7 +10,7 @@ use crate::{new_ir::GlobalVariable, prelude::KernelDefinition};
 use crate::{new_ir::SquareType, KernelSettings};
 use std::{collections::HashMap, num::NonZero};
 
-use super::flatten::flatten_expr;
+use super::flatten::{flatten_block, flatten_expr};
 
 /// Prepare a kernel to create a [kernel definition](crate::KernelDefinition).
 pub struct KernelBuilder {
@@ -80,7 +80,8 @@ impl KernelBuilder {
     }
 
     pub fn apply_expansion(&mut self, expr: Expression) {
-        flatten_expr(expr, &mut self.context);
+        let block = expr.as_block().unwrap();
+        flatten_block(block, &mut self.context);
     }
 
     /// Build the [kernel definition](KernelDefinition).

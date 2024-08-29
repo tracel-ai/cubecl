@@ -43,7 +43,7 @@ pub fn const_param() {
     )
     .expression_untyped();
 
-    let expected = block(
+    let expected = block_expr(
         vec![expr(Expression::Binary {
             left: var("a", UInt),
             operator: Operator::Mul,
@@ -75,7 +75,7 @@ pub fn const_generic() {
     )
     .expression_untyped();
 
-    let expected = block(
+    let expected = block_expr(
         vec![expr(Expression::Binary {
             left: Box::new(Expression::Binary {
                 left: var("a", UInt),
@@ -110,7 +110,7 @@ pub fn struct_param() {
     }
 
     let expanded = struct_param::expand(Variable::new("param", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![],
         Some(Expression::Binary {
             left: Box::new(Expression::FieldAccess {
@@ -143,7 +143,7 @@ pub fn comptime_struct_param() {
     }
 
     let expanded = struct_param::expand(Param { a: 2, b: 3 }).expression_untyped();
-    let expected = block(vec![], Some(lit(6u32)));
+    let expected = block_expr(vec![], Some(lit(6u32)));
 
     assert_eq!(expanded, expected);
 }
@@ -158,7 +158,7 @@ pub fn destructure() {
     }
 
     let expanded = destructure::expand(Variable::new("arg", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![
             local_init(
                 "a",

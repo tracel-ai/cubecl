@@ -19,9 +19,9 @@ fn function_call() {
     }
 
     let expanded = function_call::expand(Variable::new("a", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![],
-        Some(block(
+        Some(block_expr(
             vec![],
             Some(Expression::Binary {
                 left: var("a", Elem::UInt),
@@ -62,7 +62,7 @@ fn method_call() {
     }
 
     let expanded = method_call::expand(Variable::new("a", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![],
         Some(Expression::Binary {
             left: Box::new(Expression::FieldAccess {
@@ -102,7 +102,7 @@ fn associated_call() {
     }
 
     let expanded = associated_call::expand().expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![],
         Some(Expression::Binary {
             left: Box::new(lit(4u32)),

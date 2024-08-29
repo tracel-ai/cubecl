@@ -1,15 +1,18 @@
-use std::num::NonZero;
+use std::{iter, num::NonZero, ops::DerefMut};
 
 use cubecl_common::operator::Operator;
 
 use crate::{
-    ir::{self, BinaryOperator, Elem, Item, UnaryOperator, Variable},
-    new_ir::{Expression, Statement},
+    ir::{
+        self, BinaryOperator, Branch, ConditionalAssign, Elem, If, IfElse, Item, Loop, Metadata,
+        RangeLoop, UnaryOperator, Variable,
+    },
+    new_ir::{Block, Expr, Expression, Statement, TensorExpression},
     prelude::{CubeContext, ExpandElement},
 };
 
-pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> ExpandElement {
-    match expr {
+pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<ExpandElement> {
+    let res = match expr {
         Expression::Binary {
             left,
             operator,
@@ -17,8 +20,8 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> ExpandElemen
             ty,
             vectorization,
         } => {
-            let left = flatten_expr(*left, context);
-            let right = flatten_expr(*right, context);
+            let left = flatten_expr(*left, context).unwrap();
+            let right = flatten_expr(*right, context).unwrap();
             let out = if operator.is_assign() {
                 left.clone()
             } else {
@@ -41,7 +44,7 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> ExpandElemen
             vectorization,
             ty,
         } => {
-            let input = flatten_expr(*input, context);
+            let input = flatten_expr(*input, context).unwrap();
             let out = context.create_local(item(ty, vectorization));
             context.register(map_un_op(
                 operator,
@@ -83,53 +86,268 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> ExpandElemen
             ty,
         } => todo!(),
         Expression::Literal { value, .. } => ExpandElement::Plain(Variable::ConstantScalar(value)),
-        Expression::Assigment { left, right, .. } | Expression::Init { left, right, .. } => {
-            let left = flatten_expr(*left, context);
-            let right = flatten_expr(*right, context);
-            context.register(ir::Operator::Assign(UnaryOperator {
-                input: *right,
-                out: *left,
-            }));
-            left
+        Expression::Assigment { left, right, .. } => {
+            let right = flatten_expr(*right, context).unwrap();
+            match *left {
+                Expression::Tensor(TensorExpression::Index { tensor, index }) => {
+                    let index = flatten_expr(*index, context).unwrap();
+                    let tensor = flatten_expr(*tensor, context).unwrap();
+                    context.register(ir::Operator::IndexAssign(BinaryOperator {
+                        lhs: *index,
+                        rhs: *right,
+                        out: *tensor,
+                    }));
+                    tensor
+                }
+                left => {
+                    let left = flatten_expr(left, context).unwrap();
+                    context.register(ir::Operator::Assign(UnaryOperator {
+                        input: *right,
+                        out: *left,
+                    }));
+                    left
+                }
+            }
         }
-        Expression::Block {
-            inner,
-            ret,
-            vectorization,
-            ty,
-        } => todo!(),
-        Expression::Break => todo!(),
+        Expression::Init { left, right, .. } => {
+            let var = match *left {
+                Expression::Variable { name, .. } => name,
+                _ => unreachable!("Init only accepts variables for left"),
+            };
+            let right = flatten_expr(*right, context).unwrap();
+            context.register_local(var, right.clone());
+            right
+        }
+        Expression::Block(block) => flatten_block(block, &mut context.child())?,
+        Expression::Break => {
+            context.register(Branch::Break);
+            None?
+        }
         Expression::Cast {
             from,
             vectorization,
             to,
-        } => todo!(),
-        Expression::Continue => todo!(),
+        } => {
+            unimplemented!("Cast not yet implemented")
+        }
+        Expression::Continue => {
+            unimplemented!("Continue not yet implemented")
+        }
         Expression::ForLoop {
             range,
             unroll,
             variable,
             block,
-        } => todo!(),
-        Expression::WhileLoop { condition, block } => todo!(),
-        Expression::Loop { block } => todo!(),
+        } => {
+            let start = flatten_expr(*range.start, context).unwrap();
+            let end = flatten_expr(*range.end, context).unwrap();
+            let step = range.step.and_then(|expr| flatten_expr(*expr, context));
+            let i = flatten_expr(*variable, context).unwrap();
+            let mut scope = context.child();
+            flatten_block(block, &mut scope);
+
+            context.register(Branch::RangeLoop(RangeLoop {
+                i: *i,
+                start: *start,
+                end: *end,
+                step: step.map(Into::into),
+                scope: scope.into_scope(),
+            }));
+            None?
+        }
+        Expression::WhileLoop {
+            condition,
+            mut block,
+        } => {
+            let break_cond = Expression::If {
+                condition: Box::new(Expression::Unary {
+                    input: condition,
+                    operator: Operator::Not,
+                    vectorization: None,
+                    ty: Elem::Bool,
+                }),
+                then_block: Block {
+                    inner: vec![Statement::Expression(Expression::Break)],
+                    ret: Box::new(().expression_untyped()),
+                    vectorization: None,
+                    ty: Elem::Unit,
+                },
+                else_branch: None,
+            };
+            block.inner = iter::once(Statement::Expression(break_cond))
+                .chain(block.inner)
+                .collect();
+            let mut scope = context.child();
+            flatten_block(block, &mut scope);
+
+            context.register(Branch::Loop(Loop {
+                scope: scope.into_scope(),
+            }));
+            None?
+        }
+        Expression::Loop { block } => {
+            let mut scope = context.child();
+            flatten_block(block, &mut scope);
+
+            context.register(Branch::Loop(Loop {
+                scope: scope.into_scope(),
+            }));
+            None?
+        }
         Expression::If {
             condition,
             then_block,
             else_branch,
-        } => todo!(),
-        Expression::Return { expr } => todo!(),
-        Expression::Tensor(_) => todo!(),
-        Expression::__Range(_) => todo!(),
-        Expression::ArrayInit { size, init } => todo!(),
-    }
+        } => {
+            let ty = then_block.ty;
+            let has_ret = then_block.ret.ir_type() != Elem::Unit;
+            let condition = flatten_expr(*condition, context).unwrap();
+
+            if has_ret {
+                let left = flatten_block(then_block, context).unwrap();
+                let right = else_branch
+                    .and_then(|expr| flatten_expr(*expr, context))
+                    .unwrap();
+                let out = context.create_local(Item::new(ty));
+                ConditionalAssign::expand(
+                    ConditionalAssign {
+                        cond: *condition,
+                        lhs: *left,
+                        rhs: *right,
+                        out: *out,
+                    },
+                    context.scope.borrow_mut().deref_mut(),
+                );
+                out
+            } else if let Some(right) = else_branch {
+                let mut scope_if = context.child();
+                flatten_block(then_block, &mut scope_if).unwrap();
+                let mut scope_else = context.child();
+                flatten_expr(*right, &mut scope_else);
+                context.register(Branch::IfElse(IfElse {
+                    cond: *condition,
+                    scope_if: scope_if.into_scope(),
+                    scope_else: scope_else.into_scope(),
+                }));
+                None?
+            } else {
+                let mut scope = context.child();
+                flatten_block(then_block, &mut scope);
+                context.register(Branch::If(If {
+                    cond: *condition,
+                    scope: scope.into_scope(),
+                }));
+                None?
+            }
+        }
+        Expression::Return { .. } => {
+            context.register(Branch::Return);
+            None?
+        }
+        Expression::Tensor(expr) => flatten_tensor_expr(expr, context)?,
+        Expression::ArrayInit { size, init } => {
+            let size = flatten_expr(*size, context).unwrap();
+            // TODO: Init value, this isn't currently supported in the backend
+            //let init = flatten_expr(*init, context).unwrap();
+            let item = if let Some(vectorization) = init.vectorization() {
+                Item::vectorized(init.ir_type(), vectorization.get())
+            } else {
+                Item::new(init.ir_type())
+            };
+            // I've already checked this is const in the macro
+            let size = size.as_const().unwrap().as_u32();
+            context.create_local_array(item, size)
+        }
+        Expression::KernelVar { kind, .. } => ExpandElement::Plain(kind),
+        Expression::__Range(_) => unimplemented!("Range expressions don't exist post expansion"),
+    };
+    Some(res)
 }
 
-pub fn flatten_statement(stmt: Statement, context: &mut CubeContext) -> ExpandElement {
+pub fn flatten_statement(stmt: Statement, context: &mut CubeContext) -> Option<ExpandElement> {
     match stmt {
         Statement::Local { variable, .. } => flatten_expr(variable, context),
         Statement::Expression(expr) => flatten_expr(expr, context),
     }
+}
+
+pub fn flatten_block(block: Block, scope: &mut CubeContext) -> Option<ExpandElement> {
+    for inner in block.inner {
+        flatten_statement(inner, scope);
+    }
+    flatten_expr(*block.ret, scope)
+}
+
+fn flatten_tensor_expr(expr: TensorExpression, context: &mut CubeContext) -> Option<ExpandElement> {
+    let res = match expr {
+        TensorExpression::Stride { tensor, dim } => {
+            let tensor = flatten_expr(*tensor, context).unwrap();
+            let dim = flatten_expr(*dim, context).unwrap();
+            let out = context.create_local(Item::new(Elem::UInt));
+            context.register(Metadata::Stride {
+                dim: *dim,
+                var: *tensor,
+                out: out.clone().into(),
+            });
+            out
+        }
+        TensorExpression::Shape { tensor, dim } => {
+            let tensor = flatten_expr(*tensor, context).unwrap();
+            let dim = flatten_expr(*dim, context).unwrap();
+            let out = context.create_local(Item::new(Elem::UInt));
+            context.register(Metadata::Shape {
+                dim: *dim,
+                var: *tensor,
+                out: out.clone().into(),
+            });
+            out
+        }
+        TensorExpression::Length { tensor } => {
+            let tensor = flatten_expr(*tensor, context).unwrap();
+            let out = context.create_local(Item::new(Elem::UInt));
+            context.register(Metadata::Length {
+                var: *tensor,
+                out: out.clone().into(),
+            });
+            out
+        }
+        TensorExpression::Rank { .. } => ExpandElement::Plain(Variable::Rank),
+        TensorExpression::Index { tensor, index } => {
+            let tensor = flatten_expr(*tensor, context).unwrap();
+            let index = flatten_expr(*index, context).unwrap();
+            let out = context.create_local(tensor.item());
+            context.register(ir::Operator::Index(BinaryOperator {
+                rhs: *index,
+                lhs: *tensor,
+                out: out.clone().into(),
+            }));
+            out
+        }
+        TensorExpression::Slice { ranges, tensor } => {
+            let input = flatten_expr(*tensor.clone(), context).unwrap();
+            assert_eq!(ranges.len(), 1, "Multi-slices not currently supported");
+            let start = flatten_expr(*ranges[0].start.clone(), context).unwrap();
+            let end = ranges[0]
+                .end
+                .clone()
+                .and_then(|expr| flatten_expr(*expr, context))
+                .unwrap_or_else(|| {
+                    flatten_tensor_expr(TensorExpression::Length { tensor }, context).unwrap()
+                });
+            let out = context.create_slice(input.item());
+
+            context.register(ir::Operator::Slice(ir::SliceOperator {
+                input: *input,
+                start: *start,
+                end: *end,
+                out: *out,
+            }));
+
+            out
+        }
+        TensorExpression::__SliceRange(_) => unimplemented!("Slice ranges don't exist at runtime"),
+    };
+    Some(res)
 }
 
 fn map_bin_op(operator: Operator, bin_op: BinaryOperator) -> ir::Operator {

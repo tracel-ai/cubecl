@@ -20,6 +20,6 @@ fn collapses_constants() {
     }
 
     let expanded = collapses_constants::expand(1).expression_untyped();
-    let expected = block(vec![], Some(lit(3u32)));
+    let expected = block_expr(vec![], Some(lit(3u32)));
     assert_eq!(expanded, expected);
 }

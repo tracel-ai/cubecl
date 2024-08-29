@@ -5,8 +5,13 @@ use std::{
 };
 
 use crate::{
-    new_ir::{Expr, IndexExpr, Integer, SliceExpr, SliceRangeExpr, SquareType, Strided},
-    unexpanded,
+    ir::Item,
+    new_ir::{
+        Expr, GlobalVariable, IndexExpr, Integer, KernelBuilder, LaunchArg, LaunchArgExpand,
+        Primitive, SliceExpr, SliceRangeExpr, SquareType, Strided,
+    },
+    prelude::ArrayArg,
+    unexpanded, Runtime,
 };
 
 use super::{Container, Dim1, Slice};
@@ -16,6 +21,9 @@ use super::{Container, Dim1, Slice};
 pub struct Array<T: SquareType> {
     _ty: PhantomData<T>,
 }
+
+unsafe impl<T: SquareType> Send for Array<T> {}
+unsafe impl<T: SquareType> Sync for Array<T> {}
 
 impl<T: SquareType> Strided for Array<T> {
     type Dims = Dim1;
@@ -30,6 +38,19 @@ impl<T: SquareType, Idx: Integer> Index<Idx> for Array<T> {
 
     fn index(&self, _index: Idx) -> &Self::Output {
         unexpanded!()
+    }
+}
+
+impl<T: Primitive> LaunchArg for Array<T> {
+    type RuntimeArg<'a, R: Runtime> = ArrayArg<'a, R>;
+}
+
+impl<T: Primitive> LaunchArgExpand for Array<T> {
+    fn expand(builder: &mut KernelBuilder, vectorization: u8) -> GlobalVariable<Self> {
+        builder.input_array(Item::vectorized(T::ir_type(), vectorization))
+    }
+    fn expand_output(builder: &mut KernelBuilder, vectorization: u8) -> GlobalVariable<Self> {
+        builder.output_array(Item::vectorized(T::ir_type(), vectorization))
     }
 }
 

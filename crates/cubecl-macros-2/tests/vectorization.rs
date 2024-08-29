@@ -24,7 +24,7 @@ pub fn vectorization_simple() {
         Variable::new("b", None),
     )
     .expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![init_vec(
             "c",
             Expression::Binary {

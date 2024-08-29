@@ -3,6 +3,8 @@ fn main() {
     tch_gpu::run();
     #[cfg(feature = "cube-cuda")]
     cube_cuda::run();
+    #[cfg(feature = "cube-wgpu")]
+    cube_wgpu::run();
 }
 
 #[cfg(feature = "burn-tch-cuda")]
@@ -52,6 +54,43 @@ mod cube_cuda {
         let tensor_b: TensorHandle<CudaRuntime, F32> =
             TensorHandle::new_contiguous(tensor_b_shape, tensor_b_handle);
         let tensor_c: TensorHandle<CudaRuntime, F32> =
+            TensorHandle::new_contiguous(tensor_c_shape, tensor_c_handle);
+        tiling2d::launch(&client, tensor_a, tensor_b, tensor_c, Default::default());
+    }
+}
+
+#[cfg(feature = "cube-wgpu")]
+mod cube_wgpu {
+    use cubecl::frontend::F32;
+    use cubecl::linalg::{matmul::tiling2d, tensor::TensorHandle};
+    use cubecl::prelude::*;
+    use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
+    use cubecl::Runtime;
+
+    pub fn run() {
+        let device = WgpuDevice::default();
+        let client = WgpuRuntime::client(&device);
+
+        let num_of_batch = 12;
+        let heigth = 1024;
+        let width = 1024;
+
+        let tensor_values: Vec<f32> = (0..num_of_batch * heigth * width)
+            .map(|x| x as f32)
+            .collect();
+        let tensor_a_handle = client.create(f32::as_bytes(&tensor_values));
+        let tensor_b_handle = client.create(f32::as_bytes(&tensor_values));
+        let tensor_c_handle = client.empty(12 * 1024 * 1024 * core::mem::size_of::<f32>());
+
+        let tensor_a_shape = vec![num_of_batch, heigth, width];
+        let tensor_b_shape = vec![num_of_batch, heigth, width];
+        let tensor_c_shape = vec![num_of_batch, heigth, width];
+
+        let tensor_a: TensorHandle<WgpuRuntime, F32> =
+            TensorHandle::new_contiguous(tensor_a_shape, tensor_a_handle);
+        let tensor_b: TensorHandle<WgpuRuntime, F32> =
+            TensorHandle::new_contiguous(tensor_b_shape, tensor_b_handle);
+        let tensor_c: TensorHandle<WgpuRuntime, F32> =
             TensorHandle::new_contiguous(tensor_c_shape, tensor_c_handle);
         tiling2d::launch(&client, tensor_a, tensor_b, tensor_c, Default::default());
     }

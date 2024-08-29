@@ -21,7 +21,7 @@ fn simple_index() {
     }
 
     let expanded = simple_index::expand(Variable::new("tensor", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![],
         Some(Expression::Tensor(TensorExpression::Index {
             tensor: var("tensor", Elem::UInt),
@@ -41,7 +41,7 @@ fn array_index() {
     }
 
     let expanded = simple_index::expand(Variable::new("tensor", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![],
         Some(Expression::Tensor(TensorExpression::Index {
             tensor: var("tensor", Elem::UInt),
@@ -90,7 +90,7 @@ fn vectorization_tracing() {
         Variable::new("scalar", NonZero::new(2)),
     )
     .expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![init_vec(
             "a",
             Expression::Tensor(TensorExpression::Index {
@@ -123,7 +123,7 @@ fn simple_slice() {
     }
 
     let expanded = simple_slice::expand(Variable::new("tensor", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![local_init(
             "b",
             Expression::Tensor(TensorExpression::Slice {
@@ -156,7 +156,7 @@ fn slice_open_start() {
     }
 
     let expanded = slice_open_start::expand(Variable::new("tensor", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![local_init(
             "b",
             Expression::Tensor(TensorExpression::Slice {
@@ -189,7 +189,7 @@ fn slice_open_end() {
     }
 
     let expanded = slice_open_end::expand(Variable::new("tensor", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![local_init(
             "b",
             Expression::Tensor(TensorExpression::Slice {
@@ -222,7 +222,7 @@ fn multi_range_slice() {
     }
 
     let expanded = multi_range_slice::expand(Variable::new("tensor", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![local_init(
             "b",
             Expression::Tensor(TensorExpression::Slice {
@@ -262,7 +262,7 @@ fn slice_different_range_types() {
     }
 
     let expanded = multi_range_slice::expand(Variable::new("tensor", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![local_init(
             "b",
             Expression::Tensor(TensorExpression::Slice {
@@ -301,7 +301,7 @@ fn mut_index() {
     }
 
     let expanded = simple_index::expand(Variable::new("tensor", None)).expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![expr(Expression::Assigment {
             left: Box::new(Expression::Tensor(TensorExpression::Index {
                 tensor: var("tensor", Elem::UInt),

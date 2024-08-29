@@ -25,6 +25,7 @@ darling = { workspace = true }
 derive-new = { workspace = true }
 derive_more = { workspace = true }
 ident_case = { workspace = true }
+prettyplease = "0.2"
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }

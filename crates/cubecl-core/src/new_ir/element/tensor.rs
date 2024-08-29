@@ -171,6 +171,12 @@ macro_rules! slice_impl {
                 unexpanded!()
             }
         }
+
+        impl<T: SquareType, Dims, Idx: Integer> IndexMut<$range<Idx>> for Tensor<T, Dims> {
+            fn index_mut(&mut self, _index: $range<Idx>) -> &mut Self::Output {
+                unexpanded!()
+            }
+        }
     };
     ($dims:ident, $range:ident, $dim_count:literal) => {
         impl<T: SquareType, Idx: Integer> Index<[$range<Idx>; $dim_count]> for Tensor<T, $dims> {
@@ -180,12 +186,23 @@ macro_rules! slice_impl {
                 unexpanded!()
             }
         }
+
+        impl<T: SquareType, Idx: Integer> IndexMut<[$range<Idx>; $dim_count]> for Tensor<T, $dims> {
+            fn index_mut(&mut self, _index: [$range<Idx>; $dim_count]) -> &mut Self::Output {
+                unexpanded!()
+            }
+        }
     };
     ($dims:ident, $ty:ident, $($args:ident),*) => {
         impl<T: SquareType, $($args: RangeBounds<$ty>),*> Index<($($args),*)> for Tensor<T, $dims> {
             type Output = Slice<Self, $ty>;
 
             fn index(&self, _index: ($($args),*)) -> &Self::Output {
+                unexpanded!()
+            }
+        }
+        impl<T: SquareType, $($args: RangeBounds<$ty>),*> IndexMut<($($args),*)> for Tensor<T, $dims> {
+            fn index_mut(&mut self, _index: ($($args),*)) -> &mut Self::Output {
                 unexpanded!()
             }
         }
@@ -207,6 +224,11 @@ macro_rules! slice_impls {
                 unexpanded!()
             }
         }
+        impl<T: SquareType, Dims> IndexMut<RangeFull> for Tensor<T, Dims> {
+            fn index_mut(&mut self, _index: RangeFull) -> &mut Self::Output {
+                unexpanded!()
+            }
+        }
     };
     ($dims:ident, $dim_count:literal) => {
         slice_impl!($dims, Range, $dim_count);
@@ -222,7 +244,11 @@ macro_rules! slice_impls {
                 unexpanded!()
             }
         }
-
+        impl<T: SquareType> IndexMut<[RangeFull; $dim_count]> for Tensor<T, $dims> {
+            fn index_mut(&mut self, _index: [RangeFull; $dim_count]) -> &mut Self::Output {
+                unexpanded!()
+            }
+        }
     };
     ($dims:ident, $($args:ident),*) => {
         slice_impl!($dims, u32, $($args),*);

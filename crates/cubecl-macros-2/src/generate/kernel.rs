@@ -22,7 +22,7 @@ impl ToTokens for Kernel {
         let generics = &self.generics;
         let global_constants = Context::new(self.returns.clone(), self.args.is_launch())
             .current_scope()
-            .generate_vars_as_const();
+            .generate_kernel_vars();
         let block = &self.block;
         let return_type = &self.returns;
         let args = &self.parameters;
@@ -56,7 +56,9 @@ impl ToTokens for Kernel {
         };
 
         if self.args.debug.is_present() {
-            panic!("{out:?}");
+            let file = syn::parse_file(&out.to_string()).unwrap();
+            let tokens = prettyplease::unparse(&file);
+            panic!("{tokens}");
         }
         tokens.extend(out);
     }
@@ -181,6 +183,7 @@ impl Kernel {
                     #(#args),*
                 ) -> () {
                     use ::cubecl_core::frontend::ArgSettings as _;
+                    use ::cubecl_core::new_ir::Expr as _;
 
                     let mut __settings = #kernel_settings::default().cube_dim(__cube_dim);
                     #(#input_configs)*
@@ -194,7 +197,8 @@ impl Kernel {
                         #map_input
                         #mappings
                         #(#output_expands)*
-                        expand #expand_generics(#(#expand_inputs),*);
+                        let expansion = expand #expand_generics(#(#expand_inputs),*);
+                        __builder.apply_expansion(expansion.expression_untyped());
                         __builder.build(__settings.clone())
                     };
                     let kernel = #kernel_name {

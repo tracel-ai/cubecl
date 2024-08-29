@@ -24,7 +24,7 @@ fn simple_arithmetic() {
     }
 
     let expansion = simple_arithmetic::expand().expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![
             local_init("a", lit(1u32), true, Some(Elem::UInt)),
             local_init(
@@ -109,7 +109,7 @@ fn cmp_ops() {
     }
 
     let expanded = cmp_ops::expand().expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![
             local_init("a", lit(1u32), true, None),
             local_init(
@@ -205,7 +205,7 @@ fn assign_arithmetic() {
     }
 
     let expansion = assign_arithmetic::expand().expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![
             local_init("a", lit(1u32), true, Some(Elem::UInt)),
             expr(Expression::Binary {
@@ -265,7 +265,7 @@ fn boolean_ops() {
     }
 
     let expanded = bool_ops::expand().expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![
             local_init("a", lit(false), true, None),
             local_init(
@@ -328,7 +328,7 @@ fn boolean_assign_ops() {
     }
 
     let expanded = bool_assign_ops::expand().expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![
             local_init("a", lit(10u32), true, None),
             expr(Binary {
@@ -372,7 +372,7 @@ fn shift_ops() {
     }
 
     let expanded = shift_ops::expand().expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![
             local_init("a", lit(10u32), true, None),
             expr(Binary {
@@ -420,7 +420,7 @@ fn unary_ops() {
     }
 
     let expanded = unary_ops::expand().expression_untyped();
-    let expected = block(
+    let expected = block_expr(
         vec![
             expr(Expression::Unary {
                 input: Box::new(lit(true)),

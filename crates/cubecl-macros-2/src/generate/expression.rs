@@ -76,7 +76,7 @@ impl ToTokens for Expression {
             Expression::Block {
                 inner, ret, span, ..
             } => {
-                let block = ir_type("Block");
+                let block = ir_type("BlockExpr");
                 let ret = ret
                     .as_ref()
                     .map(|ret| quote![#ret])

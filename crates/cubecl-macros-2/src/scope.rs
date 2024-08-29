@@ -1,8 +1,10 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote_spanned};
-use syn::{parse_quote, Ident, Type};
+use syn::{parse_quote, Ident, PathSegment, Type};
 
-use crate::{generate::expression::generate_var, ir_type, parse::kernel::KernelParam};
+use crate::{
+    generate::expression::generate_var, ir_type, parse::kernel::KernelParam, paths::ir_path,
+};
 
 pub const KEYWORDS: [&str; 21] = [
     "ABSOLUTE_POS",
@@ -146,16 +148,16 @@ impl From<KernelParam> for ManagedVar {
 }
 
 impl Scope {
-    pub fn generate_vars_as_const(&self) -> Vec<TokenStream> {
+    pub fn generate_kernel_vars(&self) -> Vec<TokenStream> {
         self.variables
             .iter()
             .map(|ManagedVar { name, ty, .. }| {
                 let span = name.span();
-                let var = generate_var(name, ty, span, None);
-                let var_ty = ir_type("Variable");
+                let kernel_var_ty = ir_type("KernelVariable");
+                let ir_path = ir_path();
                 let ty = ty.as_ref().unwrap();
                 quote_spanned! {span=>
-                    const #name: #var_ty<#ty> = #var;
+                    const #name: #kernel_var_ty<#ty> = #ir_path::ExpandedGlobals::#name;
                 }
             })
             .collect()

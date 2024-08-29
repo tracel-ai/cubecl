@@ -1,6 +1,6 @@
 use crate::ir::Elem;
 
-use super::{Expr, Expression, SquareType};
+use super::{Block, Expr, Expression, SquareType};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Statement {
@@ -13,7 +13,7 @@ pub enum Statement {
 }
 
 #[derive(Clone, Debug, PartialEq, new)]
-pub struct Block<Ret: Expr>
+pub struct BlockExpr<Ret: Expr>
 where
     Ret::Output: SquareType,
 {
@@ -21,19 +21,19 @@ where
     pub ret: Ret,
 }
 
-impl<Ret: Expr> Expr for Block<Ret>
+impl<Ret: Expr> Expr for BlockExpr<Ret>
 where
     Ret::Output: SquareType,
 {
     type Output = Ret::Output;
 
     fn expression_untyped(&self) -> Expression {
-        Expression::Block {
+        Expression::Block(Block {
             inner: self.statements.clone(),
             ret: Box::new(self.ret.expression_untyped()),
             vectorization: None,
             ty: <Ret::Output as SquareType>::ir_type(),
-        }
+        })
     }
 
     fn vectorization(&self) -> Option<std::num::NonZero<u8>> {

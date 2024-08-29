@@ -748,6 +748,10 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(op.out),
             },
+            cube::Operator::Neg(op) => wgsl::Instruction::Negate {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(op.out),
+            },
         }
     }
 

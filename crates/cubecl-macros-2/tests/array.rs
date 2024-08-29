@@ -18,7 +18,7 @@ fn array_init() {
     }
 
     let expanded = array_init::expand().expression_untyped();
-    let expected = block(
+    let expected = Expression::Block(block(
         vec![local_init(
             "local",
             Expression::ArrayInit {
@@ -32,7 +32,7 @@ fn array_init() {
             tensor: var("local", Elem::UInt),
             index: Box::new(lit(2)),
         })),
-    );
+    ));
 
     assert_eq!(expanded, expected);
 }
