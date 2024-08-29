@@ -1,5 +1,3 @@
-use std::cmp::max;
-
 use cubecl_core::{
     client::ComputeClient,
     frontend::{Float, TensorArg, TensorHandleRef, F16},
@@ -31,13 +29,13 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
 #[derive(Debug)]
 pub enum UnavailabilityReason {
     HighlyPermutatedInput,
-    ShapeMemoryLimitBusted,
+    SharedMemoryLimitBusted,
     InvalidConfig(String),
     CmmaInstructionsUnsupported,
 }
 
 /// Checks if the matmul cmma can be used.
-pub fn check_cmma_availability<R: Runtime>(
+pub fn check_cmma_availability<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
     config: Option<&CmmaLaunchConfig>,
 ) -> Result<(), UnavailabilityReason> {
@@ -60,22 +58,22 @@ pub fn check_cmma_availability<R: Runtime>(
             ));
         }
 
-        if config.cube_dim_x * config.cube_dim_y < CMMA_COOP_DIM {
+        let n_units = config.cube_dim_x * config.cube_dim_y;
+        if n_units < CMMA_COOP_DIM && n_units % CMMA_COOP_DIM == 0 {
             return Err(UnavailabilityReason::InvalidConfig(
-                "Cube dims must allow at least one coop group".to_string(),
+                "Cube dim must be a non zero multiple of coop dim".to_string(),
             ));
         }
 
-        if b_k * max(b_m, b_n) > <R::Compiler as Compiler>::max_shared_memory_size() {
-            return Err(UnavailabilityReason::ShapeMemoryLimitBusted);
-        }
-
-        if b_m * b_n > <R::Compiler as Compiler>::max_shared_memory_size() {
-            return Err(UnavailabilityReason::ShapeMemoryLimitBusted);
+        if F::as_elem().size() * (b_m * b_n + b_m * b_k + b_n * b_k)
+            > <R::Compiler as Compiler>::max_shared_memory_size()
+        {
+            return Err(UnavailabilityReason::SharedMemoryLimitBusted);
         }
 
         let n_tiles = b_m * b_n / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
         let lane_dim = config.cube_dim_x * config.cube_dim_y / CMMA_COOP_DIM;
+
         if n_tiles % lane_dim != 0 {
             return Err(UnavailabilityReason::InvalidConfig(
                 "Must have an exact number of tiles per coop group.".to_string(),
@@ -172,7 +170,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
         unroll: true,
     };
 
-    check_cmma_availability::<R>(client, Some(&launch_config)).unwrap();
+    check_cmma_availability::<R, F>(client, Some(&launch_config)).unwrap();
 
     let cube_count = cmma_cube_count::<R>(out.shape, &launch_config);
 
