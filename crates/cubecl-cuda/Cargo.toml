@@ -27,7 +27,7 @@ cubecl-core = { path = "../cubecl-core", version = "0.2.0" }
 
 half = { workspace = true }
 bytemuck = { workspace = true }
-cudarc = { version = "=0.11.5", features = ["cuda-12030"] }
+cudarc = { version = "=0.11.5", features = ["cuda-version-from-build-system"] }
 
 log = { workspace = true }
 derive-new = { workspace = true }
