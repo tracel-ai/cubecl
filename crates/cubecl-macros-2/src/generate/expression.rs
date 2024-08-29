@@ -235,12 +235,16 @@ impl ToTokens for Expression {
             }
             Expression::Return { expr, ty, span } => {
                 let ret_ty = ir_type("Return");
+                let ty = expr
+                    .as_ref()
+                    .map(|_| quote![::<#ty, _>])
+                    .unwrap_or_else(|| quote![::<(), ()>]);
                 let ret_expr = expr
                     .as_ref()
                     .map(|it| quote![Some(#it)])
                     .unwrap_or_else(|| quote![None]);
                 quote_spanned! {*span=>
-                    #ret_ty::<#ty, _>::new(#ret_expr)
+                    #ret_ty #ty::new(#ret_expr)
                 }
             }
             Expression::Array { span, .. } => {

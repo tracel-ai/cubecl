@@ -22,6 +22,7 @@ impl ToTokens for ExpandImpl {
         let where_clause = &self.generics.where_clause;
 
         let out = quote_spanned! {span=>
+            #[allow(clippy::new_ret_no_self)]
             #(#attrs)*
             #defaultness #unsafety impl #generics #expanded_path #where_clause {
                 #(#methods)*

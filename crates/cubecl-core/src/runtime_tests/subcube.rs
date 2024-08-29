@@ -1,13 +1,16 @@
 use crate as cubecl;
 use crate::Feature;
+use cubecl::new_ir::element::Tensor as NewTensor;
 use cubecl::prelude::*;
+use cubecl_macros_2::cube2;
 
-#[cube(launch)]
-pub fn kernel_sum<F: Float>(output: &mut Tensor<F>) {
+#[cube2(launch)]
+pub fn kernel_sum(output: &mut NewTensor<f32>) {
+    use cubecl::new_ir::UNIT_POS;
     let val = output[UNIT_POS];
-    let val2 = subcube_sum::<F>(val);
+    let val2 = subcube_sum(val);
 
-    if UNIT_POS == UInt::new(0) {
+    if UNIT_POS == 0 {
         output[0] = val2;
     }
 }
@@ -49,8 +52,8 @@ pub fn test_subcube_sum<TestRuntime: Runtime>(
         &[4.0, 5.0, 7.0, 1.0],
         &[17.0, 5.0, 7.0, 1.0],
         client.clone(),
-        |cube_count, cube_dim, handle| {
-            kernel_sum::launch::<F32, TestRuntime>(&client, cube_count, cube_dim, handle)
+        |cube_count: CubeCount<<TestRuntime as Runtime>::Server>, cube_dim, handle| {
+            kernel_sum::launch::<TestRuntime>(&client, cube_count, cube_dim, handle)
         },
     );
 }

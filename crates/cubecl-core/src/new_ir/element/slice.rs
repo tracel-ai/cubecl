@@ -9,7 +9,9 @@ use std::{
 use cubecl_macros_2::{expand_impl, Expand};
 
 use crate::{
-    new_ir::{Expr, IndexExpr, Integer, SliceExpr, SliceRangeExpr, SquareType, Strided},
+    new_ir::{
+        EqExpr, Expr, IndexExpr, Integer, Length, SliceExpr, SliceRangeExpr, SquareType, Strided,
+    },
     unexpanded,
 };
 
@@ -66,6 +68,26 @@ where
         ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<TNum>>>>,
     ) -> impl Expr<Output = Slice<__Inner, TNum>> {
         SliceExpr::new(self.0, ranges)
+    }
+
+    pub fn len(&self) -> u32 {
+        unexpanded!()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    // Expanded version of len
+    #[expanded]
+    pub fn len<Out: Integer>(self) -> impl Expr<Output = Out> {
+        Length::new(self.0)
+    }
+
+    // Expanded version of is_empty
+    #[expanded]
+    pub fn is_empty(self) -> impl Expr<Output = bool> {
+        EqExpr::new(Length::<_, u32>::new(self.0), 0)
     }
 }
 

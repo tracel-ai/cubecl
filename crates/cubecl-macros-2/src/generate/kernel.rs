@@ -80,7 +80,31 @@ impl ToTokens for KernelParam {
 impl Kernel {
     fn launch(&self) -> TokenStream {
         if self.args.launch.is_present() {
-            todo!()
+            let compute_client = prelude_type("ComputeClient");
+            let cube_count = prelude_type("CubeCount");
+            let cube_dim = prelude_type("CubeDim");
+
+            let kernel_doc = format!("Launch the kernel [{}()] on the given runtime", self.name);
+            let generics = self.launch_generics();
+            let args = self.launch_args();
+            let mut expand_generics = self.generics.clone();
+            StripBounds.visit_generics_mut(&mut expand_generics);
+
+            let body = self.launch_body();
+
+            quote! {
+                #[allow(clippy::too_many_arguments)]
+                #[doc = #kernel_doc]
+                pub fn launch #generics(
+                    __client: &#compute_client<__R::Server, __R::Channel>,
+                    __cube_count: #cube_count<__R::Server>,
+                    __cube_dim: #cube_dim,
+                    #(#args),*
+                ) -> () {
+                    #body
+                    launcher.launch(__cube_count, kernel, __client);
+                }
+            }
         } else {
             TokenStream::new()
         }
@@ -91,25 +115,14 @@ impl Kernel {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
-            let kernel_launcher = prelude_type("KernelLauncher");
-            let builder = ir_type("KernelBuilder");
 
             let kernel_doc = format!("Launch the kernel [{}()] on the given runtime", self.name);
             let generics = self.launch_generics();
             let args = self.launch_args();
             let mut expand_generics = self.generics.clone();
             StripBounds.visit_generics_mut(&mut expand_generics);
-            let expand_inputs = self.parameters.iter().map(|it| &it.name);
 
-            let registers = self.runtime_params().map(|arg| {
-                let name = &arg.name;
-                quote![#name.register(&mut launcher);]
-            });
-
-            let settings = self.configure_settings();
-            let io_mappings = self.io_mappings();
-            let kernel_name = self.kernel_name();
-            let hash = self.comptime_hash();
+            let body = self.launch_body();
 
             quote! {
                 #[allow(clippy::too_many_arguments)]
@@ -120,31 +133,54 @@ impl Kernel {
                     __cube_dim: #cube_dim,
                     #(#args),*
                 ) -> () {
-                    use ::cubecl_core::frontend::ArgSettings as _;
-                    use ::cubecl_core::new_ir::Expr as _;
-
-                    #settings
-                    #hash
-                    let __settings__ = __settings.clone();
-                    let __expand = move || {
-                        let mut __builder = #builder::default();
-                        #io_mappings
-                        let expansion = expand #expand_generics(#(#expand_inputs),*);
-                        __builder.apply_expansion(expansion.expression_untyped());
-                        __builder.build(__settings.clone())
-                    };
-                    let kernel = #kernel_name {
-                        settings: __settings__,
-                        definition: __expand,
-                        comptime_hash: __comptime_hash
-                    };
-                    let mut launcher = #kernel_launcher::<__R>::default();
-                    #(#registers)*
+                    #body
                     launcher.launch_unchecked(__cube_count, kernel, __client);
                 }
             }
         } else {
             TokenStream::new()
+        }
+    }
+
+    fn launch_body(&self) -> TokenStream {
+        let kernel_launcher = prelude_type("KernelLauncher");
+        let builder = ir_type("KernelBuilder");
+
+        let expand_inputs = self.parameters.iter().map(|it| &it.name);
+        let registers = self.runtime_params().map(|arg| {
+            let name = &arg.name;
+            quote![#name.register(&mut launcher);]
+        });
+
+        let mut expand_generics = self.generics.clone();
+        StripBounds.visit_generics_mut(&mut expand_generics);
+
+        let settings = self.configure_settings();
+        let io_mappings = self.io_mappings();
+        let kernel_name = self.kernel_name();
+        let hash = self.comptime_hash();
+
+        quote! {
+            use ::cubecl_core::frontend::ArgSettings as _;
+            use ::cubecl_core::new_ir::Expr as _;
+
+            #settings
+            #hash
+            let __settings__ = __settings.clone();
+            let __expand = move || {
+                let mut __builder = #builder::default();
+                #io_mappings
+                let expansion = expand #expand_generics(#(#expand_inputs),*);
+                __builder.apply_expansion(expansion.expression_untyped());
+                __builder.build(__settings.clone())
+            };
+            let kernel = #kernel_name {
+                settings: __settings__,
+                definition: __expand,
+                comptime_hash: __comptime_hash
+            };
+            let mut launcher = #kernel_launcher::<__R>::default();
+            #(#registers)*
         }
     }
 
@@ -214,6 +250,7 @@ impl Kernel {
             }
         });
         let map_input = quote! {
+            #[allow(unreachable_code)]
             let mut __map_assign = |__in_pos: usize, __out_pos: usize| {
                 let __input: Box<dyn ::core::any::Any> = match __in_pos {
                     #(#input_fn_mappings,)*

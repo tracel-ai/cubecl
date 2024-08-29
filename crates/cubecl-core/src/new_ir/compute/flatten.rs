@@ -4,10 +4,10 @@ use cubecl_common::operator::Operator;
 
 use crate::{
     ir::{
-        self, BinaryOperator, Branch, ConditionalAssign, Elem, If, IfElse, Item, Loop, Metadata,
-        RangeLoop, UnaryOperator, Variable,
+        self, BinaryOperator, Branch, ConditionalAssign, Elem, If, IfElse, InitOperator, Item,
+        Loop, Metadata, Operation, RangeLoop, Subcube, UnaryOperator, Variable,
     },
-    new_ir::{Block, Expr, Expression, Statement, TensorExpression},
+    new_ir::{Block, Expr, Expression, Statement, SubcubeExpression, SubcubeOp, TensorExpression},
     prelude::{CubeContext, ExpandElement},
 };
 
@@ -288,6 +288,7 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
             context.create_local_array(item, size)
         }
         Expression::KernelVar { kind, .. } => ExpandElement::Plain(kind),
+        Expression::Subcube(subcube) => flatten_subcube(subcube, context)?,
         Expression::__Range(_) => unimplemented!("Range expressions don't exist post expansion"),
     };
     Some(res)
@@ -376,6 +377,66 @@ fn flatten_tensor_expr(expr: TensorExpression, context: &mut CubeContext) -> Opt
         }
         TensorExpression::__SliceRange(_) => unimplemented!("Slice ranges don't exist at runtime"),
     };
+    Some(res)
+}
+
+fn flatten_subcube(subcube: SubcubeExpression, context: &mut CubeContext) -> Option<ExpandElement> {
+    let res = match subcube {
+        SubcubeExpression::Elect => {
+            let out = context.create_local(Item::new(subcube.ir_type()));
+            context.register(Operation::Subcube(Subcube::Elect(InitOperator {
+                out: *out,
+            })));
+            out
+        }
+        SubcubeExpression::Broadcast {
+            left,
+            right,
+            ty,
+            vectorization,
+        } => {
+            let left = flatten_expr(*left, context).unwrap();
+            let right = flatten_expr(*right, context).unwrap();
+            let out = context.create_local(item(ty, vectorization));
+            context.register(Operation::Subcube(Subcube::Broadcast(BinaryOperator {
+                lhs: *left,
+                rhs: *right,
+                out: *out,
+            })));
+            out
+        }
+        SubcubeExpression::Unary {
+            input,
+            operation,
+            ty,
+        } => {
+            let input = flatten_expr(*input, context).unwrap();
+            let out = context.create_local(Item::new(ty));
+            let op = map_op(
+                operation,
+                UnaryOperator {
+                    input: *input,
+                    out: *out,
+                },
+            );
+            context.register(Operation::Subcube(op));
+            out
+        }
+    };
+    fn map_op(operation: SubcubeOp, un_op: UnaryOperator) -> Subcube {
+        match operation {
+            SubcubeOp::All => Subcube::All(un_op),
+            SubcubeOp::Any => Subcube::Any(un_op),
+            SubcubeOp::Sum => Subcube::Sum(un_op),
+            SubcubeOp::Prod => Subcube::Prod(un_op),
+            SubcubeOp::And => Subcube::And(un_op),
+            SubcubeOp::Or => Subcube::Or(un_op),
+            SubcubeOp::Xor => Subcube::Xor(un_op),
+            SubcubeOp::Min => Subcube::Min(un_op),
+            SubcubeOp::Max => Subcube::Max(un_op),
+        }
+    }
+
     Some(res)
 }
 

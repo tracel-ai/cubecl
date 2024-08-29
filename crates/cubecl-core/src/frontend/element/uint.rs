@@ -1,7 +1,15 @@
-use crate::frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric};
-use crate::ir::{Elem, Vectorization};
+use cubecl_macros_2::expand_impl;
+
 use crate::prelude::{KernelBuilder, KernelLauncher};
 use crate::{frontend::Comptime, Runtime};
+use crate::{
+    frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric},
+    new_ir::Expand,
+};
+use crate::{
+    ir::{Elem, Vectorization},
+    new_ir::Expr,
+};
 
 use super::{
     init_expand_element, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand,
@@ -15,6 +23,16 @@ use super::{
 pub struct UInt {
     pub val: u32,
     pub vectorization: u8,
+}
+
+pub struct UIntExpand<Inner: Expr<Output = UInt>>(Inner);
+
+impl Expand for UInt {
+    type Expanded<Inner: Expr<Output = Self>> = UIntExpand<Inner>;
+
+    fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
+        UIntExpand(inner)
+    }
 }
 
 impl core::fmt::Debug for UInt {
@@ -63,9 +81,18 @@ impl Numeric for UInt {
     type Primitive = u32;
 }
 
+#[expand_impl]
 impl UInt {
     pub const fn new(val: u32) -> Self {
         Self {
+            val,
+            vectorization: 1,
+        }
+    }
+
+    #[expanded]
+    pub const fn new(val: u32) -> UInt {
+        UInt {
             val,
             vectorization: 1,
         }
@@ -81,6 +108,19 @@ impl UInt {
             }
         }
     }
+
+    #[expanded]
+    pub fn vectorized(val: u32, vectorization: UInt) -> UInt {
+        if vectorization.val == 1 {
+            UInt::new(val)
+        } else {
+            UInt {
+                val,
+                vectorization: vectorization.val as u8,
+            }
+        }
+    }
+
     pub fn __expand_new(
         context: &mut CubeContext,
         val: <Self as CubeType>::ExpandType,

@@ -96,6 +96,7 @@ impl ToTokens for Statement {
                     ));
                 }
             }
+            Statement::Skip => TokenStream::new(),
         };
 
         tokens.extend(out);

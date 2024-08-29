@@ -6,6 +6,7 @@ mod launch;
 mod operators;
 mod option;
 mod statement;
+mod subcube;
 mod tensor;
 mod types;
 
@@ -23,6 +24,7 @@ pub use launch::*;
 pub use operators::*;
 pub use option::*;
 pub use statement::*;
+pub use subcube::*;
 pub use tensor::*;
 pub use types::*;
 

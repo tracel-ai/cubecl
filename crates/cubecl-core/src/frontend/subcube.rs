@@ -1,9 +1,9 @@
 use super::{CubeContext, CubePrimitive, ExpandElement};
-use crate::prelude::ExpandElementTyped;
 use crate::{
     ir::{Elem, InitOperator, Item, Operation, Subcube, UnaryOperator},
     unexpanded,
 };
+use crate::{new_ir::Primitive, prelude::ExpandElementTyped};
 
 /// Returns true if the cube unit has the lowest subcube_unit_id among active unit in the subcube
 pub fn subcube_elect() -> bool {
@@ -22,12 +22,14 @@ pub fn subcube_elect_expand<E: CubePrimitive>(context: &mut CubeContext) -> Expa
 
 /// Perform a reduce sum operation across all units in a subcube.
 #[allow(unused_variables)]
-pub fn subcube_sum<E: CubePrimitive>(value: E) -> E {
+pub fn subcube_sum<E: Primitive>(value: E) -> E {
     unexpanded!()
 }
 
 /// Module containing the expand function for [subcube_sum()].
 pub mod subcube_sum {
+    use crate::new_ir::{Expr, SubcubeSumExpr};
+
     use super::*;
 
     /// Expand method of [subcube_sum()].
@@ -48,6 +50,10 @@ pub mod subcube_sum {
 
         output.into()
     }
+
+    pub fn expand<E: Primitive>(elem: impl Expr<Output = E>) -> impl Expr<Output = E> {
+        SubcubeSumExpr::new(elem)
+    }
 }
 
 /// Perform a reduce prod operation across all units in a subcube.
@@ -57,6 +63,8 @@ pub fn subcube_prod<E: CubePrimitive>(_elem: E) -> E {
 
 /// Module containing the expand function for [subcube_prod()].
 pub mod subcube_prod {
+    use crate::new_ir::{Expr, SubcubeProdExpr};
+
     use super::*;
 
     /// Expand method of [subcube_prod()].
@@ -77,6 +85,10 @@ pub mod subcube_prod {
 
         output.into()
     }
+
+    pub fn expand<E: Primitive>(elem: impl Expr<Output = E>) -> impl Expr<Output = E> {
+        SubcubeProdExpr::new(elem)
+    }
 }
 
 /// Perform a reduce max operation across all units in a subcube.
@@ -86,6 +98,8 @@ pub fn subcube_max<E: CubePrimitive>(_elem: E) -> E {
 
 /// Module containing the expand function for [subcube_max()].
 pub mod subcube_max {
+    use crate::new_ir::{Expr, SubcubeMaxExpr};
+
     use super::*;
 
     /// Expand method of [subcube_max()].
@@ -106,6 +120,10 @@ pub mod subcube_max {
 
         output.into()
     }
+
+    pub fn expand<E: Primitive>(elem: impl Expr<Output = E>) -> impl Expr<Output = E> {
+        SubcubeMaxExpr::new(elem)
+    }
 }
 
 /// Perform a reduce min operation across all units in a subcube.
@@ -115,6 +133,8 @@ pub fn subcube_min<E: CubePrimitive>(_elem: E) -> E {
 
 /// Module containing the expand function for [subcube_min()].
 pub mod subcube_min {
+    use crate::new_ir::{Expr, SubcubeMinExpr};
+
     use super::*;
 
     /// Expand method of [subcube_min()].
@@ -135,6 +155,10 @@ pub mod subcube_min {
 
         output.into()
     }
+
+    pub fn expand<E: Primitive>(elem: impl Expr<Output = E>) -> impl Expr<Output = E> {
+        SubcubeMinExpr::new(elem)
+    }
 }
 
 /// Perform a reduce all operation across all units in a subcube.
@@ -144,6 +168,8 @@ pub fn subcube_all<E: CubePrimitive>(_elem: E) -> E {
 
 /// Module containing the expand function for [subcube_all()].
 pub mod subcube_all {
+    use crate::new_ir::{Expr, SubcubeAllExpr};
+
     use super::*;
 
     /// Expand method of [subcube_all()].
@@ -163,5 +189,9 @@ pub mod subcube_all {
         })));
 
         output.into()
+    }
+
+    pub fn expand<E: Primitive>(elem: impl Expr<Output = E>) -> impl Expr<Output = E> {
+        SubcubeAllExpr::new(elem)
     }
 }

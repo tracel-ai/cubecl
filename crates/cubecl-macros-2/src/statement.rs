@@ -20,6 +20,7 @@ pub enum Statement {
         terminated: bool,
         span: Span,
     },
+    Skip,
 }
 
 impl Statement {
@@ -64,6 +65,7 @@ impl Statement {
                     expression,
                 }
             }
+            Stmt::Item(_) => Statement::Skip,
             stmt => Err(syn::Error::new_spanned(stmt, "Unsupported statement"))?,
         };
         Ok(statement)

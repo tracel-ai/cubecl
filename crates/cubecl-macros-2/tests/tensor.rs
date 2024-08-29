@@ -81,8 +81,8 @@ fn vectorization_tracing() {
     #[allow(unused)]
     #[cube2]
     fn vectorized(tensor: &Tensor2<u32>, scalar: u32) -> u32 {
-        let a = tensor[10];
-        a * scalar
+        let a = tensor[10]; //tensor: vec4, a: vec4
+        a * scalar // scalar: vec2, a: vec4 split into 2xvec2, output: vec2
     }
 
     let expanded = vectorized::expand(

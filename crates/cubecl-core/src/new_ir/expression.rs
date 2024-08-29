@@ -1,14 +1,16 @@
+use derive_more::derive::From;
+
 use crate::ir::{self, ConstantScalarValue, Elem};
 use std::{marker::PhantomData, num::NonZero, rc::Rc};
 
 use super::{
     compute::GlobalType, largest_common_vectorization, Operator, SquareType, Statement,
-    TensorExpression, TypeEq,
+    SubcubeExpression, TensorExpression, TypeEq,
 };
 
 pub type Vectorization = Option<NonZero<u8>>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, From)]
 pub enum Expression {
     Binary {
         left: Box<Expression>,
@@ -89,9 +91,8 @@ pub enum Expression {
     },
     /// Subtype for tensor specific operations
     Tensor(TensorExpression),
-    /// A range used in for loops. Currently doesn't exist at runtime, so can be ignored in codegen.
-    /// This only exists to pass the range down to the for loop it applies to
-    __Range(Range),
+    #[from]
+    Subcube(SubcubeExpression),
     ArrayInit {
         size: Box<Expression>,
         init: Box<Expression>,
@@ -100,6 +101,9 @@ pub enum Expression {
         kind: ir::Variable,
         ty: Elem,
     },
+    /// A range used in for loops. Currently doesn't exist at runtime, so can be ignored in codegen.
+    /// This only exists to pass the range down to the for loop it applies to
+    __Range(Range),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -142,6 +146,7 @@ impl Expression {
             Expression::ArrayInit { init, .. } => init.ir_type(),
             Expression::Global { ty, .. } => *ty,
             Expression::KernelVar { ty, .. } => *ty,
+            Expression::Subcube(expr) => expr.ir_type(),
         }
     }
 
@@ -168,6 +173,7 @@ impl Expression {
             Expression::ArrayInit { init, .. } => init.vectorization(),
             Expression::__Range(_) => None,
             Expression::KernelVar { .. } => None,
+            Expression::Subcube(expr) => expr.vectorization(),
         }
     }
 

@@ -301,7 +301,7 @@ where
 }
 
 #[derive(new)]
-pub struct Return<Type: SquareType, Ret: Expr<Output = Type>>(pub Option<Ret>);
+pub struct Return<Type: SquareType = (), Ret: Expr<Output = Type> = ()>(pub Option<Ret>);
 
 impl<Type: SquareType, Ret: Expr<Output = Type>> Expr for Return<Type, Ret> {
     type Output = Ret;

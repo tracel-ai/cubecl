@@ -9,8 +9,8 @@ use std::{
 use crate::{
     ir::Item,
     new_ir::{
-        Expr, GlobalVariable, IndexExpr, Integer, KernelBuilder, LaunchArg, LaunchArgExpand,
-        Primitive, SliceExpr, SliceRangeExpr, SquareType, Strided,
+        EqExpr, Expr, GlobalVariable, IndexExpr, Integer, KernelBuilder, LaunchArg,
+        LaunchArgExpand, Length, Primitive, SliceExpr, SliceRangeExpr, SquareType, Strided,
     },
     prelude::ArrayArg,
     unexpanded, Runtime,
@@ -58,6 +58,24 @@ impl<T: Primitive> LaunchArgExpand for Array<T> {
 
 #[expand_impl]
 impl<T: SquareType> Array<T> {
+    pub fn len(&self) -> u32 {
+        unexpanded!()
+    }
+
+    #[expanded]
+    pub fn len(self) -> impl Expr<Output = u32> {
+        Length::new(self.0)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[expanded]
+    pub fn is_empty(self) -> impl Expr<Output = bool> {
+        EqExpr::new(self.len(), 0)
+    }
+
     #[expanded]
     pub fn index<Idx: Expr>(self, index: Idx) -> impl Expr<Output = T>
     where

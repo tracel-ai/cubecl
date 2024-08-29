@@ -6,7 +6,7 @@ pub struct ExpandedGlobals;
 macro_rules! constant {
     ($ident:ident, $var:expr, $doc:expr) => {
         #[doc = $doc]
-        pub const $ident: u32 = 0;
+        pub const $ident: u32 = 10;
         impl ExpandedGlobals {
             pub const $ident: $crate::new_ir::KernelVariable<u32> =
                 $crate::new_ir::KernelVariable {

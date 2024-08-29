@@ -1,11 +1,13 @@
 use crate as cubecl;
 
+use cubecl::new_ir::element::Array;
 use cubecl::prelude::*;
+use cubecl_macros_2::cube2;
 
-#[cube(launch)]
-pub fn kernel_assign(output: &mut Array<F32>, vectorization: Comptime<UInt>) {
-    if UNIT_POS == UInt::new(0) {
-        let item = F32::vectorized(5.0, Comptime::get(vectorization));
+#[cube2(launch)]
+pub fn kernel_assign(output: &mut Array<f32>) {
+    if UNIT_POS == 0 {
+        let item = 5.0;
         output[0] = item;
     }
 }
@@ -20,7 +22,7 @@ pub fn test_kernel_assign_scalar<R: Runtime>(client: ComputeClient<R::Server, R:
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts(&handle, 2, vectorization) },
-        UInt::new(vectorization as u32),
+        //UInt::new(vectorization as u32),
     );
 
     let actual = client.read(handle.binding());

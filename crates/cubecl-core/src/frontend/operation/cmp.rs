@@ -55,7 +55,7 @@ impl_cmp!(
         F64 | f32;u32,
         I32 | i32;u32,
         I64 | i32;u32,
-        UInt | u32
+        UInt | u32; i32
     }
 );
 
