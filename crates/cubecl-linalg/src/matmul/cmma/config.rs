@@ -70,6 +70,7 @@ impl CmmaConfig {
         let n_tiles = launch_config.block_size_m * launch_config.block_size_n
             / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
         let lane_dim = launch_config.cube_dim_x * launch_config.cube_dim_y / CMMA_COOP_DIM;
+        assert!(lane_dim > 0, "Need at least one cooperative group.");
         let num_accumulators = n_tiles / lane_dim;
 
         CmmaConfig {

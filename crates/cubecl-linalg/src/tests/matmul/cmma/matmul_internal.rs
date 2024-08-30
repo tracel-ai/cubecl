@@ -20,20 +20,6 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
-        pub fn cmma_load_shared_memory_lhs_unit_test() {
-            tests::cmma::load_shared_memory::load_shared_memory_lhs_unit_test::<TestRuntime>(
-                &Default::default(),
-            )
-        }
-
-        #[test]
-        pub fn cmma_load_shared_memory_rhs_unit_test() {
-            tests::cmma::load_shared_memory::load_shared_memory_rhs_unit_test::<TestRuntime>(
-                &Default::default(),
-            )
-        }
-
-        #[test]
         pub fn cmma_load_shared_memory_lhs_warp_test() {
             tests::cmma::load_shared_memory::load_shared_memory_lhs_warp_test::<TestRuntime>(
                 &Default::default(),
@@ -108,11 +94,6 @@ macro_rules! testgen_cmma_internal {
             tests::cmma::load_shared_memory::load_shared_memory_rhs_k_offset_test::<TestRuntime>(
                 &Default::default(),
             )
-        }
-
-        #[test]
-        pub fn cmma_write_output_unit_test() {
-            tests::cmma::write_output::cmma_write_output_unit_test::<TestRuntime>(&Default::default())
         }
 
         #[test]
