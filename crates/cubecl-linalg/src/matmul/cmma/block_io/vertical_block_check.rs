@@ -21,13 +21,18 @@ impl<F: Float, FC: Float> BlockLoader<F, FC> for VerticalCheckBlockIO {
     ) {
         let tensor_vec = Comptime::vectorization(tensor);
         let tensor_vec_r = Comptime::runtime(tensor_vec);
+        let is_scalar = Comptime::map(tensor_vec, |v| v.val == 1);
 
         if read_row < dim_vertical {
             let read_pos = (batch_offset + read_row * dim_horizontal + read_col) / tensor_vec_r;
             let value = tensor[read_pos];
 
-            for i in range(0u32, Comptime::get(tensor_vec), Comptime::new(true)) {
-                shared_memory[write_pos + i] = FC::cast_from(value[i]);
+            if Comptime::get(is_scalar) {
+                shared_memory[write_pos] = FC::cast_from(value);
+            } else {
+                for i in range(0u32, Comptime::get(tensor_vec), Comptime::new(true)) {
+                    shared_memory[write_pos + i] = FC::cast_from(value[i]);
+                }
             }
         } else {
             for i in range(0u32, Comptime::get(tensor_vec), Comptime::new(true)) {

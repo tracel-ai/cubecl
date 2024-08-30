@@ -95,52 +95,59 @@ fn load_shared_memory_test_case<R: Runtime>(
 ) {
     let client = R::client(device);
 
-    let (tensor, sm, sm_size) = match input {
-        InputTensor::Lhs => (
-            range_tensor::<R>(&client, dims.m, dims.k),
-            create_empty::<R>(
-                &client,
-                launch_config.block_size_k,
-                launch_config.block_size_m,
+    for vectorization in [1, 2, 4] {
+        let (tensor, sm, sm_size) = match input {
+            InputTensor::Lhs => (
+                range_tensor::<R>(&client, dims.m, dims.k),
+                create_empty::<R>(
+                    &client,
+                    launch_config.block_size_k,
+                    launch_config.block_size_m,
+                ),
+                launch_config.block_size_k * launch_config.block_size_m,
             ),
-            launch_config.block_size_k * launch_config.block_size_m,
-        ),
-        InputTensor::Rhs => (
-            range_tensor::<R>(&client, dims.k, dims.n),
-            create_empty::<R>(
-                &client,
-                launch_config.block_size_k,
-                launch_config.block_size_n,
+            InputTensor::Rhs => (
+                range_tensor::<R>(&client, dims.k, dims.n),
+                create_empty::<R>(
+                    &client,
+                    launch_config.block_size_k,
+                    launch_config.block_size_n,
+                ),
+                launch_config.block_size_k * launch_config.block_size_n,
             ),
-            launch_config.block_size_k * launch_config.block_size_n,
-        ),
-    };
+        };
 
-    let cube_dim = CubeDim {
-        x: launch_config.cube_dim_x as u32,
-        y: launch_config.cube_dim_y as u32,
-        z: 1,
-    };
-    let cube_count = CubeCount::Static(1, 1, 1);
+        let cube_dim = CubeDim {
+            x: launch_config.cube_dim_x as u32,
+            y: launch_config.cube_dim_y as u32,
+            z: 1,
+        };
+        let cube_count = CubeCount::Static(1, 1, 1);
 
-    let config = CmmaConfig::new(dims.m, dims.k, dims.n, &launch_config);
+        let config = CmmaConfig::new(dims.m, dims.k, dims.n, &launch_config);
 
-    unsafe {
-        load_lhs_test::launch_unchecked::<F32, R>(
-            &R::client(device),
-            cube_count,
-            cube_dim,
-            TensorArg::from_raw_parts(&tensor.handle, &tensor.strides, &tensor.shape, 4),
-            ArrayArg::from_raw_parts(&sm, sm_size, 1),
-            ScalarArg::new(k_offset as u32),
-            ScalarArg::new(dims.m as u32),
-            ScalarArg::new(dims.k as u32),
-            ScalarArg::new(dims.n as u32),
-            config,
-        );
-    };
+        unsafe {
+            load_lhs_test::launch_unchecked::<F32, R>(
+                &R::client(device),
+                cube_count,
+                cube_dim,
+                TensorArg::from_raw_parts(
+                    &tensor.handle,
+                    &tensor.strides,
+                    &tensor.shape,
+                    vectorization,
+                ),
+                ArrayArg::from_raw_parts(&sm, sm_size, 1),
+                ScalarArg::new(k_offset as u32),
+                ScalarArg::new(dims.m as u32),
+                ScalarArg::new(dims.k as u32),
+                ScalarArg::new(dims.n as u32),
+                config,
+            );
+        };
 
-    assert_equals_range::<R>(&client, sm, expected, range);
+        assert_equals_range::<R>(&client, sm, expected, range.clone());
+    }
 }
 
 /// Exported test
