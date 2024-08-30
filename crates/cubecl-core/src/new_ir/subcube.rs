@@ -1,4 +1,4 @@
-use super::{Elem, Expr, Expression, Primitive, SquareType, UnaryOp, Vectorization};
+use super::{BinaryOp, Elem, Expr, Expression, Primitive, SquareType, UnaryOp, Vectorization};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SubcubeExpression {
@@ -93,3 +93,44 @@ unary_op!(SubcubeAnyExpr, Any);
 unary_op!(SubcubeAndExpr, And);
 unary_op!(SubcubeOrExpr, Or);
 unary_op!(SubcubeXorExpr, Xor);
+
+pub struct SubcubeElectExpr;
+
+impl Expr for SubcubeElectExpr {
+    type Output = bool;
+
+    fn expression_untyped(&self) -> Expression {
+        SubcubeExpression::Elect.into()
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        None
+    }
+}
+
+pub struct SubcubeBroadcastExpr<Left: Expr, Right: Expr<Output = u32>>(
+    BinaryOp<Left, Right, Left::Output>,
+)
+where
+    Left::Output: Primitive;
+
+impl<Left: Expr, Right: Expr<Output = u32>> Expr for SubcubeBroadcastExpr<Left, Right>
+where
+    Left::Output: Primitive,
+{
+    type Output = Left::Output;
+
+    fn expression_untyped(&self) -> Expression {
+        SubcubeExpression::Broadcast {
+            left: Box::new(self.0.left.expression_untyped()),
+            right: Box::new(self.0.right.expression_untyped()),
+            ty: Left::Output::ir_type(),
+            vectorization: self.vectorization(),
+        }
+        .into()
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        self.0.left.vectorization()
+    }
+}

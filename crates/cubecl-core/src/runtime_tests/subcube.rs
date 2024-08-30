@@ -1,12 +1,12 @@
 use crate as cubecl;
 use crate::Feature;
-use cubecl::new_ir::element::Tensor as NewTensor;
+use cubecl::new_ir::element::Tensor;
+use cubecl::new_ir::UNIT_POS;
 use cubecl::prelude::*;
 use cubecl_macros_2::cube2;
 
 #[cube2(launch)]
-pub fn kernel_sum(output: &mut NewTensor<f32>) {
-    use cubecl::new_ir::UNIT_POS;
+pub fn kernel_sum(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let val2 = subcube_sum(val);
 
@@ -15,32 +15,32 @@ pub fn kernel_sum(output: &mut NewTensor<f32>) {
     }
 }
 
-#[cube(launch)]
-pub fn kernel_prod<F: Float>(output: &mut Tensor<F>) {
+#[cube2(launch)]
+pub fn kernel_prod(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_prod::<F>(val);
+    let val2 = subcube_prod(val);
 
-    if UNIT_POS == UInt::new(0) {
+    if UNIT_POS == 0 {
         output[0] = val2;
     }
 }
 
-#[cube(launch)]
-pub fn kernel_max<F: Float>(output: &mut Tensor<F>) {
+#[cube2(launch)]
+pub fn kernel_max(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_max::<F>(val);
+    let val2 = subcube_max(val);
 
-    if UNIT_POS == UInt::new(0) {
+    if UNIT_POS == 0 {
         output[0] = val2;
     }
 }
 
-#[cube(launch)]
-pub fn kernel_min<F: Float>(output: &mut Tensor<F>) {
+#[cube2(launch)]
+pub fn kernel_min(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_min::<F>(val);
+    let val2 = subcube_min(val);
 
-    if UNIT_POS == UInt::new(0) {
+    if UNIT_POS == 0 {
         output[0] = val2;
     }
 }
@@ -66,7 +66,7 @@ pub fn test_subcube_prod<TestRuntime: Runtime>(
         &[140.0, 5.0, 7.0, 1.0],
         client.clone(),
         |cube_dim, settings, handle| {
-            kernel_prod::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+            kernel_prod::launch::<TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
 }
@@ -78,7 +78,7 @@ pub fn test_subcube_max<TestRuntime: Runtime>(
         &[7.0, 5.0, 7.0, 1.0],
         client.clone(),
         |cube_dim, settings, handle| {
-            kernel_max::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+            kernel_max::launch::<TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
 }
@@ -91,7 +91,7 @@ pub fn test_subcube_min<TestRuntime: Runtime>(
         &[1.0, 5.0, 7.0, 1.0],
         client.clone(),
         |cube_dim, settings, handle| {
-            kernel_min::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+            kernel_min::launch::<TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
 }
@@ -153,7 +153,7 @@ macro_rules! testgen_subcube {
         #[test]
         fn test_subcube_min() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_max::<TestRuntime>(client);
+            cubecl_core::runtime_tests::subcube::test_subcube_min::<TestRuntime>(client);
         }
     };
 }

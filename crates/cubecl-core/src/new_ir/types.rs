@@ -1,11 +1,7 @@
-use std::num::NonZero;
-
-use crate::{
-    ir::{ConstantScalarValue, Elem, FloatKind, IntKind},
-    prelude::{UInt, F32, F64, I32, I64},
-};
-
 use super::{Expr, Expression};
+use crate::ir::{ConstantScalarValue, Elem, FloatKind, IntKind};
+use num_traits::{NumCast, ToPrimitive};
+use std::{marker::PhantomData, num::NonZero};
 
 pub trait TypeEq<T> {}
 impl<T> TypeEq<T> for T {}
@@ -49,7 +45,6 @@ impl<T: Primitive> Expr for T {
     }
 }
 
-pub trait Integer: SquareType + Clone {}
 pub trait KernelArg {}
 
 impl<T: SquareType> KernelArg for T {}
@@ -98,6 +93,14 @@ impl<Expression: Expr> ExpandExpr<Expression::Output> for Expression where Expre
 
 pub trait MethodExpand: Sized {}
 
+pub trait Numeric: Primitive + NumCast + StaticExpand<Expanded = NumericExpand<Self>> {
+    fn new<N: ToPrimitive>(n: N) -> Self {
+        <Self as NumCast>::from(n).unwrap()
+    }
+}
+pub trait Float: Numeric {}
+pub trait Integer: Numeric {}
+
 impl SquareType for () {
     fn ir_type() -> Elem {
         Elem::Unit
@@ -107,6 +110,15 @@ impl SquareType for () {
 impl Primitive for () {
     fn value(&self) -> ConstantScalarValue {
         ConstantScalarValue::UInt(0)
+    }
+}
+
+pub struct NumericExpand<T: NumCast>(PhantomData<T>);
+
+impl<T: NumCast> NumericExpand<T> {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<N: ToPrimitive>(n: N) -> T {
+        <T as NumCast>::from(n).unwrap()
     }
 }
 
@@ -120,23 +132,20 @@ macro_rules! primitive {
     };
 }
 
-macro_rules! vectorized_primitive {
+macro_rules! numeric_primitive {
     ($primitive:ident, $var_type:expr) => {
-        impl SquareType for $primitive {
-            fn ir_type() -> Elem {
-                $var_type
-            }
+        primitive!($primitive, $var_type);
 
-            fn vectorization(&self) -> Option<NonZero<u8>> {
-                NonZero::new(self.vectorization)
-            }
+        impl Numeric for $primitive {}
+        impl StaticExpand for $primitive {
+            type Expanded = NumericExpand<$primitive>;
         }
     };
 }
 
 macro_rules! int_primitive {
     ($primitive:ident, $var_type:expr, $kind:expr) => {
-        primitive!($primitive, $var_type($kind));
+        numeric_primitive!($primitive, $var_type($kind));
 
         impl Integer for $primitive {}
         impl Primitive for $primitive {
@@ -149,7 +158,7 @@ macro_rules! int_primitive {
 
 macro_rules! uint_primitive {
     ($primitive:ident, $var_type:expr) => {
-        primitive!($primitive, $var_type);
+        numeric_primitive!($primitive, $var_type);
 
         impl Integer for $primitive {}
         impl Primitive for $primitive {
@@ -162,49 +171,12 @@ macro_rules! uint_primitive {
 
 macro_rules! float_primitive {
     ($primitive:ident, $var_type:expr, $kind:expr) => {
-        primitive!($primitive, $var_type($kind));
+        numeric_primitive!($primitive, $var_type($kind));
 
+        impl Float for $primitive {}
         impl Primitive for $primitive {
             fn value(&self) -> ConstantScalarValue {
                 ConstantScalarValue::Float(*self as f64, $kind)
-            }
-        }
-    };
-}
-
-macro_rules! vectorized_int_primitive {
-    ($primitive:ident, $var_type:expr, $kind:expr) => {
-        vectorized_primitive!($primitive, $var_type($kind));
-
-        impl Integer for $primitive {}
-        impl Primitive for $primitive {
-            fn value(&self) -> ConstantScalarValue {
-                ConstantScalarValue::Int(self.val as i64, $kind)
-            }
-        }
-    };
-}
-
-macro_rules! vectorized_uint_primitive {
-    ($primitive:ident, $var_type:expr) => {
-        vectorized_primitive!($primitive, $var_type);
-
-        impl Integer for $primitive {}
-        impl Primitive for $primitive {
-            fn value(&self) -> ConstantScalarValue {
-                ConstantScalarValue::UInt(self.val as u64)
-            }
-        }
-    };
-}
-
-macro_rules! vectorized_float_primitive {
-    ($primitive:ident, $var_type:expr, $kind:expr) => {
-        vectorized_primitive!($primitive, $var_type($kind));
-
-        impl Primitive for $primitive {
-            fn value(&self) -> ConstantScalarValue {
-                ConstantScalarValue::Float(self.val as f64, $kind)
             }
         }
     };
@@ -215,13 +187,6 @@ int_primitive!(i64, Elem::Int, IntKind::I64);
 uint_primitive!(u32, Elem::UInt);
 float_primitive!(f32, Elem::Float, FloatKind::F32);
 float_primitive!(f64, Elem::Float, FloatKind::F64);
-
-vectorized_uint_primitive!(UInt, Elem::UInt);
-vectorized_int_primitive!(I32, Elem::Int, IntKind::I32);
-vectorized_int_primitive!(I64, Elem::Int, IntKind::I64);
-vectorized_float_primitive!(F32, Elem::Float, FloatKind::F32);
-vectorized_float_primitive!(F64, Elem::Float, FloatKind::F64);
-
 primitive!(bool, Elem::Bool);
 
 impl Primitive for bool {

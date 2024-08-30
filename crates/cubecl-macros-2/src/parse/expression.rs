@@ -300,7 +300,9 @@ impl Expression {
             }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
-            Expr::Reference(reference) => Expression::from_expr(*reference.expr, context)?,
+            Expr::Reference(reference) => Expression::Reference {
+                inner: Box::new(Expression::from_expr(*reference.expr, context)?),
+            },
             Expr::Try(expr) => {
                 let span = expr.span();
                 let expr = Expression::from_expr(*expr.expr, context)?

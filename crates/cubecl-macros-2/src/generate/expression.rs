@@ -67,7 +67,7 @@ impl ToTokens for Expression {
                     }
                 }
             }
-            Expression::Verbatim { tokens } => {
+            Expression::Verbatim { tokens, .. } => {
                 let span = tokens.span();
                 quote_spanned! {span=>
                     #tokens
@@ -278,6 +278,14 @@ impl ToTokens for Expression {
                 let init_ty = ir_type("ArrayInit");
                 quote_spanned! {*span=>
                     #init_ty::new(#len, #init)
+                }
+            }
+            Expression::VerbatimTerminated { tokens } => tokens.clone(),
+            Expression::Reference { inner } => {
+                if let Some(as_const) = inner.as_const() {
+                    quote![&#as_const]
+                } else {
+                    quote![#inner]
                 }
             }
         };

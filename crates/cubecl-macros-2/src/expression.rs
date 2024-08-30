@@ -77,6 +77,9 @@ pub enum Expression {
     Verbatim {
         tokens: TokenStream,
     },
+    VerbatimTerminated {
+        tokens: TokenStream,
+    },
     Continue {
         span: Span,
     },
@@ -137,6 +140,9 @@ pub enum Expression {
         len: Box<Expression>,
         span: Span,
     },
+    Reference {
+        inner: Box<Expression>,
+    },
 }
 
 impl Expression {
@@ -168,6 +174,8 @@ impl Expression {
             Expression::Tuple { .. } => None,
             Expression::Slice { expr, .. } => expr.ty(),
             Expression::ArrayInit { init, .. } => init.ty(),
+            Expression::VerbatimTerminated { .. } => None,
+            Expression::Reference { inner } => inner.ty(),
         }
     }
 
@@ -175,9 +183,12 @@ impl Expression {
         match self {
             Expression::Literal { .. } => true,
             Expression::Verbatim { .. } => true,
+            Expression::VerbatimTerminated { .. } => true,
             Expression::ConstVariable { .. } => true,
             Expression::FieldAccess { base, .. } => base.is_const(),
+            Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
+            Expression::FunctionCall { args, .. } => args.iter().all(|it| it.is_const()),
             _ => false,
         }
     }
@@ -186,6 +197,7 @@ impl Expression {
         match self {
             Expression::Literal { value, .. } => Some(quote![#value]),
             Expression::Verbatim { tokens, .. } => Some(tokens.clone()),
+            Expression::VerbatimTerminated { tokens, .. } => Some(tokens.clone()),
             Expression::ConstVariable { name, .. } => Some(quote![#name]),
             Expression::Path { path, .. } => Some(quote![#path]),
             Expression::Array { elements, .. } => {
@@ -198,6 +210,8 @@ impl Expression {
             Expression::FieldAccess { base, field, .. } => {
                 base.as_const().map(|base| quote![#base.#field])
             }
+            Expression::Reference { inner } => inner.as_const().map(|base| quote![&#base]),
+            Expression::FunctionCall { .. } if self.is_const() => Some(quote![#self]),
             _ => None,
         }
     }
@@ -208,6 +222,7 @@ impl Expression {
             Expression::ForLoop { .. } => false,
             Expression::WhileLoop { .. } => false,
             Expression::Loop { .. } => false,
+            Expression::VerbatimTerminated { .. } => false,
             _ => true,
         }
     }

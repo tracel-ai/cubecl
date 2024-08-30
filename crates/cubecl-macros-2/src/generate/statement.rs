@@ -1,6 +1,6 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
-use syn::{spanned::Spanned, Pat};
+use syn::{spanned::Spanned, Pat, Token};
 
 use crate::{
     expression::Expression,
@@ -88,12 +88,19 @@ impl ToTokens for Statement {
                 }
             }
             Statement::Expression {
-                expression, span, ..
+                expression,
+                span,
+                terminated,
             } => {
-                quote_spanned! {*span=>
-                    __statements.push(#statement::Expression(
-                        #expr::expression_untyped(&(#expression))
-                    ));
+                if let Some(as_const) = expression.as_const() {
+                    let terminator = terminated.then(|| Token![;](*span));
+                    quote![#as_const #terminator]
+                } else {
+                    quote_spanned! {*span=>
+                        __statements.push(#statement::Expression(
+                            #expr::expression_untyped(&(#expression))
+                        ));
+                    }
                 }
             }
             Statement::Skip => TokenStream::new(),

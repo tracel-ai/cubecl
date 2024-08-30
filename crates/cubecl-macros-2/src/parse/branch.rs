@@ -1,4 +1,6 @@
-use syn::{spanned::Spanned, Block, ExprForLoop, ExprIf, ExprLoop, ExprWhile};
+use proc_macro2::Span;
+use quote::quote_spanned;
+use syn::{spanned::Spanned, Block, ExprForLoop, ExprIf, ExprLoop, ExprWhile, Ident};
 
 use crate::{
     expression::Expression,
@@ -12,14 +14,19 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
     let span = for_loop.span();
     let unroll = Unroll::from_attributes(&for_loop.attrs, context)?.map(|it| it.value);
 
-    let right = Expression::from_expr(*for_loop.expr, context)
+    let right = Expression::from_expr(*for_loop.expr.clone(), context)
         .map_err(|_| syn::Error::new(span, "Unsupported for loop expression"))?;
-
     let (var_name, ty, _) = parse_pat(*for_loop.pat)?;
+
+    if right.is_const() && !matches!(right, Expression::Range { .. }) {
+        return expand_for_in_loop(var_name, right, for_loop.body, span, context);
+    }
+
     context.push_scope();
     context.push_variable(var_name.clone(), ty.clone(), false);
     let block = parse_block(for_loop.body, context)?;
     context.pop_scope();
+
     Ok(Expression::ForLoop {
         range: Box::new(right),
         unroll: unroll.map(Box::new),
@@ -28,6 +35,38 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
         block: Box::new(block),
         span,
     })
+}
+
+fn expand_for_in_loop(
+    var_name: Ident,
+    right: Expression,
+    block: Block,
+    span: Span,
+    context: &mut Context,
+) -> syn::Result<Expression> {
+    let statements = block
+        .stmts
+        .into_iter()
+        .map(|stmt| Statement::from_stmt(stmt, context))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let for_loop = Expression::VerbatimTerminated {
+        tokens: quote_spanned! {span=>
+            for #var_name in #right {
+                #(#statements)*
+            }
+        },
+    };
+    Ok(for_loop)
+    // let block = ir_type("BlockExpr");
+    // let tokens = quote_spanned! {span=>
+    //     {
+    //         let mut __statements = Vec::new();
+    //         #for_loop
+    //         #block::new(__statements, ())
+    //     }
+    // };
+    // Ok(Expression::VerbatimTerminated { tokens })
 }
 
 pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::Result<Expression> {

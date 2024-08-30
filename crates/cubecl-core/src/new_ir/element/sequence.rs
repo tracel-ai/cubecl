@@ -1,11 +1,14 @@
-use cubecl_macros_2::{expand_impl, Expand};
-
 use crate::{
     ir::Elem,
-    new_ir::{Expr, Integer, RcExpr, SquareType},
+    new_ir::{Expr, Integer, RcExpr, SquareType, StaticExpand},
     unexpanded,
 };
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    mem,
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 /// A sequence of [cube types](CubeType) that is inlined during compilation.
 ///
@@ -14,11 +17,52 @@ use std::{cell::RefCell, rc::Rc};
 /// All methods [push](Sequence::push), [index](Sequence::index) and
 /// [into_iter](Sequence::into_iter) are executed _during_ compilation and don't add any overhead
 /// on the generated kernel.
-#[derive(Expand)]
-#[expand(ir_type = T::ir_type())]
 pub struct Sequence<T: SquareType> {
-    #[expand(skip)]
-    values: Vec<T>,
+    values: RefCell<Vec<T>>,
+}
+
+/// Expand type of [Sequence].
+pub struct SequenceExpand<T: SquareType> {
+    // We clone the expand type during the compilation phase, but for register reuse, not for
+    // copying data. To achieve the intended behavior, we have to share the same underlying values.
+    values: Rc<RefCell<Vec<RcExpr<T>>>>,
+}
+
+impl<T: SquareType> StaticExpand for Sequence<T> {
+    type Expanded = SequenceExpand<T>;
+}
+
+impl<T: SquareType> Expr for Sequence<T> {
+    type Output = Self;
+    fn expression_untyped(&self) -> ::cubecl_core::new_ir::Expression {
+        panic!("Can't expand struct directly");
+    }
+    fn vectorization(&self) -> Option<::core::num::NonZero<u8>> {
+        None
+    }
+}
+impl<T: SquareType> Expr for &Sequence<T> {
+    type Output = Self;
+    fn expression_untyped(&self) -> ::cubecl_core::new_ir::Expression {
+        panic!("Can't expand struct directly");
+    }
+    fn vectorization(&self) -> Option<::core::num::NonZero<u8>> {
+        None
+    }
+}
+impl<T: SquareType> Expr for &mut Sequence<T> {
+    type Output = Self;
+    fn expression_untyped(&self) -> ::cubecl_core::new_ir::Expression {
+        panic!("Can't expand struct directly");
+    }
+    fn vectorization(&self) -> Option<::core::num::NonZero<u8>> {
+        None
+    }
+}
+impl<T: SquareType> SquareType for Sequence<T> {
+    fn ir_type() -> Elem {
+        T::ir_type()
+    }
 }
 
 impl<T: SquareType> Default for Sequence<T> {
@@ -30,16 +74,17 @@ impl<T: SquareType> Default for Sequence<T> {
 unsafe impl<T: SquareType> Send for Sequence<T> {}
 unsafe impl<T: SquareType> Sync for Sequence<T> {}
 
-#[expand_impl]
 impl<T: SquareType> Sequence<T> {
     /// Create a new empty sequence.
     pub fn new() -> Self {
-        Self { values: Vec::new() }
+        Self {
+            values: Vec::new().into(),
+        }
     }
 
     /// Push a new value into the sequence.
-    pub fn push(&mut self, value: T) {
-        self.values.push(value);
+    pub fn push(&self, value: T) {
+        self.values.borrow_mut().push(value);
     }
 
     /// Get the variable at the given position in the sequence.
@@ -47,43 +92,31 @@ impl<T: SquareType> Sequence<T> {
     pub fn index<I: Integer>(&self, index: I) -> &T {
         unexpanded!();
     }
+}
 
+impl<T: SquareType> SequenceExpand<T> {
     /// Expand function of [new](Self::new).
     #[allow(clippy::new_ret_no_self)]
-    #[expanded]
-    pub fn new() -> SequenceExpanded<T> {
-        SequenceExpanded {
+    pub fn new() -> SequenceExpand<T> {
+        SequenceExpand {
             values: Rc::new(RefCell::new(Vec::new())),
         }
     }
 }
 
-/// Expand type of [Sequence].
-pub struct SequenceExpanded<T: SquareType> {
-    // We clone the expand type during the compilation phase, but for register reuse, not for
-    // copying data. To achieve the intended behavior, we have to share the same underlying values.
-    values: Rc<RefCell<Vec<RcExpr<T>>>>,
-}
-
-impl<T: SquareType> Expr for SequenceExpanded<T> {
-    type Output = Self;
-
-    fn expression_untyped(&self) -> crate::new_ir::Expression {
-        todo!()
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        todo!()
+impl<T: SquareType> Default for SequenceExpand<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-impl<T: SquareType> SequenceExpanded<T> {
+impl<T: SquareType> SequenceExpand<T> {
     pub fn expand(&self) -> &Self {
         self
     }
 }
 
-impl<T: SquareType> Clone for SequenceExpanded<T> {
+impl<T: SquareType> Clone for SequenceExpand<T> {
     fn clone(&self) -> Self {
         Self {
             values: self.values.clone(),
@@ -97,11 +130,12 @@ impl<T: SquareType> IntoIterator for Sequence<T> {
     type IntoIter = <Vec<T> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.values.into_iter()
+        let values = mem::take(self.values.borrow_mut().deref_mut());
+        values.into_iter()
     }
 }
 
-impl<T: SquareType> IntoIterator for SequenceExpanded<T> {
+impl<T: SquareType> IntoIterator for SequenceExpand<T> {
     type Item = RcExpr<T>;
 
     type IntoIter = <Vec<RcExpr<T>> as IntoIterator>::IntoIter;
@@ -111,14 +145,14 @@ impl<T: SquareType> IntoIterator for SequenceExpanded<T> {
     }
 }
 
-impl<T: SquareType> SequenceExpanded<T> {
+impl<T: SquareType> SequenceExpand<T> {
     /// Expand method of [push](Sequence::push).
-    pub fn push(&mut self, value: impl Expr<Output = T> + 'static) {
-        self.values.borrow_mut().push(RcExpr::new(value));
+    pub fn push(&self, value: impl Expr<Output = T> + 'static) {
+        self.values.deref().borrow_mut().push(RcExpr::new(value));
     }
 
     /// Expand method of [index](Sequence::index).
-    pub fn index<I: Integer>(&self, index: impl Expr<Output = T>) -> impl Expr<Output = T> {
+    pub fn index<I: Integer>(&self, index: impl Expr<Output = I>) -> impl Expr<Output = T> {
         let index = index
             .expression_untyped()
             .as_lit()
@@ -128,7 +162,7 @@ impl<T: SquareType> SequenceExpanded<T> {
     }
 }
 
-impl<T: SquareType> SquareType for SequenceExpanded<T> {
+impl<T: SquareType> SquareType for SequenceExpand<T> {
     fn ir_type() -> Elem {
         T::ir_type()
     }

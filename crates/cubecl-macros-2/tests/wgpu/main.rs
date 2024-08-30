@@ -32,3 +32,56 @@ pub fn slice_assign() {
     let expected = include_str!("slice_assign.wgsl");
     assert_eq!(compile(kernel), expected);
 }
+
+#[cube2(launch, create_dummy_kernel)]
+pub fn kernel_sum(output: &mut Tensor<f32>) {
+    let val = output[UNIT_POS];
+    let val2 = cubecl_core::prelude::subcube_sum(val);
+
+    if UNIT_POS == 0 {
+        output[0] = val2;
+    }
+}
+
+#[test]
+pub fn subcube_sum() {
+    let client = client();
+    let output = handle(&client);
+
+    let kernel = kernel_sum::create_dummy_kernel::<WgpuRuntime>(
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(4, 1, 1),
+        tensor(&output),
+    );
+    let expected = include_str!("subcube_sum.wgsl");
+    assert_eq!(compile(kernel), expected);
+}
+
+#[cube2(launch, create_dummy_kernel)]
+pub fn sequence_for_loop_kernel(output: &mut Array<f32>) {
+    if UNIT_POS != 0 {
+        return;
+    }
+
+    let sequence = Sequence::<f32>::new();
+    sequence.push(1.0);
+    sequence.push(4.0);
+
+    for value in sequence {
+        output[0] += value;
+    }
+}
+
+#[test]
+pub fn sequence_for_loop() {
+    let client = client();
+    let output = handle(&client);
+
+    let kernel = sequence_for_loop_kernel::create_dummy_kernel::<WgpuRuntime>(
+        CubeCount::Static(1, 1, 1),
+        CubeDim::default(),
+        array(&output),
+    );
+    let expected = include_str!("sequence_for_loop.wgsl");
+    assert_eq!(compile(kernel), expected);
+}

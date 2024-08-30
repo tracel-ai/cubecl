@@ -1,25 +1,27 @@
 use crate as cubecl;
-
+use cubecl::new_ir::element::Array;
+use cubecl::new_ir::Float;
 use cubecl::prelude::*;
+use cubecl_macros_2::cube2;
 
-#[cube(launch)]
+#[cube2(launch)]
 pub fn kernel_with_generics<F: Float>(output: &mut Array<F>) {
     if UNIT_POS == 0 {
         output[0] = F::new(5.0);
     }
 }
 
-#[cube(launch)]
-pub fn kernel_without_generics(output: &mut Array<F32>) {
-    if UNIT_POS == UInt::new(0) {
-        output[0] = F32::new(5.0);
+#[cube2(launch)]
+pub fn kernel_without_generics(output: &mut Array<f32>) {
+    if UNIT_POS == 0 {
+        output[0] = 5.0;
     }
 }
 
 pub fn test_kernel_with_generics<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
 
-    kernel_with_generics::launch::<F32, R>(
+    kernel_with_generics::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),

@@ -10,6 +10,14 @@ pub fn subcube_elect() -> bool {
     unexpanded!()
 }
 
+pub mod subcube_elect {
+    use crate::new_ir::{Expr, SubcubeElectExpr};
+
+    pub fn expand() -> impl Expr<Output = bool> {
+        SubcubeElectExpr
+    }
+}
+
 pub fn subcube_elect_expand<E: CubePrimitive>(context: &mut CubeContext) -> ExpandElement {
     let output = context.create_local(Item::new(Elem::Bool));
 
@@ -57,7 +65,7 @@ pub mod subcube_sum {
 }
 
 /// Perform a reduce prod operation across all units in a subcube.
-pub fn subcube_prod<E: CubePrimitive>(_elem: E) -> E {
+pub fn subcube_prod<E: Primitive>(_elem: E) -> E {
     unexpanded!()
 }
 
@@ -92,7 +100,7 @@ pub mod subcube_prod {
 }
 
 /// Perform a reduce max operation across all units in a subcube.
-pub fn subcube_max<E: CubePrimitive>(_elem: E) -> E {
+pub fn subcube_max<E: Primitive>(_elem: E) -> E {
     unexpanded!()
 }
 
@@ -127,7 +135,7 @@ pub mod subcube_max {
 }
 
 /// Perform a reduce min operation across all units in a subcube.
-pub fn subcube_min<E: CubePrimitive>(_elem: E) -> E {
+pub fn subcube_min<E: Primitive>(_elem: E) -> E {
     unexpanded!()
 }
 

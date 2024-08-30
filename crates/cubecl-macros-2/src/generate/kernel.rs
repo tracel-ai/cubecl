@@ -154,6 +154,8 @@ impl Kernel {
 
         let mut expand_generics = self.generics.clone();
         StripBounds.visit_generics_mut(&mut expand_generics);
+        let expand_generics =
+            (!expand_generics.params.is_empty()).then(|| quote![::#expand_generics]);
 
         let settings = self.configure_settings();
         let io_mappings = self.io_mappings();
@@ -284,6 +286,8 @@ impl Kernel {
             let args = self.launch_args();
             let mut expand_generics = self.generics.clone();
             StripBounds.visit_generics_mut(&mut expand_generics);
+            let expand_generics =
+                (!expand_generics.params.is_empty()).then(|| quote![::#expand_generics]);
             let expand_inputs = self.parameters.iter().map(|it| &it.name);
 
             let settings = self.configure_settings();
@@ -410,6 +414,8 @@ impl Kernel {
 
     fn check_args(&self) -> TokenStream {
         if self.args.is_launch() {
+            let generics = &self.generics;
+
             let input_checks = self
                 .parameters
                 .iter()
@@ -427,7 +433,7 @@ impl Kernel {
                 .collect::<Vec<_>>();
 
             quote! {
-                fn __check_inputs() {
+                fn __check_inputs #generics() {
                     #(#input_checks)*
                 }
             }

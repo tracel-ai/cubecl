@@ -20,6 +20,12 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
             ty,
             vectorization,
         } => {
+            if matches!(*left, Expression::Tensor(TensorExpression::Index { .. }))
+                && operator.is_assign()
+            {
+                return split_assign_op(*left, *right, operator, context);
+            }
+
             let left = flatten_expr(*left, context).unwrap();
             let right = flatten_expr(*right, context).unwrap();
             let out = if operator.is_assign() {
@@ -481,6 +487,54 @@ fn map_un_op(operator: Operator, un_op: UnaryOperator) -> ir::Operator {
         Operator::Neg => ir::Operator::Neg(un_op),
         _ => unreachable!("Operator must be unary"),
     }
+}
+
+fn split_assign_op(
+    left: Expression,
+    right: Expression,
+    operator: Operator,
+    context: &mut CubeContext,
+) -> Option<ExpandElement> {
+    let new_operator = match operator {
+        Operator::AddAssign => Operator::Add,
+        Operator::SubAssign => Operator::Sub,
+        Operator::MulAssign => Operator::Mul,
+        Operator::DivAssign => Operator::Div,
+        Operator::RemAssign => Operator::Rem,
+        Operator::BitXorAssign => Operator::BitXor,
+        Operator::BitAndAssign => Operator::BitAnd,
+        Operator::BitOrAssign => Operator::BitOr,
+        Operator::ShlAssign => Operator::Shl,
+        Operator::ShrAssign => Operator::Shr,
+        _ => unreachable!(),
+    };
+    let (tensor, index) = match left.clone() {
+        Expression::Tensor(TensorExpression::Index { tensor, index }) => (tensor, index),
+        _ => unreachable!(),
+    };
+    let binary = {
+        let left = flatten_expr(left, context).unwrap();
+        let right = flatten_expr(right, context).unwrap();
+        let operation = map_bin_op(
+            new_operator,
+            BinaryOperator {
+                lhs: *left,
+                rhs: *right,
+                out: *left,
+            },
+        );
+        context.register(operation);
+        left
+    };
+
+    let index = flatten_expr(*index, context).unwrap();
+    let tensor = flatten_expr(*tensor, context).unwrap();
+    context.register(ir::Operator::IndexAssign(BinaryOperator {
+        lhs: *index,
+        rhs: *binary,
+        out: *tensor,
+    }));
+    None
 }
 
 fn item(ty: Elem, vectorization: Option<NonZero<u8>>) -> Item {
