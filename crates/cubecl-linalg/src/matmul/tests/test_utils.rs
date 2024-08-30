@@ -127,10 +127,11 @@ pub(crate) fn assert_equals_approx<R: Runtime>(
     let actual = client.read(output.binding());
     let actual = f32::from_bytes(&actual);
 
-    for (a, e) in actual.iter().zip(expected.iter()) {
+    for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         assert!(
             (a - e).abs() < epsilon,
-            "Values differ more than epsilon: actual={}, expected={}, difference={}, epsilon={}",
+            "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
+            i,
             a,
             e,
             (a - e).abs(),
