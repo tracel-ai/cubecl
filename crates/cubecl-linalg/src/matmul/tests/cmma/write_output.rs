@@ -4,10 +4,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::base::{Dimensions, DimensionsExpand, Offsets, OffsetsExpand};
-use crate::matmul::cmma::config::CmmaLaunchConfig;
+use crate::matmul::cmma::config::CmmaBlockConfig;
 use crate::matmul::tests::test_utils::{assert_equals, assert_equals_range, zeros_tensor};
 use crate::matmul::{
-    cmma::{config::CmmaConfig, write_output::*},
+    cmma::{config::CmmaComptimeInfo, write_output::*},
     tests::test_utils::range_tensor,
 };
 
@@ -20,7 +20,7 @@ fn write_output_test<F: Float>(
     m: UInt,
     k: UInt,
     n: UInt,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
     let tile_size = Comptime::map(config, |c| c.tile_size);
@@ -50,7 +50,7 @@ fn write_output_test<F: Float>(
 
 fn write_output_test_case<R: Runtime>(
     dims: DimsTestCase,
-    launch_config: CmmaLaunchConfig,
+    config: CmmaBlockConfig,
     expected: &[f32],
     device: &R::Device,
     range: Option<Range<usize>>,
@@ -59,32 +59,20 @@ fn write_output_test_case<R: Runtime>(
 
     for vectorization in [1, 2, 4] {
         let out = zeros_tensor::<R>(&client, dims.m, dims.n);
-        let acc_sm = range_tensor::<R>(
-            &client,
-            launch_config.block_size_m,
-            launch_config.block_size_n,
-        );
 
-        let cube_dim = CubeDim {
-            x: launch_config.cube_dim_x as u32,
-            y: launch_config.cube_dim_y as u32,
-            z: 1,
-        };
-        let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
-
-        let config = CmmaConfig::new(dims.m, dims.k, dims.n, &launch_config);
+        let acc_sm = range_tensor::<R>(&client, config.b_mn, config.b_mn);
 
         unsafe {
             write_output_test::launch_unchecked::<F32, R>(
                 &client,
-                cube_count,
-                cube_dim,
+                config.cube_count::<R>(&[dims.m, dims.n]),
+                config.cube_dim(),
                 TensorArg::from_raw_parts(&out.handle, &out.strides, &out.shape, vectorization),
                 ArrayArg::from_raw_parts(&acc_sm.handle, acc_sm.shape.len(), 1),
                 ScalarArg::new(dims.m as u32),
                 ScalarArg::new(dims.k as u32),
                 ScalarArg::new(dims.n as u32),
-                config,
+                config.comptime_info(dims.m, dims.k, dims.n),
             );
         };
 
@@ -105,14 +93,7 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
             k: 16,
             n: 32,
         },
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 1,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -170,14 +151,7 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
             k: 16,
             n: 28,
         },
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 1,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -229,14 +203,7 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
             k: 16,
             n: 32,
         },
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 1,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -288,14 +255,7 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
             k: 16,
             n: 28,
         },
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 1,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -343,14 +303,7 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
             k: 16,
             n: 64,
         },
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -451,14 +404,7 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
             k: 16,
             n: 64,
         },
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             1024., 1025., 1026., 1027., 1028., 1029., 1030., 1031., 1032., 1033., 1034., 1035.,
             1036., 1037., 1038., 1039., 1280., 1281., 1282., 1283., 1284., 1285., 1286., 1287.,

@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::base::Dimensions;
-use crate::matmul::cmma::config::CmmaConfig;
+use crate::matmul::cmma::config::CmmaComptimeInfo;
 
 #[cube]
 pub(crate) trait BlockLoader<F: Float, FC: Float>: Send + Sync + 'static {
@@ -30,6 +30,6 @@ pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
         write_row: UInt,
         write_col: UInt,
         dims: Dimensions,
-        config: Comptime<CmmaConfig>,
+        config: Comptime<CmmaComptimeInfo>,
     );
 }

@@ -8,7 +8,7 @@ use super::{
         unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
         whole_block_check::WholeCheckBlockIO,
     },
-    config::CmmaConfig,
+    config::CmmaComptimeInfo,
 };
 
 #[cube]
@@ -17,7 +17,7 @@ pub(crate) fn write_to_output<F: Float>(
     accumulators: Sequence<cmma::Matrix<F>>,
     offsets: Offsets,
     dims: Dimensions,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let accumulator_sm = fragment_to_shared_memory(accumulators, config);
     shared_memory_to_output(out, offsets, accumulator_sm, dims, config);
@@ -26,7 +26,7 @@ pub(crate) fn write_to_output<F: Float>(
 #[cube]
 fn fragment_to_shared_memory<F: Float>(
     accumulators: Sequence<cmma::Matrix<F>>,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) -> SharedMemory<F> {
     let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
     let tile_size = Comptime::map(config, |c| c.tile_size);
@@ -63,7 +63,7 @@ pub(crate) fn shared_memory_to_output<F: Float>(
     offsets: Offsets,
     accumulator_sm: SharedMemory<F>,
     dims: Dimensions,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let check_m_bounds = Comptime::map(config, |c| c.check_m_bounds);
     let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
@@ -87,7 +87,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     offsets: Offsets,
     accumulator_sm: SharedMemory<F>,
     dims: Dimensions,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);

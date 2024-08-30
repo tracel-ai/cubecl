@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::{base::Dimensions, config::CmmaConfig};
+use crate::matmul::cmma::{base::Dimensions, config::CmmaComptimeInfo};
 
 use super::base::{BlockLoader, BlockWriter};
 
@@ -48,7 +48,7 @@ impl<F: Float> BlockWriter<F> for UncheckedBlockIO {
         write_row: UInt,
         write_col: UInt,
         dims: Dimensions,
-        config: Comptime<CmmaConfig>,
+        config: Comptime<CmmaComptimeInfo>,
     ) {
         let tile_size = Comptime::map(config, |c| c.tile_size);
         let out_vec = Comptime::vectorization(out);

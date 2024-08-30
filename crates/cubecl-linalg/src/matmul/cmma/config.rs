@@ -4,7 +4,75 @@ use cubecl_core::prelude::*;
 pub(crate) const CMMA_COOP_DIM: usize = 32;
 pub(crate) const CMMA_TILE_SIZE: usize = 16;
 
-impl Init for CmmaConfig {
+pub struct CmmaBlockConfig {
+    /// Corresponds to the number of tiles in the m and n dimensions for a block
+    pub b_mn: usize,
+    /// Corresponds to the number of tiles in the k dimension for a block
+    pub b_k: usize,
+    /// Corresponds to the number of accumulators per warp. Equals b_mn / b_k
+    pub alpha: usize,
+}
+impl CmmaBlockConfig {
+    pub(crate) fn new(b_mn: usize, b_k: usize) -> CmmaBlockConfig {
+        assert!(b_mn % CMMA_TILE_SIZE == 0);
+        assert!(b_k % CMMA_TILE_SIZE == 0);
+        assert!(b_mn % b_k == 0);
+        CmmaBlockConfig {
+            b_mn,
+            b_k,
+            alpha: b_mn / b_k,
+        }
+    }
+
+    pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> CmmaComptimeInfo {
+        let lane_dim = self.b_mn * self.b_k / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
+
+        CmmaComptimeInfo {
+            block_size_m: self.b_mn.into(),
+            block_size_k: self.b_k.into(),
+            block_size_n: self.b_mn.into(),
+            tile_size: CMMA_TILE_SIZE.into(),
+            unroll: true,
+            check_m_bounds: m % self.b_mn != 0,
+            check_k_bounds: k % self.b_k != 0,
+            check_n_bounds: n % self.b_mn != 0,
+            coop_dim: CMMA_COOP_DIM.into(),
+            lane_dim: UInt::new(lane_dim as u32),
+            num_accumulators: UInt::new(self.alpha as u32),
+        }
+    }
+
+    pub(crate) fn cube_count<R: Runtime>(
+        &self,
+        output_shape: &[usize],
+    ) -> CubeCount<<R as Runtime>::Server> {
+        let rank = output_shape.len();
+        let num_rows = *output_shape.get(rank - 2).unwrap();
+        let num_cols = *output_shape.get(rank - 1).unwrap();
+
+        let cubes_x = f32::ceil(num_rows as f32 / self.b_mn as f32) as u32;
+        let cubes_y = f32::ceil(num_cols as f32 / self.b_mn as f32) as u32;
+
+        let mut num_iter = 1;
+        for shape in output_shape.iter().take(rank - 2) {
+            num_iter *= shape;
+        }
+
+        CubeCount::Static(cubes_x, cubes_y, num_iter as u32)
+    }
+
+    pub(crate) fn cube_dim(&self) -> CubeDim {
+        // A bit arbitrary as long as number of elements stays the same
+        // TODO allow trying other combinations that have same product
+        CubeDim {
+            x: CMMA_COOP_DIM as u32,
+            y: ((self.b_mn * self.b_k) / (CMMA_TILE_SIZE * CMMA_TILE_SIZE)) as u32,
+            z: 1,
+        }
+    }
+}
+
+impl Init for CmmaComptimeInfo {
     fn init(self, _context: &mut CubeContext) -> Self {
         self
     }
@@ -12,7 +80,7 @@ impl Init for CmmaConfig {
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Tiling 2D parameters
-pub struct CmmaConfig {
+pub struct CmmaComptimeInfo {
     /// Block size along dimension of lhs
     pub block_size_m: UInt,
     /// Block size along common dimension
@@ -35,74 +103,4 @@ pub struct CmmaConfig {
     pub lane_dim: UInt,
     /// Number of cmma per subcube performed in one pass
     pub num_accumulators: UInt,
-}
-
-pub struct CmmaLaunchConfig {
-    /// Block size along dimension of lhs
-    pub block_size_m: usize,
-    /// Block size along common dimension
-    pub block_size_k: usize,
-    /// Block size along dimension of rhs
-    pub block_size_n: usize,
-    /// Cube dim in x
-    pub cube_dim_x: usize,
-    /// Cube dim in x
-    pub cube_dim_y: usize,
-    /// Unroll
-    pub unroll: bool,
-}
-
-impl Default for CmmaLaunchConfig {
-    fn default() -> Self {
-        Self {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        }
-    }
-}
-
-impl CmmaConfig {
-    pub(crate) fn new(m: usize, k: usize, n: usize, launch_config: &CmmaLaunchConfig) -> Self {
-        let n_tiles = launch_config.block_size_m * launch_config.block_size_n
-            / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
-        let lane_dim = launch_config.cube_dim_x * launch_config.cube_dim_y / CMMA_COOP_DIM;
-        assert!(lane_dim > 0, "Need at least one cooperative group.");
-        let num_accumulators = n_tiles / lane_dim;
-
-        CmmaConfig {
-            block_size_m: launch_config.block_size_m.into(),
-            block_size_k: launch_config.block_size_k.into(),
-            block_size_n: launch_config.block_size_n.into(),
-            tile_size: CMMA_TILE_SIZE.into(),
-            unroll: launch_config.unroll,
-            check_m_bounds: m % launch_config.block_size_m != 0,
-            check_k_bounds: k % launch_config.block_size_k != 0,
-            check_n_bounds: n % launch_config.block_size_n != 0,
-            coop_dim: CMMA_COOP_DIM.into(),
-            lane_dim: UInt::new(lane_dim as u32),
-            num_accumulators: UInt::new(num_accumulators as u32),
-        }
-    }
-}
-
-pub fn cmma_cube_count<R: Runtime>(
-    output_shape: &[usize],
-    cmma_launch_config: &CmmaLaunchConfig,
-) -> CubeCount<R::Server> {
-    let rank = output_shape.len();
-    let num_rows = *output_shape.get(rank - 2).unwrap();
-    let num_cols = *output_shape.get(rank - 1).unwrap();
-
-    let cubes_x = f32::ceil(num_rows as f32 / cmma_launch_config.block_size_m as f32) as u32;
-    let cubes_y = f32::ceil(num_cols as f32 / cmma_launch_config.block_size_n as f32) as u32;
-    let mut num_iter = 1;
-    for shape in output_shape.iter().take(rank - 2) {
-        num_iter *= shape;
-    }
-
-    CubeCount::Static(cubes_x, cubes_y, num_iter as u32)
 }

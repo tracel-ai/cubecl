@@ -4,10 +4,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::base::{Dimensions, DimensionsExpand, Offsets, OffsetsExpand};
-use crate::matmul::cmma::config::CmmaLaunchConfig;
+use crate::matmul::cmma::config::CmmaBlockConfig;
 use crate::matmul::tests::test_utils::{assert_equals_range, create_empty};
 use crate::matmul::{
-    cmma::{config::CmmaConfig, load_shared_memory::*},
+    cmma::{config::CmmaComptimeInfo, load_shared_memory::*},
     tests::test_utils::range_tensor,
 };
 
@@ -21,7 +21,7 @@ fn load_lhs_test<F: Float>(
     m: UInt,
     k: UInt,
     n: UInt,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
@@ -58,7 +58,7 @@ fn load_rhs_test<F: Float>(
     m: UInt,
     k: UInt,
     n: UInt,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
@@ -96,7 +96,7 @@ fn load_shared_memory_test_case<R: Runtime>(
     input: InputTensor,
     dims: DimsTestCase,
     k_offset: usize,
-    launch_config: CmmaLaunchConfig,
+    config: CmmaBlockConfig,
     expected: &[f32],
     device: &R::Device,
     range: Range<usize>,
@@ -107,38 +107,21 @@ fn load_shared_memory_test_case<R: Runtime>(
         let (tensor, sm, sm_size) = match input {
             InputTensor::Lhs => (
                 range_tensor::<R>(&client, dims.m, dims.k),
-                create_empty::<R>(
-                    &client,
-                    launch_config.block_size_k,
-                    launch_config.block_size_m,
-                ),
-                launch_config.block_size_k * launch_config.block_size_m,
+                create_empty::<R>(&client, config.b_k, config.b_mn),
+                config.b_k * config.b_mn,
             ),
             InputTensor::Rhs => (
                 range_tensor::<R>(&client, dims.k, dims.n),
-                create_empty::<R>(
-                    &client,
-                    launch_config.block_size_k,
-                    launch_config.block_size_n,
-                ),
-                launch_config.block_size_k * launch_config.block_size_n,
+                create_empty::<R>(&client, config.b_k, config.b_mn),
+                config.b_k * config.b_mn,
             ),
         };
-
-        let cube_dim = CubeDim {
-            x: launch_config.cube_dim_x as u32,
-            y: launch_config.cube_dim_y as u32,
-            z: 1,
-        };
-        let cube_count = CubeCount::Static(1, 1, 1);
-
-        let config = CmmaConfig::new(dims.m, dims.k, dims.n, &launch_config);
 
         unsafe {
             load_lhs_test::launch_unchecked::<F32, R>(
                 &R::client(device),
-                cube_count,
-                cube_dim,
+                config.cube_count::<R>(&[dims.m, dims.n]),
+                config.cube_dim(),
                 TensorArg::from_raw_parts(
                     &tensor.handle,
                     &tensor.strides,
@@ -150,7 +133,7 @@ fn load_shared_memory_test_case<R: Runtime>(
                 ScalarArg::new(dims.m as u32),
                 ScalarArg::new(dims.k as u32),
                 ScalarArg::new(dims.n as u32),
-                config,
+                config.comptime_info(dims.m, dims.k, dims.n),
             );
         };
 
@@ -168,14 +151,7 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 1,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0,
@@ -214,14 +190,7 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 1,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0,
@@ -260,14 +229,7 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
             n: 64,
         },
         0,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0,
@@ -305,14 +267,7 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
             n: 64,
         },
         0,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 0.0, 0.0, 0.0, 0.0, 12.0,
             13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 0.0, 0.0, 0.0, 0.0,
@@ -349,14 +304,7 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
             n: 64,
         },
         0,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 0.0, 0.0, 0.0, 0.0, 12.0,
             13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 0.0, 0.0, 0.0, 0.0,
@@ -392,14 +340,7 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             16., 17., 18., 19., 20., 21., 22., 23., 24., 25., 26., 27., 28., 29., 30., 31., 80.,
             81., 82., 83., 84., 85., 86., 87., 88., 89., 90., 91., 92., 93., 94., 95., 144., 145.,
@@ -435,14 +376,7 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0,
             30.0, 31.0, 80.0, 81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0, 91.0,
@@ -481,14 +415,7 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0,
             30.0, 31.0, 80.0, 81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0, 91.0,
@@ -527,14 +454,7 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             1024.0, 1025.0, 1026.0, 1027.0, 1028.0, 1029.0, 1030.0, 1031.0, 1032.0, 1033.0, 1034.0,
             1035.0, 1036.0, 1037.0, 1038.0, 1039.0, 1088.0, 1089.0, 1090.0, 1091.0, 1092.0, 1093.0,
@@ -576,14 +496,7 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         32,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0,
             46.0, 47.0, 96.0, 97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0,
@@ -623,14 +536,7 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         32,
-        CmmaLaunchConfig {
-            block_size_m: 64,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 8,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(64, 32),
         &[
             32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0,
             46.0, 47.0, 96.0, 97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0,

@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use super::{
     base::{Dimensions, Offsets, SharedMemories},
     compute_loop::compute_loop,
-    config::CmmaConfig,
+    config::CmmaComptimeInfo,
     load_shared_memory::load_to_shared_memories,
     write_output::write_to_output,
 };
@@ -17,7 +17,7 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     mut offsets: Offsets,
     shared_memories: SharedMemories<FC>,
     mut accumulators: Sequence<cmma::Matrix<F>>,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
     dims: Dimensions,
 ) {
     let block_size_k = Comptime::runtime(Comptime::map(config, |c| c.block_size_k));

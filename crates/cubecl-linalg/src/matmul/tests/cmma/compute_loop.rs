@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::cmma::{
     base::{make_accumulators, SharedMemories, SharedMemoriesExpand},
     compute_loop::compute_loop,
-    config::{CmmaConfig, CmmaLaunchConfig},
+    config::CmmaComptimeInfo,
 };
 use crate::matmul::tests::test_utils::{
     assert_equals, cmma_available, create_empty, range_tensor_f16,
@@ -18,7 +18,7 @@ fn compute_loop_test<F: Float, FC: Float>(
     b_m: Comptime<UInt>,
     b_k: Comptime<UInt>,
     b_n: Comptime<UInt>,
-    config: Comptime<CmmaConfig>,
+    comptime_info: Comptime<CmmaComptimeInfo>,
 ) {
     let mut lhs = SharedMemory::<FC>::new(Comptime::get(b_m * b_k));
     let mut rhs = SharedMemory::<FC>::new(Comptime::get(b_k * b_n));
@@ -34,12 +34,12 @@ fn compute_loop_test<F: Float, FC: Float>(
     }
 
     let shared_memories = SharedMemories { lhs, rhs };
-    let mut accumulators = make_accumulators::<F>(config);
+    let mut accumulators = make_accumulators::<F>(comptime_info);
 
-    compute_loop(shared_memories, &mut accumulators, config);
+    compute_loop(shared_memories, &mut accumulators, comptime_info);
 
-    let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
-    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let num_accumulators = Comptime::map(comptime_info, |c| c.num_accumulators);
+    let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
     let slice_offset = Comptime::runtime(tile_size * tile_size);
     let offset = UNIT_POS_Y * slice_offset * Comptime::runtime(num_accumulators);
 
@@ -88,7 +88,7 @@ fn compute_loop_test_case<R: Runtime>(
     );
     let cube_count = CubeCount::Static(1, 1, 1);
 
-    let config = CmmaConfig::new(
+    let comptime_info = CmmaComptimeInfo::new(
         launch_config.block_size_m,
         launch_config.block_size_k,
         launch_config.block_size_n,
@@ -110,7 +110,7 @@ fn compute_loop_test_case<R: Runtime>(
             UInt::new(launch_config.block_size_m as u32),
             UInt::new(launch_config.block_size_k as u32),
             UInt::new(launch_config.block_size_n as u32),
-            config,
+            comptime_info,
         );
     };
 

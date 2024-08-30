@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use super::{
     base::{coop_id, lane_id, Dimensions, Offsets, SharedMemories},
-    config::CmmaConfig,
+    config::CmmaComptimeInfo,
 };
 
 use crate::matmul::cmma::block_io::{
@@ -19,7 +19,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     offsets: Offsets,
     mut shared: SharedMemories<FC>,
     dims: Dimensions,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let tile_size = Comptime::map(config, |c| c.tile_size);
@@ -36,7 +36,7 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
     shared_lhs: &mut SharedMemory<FC>,
     num_tiles_in_k: UInt,
     dims: Dimensions,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let check_m_bounds = Comptime::map(config, |c| c.check_m_bounds);
     let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
@@ -109,7 +109,7 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
     shared_rhs: &mut SharedMemory<FC>,
     num_tiles_in_k: UInt,
     dims: Dimensions,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
     let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
@@ -185,7 +185,7 @@ fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
     dim_horizontal: UInt,
     skip_row: UInt,
     skip_col: UInt,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);

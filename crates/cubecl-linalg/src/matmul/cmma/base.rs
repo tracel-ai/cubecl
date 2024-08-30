@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::block_loop::block_loop;
-use super::config::CmmaConfig;
+use super::config::CmmaComptimeInfo;
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -10,7 +10,7 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) {
     let dims = get_dims::<F>(lhs, rhs);
     let offsets = calculate_offsets::<F>(lhs, rhs, out, config);
@@ -71,7 +71,7 @@ fn calculate_offsets<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &Tensor<F>,
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) -> Offsets {
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
@@ -108,7 +108,7 @@ fn calculate_offsets<F: Float>(
 }
 
 #[cube]
-fn make_shared_memories<FC: Float>(config: Comptime<CmmaConfig>) -> SharedMemories<FC> {
+fn make_shared_memories<FC: Float>(config: Comptime<CmmaComptimeInfo>) -> SharedMemories<FC> {
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
@@ -121,7 +121,7 @@ fn make_shared_memories<FC: Float>(config: Comptime<CmmaConfig>) -> SharedMemori
 
 #[cube]
 pub(crate) fn make_accumulators<F: Float>(
-    config: Comptime<CmmaConfig>,
+    config: Comptime<CmmaComptimeInfo>,
 ) -> Sequence<cmma::Matrix<F>> {
     let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
     let mut accumulators = Sequence::<cmma::Matrix<F>>::new();
@@ -144,11 +144,11 @@ pub(crate) fn make_accumulators<F: Float>(
 }
 
 #[cube]
-pub(crate) fn coop_id(config: Comptime<CmmaConfig>) -> UInt {
+pub(crate) fn coop_id(config: Comptime<CmmaComptimeInfo>) -> UInt {
     UNIT_POS / Comptime::runtime(Comptime::map(config, |c| c.coop_dim))
 }
 
 #[cube]
-pub(crate) fn lane_id(config: Comptime<CmmaConfig>) -> UInt {
+pub(crate) fn lane_id(config: Comptime<CmmaComptimeInfo>) -> UInt {
     UNIT_POS % Comptime::runtime(Comptime::map(config, |c| c.coop_dim))
 }
