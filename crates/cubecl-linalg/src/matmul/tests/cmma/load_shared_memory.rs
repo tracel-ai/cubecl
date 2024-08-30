@@ -23,6 +23,10 @@ fn load_lhs_test<F: Float>(
     n: UInt,
     config: Comptime<CmmaConfig>,
 ) {
+    let block_size_m = Comptime::map(config, |c| c.block_size_m);
+    let block_size_k = Comptime::map(config, |c| c.block_size_k);
+    let sm_size = block_size_k * block_size_m;
+
     let offsets = Offsets {
         batch_lhs: UInt::new(0),
         batch_rhs: UInt::new(0),
@@ -32,8 +36,8 @@ fn load_lhs_test<F: Float>(
         k: k_offset,
     };
 
-    let mut lhs_sm = SharedMemory::<F>::new(2048);
-    for i in range(0u32, 2048u32, Comptime::new(false)) {
+    let mut lhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
         lhs_sm[i] = F::new(0.);
     }
 
@@ -41,7 +45,7 @@ fn load_lhs_test<F: Float>(
 
     load_lhs(lhs_tensor, offsets, &mut lhs_sm, UInt::new(2), dims, config);
 
-    for i in range(0u32, 2048u32, Comptime::new(false)) {
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
         lhs_sm_arr[i] = lhs_sm[i];
     }
 }
@@ -56,6 +60,10 @@ fn load_rhs_test<F: Float>(
     n: UInt,
     config: Comptime<CmmaConfig>,
 ) {
+    let block_size_k = Comptime::map(config, |c| c.block_size_k);
+    let block_size_n = Comptime::map(config, |c| c.block_size_n);
+    let sm_size = block_size_k * block_size_n;
+
     let offsets = Offsets {
         batch_lhs: UInt::new(0),
         batch_rhs: UInt::new(0),
@@ -65,8 +73,8 @@ fn load_rhs_test<F: Float>(
         k: k_offset,
     };
 
-    let mut rhs_sm = SharedMemory::<F>::new(2048);
-    for i in range(0u32, 2048u32, Comptime::new(false)) {
+    let mut rhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
         rhs_sm[i] = F::new(0.);
     }
 
@@ -74,7 +82,7 @@ fn load_rhs_test<F: Float>(
 
     load_rhs(rhs_tensor, offsets, &mut rhs_sm, UInt::new(2), dims, config);
 
-    for i in range(0u32, 2048u32, Comptime::new(false)) {
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
         rhs_sm_arr[i] = rhs_sm[i];
     }
 }

@@ -38,10 +38,10 @@ fn compute_loop_test<F: Float, FC: Float>(
 
     compute_loop(shared_memories, &mut accumulators, config);
 
-    let offset = UNIT_POS_Y * UInt::new(512);
-
     let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
-    let slice_offset = UInt::new(256);
+    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let slice_offset = Comptime::runtime(tile_size * tile_size);
+    let offset = UNIT_POS_Y * slice_offset * Comptime::runtime(num_accumulators);
 
     for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
         let slice =
