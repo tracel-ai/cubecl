@@ -26,7 +26,7 @@ channel-mpsc = ["dep:async-channel", "dep:pollster"] # Assume std
 storage-bytes = []
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.1.1", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features = false }
 derive-new = { workspace = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
