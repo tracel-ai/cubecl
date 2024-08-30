@@ -1,6 +1,7 @@
 mod array;
 mod branch;
 mod expression;
+mod frontend;
 mod globals;
 mod launch;
 mod operators;
@@ -12,6 +13,7 @@ mod types;
 
 pub mod compute;
 pub mod element;
+pub mod flatten;
 
 use std::num::NonZero;
 
@@ -19,6 +21,7 @@ pub use array::*;
 pub use branch::*;
 pub use compute::*;
 pub use expression::*;
+pub use frontend::*;
 pub use globals::*;
 pub use launch::*;
 pub use operators::*;

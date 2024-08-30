@@ -45,22 +45,22 @@ pub fn kernel_min(output: &mut Tensor<f32>) {
     }
 }
 
-#[cube(launch)]
-pub fn kernel_all<F: Float>(output: &mut Tensor<F>) {
+#[cube2(launch)]
+pub fn kernel_all(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_all(val < 5);
-    output[UNIT_POS] = F::cast_from(val2);
+    let val2 = subcube_all(val < 5.0);
+    output[UNIT_POS] = val2 as u32 as f32;
 }
 
-#[cube(launch)]
-pub fn kernel_any<F: Float>(output: &mut Tensor<F>) {
+#[cube2(launch)]
+pub fn kernel_any(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_any(val < 5);
-    output[UNIT_POS] = F::cast_from(val2);
+    let val2 = subcube_any(val < 5.0);
+    output[UNIT_POS] = val2 as u32 as f32;
 }
 
-#[cube(launch)]
-pub fn kernel_elect<F: Float>(output: &mut Tensor<F>) {
+#[cube2(launch)]
+pub fn kernel_elect(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let elect = subcube_elect();
     if elect {
@@ -68,10 +68,10 @@ pub fn kernel_elect<F: Float>(output: &mut Tensor<F>) {
     }
 }
 
-#[cube(launch)]
-pub fn kernel_broadcast<F: Float>(output: &mut Tensor<F>) {
+#[cube2(launch)]
+pub fn kernel_broadcast(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_broadcast::<F>(val, UInt::new(2));
+    let val2 = subcube_broadcast(val, 2);
 
     if UNIT_POS == 0 {
         output[0] = val2;
@@ -137,7 +137,7 @@ pub fn test_subcube_all<TestRuntime: Runtime>(
         &[1.0, 1.0, 1.0, 1.0],
         client.clone(),
         |cube_dim, settings, handle| {
-            kernel_all::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+            kernel_all::launch::<TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
     test_subcube_operation::<TestRuntime, _>(
@@ -145,7 +145,7 @@ pub fn test_subcube_all<TestRuntime: Runtime>(
         &[0.0, 0.0, 0.0, 0.0],
         client.clone(),
         |cube_dim, settings, handle| {
-            kernel_all::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+            kernel_all::launch::<TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
 }
@@ -158,7 +158,7 @@ pub fn test_subcube_any<TestRuntime: Runtime>(
         &[1.0, 1.0, 1.0, 1.0],
         client.clone(),
         |cube_dim, settings, handle| {
-            kernel_any::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+            kernel_any::launch::<TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
     test_subcube_operation::<TestRuntime, _>(
@@ -166,7 +166,7 @@ pub fn test_subcube_any<TestRuntime: Runtime>(
         &[0.0, 0.0, 0.0, 0.0],
         client.clone(),
         |cube_dim, settings, handle| {
-            kernel_any::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+            kernel_any::launch::<TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
 }
@@ -179,7 +179,7 @@ pub fn test_subcube_elect<TestRuntime: Runtime>(
         &[2.0, 1.0, 1.0, 5.0],
         client.clone(),
         |cube_dim, settings, handle| {
-            kernel_elect::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+            kernel_elect::launch::<TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
 }
@@ -192,7 +192,7 @@ pub fn test_subcube_broadcast<TestRuntime: Runtime>(
         &[-6.0, 1.0, -6.0, 3.0],
         client.clone(),
         |cube_dim, settings, handle| {
-            kernel_broadcast::launch::<F32, TestRuntime>(&client, cube_dim, settings, handle)
+            kernel_broadcast::launch::<TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
 }
@@ -272,7 +272,7 @@ macro_rules! testgen_subcube {
         #[test]
         fn test_subcube_elect() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_any::<TestRuntime>(client);
+            cubecl_core::runtime_tests::subcube::test_subcube_elect::<TestRuntime>(client);
         }
 
         #[test]

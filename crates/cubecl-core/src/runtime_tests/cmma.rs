@@ -3,46 +3,43 @@ use crate as cubecl;
 use crate::Feature;
 use cubecl::{
     ir::{Elem, FloatKind},
+    new_ir::{cmma, element::Array},
     prelude::*,
 };
+use cubecl_macros_2::cube2;
 use half::f16;
 
-#[cube(launch)]
+#[cube2(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_1(lhs: &Array<F16>, rhs: &Array<F16>, out: &mut Array<F32>) {
-    let a = cmma::Matrix::<F16>::new(
+pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
+    let a = cmma::Matrix::<f16>::new(
         cmma::MatrixIdent::A,
         16,
         16,
         16,
         cmma::MatrixLayout::RowMajor,
     );
-    let b = cmma::Matrix::<F16>::new(
+    let b = cmma::Matrix::<f16>::new(
         cmma::MatrixIdent::B,
         16,
         16,
         16,
         cmma::MatrixLayout::ColMajor,
     );
-    let c = cmma::Matrix::<F32>::new(
+    let c = cmma::Matrix::<f32>::new(
         cmma::MatrixIdent::Accumulator,
         16,
         16,
         16,
         cmma::MatrixLayout::Undefined,
     );
-    cmma::fill::<F32>(&c, F32::new(0.0));
-    cmma::load::<F16>(&a, lhs.as_slice(), UInt::new(16));
-    cmma::load::<F16>(&b, rhs.as_slice(), UInt::new(16));
+    cmma::fill(&c, 0.0);
+    cmma::load(&a, lhs, 16);
+    cmma::load(&b, rhs, 16);
 
-    cmma::execute::<F16, F16, F32, F32>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
-    cmma::store::<F32>(
-        out.as_slice_mut(),
-        &c,
-        UInt::new(16),
-        cmma::MatrixLayout::RowMajor,
-    );
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
 }
 
 pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {

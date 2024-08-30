@@ -6,7 +6,7 @@ use crate::{
 use crate::{new_ir::Primitive, prelude::ExpandElementTyped};
 
 /// Returns true if the cube unit has the lowest subcube_unit_id among active unit in the subcube
-pub fn subcube_elect() -> Bool {
+pub fn subcube_elect() -> bool {
     unexpanded!()
 }
 
@@ -170,16 +170,17 @@ pub mod subcube_min {
 }
 
 /// Perform a reduce all operation across all units in a subcube.
-pub fn subcube_all(_elem: Bool) -> Bool {
+pub fn subcube_all(_elem: bool) -> bool {
     unexpanded!()
 }
 
 /// Module containing the expand function for [subcube_all()].
 pub mod subcube_all {
-    use crate::new_ir::{Expr, SubcubeAllExpr};
-
     use super::*;
-    use crate::new_ir::{Expr, SubcubeAllExpr};
+    use crate::{
+        new_ir::{Expr, SubcubeAllExpr},
+        prelude::Bool,
+    };
 
     /// Expand method of [subcube_all()].
     pub fn __expand(
@@ -200,7 +201,36 @@ pub mod subcube_all {
         output.into()
     }
 
-    pub fn expand<E: Primitive>(elem: impl Expr<Output = E>) -> impl Expr<Output = E> {
+    pub fn expand(elem: impl Expr<Output = bool>) -> impl Expr<Output = bool> {
         SubcubeAllExpr::new(elem)
+    }
+}
+
+/// Perform a reduce all operation across all units in a subcube.
+pub fn subcube_any(_elem: bool) -> bool {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [subcube_all()].
+pub mod subcube_any {
+    use crate::new_ir::{Expr, SubcubeAnyExpr};
+
+    pub fn expand(elem: impl Expr<Output = bool>) -> impl Expr<Output = bool> {
+        SubcubeAnyExpr::new(elem)
+    }
+}
+
+pub fn subcube_broadcast<E: Primitive>(_value: E, _index: u32) -> E {
+    unexpanded!()
+}
+
+pub mod subcube_broadcast {
+    use crate::new_ir::{BinaryOp, Expr, Primitive, SubcubeBroadcastExpr};
+
+    pub fn expand<E: Primitive>(
+        value: impl Expr<Output = E>,
+        index: impl Expr<Output = u32>,
+    ) -> impl Expr<Output = E> {
+        SubcubeBroadcastExpr(BinaryOp::new(value, index))
     }
 }

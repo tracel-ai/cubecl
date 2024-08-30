@@ -37,6 +37,7 @@ async-channel = "2.3"
 dirs = "5.0.1"
 md5 = "0.7.0"
 pollster = "0.3"
+weak-table = "0.3"
 web-time = "1.1.0"
 
 # Testing

@@ -125,7 +125,15 @@ impl Expression {
             }
             Expr::Cast(cast) => {
                 let span = cast.span();
-                let from = Expression::from_expr(*cast.expr, context)?;
+                let mut from_expr = *cast.expr;
+                // Flatten multicasts because they shouldn't exist on the GPU
+                while matches!(from_expr, Expr::Cast(_)) {
+                    match from_expr {
+                        Expr::Cast(cast) => from_expr = *cast.expr,
+                        _ => unreachable!(),
+                    }
+                }
+                let from = Expression::from_expr(from_expr, context)?;
                 Expression::Cast {
                     from: Box::new(from),
                     to: *cast.ty,

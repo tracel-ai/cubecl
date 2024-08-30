@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{ir::ConstantScalarValue, prelude::ExpandElement};
+use crate::{ir::ConstantScalarValue, prelude::ExpandElementWeak};
 
 use super::{
     cpa, processing::ScopeProcessing, Elem, IndexOffsetGlobalWithLayout, Item, Matrix, Operation,
@@ -33,7 +33,7 @@ pub struct Scope {
     pub layout_ref: Option<Variable>,
     undeclared: u16,
     #[serde(skip)]
-    var_map: HashMap<String, ExpandElement>,
+    var_map: HashMap<String, ExpandElementWeak>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Hash, Eq)]
@@ -462,11 +462,11 @@ impl Scope {
         local_array
     }
 
-    pub fn register_local(&mut self, name: String, value: ExpandElement) {
+    pub fn register_local(&mut self, name: String, value: ExpandElementWeak) {
         self.var_map.insert(name, value);
     }
 
-    pub fn get_local(&self, name: &str) -> Option<ExpandElement> {
+    pub fn get_local(&self, name: &str) -> Option<ExpandElementWeak> {
         self.var_map.get(name).cloned()
     }
 }

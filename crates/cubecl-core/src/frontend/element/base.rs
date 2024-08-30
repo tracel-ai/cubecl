@@ -5,7 +5,7 @@ use crate::{
     KernelSettings, Runtime,
 };
 use alloc::rc::Rc;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, rc::Weak};
 
 /// Types used in a cube function must implement this trait
 ///
@@ -113,6 +113,38 @@ pub enum ExpandElement {
     Managed(Rc<Variable>),
     /// Variable not kept in the variable pool.
     Plain(Variable),
+}
+
+/// Weak reference to a JIT variable for variable name mapping
+#[derive(Clone, Debug)]
+pub enum ExpandElementWeak {
+    /// Variable kept in the variable pool.
+    Managed(Weak<Variable>),
+    /// Variable not kept in the variable pool.
+    Plain(Variable),
+}
+
+impl PartialEq for ExpandElementWeak {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ExpandElementWeak::Managed(var), ExpandElementWeak::Managed(var2)) => var
+                .upgrade()
+                .zip(var2.upgrade())
+                .map(|(var1, var2)| var1 == var2)
+                .unwrap_or(false),
+            (ExpandElementWeak::Plain(var), ExpandElementWeak::Plain(var2)) => var == var2,
+            _unused => false,
+        }
+    }
+}
+
+impl ExpandElementWeak {
+    pub fn upgrade(self) -> Option<ExpandElement> {
+        match self {
+            ExpandElementWeak::Managed(var) => Some(ExpandElement::Managed(var.upgrade()?)),
+            ExpandElementWeak::Plain(var) => Some(ExpandElement::Plain(var)),
+        }
+    }
 }
 
 /// Expand type associated with a type.
@@ -265,6 +297,13 @@ impl ExpandElement {
                 }
             }
             ExpandElement::Plain(_) => false,
+        }
+    }
+
+    pub fn clone_weak(&self) -> ExpandElementWeak {
+        match self {
+            ExpandElement::Managed(var) => ExpandElementWeak::Managed(Rc::downgrade(var)),
+            ExpandElement::Plain(var) => ExpandElementWeak::Plain(*var),
         }
     }
 }

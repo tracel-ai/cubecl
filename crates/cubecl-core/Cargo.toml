@@ -23,8 +23,11 @@ template = []
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false }
 
 bytemuck = { workspace = true }
+cubecl-common = { path = "../cubecl-common", version = "0.2.0" }
 cubecl-macros = { path = "../cubecl-macros", version = "0.2.0" }
+cubecl-macros-2 = { path = "../cubecl-macros-2", version = "0.2.0" }
 derive-new = { workspace = true }
+derive_more = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 num-traits = { workspace = true }
 serde = { workspace = true }

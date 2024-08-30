@@ -4,6 +4,8 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 use std::collections::HashMap;
 
+use super::ExpandElementWeak;
+
 #[derive(Default, Clone)]
 pub struct VariablePool {
     map: Rc<RefCell<HashMap<Item, Vec<ExpandElement>>>>,
@@ -148,11 +150,14 @@ impl CubeContext {
         ExpandElement::Plain(crate::ir::Variable::GlobalScalar { id, elem })
     }
 
-    pub fn register_local(&mut self, name: String, element: ExpandElement) {
+    pub fn register_local(&mut self, name: String, element: ExpandElementWeak) {
         self.scope.borrow_mut().register_local(name, element);
     }
 
     pub fn get_local(&mut self, name: &str) -> Option<ExpandElement> {
-        self.scope.borrow().get_local(name)
+        self.scope
+            .borrow()
+            .get_local(name)
+            .and_then(|it| it.upgrade())
     }
 }

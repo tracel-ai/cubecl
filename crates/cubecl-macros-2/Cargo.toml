@@ -30,12 +30,12 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }
 
-cubecl-common = { path = "../cubecl-common", version = "0.1.1", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.2", default-features = false }
 
 [dev-dependencies]
 compiletest_rs = { version = "0.11", features = ["tmp"] }
-cubecl-core = { path = "../cubecl-core", version = "0.1.1", default-features = false }
-cubecl-cuda = { path = "../cubecl-cuda", version = "0.1.1", default-features = false }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.1.1", default-features = false }
-cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.1.1", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.2", default-features = false }
+cubecl-cuda = { path = "../cubecl-cuda", version = "0.2", default-features = false }
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.2", default-features = false }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2", default-features = false }
 pretty_assertions = "1.4"

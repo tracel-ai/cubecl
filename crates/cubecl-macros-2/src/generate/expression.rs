@@ -129,10 +129,7 @@ impl ToTokens for Expression {
             Expression::Cast { from, to, span } => {
                 let cast = ir_type("Cast");
                 quote_spanned! {*span=>
-                    #cast {
-                        from: #from,
-                        _to: PhantomData::<#to>
-                    }
+                    #cast::<_, #to>::new(#from)
                 }
             }
             Expression::Continue { span } => {

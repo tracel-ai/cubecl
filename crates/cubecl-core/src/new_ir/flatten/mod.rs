@@ -11,6 +11,8 @@ use crate::{
     prelude::{CubeContext, ExpandElement},
 };
 
+use super::cmma::flatten_cmma_expr;
+
 pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<ExpandElement> {
     let res = match expr {
         Expression::Binary {
@@ -26,8 +28,8 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
                 return split_assign_op(*left, *right, operator, context);
             }
 
-            let left = flatten_expr(*left, context).unwrap();
             let right = flatten_expr(*right, context).unwrap();
+            let left = flatten_expr(*left, context).unwrap();
             let out = if operator.is_assign() {
                 left.clone()
             } else {
@@ -71,7 +73,7 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
             } else {
                 // This must be a declaration, because non-existing variables don't compile
                 let new = context.create_local(item(ty, vectorization));
-                context.register_local(name, new.clone());
+                context.register_local(name, new.clone_weak());
                 new
             }
         }
@@ -116,7 +118,7 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
                 _ => unreachable!("Init only accepts variables for left"),
             };
             let right = flatten_expr(*right, context).unwrap();
-            context.register_local(var, right.clone());
+            context.register_local(var, right.clone_weak());
             right
         }
         Expression::Block(block) => flatten_block(block, &mut context.child())?,
@@ -124,8 +126,18 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
             context.register(Branch::Break);
             None?
         }
-        Expression::Cast { .. } => {
-            unimplemented!("Cast not yet implemented")
+        Expression::Cast {
+            from,
+            to,
+            vectorization,
+        } => {
+            let value = flatten_expr(*from, context).unwrap();
+            let new_var = context.create_local(item(to, vectorization));
+            context.register(ir::Operator::Assign(UnaryOperator {
+                input: *value,
+                out: *new_var,
+            }));
+            new_var
         }
         Expression::Continue => {
             unimplemented!("Continue not yet implemented")
@@ -145,7 +157,7 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
                 let mut func = |i: usize| {
                     let value = ExpandElement::Plain(var_ty.constant_from_u64(i as u64));
                     let mut scope = context.child();
-                    scope.register_local(var.clone(), value);
+                    scope.register_local(var.clone(), value.clone_weak());
                     flatten_block(block.clone(), &mut scope)
                 };
 
@@ -295,6 +307,7 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
         }
         Expression::KernelVar { kind, .. } => ExpandElement::Plain(kind),
         Expression::Subcube(subcube) => flatten_subcube(subcube, context)?,
+        Expression::Cmma(cmma) => flatten_cmma_expr(cmma, context)?,
         Expression::__Range(_) => unimplemented!("Range expressions don't exist post expansion"),
     };
     Some(res)
@@ -435,9 +448,6 @@ fn flatten_subcube(subcube: SubcubeExpression, context: &mut CubeContext) -> Opt
             SubcubeOp::Any => Subcube::Any(un_op),
             SubcubeOp::Sum => Subcube::Sum(un_op),
             SubcubeOp::Prod => Subcube::Prod(un_op),
-            SubcubeOp::And => Subcube::And(un_op),
-            SubcubeOp::Or => Subcube::Or(un_op),
-            SubcubeOp::Xor => Subcube::Xor(un_op),
             SubcubeOp::Min => Subcube::Min(un_op),
             SubcubeOp::Max => Subcube::Max(un_op),
         }
@@ -513,8 +523,8 @@ fn split_assign_op(
         _ => unreachable!(),
     };
     let binary = {
-        let left = flatten_expr(left, context).unwrap();
         let right = flatten_expr(right, context).unwrap();
+        let left = flatten_expr(left, context).unwrap();
         let operation = map_bin_op(
             new_operator,
             BinaryOperator {

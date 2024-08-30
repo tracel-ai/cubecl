@@ -1,5 +1,6 @@
 use super::{Expr, Expression};
 use crate::ir::{ConstantScalarValue, Elem, FloatKind, IntKind};
+use half::{bf16, f16};
 use num_traits::{NumCast, ToPrimitive};
 use std::{marker::PhantomData, num::NonZero};
 
@@ -93,7 +94,9 @@ impl<Expression: Expr> ExpandExpr<Expression::Output> for Expression where Expre
 
 pub trait MethodExpand: Sized {}
 
-pub trait Numeric: Primitive + NumCast + StaticExpand<Expanded = NumericExpand<Self>> {
+pub trait Numeric:
+    Primitive + NumCast + PartialOrd + PartialEq + StaticExpand<Expanded = NumericExpand<Self>>
+{
     fn new<N: ToPrimitive>(n: N) -> Self {
         <Self as NumCast>::from(n).unwrap()
     }
@@ -176,7 +179,7 @@ macro_rules! float_primitive {
         impl Float for $primitive {}
         impl Primitive for $primitive {
             fn value(&self) -> ConstantScalarValue {
-                ConstantScalarValue::Float(*self as f64, $kind)
+                ConstantScalarValue::Float(self.to_f64().unwrap(), $kind)
             }
         }
     };
@@ -185,6 +188,8 @@ macro_rules! float_primitive {
 int_primitive!(i32, Elem::Int, IntKind::I32);
 int_primitive!(i64, Elem::Int, IntKind::I64);
 uint_primitive!(u32, Elem::UInt);
+float_primitive!(f16, Elem::Float, FloatKind::F16);
+float_primitive!(bf16, Elem::Float, FloatKind::BF16);
 float_primitive!(f32, Elem::Float, FloatKind::F32);
 float_primitive!(f64, Elem::Float, FloatKind::F64);
 primitive!(bool, Elem::Bool);

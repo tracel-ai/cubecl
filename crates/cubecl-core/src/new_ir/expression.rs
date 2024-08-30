@@ -4,8 +4,8 @@ use crate::ir::{self, ConstantScalarValue, Elem};
 use std::{marker::PhantomData, num::NonZero, rc::Rc};
 
 use super::{
-    compute::GlobalType, largest_common_vectorization, Operator, SquareType, Statement,
-    SubcubeExpression, TensorExpression, TypeEq,
+    cmma::CmmaExpression, compute::GlobalType, largest_common_vectorization, Operator, SquareType,
+    Statement, SubcubeExpression, TensorExpression, TypeEq,
 };
 
 pub type Vectorization = Option<NonZero<u8>>;
@@ -90,9 +90,12 @@ pub enum Expression {
         expr: Option<Box<Expression>>,
     },
     /// Subtype for tensor specific operations
+    #[from]
     Tensor(TensorExpression),
     #[from]
     Subcube(SubcubeExpression),
+    #[from]
+    Cmma(CmmaExpression),
     ArrayInit {
         size: Box<Expression>,
         init: Box<Expression>,
@@ -147,6 +150,7 @@ impl Expression {
             Expression::Global { ty, .. } => *ty,
             Expression::KernelVar { ty, .. } => *ty,
             Expression::Subcube(expr) => expr.ir_type(),
+            Expression::Cmma(expr) => expr.ir_type(),
         }
     }
 
@@ -174,6 +178,7 @@ impl Expression {
             Expression::__Range(_) => None,
             Expression::KernelVar { .. } => None,
             Expression::Subcube(expr) => expr.vectorization(),
+            Expression::Cmma(expr) => expr.vectorization(),
         }
     }
 
@@ -418,6 +423,7 @@ where
     }
 }
 
+#[derive(new)]
 pub struct Cast<From: Expr, TTo: SquareType>
 where
     From::Output: SquareType,

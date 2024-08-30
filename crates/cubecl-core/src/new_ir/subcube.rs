@@ -22,9 +22,6 @@ pub enum SubcubeOp {
     Any,
     Sum,
     Prod,
-    And,
-    Or,
-    Xor,
     Min,
     Max,
 }
@@ -90,9 +87,6 @@ unary_op!(SubcubeMaxExpr, Max);
 unary_op!(SubcubeMinExpr, Min);
 unary_op!(SubcubeAllExpr, All);
 unary_op!(SubcubeAnyExpr, Any);
-unary_op!(SubcubeAndExpr, And);
-unary_op!(SubcubeOrExpr, Or);
-unary_op!(SubcubeXorExpr, Xor);
 
 pub struct SubcubeElectExpr;
 
@@ -109,10 +103,19 @@ impl Expr for SubcubeElectExpr {
 }
 
 pub struct SubcubeBroadcastExpr<Left: Expr, Right: Expr<Output = u32>>(
-    BinaryOp<Left, Right, Left::Output>,
+    pub BinaryOp<Left, Right, Left::Output>,
 )
 where
     Left::Output: Primitive;
+
+impl<Left: Expr, Right: Expr<Output = u32>> SubcubeBroadcastExpr<Left, Right>
+where
+    Left::Output: Primitive,
+{
+    pub fn new(left: Left, right: Right) -> Self {
+        Self(BinaryOp::new(left, right))
+    }
+}
 
 impl<Left: Expr, Right: Expr<Output = u32>> Expr for SubcubeBroadcastExpr<Left, Right>
 where
