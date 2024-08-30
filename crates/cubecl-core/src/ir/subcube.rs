@@ -13,9 +13,6 @@ pub enum Subcube {
     Broadcast(BinaryOperator),
     Sum(UnaryOperator),
     Prod(UnaryOperator),
-    And(UnaryOperator),
-    Or(UnaryOperator),
-    Xor(UnaryOperator),
     Min(UnaryOperator),
     Max(UnaryOperator),
 }

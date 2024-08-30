@@ -338,18 +338,6 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),
             },
-            cube::Subcube::And(op) => Subgroup::And {
-                input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
-            },
-            cube::Subcube::Or(op) => Subgroup::Or {
-                input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
-            },
-            cube::Subcube::Xor(op) => Subgroup::Xor {
-                input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
-            },
             cube::Subcube::Min(op) => Subgroup::Min {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),

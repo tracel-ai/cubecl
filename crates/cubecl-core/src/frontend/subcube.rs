@@ -6,7 +6,7 @@ use crate::{
 use crate::{new_ir::Primitive, prelude::ExpandElementTyped};
 
 /// Returns true if the cube unit has the lowest subcube_unit_id among active unit in the subcube
-pub fn subcube_elect() -> bool {
+pub fn subcube_elect() -> Bool {
     unexpanded!()
 }
 
@@ -170,7 +170,7 @@ pub mod subcube_min {
 }
 
 /// Perform a reduce all operation across all units in a subcube.
-pub fn subcube_all<E: CubePrimitive>(_elem: E) -> E {
+pub fn subcube_all(_elem: Bool) -> Bool {
     unexpanded!()
 }
 
@@ -179,12 +179,13 @@ pub mod subcube_all {
     use crate::new_ir::{Expr, SubcubeAllExpr};
 
     use super::*;
+    use crate::new_ir::{Expr, SubcubeAllExpr};
 
     /// Expand method of [subcube_all()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn __expand(
         context: &mut CubeContext,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
+        elem: ExpandElementTyped<Bool>,
+    ) -> ExpandElementTyped<Bool> {
         let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item());
 

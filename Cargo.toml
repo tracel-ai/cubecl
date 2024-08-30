@@ -4,13 +4,13 @@
 # https://doc.rust-lang.org/cargo/reference/resolver.html#feature-resolver-version-2
 resolver = "2"
 
-members = ["crates/*", "examples/*", "profiling/matmul-example", "xtask"]
+members = ["crates/*", "examples/*", "xtask"]
 
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-version = "0.1.1"
+version = "0.2.0"
 
 
 [workspace.dependencies]

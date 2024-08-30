@@ -495,6 +495,11 @@ impl KernelIntegrator {
         let output = match self.expansion.outputs.get_mut(mapping.pos_output) {
             Some(output) => output,
             None => {
+                if let Some(binding) = self.input_bindings.get_mut(mapping.pos_input) {
+                    // Update input visibility.
+                    binding.visibility = Visibility::ReadWrite;
+                }
+
                 // The mapping is handled differently, normally by cube itself.
                 return;
             }

@@ -123,6 +123,9 @@ impl Component for Variable {
                 frag,
                 depth: _,
             } => Item::scalar(frag.elem),
+            Variable::BlockIdxGlobal => Item::scalar(Elem::U32),
+            Variable::BlockDimGlobal => Item::scalar(Elem::U32),
+            Variable::GridDimGlobal => Item::scalar(Elem::U32),
         }
     }
 }
@@ -145,15 +148,18 @@ pub enum Variable {
     ThreadIdxY,
     ThreadIdxZ,
     Rank,
+    BlockIdxGlobal,
     BlockIdxX,
     BlockIdxY,
     BlockIdxZ,
     AbsoluteIdxX,
     AbsoluteIdxY,
     AbsoluteIdxZ,
+    BlockDimGlobal,
     BlockDimX,
     BlockDimY,
     BlockDimZ,
+    GridDimGlobal,
     GridDimX,
     GridDimY,
     GridDimZ,
@@ -211,9 +217,11 @@ impl Display for Variable {
             Variable::ThreadIdxY => f.write_str("threadIdx.y"),
             Variable::ThreadIdxZ => f.write_str("threadIdx.z"),
             Variable::Rank => f.write_str("rank"),
+            Variable::BlockIdxGlobal => f.write_str("blockIdxGlobal"),
             Variable::BlockIdxX => f.write_str("blockIdx.x"),
             Variable::BlockIdxY => f.write_str("blockIdx.y"),
             Variable::BlockIdxZ => f.write_str("blockIdx.z"),
+            Variable::BlockDimGlobal => f.write_str("blockDimGlobal"),
             Variable::BlockDimX => f.write_str("blockDim.x"),
             Variable::BlockDimY => f.write_str("blockDim.y"),
             Variable::BlockDimZ => f.write_str("blockDim.z"),
@@ -233,6 +241,7 @@ impl Display for Variable {
                 frag: _,
                 depth,
             } => f.write_fmt(format_args!("frag_{index}_{depth}")),
+            Variable::GridDimGlobal => f.write_str("gridDimGlobal"),
         }
     }
 }
@@ -360,6 +369,9 @@ impl Variable {
                 frag: _,
                 depth: _,
             } => false,
+            Variable::BlockIdxGlobal => true,
+            Variable::BlockDimGlobal => true,
+            Variable::GridDimGlobal => true,
         }
     }
 
