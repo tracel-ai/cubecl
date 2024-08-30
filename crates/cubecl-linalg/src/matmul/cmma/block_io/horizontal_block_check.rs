@@ -53,6 +53,7 @@ impl<F: Float> BlockWriter<F> for HorizontalCheckBlockIO {
         let tile_size = Comptime::map(config, |c| c.tile_size);
         let out_vec = Comptime::vectorization(out);
         let out_vec_r = Comptime::runtime(out_vec);
+        let is_scalar = Comptime::map(out_vec, |v| v.val == 1);
 
         let col_with_n_iter = write_col + n_iter * Comptime::runtime(tile_size);
 
@@ -62,13 +63,18 @@ impl<F: Float> BlockWriter<F> for HorizontalCheckBlockIO {
 
             let write_position = batch_offset + write_row * dims.n + col_with_n_iter;
 
-            let mut value = F::vectorized_empty(Comptime::get(out_vec));
+            if Comptime::get(is_scalar) {
+                let val = accumulator_sm[read_position];
+                out[write_position / out_vec_r] = val;
+            } else {
+                let mut value = F::vectorized_empty(Comptime::get(out_vec));
 
-            for i in range(0u32, Comptime::get(out_vec), Comptime::new(true)) {
-                value[i] = accumulator_sm[read_position + i];
+                for i in range(0u32, Comptime::get(out_vec), Comptime::new(true)) {
+                    value[i] = accumulator_sm[read_position + i];
+                }
+
+                out[write_position / out_vec_r] = value;
             }
-
-            out[write_position / out_vec_r] = value;
         }
     }
 }
