@@ -123,7 +123,7 @@ fn load_shared_memory_test_case<R: Runtime>(
     };
     let cube_count = CubeCount::Static(1, 1, 1);
 
-    let config = CmmaConfig::new(dims.m, dims.k, dims.n, launch_config);
+    let config = CmmaConfig::new(dims.m, dims.k, dims.n, &launch_config);
 
     unsafe {
         load_lhs_test::launch_unchecked::<F32, R>(

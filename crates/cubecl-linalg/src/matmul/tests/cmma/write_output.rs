@@ -71,7 +71,7 @@ fn write_output_test_case<R: Runtime>(
     };
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
-    let config = CmmaConfig::new(dims.m, dims.k, dims.n, launch_config);
+    let config = CmmaConfig::new(dims.m, dims.k, dims.n, &launch_config);
 
     unsafe {
         write_output_test::launch_unchecked::<F32, R>(

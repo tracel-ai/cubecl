@@ -66,7 +66,7 @@ impl Default for CmmaLaunchConfig {
 }
 
 impl CmmaConfig {
-    pub(crate) fn new(m: usize, k: usize, n: usize, launch_config: CmmaLaunchConfig) -> Self {
+    pub(crate) fn new(m: usize, k: usize, n: usize, launch_config: &CmmaLaunchConfig) -> Self {
         let n_tiles = launch_config.block_size_m * launch_config.block_size_n
             / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
         let lane_dim = launch_config.cube_dim_x * launch_config.cube_dim_y / CMMA_COOP_DIM;
