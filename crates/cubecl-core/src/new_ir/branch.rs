@@ -108,7 +108,7 @@ where
         Expression::ForLoop {
             range,
             unroll: self.unroll,
-            variable: Box::new(self.variable.expression_untyped()),
+            variable: self.variable.expression_untyped().as_variable().unwrap(),
             block: self.block.expression_untyped().as_block().unwrap(),
         }
     }

@@ -45,7 +45,7 @@ pub fn const_param() {
 
     let expected = block_expr(
         vec![expr(Expression::Binary {
-            left: var("a", UInt),
+            left: var_expr("a", UInt),
             operator: Operator::Mul,
             right: Box::new(lit(2u32)),
             ty: UInt,
@@ -78,7 +78,7 @@ pub fn const_generic() {
     let expected = block_expr(
         vec![expr(Expression::Binary {
             left: Box::new(Expression::Binary {
-                left: var("a", UInt),
+                left: var_expr("a", UInt),
                 operator: Operator::Mul,
                 right: Box::new(lit(2u32)),
                 ty: UInt,
@@ -114,14 +114,14 @@ pub fn struct_param() {
         vec![],
         Some(Expression::Binary {
             left: Box::new(Expression::FieldAccess {
-                base: var("param", Elem::Unit),
+                base: var_expr("param", Elem::Unit),
                 name: "a".to_string(),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             operator: Operator::Mul,
             right: Box::new(Expression::FieldAccess {
-                base: var("param", Elem::Unit),
+                base: var_expr("param", Elem::Unit),
                 name: "b".to_string(),
                 ty: Elem::UInt,
                 vectorization: None,
@@ -163,7 +163,7 @@ pub fn destructure() {
             local_init(
                 "a",
                 Expression::FieldAccess {
-                    base: var("arg", Elem::Unit),
+                    base: var_expr("arg", Elem::Unit),
                     name: "a".to_string(),
                     vectorization: None,
                     ty: Elem::UInt,
@@ -174,7 +174,7 @@ pub fn destructure() {
             local_init(
                 "b",
                 Expression::FieldAccess {
-                    base: var("arg", Elem::Unit),
+                    base: var_expr("arg", Elem::Unit),
                     name: "b".to_string(),
                     vectorization: None,
                     ty: Elem::UInt,
@@ -184,9 +184,9 @@ pub fn destructure() {
             ),
         ],
         Some(Expression::Binary {
-            left: var("a", Elem::UInt),
+            left: var_expr("a", Elem::UInt),
             operator: Operator::Mul,
-            right: var("b", Elem::UInt),
+            right: var_expr("b", Elem::UInt),
             vectorization: None,
             ty: Elem::UInt,
         }),

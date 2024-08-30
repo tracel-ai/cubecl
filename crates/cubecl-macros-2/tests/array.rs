@@ -29,7 +29,7 @@ fn array_init() {
             None,
         )],
         Some(Expression::Tensor(TensorExpression::Index {
-            tensor: var("local", Elem::UInt),
+            tensor: var_expr("local", Elem::UInt),
             index: Box::new(lit(2)),
         })),
     ));

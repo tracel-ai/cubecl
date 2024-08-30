@@ -102,6 +102,7 @@ fn cube2_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream>
     RemoveHelpers.visit_item_fn_mut(&mut function);
 
     Ok(TokenStream::from(quote! {
+        #[allow(dead_code)]
         #function
         #kernel
     }))

@@ -213,7 +213,7 @@ impl Kernel {
         let input_expands = self.runtime_inputs().enumerate().map(|(i, arg)| {
             let name = &arg.name;
             let ty = arg.ty_owned();
-            quote![let #name = <#ty as #launch_arg_expand>::expand(&mut __builder, __settings.vectorization_output(#i));]
+            quote![let #name = <#ty as #launch_arg_expand>::expand(&mut __builder, __settings.vectorization_input(#i));]
         });
         let input_fn_mappings = self.runtime_inputs().enumerate().map(|(i, arg)| {
             let name = &arg.name;

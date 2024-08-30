@@ -1,9 +1,8 @@
 use cubecl_macros_2::{expand_impl, Expand};
 
 use crate::{
-    frontend::UInt,
     ir::Item,
-    new_ir::{GlobalVariable, SquareType},
+    new_ir::{EqExpr, GlobalVariable, SquareType},
     unexpanded, Runtime,
 };
 use crate::{
@@ -73,12 +72,12 @@ impl<T: SquareType + 'static, Dims: 'static> LaunchArg for Tensor<T, Dims> {
 #[expand_impl]
 impl<T: SquareType, Dims> Tensor<T, Dims> {
     /// Obtain the stride of input at dimension dim
-    pub fn stride<C: Integer>(&self, _dim: C) -> UInt {
+    pub fn stride<C: Integer>(&self, _dim: C) -> u32 {
         unexpanded!()
     }
 
     /// Obtain the shape of input at dimension dim
-    pub fn shape<C: Integer>(&self, _dim: C) -> UInt {
+    pub fn shape<C: Integer>(&self, _dim: C) -> u32 {
         unexpanded!()
     }
 
@@ -88,12 +87,16 @@ impl<T: SquareType, Dims> Tensor<T, Dims> {
     ///
     /// The length will be affected by the vectorization factor. To obtain the number of elements,
     /// you should multiply the length by the vectorization factor.
-    pub fn len(&self) -> UInt {
+    pub fn len(&self) -> u32 {
         unexpanded!()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Returns the rank of the tensor.
-    pub fn rank(&self) -> UInt {
+    pub fn rank(&self) -> u32 {
         unexpanded!()
     }
 
@@ -119,6 +122,12 @@ impl<T: SquareType, Dims> Tensor<T, Dims> {
     #[expanded]
     pub fn len<Out: Integer>(self) -> impl Expr<Output = Out> {
         Length::new(self.0)
+    }
+
+    // Expanded version of len
+    #[expanded]
+    pub fn is_empty(self) -> impl Expr<Output = bool> {
+        EqExpr::new(self.len::<u32>(), 0)
     }
 
     // Expanded version of rank.

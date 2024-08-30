@@ -77,6 +77,10 @@ pub enum Operator {
     Not,
     /// Negation unary operator (-)
     Neg,
+
+    // Function-like
+    /// The cosign operator
+    Cos,
 }
 
 impl Operator {

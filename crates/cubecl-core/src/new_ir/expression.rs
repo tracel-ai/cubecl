@@ -25,11 +25,8 @@ pub enum Expression {
         vectorization: Vectorization,
         ty: Elem,
     },
-    Variable {
-        name: String,
-        vectorization: Vectorization,
-        ty: Elem,
-    },
+    #[from]
+    Variable(Var),
     Global {
         index: u16,
         global_ty: GlobalType,
@@ -55,7 +52,7 @@ pub enum Expression {
     },
     /// Local variable initializer
     Init {
-        left: Box<Expression>,
+        left: Var,
         right: Box<Expression>,
         vectorization: Vectorization,
         ty: Elem,
@@ -71,7 +68,7 @@ pub enum Expression {
     ForLoop {
         range: Range,
         unroll: bool,
-        variable: Box<Expression>,
+        variable: Var,
         block: Block,
     },
     WhileLoop {
@@ -109,6 +106,13 @@ pub enum Expression {
     __Range(Range),
 }
 
+#[derive(Clone, Debug, PartialEq, new)]
+pub struct Var {
+    pub name: String,
+    pub vectorization: Vectorization,
+    pub ty: Elem,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Range {
     pub start: Box<Expression>,
@@ -130,7 +134,7 @@ impl Expression {
         match self {
             Expression::Binary { ty, .. } => *ty,
             Expression::Unary { ty, .. } => *ty,
-            Expression::Variable { ty, .. } => *ty,
+            Expression::Variable(var) => var.ty,
             Expression::Literal { ty, .. } => *ty,
             Expression::Assigment { ty, .. } => *ty,
             Expression::Init { ty, .. } => *ty,
@@ -158,7 +162,7 @@ impl Expression {
         match self {
             Expression::Binary { vectorization, .. } => *vectorization,
             Expression::Unary { vectorization, .. } => *vectorization,
-            Expression::Variable { vectorization, .. } => *vectorization,
+            Expression::Variable(var) => var.vectorization,
             Expression::Global { vectorization, .. } => *vectorization,
             Expression::FieldAccess { vectorization, .. } => *vectorization,
             Expression::Literal { vectorization, .. } => *vectorization,
@@ -203,13 +207,9 @@ impl Expression {
         }
     }
 
-    pub fn as_variable(self) -> Option<(String, Vectorization, Elem)> {
+    pub fn as_variable(self) -> Option<Var> {
         match self {
-            Expression::Variable {
-                name,
-                vectorization,
-                ty,
-            } => Some((name, vectorization, ty)),
+            Expression::Variable(var) => Some(var),
             _ => None,
         }
     }
@@ -283,11 +283,12 @@ impl<T: SquareType> Expr for Variable<T> {
     type Output = T;
 
     fn expression_untyped(&self) -> Expression {
-        Expression::Variable {
+        Var {
             name: self.name.to_string(),
             ty: <T as SquareType>::ir_type(),
             vectorization: self.vectorization(),
         }
+        .into()
     }
 
     fn vectorization(&self) -> Option<NonZero<u8>> {
@@ -411,7 +412,7 @@ where
 
     fn expression_untyped(&self) -> Expression {
         Expression::Init {
-            left: Box::new(self.left.expression_untyped()),
+            left: self.left.expression_untyped().as_variable().unwrap(),
             right: Box::new(self.right.expression_untyped()),
             ty: <Init::Output as SquareType>::ir_type(),
             vectorization: self.vectorization(),

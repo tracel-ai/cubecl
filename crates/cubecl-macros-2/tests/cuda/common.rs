@@ -26,6 +26,11 @@ pub fn tensor(tensor: &Handle) -> TensorArg<'_, CudaRuntime> {
 }
 
 #[allow(unused)]
+pub fn tensor_vec(tensor: &Handle, vec: u8) -> TensorArg<'_, CudaRuntime> {
+    unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], vec) }
+}
+
+#[allow(unused)]
 pub fn array(tensor: &Handle) -> ArrayArg<'_, CudaRuntime> {
     unsafe { ArrayArg::from_raw_parts(tensor, 1, 1) }
 }

@@ -11,7 +11,7 @@ use crate::{
     prelude::{CubeContext, ExpandElement},
 };
 
-use super::cmma::flatten_cmma_expr;
+use super::{cmma::flatten_cmma_expr, Var};
 
 pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<ExpandElement> {
     let res = match expr {
@@ -28,23 +28,27 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
                 return split_assign_op(*left, *right, operator, context);
             }
 
-            let right = flatten_expr(*right, context).unwrap();
             let left = flatten_expr(*left, context).unwrap();
-            let out = if operator.is_assign() {
-                left.clone()
-            } else {
-                context.create_local(item(ty, vectorization))
-            };
-            let operation = map_bin_op(
-                operator,
-                BinaryOperator {
+            let right = flatten_expr(*right, context).unwrap();
+            if operator.is_assign() {
+                let bin_op = BinaryOperator {
                     lhs: *left,
                     rhs: *right,
+                    out: *left,
+                };
+                context.register(map_bin_op(operator, bin_op));
+                left
+            } else {
+                let left = left.into();
+                let out = context.create_local(item(ty, vectorization));
+                let bin_op = BinaryOperator {
+                    lhs: left,
+                    rhs: right.into(),
                     out: *out,
-                },
-            );
-            context.register(operation);
-            out
+                };
+                context.register(map_bin_op(operator, bin_op));
+                out
+            }
         }
         Expression::Unary {
             input,
@@ -52,22 +56,16 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
             vectorization,
             ty,
         } => {
-            let input = flatten_expr(*input, context).unwrap();
+            let input: Variable = flatten_expr(*input, context).unwrap().into();
             let out = context.create_local(item(ty, vectorization));
-            context.register(map_un_op(
-                operator,
-                UnaryOperator {
-                    input: *input,
-                    out: *out,
-                },
-            ));
+            context.register(map_un_op(operator, UnaryOperator { input, out: *out }));
             out
         }
-        Expression::Variable {
+        Expression::Variable(Var {
             name,
             vectorization,
             ty,
-        } => {
+        }) => {
             if let Some(var) = context.get_local(&name) {
                 var
             } else {
@@ -113,12 +111,8 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
             }
         }
         Expression::Init { left, right, .. } => {
-            let var = match *left {
-                Expression::Variable { name, .. } => name,
-                _ => unreachable!("Init only accepts variables for left"),
-            };
             let right = flatten_expr(*right, context).unwrap();
-            context.register_local(var, right.clone_weak());
+            context.register_local(left.name, right.clone_weak());
             right
         }
         Expression::Block(block) => flatten_block(block, &mut context.child())?,
@@ -152,12 +146,11 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
                 let start = range.start.as_lit().unwrap().as_usize();
                 let end = range.end.as_lit().unwrap().as_usize();
                 let step = range.step.map(|it| it.as_lit().unwrap().as_usize());
-                let (var, _, var_ty) = variable.as_variable().unwrap();
 
                 let mut func = |i: usize| {
-                    let value = ExpandElement::Plain(var_ty.constant_from_u64(i as u64));
+                    let value = ExpandElement::Plain(variable.ty.constant_from_u64(i as u64));
                     let mut scope = context.child();
-                    scope.register_local(var.clone(), value.clone_weak());
+                    scope.register_local(variable.name.clone(), value.clone_weak());
                     flatten_block(block.clone(), &mut scope)
                 };
 
@@ -188,12 +181,17 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
                 let start = flatten_expr(*range.start, context).unwrap();
                 let end = flatten_expr(*range.end, context).unwrap();
                 let step = range.step.and_then(|expr| flatten_expr(*expr, context));
-                let i = flatten_expr(*variable, context).unwrap();
                 let mut scope = context.child();
+                let var = scope
+                    .scope
+                    .borrow_mut()
+                    .create_local_undeclared(start.item());
+                let var = ExpandElement::Plain(var);
+                scope.register_local(variable.name, var.clone_weak());
                 flatten_block(block, &mut scope);
 
                 context.register(Branch::RangeLoop(RangeLoop {
-                    i: *i,
+                    i: *var,
                     start: *start,
                     end: *end,
                     step: step.map(Into::into),
@@ -270,7 +268,10 @@ pub fn flatten_expr(expr: Expression, context: &mut CubeContext) -> Option<Expan
                 let mut scope_if = context.child();
                 flatten_block(then_block, &mut scope_if).unwrap();
                 let mut scope_else = context.child();
-                flatten_expr(*right, &mut scope_else);
+                match *right {
+                    Expression::Block(block) => flatten_block(block, &mut scope_else),
+                    right => flatten_expr(right, &mut scope_else),
+                };
                 context.register(Branch::IfElse(IfElse {
                     cond: *condition,
                     scope_if: scope_if.into_scope(),
@@ -362,12 +363,12 @@ fn flatten_tensor_expr(expr: TensorExpression, context: &mut CubeContext) -> Opt
         }
         TensorExpression::Rank { .. } => ExpandElement::Plain(Variable::Rank),
         TensorExpression::Index { tensor, index } => {
-            let tensor = flatten_expr(*tensor, context).unwrap();
-            let index = flatten_expr(*index, context).unwrap();
+            let tensor: Variable = flatten_expr(*tensor, context).unwrap().into();
+            let index: Variable = flatten_expr(*index, context).unwrap().into();
             let out = context.create_local(tensor.item());
             context.register(ir::Operator::Index(BinaryOperator {
-                rhs: *index,
-                lhs: *tensor,
+                rhs: index,
+                lhs: tensor,
                 out: out.clone().into(),
             }));
             out
@@ -462,7 +463,7 @@ fn map_bin_op(operator: Operator, bin_op: BinaryOperator) -> ir::Operator {
         Operator::Sub => ir::Operator::Sub(bin_op),
         Operator::Mul => ir::Operator::Mul(bin_op),
         Operator::Div => ir::Operator::Div(bin_op),
-        Operator::Rem => ir::Operator::Remainder(bin_op),
+        Operator::Rem => ir::Operator::Modulo(bin_op),
         Operator::AddAssign => ir::Operator::Add(bin_op),
         Operator::SubAssign => ir::Operator::Sub(bin_op),
         Operator::MulAssign => ir::Operator::Mul(bin_op),
@@ -495,6 +496,7 @@ fn map_un_op(operator: Operator, un_op: UnaryOperator) -> ir::Operator {
         Operator::Deref => unimplemented!("Deref not yet supported"),
         Operator::Not => ir::Operator::Not(un_op),
         Operator::Neg => ir::Operator::Neg(un_op),
+        Operator::Cos => ir::Operator::Cos(un_op),
         _ => unreachable!("Operator must be unary"),
     }
 }

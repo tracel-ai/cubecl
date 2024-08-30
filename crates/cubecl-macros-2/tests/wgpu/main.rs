@@ -1,6 +1,6 @@
 use common::*;
 use cubecl_core::{
-    new_ir::{element::*, UNIT_POS},
+    new_ir::{element::*, ABSOLUTE_POS, UNIT_POS},
     CubeCount, CubeDim,
 };
 use cubecl_macros_2::cube2;
@@ -83,5 +83,40 @@ pub fn sequence_for_loop() {
         array(&output),
     );
     let expected = include_str!("sequence_for_loop.wgsl");
+    assert_eq!(compile(kernel), expected);
+}
+
+#[cube2(launch, create_dummy_kernel)]
+fn execute_unary_kernel<F: cubecl_core::new_ir::Float>(
+    lhs: &Tensor<F>,
+    rhs: &Tensor<F>,
+    out: &mut Tensor<F>,
+) {
+    if ABSOLUTE_POS < out.len() {
+        for i in 0..256u32 {
+            if i % 2 == 0 {
+                out[ABSOLUTE_POS] -= F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
+            } else {
+                out[ABSOLUTE_POS] += F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
+            }
+        }
+    }
+}
+
+#[test]
+pub fn unary_bench() {
+    let client = client();
+    let lhs = handle(&client);
+    let rhs = handle(&client);
+    let out = handle(&client);
+
+    let kernel = execute_unary_kernel::create_dummy_kernel::<f32, WgpuRuntime>(
+        CubeCount::Static(1, 1, 1),
+        CubeDim::default(),
+        tensor_vec(&lhs, 4),
+        tensor_vec(&rhs, 4),
+        tensor_vec(&out, 4),
+    );
+    let expected = include_str!("unary_bench.wgsl");
     assert_eq!(compile(kernel), expected);
 }

@@ -218,6 +218,7 @@ impl Expression {
 
     pub fn needs_terminator(&self) -> bool {
         match self {
+            Expression::If { then_block, .. } => then_block.needs_terminator(),
             Expression::Block { ret, .. } => ret.is_some(),
             Expression::ForLoop { .. } => false,
             Expression::WhileLoop { .. } => false,

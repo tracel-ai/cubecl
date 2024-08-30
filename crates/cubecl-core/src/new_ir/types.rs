@@ -1,8 +1,9 @@
-use super::{Expr, Expression};
+use super::{Expr, Expression, UnaryOp};
 use crate::ir::{ConstantScalarValue, Elem, FloatKind, IntKind};
+use cubecl_common::operator::Operator;
 use half::{bf16, f16};
-use num_traits::{NumCast, ToPrimitive};
-use std::{marker::PhantomData, num::NonZero};
+use num_traits::{NumAssign, NumCast, ToPrimitive};
+use std::num::NonZero;
 
 pub trait TypeEq<T> {}
 impl<T> TypeEq<T> for T {}
@@ -95,13 +96,18 @@ impl<Expression: Expr> ExpandExpr<Expression::Output> for Expression where Expre
 pub trait MethodExpand: Sized {}
 
 pub trait Numeric:
-    Primitive + NumCast + PartialOrd + PartialEq + StaticExpand<Expanded = NumericExpand<Self>>
+    Primitive
+    + NumCast
+    + NumAssign
+    + PartialOrd
+    + PartialEq
+    + Expand<Expanded<Self> = NumericExpand<Self>>
 {
     fn new<N: ToPrimitive>(n: N) -> Self {
         <Self as NumCast>::from(n).unwrap()
     }
 }
-pub trait Float: Numeric {}
+pub trait Float: Numeric + num_traits::Float {}
 pub trait Integer: Numeric {}
 
 impl SquareType for () {
@@ -116,12 +122,51 @@ impl Primitive for () {
     }
 }
 
-pub struct NumericExpand<T: NumCast>(PhantomData<T>);
+pub struct NumericExpand<Inner: Expr>(Inner)
+where
+    Inner::Output: Numeric;
 
-impl<T: NumCast> NumericExpand<T> {
+impl<Inner: NumCast + Expr> NumericExpand<Inner>
+where
+    Inner::Output: Numeric,
+{
     #[allow(clippy::new_ret_no_self)]
-    pub fn new<N: ToPrimitive>(n: N) -> T {
-        <T as NumCast>::from(n).unwrap()
+    pub fn new<N: ToPrimitive>(n: N) -> Inner {
+        <Inner as NumCast>::from(n).unwrap()
+    }
+}
+
+#[derive(new)]
+pub struct CosExpr<In: Expr>(pub UnaryOp<In, In::Output>)
+where
+    In::Output: Float;
+
+impl<In: Expr> Expr for CosExpr<In>
+where
+    In::Output: Float,
+{
+    type Output = In::Output;
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::Unary {
+            input: Box::new(self.0.input.expression_untyped()),
+            operator: Operator::Cos,
+            vectorization: self.vectorization(),
+            ty: In::Output::ir_type(),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.0.input.vectorization()
+    }
+}
+
+impl<Inner: Expr> NumericExpand<Inner>
+where
+    Inner::Output: Float,
+{
+    pub fn cos(num: impl Expr<Output = Inner::Output>) -> impl Expr<Output = Inner::Output> {
+        CosExpr(UnaryOp::new(num))
     }
 }
 
@@ -140,8 +185,12 @@ macro_rules! numeric_primitive {
         primitive!($primitive, $var_type);
 
         impl Numeric for $primitive {}
-        impl StaticExpand for $primitive {
-            type Expanded = NumericExpand<$primitive>;
+        impl Expand for $primitive {
+            type Expanded<Inner: Expr<Output = Self>> = NumericExpand<Inner>;
+
+            fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
+                NumericExpand(inner)
+            }
         }
     };
 }

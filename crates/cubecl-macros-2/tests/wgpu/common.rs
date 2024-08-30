@@ -24,6 +24,11 @@ pub fn tensor(tensor: &Handle) -> TensorArg<'_, WgpuRuntime> {
 }
 
 #[allow(unused)]
+pub fn tensor_vec(tensor: &Handle, vectorization: u8) -> TensorArg<'_, WgpuRuntime> {
+    unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], vectorization) }
+}
+
+#[allow(unused)]
 pub fn array(tensor: &Handle) -> ArrayArg<'_, WgpuRuntime> {
     unsafe { ArrayArg::from_raw_parts(tensor, 1, 1) }
 }

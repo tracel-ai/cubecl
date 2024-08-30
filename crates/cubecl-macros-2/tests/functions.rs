@@ -24,7 +24,7 @@ fn function_call() {
         Some(block_expr(
             vec![],
             Some(Expression::Binary {
-                left: var("a", Elem::UInt),
+                left: var_expr("a", Elem::UInt),
                 operator: Operator::Mul,
                 right: Box::new(lit(2u32)),
                 vectorization: None,
@@ -66,7 +66,7 @@ fn method_call() {
         vec![],
         Some(Expression::Binary {
             left: Box::new(Expression::FieldAccess {
-                base: var("a", Elem::Unit),
+                base: var_expr("a", Elem::Unit),
                 name: "a".to_string(),
                 vectorization: None,
                 ty: Elem::UInt,

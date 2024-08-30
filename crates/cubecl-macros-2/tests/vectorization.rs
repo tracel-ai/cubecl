@@ -28,9 +28,9 @@ pub fn vectorization_simple() {
         vec![init_vec(
             "c",
             Expression::Binary {
-                left: vec_var("a", Elem::UInt, 4),
+                left: vec_var_expr("a", Elem::UInt, 4),
                 operator: Operator::Mul,
-                right: var("b", Elem::UInt),
+                right: var_expr("b", Elem::UInt),
                 vectorization: NonZero::new(4),
                 ty: Elem::UInt,
             },
@@ -39,9 +39,9 @@ pub fn vectorization_simple() {
             4,
         )],
         Some(Expression::Binary {
-            left: vec_var("c", Elem::UInt, 4),
+            left: vec_var_expr("c", Elem::UInt, 4),
             operator: Operator::Mul,
-            right: vec_var("a", Elem::UInt, 4),
+            right: vec_var_expr("a", Elem::UInt, 4),
             vectorization: NonZero::new(4),
             ty: Elem::UInt,
         }),

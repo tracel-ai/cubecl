@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use cubecl_core::{
     ir::Elem,
-    new_ir::{Block, Expr, Expression, Primitive, SquareType, Statement},
+    new_ir::{Block, Expr, Expression, Primitive, SquareType, Statement, Var},
 };
 
 #[allow(unused)]
@@ -24,21 +24,35 @@ pub fn block_expr(statements: Vec<Statement>, ret: Option<Expression>) -> Expres
 }
 
 #[allow(unused)]
-pub fn var(name: &str, ty: Elem) -> Box<Expression> {
-    Box::new(Expression::Variable {
+pub fn var(name: &str, ty: Elem) -> Var {
+    Var {
         name: name.to_string(),
         ty,
         vectorization: None,
-    })
+    }
 }
 
 #[allow(unused)]
-pub fn vec_var(name: &str, ty: Elem, vectorization: u8) -> Box<Expression> {
-    Box::new(Expression::Variable {
+pub fn var_expr(name: &str, ty: Elem) -> Box<Expression> {
+    Box::new(Expression::Variable(Var {
+        name: name.to_string(),
+        ty,
+        vectorization: None,
+    }))
+}
+
+#[allow(unused)]
+pub fn vec_var(name: &str, ty: Elem, vectorization: u8) -> Var {
+    Var {
         name: name.to_string(),
         ty,
         vectorization: NonZero::new(vectorization),
-    })
+    }
+}
+
+#[allow(unused)]
+pub fn vec_var_expr(name: &str, ty: Elem, vectorization: u8) -> Box<Expression> {
+    Box::new(Expression::Variable(vec_var(name, ty, vectorization)))
 }
 
 #[allow(unused)]

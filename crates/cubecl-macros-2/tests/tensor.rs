@@ -24,7 +24,7 @@ fn simple_index() {
     let expected = block_expr(
         vec![],
         Some(Expression::Tensor(TensorExpression::Index {
-            tensor: var("tensor", Elem::UInt),
+            tensor: var_expr("tensor", Elem::UInt),
             index: Box::new(lit(10)),
         })),
     );
@@ -44,13 +44,13 @@ fn array_index() {
     let expected = block_expr(
         vec![],
         Some(Expression::Tensor(TensorExpression::Index {
-            tensor: var("tensor", Elem::UInt),
+            tensor: var_expr("tensor", Elem::UInt),
             index: Box::new(Expression::Binary {
                 left: Box::new(Expression::Binary {
                     left: Box::new(lit(2)),
                     operator: Operator::Mul,
                     right: Box::new(Expression::Tensor(TensorExpression::Stride {
-                        tensor: var("tensor", Elem::UInt),
+                        tensor: var_expr("tensor", Elem::UInt),
                         dim: Box::new(lit(0)),
                     })),
                     vectorization: None,
@@ -61,7 +61,7 @@ fn array_index() {
                     left: Box::new(lit(4)),
                     operator: Operator::Mul,
                     right: Box::new(Expression::Tensor(TensorExpression::Stride {
-                        tensor: var("tensor", Elem::UInt),
+                        tensor: var_expr("tensor", Elem::UInt),
                         dim: Box::new(lit(1)),
                     })),
                     vectorization: None,
@@ -94,7 +94,7 @@ fn vectorization_tracing() {
         vec![init_vec(
             "a",
             Expression::Tensor(TensorExpression::Index {
-                tensor: vec_var("tensor", Elem::UInt, 4),
+                tensor: vec_var_expr("tensor", Elem::UInt, 4),
                 index: Box::new(lit(10)),
             }),
             false,
@@ -102,9 +102,9 @@ fn vectorization_tracing() {
             4,
         )],
         Some(Expression::Binary {
-            left: vec_var("a", Elem::UInt, 4),
+            left: vec_var_expr("a", Elem::UInt, 4),
             operator: Operator::Mul,
-            right: vec_var("scalar", Elem::UInt, 2),
+            right: vec_var_expr("scalar", Elem::UInt, 2),
             vectorization: NonZero::new(2),
             ty: Elem::UInt,
         }),
@@ -132,13 +132,13 @@ fn simple_slice() {
                     end: Some(Box::new(lit(8))),
                     inclusive: false,
                 }],
-                tensor: var("tensor", Elem::UInt),
+                tensor: var_expr("tensor", Elem::UInt),
             }),
             false,
             None,
         )],
         Some(Expression::Tensor(TensorExpression::Index {
-            tensor: var("b", Elem::UInt),
+            tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
         })),
     );
@@ -165,13 +165,13 @@ fn slice_open_start() {
                     end: Some(Box::new(lit(8))),
                     inclusive: false,
                 }],
-                tensor: var("tensor", Elem::UInt),
+                tensor: var_expr("tensor", Elem::UInt),
             }),
             false,
             None,
         )],
         Some(Expression::Tensor(TensorExpression::Index {
-            tensor: var("b", Elem::UInt),
+            tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
         })),
     );
@@ -198,13 +198,13 @@ fn slice_open_end() {
                     end: None,
                     inclusive: false,
                 }],
-                tensor: var("tensor", Elem::UInt),
+                tensor: var_expr("tensor", Elem::UInt),
             }),
             false,
             None,
         )],
         Some(Expression::Tensor(TensorExpression::Index {
-            tensor: var("b", Elem::UInt),
+            tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
         })),
     );
@@ -238,13 +238,13 @@ fn multi_range_slice() {
                         inclusive: false,
                     },
                 ],
-                tensor: var("tensor", Elem::UInt),
+                tensor: var_expr("tensor", Elem::UInt),
             }),
             false,
             None,
         )],
         Some(Expression::Tensor(TensorExpression::Index {
-            tensor: var("b", Elem::UInt),
+            tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
         })),
     );
@@ -278,13 +278,13 @@ fn slice_different_range_types() {
                         inclusive: false,
                     },
                 ],
-                tensor: var("tensor", Elem::UInt),
+                tensor: var_expr("tensor", Elem::UInt),
             }),
             false,
             None,
         )],
         Some(Expression::Tensor(TensorExpression::Index {
-            tensor: var("b", Elem::UInt),
+            tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
         })),
     );
@@ -304,7 +304,7 @@ fn mut_index() {
     let expected = block_expr(
         vec![expr(Expression::Assigment {
             left: Box::new(Expression::Tensor(TensorExpression::Index {
-                tensor: var("tensor", Elem::UInt),
+                tensor: var_expr("tensor", Elem::UInt),
                 index: Box::new(lit(10)),
             })),
             right: Box::new(lit(1u32)),
