@@ -6,7 +6,7 @@ use crate::ir::Synchronization;
 /// # Coordinates the following among all invocations in the current cube:
 ///
 /// * Memory writes to variables in cube address space(shared memory) complete,
-/// e.g. writes that were initiated actually land in the cube address space memory.
+///   e.g. writes that were initiated actually land in the cube address space memory.
 ///
 /// * Then all the invocations in the cube wait for each other to arrive at the barrier, i.e. this step.
 ///
