@@ -25,8 +25,6 @@ use std::path::PathBuf;
 pub struct CudaServer<MM: MemoryManagement<CudaStorage>> {
     state: CudaServerState<MM>,
     logger: DebugLogger,
-    pub(crate) archs: Vec<i32>,
-    pub(crate) minimum_arch_version: i32,
 }
 
 pub(crate) enum CudaServerState<MM: MemoryManagement<CudaStorage>> {
@@ -51,6 +49,7 @@ pub(crate) struct CudaContext<MM: MemoryManagement<CudaStorage>> {
     stream: cudarc::driver::sys::CUstream,
     memory_management: MM,
     module_names: HashMap<KernelId, CompiledKernel>,
+    pub(crate) arch: u32,
 }
 
 #[derive(Debug)]
@@ -63,6 +62,11 @@ struct CompiledKernel {
 unsafe impl<MM: MemoryManagement<CudaStorage>> Send for CudaServer<MM> {}
 
 impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
+    pub(crate) fn arch_version(&mut self) -> u32 {
+        let ctx = self.get_context();
+        ctx.arch
+    }
+
     fn read_sync(&mut self, binding: server::Binding<Self>) -> Vec<u8> {
         let ctx = self.get_context();
         let resource = ctx.memory_management.get_resource(binding.memory);
@@ -116,8 +120,6 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         bindings: Vec<server::Binding<Self>>,
         mode: ExecutionMode,
     ) {
-        let arch = self.minimum_arch_version;
-
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
@@ -140,7 +142,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         let (ctx, logger) = self.get_context_with_logger();
 
         if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(&kernel_id, kernel, arch, logger, mode);
+            ctx.compile_kernel(&kernel_id, kernel, logger, mode);
         }
 
         let resources = bindings
@@ -177,12 +179,14 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         memory_management: MM,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
+        arch: u32,
     ) -> Self {
         Self {
             context,
             memory_management,
             module_names: HashMap::new(),
             stream,
+            arch,
         }
     }
 
@@ -197,7 +201,6 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
         &mut self,
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask>,
-        arch: i32,
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
@@ -213,7 +216,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
 
         let shared_mem_bytes = kernel_compiled.shared_mem_bytes;
         let cube_dim = kernel_compiled.cube_dim;
-        let arch = format!("--gpu-architecture=sm_{}", arch);
+        let arch = format!("--gpu-architecture=sm_{}", self.arch);
 
         let include_path = include_path();
         let include_option = format!("--include-path={}", include_path.to_str().unwrap());
@@ -286,26 +289,12 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
 impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
     /// Create a new cuda server.
     pub(crate) fn new(index: usize, init: Box<dyn Fn(usize) -> CudaContext<MM>>) -> Self {
-        let archs = unsafe {
-            let mut num_supported_arg: core::ffi::c_int = 0;
-            cudarc::nvrtc::sys::lib()
-                .nvrtcGetNumSupportedArchs(core::ptr::from_mut(&mut num_supported_arg));
-
-            let mut archs: Vec<core::ffi::c_int> = vec![0; num_supported_arg as usize];
-            cudarc::nvrtc::sys::lib().nvrtcGetSupportedArchs(core::ptr::from_mut(&mut archs[0]));
-            archs
-        };
-
-        let minimum_arch_version = archs[0];
-
         Self {
             state: CudaServerState::Uninitialized {
                 device_index: index,
                 init,
             },
             logger: DebugLogger::new(),
-            archs,
-            minimum_arch_version,
         }
     }
 
@@ -316,6 +305,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
     fn get_context_with_logger(&mut self) -> (&mut CudaContext<MM>, &mut DebugLogger) {
         if let CudaServerState::Uninitialized { device_index, init } = &self.state {
             let ctx = init(*device_index);
+
             self.state = CudaServerState::Initialized { ctx };
         }
         if let CudaServerState::Initialized { ctx } = &mut self.state {
