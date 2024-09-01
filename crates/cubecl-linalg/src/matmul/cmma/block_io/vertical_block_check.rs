@@ -1,15 +1,13 @@
+use crate::matmul::cmma::{base::Dimensions, config::CmmaConfig};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_macros_2::{cube2, StaticExpand};
-
-use crate::matmul::cmma::{base::Dimensions, config::CmmaConfig};
 
 use super::base::{BlockLoader, BlockLoaderExpand, BlockWriter, BlockWriterExpand};
 
 #[derive(StaticExpand)]
 pub(crate) struct VerticalCheckBlockIO;
 
-#[cube2]
+#[cube]
 impl<F: Float, FC: Float> BlockLoader<F, FC> for VerticalCheckBlockIO {
     fn load_tile(
         tensor: &Tensor<F>,
@@ -40,7 +38,7 @@ impl<F: Float, FC: Float> BlockLoader<F, FC> for VerticalCheckBlockIO {
     }
 }
 
-#[cube2]
+#[cube]
 impl<F: Float> BlockWriter<F> for VerticalCheckBlockIO {
     fn write_output(
         out: &mut Tensor<F>,

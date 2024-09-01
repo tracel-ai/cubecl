@@ -1,11 +1,9 @@
-use cubecl::prelude::*;
-use cubecl_core as cubecl;
-use cubecl_macros_2::{cube2, Expand};
-
 use super::block_loop::block_loop;
 use super::config::CmmaConfig;
+use cubecl::prelude::*;
+use cubecl_core as cubecl;
 
-#[cube2(launch_unchecked)]
+#[cube(launch_unchecked)]
 #[allow(unused_mut)]
 pub fn cmma_kernel<F: Float, FC: Float>(
     lhs: &Tensor<F>,
@@ -61,7 +59,7 @@ pub(crate) struct Offsets {
     pub k: u32,
 }
 
-#[cube2]
+#[cube]
 fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
     let rank = lhs.rank();
     let first_dim = rank - 2;
@@ -73,7 +71,7 @@ fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
     Dimensions { m, k, n }
 }
 
-#[cube2]
+#[cube]
 fn calculate_offsets<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
@@ -114,7 +112,7 @@ fn calculate_offsets<F: Float>(
     }
 }
 
-#[cube2]
+#[cube]
 fn make_shared_memories<FC: Float>(#[comptime] config: CmmaConfig) -> SharedMemories<FC> {
     let block_size_m = config.block_size_m;
     let block_size_k = config.block_size_k;
@@ -126,7 +124,7 @@ fn make_shared_memories<FC: Float>(#[comptime] config: CmmaConfig) -> SharedMemo
     SharedMemories { lhs, rhs }
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn make_accumulators<F: Float>() -> Accumulators<F> {
     // Assumes two per warp. TODO generalize
     let acc0 = cmma::Matrix::<F>::new(

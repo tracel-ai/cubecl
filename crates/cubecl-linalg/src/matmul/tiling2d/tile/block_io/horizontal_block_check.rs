@@ -17,7 +17,7 @@ use super::base::{all_zeros_comptime, all_zeros_runtime, BlockLoader, BlockWrite
 
 pub(crate) struct HorizontalCheckBlockIO;
 
-#[cube2]
+#[cube]
 impl<F: Float> BlockLoader<F> for HorizontalCheckBlockIO {
     fn load_tile_plain<A: ContiguousAccess<F>>(
         tensor: &Tensor<F>,
@@ -85,7 +85,7 @@ impl<F: Float> BlockLoader<F> for HorizontalCheckBlockIO {
     }
 }
 
-#[cube2]
+#[cube]
 impl<F: Float> BlockWriter<F> for HorizontalCheckBlockIO {
     fn write_output<A: ContiguousAccess<F>>(
         out: &mut Tensor<F>,

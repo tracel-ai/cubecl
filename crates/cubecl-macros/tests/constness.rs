@@ -1,7 +1,7 @@
 #![allow(clippy::all)]
 
 use cubecl_core::new_ir::Expr;
-use cubecl_macros_2::cube2;
+use cubecl_core::prelude::*;
 use pretty_assertions::assert_eq;
 
 mod common;
@@ -10,7 +10,7 @@ use common::*;
 #[test]
 fn collapses_constants() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn collapses_constants(#[comptime] a: u32) -> u32 {
         let b = 2;
         let c = a * b;

@@ -5,8 +5,8 @@ use std::marker::PhantomData;
 use cubecl_core::{
     ir::Elem,
     new_ir::{Expr, Expression, Operator, Variable},
+    prelude::*,
 };
-use cubecl_macros_2::{cube2, Expand};
 use pretty_assertions::assert_eq;
 use Elem::UInt;
 
@@ -16,7 +16,7 @@ use common::*;
 #[test]
 pub fn const_param() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn const_param(a: u32, #[comptime] b: u32) {
         a * b;
     }
@@ -60,7 +60,7 @@ pub fn const_param() {
 #[test]
 pub fn const_generic() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn const_generic<const D: u32>(a: u32, #[comptime] b: u32) {
         a * b + D;
     }
@@ -104,7 +104,7 @@ struct Param {
 #[test]
 pub fn struct_param() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn struct_param(arg: &Param) -> u32 {
         arg.a * arg.b
     }
@@ -137,7 +137,7 @@ pub fn struct_param() {
 #[test]
 pub fn comptime_struct_param() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn struct_param(#[comptime] arg: Param) -> u32 {
         arg.a * arg.b
     }
@@ -151,7 +151,7 @@ pub fn comptime_struct_param() {
 #[test]
 pub fn destructure() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn destructure(arg: &Param) -> u32 {
         let Param { a, b } = arg;
         a * b

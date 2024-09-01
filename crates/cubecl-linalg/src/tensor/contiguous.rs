@@ -1,12 +1,9 @@
+use super::TensorHandle;
+use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_vectorization_factor};
 
-use cubecl::prelude::*;
-use cubecl_macros_2::cube2;
-
-use super::TensorHandle;
-
 /// Returns the offset of the tensor corresponding to the layout tensor.
-#[cube2]
+#[cube]
 pub fn index_offset_with_layout<N: Primitive, L: Primitive>(
     tensor: &Tensor<N>,
     layout: &Tensor<L>,
@@ -29,7 +26,7 @@ pub fn index_offset_with_layout<N: Primitive, L: Primitive>(
     offset / vectorization
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 fn into_contiguous_kernel<N: Primitive>(
     input: &Tensor<N>,
     output: &mut Tensor<N>,

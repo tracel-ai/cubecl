@@ -18,7 +18,7 @@ use super::base::{BlockLoader, BlockWriter};
 /// Assumes block sizes divide tensor shape
 pub(crate) struct UncheckedBlockIO;
 
-#[cube2]
+#[cube]
 impl<F: Float> BlockLoader<F> for UncheckedBlockIO {
     fn load_tile_plain<A: ContiguousAccess<F>>(
         tensor: &Tensor<F>,
@@ -66,7 +66,7 @@ impl<F: Float> BlockLoader<F> for UncheckedBlockIO {
     }
 }
 
-#[cube2]
+#[cube]
 impl<F: Float> BlockWriter<F> for UncheckedBlockIO {
     fn write_output<A: ContiguousAccess<F>>(
         out: &mut Tensor<F>,

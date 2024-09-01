@@ -18,7 +18,7 @@ pub(crate) struct WriteTileInfo {
     pub out_stride: UInt,
 }
 
-#[cube2]
+#[cube]
 pub(crate) trait OutputWriter<F: Float>: Sync + Send + 'static {
     fn write_output<B: BlockWriter<F>>(
         out: &mut Tensor<F>,
@@ -29,7 +29,7 @@ pub(crate) trait OutputWriter<F: Float>: Sync + Send + 'static {
     );
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn write_to_output<F: Float, W: OutputWriter<F>>(
     out: &mut Tensor<F>,
     results: &Array<F>,

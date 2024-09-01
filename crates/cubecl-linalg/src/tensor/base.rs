@@ -149,9 +149,8 @@ where
 pub(crate) mod init {
     use cubecl::prelude::*;
     use cubecl_core as cubecl;
-    use cubecl_macros_2::cube2;
 
-    #[cube2(launch_unchecked)]
+    #[cube(launch_unchecked)]
     pub fn zeros_array<C: Numeric>(output: &mut Array<C>) {
         if ABSOLUTE_POS < output.len() {
             output[ABSOLUTE_POS] = C::new(0);

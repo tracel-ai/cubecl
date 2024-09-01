@@ -1,192 +1,192 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube2]
+#[cube]
 pub fn add_op<T: Numeric>(a: T, b: T) -> T {
     a + b
 }
 
-#[cube2]
+#[cube]
 pub fn sub_op<T: Numeric>(a: T, b: T) -> T {
     a - b
 }
 
-#[cube2]
+#[cube]
 pub fn mul_op<T: Numeric>(a: T, b: T) -> T {
     a * b
 }
 
-#[cube2]
+#[cube]
 pub fn div_op<T: Numeric>(a: T, b: T) -> T {
     a / b
 }
 
-#[cube2]
+#[cube]
 pub fn abs_op<T: Numeric>(a: T) -> T {
     T::abs(a)
 }
 
-#[cube2]
+#[cube]
 pub fn exp_op<F: Float>(a: F) -> F {
     F::exp(a)
 }
 
-#[cube2]
+#[cube]
 pub fn log_op<F: Float>(a: F) -> F {
     F::log(a)
 }
 
-#[cube2]
+#[cube]
 pub fn log1p_op<F: Float>(a: F) -> F {
     F::log1p(a)
 }
 
-#[cube2]
+#[cube]
 pub fn cos_op<F: Float>(a: F) -> F {
     F::cos(a)
 }
 
-#[cube2]
+#[cube]
 pub fn sin_op<F: Float>(a: F) -> F {
     F::sin(a)
 }
 
-#[cube2]
+#[cube]
 pub fn tanh_op<F: Float>(a: F) -> F {
     F::tanh(a)
 }
 
-#[cube2]
+#[cube]
 pub fn powf_op<F: Float>(a: F, b: F) -> F {
     F::powf(a, b)
 }
 
-#[cube2]
+#[cube]
 pub fn sqrt_op<F: Float>(a: F) -> F {
     F::sqrt(a)
 }
 
-#[cube2]
+#[cube]
 pub fn floor_op<F: Float>(a: F) -> F {
     F::floor(a)
 }
 
-#[cube2]
+#[cube]
 pub fn ceil_op<F: Float>(a: F) -> F {
     F::ceil(a)
 }
 
-#[cube2]
+#[cube]
 pub fn erf_op<F: Float>(a: F) -> F {
     F::erf(a)
 }
 
-#[cube2]
+#[cube]
 pub fn recip_op<F: Float>(a: F) -> F {
     F::recip(a)
 }
 
-#[cube2]
+#[cube]
 pub fn equal_op<T: CubePrimitive>(a: T, b: T) -> bool {
     a == b
 }
 
-#[cube2]
+#[cube]
 pub fn not_equal_op<T: CubePrimitive>(a: T, b: T) -> bool {
     a != b
 }
 
-#[cube2]
+#[cube]
 pub fn lower_op<T: Numeric>(a: T, b: T) -> bool {
     a < b
 }
 
-#[cube2]
+#[cube]
 pub fn greater_op<T: Numeric>(a: T, b: T) -> bool {
     a > b
 }
 
-#[cube2]
+#[cube]
 pub fn lower_equal_op<T: Numeric>(a: T, b: T) -> bool {
     a <= b
 }
 
-#[cube2]
+#[cube]
 pub fn greater_equal_op<T: Numeric>(a: T, b: T) -> bool {
     a >= b
 }
 
-#[cube2]
+#[cube]
 pub fn modulo_op(a: UInt, b: UInt) -> UInt {
     a % b
 }
 
-#[cube2]
+#[cube]
 pub fn remainder_op<T: Numeric>(a: T, b: T) -> T {
     T::rem(a, b)
 }
 
-#[cube2]
+#[cube]
 pub fn max_op<T: Numeric>(a: T, b: T) -> T {
     T::max(a, b)
 }
 
-#[cube2]
+#[cube]
 pub fn min_op<T: Numeric>(a: T, b: T) -> T {
     T::min(a, b)
 }
 
-#[cube2]
+#[cube]
 pub fn and_op(a: bool, b: bool) -> bool {
     a && b
 }
 
-#[cube2]
+#[cube]
 pub fn or_op(a: bool, b: bool) -> bool {
     a || b
 }
 
-#[cube2]
+#[cube]
 pub fn not_op(a: bool) -> bool {
     !a
 }
 
-#[cube2]
+#[cube]
 pub fn bitand_op(a: UInt, b: UInt) -> UInt {
     a & b
 }
 
-#[cube2]
+#[cube]
 pub fn bitxor_op(a: UInt, b: UInt) -> UInt {
     a ^ b
 }
 
-#[cube2]
+#[cube]
 pub fn shl_op(a: UInt, b: UInt) -> UInt {
     a << b
 }
 
-#[cube2]
+#[cube]
 pub fn shr_op(a: UInt, b: UInt) -> UInt {
     a >> b
 }
 
-#[cube2]
+#[cube]
 pub fn add_assign_op<T: Numeric>(mut a: T, b: T) {
     a += b;
 }
 
-#[cube2]
+#[cube]
 pub fn sub_assign_op<T: Numeric>(mut a: T, b: T) {
     a -= b;
 }
 
-#[cube2]
+#[cube]
 pub fn mul_assign_op<T: Numeric>(mut a: T, b: T) {
     a *= b;
 }
 
-#[cube2]
+#[cube]
 pub fn div_assign_op<T: Numeric>(mut a: T, b: T) {
     a /= b;
 }

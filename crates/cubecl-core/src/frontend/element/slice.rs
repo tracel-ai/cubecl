@@ -6,12 +6,11 @@ use std::{
     },
 };
 
-use cubecl_macros_2::{expand_impl, Expand};
-
 use crate::{
     new_ir::{
         Container, EqExpr, Expr, IndexExpr, Length, SliceExpr, SliceRangeExpr, SquareType, Strided,
     },
+    prelude::*,
     unexpanded,
 };
 

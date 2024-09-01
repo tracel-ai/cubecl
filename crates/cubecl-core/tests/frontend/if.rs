@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube2]
+#[cube]
 pub fn if_greater<T: Numeric>(lhs: T) {
     if lhs > T::from_int(0) {
         let _ = lhs + T::from_int(4);
     }
 }
 
-#[cube2]
+#[cube]
 pub fn if_greater_var<T: Numeric>(lhs: T) {
     let x = lhs > T::from_int(0);
     if x {
@@ -16,7 +16,7 @@ pub fn if_greater_var<T: Numeric>(lhs: T) {
     }
 }
 
-#[cube2]
+#[cube]
 pub fn if_then_else<F: Float>(lhs: F) {
     if lhs < F::from_int(0) {
         let _ = lhs + F::from_int(4);
@@ -25,7 +25,7 @@ pub fn if_then_else<F: Float>(lhs: F) {
     }
 }
 
-#[cube2]
+#[cube]
 pub fn elsif<F: Float>(lhs: F) {
     if lhs < F::new(0.) {
         let _ = lhs + F::new(2.);

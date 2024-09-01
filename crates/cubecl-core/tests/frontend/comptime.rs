@@ -13,7 +13,7 @@ impl Init for State {
     }
 }
 
-#[cube2]
+#[cube]
 pub fn comptime_if_else<T: Numeric>(lhs: T, cond: Comptime<bool>) {
     if Comptime::get(cond) {
         let _ = lhs + T::from_int(4);
@@ -22,7 +22,7 @@ pub fn comptime_if_else<T: Numeric>(lhs: T, cond: Comptime<bool>) {
     }
 }
 
-#[cube2]
+#[cube]
 #[allow(clippy::collapsible_else_if)]
 pub fn comptime_else_then_if<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: Comptime<bool>) {
     if Comptime::get(cond1) {
@@ -36,13 +36,13 @@ pub fn comptime_else_then_if<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: C
     }
 }
 
-#[cube2]
+#[cube]
 pub fn comptime_float() {
     let comptime_float = Comptime::new(F32::new(0.0));
     let _runtime_float = Comptime::runtime(comptime_float);
 }
 
-#[cube2]
+#[cube]
 pub fn comptime_elsif<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: Comptime<bool>) {
     if Comptime::get(cond1) {
         let _ = lhs + T::from_int(4);
@@ -53,7 +53,7 @@ pub fn comptime_elsif<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: Comptime
     }
 }
 
-#[cube2]
+#[cube]
 pub fn comptime_elsif_with_runtime1<T: Numeric>(lhs: T, comptime_cond: Comptime<bool>) {
     let runtime_cond = lhs >= T::from_int(2);
     if Comptime::get(comptime_cond) {
@@ -65,7 +65,7 @@ pub fn comptime_elsif_with_runtime1<T: Numeric>(lhs: T, comptime_cond: Comptime<
     }
 }
 
-#[cube2]
+#[cube]
 pub fn comptime_elsif_with_runtime2<T: Numeric>(lhs: T, comptime_cond: Comptime<bool>) {
     let runtime_cond = lhs >= T::from_int(2);
     if runtime_cond {
@@ -77,7 +77,7 @@ pub fn comptime_elsif_with_runtime2<T: Numeric>(lhs: T, comptime_cond: Comptime<
     }
 }
 
-#[cube2]
+#[cube]
 pub fn comptime_if_expr<T: Numeric>(lhs: T, x: Comptime<UInt>, y: Comptime<UInt>) {
     let y2 = x + y;
 
@@ -88,7 +88,7 @@ pub fn comptime_if_expr<T: Numeric>(lhs: T, x: Comptime<UInt>, y: Comptime<UInt>
     }
 }
 
-#[cube2]
+#[cube]
 pub fn comptime_with_map_bool<T: Numeric>(state: Comptime<State>) -> T {
     let cond = Comptime::map(state, |s: State| s.cond);
 
@@ -101,7 +101,7 @@ pub fn comptime_with_map_bool<T: Numeric>(state: Comptime<State>) -> T {
     x
 }
 
-#[cube2]
+#[cube]
 pub fn comptime_with_map_uint<T: Numeric>(state: Comptime<State>) -> T {
     let bound = Comptime::map(state, |s: State| s.bound);
 

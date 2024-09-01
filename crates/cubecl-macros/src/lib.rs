@@ -1,204 +1,103 @@
-#[macro_use]
-extern crate derive_new;
-
-mod analyzer;
-mod codegen_function;
-mod codegen_trait;
-mod codegen_type;
-mod tracker;
-
-pub(crate) mod codegen_common;
-
-use analyzer::VariableAnalyzer;
-use codegen_common::signature::{expand_sig, ExpandMode};
-use codegen_function::{codegen_launch, codegen_statement};
-use codegen_trait::{expand_trait_def, expand_trait_impl};
-use codegen_type::generate_cube_type;
+use darling::FromDeriveInput;
+use error::error_into_token_stream;
+use parse::{
+    cube_trait::{CubeTrait, CubeTraitImpl},
+    expand::{Expand, StaticExpand},
+    expand_impl::ExpandImplVisitor,
+    helpers::RemoveHelpers,
+    kernel::{from_tokens, Kernel},
+};
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, punctuated::Punctuated, token::Comma, Meta};
-use tracker::VariableTracker;
+use quote::{quote, ToTokens};
+use syn::{parse_macro_input, visit_mut::VisitMut, DeriveInput, Item, ItemImpl};
 
-enum CubeMode {
-    /// Generates the expanded version of the function
-    Default,
-    /// Panics and prints the generated code, useful when debugging
-    /// Use by writing #[cube(debug)]
-    Debug,
-}
+mod error;
+mod expression;
+mod generate;
+mod parse;
+mod paths;
+mod scope;
+mod statement;
 
-// Derive macro to define a cube type that is launched with a kernel
-#[proc_macro_derive(CubeLaunch)]
-pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
+pub(crate) use paths::{core_type, ir_path, ir_type, prefix_ir, prelude_type};
 
-    generate_cube_type(&input, true)
-}
-
-// Derive macro to define a cube type that is not launched
-#[proc_macro_derive(CubeType)]
-pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
-
-    generate_cube_type(&input, false)
-}
-
-struct SupportedAttributes {
-    mode: CubeMode,
-    launch: bool,
-    launch_unchecked: bool,
-}
-
-/// Derive macro for the module.
 #[proc_macro_attribute]
-pub fn cube(attr: TokenStream, tokens: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr with Punctuated::<Meta, syn::Token![,]>::parse_terminated);
-    let attrs = parse_attributes(&args);
-
-    let code: TokenStream = match syn::parse::<syn::Item>(tokens).unwrap() {
-        syn::Item::Fn(func) => cube_fn(func, &attrs),
-        syn::Item::Impl(item) => expand_trait_impl(item).into(),
-        syn::Item::Trait(item) => expand_trait_def(item).into(),
-        _ => panic!("Cube annotations only supported for functions"),
-    };
-
-    match attrs.mode {
-        CubeMode::Default => code,
-        CubeMode::Debug => panic!("{code}"),
+pub fn cube(args: TokenStream, input: TokenStream) -> TokenStream {
+    match cube_impl(args, input.clone()) {
+        Ok(tokens) => tokens,
+        Err(e) => error_into_token_stream(e, input.into()).into(),
     }
 }
 
-fn cube_fn(func: syn::ItemFn, attrs: &SupportedAttributes) -> TokenStream {
-    let mut variable_tracker = VariableAnalyzer::create_tracker(&func);
+fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let mut item: Item = syn::parse(input)?;
+    match item.clone() {
+        Item::Fn(kernel) => {
+            let args = from_tokens(args.into())?;
+            let kernel = Kernel::from_item_fn(kernel, args)?;
+            RemoveHelpers.visit_item_mut(&mut item);
 
-    match codegen_cube(
-        &func,
-        &mut variable_tracker,
-        attrs.launch,
-        attrs.launch_unchecked,
-    ) {
-        Ok(code) => code.into(),
-        Err(err) => err.into(),
+            Ok(TokenStream::from(quote! {
+                #[allow(dead_code)]
+                #item
+                #kernel
+            }))
+        }
+        Item::Trait(kernel_trait) => {
+            let args = from_tokens(args.into())?;
+            let expand_trait = CubeTrait::from_item_trait(kernel_trait, args)?;
+
+            Ok(TokenStream::from(quote! {
+                #expand_trait
+            }))
+        }
+        Item::Impl(item_impl) if item_impl.trait_.is_some() => {
+            let args = from_tokens(args.into())?;
+            let expand_impl = CubeTraitImpl::from_item_impl(item_impl, args)?;
+            RemoveHelpers.visit_item_mut(&mut item);
+
+            Ok(TokenStream::from(quote! {
+                #[allow(dead_code)]
+                #item
+                #expand_impl
+            }))
+        }
+        item => Err(syn::Error::new_spanned(
+            item,
+            "`#[cube]` is only supported on traits and functions",
+        ))?,
     }
 }
 
-fn parse_attributes(args: &Punctuated<Meta, Comma>) -> SupportedAttributes {
-    let mut mode = CubeMode::Default;
-    let mut launch = false;
-    let mut launch_unchecked = false;
-
-    for arg in args.iter() {
-        match arg {
-            Meta::Path(path) => {
-                if let Some(ident) = path.get_ident().map(|id| id.to_string()) {
-                    match ident.as_str() {
-                        "debug" => {
-                            mode = CubeMode::Debug;
-                        }
-                        "launch" => {
-                            launch = true;
-                        }
-                        "launch_unchecked" => {
-                            launch_unchecked = true;
-                        }
-                        _ => {
-                            panic!("Attribute {ident} is not supported")
-                        }
-                    }
-                } else {
-                    panic!("Only ident attribute supported");
-                }
-            }
-            Meta::List(_) => panic!("No List attribute supported"),
-            Meta::NameValue(_) => panic!("No NameValue attribute supported"),
-        }
-    }
-
-    SupportedAttributes {
-        mode,
-        launch,
-        launch_unchecked,
-    }
+#[proc_macro_derive(Expand, attributes(expand))]
+pub fn derive_expand(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let expand = match Expand::from_derive_input(&input) {
+        Ok(expand) => expand,
+        Err(e) => return e.write_errors().into(),
+    };
+    expand.to_token_stream().into()
 }
 
-/// Generate the expanded version of a function marked with the cube macro
-fn codegen_cube(
-    func: &syn::ItemFn,
-    variable_tracker: &mut VariableTracker,
-    launch: bool,
-    launch_unchecked: bool,
-) -> Result<proc_macro2::TokenStream, proc_macro2::TokenStream> {
-    let signature = expand_sig(
-        &func.sig,
-        &syn::Visibility::Public(Default::default()), // Always public, otherwise we can't import
-        // it from an outside module.
-        Some(variable_tracker),
-        ExpandMode::FuncImpl,
-    );
-    let mut body = quote::quote! {};
-
-    for statement in func.block.stmts.iter() {
-        let tokens = codegen_statement(statement, 0, variable_tracker);
-        body.extend(tokens);
-    }
-
-    let is_in_error = !variable_tracker.errors.is_empty();
-
-    if is_in_error {
-        // When there is an error, we don't generate the expand method, since it's only going to
-        // create more errors that won't help fixing the issue.
-
-        let mut code = quote::quote! {
-            #[allow(dead_code)]
-            #[allow(clippy::too_many_arguments)]
-            #func
-        };
-
-        for err in variable_tracker.errors.drain(..) {
-            code.extend(err.into_compile_error());
-        }
-
-        return Err(code);
-    }
-
-    let launch_doc = if launch {
-        "and launch functions "
-    } else {
-        "function "
+#[proc_macro_derive(StaticExpand, attributes(expand))]
+pub fn derive_static_expand(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let expand = match StaticExpand::from_derive_input(&input) {
+        Ok(expand) => expand,
+        Err(e) => return e.write_errors().into(),
     };
+    expand.to_token_stream().into()
+}
 
-    let mut launch = if launch {
-        codegen_launch(&func.sig, false)
-    } else {
-        quote::quote! {}
-    };
+#[proc_macro_attribute]
+pub fn expand_impl(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let mut impl_block = parse_macro_input!(input as ItemImpl);
+    let mut visitor = ExpandImplVisitor::default();
+    visitor.visit_item_impl_mut(&mut impl_block);
+    let expansion = visitor.0.unwrap();
 
-    launch.extend(if launch_unchecked {
-        codegen_launch(&func.sig, true)
-    } else {
-        quote::quote! {}
-    });
-
-    let mod_name = &func.sig.ident;
-    let vis = &func.vis;
-    let doc = format!("Module containing the expand {launch_doc}of {mod_name}.");
-
-    Ok(quote::quote! {
-        #[allow(dead_code)]
-        #[allow(clippy::too_many_arguments)]
-        #func
-
-
-        #[doc = #doc]
-        #[allow(clippy::too_many_arguments)]
-        #vis mod #mod_name {
-            use super::*;
-
-            #launch
-
-            #[allow(unused_mut)]
-            #signature {
-                #body
-            }
-        }
+    TokenStream::from(quote! {
+        #impl_block
+        #expansion
     })
 }

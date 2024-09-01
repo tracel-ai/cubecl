@@ -51,11 +51,10 @@ use std::{marker::PhantomData, num::NonZero};
 use crate::{
     ir::{self, Elem, Operation},
     new_ir::{Container, Expr, Expression, SquareType, Strided, Vectorization},
-    prelude::{CubeContext, ExpandElement},
+    prelude::*,
     unexpanded,
 };
 
-use cubecl_macros_2::{expand_impl, Expand};
 pub use ir::{MatrixIdent, MatrixLayout};
 
 /// A matrix represent a 2D grid of numbers.

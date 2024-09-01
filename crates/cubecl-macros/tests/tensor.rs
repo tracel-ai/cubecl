@@ -3,11 +3,8 @@ use std::num::NonZero;
 use common::*;
 use cubecl_core::{
     ir::{Elem, IntKind},
-    new_ir::{
-        element::Tensor2, Expr, Expression, Operator, SliceRange, TensorExpression, Variable,
-    },
+    new_ir::*,
 };
-use cubecl_macros_2::cube2;
 use pretty_assertions::assert_eq;
 
 mod common;
@@ -15,7 +12,7 @@ mod common;
 #[test]
 fn simple_index() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn simple_index(tensor: &Tensor2<u32>) -> u32 {
         tensor[10]
     }
@@ -26,6 +23,7 @@ fn simple_index() {
         Some(Expression::Tensor(TensorExpression::Index {
             tensor: var_expr("tensor", Elem::UInt),
             index: Box::new(lit(10)),
+            vectorization: None,
         })),
     );
 
@@ -35,7 +33,7 @@ fn simple_index() {
 #[test]
 fn array_index() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn simple_index(tensor: &Tensor2<u32>) -> u32 {
         tensor[[2, 4]]
     }
@@ -70,6 +68,7 @@ fn array_index() {
                 vectorization: None,
                 ty: Elem::Int(IntKind::I32),
             }),
+            vectorization: None,
         })),
     );
 
@@ -79,7 +78,7 @@ fn array_index() {
 #[test]
 fn vectorization_tracing() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn vectorized(tensor: &Tensor2<u32>, scalar: u32) -> u32 {
         let a = tensor[10]; //tensor: vec4, a: vec4
         a * scalar // scalar: vec2, a: vec4 split into 2xvec2, output: vec2
@@ -96,6 +95,7 @@ fn vectorization_tracing() {
             Expression::Tensor(TensorExpression::Index {
                 tensor: vec_var_expr("tensor", Elem::UInt, 4),
                 index: Box::new(lit(10)),
+                vectorization: None,
             }),
             false,
             None,
@@ -116,7 +116,7 @@ fn vectorization_tracing() {
 #[test]
 fn simple_slice() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn simple_slice(tensor: &Tensor2<u32>) -> u32 {
         let b = &tensor[5..8];
         b[1]
@@ -140,6 +140,7 @@ fn simple_slice() {
         Some(Expression::Tensor(TensorExpression::Index {
             tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
+            vectorization: None,
         })),
     );
 
@@ -149,7 +150,7 @@ fn simple_slice() {
 #[test]
 fn slice_open_start() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn slice_open_start(tensor: &Tensor2<u32>) -> u32 {
         let b = &tensor[..8];
         b[1]
@@ -173,6 +174,7 @@ fn slice_open_start() {
         Some(Expression::Tensor(TensorExpression::Index {
             tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
+            vectorization: None,
         })),
     );
 
@@ -182,7 +184,7 @@ fn slice_open_start() {
 #[test]
 fn slice_open_end() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn slice_open_end(tensor: &Tensor2<u32>) -> u32 {
         let b = &tensor[2..];
         b[1]
@@ -206,6 +208,7 @@ fn slice_open_end() {
         Some(Expression::Tensor(TensorExpression::Index {
             tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
+            vectorization: None,
         })),
     );
 
@@ -215,7 +218,7 @@ fn slice_open_end() {
 #[test]
 fn multi_range_slice() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn multi_range_slice(tensor: &Tensor2<u32>) -> u32 {
         let b = &tensor[[..2, ..3]];
         b[1]
@@ -246,6 +249,7 @@ fn multi_range_slice() {
         Some(Expression::Tensor(TensorExpression::Index {
             tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
+            vectorization: None,
         })),
     );
 
@@ -255,7 +259,7 @@ fn multi_range_slice() {
 #[test]
 fn slice_different_range_types() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn multi_range_slice(tensor: &Tensor2<u32>) -> u32 {
         let b = &tensor[(.., 2..4)];
         b[1]
@@ -286,6 +290,7 @@ fn slice_different_range_types() {
         Some(Expression::Tensor(TensorExpression::Index {
             tensor: var_expr("b", Elem::UInt),
             index: Box::new(lit(1)),
+            vectorization: None,
         })),
     );
 
@@ -295,7 +300,7 @@ fn slice_different_range_types() {
 #[test]
 fn mut_index() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn simple_index(tensor: &mut Tensor2<u32>) {
         tensor[10] = 1;
     }
@@ -306,6 +311,7 @@ fn mut_index() {
             left: Box::new(Expression::Tensor(TensorExpression::Index {
                 tensor: var_expr("tensor", Elem::UInt),
                 index: Box::new(lit(10)),
+                vectorization: None,
             })),
             right: Box::new(lit(1u32)),
             vectorization: None,

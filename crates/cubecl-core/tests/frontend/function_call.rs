@@ -4,47 +4,47 @@ use cubecl_core::{
     frontend::{Numeric, UInt},
 };
 
-#[cube2]
+#[cube]
 pub fn caller_no_arg(x: UInt) {
     let _ = x + callee_no_arg();
 }
 
-#[cube2]
+#[cube]
 pub fn callee_no_arg() -> UInt {
     UInt::from_int(8)
 }
 
-#[cube2]
+#[cube]
 pub fn no_call_no_arg(x: UInt) {
     let _ = x + UInt::from_int(8);
 }
 
-#[cube2]
+#[cube]
 pub fn caller_with_arg(x: UInt) {
     let _ = x + callee_with_arg(x);
 }
 
-#[cube2]
+#[cube]
 pub fn callee_with_arg(x: UInt) -> UInt {
     x * UInt::from_int(8)
 }
 
-#[cube2]
+#[cube]
 pub fn no_call_with_arg(x: UInt) {
     let _ = x + x * UInt::from_int(8);
 }
 
-#[cube2]
+#[cube]
 pub fn caller_with_generics<T: Numeric>(x: T) {
     let _ = x + callee_with_generics::<T>(x);
 }
 
-#[cube2]
+#[cube]
 pub fn callee_with_generics<T: Numeric>(x: T) -> T {
     x * T::from_int(8)
 }
 
-#[cube2]
+#[cube]
 pub fn no_call_with_generics<T: Numeric>(x: T) {
     let _ = x + x * T::from_int(8);
 }

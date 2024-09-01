@@ -32,7 +32,6 @@ wgpu = ["cubecl-wgpu"]
 cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.2.0", default-features = false, optional = true }
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", default-features = false, optional = true }
-cubecl-macros-2 = { path = "../cubecl-macros-2", version = "0.2.0" }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0", default-features = false, optional = true }
 
 [dev-dependencies]

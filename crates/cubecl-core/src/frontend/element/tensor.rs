@@ -1,19 +1,9 @@
 use super::{Integer, LaunchArgExpand};
 use crate::{
-    frontend::ArgSettings,
-    ir::Item,
-    new_ir::Container,
-    prelude::{KernelBuilder, KernelLauncher, Slice},
-    unexpanded, KernelSettings, LaunchArg, Runtime,
+    frontend::ArgSettings, ir::Item, new_ir::*, prelude::*, unexpanded, KernelSettings, LaunchArg,
+    Runtime,
 };
 use std::marker::PhantomData;
-
-use cubecl_macros_2::{expand_impl, Expand};
-
-use crate::new_ir::{EqExpr, GlobalVariable, SquareType};
-use crate::new_ir::{
-    Expr, IndexExpr, Length, Rank, Shape, SliceExpr, SliceRangeExpr, Stride, Strided,
-};
 use std::ops::{
     Index, IndexMut, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo,
     RangeToInclusive,

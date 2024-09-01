@@ -4,8 +4,6 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use cubecl_macros_2::{expand_impl, Expand};
-
 use crate::{
     frontend::CubeContext,
     ir::Elem,
@@ -13,6 +11,7 @@ use crate::{
         flatten::item, Container, Expr, Expression, IndexExpr, SliceExpr, SliceRangeExpr,
         SquareType, Strided, Vectorization,
     },
+    prelude::*,
     unexpanded,
 };
 

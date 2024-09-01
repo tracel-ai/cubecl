@@ -18,7 +18,7 @@ pub(crate) struct TileWriter<F: Float> {
     _f: PhantomData<F>,
 }
 
-#[cube2]
+#[cube]
 impl<F: Float> OutputWriter<F> for TileWriter<F> {
     fn write_output<B: BlockWriter<F>>(
         out: &mut Tensor<F>,

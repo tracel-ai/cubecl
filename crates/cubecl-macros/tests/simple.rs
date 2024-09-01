@@ -1,11 +1,11 @@
-use cubecl_macros_2::cube2;
+use cubecl_core::cube;
 
 mod common;
 
 #[test]
 pub fn kernel_compiles() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn compiles() {
         let a = 1;
     }

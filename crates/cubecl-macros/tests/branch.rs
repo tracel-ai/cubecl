@@ -1,10 +1,6 @@
 #![allow(clippy::all)]
 
-use cubecl_core::{
-    ir::Elem,
-    new_ir::{Expr, Expression, Operator, Range, Statement, Variable},
-};
-use cubecl_macros_2::cube2;
+use cubecl_core::{ir::Elem, new_ir::*, prelude::*};
 use pretty_assertions::assert_eq;
 
 mod common;
@@ -13,7 +9,7 @@ use common::*;
 #[test]
 fn for_loop() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn for_loop() -> u32 {
         let mut a = 0;
         for i in 0..2 {
@@ -56,7 +52,7 @@ fn for_loop() {
 #[test]
 fn for_loop_inclusive() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn for_loop() -> u32 {
         let mut a = 0;
         for i in 0..=2 {
@@ -99,7 +95,7 @@ fn for_loop_inclusive() {
 #[test]
 fn for_loop_stepped() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn for_loop() -> u32 {
         let mut a = 0;
         for i in (0..2).step_by(3) {
@@ -142,7 +138,7 @@ fn for_loop_stepped() {
 #[test]
 fn for_loop_unroll() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn for_loop() -> u32 {
         let mut a = 0;
         #[unroll]
@@ -186,7 +182,7 @@ fn for_loop_unroll() {
 #[test]
 fn for_loop_unroll_comptime() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn for_loop(#[comptime] should_unroll: bool) -> u32 {
         let mut a = 0;
         #[unroll(should_unroll)]
@@ -231,7 +227,7 @@ fn for_loop_unroll_comptime() {
 #[should_panic(expected = "Can't unroll loop with dynamic end")]
 fn for_loop_unroll_dynamic_fails() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn for_loop(loop_end: u32) -> u32 {
         let mut a = 0;
         #[unroll]
@@ -275,7 +271,7 @@ fn for_loop_unroll_dynamic_fails() {
 #[test]
 fn for_loop_unroll_comptime_bounds() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn for_loop(dyn_end: u32, #[comptime] end: Option<u32>) -> u32 {
         let should_unroll = end.is_some();
         let end = end.unwrap_or(dyn_end);
@@ -322,7 +318,7 @@ fn for_loop_unroll_comptime_bounds() {
 #[test]
 fn while_loop() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn while_loop() -> u32 {
         let mut a = 0;
         while a % 4 != 0 {
@@ -370,7 +366,7 @@ fn while_loop() {
 #[test]
 fn loop_expr() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn loop_expr() -> u32 {
         let mut a = 0;
         loop {
@@ -405,7 +401,7 @@ fn loop_expr() {
 #[test]
 fn if_expr() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn if_expr(cond: bool) -> u32 {
         let mut a = 0;
         if cond {
@@ -453,7 +449,7 @@ fn if_expr() {
 #[test]
 fn if_returns() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn if_returns(cond: bool) -> u32 {
         let a = if cond { 1 } else { 2 };
         a
@@ -480,7 +476,7 @@ fn if_returns() {
 #[test]
 fn chained_if() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn if_returns(cond1: bool, cond2: bool) -> u32 {
         let a = if cond1 {
             1
@@ -518,7 +514,7 @@ fn chained_if() {
 #[test]
 fn explicit_return() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn if_returns(cond: bool) -> u32 {
         if cond {
             return 10;

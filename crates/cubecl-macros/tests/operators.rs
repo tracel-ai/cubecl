@@ -5,15 +5,15 @@ use common::*;
 use cubecl_core::{
     ir::{Elem, FloatKind, IntKind},
     new_ir::{Expr, Expression, Operator},
+    prelude::*,
 };
-use cubecl_macros_2::cube2;
 use pretty_assertions::assert_eq;
 use Expression::Binary;
 
 #[test]
 fn simple_arithmetic() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn simple_arithmetic() {
         let mut a: u32 = 1;
         let mut b = a * 3;
@@ -97,7 +97,7 @@ fn simple_arithmetic() {
 #[test]
 fn cmp_ops() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn cmp_ops() {
         let mut a = 1u32;
         let mut b = a > 1u32;
@@ -194,7 +194,7 @@ fn cmp_ops() {
 #[test]
 fn assign_arithmetic() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn assign_arithmetic() {
         let mut a: u32 = 1;
         a *= 3;
@@ -253,7 +253,7 @@ fn assign_arithmetic() {
 #[test]
 fn boolean_ops() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn bool_ops() {
         let mut a = false;
         let mut b = a && true;
@@ -319,7 +319,7 @@ fn boolean_ops() {
 #[test]
 fn boolean_assign_ops() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn bool_assign_ops() {
         let mut a = 10u32;
         a |= 5;
@@ -362,7 +362,7 @@ fn boolean_assign_ops() {
 #[test]
 fn shift_ops() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn shift_ops() {
         let mut a = 10u32;
         a << 5;
@@ -413,7 +413,7 @@ fn shift_ops() {
 #[test]
 fn unary_ops() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn unary_ops() {
         !true;
         -1.0;

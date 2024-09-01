@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube2]
+#[cube]
 pub fn parenthesis<T: Numeric>(x: T, y: T, z: T) -> T {
     x * (y + z)
 }

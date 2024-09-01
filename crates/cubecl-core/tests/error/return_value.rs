@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube2]
+#[cube]
 fn range(x: UInt, y: UInt) -> UInt {
     if x == y {
         return x;

@@ -6,7 +6,7 @@ use crate::matmul::tiling2d::tile::loader::{CheckBounds, ReadTileInfo};
 use crate::matmul::tiling2d::tile::memory_access::ContiguousAccess;
 use crate::matmul::tiling2d::write_output::WriteTileInfo;
 
-#[cube2]
+#[cube]
 pub(crate) trait BlockLoader<F: Float>: Send + Sync + 'static {
     fn load_tile_plain<A: ContiguousAccess<F>>(
         tensor: &Tensor<F>,
@@ -25,7 +25,7 @@ pub(crate) trait BlockLoader<F: Float>: Send + Sync + 'static {
     );
 }
 
-#[cube2]
+#[cube]
 pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
     fn write_output<A: ContiguousAccess<F>>(
         out: &mut Tensor<F>,
@@ -36,7 +36,7 @@ pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
     );
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn all_zeros_runtime<F: Float>(
     shared_memory: &mut SharedMemory<F>,
     start: UInt,
@@ -54,7 +54,7 @@ pub(crate) fn all_zeros_runtime<F: Float>(
     }
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn all_zeros_comptime<F: Float>(
     shared_memory: &mut SharedMemory<F>,
     sm_position_base: UInt,

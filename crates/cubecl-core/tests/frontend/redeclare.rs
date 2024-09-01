@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube2]
+#[cube]
 pub fn redeclare_same_scope<I: Int>(mut x: I) {
     let i = I::new(1);
     x += i;
@@ -9,7 +9,7 @@ pub fn redeclare_same_scope<I: Int>(mut x: I) {
     x += i;
 }
 
-#[cube2]
+#[cube]
 pub fn redeclare_same_scope_other_type<I: Int, F: Float>(mut x: I) -> F {
     let i = I::new(1);
     x += i;
@@ -17,7 +17,7 @@ pub fn redeclare_same_scope_other_type<I: Int, F: Float>(mut x: I) -> F {
     i + i
 }
 
-#[cube2]
+#[cube]
 pub fn redeclare_different_scope<I: Int>(mut x: I) {
     let y = I::new(1);
     x += y;
@@ -27,7 +27,7 @@ pub fn redeclare_different_scope<I: Int>(mut x: I) {
     }
 }
 
-#[cube2]
+#[cube]
 pub fn redeclare_two_for_loops(mut x: UInt) {
     for i in range(0u32, 2u32, Comptime::new(false)) {
         x += i;

@@ -1,15 +1,11 @@
 use common::*;
-use cubecl_core::{
-    new_ir::{element::*, ABSOLUTE_POS, UNIT_POS},
-    CubeCount, CubeDim,
-};
-use cubecl_macros_2::cube2;
+use cubecl_core::{prelude::*, CubeCount, CubeDim};
 use cubecl_wgpu::WgpuRuntime;
 use pretty_assertions::assert_eq;
 
 mod common;
 
-#[cube2(launch_unchecked, create_dummy_kernel)]
+#[cube(launch_unchecked, create_dummy_kernel)]
 pub fn slice_assign_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
     if UNIT_POS == 0 {
         let slice_1 = &mut output[2..3];
@@ -33,7 +29,7 @@ pub fn slice_assign() {
     assert_eq!(compile(kernel), expected);
 }
 
-#[cube2(launch, create_dummy_kernel)]
+#[cube(launch, create_dummy_kernel)]
 pub fn kernel_sum(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let val2 = cubecl_core::prelude::subcube_sum(val);
@@ -57,7 +53,7 @@ pub fn subcube_sum() {
     assert_eq!(compile(kernel), expected);
 }
 
-#[cube2(launch, create_dummy_kernel)]
+#[cube(launch, create_dummy_kernel)]
 pub fn sequence_for_loop_kernel(output: &mut Array<f32>) {
     if UNIT_POS != 0 {
         return;
@@ -86,7 +82,7 @@ pub fn sequence_for_loop() {
     assert_eq!(compile(kernel), expected);
 }
 
-#[cube2(launch, create_dummy_kernel)]
+#[cube(launch, create_dummy_kernel)]
 fn execute_unary_kernel<F: cubecl_core::new_ir::Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,

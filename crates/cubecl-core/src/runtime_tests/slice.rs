@@ -1,8 +1,7 @@
 use crate as cubecl;
 use cubecl::prelude::*;
-use cubecl_macros_2::cube2;
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn slice_select(input: &Array<f32>, output: &mut Array<f32>) {
     if UNIT_POS == 0 {
         let slice = &input[2..3];
@@ -10,7 +9,7 @@ pub fn slice_select(input: &Array<f32>, output: &mut Array<f32>) {
     }
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn slice_assign(input: &Array<f32>, output: &mut Array<f32>) {
     if UNIT_POS == 0 {
         let slice_1 = &mut output[2..3];
@@ -18,7 +17,7 @@ pub fn slice_assign(input: &Array<f32>, output: &mut Array<f32>) {
     }
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn slice_len(input: &Array<f32>, output: &mut Array<u32>) {
     if UNIT_POS == 0 {
         let slice = &input[2..4];

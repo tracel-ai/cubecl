@@ -5,10 +5,9 @@ use cubecl::{
     ir::{Elem, FloatKind},
     prelude::*,
 };
-use cubecl_macros_2::cube2;
 use half::f16;
 
-#[cube2(launch)]
+#[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
     let a = cmma::Matrix::<f16>::new(

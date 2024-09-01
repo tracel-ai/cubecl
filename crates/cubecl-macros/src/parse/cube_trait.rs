@@ -78,7 +78,7 @@ impl CubeTrait {
         RemoveHelpers.visit_item_trait_mut(&mut original_trait);
 
         let mut attrs = item.attrs;
-        attrs.retain(|attr| !attr.path().is_ident("cube2"));
+        attrs.retain(|attr| !attr.path().is_ident("cube"));
         attrs.retain(|attr| !attr.path().is_ident("cube"));
         let vis = item.vis;
         let unsafety = item.unsafety;
@@ -152,7 +152,7 @@ impl CubeTraitImpl {
         // }
 
         let mut attrs = item_impl.attrs;
-        attrs.retain(|attr| !attr.path().is_ident("cube2"));
+        attrs.retain(|attr| !attr.path().is_ident("cube"));
         attrs.retain(|attr| !attr.path().is_ident("cube"));
         let unsafety = item_impl.unsafety;
 

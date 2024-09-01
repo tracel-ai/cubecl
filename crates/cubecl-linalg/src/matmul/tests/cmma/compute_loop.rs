@@ -1,8 +1,5 @@
-use cubecl::new_ir::element::{Array, SharedMemory, Tensor};
-use cubecl::new_ir::Float;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_macros_2::cube2;
 
 use crate::matmul::cmma::{
     base::{make_accumulators, SharedMemories},
@@ -13,7 +10,7 @@ use crate::matmul::tests::test_utils::{
     assert_equals, cmma_available, create_empty, range_tensor_f16,
 };
 
-#[cube2(launch_unchecked)]
+#[cube(launch_unchecked)]
 fn compute_loop_test<F: Float, FC: Float>(
     lhs_tensor: &Tensor<FC>,
     rhs_tensor: &Tensor<FC>,

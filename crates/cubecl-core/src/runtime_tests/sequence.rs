@@ -1,9 +1,7 @@
 use crate as cubecl;
-
 use cubecl::prelude::*;
-use cubecl_macros_2::cube2;
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn sequence_for_loop(output: &mut Array<f32>) {
     if UNIT_POS != 0 {
         return;
@@ -18,7 +16,7 @@ pub fn sequence_for_loop(output: &mut Array<f32>) {
     }
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn sequence_index(output: &mut Array<f32>) {
     if UNIT_POS != 0 {
         return;

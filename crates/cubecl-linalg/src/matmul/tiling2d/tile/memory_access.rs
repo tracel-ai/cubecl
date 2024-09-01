@@ -11,7 +11,7 @@ pub(crate) struct WritePositions {
     pub result: UInt,
 }
 
-#[cube2]
+#[cube]
 pub(crate) trait ContiguousAccess<F: Float>: Send + Sync + 'static {
     fn read_contiguous_unchecked(
         tensor: &Tensor<F>,
@@ -44,7 +44,7 @@ pub(crate) trait ContiguousAccess<F: Float>: Send + Sync + 'static {
     );
 }
 
-#[cube2]
+#[cube]
 pub(crate) trait StridedAccess<F: Float>: Send + Sync + 'static {
     fn read_strided_unchecked(
         tensor: &Tensor<F>,
@@ -69,7 +69,7 @@ pub(crate) struct MatchingVectorization;
 /// When vectorization != tile_size
 pub(crate) struct UnmatchingVectorization;
 
-#[cube2]
+#[cube]
 impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
     fn read_contiguous_unchecked(
         tensor: &Tensor<F>,
@@ -121,7 +121,7 @@ impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
     }
 }
 
-#[cube2]
+#[cube]
 impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     fn read_contiguous_unchecked(
         tensor: &Tensor<F>,
@@ -268,7 +268,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     }
 }
 
-#[cube2]
+#[cube]
 impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
     fn read_strided_unchecked(
         tensor: &Tensor<F>,

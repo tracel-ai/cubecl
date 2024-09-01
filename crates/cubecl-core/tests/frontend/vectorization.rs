@@ -1,12 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube2]
+#[cube]
 pub fn vectorization_binary<T: Numeric>(lhs: T) {
     let _ = lhs + T::from_vec([4, 5]);
 }
 
-#[cube2]
+#[cube]
 pub fn vectorization_cmp<T: Numeric>(rhs: T) {
     let _ = T::from_vec([4, 5]) > rhs;
 }

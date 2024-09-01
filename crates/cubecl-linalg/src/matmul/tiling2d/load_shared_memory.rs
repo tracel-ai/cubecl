@@ -22,7 +22,7 @@ pub(crate) struct LoadInfo<F: Float> {
     pub dims: Dimensions,
 }
 
-#[cube2]
+#[cube]
 pub(crate) trait Loader<F: Float>: Sync + Send + 'static {
     fn load_lhs_plain<B: BlockLoader<F>>(lhs: &Tensor<F>, load_info: LoadInfo<F>);
     fn load_lhs_transposed<B: BlockLoader<F>>(lhs: &Tensor<F>, load_info: LoadInfo<F>);
@@ -30,7 +30,7 @@ pub(crate) trait Loader<F: Float>: Sync + Send + 'static {
     fn load_rhs_transposed<B: BlockLoader<F>>(rhs: &Tensor<F>, load_info: LoadInfo<F>);
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn load_to_shared_memories<F: Float, L: Loader<F>>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
@@ -76,7 +76,7 @@ pub(crate) fn load_to_shared_memories<F: Float, L: Loader<F>>(
     }
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn load_lhs_transposed<F: Float, L: Loader<F>>(
     lhs: &Tensor<F>,
     load_info: LoadInfo<F>,
@@ -98,7 +98,7 @@ pub(crate) fn load_lhs_transposed<F: Float, L: Loader<F>>(
     }
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn load_lhs_plain<F: Float, L: Loader<F>>(
     lhs: &Tensor<F>,
     load_info: LoadInfo<F>,
@@ -120,7 +120,7 @@ pub(crate) fn load_lhs_plain<F: Float, L: Loader<F>>(
     }
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn load_rhs_transposed<F: Float, L: Loader<F>>(
     rhs: &Tensor<F>,
     load_info: LoadInfo<F>,
@@ -142,7 +142,7 @@ pub(crate) fn load_rhs_transposed<F: Float, L: Loader<F>>(
     }
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn load_rhs_plain<F: Float, L: Loader<F>>(
     rhs: &Tensor<F>,
     load_info: LoadInfo<F>,

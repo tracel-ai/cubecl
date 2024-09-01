@@ -1,11 +1,10 @@
-use cubecl_core::{ir::Elem, new_ir::*, prelude::BitCast};
-use cubecl_macros_2::{cube2, expand_impl, Expand};
+use cubecl_core::{ir::Elem, new_ir::*, prelude::*};
 use pretty_assertions::assert_eq;
 
 mod common;
 use common::*;
 
-#[cube2]
+#[cube]
 fn helper_fn(a: u32) -> u32 {
     a * 2
 }
@@ -13,7 +12,7 @@ fn helper_fn(a: u32) -> u32 {
 #[test]
 fn function_call() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn function_call(a: u32) -> u32 {
         helper_fn(a)
     }
@@ -56,7 +55,7 @@ impl Dummy {
 #[test]
 fn method_call() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn method_call(a: Dummy) -> u32 {
         a.method(2)
     }
@@ -96,7 +95,7 @@ impl Dummy {
 #[test]
 fn associated_call() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn associated_call() -> u32 {
         Dummy::associated(4)
     }
@@ -118,7 +117,7 @@ fn associated_call() {
 
 #[test]
 fn trait_functions() {
-    #[cube2]
+    #[cube]
     fn trait_functions<T: BitCast>() -> T {
         T::bitcast_from(1)
     }

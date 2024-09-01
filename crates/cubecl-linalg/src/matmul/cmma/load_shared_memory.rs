@@ -12,7 +12,7 @@ use crate::matmul::cmma::block_io::{
     whole_block_check::WholeCheckBlockIO,
 };
 
-#[cube2]
+#[cube]
 pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
@@ -29,7 +29,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     load_rhs(rhs, offsets, &mut shared.rhs, k_tiles, dims, config);
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn load_lhs<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     offsets: Offsets,
@@ -98,7 +98,7 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
     }
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn load_rhs<F: Float, FC: Float>(
     rhs: &Tensor<F>,
     offsets: Offsets,
@@ -166,7 +166,7 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
         );
     }
 }
-#[cube2]
+#[cube]
 fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
     tensor: &Tensor<F>,
     shared_memory: &mut SharedMemory<FC>,

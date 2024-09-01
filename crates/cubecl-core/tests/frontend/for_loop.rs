@@ -7,7 +7,7 @@ use cubecl_core::{
 
 type ElemType = F32;
 
-#[cube2]
+#[cube]
 pub fn for_loop<F: Float>(mut lhs: Array<F>, rhs: F, end: UInt, unroll: Comptime<bool>) {
     let tmp1 = rhs * rhs;
     let tmp2 = tmp1 + rhs;

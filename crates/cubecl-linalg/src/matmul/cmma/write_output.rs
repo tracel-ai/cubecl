@@ -11,7 +11,7 @@ use super::{
     config::CmmaConfig,
 };
 
-#[cube2]
+#[cube]
 pub(crate) fn write_to_output<F: Float>(
     out: &mut Tensor<F>,
     accumulators: Accumulators<F>,
@@ -23,7 +23,7 @@ pub(crate) fn write_to_output<F: Float>(
     shared_memory_to_output(out, offsets, accumulator_sm, dims, config);
 }
 
-#[cube2]
+#[cube]
 fn fragment_to_shared_memory<F: Float>(accumulators: Accumulators<F>) -> SharedMemory<F> {
     let mut acc_sm = SharedMemory::<F>::new(4096);
 
@@ -51,7 +51,7 @@ fn fragment_to_shared_memory<F: Float>(accumulators: Accumulators<F>) -> SharedM
     acc_sm
 }
 
-#[cube2]
+#[cube]
 pub(crate) fn shared_memory_to_output<F: Float>(
     out: &mut Tensor<F>,
     offsets: Offsets,
@@ -75,7 +75,7 @@ pub(crate) fn shared_memory_to_output<F: Float>(
     }
 }
 
-#[cube2]
+#[cube]
 fn write_tile<F: Float, W: BlockWriter<F>>(
     out: &mut Tensor<F>,
     offsets: Offsets,

@@ -1,15 +1,14 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_macros_2::cube2;
 
-#[cube2]
+#[cube]
 pub fn array_read_write<T: Numeric>(#[comptime] array_size: u32) {
     let mut array = Array::<T>::new(array_size);
     array[0] = T::new(3);
     let _a = array[0];
 }
 
-#[cube2]
+#[cube]
 pub fn array_to_vectorized_variable<T: Numeric>() -> T {
     let mut array = Array::<T>::new(2);
     array[0] = T::new(0);
@@ -17,19 +16,19 @@ pub fn array_to_vectorized_variable<T: Numeric>() -> T {
     vectorize(array, 2)[0]
 }
 
-#[cube2]
+#[cube]
 pub fn array_of_one_to_vectorized_variable<T: Numeric>() -> T {
     let mut array = Array::<T>::new(1);
     array[0] = T::new(3);
     vectorize(array, 1)[0]
 }
 
-#[cube2]
+#[cube]
 pub fn array_add_assign_simple(array: &mut Array<u32>) {
     array[1] += 1;
 }
 
-#[cube2]
+#[cube]
 pub fn array_add_assign_expr(array: &mut Array<u32>) {
     array[1 + 5] += 1;
 }

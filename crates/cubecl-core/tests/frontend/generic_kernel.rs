@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::{cube, frontend::Numeric};
 
-#[cube2]
+#[cube]
 pub fn generic_kernel<T: Numeric>(lhs: T) {
     let _ = lhs + T::from_int(5);
 }

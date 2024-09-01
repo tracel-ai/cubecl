@@ -1,9 +1,8 @@
 use crate as cubecl;
 
 use cubecl::prelude::*;
-use cubecl_macros_2::cube2;
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_absolute_pos(output1: &mut Array<u32>, output2: &mut Array<u32>) {
     if ABSOLUTE_POS >= output1.len() {
         return;

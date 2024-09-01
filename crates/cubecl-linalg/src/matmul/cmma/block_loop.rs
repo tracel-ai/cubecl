@@ -1,6 +1,5 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_macros_2::cube2;
 
 use super::{
     base::{Accumulators, Dimensions, Offsets, SharedMemories},
@@ -10,7 +9,7 @@ use super::{
     write_output::write_to_output,
 };
 
-#[cube2]
+#[cube]
 pub(crate) fn block_loop<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,

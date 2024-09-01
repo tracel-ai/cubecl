@@ -1,15 +1,14 @@
 use crate as cubecl;
 use cubecl::prelude::*;
-use cubecl_macros_2::cube2;
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_with_generics<F: Float>(output: &mut Array<F>) {
     if UNIT_POS == 0 {
         output[0] = F::new(5.0);
     }
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_without_generics(output: &mut Array<f32>) {
     if UNIT_POS == 0 {
         output[0] = 5.0;

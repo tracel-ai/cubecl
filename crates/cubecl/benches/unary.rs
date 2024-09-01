@@ -3,7 +3,6 @@ use cubecl::{
     new_ir::{element::Tensor, Float, ABSOLUTE_POS},
     prelude::*,
 };
-use cubecl_macros_2::cube2;
 use std::marker::PhantomData;
 
 #[cfg(feature = "cuda")]
@@ -13,7 +12,7 @@ use cubecl::benchmark::Benchmark;
 use cubecl::client::SyncType;
 use cubecl_linalg::tensor::TensorHandle;
 
-#[cube2(launch)]
+#[cube(launch)]
 fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
     if ABSOLUTE_POS < out.len() {
         for i in 0..256u32 {

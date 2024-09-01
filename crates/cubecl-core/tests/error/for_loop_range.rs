@@ -1,7 +1,7 @@
-use cubecl_core as cubecl;
 use cubecl::prelude::*;
+use cubecl_core as cubecl;
 
-#[cube2]
+#[cube]
 fn range() {
     for _ in 0..10 {}
 }

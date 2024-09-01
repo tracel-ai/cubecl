@@ -29,8 +29,9 @@ pub use pod::*;
 pub use runtime::*;
 
 pub use cubecl_macros::cube;
-pub use cubecl_macros::CubeLaunch;
-pub use cubecl_macros::CubeType;
+pub use cubecl_macros::expand_impl;
+pub use cubecl_macros::Expand;
+pub use cubecl_macros::StaticExpand;
 pub use cubecl_runtime::benchmark;
 
 /// An approximation of the subcube dimension.

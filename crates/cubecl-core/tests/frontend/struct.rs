@@ -7,25 +7,25 @@ pub struct State<T: Numeric> {
     second: T,
 }
 
-#[cube2]
+#[cube]
 pub fn state_receiver_with_reuse<T: Numeric>(state: State<T>) -> T {
     let x = state.first + state.second;
     state.second + x + state.first
 }
 
-#[cube2]
+#[cube]
 pub fn attribute_modifier_reuse_field<T: Numeric>(mut state: State<T>) -> T {
     state.first = T::from_int(4);
     state.first
 }
 
-#[cube2]
+#[cube]
 pub fn attribute_modifier_reuse_struct<T: Numeric>(mut state: State<T>) -> State<T> {
     state.first = T::from_int(4);
     state
 }
 
-#[cube2]
+#[cube]
 fn creator<T: Numeric>(x: T, second: T) -> State<T> {
     let mut state = State::<T> { first: x, second };
     state.second = state.first;

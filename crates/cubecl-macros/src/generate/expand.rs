@@ -58,7 +58,7 @@ impl ToTokens for Expand {
             impl #expand_generics #expanded_trait for #expand_name #expand_generic_names #where_clause {
                 type Unexpanded = #name #base_generic_names;
 
-                fn inner(self) -> impl Expr<Output = Self::Unexpanded> {
+                fn inner(self) -> impl #expr<Output = Self::Unexpanded> {
                     self.0
                 }
             }

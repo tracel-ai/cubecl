@@ -1,11 +1,9 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-use cubecl_macros_2::cube2;
-
 use crate::matmul::cmma::base::Dimensions;
 use crate::matmul::cmma::config::CmmaConfig;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 
-#[cube2]
+#[cube]
 pub(crate) trait BlockLoader<F: Float, FC: Float> {
     fn load_tile(
         tensor: &Tensor<F>,
@@ -19,7 +17,7 @@ pub(crate) trait BlockLoader<F: Float, FC: Float> {
     );
 }
 
-#[cube2]
+#[cube]
 pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
     #[allow(clippy::too_many_arguments)]
     fn write_output(

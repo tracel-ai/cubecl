@@ -1,9 +1,8 @@
 use crate as cubecl;
 
 use cubecl::prelude::*;
-use cubecl_macros_2::cube2;
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_assign(output: &mut Array<f32>) {
     if UNIT_POS == 0 {
         let item = 5.0;

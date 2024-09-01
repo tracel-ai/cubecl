@@ -4,7 +4,6 @@ use cubecl_core::{
     ir::Elem,
     new_ir::{Expr, Expression, Operator, Variable},
 };
-use cubecl_macros_2::cube2;
 use pretty_assertions::assert_eq;
 
 mod common;
@@ -13,7 +12,7 @@ use common::*;
 #[test]
 pub fn vectorization_simple() {
     #[allow(unused)]
-    #[cube2]
+    #[cube]
     fn vectorized(a: u32, b: u32) -> u32 {
         let c = a * b; // a = vec4(u32), b = u32, c = vec4(u32)
         c * a // return = vec4(u32) * vec4(u32)

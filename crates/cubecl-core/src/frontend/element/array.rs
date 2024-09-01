@@ -4,6 +4,7 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::Item,
     new_ir::{ArrayInit, Container},
+    prelude::*,
     unexpanded, KernelSettings, Runtime,
 };
 
@@ -14,7 +15,6 @@ use super::{
 use crate::new_ir::{
     EqExpr, Expr, GlobalVariable, IndexExpr, Length, SliceExpr, SliceRangeExpr, SquareType, Strided,
 };
-use cubecl_macros_2::{expand_impl, Expand};
 use std::ops::{
     Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };

@@ -1,34 +1,33 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_macros_2::cube2;
 
-#[cube2]
+#[cube]
 pub fn mut_assign() {
     let mut x = 0;
     x += 1;
 }
 
-#[cube2]
+#[cube]
 pub fn mut_assign_input(y: u32) -> u32 {
     let mut x = y;
     x += 1;
     y + 2
 }
 
-#[cube2]
+#[cube]
 pub fn assign_mut_input(mut y: u32) -> u32 {
     let x = y;
     y += 1;
     x + 2
 }
 
-#[cube2]
+#[cube]
 pub fn assign_vectorized(y: u32) -> u32 {
     let x = vectorize_like(1, &y);
     x + y
 }
 
-#[cube2]
+#[cube]
 pub fn assign_deref(y: &mut u32) -> u32 {
     *y = 1;
     *y

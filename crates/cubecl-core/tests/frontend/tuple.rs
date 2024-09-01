@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube2]
+#[cube]
 pub fn tuple_const() -> (UInt, UInt) {
     let x = UInt::new(0);
     let y = UInt::new(1);
     (x, y)
 }
 
-#[cube2]
+#[cube]
 pub fn tuple_destructuring() -> (UInt, UInt) {
     let x = (UInt::new(0), UInt::new(1));
     let (a, b) = x;

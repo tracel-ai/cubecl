@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube2]
+#[cube]
 pub fn kernel<T: Numeric>(input: &Tensor<T>) {
     let _shape = input.shape(1);
     let _stride = input.stride(1);

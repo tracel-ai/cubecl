@@ -1,10 +1,9 @@
 use crate::{
     ir::{BinaryOperator, CompareAndSwapOperator, Elem, Item, Operator, UnaryOperator},
     new_ir::{BinaryOp, Expr, Expression, SquareType, Vectorization},
-    prelude::CubeContext,
+    prelude::*,
     unexpanded,
 };
-use cubecl_macros_2::Expand;
 
 use super::{ExpandElement, Numeric};
 

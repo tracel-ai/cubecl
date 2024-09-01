@@ -1,9 +1,8 @@
 use crate as cubecl;
 use crate::Feature;
 use cubecl::prelude::*;
-use cubecl_macros_2::cube2;
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_sum(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let val2 = subcube_sum(val);
@@ -13,7 +12,7 @@ pub fn kernel_sum(output: &mut Tensor<f32>) {
     }
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_prod(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let val2 = subcube_prod(val);
@@ -23,7 +22,7 @@ pub fn kernel_prod(output: &mut Tensor<f32>) {
     }
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_max(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let val2 = subcube_max(val);
@@ -33,7 +32,7 @@ pub fn kernel_max(output: &mut Tensor<f32>) {
     }
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_min(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let val2 = subcube_min(val);
@@ -43,21 +42,21 @@ pub fn kernel_min(output: &mut Tensor<f32>) {
     }
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_all(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let val2 = subcube_all(val < 5.0);
     output[UNIT_POS] = val2 as u32 as f32;
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_any(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let val2 = subcube_any(val < 5.0);
     output[UNIT_POS] = val2 as u32 as f32;
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_elect(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let elect = subcube_elect();
@@ -66,7 +65,7 @@ pub fn kernel_elect(output: &mut Tensor<f32>) {
     }
 }
 
-#[cube2(launch)]
+#[cube(launch)]
 pub fn kernel_broadcast(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
     let val2 = subcube_broadcast(val, 2);
