@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote_spanned};
 use syn::{parse_quote, Ident, Type};
 
-use crate::{ir_type, parse::kernel::KernelParam, paths::ir_path};
+use crate::{ir_type, parse::kernel::KernelParam, paths::prelude_path};
 
 pub const KEYWORDS: [&str; 21] = [
     "ABSOLUTE_POS",
@@ -152,10 +152,10 @@ impl Scope {
             .map(|ManagedVar { name, ty, .. }| {
                 let span = name.span();
                 let kernel_var_ty = ir_type("KernelVariable");
-                let ir_path = ir_path();
+                let prelude_path = prelude_path();
                 let ty = ty.as_ref().unwrap();
                 quote_spanned! {span=>
-                    const #name: #kernel_var_ty<#ty> = #ir_path::ExpandedGlobals::#name;
+                    const #name: #kernel_var_ty<#ty> = #prelude_path::ExpandedGlobals::#name;
                 }
             })
             .collect()

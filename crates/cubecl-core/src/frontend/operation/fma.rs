@@ -1,36 +1,56 @@
 use crate::{
-    ir::{FmaOperator, Operation, Operator},
-    prelude::{CubeContext, CubePrimitive, ExpandElement},
-    unexpanded,
+    new_ir::{largest_common_vectorization, Expr, Expression, SquareType, Vectorization},
+    prelude::Numeric,
 };
 
 /// Fused multiply-add `A*B+C`.
 #[allow(unused_variables)]
-pub fn fma<C: CubePrimitive>(a: C, b: C, c: C) -> C {
-    unexpanded!()
+pub fn fma<C: Numeric>(a: C, b: C, c: C) -> C {
+    a + b * c
 }
 
-/// Expand method of [fma].
-#[allow(unused_variables)]
-pub fn fma_expand<C: CubePrimitive>(
-    context: &mut CubeContext,
-    a: ExpandElement,
-    b: ExpandElement,
-    c: ExpandElement,
-) -> ExpandElement {
-    let output = context.create_local(a.item());
+pub mod fma {
+    use crate::{new_ir::Expr, prelude::Numeric};
 
-    let out = *output;
-    let a = *a;
-    let b = *b;
-    let c = *c;
+    use super::FmaExpr;
 
-    context.register(Operation::Operator(Operator::Fma(FmaOperator {
-        a,
-        b,
-        c,
-        out,
-    })));
+    pub fn expand<C: Numeric>(
+        a: impl Expr<Output = C>,
+        b: impl Expr<Output = C>,
+        c: impl Expr<Output = C>,
+    ) -> impl Expr<Output = C> {
+        FmaExpr::new(a, b, c)
+    }
+}
 
-    output
+#[derive(new)]
+pub struct FmaExpr<A: Expr, B: Expr<Output = A::Output>, C: Expr<Output = A::Output>>
+where
+    A::Output: Numeric,
+{
+    pub a: A,
+    pub b: B,
+    pub c: C,
+}
+
+impl<A: Expr, B: Expr<Output = A::Output>, C: Expr<Output = A::Output>> Expr for FmaExpr<A, B, C>
+where
+    A::Output: Numeric,
+{
+    type Output = A::Output;
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::Fma {
+            a: Box::new(self.a.expression_untyped()),
+            b: Box::new(self.b.expression_untyped()),
+            c: Box::new(self.c.expression_untyped()),
+            ty: <A::Output as SquareType>::ir_type(),
+            vectorization: self.vectorization(),
+        }
+    }
+
+    fn vectorization(&self) -> Vectorization {
+        let a_b = largest_common_vectorization(self.a.vectorization(), self.b.vectorization());
+        largest_common_vectorization(a_b, self.c.vectorization())
+    }
 }

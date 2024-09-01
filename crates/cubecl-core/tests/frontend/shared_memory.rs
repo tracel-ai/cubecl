@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube]
+#[cube2]
 pub fn shared_memory_read_write<T: Numeric>(sm_size: Comptime<u32>) {
     let mut shared = SharedMemory::<T>::new(sm_size);
     shared[0] = T::from_int(3);

@@ -1,63 +1,143 @@
-use std::marker::PhantomData;
-
-use crate::{
-    frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType},
-    ir::Item,
+use std::{
+    marker::PhantomData,
+    num::NonZero,
+    ops::{Index, IndexMut},
 };
 
-use super::{ExpandElementTyped, Init, UInt};
+use cubecl_macros_2::{expand_impl, Expand};
 
-#[derive(Clone, Copy)]
-pub struct SharedMemory<T: CubeType> {
+use crate::{
+    frontend::CubeContext,
+    ir::Elem,
+    new_ir::{
+        flatten::item, Container, Expr, Expression, IndexExpr, SliceExpr, SliceRangeExpr,
+        SquareType, Strided, Vectorization,
+    },
+    unexpanded,
+};
+
+use super::{Dim1, ExpandElement, Integer, Primitive, Slice};
+
+#[derive(Clone, Copy, Expand)]
+pub struct SharedMemory<T: SquareType> {
     _val: PhantomData<T>,
 }
 
-impl<T: CubePrimitive> Init for ExpandElementTyped<SharedMemory<T>> {
-    fn init(self, _context: &mut CubeContext) -> Self {
-        self
+impl<T: SquareType> Strided for SharedMemory<T> {
+    type Dims = Dim1;
+}
+
+impl<T: SquareType> Container for SharedMemory<T> {
+    type Item = T;
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SharedMemoryExpr {
+    Init {
+        size: u32,
+        ty: Elem,
+        vectorization: Vectorization,
+    },
+}
+
+impl SharedMemoryExpr {
+    pub fn ir_type(&self) -> Elem {
+        match self {
+            SharedMemoryExpr::Init { ty, .. } => *ty,
+        }
+    }
+
+    pub fn vectorization(&self) -> Vectorization {
+        match self {
+            SharedMemoryExpr::Init { vectorization, .. } => *vectorization,
+        }
+    }
+
+    pub fn flatten(self, context: &mut CubeContext) -> Option<ExpandElement> {
+        match self {
+            SharedMemoryExpr::Init {
+                size,
+                ty,
+                vectorization,
+            } => {
+                let var = context.create_shared(item(ty, vectorization), size);
+                var.into()
+            }
+        }
     }
 }
 
-impl<T: CubePrimitive> CubeType for SharedMemory<T> {
-    type ExpandType = ExpandElementTyped<SharedMemory<T>>;
+#[derive(new)]
+pub struct SharedMemoryInit<T: SquareType> {
+    pub size: u32,
+    pub vectorization: Vectorization,
+    pub _type: PhantomData<T>,
 }
 
-impl<T: CubePrimitive + Clone> SharedMemory<T> {
-    pub fn new<S: Index>(_size: S) -> Self {
+impl<T: SquareType> Expr for SharedMemoryInit<T> {
+    type Output = SharedMemory<T>;
+
+    fn expression_untyped(&self) -> Expression {
+        SharedMemoryExpr::Init {
+            size: self.size,
+            ty: T::ir_type(),
+            vectorization: self.vectorization(),
+        }
+        .into()
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        self.vectorization
+    }
+}
+
+#[expand_impl]
+impl<T: Primitive> SharedMemory<T> {
+    pub fn new(_size: u32) -> Self {
         SharedMemory { _val: PhantomData }
     }
 
-    pub fn vectorized<S: Index>(_size: S, _vectorization_factor: UInt) -> Self {
+    pub fn vectorized(_size: u32, _vectorization_factor: u8) -> Self {
         SharedMemory { _val: PhantomData }
     }
 
-    pub fn __expand_vectorized<S: Index>(
-        context: &mut CubeContext,
-        size: S,
-        vectorization_factor: UInt,
-    ) -> <Self as CubeType>::ExpandType {
-        let size = size.value();
-        let size = match size {
-            crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
-            _ => panic!("Shared memory need constant initialization value"),
-        };
-        let var = context.create_shared(
-            Item::vectorized(T::as_elem(), vectorization_factor.val as u8),
-            size,
-        );
-        ExpandElementTyped::new(var)
+    #[expanded]
+    pub fn vectorized(size: u32, vectorization_factor: u8) -> impl Expr<Output = SharedMemory<T>> {
+        SharedMemoryInit::new(size, NonZero::new(vectorization_factor))
     }
 
-    pub fn __expand_new<S: Index>(
-        context: &mut CubeContext,
-        size: S,
-    ) -> <Self as CubeType>::ExpandType {
-        let size = size.value();
-        let size = match size {
-            crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
-            _ => panic!("Shared memory need constant initialization value"),
-        };
-        let var = context.create_shared(Item::new(T::as_elem()), size);
-        ExpandElementTyped::new(var)
+    #[expanded]
+    pub fn new(size: u32) -> impl Expr<Output = SharedMemory<T>> {
+        SharedMemoryInit::new(size, None)
+    }
+
+    #[expanded]
+    pub fn index<Idx: Expr>(self, index: Idx) -> impl Expr<Output = T>
+    where
+        Idx::Output: Integer,
+    {
+        IndexExpr::new(self.0, index)
+    }
+
+    #[expanded]
+    pub fn slice<TNum: Integer>(
+        self,
+        ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<TNum>>>>,
+    ) -> impl Expr<Output = Slice<__Inner, TNum>> {
+        SliceExpr::new(self.0, ranges)
+    }
+}
+
+impl<T: SquareType, I: Integer> Index<I> for SharedMemory<T> {
+    type Output = T;
+
+    fn index(&self, _index: I) -> &Self::Output {
+        unexpanded!()
+    }
+}
+
+impl<T: SquareType, I: Integer> IndexMut<I> for SharedMemory<T> {
+    fn index_mut(&mut self, _index: I) -> &mut Self::Output {
+        unexpanded!()
     }
 }

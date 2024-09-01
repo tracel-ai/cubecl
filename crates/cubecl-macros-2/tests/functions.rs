@@ -1,4 +1,4 @@
-use cubecl_core::{ir::Elem, new_ir::*};
+use cubecl_core::{ir::Elem, new_ir::*, prelude::BitCast};
 use cubecl_macros_2::{cube2, expand_impl, Expand};
 use pretty_assertions::assert_eq;
 
@@ -102,6 +102,28 @@ fn associated_call() {
     }
 
     let expanded = associated_call::expand().expression_untyped();
+    let expected = block_expr(
+        vec![],
+        Some(Expression::Binary {
+            left: Box::new(lit(4u32)),
+            operator: Operator::Mul,
+            right: Box::new(lit(2u32)),
+            vectorization: None,
+            ty: Elem::UInt,
+        }),
+    );
+
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn trait_functions() {
+    #[cube2]
+    fn trait_functions<T: BitCast>() -> T {
+        T::bitcast_from(1)
+    }
+
+    let expanded = associated_call::expand::<f32>().expression_untyped();
     let expected = block_expr(
         vec![],
         Some(Expression::Binary {

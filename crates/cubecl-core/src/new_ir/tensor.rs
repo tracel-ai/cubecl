@@ -1,9 +1,7 @@
+use crate::prelude::*;
 use std::{marker::PhantomData, ops::Index};
 
-use super::{
-    element::{Container, Slice},
-    Elem, Expr, Expression, Integer, RangeExpr, SquareType, TypeEq, Vectorization,
-};
+use super::{Container, Elem, Expr, Expression, RangeExpr, SquareType, Vectorization};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TensorExpression {
@@ -24,6 +22,7 @@ pub enum TensorExpression {
     Index {
         tensor: Box<Expression>,
         index: Box<Expression>,
+        vectorization: Vectorization,
     },
     Slice {
         ranges: Vec<SliceRange>,
@@ -58,7 +57,7 @@ impl TensorExpression {
             TensorExpression::Shape { tensor, .. } => tensor.vectorization(),
             TensorExpression::Length { tensor } => tensor.vectorization(),
             TensorExpression::Rank { tensor } => tensor.vectorization(),
-            TensorExpression::Index { tensor, .. } => tensor.vectorization(),
+            TensorExpression::Index { vectorization, .. } => *vectorization,
             TensorExpression::Slice { tensor, .. } => tensor.vectorization(),
             TensorExpression::__SliceRange(_) => None,
         }
@@ -201,6 +200,7 @@ where
         Expression::Tensor(TensorExpression::Index {
             tensor: Box::new(self.tensor.expression_untyped()),
             index: Box::new(self.index.expression_untyped()),
+            vectorization: self.vectorization(),
         })
     }
 
@@ -249,9 +249,12 @@ where
 }
 
 #[derive(new)]
-pub struct SliceRangeExpr<TNum: Integer> {
-    pub start: Box<dyn Expr<Output = TNum>>,
-    pub end: Option<Box<dyn Expr<Output = TNum>>>,
+pub struct SliceRangeExpr<Start: Expr>
+where
+    Start::Output: Integer,
+{
+    pub start: Start,
+    pub end: Option<Box<dyn Expr<Output = Start::Output>>>,
     pub inclusive: bool,
 }
 
@@ -275,14 +278,14 @@ impl<TNum: Integer> Expr for SliceRangeExpr<TNum> {
     }
 }
 
-impl<TNum: Integer, Start: Expr<Output = TNum> + 'static, End: Expr<Output = TNum> + 'static>
-    From<RangeExpr<Start, End>> for SliceRangeExpr<TNum>
+impl<Start: Expr + 'static, End: Expr<Output = Start::Output> + 'static> From<RangeExpr<Start, End>>
+    for SliceRangeExpr<Start>
 where
-    Start::Output: Integer + TypeEq<End::Output>,
+    Start::Output: Integer,
 {
     fn from(value: RangeExpr<Start, End>) -> Self {
         Self {
-            start: Box::new(value.start),
+            start: value.start,
             end: Some(Box::new(value.end)),
             inclusive: value.inclusive,
         }

@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_macros_2::cube2;
 
 use super::{
     base::{Accumulators, Dimensions, Offsets, SharedMemories},
@@ -9,7 +10,7 @@ use super::{
     write_output::write_to_output,
 };
 
-#[cube]
+#[cube2]
 pub(crate) fn block_loop<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
@@ -17,13 +18,13 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     mut offsets: Offsets,
     shared_memories: SharedMemories<FC>,
     accumulators: Accumulators<F>,
-    config: Comptime<CmmaConfig>,
+    #[comptime] config: CmmaConfig,
     dims: Dimensions,
 ) {
-    let block_size_k = Comptime::runtime(Comptime::map(config, |c| c.block_size_k));
+    let block_size_k = config.block_size_k;
     let n_loops = (dims.k + block_size_k - 1) / block_size_k;
 
-    for block in range(0u32, n_loops, Comptime::new(false)) {
+    for block in 0..n_loops {
         offsets.k = block * block_size_k;
 
         load_to_shared_memories::<F, FC>(lhs, rhs, offsets, shared_memories, dims, config);

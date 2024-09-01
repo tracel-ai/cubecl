@@ -1,9 +1,8 @@
+use std::num::NonZero;
+
 mod array;
 mod branch;
 mod expression;
-mod frontend;
-mod globals;
-mod launch;
 mod operators;
 mod option;
 mod statement;
@@ -11,19 +10,11 @@ mod subcube;
 mod tensor;
 mod types;
 
-pub mod compute;
-pub mod element;
 pub mod flatten;
-
-use std::num::NonZero;
 
 pub use array::*;
 pub use branch::*;
-pub use compute::*;
 pub use expression::*;
-pub use frontend::*;
-pub use globals::*;
-pub use launch::*;
 pub use operators::*;
 pub use option::*;
 pub use statement::*;
@@ -32,6 +23,7 @@ pub use tensor::*;
 pub use types::*;
 
 pub use crate::ir::Elem;
+use crate::prelude::LaunchArg;
 pub use cubecl_common::operator::Operator;
 
 pub fn assert_valid_type<T: LaunchArg>() {}

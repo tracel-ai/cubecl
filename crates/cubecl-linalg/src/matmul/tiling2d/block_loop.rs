@@ -10,7 +10,7 @@ use super::{
     write_output::write_to_output,
 };
 
-#[cube]
+#[cube2]
 pub(crate) fn block_loop<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
@@ -49,7 +49,7 @@ pub(crate) fn block_loop<F: Float>(
     write_to_output::<F, TileWriter<F>>(out, &results, coordinates, offsets.out, dims, config);
 }
 
-#[cube]
+#[cube2]
 fn init_results<F: Float>(config: Comptime<CubeTiling2dConfig>) -> Array<F> {
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let unroll = Comptime::map(config, |c| c.unroll_tile);

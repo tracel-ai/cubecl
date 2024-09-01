@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube]
+#[cube2]
 pub fn while_not<I: Int>(lhs: I) {
     while lhs != I::from_int(0) {
         let _ = lhs % I::from_int(1);
     }
 }
 
-#[cube]
+#[cube2]
 pub fn manual_loop_break<I: Int>(lhs: I) {
     loop {
         if lhs == I::from_int(0) {
@@ -18,7 +18,7 @@ pub fn manual_loop_break<I: Int>(lhs: I) {
     }
 }
 
-#[cube]
+#[cube2]
 pub fn loop_with_return<I: Int>(lhs: I) {
     loop {
         if lhs == I::from_int(0) {

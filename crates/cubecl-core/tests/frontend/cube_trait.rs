@@ -1,19 +1,19 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube]
+#[cube2]
 trait FunctionGeneric {
     #[allow(unused)]
     fn test<C: Float>(lhs: C, rhs: C) -> C;
 }
 
-#[cube]
+#[cube2]
 trait TraitGeneric<C: Float> {
     #[allow(unused)]
     fn test(lhs: C, rhs: C) -> C;
 }
 
-#[cube]
+#[cube2]
 trait CombinedTraitFunctionGeneric<C: Float> {
     #[allow(unused)]
     fn test<O: Numeric>(lhs: C, rhs: C) -> O;
@@ -21,33 +21,33 @@ trait CombinedTraitFunctionGeneric<C: Float> {
 
 struct Test;
 
-#[cube]
+#[cube2]
 impl FunctionGeneric for Test {
     fn test<C: Float>(lhs: C, rhs: C) -> C {
         lhs + rhs
     }
 }
 
-#[cube]
+#[cube2]
 impl<C: Float> TraitGeneric<C> for Test {
     fn test(lhs: C, rhs: C) -> C {
         lhs + rhs
     }
 }
 
-#[cube]
+#[cube2]
 impl<C: Float> CombinedTraitFunctionGeneric<C> for Test {
     fn test<O: Numeric>(lhs: C, rhs: C) -> O {
         O::cast_from(lhs + rhs)
     }
 }
 
-#[cube]
+#[cube2]
 pub fn simple<C: Float>(lhs: C, rhs: C) -> C {
     lhs + rhs
 }
 
-#[cube]
+#[cube2]
 pub fn with_cast<C: Float, O: Numeric>(lhs: C, rhs: C) -> O {
     O::cast_from(lhs + rhs)
 }

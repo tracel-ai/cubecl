@@ -1,11 +1,15 @@
+use crate::{
+    cmma::CmmaExpression,
+    compute::GlobalType,
+    ir::{self, ConstantScalarValue, Elem},
+    prelude::{AtomicExpr, SharedMemoryExpr},
+};
 use derive_more::derive::From;
-
-use crate::ir::{self, ConstantScalarValue, Elem};
 use std::{marker::PhantomData, num::NonZero, rc::Rc};
 
 use super::{
-    cmma::CmmaExpression, compute::GlobalType, largest_common_vectorization, Operator, SquareType,
-    Statement, SubcubeExpression, TensorExpression, TypeEq,
+    largest_common_vectorization, Operator, SquareType, Statement, SubcubeExpression,
+    TensorExpression,
 };
 
 pub type Vectorization = Option<NonZero<u8>>;
@@ -22,6 +26,13 @@ pub enum Expression {
     Unary {
         input: Box<Expression>,
         operator: Operator,
+        vectorization: Vectorization,
+        ty: Elem,
+    },
+    Clamp {
+        input: Box<Expression>,
+        min: Box<Expression>,
+        max: Box<Expression>,
         vectorization: Vectorization,
         ty: Elem,
     },
@@ -64,6 +75,11 @@ pub enum Expression {
         vectorization: Vectorization,
         to: Elem,
     },
+    BitCast {
+        from: Box<Expression>,
+        vectorization: Vectorization,
+        to: Elem,
+    },
     Continue,
     ForLoop {
         range: Range,
@@ -93,9 +109,14 @@ pub enum Expression {
     Subcube(SubcubeExpression),
     #[from]
     Cmma(CmmaExpression),
+    #[from]
+    Atomic(AtomicExpr),
+    #[from]
+    SharedMemory(SharedMemoryExpr),
     ArrayInit {
-        size: Box<Expression>,
-        init: Box<Expression>,
+        size: u32,
+        ty: Elem,
+        vectorization: Vectorization,
     },
     KernelVar {
         kind: ir::Variable,
@@ -104,6 +125,13 @@ pub enum Expression {
     /// A range used in for loops. Currently doesn't exist at runtime, so can be ignored in codegen.
     /// This only exists to pass the range down to the for loop it applies to
     __Range(Range),
+    Fma {
+        a: Box<Expression>,
+        b: Box<Expression>,
+        c: Box<Expression>,
+        ty: crate::ir::Elem,
+        vectorization: Option<std::num::NonZero<u8>>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, new)]
@@ -140,6 +168,7 @@ impl Expression {
             Expression::Init { ty, .. } => *ty,
             Expression::Block(block) => block.ret.ir_type(),
             Expression::Cast { to, .. } => *to,
+            Expression::BitCast { to, .. } => *to,
             Expression::Break | Expression::Continue | Expression::ForLoop { .. } => Elem::Unit,
             Expression::FieldAccess { ty, .. } => *ty,
             Expression::__Range(_) => Elem::Unit,
@@ -150,11 +179,15 @@ impl Expression {
                 expr.as_ref().map(|it| it.ir_type()).unwrap_or(Elem::Unit)
             }
             Expression::Tensor(tensor) => tensor.ir_type(),
-            Expression::ArrayInit { init, .. } => init.ir_type(),
+            Expression::ArrayInit { ty, .. } => *ty,
             Expression::Global { ty, .. } => *ty,
             Expression::KernelVar { ty, .. } => *ty,
             Expression::Subcube(expr) => expr.ir_type(),
             Expression::Cmma(expr) => expr.ir_type(),
+            Expression::Atomic(expr) => expr.ir_type(),
+            Expression::SharedMemory(expr) => expr.ir_type(),
+            Expression::Fma { ty, .. } => *ty,
+            Expression::Clamp { ty, .. } => *ty,
         }
     }
 
@@ -171,6 +204,7 @@ impl Expression {
             Expression::Block(block) => block.vectorization,
             Expression::Break => None,
             Expression::Cast { vectorization, .. } => *vectorization,
+            Expression::BitCast { vectorization, .. } => *vectorization,
             Expression::Continue => None,
             Expression::ForLoop { .. } => None,
             Expression::WhileLoop { block, .. } => block.vectorization,
@@ -178,11 +212,18 @@ impl Expression {
             Expression::If { then_block, .. } => then_block.vectorization,
             Expression::Return { .. } => None,
             Expression::Tensor(tensor) => tensor.vectorization(),
-            Expression::ArrayInit { init, .. } => init.vectorization(),
+            Expression::ArrayInit { vectorization, .. } => *vectorization,
             Expression::__Range(_) => None,
             Expression::KernelVar { .. } => None,
             Expression::Subcube(expr) => expr.vectorization(),
             Expression::Cmma(expr) => expr.vectorization(),
+            Expression::SharedMemory(expr) => expr.vectorization(),
+            Expression::Atomic(expr) => expr.vectorization(),
+            Expression::Clamp { vectorization, .. } => *vectorization,
+            Expression::Fma {
+                vectorization: vectorisation,
+                ..
+            } => *vectorisation,
         }
     }
 
@@ -368,17 +409,17 @@ impl<T: SquareType, TBase: Expr> Expr for FieldAccess<T, TBase> {
     }
 }
 
-pub struct Assignment<Left: Expr, Right: Expr>
+pub struct Assignment<Left: Expr, Right: Expr<Output = Left::Output>>
 where
-    Left::Output: SquareType + TypeEq<Right::Output>,
+    Left::Output: SquareType,
 {
     pub left: Left,
     pub right: Right,
 }
 
-impl<Left: Expr, Right: Expr> Expr for Assignment<Left, Right>
+impl<Left: Expr, Right: Expr<Output = Left::Output>> Expr for Assignment<Left, Right>
 where
-    Left::Output: SquareType + TypeEq<Right::Output>,
+    Left::Output: SquareType,
 {
     type Output = ();
 
@@ -441,6 +482,34 @@ where
 
     fn expression_untyped(&self) -> Expression {
         Expression::Cast {
+            from: Box::new(self.from.expression_untyped()),
+            to: <TTo as SquareType>::ir_type(),
+            vectorization: self.vectorization(),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.from.vectorization()
+    }
+}
+
+#[derive(new)]
+pub struct BitCast<From: Expr, TTo: SquareType>
+where
+    From::Output: SquareType,
+{
+    pub from: From,
+    pub _to: PhantomData<TTo>,
+}
+
+impl<From: Expr, TTo: SquareType> Expr for BitCast<From, TTo>
+where
+    From::Output: SquareType,
+{
+    type Output = TTo;
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::BitCast {
             from: Box::new(self.from.expression_untyped()),
             to: <TTo as SquareType>::ir_type(),
             vectorization: self.vectorization(),

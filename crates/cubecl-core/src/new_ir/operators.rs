@@ -236,7 +236,38 @@ assign_bin_op!(ShrAssignExpr, ShrAssign, Operator::ShrAssign);
 
 unary_op!(NotExpr, Not, Operator::Not, Output);
 unary_op!(NegExpr, Neg, Operator::Neg, Output);
-unary_op!(DerefExpr, Deref, Operator::Deref, Target);
+
+pub struct DerefExpr<In: Expr, TOut>(pub UnaryOp<In, TOut>)
+where
+    In::Output: SquareType;
+
+impl<In: Expr, TOut: SquareType> DerefExpr<In, TOut>
+where
+    In::Output: SquareType,
+{
+    pub fn new(input: In) -> Self {
+        Self(UnaryOp::new(input))
+    }
+}
+
+impl<In: Expr, TOut: SquareType> Expr for DerefExpr<In, TOut>
+where
+    In::Output: SquareType,
+{
+    type Output = TOut;
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::Cast {
+            from: Box::new(self.0.input.expression_untyped()),
+            vectorization: self.vectorization(),
+            to: TOut::ir_type(),
+        }
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.0.input.vectorization()
+    }
+}
 
 pub struct AndExpr<Left: Expr<Output = bool>, Right: Expr<Output = bool>>(
     pub BinaryOp<Left, Right, bool>,

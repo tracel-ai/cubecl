@@ -3,7 +3,6 @@ use crate as cubecl;
 use crate::Feature;
 use cubecl::{
     ir::{Elem, FloatKind},
-    new_ir::{cmma, element::Array},
     prelude::*,
 };
 use cubecl_macros_2::cube2;

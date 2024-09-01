@@ -7,7 +7,7 @@ fn gelu_array<F: Float>(input: &Array<F>, output: &mut Array<F>) {
     }
 }
 
-#[cube]
+#[cube2]
 fn gelu_scalar<F: Float>(x: F) -> F {
     x * (F::erf(x / F::sqrt(2.0.into())) + 1.0) / 2.0
 }

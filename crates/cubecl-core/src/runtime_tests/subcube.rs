@@ -1,7 +1,5 @@
 use crate as cubecl;
 use crate::Feature;
-use cubecl::new_ir::element::Tensor;
-use cubecl::new_ir::UNIT_POS;
 use cubecl::prelude::*;
 use cubecl_macros_2::cube2;
 

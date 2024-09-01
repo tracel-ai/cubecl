@@ -1,4 +1,5 @@
-mod frontend;
+// TODO: Move compile tests over to new macro
+//mod frontend;
 
 #[test]
 fn compile_fail_tests() {

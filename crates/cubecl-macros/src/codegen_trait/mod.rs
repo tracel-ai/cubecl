@@ -104,7 +104,7 @@ fn register_expand(
 
     quote::quote! (
         #expand {
-            #[cube]
+            #[cube2]
             #func
             #func_expand
         }

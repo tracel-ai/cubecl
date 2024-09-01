@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use super::config::CubeTiling2dConfig;
 
-#[cube]
+#[cube2]
 pub(crate) fn tile_outer_product<F: Float>(
     register_m: F,
     register_n: F,

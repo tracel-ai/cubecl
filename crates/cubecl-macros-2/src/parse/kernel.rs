@@ -1,6 +1,9 @@
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::{Span, TokenStream};
-use syn::{parse_quote, spanned::Spanned, FnArg, Generics, Ident, ItemFn, Type, Visibility};
+use syn::{
+    parse_quote, spanned::Spanned, Block, FnArg, Generics, Ident, ItemFn, Path, Signature,
+    TraitItemFn, Type, Visibility,
+};
 
 use crate::{expression::Expression, ir_type, scope::Context, statement::parse_pat};
 
@@ -12,6 +15,24 @@ pub(crate) struct KernelArgs {
     pub launch_unchecked: Flag,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
+    pub expand_name: Option<Ident>,
+}
+
+pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
+    let meta = NestedMeta::parse_meta_list(tokens)?;
+    T::from_list(&meta).map_err(syn::Error::from)
+}
+
+#[derive(Default, FromMeta)]
+pub(crate) struct CubeTraitArgs {
+    pub expand_name: Option<Ident>,
+}
+
+#[derive(Default, FromMeta)]
+pub(crate) struct CubeTraitImplArgs {
+    pub expand_name: Option<Ident>,
+    pub trait_expand_name: Option<Path>,
+    pub debug: Flag,
 }
 
 impl KernelArgs {
@@ -20,19 +41,23 @@ impl KernelArgs {
     }
 }
 
-impl KernelArgs {
-    pub fn from_tokens(tokens: TokenStream) -> syn::Result<Self> {
-        let meta = NestedMeta::parse_meta_list(tokens)?;
-        KernelArgs::from_list(&meta).map_err(syn::Error::from)
-    }
-}
-
 pub struct Kernel {
     pub args: KernelArgs,
-    pub visibility: Visibility,
+    pub vis: Visibility,
+    pub func: KernelFn,
+}
+
+#[derive(Clone)]
+pub struct KernelFn {
+    pub sig: KernelSignature,
+    pub kernel_vars: Vec<TokenStream>,
+    pub block: Expression,
+}
+
+#[derive(Clone)]
+pub struct KernelSignature {
     pub name: Ident,
     pub parameters: Vec<KernelParam>,
-    pub block: Expression,
     pub returns: Type,
     pub generics: Generics,
 }
@@ -76,16 +101,35 @@ impl KernelParam {
     }
 }
 
-impl Kernel {
-    pub fn from_item_fn(function: ItemFn, args: KernelArgs) -> syn::Result<Self> {
+impl KernelSignature {
+    pub fn from_signature(sig: Signature) -> syn::Result<Self> {
+        let name = sig.ident;
+        let generics = sig.generics;
+        let returns = match sig.output {
+            syn::ReturnType::Default => parse_quote![()],
+            syn::ReturnType::Type(_, ty) => *ty,
+        };
+        let parameters = sig
+            .inputs
+            .into_iter()
+            .map(KernelParam::from_param)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(KernelSignature {
+            generics,
+            name,
+            parameters,
+            returns,
+        })
+    }
+
+    pub fn from_trait_fn(function: TraitItemFn) -> syn::Result<Self> {
         let name = function.sig.ident;
-        let vis = function.vis;
         let generics = function.sig.generics;
         let returns = match function.sig.output {
             syn::ReturnType::Default => parse_quote![()],
             syn::ReturnType::Type(_, ty) => *ty,
         };
-        let mut context = Context::new(returns.clone(), args.is_launch());
         let parameters = function
             .sig
             .inputs
@@ -93,20 +137,40 @@ impl Kernel {
             .map(KernelParam::from_param)
             .collect::<Result<Vec<_>, _>>()?;
 
-        context.extend(parameters.clone());
-        context.push_scope(); // Push function local scope
-        let block = parse_block(*function.block, &mut context)?;
-        context.pop_scope(); // Pop function local scope
-
-        Ok(Kernel {
-            args,
-            visibility: vis,
+        Ok(Self {
             generics,
             name,
             parameters,
-            block,
             returns,
         })
+    }
+}
+
+impl KernelFn {
+    pub fn from_sig_and_block(sig: Signature, block: Block, launch: bool) -> syn::Result<Self> {
+        let sig = KernelSignature::from_signature(sig)?;
+
+        let mut context = Context::new(sig.returns.clone(), launch);
+        let kernel_vars = context.current_scope().generate_kernel_vars();
+        context.extend(sig.parameters.clone());
+        context.push_scope(); // Push function local scope
+        let block = parse_block(block, &mut context)?;
+        context.pop_scope(); // Pop function local scope
+
+        Ok(KernelFn {
+            sig,
+            block,
+            kernel_vars,
+        })
+    }
+}
+
+impl Kernel {
+    pub fn from_item_fn(function: ItemFn, args: KernelArgs) -> syn::Result<Self> {
+        let vis = function.vis;
+        let func = KernelFn::from_sig_and_block(function.sig, *function.block, args.is_launch())?;
+
+        Ok(Kernel { args, vis, func })
     }
 }
 

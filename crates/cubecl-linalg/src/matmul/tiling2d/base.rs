@@ -62,7 +62,7 @@ pub(crate) struct Coordinates {
     pub skip_col: UInt,
 }
 
-#[cube]
+#[cube2]
 fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
     let rank = lhs.rank();
     let first_dim = rank - UInt::new(2);
@@ -74,7 +74,7 @@ fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
     Dimensions { m, k, n }
 }
 
-#[cube]
+#[cube2]
 fn calculate_coordinates(
     cube_pos_x: UInt,
     cube_pos_y: UInt,
@@ -105,7 +105,7 @@ fn calculate_coordinates(
     }
 }
 
-#[cube]
+#[cube2]
 #[allow(unused_mut)]
 fn calculate_batch_offsets<F: Float>(
     lhs: &Tensor<F>,
@@ -137,7 +137,7 @@ fn calculate_batch_offsets<F: Float>(
     }
 }
 
-#[cube]
+#[cube2]
 fn make_shared_memories<F: Float>(config: Comptime<CubeTiling2dConfig>) -> SharedMemories<F> {
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let block_size_m = Comptime::map(config, |c| c.block_size_m);

@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use super::{base::Coordinates, config::CubeTiling2dConfig, outer_product::tile_outer_product};
 
-#[cube]
+#[cube2]
 #[allow(unused_mut)]
 pub(crate) fn compute_loop<F: Float>(
     coordinates: Coordinates,

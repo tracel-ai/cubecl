@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use super::base::{Accumulators, SharedMemories};
 use super::config::CmmaConfig;
 
-#[cube]
+#[cube2]
 #[allow(unused_mut)]
 pub(crate) fn compute_loop<F: Float, FC: Float>(
     shared_memories: SharedMemories<FC>,
@@ -40,7 +40,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     );
 }
 
-#[cube]
+#[cube2]
 fn compute_tile<F: Float, FC: Float>(
     n_iter: UInt,
     tile_row: UInt,

@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 pub struct TensorHandle<R, E>
 where
     R: Runtime,
-    E: CubePrimitive,
+    E: Primitive,
 {
     /// The buffer where the data are stored.
     pub handle: Handle<R::Server>,
@@ -23,7 +23,7 @@ where
 impl<R, E> core::fmt::Debug for TensorHandle<R, E>
 where
     R: Runtime,
-    E: CubePrimitive,
+    E: Primitive,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
@@ -39,7 +39,7 @@ where
 impl<R, E> Clone for TensorHandle<R, E>
 where
     R: Runtime,
-    E: CubePrimitive,
+    E: Primitive,
 {
     fn clone(&self) -> Self {
         Self {
@@ -54,7 +54,7 @@ where
 impl<R, E> TensorHandle<R, E>
 where
     R: Runtime,
-    E: CubePrimitive,
+    E: Primitive,
 {
     /// Create a new tensor.
     pub fn new(shape: Vec<usize>, strides: Vec<usize>, handle: Handle<R::Server>) -> Self {
@@ -149,11 +149,12 @@ where
 pub(crate) mod init {
     use cubecl::prelude::*;
     use cubecl_core as cubecl;
+    use cubecl_macros_2::cube2;
 
-    #[cube(launch_unchecked)]
+    #[cube2(launch_unchecked)]
     pub fn zeros_array<C: Numeric>(output: &mut Array<C>) {
         if ABSOLUTE_POS < output.len() {
-            output[ABSOLUTE_POS] = C::from_int(0);
+            output[ABSOLUTE_POS] = C::new(0);
         }
     }
 }

@@ -1,12 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube]
+#[cube2]
 pub fn literal<F: Float>(lhs: F) {
     let _ = lhs + F::from_int(5);
 }
 
-#[cube]
+#[cube2]
 pub fn literal_float_no_decimals<F: Float>(lhs: F) {
     let _ = lhs + F::new(5.);
 }

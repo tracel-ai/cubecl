@@ -1,8 +1,11 @@
+use cubecl::new_ir::element::{Array, SharedMemory, Tensor};
+use cubecl::new_ir::Float;
+use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
+use cubecl_macros_2::cube2;
 
 use crate::matmul::cmma::{
-    base::{make_accumulators, SharedMemories, SharedMemoriesExpand},
+    base::{make_accumulators, SharedMemories},
     compute_loop::compute_loop,
     config::CmmaConfig,
 };
@@ -10,26 +13,26 @@ use crate::matmul::tests::test_utils::{
     assert_equals, cmma_available, create_empty, range_tensor_f16,
 };
 
-#[cube(launch_unchecked)]
+#[cube2(launch_unchecked)]
 fn compute_loop_test<F: Float, FC: Float>(
     lhs_tensor: &Tensor<FC>,
     rhs_tensor: &Tensor<FC>,
     accumulate_array: &mut Array<F>,
-    m: Comptime<UInt>,
-    k: Comptime<UInt>,
-    n: Comptime<UInt>,
-    config: Comptime<CmmaConfig>,
+    #[comptime] m: u32,
+    #[comptime] k: u32,
+    #[comptime] n: u32,
+    #[comptime] config: CmmaConfig,
 ) {
-    let mut lhs = SharedMemory::<FC>::new(Comptime::get(m * k));
-    let mut rhs = SharedMemory::<FC>::new(Comptime::get(k * n));
+    let mut lhs = SharedMemory::<FC>::new(m * k);
+    let mut rhs = SharedMemory::<FC>::new(k * n);
 
-    for i in range(0u32, Comptime::get(m * k), Comptime::new(false)) {
+    for i in 0..m * k {
         lhs[i] = lhs_tensor[i];
     }
-    for i in range(0u32, Comptime::get(k * n), Comptime::new(false)) {
+    for i in 0..k * n {
         rhs[i] = rhs_tensor[i];
     }
-    for i in range(0u32, Comptime::get(m * n), Comptime::new(false)) {
+    for i in 0..m * n {
         accumulate_array[i] = F::new(0.);
     }
 

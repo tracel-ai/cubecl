@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube]
+#[cube2]
 pub fn topology_kernel<T: Numeric>(input: Tensor<T>) {
     let x = ABSOLUTE_POS + UInt::new(4);
     let _ = input[x];

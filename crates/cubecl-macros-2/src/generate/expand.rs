@@ -1,6 +1,6 @@
 use crate::{
     ir_type,
-    parse::expand::{Expand, ExpandField},
+    parse::expand::{Expand, ExpandField, StaticExpand},
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
@@ -9,6 +9,7 @@ use syn::parse_quote;
 impl ToTokens for Expand {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let expand_ty = ir_type("Expand");
+        let expanded_trait = ir_type("Expanded");
         let expr = ir_type("Expr");
         let expression = ir_type("Expression");
         let square_ty = ir_type("SquareType");
@@ -24,15 +25,12 @@ impl ToTokens for Expand {
         let name = &self.ident;
         let expand_name = self.name.as_ref().unwrap();
         let vis = &self.vis;
-        let base_generics = &self.generics;
-        let where_clause = &base_generics.where_clause;
-        let base_generic_names = &self.generic_names;
-        let mut expand_generics = base_generics.clone();
-        let mut expand_generic_names = base_generic_names.clone();
+        let (base_generics, base_generic_names, where_clause) = self.generics.split_for_impl();
 
+        let mut expand_generics = self.generics.clone();
         let inner_param = parse_quote![__Inner: #expr<Output = #name #base_generic_names>];
         expand_generics.params.push(inner_param);
-        expand_generic_names.params.push(parse_quote![__Inner]);
+        let (expand_generics, expand_generic_names, _) = expand_generics.split_for_impl();
 
         let expr_body = quote! {
             type Output = Self;
@@ -54,6 +52,14 @@ impl ToTokens for Expand {
 
                 fn expand<__Inner: #expr<Output = Self>>(inner: __Inner) -> Self::Expanded<__Inner> {
                     #expand_name(inner)
+                }
+            }
+
+            impl #expand_generics #expanded_trait for #expand_name #expand_generic_names #where_clause {
+                type Unexpanded = #name #base_generic_names;
+
+                fn inner(self) -> impl Expr<Output = Self::Unexpanded> {
+                    self.0
                 }
             }
 
@@ -95,5 +101,29 @@ impl ToTokens for ExpandField {
                 #access::new(self.0, #name)
             }
         });
+    }
+}
+
+impl ToTokens for StaticExpand {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let static_expand = ir_type("StaticExpand");
+        let static_expanded = ir_type("StaticExpanded");
+
+        let unexpanded_name = &self.ident;
+        let expand_name = self.name.as_ref().unwrap();
+        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
+
+        let out = quote! {
+            pub struct #expand_name #generics(::core::marker::PhantomData<#unexpanded_name #generic_names>) #where_clause;
+
+            impl #generics #static_expand for #unexpanded_name #generic_names #where_clause {
+                type Expanded = #expand_name #generic_names;
+            }
+
+            impl #generics #static_expanded for #expand_name #generic_names #where_clause {
+                type Unexpanded = #unexpanded_name #generic_names;
+            }
+        };
+        tokens.extend(out);
     }
 }

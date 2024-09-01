@@ -17,7 +17,7 @@ use super::base::{all_zeros_runtime, BlockLoader, BlockWriter};
 
 pub(crate) struct VerticalCheckBlockIO;
 
-#[cube]
+#[cube2]
 impl<F: Float> BlockLoader<F> for VerticalCheckBlockIO {
     fn load_tile_plain<A: ContiguousAccess<F>>(
         tensor: &Tensor<F>,
@@ -83,7 +83,7 @@ impl<F: Float> BlockLoader<F> for VerticalCheckBlockIO {
     }
 }
 
-#[cube]
+#[cube2]
 impl<F: Float> BlockWriter<F> for VerticalCheckBlockIO {
     fn write_output<A: ContiguousAccess<F>>(
         out: &mut Tensor<F>,

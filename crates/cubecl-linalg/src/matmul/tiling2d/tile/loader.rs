@@ -40,7 +40,7 @@ pub(crate) struct ReadTileInfo {
     pub sm_stride: UInt,
 }
 
-#[cube]
+#[cube2]
 impl<F: Float> Loader<F> for TileLoader<F> {
     fn load_lhs_plain<B: BlockLoader<F>>(lhs: &Tensor<F>, load_info: LoadInfo<F>) {
         let config = load_info.config;
@@ -127,7 +127,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
     }
 }
 
-#[cube]
+#[cube2]
 pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
     tensor: &Tensor<F>,
     load_info: LoadInfo<F>,
@@ -180,7 +180,7 @@ pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
     }
 }
 
-#[cube]
+#[cube2]
 pub(crate) fn load_transposed<F: Float, L: BlockLoader<F>>(
     tensor: &Tensor<F>,
     load_info: LoadInfo<F>,

@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 mod elsewhere {
     use super::*;
 
-    #[cube]
+    #[cube2]
     pub fn my_func<F: Float>(x: F) -> F {
         x * F::from_int(2)
     }
@@ -13,12 +13,12 @@ mod elsewhere {
 mod here {
     use super::*;
 
-    #[cube]
+    #[cube2]
     pub fn caller<F: Float>(x: F) {
         let _ = x + elsewhere::my_func::<F>(x);
     }
 
-    #[cube]
+    #[cube2]
     pub fn no_call_ref<F: Float>(x: F) {
         let _ = x + x * F::from_int(2);
     }

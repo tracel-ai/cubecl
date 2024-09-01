@@ -3,51 +3,34 @@ use std::iter;
 use ident_case::RenameRule;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{parse_quote, spanned::Spanned, visit_mut::VisitMut, Generics, Ident};
+use syn::{parse_quote, spanned::Spanned, Generics, Ident};
 
 use crate::{
     core_type, ir_path, ir_type,
-    parse::{
-        kernel::{Kernel, KernelParam},
-        StripBounds,
-    },
+    parse::kernel::{Kernel, KernelFn, KernelParam, KernelSignature},
+    paths::core_path,
     prefix_ir, prelude_type,
-    scope::Context,
 };
 
 impl ToTokens for Kernel {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let vis = &self.visibility;
-        let name = &self.name;
-        let generics = &self.generics;
-        let global_constants = Context::new(self.returns.clone(), self.args.is_launch())
-            .current_scope()
-            .generate_kernel_vars();
-        let block = &self.block;
-        let return_type = &self.returns;
-        let args = &self.parameters;
+        let vis = &self.vis;
 
-        let expr = ir_type("Expr");
-        let ir_path = ir_path();
-
+        let name = &self.func.sig.name;
         let launch = self.launch();
         let launch_unchecked = self.launch_unchecked();
         let dummy = self.create_dummy_kernel();
         let kernel = self.kernel_definition();
         let checks = self.check_args();
+        let mut func = self.func.clone();
+        func.sig.name = format_ident!("expand");
 
         let out = quote! {
             #vis mod #name {
                 use super::*;
-                use #ir_path::{ExpandExpr as _, PartialExpand as _};
 
                 #[allow(unused, clippy::all)]
-                pub fn expand #generics(#(#args),*) -> impl #expr<Output = #return_type> {
-                    #(#global_constants)*
-                    {
-                        #block
-                    }
-                }
+                pub #func
 
                 #kernel
                 #launch
@@ -62,6 +45,43 @@ impl ToTokens for Kernel {
             let tokens = prettyplease::unparse(&file);
             panic!("{tokens}");
         }
+        tokens.extend(out);
+    }
+}
+
+impl ToTokens for KernelFn {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let ir_path = ir_path();
+
+        let sig = &self.sig;
+        let block = &self.block;
+        let kernel_vars = &self.kernel_vars;
+
+        let out = quote! {
+            #sig {
+                use #ir_path::{ExpandExpr as _, PartialExpand as _};
+                #(#kernel_vars)*
+                {
+                    #block
+                }
+            }
+        };
+        tokens.extend(out);
+    }
+}
+
+impl ToTokens for KernelSignature {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let expr = ir_type("Expr");
+
+        let name = &self.name;
+        let generics = &self.generics;
+        let return_type = &self.returns;
+        let args = &self.parameters;
+
+        let out = quote! {
+            fn #name #generics(#(#args),*) -> impl #expr<Output = #return_type>
+        };
         tokens.extend(out);
     }
 }
@@ -84,12 +104,12 @@ impl Kernel {
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
 
-            let kernel_doc = format!("Launch the kernel [{}()] on the given runtime", self.name);
+            let kernel_doc = format!(
+                "Launch the kernel [{}()] on the given runtime",
+                self.func.sig.name
+            );
             let generics = self.launch_generics();
             let args = self.launch_args();
-            let mut expand_generics = self.generics.clone();
-            StripBounds.visit_generics_mut(&mut expand_generics);
-
             let body = self.launch_body();
 
             quote! {
@@ -116,12 +136,12 @@ impl Kernel {
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
 
-            let kernel_doc = format!("Launch the kernel [{}()] on the given runtime", self.name);
+            let kernel_doc = format!(
+                "Launch the kernel [{}()] on the given runtime",
+                self.func.sig.name
+            );
             let generics = self.launch_generics();
             let args = self.launch_args();
-            let mut expand_generics = self.generics.clone();
-            StripBounds.visit_generics_mut(&mut expand_generics);
-
             let body = self.launch_body();
 
             quote! {
@@ -144,27 +164,27 @@ impl Kernel {
 
     fn launch_body(&self) -> TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
-        let builder = ir_type("KernelBuilder");
+        let builder = prelude_type("KernelBuilder");
 
-        let expand_inputs = self.parameters.iter().map(|it| &it.name);
+        let expand_inputs = self.func.sig.parameters.iter().map(|it| &it.name);
         let registers = self.runtime_params().map(|arg| {
             let name = &arg.name;
             quote![#name.register(&mut launcher);]
         });
 
-        let mut expand_generics = self.generics.clone();
-        StripBounds.visit_generics_mut(&mut expand_generics);
-        let expand_generics =
-            (!expand_generics.params.is_empty()).then(|| quote![::#expand_generics]);
+        let (_, expand_generics, _) = self.func.sig.generics.split_for_impl();
+        let expand_generics = expand_generics.as_turbofish();
 
         let settings = self.configure_settings();
         let io_mappings = self.io_mappings();
         let kernel_name = self.kernel_name();
         let hash = self.comptime_hash();
+        let ir_path = ir_path();
+        let core_path = core_path();
 
         quote! {
-            use ::cubecl_core::frontend::ArgSettings as _;
-            use ::cubecl_core::new_ir::Expr as _;
+            use #core_path::frontend::ArgSettings as _;
+            use #ir_path::Expr as _;
 
             #settings
             #hash
@@ -207,7 +227,7 @@ impl Kernel {
     }
 
     fn io_mappings(&self) -> TokenStream {
-        let launch_arg_expand = ir_type("LaunchArgExpand");
+        let launch_arg_expand = prelude_type("LaunchArgExpand");
         let global_var = ir_type("GlobalVariable");
 
         let input_expands = self.runtime_inputs().enumerate().map(|(i, arg)| {
@@ -278,22 +298,25 @@ impl Kernel {
         if self.args.create_dummy_kernel.is_present() {
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
-            let builder = ir_type("KernelBuilder");
+            let builder = prelude_type("KernelBuilder");
             let kernel = core_type("Kernel");
 
-            let kernel_doc = format!("Launch the kernel [{}()] on the given runtime", self.name);
+            let kernel_doc = format!(
+                "Launch the kernel [{}()] on the given runtime",
+                self.func.sig.name
+            );
             let generics = self.launch_generics();
             let args = self.launch_args();
-            let mut expand_generics = self.generics.clone();
-            StripBounds.visit_generics_mut(&mut expand_generics);
-            let expand_generics =
-                (!expand_generics.params.is_empty()).then(|| quote![::#expand_generics]);
-            let expand_inputs = self.parameters.iter().map(|it| &it.name);
+            let (_, expand_generics, _) = self.func.sig.generics.split_for_impl();
+            let expand_generics = expand_generics.as_turbofish();
+            let expand_inputs = self.func.sig.parameters.iter().map(|it| &it.name);
 
             let settings = self.configure_settings();
             let io_mappings = self.io_mappings();
             let kernel_name = self.kernel_name();
             let hash = self.comptime_hash();
+            let ir_path = ir_path();
+            let core_path = core_path();
 
             quote! {
                 #[allow(clippy::too_many_arguments)]
@@ -303,8 +326,8 @@ impl Kernel {
                     __cube_dim: #cube_dim,
                     #(#args),*
                 ) -> impl #kernel {
-                    use ::cubecl_core::frontend::ArgSettings as _;
-                    use ::cubecl_core::new_ir::Expr as _;
+                    use #core_path::frontend::ArgSettings as _;
+                    use #ir_path::Expr as _;
 
                     #settings
                     #hash
@@ -337,11 +360,11 @@ impl Kernel {
     }
 
     fn runtime_params(&self) -> impl Iterator<Item = &KernelParam> {
-        self.parameters.iter().filter(|it| !it.is_const)
+        self.func.sig.parameters.iter().filter(|it| !it.is_const)
     }
 
     fn launch_generics(&self) -> Generics {
-        let mut generics = self.generics.clone();
+        let mut generics = self.func.sig.generics.clone();
         let runtime = prelude_type("Runtime");
         generics.params = iter::once(parse_quote!['kernel])
             .chain(generics.params)
@@ -351,8 +374,8 @@ impl Kernel {
     }
 
     fn launch_args(&self) -> Vec<KernelParam> {
-        let mut args = self.parameters.clone();
-        let runtime_arg = ir_type("RuntimeArg");
+        let mut args = self.func.sig.parameters.clone();
+        let runtime_arg = core_type("RuntimeArg");
         for arg in args.iter_mut().filter(|it| !it.is_const) {
             let ty = arg.ty_owned();
             arg.normalized_ty = parse_quote![#runtime_arg<'kernel, #ty, __R>];
@@ -361,15 +384,21 @@ impl Kernel {
     }
 
     fn kernel_name(&self) -> Ident {
-        let kernel_name = RenameRule::PascalCase.apply_to_field(self.name.to_string());
+        let kernel_name = RenameRule::PascalCase.apply_to_field(self.func.sig.name.to_string());
         format_ident!("{kernel_name}")
     }
 
     fn comptime_hash(&self) -> TokenStream {
-        let comptime_arg_hashes = self.parameters.iter().filter(|it| it.is_const).map(|arg| {
-            let name = &arg.name;
-            quote![::core::hash::Hash::hash(&#name, &mut __hasher);]
-        });
+        let comptime_arg_hashes = self
+            .func
+            .sig
+            .parameters
+            .iter()
+            .filter(|it| it.is_const)
+            .map(|arg| {
+                let name = &arg.name;
+                quote![::core::hash::Hash::hash(&#name, &mut __hasher);]
+            });
         quote! {
             let __comptime_hash = {
                 let mut __hasher = ::std::hash::DefaultHasher::new();
@@ -387,7 +416,7 @@ impl Kernel {
             let kernel_id = core_type("KernelId");
 
             let kernel_name = self.kernel_name();
-            let kernel_doc = format!("{} Kernel", self.name);
+            let kernel_doc = format!("{} Kernel", self.func.sig.name);
 
             quote! {
                 #[doc = #kernel_doc]
@@ -414,9 +443,11 @@ impl Kernel {
 
     fn check_args(&self) -> TokenStream {
         if self.args.is_launch() {
-            let generics = &self.generics;
+            let generics = &self.func.sig.generics;
 
             let input_checks = self
+                .func
+                .sig
                 .parameters
                 .iter()
                 // Const can be anything as long as the accessed fields are cube types, since the access

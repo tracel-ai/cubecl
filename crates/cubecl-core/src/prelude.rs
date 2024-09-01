@@ -5,14 +5,13 @@ pub use crate::compute::{
     CompiledKernel, CubeCount, CubeTask, KernelBuilder, KernelLauncher, KernelTask,
 };
 pub use crate::frontend::cmma;
-pub use crate::frontend::{branch::*, synchronization::*};
+pub use crate::frontend::synchronization::*;
 pub use crate::ir::{CubeDim, KernelDefinition};
 pub use crate::runtime::Runtime;
 
 /// Elements
 pub use crate::frontend::{
-    Array, ArrayHandleRef, AtomicI32, AtomicI64, AtomicUInt, Bool, Float, LaunchArg, Slice,
-    SliceMut, Tensor, TensorArg, UInt, F16, F32, F64, I32, I64,
+    Array, ArrayHandleRef, AtomicI32, AtomicU32, Float, LaunchArg, Slice, Tensor, TensorArg,
 };
 pub use crate::pod::CubeElement;
 

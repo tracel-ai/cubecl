@@ -9,8 +9,6 @@ use super::{StripBounds, StripDefault};
 pub struct Expand {
     pub vis: Visibility,
     pub generics: Generics,
-    #[darling(skip)]
-    pub generic_names: Generics,
     pub ident: Ident,
     #[darling(default)]
     pub name: Option<Ident>,
@@ -19,6 +17,16 @@ pub struct Expand {
     data: Data<(), ExpandField>,
     #[darling(skip)]
     pub fields: Vec<ExpandField>,
+}
+
+#[derive(FromDeriveInput)]
+#[darling(supports(struct_any), attributes(expand), and_then = unwrap_fields_static)]
+pub struct StaticExpand {
+    pub vis: Visibility,
+    pub generics: Generics,
+    pub ident: Ident,
+    #[darling(default)]
+    pub name: Option<Ident>,
 }
 
 fn unwrap_fields(mut expand: Expand) -> darling::Result<Expand> {
@@ -39,8 +47,14 @@ fn unwrap_fields(mut expand: Expand) -> darling::Result<Expand> {
         .name
         .get_or_insert_with(|| format_ident!("{}Expand", expand.ident));
     StripDefault.visit_generics_mut(&mut expand.generics);
-    expand.generic_names = expand.generics.clone();
-    StripBounds.visit_generics_mut(&mut expand.generic_names);
+    Ok(expand)
+}
+
+fn unwrap_fields_static(mut expand: StaticExpand) -> darling::Result<StaticExpand> {
+    expand
+        .name
+        .get_or_insert_with(|| format_ident!("{}Expand", expand.ident));
+    StripDefault.visit_generics_mut(&mut expand.generics);
     Ok(expand)
 }
 

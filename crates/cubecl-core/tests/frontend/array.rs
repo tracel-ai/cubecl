@@ -1,36 +1,37 @@
+use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
+use cubecl_macros_2::cube2;
 
-#[cube]
-pub fn array_read_write<T: Numeric>(array_size: Comptime<u32>) {
+#[cube2]
+pub fn array_read_write<T: Numeric>(#[comptime] array_size: u32) {
     let mut array = Array::<T>::new(array_size);
-    array[0] = T::from_int(3);
-    let _ = array[0];
+    array[0] = T::new(3);
+    let _a = array[0];
 }
 
-#[cube]
+#[cube2]
 pub fn array_to_vectorized_variable<T: Numeric>() -> T {
     let mut array = Array::<T>::new(2);
-    array[0] = T::from_int(0);
-    array[1] = T::from_int(1);
-    array.to_vectorized(Comptime::new(UInt::new(2)))
+    array[0] = T::new(0);
+    array[1] = T::new(1);
+    vectorize(array, 2)[0]
 }
 
-#[cube]
+#[cube2]
 pub fn array_of_one_to_vectorized_variable<T: Numeric>() -> T {
     let mut array = Array::<T>::new(1);
-    array[0] = T::from_int(3);
-    array.to_vectorized(Comptime::new(UInt::new(1)))
+    array[0] = T::new(3);
+    vectorize(array, 1)[0]
 }
 
-#[cube]
-pub fn array_add_assign_simple(array: &mut Array<UInt>) {
-    array[UInt::new(1)] += UInt::new(1);
+#[cube2]
+pub fn array_add_assign_simple(array: &mut Array<u32>) {
+    array[1] += 1;
 }
 
-#[cube]
-pub fn array_add_assign_expr(array: &mut Array<UInt>) {
-    array[UInt::new(1) + UInt::new(5)] += UInt::new(1);
+#[cube2]
+pub fn array_add_assign_expr(array: &mut Array<u32>) {
+    array[1 + 5] += 1;
 }
 
 mod tests {
@@ -40,13 +41,13 @@ mod tests {
         ir::{self, Elem, Item, Variable},
     };
 
-    type ElemType = F32;
+    type ElemType = f32;
 
     #[test]
     fn cube_support_array() {
         let mut context = CubeContext::root();
 
-        array_read_write::__expand::<ElemType>(&mut context, 512);
+        array_read_write::expand::<ElemType>(512);
         assert_eq!(
             context.into_scope().operations,
             inline_macro_ref_read_write()
@@ -58,7 +59,7 @@ mod tests {
         let mut context = CubeContext::root();
         let array = context.input(0, Item::new(Elem::UInt));
 
-        array_add_assign_simple::__expand(&mut context, array.into());
+        array_add_assign_simple::expand(array.into());
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_array_add_assign_simple());
@@ -68,7 +69,7 @@ mod tests {
     fn cube_array_to_vectorized() {
         let mut context = CubeContext::root();
 
-        array_to_vectorized_variable::__expand::<ElemType>(&mut context);
+        array_to_vectorized_variable::expand::<ElemType>();
         assert_eq!(
             context.into_scope().operations,
             inline_macro_ref_to_vectorized()
@@ -79,7 +80,7 @@ mod tests {
     fn cube_array_of_one_to_vectorized() {
         let mut context = CubeContext::root();
 
-        array_of_one_to_vectorized_variable::__expand::<ElemType>(&mut context);
+        array_of_one_to_vectorized_variable::expand::<ElemType>();
         assert_eq!(
             context.into_scope().operations,
             inline_macro_ref_one_to_vectorized()
@@ -111,7 +112,7 @@ mod tests {
         let mut context = CubeContext::root();
         let array = context.input(0, Item::new(Elem::UInt));
 
-        array_add_assign_expr::__expand(&mut context, array.into());
+        array_add_assign_expr::expand(array.into());
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_array_add_assign_expr());

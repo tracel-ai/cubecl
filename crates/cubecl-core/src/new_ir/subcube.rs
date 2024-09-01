@@ -1,4 +1,5 @@
-use super::{BinaryOp, Elem, Expr, Expression, Primitive, SquareType, UnaryOp, Vectorization};
+use super::{BinaryOp, Elem, Expr, Expression, SquareType, UnaryOp, Vectorization};
+use crate::prelude::Primitive;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SubcubeExpression {

@@ -1,6 +1,6 @@
 use cubecl_common::operator::Operator;
 use proc_macro2::Span;
-use quote::{format_ident, quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, RangeLimits, Type};
 
 use crate::{
@@ -134,10 +134,14 @@ impl Expression {
                     }
                 }
                 let from = Expression::from_expr(from_expr, context)?;
-                Expression::Cast {
-                    from: Box::new(from),
-                    to: *cast.ty,
-                    span,
+                if let Some(as_const) = from.as_const() {
+                    Expression::Verbatim { tokens: as_const }
+                } else {
+                    Expression::Cast {
+                        from: Box::new(from),
+                        to: *cast.ty,
+                        span,
+                    }
                 }
             }
             Expr::Const(block) => Expression::Verbatim {
@@ -311,6 +315,13 @@ impl Expression {
             Expr::Reference(reference) => Expression::Reference {
                 inner: Box::new(Expression::from_expr(*reference.expr, context)?),
             },
+            Expr::Closure(mut expr) => {
+                let body = Expression::from_expr(*expr.body, context)?;
+                expr.body = Box::new(Expr::Verbatim(body.to_token_stream()));
+                Expression::Verbatim {
+                    tokens: expr.to_token_stream(),
+                }
+            }
             Expr::Try(expr) => {
                 let span = expr.span();
                 let expr = Expression::from_expr(*expr.expr, context)?

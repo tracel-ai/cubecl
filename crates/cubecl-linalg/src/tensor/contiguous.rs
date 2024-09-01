@@ -1,38 +1,39 @@
 use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_vectorization_factor};
 
 use cubecl::prelude::*;
+use cubecl_macros_2::cube2;
 
 use super::TensorHandle;
 
 /// Returns the offset of the tensor corresponding to the layout tensor.
-#[cube]
-pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
+#[cube2]
+pub fn index_offset_with_layout<N: Primitive, L: Primitive>(
     tensor: &Tensor<N>,
     layout: &Tensor<L>,
-    offset_layout: UInt,
-    dim_start: UInt,
-    dim_end: UInt,
-    unroll: Comptime<bool>,
-) -> UInt {
-    let vectorization_factor = Comptime::vectorization(tensor);
-    let vectorization_factor_runtime = Comptime::runtime(vectorization_factor);
+    offset_layout: u32,
+    dim_start: u32,
+    dim_end: u32,
+    #[comptime] unroll: bool,
+) -> u32 {
+    let vectorization = vectorization(tensor);
 
-    let offset_ref = offset_layout * vectorization_factor_runtime;
-    let mut offset = UInt::new(0);
+    let offset_ref = offset_layout * vectorization;
+    let mut offset = 0;
 
-    for i in range(dim_start, dim_end, unroll) {
+    #[unroll(unroll)]
+    for i in dim_start..dim_end {
         let ogwl = offset_ref / layout.stride(i);
         offset += ogwl % tensor.shape(i) * tensor.stride(i);
     }
 
-    offset / vectorization_factor_runtime
+    offset / vectorization
 }
 
-#[cube(launch)]
-fn into_contiguous_kernel<N: CubePrimitive>(
+#[cube2(launch)]
+fn into_contiguous_kernel<N: Primitive>(
     input: &Tensor<N>,
     output: &mut Tensor<N>,
-    rank: Comptime<Option<UInt>>,
+    #[comptime] rank: Option<u32>,
 ) {
     let offset_output = ABSOLUTE_POS;
 
@@ -44,16 +45,16 @@ fn into_contiguous_kernel<N: CubePrimitive>(
         input,
         output,
         offset_output,
-        UInt::new(0),
-        Comptime::unwrap_or_else(rank, || output.rank()),
-        Comptime::is_some(rank),
+        0,
+        rank.unwrap_or_else(|| output.rank()),
+        rank.is_some(),
     );
 
     output[offset_output] = input[offset_input];
 }
 
 /// Make a jit tensor contiguous.
-pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
+pub fn into_contiguous<R: Runtime, E: Primitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<'_, R>,
 ) -> TensorHandle<R, E> {
@@ -75,7 +76,7 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
         cube_dim,
         input.as_tensor_arg(vectorization_factor),
         output.as_ref().as_tensor_arg(vectorization_factor),
-        Some(UInt::new(rank as u32)),
+        Some(rank as u32),
     );
 
     output

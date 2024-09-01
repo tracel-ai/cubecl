@@ -4,21 +4,21 @@ use cubecl_core::prelude::*;
 /// Traits used in Cube kernels must expose an _expand variant
 /// for all their methods. However, one does not need to provide its
 /// implementation, see examples below.
-#[cube]
+#[cube2]
 pub trait Strategy<T: Numeric> {
     fn operation(input_1: T, input_2: T) -> T;
 }
 
 struct AddStrategy;
 
-#[cube]
+#[cube2]
 /// The actual implementation of AddStrategy's operation
 /// Automatically generated an _expand variant
 pub fn add_strategy_operation<T: Numeric>(input_1: T, input_2: T) -> T {
     input_1 + input_2
 }
 
-#[cube]
+#[cube2]
 impl<T: Numeric> Strategy<T> for AddStrategy {
     fn operation(input_1: T, input_2: T) -> T {
         add_strategy_operation::<T>(input_1, input_2)
@@ -27,19 +27,19 @@ impl<T: Numeric> Strategy<T> for AddStrategy {
 
 struct SubStrategy;
 
-#[cube]
+#[cube2]
 impl<T: Numeric> Strategy<T> for SubStrategy {
     fn operation(input_1: T, input_2: T) -> T {
         input_1 - input_2
     }
 }
 
-#[cube]
+#[cube2]
 pub fn with_strategy_trait<S: Strategy<T>, T: Numeric>(x: T, y: T) -> T {
     S::operation(x, y)
 }
 
-#[cube]
+#[cube2]
 pub fn two_strategy_traits<S1: Strategy<F>, S2: Strategy<F>, F: Float>(x: F, y: F) -> F {
     let z = S1::operation(x, y);
     S2::operation(z, y)
@@ -68,7 +68,7 @@ impl MethodTypedStrategy for AddStrategy {
     }
 }
 
-#[cube]
+#[cube2]
 pub fn with_trait_generic_method<S: MethodTypedStrategy, T: Numeric>(x: T, y: T) -> T {
     S::operation::<T>(x, y)
 }

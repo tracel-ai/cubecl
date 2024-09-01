@@ -1,5 +1,4 @@
 use crate as cubecl;
-use cubecl::new_ir::element::Array;
 use cubecl::prelude::*;
 use cubecl_macros_2::cube2;
 

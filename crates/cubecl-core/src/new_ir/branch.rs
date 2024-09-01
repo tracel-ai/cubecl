@@ -1,6 +1,6 @@
+use super::{BlockExpr, Expand, Expanded, Expr, Expression, Range, SquareType, Variable};
+use crate::prelude::Integer;
 use std::num::NonZero;
-
-use super::{BlockExpr, Expand, Expr, Expression, Integer, Range, SquareType, TypeEq, Variable};
 
 pub struct Break;
 
@@ -119,9 +119,9 @@ where
 }
 
 #[derive(new)]
-pub struct RangeExpr<Start: Expr, End: Expr>
+pub struct RangeExpr<Start: Expr, End: Expr<Output = Start::Output>>
 where
-    Start::Output: SquareType + TypeEq<End::Output>,
+    Start::Output: Integer,
 {
     pub start: Start,
     pub end: End,
@@ -129,37 +129,53 @@ where
 }
 
 #[derive(new)]
-pub struct SteppedRangeExpr<Start: Expr, End: Expr, Step: Expr, Inner>
-where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
-    End::Output: TypeEq<Step::Output>,
+pub struct SteppedRangeExpr<
+    Start: Expr,
+    End: Expr<Output = Start::Output>,
+    Step: Expr<Output = Start::Output>,
+    Inner,
+> where
+    Start::Output: Integer,
     Inner: Expr<Output = RangeExpr<Start, End>>,
 {
     pub inner: Inner,
     pub step: Step,
 }
 
-pub struct RangeExprExpand<Start: Expr, End: Expr, Inner>(Inner)
+pub struct RangeExprExpand<Start: Expr, End: Expr<Output = Start::Output>, Inner>(Inner)
 where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
+    Start::Output: Integer,
     Inner: Expr<Output = RangeExpr<Start, End>>;
 
-impl<Start: Expr, End: Expr, Inner> RangeExprExpand<Start, End, Inner>
+impl<Start: Expr, End: Expr<Output = Start::Output>, Inner> Expanded
+    for RangeExprExpand<Start, End, Inner>
 where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
+    Start::Output: Integer,
     Inner: Expr<Output = RangeExpr<Start, End>>,
 {
-    pub fn step_by<Step: Expr>(self, step: Step) -> SteppedRangeExpr<Start, End, Step, Inner>
-    where
-        End::Output: TypeEq<Step::Output>,
-    {
+    type Unexpanded = RangeExpr<Start, End>;
+
+    fn inner(self) -> impl Expr<Output = Self::Unexpanded> {
+        self.0
+    }
+}
+
+impl<Start: Expr, End: Expr<Output = Start::Output>, Inner> RangeExprExpand<Start, End, Inner>
+where
+    Start::Output: SquareType + Integer,
+    Inner: Expr<Output = RangeExpr<Start, End>>,
+{
+    pub fn step_by<Step: Expr<Output = Start::Output>>(
+        self,
+        step: Step,
+    ) -> SteppedRangeExpr<Start, End, Step, Inner> {
         SteppedRangeExpr::new(self.0, step)
     }
 }
 
-impl<Start: Expr, End: Expr> Expand for RangeExpr<Start, End>
+impl<Start: Expr, End: Expr<Output = Start::Output>> Expand for RangeExpr<Start, End>
 where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
+    Start::Output: Integer,
 {
     type Expanded<Inner: Expr<Output = Self>> = RangeExprExpand<Start, End, Inner>;
 
@@ -168,9 +184,9 @@ where
     }
 }
 
-impl<Start: Expr, End: Expr> Expr for RangeExpr<Start, End>
+impl<Start: Expr, End: Expr<Output = Start::Output>> Expr for RangeExpr<Start, End>
 where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
+    Start::Output: Integer,
 {
     type Output = Self;
 
@@ -188,17 +204,17 @@ where
     }
 }
 
-impl<Start: Expr, End: Expr> ForLoopRange for RangeExpr<Start, End>
+impl<Start: Expr, End: Expr<Output = Start::Output>> ForLoopRange for RangeExpr<Start, End>
 where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
+    Start::Output: Integer,
 {
     type Primitive = Start::Output;
 }
 
-impl<Start: Expr, End: Expr, Step: Expr, Inner> Expr for SteppedRangeExpr<Start, End, Step, Inner>
+impl<Start: Expr, End: Expr<Output = Start::Output>, Step: Expr<Output = Start::Output>, Inner> Expr
+    for SteppedRangeExpr<Start, End, Step, Inner>
 where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
-    End::Output: TypeEq<Step::Output>,
+    Start::Output: Integer,
     Inner: Expr<Output = RangeExpr<Start, End>>,
 {
     type Output = Self;
@@ -216,11 +232,10 @@ where
     }
 }
 
-impl<Start: Expr, End: Expr, Step: Expr, Inner> ForLoopRange
-    for SteppedRangeExpr<Start, End, Step, Inner>
+impl<Start: Expr, End: Expr<Output = Start::Output>, Step: Expr<Output = Start::Output>, Inner>
+    ForLoopRange for SteppedRangeExpr<Start, End, Step, Inner>
 where
-    Start::Output: SquareType + Integer + TypeEq<End::Output>,
-    End::Output: TypeEq<Step::Output>,
+    Start::Output: Integer,
     Inner: Expr<Output = RangeExpr<Start, End>>,
 {
     type Primitive = Start::Output;
@@ -265,21 +280,22 @@ impl Expr for Loop {
 }
 
 #[derive(new)]
-pub struct If<Condition: Expr<Output = bool>, OutIf: Expr = (), OutElse: Expr = ()>
-where
-    OutIf::Output: SquareType + TypeEq<OutElse::Output>,
-    OutElse::Output: SquareType,
+pub struct If<
+    Condition: Expr<Output = bool>,
+    OutIf: Expr = (),
+    OutElse: Expr<Output = OutIf::Output> = (),
+> where
+    OutIf::Output: SquareType,
 {
     pub condition: Condition,
     pub then_block: BlockExpr<OutIf>,
     pub else_branch: Option<OutElse>,
 }
 
-impl<Condition: Expr<Output = bool>, OutIf: Expr, OutElse: Expr> Expr
+impl<Condition: Expr<Output = bool>, OutIf: Expr, OutElse: Expr<Output = OutIf::Output>> Expr
     for If<Condition, OutIf, OutElse>
 where
-    OutIf::Output: SquareType + TypeEq<OutElse::Output>,
-    OutElse::Output: SquareType,
+    OutIf::Output: SquareType,
 {
     type Output = OutIf::Output;
 

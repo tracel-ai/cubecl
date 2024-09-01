@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube]
+#[cube2]
 #[allow(clippy::assign_op_pattern)]
 pub fn reuse<I: Int>(mut x: I) {
     // a += b is more efficient than a = a + b
@@ -12,7 +12,7 @@ pub fn reuse<I: Int>(mut x: I) {
     }
 }
 
-#[cube]
+#[cube2]
 pub fn reuse_incr<I: Int>(mut x: I) {
     while x < I::from_int(10) {
         x += I::from_int(1);

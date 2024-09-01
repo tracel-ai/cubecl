@@ -1,10 +1,9 @@
-use cubecl_core as cubecl;
 use cubecl::prelude::*;
+use cubecl_core as cubecl;
 
-#[cube]
+#[cube2]
 fn kernel(x: UInt) {
-    if x == y {
-    }
+    if x == y {}
 }
 
 fn main() {}
