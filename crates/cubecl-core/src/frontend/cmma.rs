@@ -50,7 +50,10 @@ use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
     ir::{self, Elem, Operation},
-    new_ir::{Container, Expr, Expression, SquareType, Strided, Vectorization},
+    new_ir::{
+        Container, Expr, Expression, SquareType, StaticExpand, StaticExpanded, Strided,
+        Vectorization,
+    },
     prelude::*,
     unexpanded,
 };
@@ -61,12 +64,28 @@ pub use ir::{MatrixIdent, MatrixLayout};
 ///
 /// They can either be in a [row major](MatrixLayout::RowMajor) or a
 /// [column major](MatrixLayout::ColMajor) format.
-#[derive(Copy, Clone, Expand)]
+#[derive(Copy, Clone)]
 pub struct Matrix<C: SquareType> {
+    pub ident: MatrixIdent,
+    pub m: u8,
+    pub n: u8,
+    pub k: u8,
+    pub layout: MatrixLayout,
     _c: PhantomData<C>,
 }
 
-#[expand_impl]
+impl<C: SquareType> StaticExpand for Matrix<C> {
+    type Expanded = Self;
+}
+impl<C: SquareType> StaticExpanded for Matrix<C> {
+    type Unexpanded = Self;
+}
+impl<C: SquareType> SquareType for Matrix<C> {
+    fn ir_type() -> Elem {
+        C::ir_type()
+    }
+}
+
 impl<C: SquareType> Matrix<C> {
     /// Create a new matrix that is going to be used in the
     /// [matrix-multiply and accumulate](execute()) function.
@@ -83,18 +102,14 @@ impl<C: SquareType> Matrix<C> {
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
     pub fn new(ident: MatrixIdent, m: u8, n: u8, k: u8, layout: MatrixLayout) -> Self {
-        Matrix { _c: PhantomData }
-    }
-
-    #[expanded]
-    pub fn new(
-        ident: MatrixIdent,
-        m: u8,
-        n: u8,
-        k: u8,
-        layout: MatrixLayout,
-    ) -> impl Expr<Output = Matrix<C>> {
-        MatrixInit::new(ident, m, n, k, layout)
+        Self {
+            ident,
+            m,
+            n,
+            k,
+            layout,
+            _c: PhantomData,
+        }
     }
 }
 
@@ -221,17 +236,7 @@ impl CmmaExpression {
     }
 }
 
-#[derive(new)]
-pub struct MatrixInit<T: SquareType> {
-    pub ident: MatrixIdent,
-    pub m: u8,
-    pub n: u8,
-    pub k: u8,
-    pub layout: MatrixLayout,
-    pub _type: PhantomData<T>,
-}
-
-impl<T: SquareType> Expr for MatrixInit<T> {
+impl<T: SquareType> Expr for Matrix<T> {
     type Output = Matrix<T>;
 
     fn expression_untyped(&self) -> Expression {
@@ -244,6 +249,30 @@ impl<T: SquareType> Expr for MatrixInit<T> {
             ty: T::ir_type(),
         }
         .into()
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        None
+    }
+}
+
+impl<T: SquareType> Expr for &Matrix<T> {
+    type Output = Matrix<T>;
+
+    fn expression_untyped(&self) -> Expression {
+        Matrix::<T>::expression_untyped(self)
+    }
+
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        None
+    }
+}
+
+impl<T: SquareType> Expr for &mut Matrix<T> {
+    type Output = Matrix<T>;
+
+    fn expression_untyped(&self) -> Expression {
+        Matrix::<T>::expression_untyped(self)
     }
 
     fn vectorization(&self) -> Option<NonZero<u8>> {

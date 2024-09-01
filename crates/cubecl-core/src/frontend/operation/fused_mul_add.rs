@@ -9,6 +9,7 @@ pub fn fma<C: Numeric>(a: C, b: C, c: C) -> C {
     a + b * c
 }
 
+#[allow(clippy::module_inception)]
 pub mod fma {
     use crate::{new_ir::Expr, prelude::Numeric};
 

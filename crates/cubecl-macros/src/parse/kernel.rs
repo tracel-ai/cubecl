@@ -15,7 +15,6 @@ pub(crate) struct KernelArgs {
     pub launch_unchecked: Flag,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
-    pub expand_name: Option<Ident>,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
@@ -32,7 +31,6 @@ pub(crate) struct CubeTraitArgs {
 pub(crate) struct CubeTraitImplArgs {
     pub expand_name: Option<Ident>,
     pub trait_expand_name: Option<Path>,
-    pub debug: Flag,
 }
 
 impl KernelArgs {

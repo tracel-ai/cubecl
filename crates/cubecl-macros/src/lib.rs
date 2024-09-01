@@ -2,7 +2,7 @@ use darling::FromDeriveInput;
 use error::error_into_token_stream;
 use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
-    expand::{Expand, StaticExpand},
+    expand::{Expand, Runtime, StaticExpand},
     expand_impl::ExpandImplVisitor,
     helpers::RemoveHelpers,
     kernel::{from_tokens, Kernel},
@@ -73,6 +73,16 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
 pub fn derive_expand(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let expand = match Expand::from_derive_input(&input) {
+        Ok(expand) => expand,
+        Err(e) => return e.write_errors().into(),
+    };
+    expand.to_token_stream().into()
+}
+
+#[proc_macro_derive(Runtime, attributes(expand))]
+pub fn derive_runtime(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let expand = match Runtime::from_derive_input(&input) {
         Ok(expand) => expand,
         Err(e) => return e.write_errors().into(),
     };

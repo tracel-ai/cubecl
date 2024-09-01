@@ -155,7 +155,7 @@ impl Expression {
                     input,
                     out: out.as_variable(),
                 }));
-                out.into()
+                out
             }
             Expression::Continue => {
                 unimplemented!("Continue not yet implemented")
@@ -367,6 +367,16 @@ impl Expression {
                 context.register(ir::Operator::Fma(FmaOperator { a, b, c, out }));
 
                 output
+            }
+            Expression::RuntimeStruct { .. } => {
+                todo!("RuntimeStruct")
+            }
+            Expression::Sync(sync) => {
+                context.register(sync);
+                None?
+            }
+            Expression::Once(once) => {
+                once.get_or_expand_with(|expr| expr.flatten(context).unwrap())
             }
         };
         Some(res)

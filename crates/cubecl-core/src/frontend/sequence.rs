@@ -1,6 +1,6 @@
 use crate::{
     ir::Elem,
-    new_ir::{Expr, Expression, RcExpr, SquareType, StaticExpand, StaticExpanded},
+    new_ir::{Expr, Expression, OnceExpr, SquareType, StaticExpand, StaticExpanded},
     unexpanded,
 };
 use std::{
@@ -27,7 +27,7 @@ pub struct Sequence<T: SquareType> {
 pub struct SequenceExpand<T: SquareType> {
     // We clone the expand type during the compilation phase, but for register reuse, not for
     // copying data. To achieve the intended behavior, we have to share the same underlying values.
-    values: Rc<RefCell<Vec<RcExpr<T>>>>,
+    values: Rc<RefCell<Vec<OnceExpr<T>>>>,
 }
 
 impl<T: SquareType> StaticExpanded for SequenceExpand<T> {
@@ -142,9 +142,9 @@ impl<T: SquareType> IntoIterator for Sequence<T> {
 }
 
 impl<T: SquareType> IntoIterator for SequenceExpand<T> {
-    type Item = RcExpr<T>;
+    type Item = OnceExpr<T>;
 
-    type IntoIter = <Vec<RcExpr<T>> as IntoIterator>::IntoIter;
+    type IntoIter = <Vec<OnceExpr<T>> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         self.values.take().into_iter()
@@ -154,7 +154,7 @@ impl<T: SquareType> IntoIterator for SequenceExpand<T> {
 impl<T: SquareType> SequenceExpand<T> {
     /// Expand method of [push](Sequence::push).
     pub fn push(&self, value: impl Expr<Output = T> + 'static) {
-        self.values.deref().borrow_mut().push(RcExpr::new(value));
+        self.values.deref().borrow_mut().push(OnceExpr::new(value));
     }
 
     /// Expand method of [index](Sequence::index).

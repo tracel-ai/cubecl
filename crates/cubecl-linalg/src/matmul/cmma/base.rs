@@ -1,7 +1,7 @@
 use super::block_loop::block_loop;
 use super::config::CmmaConfig;
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, new_ir::DynamicExpr, Runtime};
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -27,26 +27,26 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     );
 }
 
-#[derive(Expand, Copy, Clone)]
+#[derive(Expand, Runtime, Copy, Clone)]
 pub(crate) struct Dimensions {
     pub m: u32,
     pub k: u32,
     pub n: u32,
 }
 
-#[derive(Expand, Copy, Clone)]
+#[derive(Expand, Runtime, Copy, Clone)]
 pub(crate) struct SharedMemories<FC: Float> {
     pub lhs: SharedMemory<FC>,
     pub rhs: SharedMemory<FC>,
 }
 
-#[derive(Expand, Copy, Clone)]
+#[derive(Expand, Runtime, Copy, Clone)]
 pub(crate) struct Accumulators<F: Float> {
     pub first: cmma::Matrix<F>,
     pub second: cmma::Matrix<F>,
 }
 
-#[derive(Expand, Copy, Clone)]
+#[derive(Expand, Runtime, Copy, Clone)]
 /// Not divided by vectorization factor
 ///
 /// Note: batch offsets take stride into account, but not the others
@@ -121,7 +121,13 @@ fn make_shared_memories<FC: Float>(#[comptime] config: CmmaConfig) -> SharedMemo
     let lhs = SharedMemory::<FC>::new(block_size_k * block_size_m);
     let rhs = SharedMemory::<FC>::new(block_size_k * block_size_n);
 
-    SharedMemories { lhs, rhs }
+    // This is a workaround, only necessary for expressions that seem "static" without type info but
+    // are actually runtime expressions. E.g. `SharedMemory::new`, which actually executes at
+    // runtime but has no runtime params.
+    SharedMemoriesRuntime {
+        lhs: DynamicExpr::new(lhs),
+        rhs: DynamicExpr::new(rhs),
+    }
 }
 
 #[cube]
@@ -145,7 +151,7 @@ pub(crate) fn make_accumulators<F: Float>() -> Accumulators<F> {
     cmma::fill::<F>(&acc0, F::new(0.0));
     cmma::fill::<F>(&acc1, F::new(0.0));
 
-    Accumulators {
+    Accumulators::<F> {
         first: acc0,
         second: acc1,
     }

@@ -1,14 +1,13 @@
-use proc_macro2::Span;
 use quote::format_ident;
 use std::cell::LazyCell;
-use syn::{Ident, Path, Token};
+use syn::{Ident, Path};
 
 #[allow(clippy::declare_interior_mutable_const)]
 const CORE_PATH: LazyCell<Path> = LazyCell::new(|| {
-    let span = Span::call_site();
-    let mut path = Path::from(format_ident!("cubecl"));
+    //let span = Span::call_site();
+    Path::from(format_ident!("cubecl"))
     //path.leading_colon = Some(Token![::](span));
-    path
+    //path
 });
 #[allow(clippy::declare_interior_mutable_const)]
 const IR_PATH: LazyCell<Path> = LazyCell::new(|| {

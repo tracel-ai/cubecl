@@ -1,5 +1,5 @@
 mod clamp;
-mod fma;
+mod fused_mul_add;
 
 pub use clamp::*;
-pub use fma::*;
+pub use fused_mul_add::*;

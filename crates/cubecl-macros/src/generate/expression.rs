@@ -1,6 +1,6 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{spanned::Spanned, Ident, Path, PathArguments, PathSegment, Type};
+use syn::{spanned::Spanned, Ident, PathArguments, Type};
 
 use crate::{expression::Expression, ir_type, prefix_ir};
 
@@ -89,8 +89,27 @@ impl ToTokens for Expression {
                     }
                 }
             }
-            Expression::FunctionCall { func, span, args } => {
-                let associated_type = fn_associated_type(func);
+            Expression::FunctionCall {
+                func,
+                span,
+                args,
+                associated_type,
+            } => {
+                let args: Vec<TokenStream> = if self.is_const() {
+                    args.iter().map(|arg| arg.to_token_stream()).collect()
+                } else {
+                    let once_expr = ir_type("OnceExpr");
+                    args.iter()
+                        .map(|arg| {
+                            if arg.is_const() {
+                                arg.to_token_stream()
+                            } else {
+                                quote![#once_expr::new(#arg)]
+                            }
+                        })
+                        .collect()
+                };
+
                 // We pass in the `Variable`s and `Literal`s into the expansion so they can be rebound
                 // in the function root scope
                 if let Some((ty_path, name)) = associated_type {
@@ -285,6 +304,28 @@ impl ToTokens for Expression {
                     quote![#inner]
                 }
             }
+            Expression::StructInit { path, fields } => {
+                let runtime = ir_type("Runtime");
+                let dyn_expr = ir_type("DynamicExpr");
+                let fields = fields
+                    .iter()
+                    .map(|(member, value)| quote![#member: #dyn_expr::new(#value)]);
+                let mut path = path.clone();
+                let type_name = path.segments.last_mut().unwrap();
+                let generics = std::mem::replace(&mut type_name.arguments, PathArguments::None);
+                let mut type_generics = generics.clone();
+                if let PathArguments::AngleBracketed(path) = &mut type_generics {
+                    path.colon2_token.take();
+                };
+
+                quote! {
+                    {
+                        type __RuntimeTy #type_generics = <#path #generics as #runtime>::Runtime;
+                        __RuntimeTy #generics { #(#fields),* }
+                    }
+                }
+            }
+            Expression::Closure { tokens } => tokens.clone(),
         };
 
         tokens.extend(out);
@@ -307,32 +348,6 @@ pub fn generate_var(
     let vectorization = vectorization.unwrap_or(quote![None]);
     quote_spanned! {span=>
         #var #ty ::new(#name, #vectorization)
-    }
-}
-
-fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
-    if !matches!(path, Expression::Path { .. }) {
-        panic!("path: {path:?}");
-    }
-    match path {
-        Expression::Path { path, .. } => {
-            let is_assoc = path
-                .segments
-                .iter()
-                .nth_back(1)
-                .and_then(|it| it.ident.to_string().chars().next())
-                .map(|ch| ch.is_uppercase())
-                .unwrap_or(false);
-            if is_assoc {
-                let mut path = path.clone();
-                let name = path.segments.pop().unwrap().into_value();
-                path.segments.pop_punct();
-                Some((path, name))
-            } else {
-                None
-            }
-        }
-        _ => None,
     }
 }
 

@@ -63,7 +63,7 @@ impl<F: Float> BlockWriter<F> for HorizontalCheckBlockIO {
 
             let write_position = batch_offset + write_row * dims.n + col_with_n_iter;
 
-            let mut value = vectorize_like(0, out);
+            let mut value = vectorize_like(F::new(0.0), out);
 
             #[unroll]
             for i in 0..4 {

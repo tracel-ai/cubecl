@@ -2,10 +2,11 @@ use std::cmp::max;
 
 use cubecl_core::{
     client::ComputeClient,
-    frontend::{Float, TensorArg, TensorHandleRef, F16},
+    frontend::{Float, TensorArg, TensorHandleRef},
     ir::{Elem, FloatKind},
     Compiler, Feature, Runtime,
 };
+use half::f16;
 
 use crate::{
     matmul::cmma::{
@@ -158,7 +159,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let launch_config = CmmaLaunchConfig::default();
 
     unsafe {
-        cmma_kernel::launch_unchecked::<F, F16, R>(
+        cmma_kernel::launch_unchecked::<F, f16, R>(
             client,
             cube_count,
             cube_dim,

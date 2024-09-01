@@ -1,11 +1,11 @@
 use crate::{
     cmma::CmmaExpression,
     compute::GlobalType,
-    ir::{self, ConstantScalarValue, Elem},
-    prelude::{AtomicExpr, SharedMemoryExpr},
+    ir::{self, ConstantScalarValue, Elem, Synchronization},
+    prelude::{AtomicExpr, ExpandElement, SharedMemoryExpr},
 };
 use derive_more::derive::From;
-use std::{marker::PhantomData, num::NonZero, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, marker::PhantomData, num::NonZero, rc::Rc};
 
 use super::{
     largest_common_vectorization, Operator, SquareType, Statement, SubcubeExpression,
@@ -49,6 +49,9 @@ pub enum Expression {
         name: String,
         vectorization: Vectorization,
         ty: Elem,
+    },
+    RuntimeStruct {
+        fields: HashMap<&'static str, Expression>,
     },
     Literal {
         value: ConstantScalarValue,
@@ -122,6 +125,7 @@ pub enum Expression {
         kind: ir::Variable,
         ty: Elem,
     },
+    Once(Rc<OnceExpression>),
     /// A range used in for loops. Currently doesn't exist at runtime, so can be ignored in codegen.
     /// This only exists to pass the range down to the for loop it applies to
     __Range(Range),
@@ -132,6 +136,7 @@ pub enum Expression {
         ty: crate::ir::Elem,
         vectorization: Option<std::num::NonZero<u8>>,
     },
+    Sync(Synchronization),
 }
 
 #[derive(Clone, Debug, PartialEq, new)]
@@ -188,6 +193,9 @@ impl Expression {
             Expression::SharedMemory(expr) => expr.ir_type(),
             Expression::Fma { ty, .. } => *ty,
             Expression::Clamp { ty, .. } => *ty,
+            Expression::RuntimeStruct { .. } => Elem::Unit,
+            Expression::Sync(_) => Elem::Unit,
+            Expression::Once(once) => once.ty,
         }
     }
 
@@ -224,6 +232,9 @@ impl Expression {
                 vectorization: vectorisation,
                 ..
             } => *vectorisation,
+            Expression::RuntimeStruct { .. } => NonZero::new(1),
+            Expression::Sync(_) => None,
+            Expression::Once(once) => once.vectorization,
         }
     }
 
@@ -252,6 +263,38 @@ impl Expression {
         match self {
             Expression::Variable(var) => Some(var),
             _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OnceExpression {
+    expr: RefCell<Option<Expression>>,
+    expanded: RefCell<Option<ExpandElement>>,
+    ty: Elem,
+    vectorization: Vectorization,
+}
+
+impl OnceExpression {
+    pub fn new(expr: Expression) -> Self {
+        OnceExpression {
+            ty: expr.ir_type(),
+            vectorization: expr.vectorization(),
+            expr: RefCell::new(Some(expr)),
+            expanded: RefCell::new(None),
+        }
+    }
+
+    pub fn get_or_expand_with(
+        &self,
+        init: impl FnOnce(Expression) -> ExpandElement,
+    ) -> ExpandElement {
+        if let Some(expr) = self.expr.borrow_mut().take() {
+            let expanded = init(expr);
+            *self.expanded.borrow_mut() = Some(expanded.clone());
+            expanded
+        } else {
+            self.expanded.borrow().clone().unwrap()
         }
     }
 }
@@ -396,11 +439,15 @@ impl<T: SquareType, TBase: Expr> Expr for FieldAccess<T, TBase> {
     type Output = T;
 
     fn expression_untyped(&self) -> Expression {
-        Expression::FieldAccess {
-            base: Box::new(self.base.expression_untyped()),
-            name: self.name.to_string(),
-            ty: <T as SquareType>::ir_type(),
-            vectorization: self.vectorization(),
+        let inner = self.base.expression_untyped();
+        match inner {
+            Expression::RuntimeStruct { fields } => fields[self.name].clone(),
+            inner => Expression::FieldAccess {
+                base: Box::new(inner),
+                name: self.name.to_string(),
+                ty: <T as SquareType>::ir_type(),
+                vectorization: self.vectorization(),
+            },
         }
     }
 
@@ -541,28 +588,38 @@ impl<T> Expr for DynamicExpr<T> {
     }
 }
 
-pub struct RcExpr<T>(pub Rc<dyn Expr<Output = T>>);
+pub struct OnceExpr<T> {
+    inner: Rc<OnceExpression>,
+    _type: PhantomData<T>,
+}
 
-impl<T> RcExpr<T> {
+impl<T> OnceExpr<T> {
     pub fn new(value: impl Expr<Output = T> + 'static) -> Self {
-        Self(Rc::new(value))
+        let value = OnceExpression::new(value.expression_untyped());
+        Self {
+            inner: Rc::new(value),
+            _type: PhantomData,
+        }
     }
 }
 
-impl<T> Expr for RcExpr<T> {
+impl<T> Expr for OnceExpr<T> {
     type Output = T;
 
     fn expression_untyped(&self) -> Expression {
-        self.0.expression_untyped()
+        Expression::Once(self.inner.clone())
     }
 
     fn vectorization(&self) -> Option<NonZero<u8>> {
-        self.0.vectorization()
+        self.inner.vectorization
     }
 }
 
-impl<T> Clone for RcExpr<T> {
+impl<T> Clone for OnceExpr<T> {
     fn clone(&self) -> Self {
-        Self(self.0.clone())
+        Self {
+            inner: self.inner.clone(),
+            _type: PhantomData,
+        }
     }
 }

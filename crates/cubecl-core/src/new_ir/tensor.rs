@@ -210,19 +210,21 @@ where
 }
 
 #[derive(new)]
-pub struct SliceExpr<TNum: Integer, Tensor: Expr>
+pub struct SliceExpr<Start: Expr, Tensor: Expr>
 where
     Tensor::Output: Strided,
+    Start::Output: Integer,
 {
     pub tensor: Tensor,
-    pub ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<TNum>>>>,
+    pub ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<Start>>>>,
 }
 
-impl<TNum: Integer, Tensor: Expr> Expr for SliceExpr<TNum, Tensor>
+impl<Start: Expr, Tensor: Expr> Expr for SliceExpr<Start, Tensor>
 where
     Tensor::Output: Strided + Container,
+    Start::Output: Integer,
 {
-    type Output = Slice<Tensor, TNum>;
+    type Output = Slice<Tensor, Start::Output>;
 
     fn expression_untyped(&self) -> Expression {
         let ranges = self
@@ -258,7 +260,10 @@ where
     pub inclusive: bool,
 }
 
-impl<TNum: Integer> Expr for SliceRangeExpr<TNum> {
+impl<Start: Expr> Expr for SliceRangeExpr<Start>
+where
+    Start::Output: Integer,
+{
     type Output = Self;
 
     fn expression_untyped(&self) -> Expression {

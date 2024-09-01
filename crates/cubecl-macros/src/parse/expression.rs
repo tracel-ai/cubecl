@@ -1,7 +1,7 @@
 use cubecl_common::operator::Operator;
 use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, RangeLimits, Type};
+use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment, RangeLimits, Type};
 
 use crate::{
     expression::Expression,
@@ -100,7 +100,13 @@ impl Expression {
                     .into_iter()
                     .map(|arg| Expression::from_expr(arg, context))
                     .collect::<Result<Vec<_>, _>>()?;
-                Expression::FunctionCall { func, args, span }
+                let associated_type = fn_associated_type(&func);
+                Expression::FunctionCall {
+                    func,
+                    args,
+                    span,
+                    associated_type,
+                }
             }
             Expr::MethodCall(method) => {
                 let span = method.span();
@@ -111,8 +117,9 @@ impl Expression {
                     .map(|arg| Expression::from_expr(arg.clone(), context))
                     .collect::<Result<Vec<_>, _>>()?;
                 if receiver.is_const() && args.iter().all(|arg| arg.is_const()) {
+                    let method = &method.method;
                     Expression::Verbatim {
-                        tokens: quote![#method],
+                        tokens: quote![#receiver.#method(#(#args),*)],
                     }
                 } else {
                     Expression::MethodCall {
@@ -291,19 +298,25 @@ impl Expression {
             Expr::Macro(mac) => Expression::Verbatim {
                 tokens: quote![#mac],
             },
-            Expr::Struct(strct) => {
-                if !strct.fields.iter().all(|field| {
-                    Expression::from_expr(field.expr.clone(), context)
-                        .map(|field| field.is_const())
-                        .unwrap_or(false)
-                }) {
-                    Err(syn::Error::new_spanned(
-                        strct,
-                        "Struct initializers aren't supported at runtime",
-                    ))?
-                } else {
+            Expr::Struct(init) => {
+                let fields = init
+                    .fields
+                    .clone()
+                    .into_iter()
+                    .map(|field| {
+                        let member = field.member;
+                        let value = Expression::from_expr(field.expr, context)?;
+                        syn::Result::Ok((member, value))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if fields.iter().all(|(_, value)| value.is_const()) {
                     Expression::Verbatim {
-                        tokens: quote![#strct],
+                        tokens: quote![#init],
+                    }
+                } else {
+                    Expression::StructInit {
+                        path: init.path,
+                        fields,
                     }
                 }
             }
@@ -318,9 +331,8 @@ impl Expression {
             Expr::Closure(mut expr) => {
                 let body = Expression::from_expr(*expr.body, context)?;
                 expr.body = Box::new(Expr::Verbatim(body.to_token_stream()));
-                Expression::Verbatim {
-                    tokens: expr.to_token_stream(),
-                }
+                let tokens = expr.to_token_stream();
+                Expression::Closure { tokens }
             }
             Expr::Try(expr) => {
                 let span = expr.span();
@@ -415,5 +427,31 @@ fn is_slice(index: &Expression) -> bool {
         Expression::Array { elements, .. } => elements.iter().any(is_slice),
         Expression::Tuple { elements, .. } => elements.iter().any(is_slice),
         _ => false,
+    }
+}
+
+fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
+    if !matches!(path, Expression::Path { .. }) {
+        panic!("path: {path:?}");
+    }
+    match path {
+        Expression::Path { path, .. } => {
+            let is_assoc = path
+                .segments
+                .iter()
+                .nth_back(1)
+                .and_then(|it| it.ident.to_string().chars().next())
+                .map(|ch| ch.is_uppercase())
+                .unwrap_or(false);
+            if is_assoc {
+                let mut path = path.clone();
+                let name = path.segments.pop().unwrap().into_value();
+                path.segments.pop_punct();
+                Some((path, name))
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }

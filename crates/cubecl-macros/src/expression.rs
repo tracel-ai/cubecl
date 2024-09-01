@@ -1,7 +1,7 @@
 use cubecl_common::operator::Operator;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{Ident, Lit, Member, Path, Type};
+use syn::{Ident, Lit, Member, Path, PathSegment, Type};
 
 use crate::statement::Statement;
 
@@ -57,6 +57,7 @@ pub enum Expression {
     FunctionCall {
         func: Box<Expression>,
         args: Vec<Expression>,
+        associated_type: Option<(Path, PathSegment)>,
         span: Span,
     },
     MethodCall {
@@ -143,6 +144,13 @@ pub enum Expression {
     Reference {
         inner: Box<Expression>,
     },
+    StructInit {
+        path: Path,
+        fields: Vec<(Member, Expression)>,
+    },
+    Closure {
+        tokens: proc_macro2::TokenStream,
+    },
 }
 
 impl Expression {
@@ -176,19 +184,26 @@ impl Expression {
             Expression::ArrayInit { init, .. } => init.ty(),
             Expression::VerbatimTerminated { .. } => None,
             Expression::Reference { inner } => inner.ty(),
+            Expression::StructInit { .. } => None,
+            Expression::Closure { .. } => None,
         }
     }
 
     pub fn is_const(&self) -> bool {
         match self {
             Expression::Literal { .. } => true,
+            Expression::Path { .. } => true,
             Expression::Verbatim { .. } => true,
             Expression::VerbatimTerminated { .. } => true,
             Expression::ConstVariable { .. } => true,
             Expression::FieldAccess { base, .. } => base.is_const(),
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
-            Expression::FunctionCall { args, .. } => args.iter().all(|it| it.is_const()),
+            Expression::FunctionCall {
+                args,
+                associated_type,
+                ..
+            } if associated_type.is_some() => args.iter().all(|it| it.is_const()),
             _ => false,
         }
     }

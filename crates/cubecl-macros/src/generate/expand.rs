@@ -1,6 +1,6 @@
 use crate::{
     ir_type,
-    parse::expand::{Expand, ExpandField, StaticExpand},
+    parse::expand::{Expand, ExpandField, Runtime, RuntimeField, StaticExpand},
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
@@ -23,7 +23,10 @@ impl ToTokens for Expand {
         let fields = &self.fields;
         let span = self.ident.span();
         let name = &self.ident;
-        let expand_name = self.name.as_ref().unwrap();
+        let expand_name = self
+            .name
+            .clone()
+            .unwrap_or_else(|| format_ident!("{name}Expand"));
         let vis = &self.vis;
         let (base_generics, base_generic_names, where_clause) = self.generics.split_for_impl();
 
@@ -32,15 +35,29 @@ impl ToTokens for Expand {
         expand_generics.params.push(inner_param);
         let (expand_generics, expand_generic_names, _) = expand_generics.split_for_impl();
 
+        let fields_untyped = fields
+            .iter()
+            .map(|field| {
+                let name = field.ident.as_ref().unwrap();
+                let name_str = name.to_string();
+                quote![__fields.insert(#name_str, self.#name.expression_untyped())]
+            })
+            .collect::<Vec<_>>();
+
         let expr_body = quote! {
-            type Output = Self;
+            type Output = #name #base_generic_names;
 
             fn expression_untyped(&self) -> #expression {
-                panic!("Can't expand struct directly");
+                let mut __fields = ::std::collections::HashMap::new();
+                #(#fields_untyped;)*
+
+                #expression::RuntimeStruct {
+                    fields: __fields
+                }
             }
 
             fn vectorization(&self) -> Option<::core::num::NonZero<u8>> {
-                None
+                core::num::NonZero::new(1)
             }
         };
 
@@ -73,12 +90,12 @@ impl ToTokens for Expand {
             impl #base_generics #expr for #name #base_generic_names #where_clause {
                 #expr_body
             }
-            impl #base_generics #expr for &#name #base_generic_names #where_clause {
-                #expr_body
-            }
-            impl #base_generics #expr for &mut #name #base_generic_names #where_clause {
-                #expr_body
-            }
+            // impl #base_generics #expr for &#name #base_generic_names #where_clause {
+            //     #expr_body
+            // }
+            // impl #base_generics #expr for &mut #name #base_generic_names #where_clause {
+            //     #expr_body
+            // }
             impl #base_generics #square_ty for #name #base_generic_names #where_clause {
                 fn ir_type() -> #elem_ty {
                     #elem
@@ -86,6 +103,84 @@ impl ToTokens for Expand {
             }
         };
         tokens.extend(out);
+    }
+}
+
+impl ToTokens for Runtime {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let expr = ir_type("Expr");
+        let expression = ir_type("Expression");
+        let runtime = ir_type("Runtime");
+        let square_ty = ir_type("SquareType");
+        let elem_ty = ir_type("Elem");
+
+        let vis = &self.vis;
+        let base_name = &self.ident;
+        let name = &self
+            .name
+            .clone()
+            .unwrap_or_else(|| format_ident!("{}Runtime", self.ident));
+        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
+        let fields = &self.fields;
+        let elem = self
+            .ir_type
+            .clone()
+            .unwrap_or_else(|| parse_quote![#elem_ty::Unit]);
+        let fields_untyped = fields
+            .iter()
+            .map(|field| {
+                let name = field.ident.as_ref().unwrap();
+                let name_str = name.to_string();
+                quote![__fields.insert(#name_str, self.#name.expression_untyped())]
+            })
+            .collect::<Vec<_>>();
+
+        let out = quote! {
+            #vis struct #name #generics #where_clause {
+                #(#fields),*
+            }
+
+            impl #generics #runtime for #base_name #generic_names #where_clause {
+                type Runtime = #name #generic_names;
+            }
+
+            impl #generics #square_ty for #name #generic_names #where_clause {
+                fn ir_type() -> #elem_ty {
+                    #elem
+                }
+            }
+
+            impl #generics #expr for #name #generic_names #where_clause {
+                type Output = #base_name #generic_names;
+
+                fn expression_untyped(&self) -> #expression {
+                    let mut __fields = ::std::collections::HashMap::new();
+                    #(#fields_untyped;)*
+
+                    #expression::RuntimeStruct {
+                        fields: __fields
+                    }
+                }
+
+                fn vectorization(&self) -> Option<::core::num::NonZero<u8>> {
+                    core::num::NonZero::new(1)
+                }
+            }
+        };
+        tokens.extend(out);
+    }
+}
+
+impl ToTokens for RuntimeField {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let expr = ir_type("DynamicExpr");
+
+        let name = self.ident.as_ref().unwrap();
+        let ty = &self.ty;
+        let vis = &self.vis;
+        tokens.extend(quote! {
+            #vis #name: #expr<#ty>
+        })
     }
 }
 
@@ -109,12 +204,13 @@ impl ToTokens for StaticExpand {
         let static_expand = ir_type("StaticExpand");
         let static_expanded = ir_type("StaticExpanded");
 
+        let vis = &self.vis;
         let unexpanded_name = &self.ident;
         let expand_name = self.name.as_ref().unwrap();
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
         let out = quote! {
-            pub struct #expand_name #generics(::core::marker::PhantomData<#unexpanded_name #generic_names>) #where_clause;
+            #vis struct #expand_name #generics(::core::marker::PhantomData<#unexpanded_name #generic_names>) #where_clause;
 
             impl #generics #static_expand for #unexpanded_name #generic_names #where_clause {
                 type Expanded = #expand_name #generic_names;

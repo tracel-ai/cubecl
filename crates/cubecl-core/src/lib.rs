@@ -31,6 +31,7 @@ pub use runtime::*;
 pub use cubecl_macros::cube;
 pub use cubecl_macros::expand_impl;
 pub use cubecl_macros::Expand;
+pub use cubecl_macros::Runtime;
 pub use cubecl_macros::StaticExpand;
 pub use cubecl_runtime::benchmark;
 

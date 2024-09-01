@@ -107,19 +107,19 @@ impl<T: SquareType, Dims> Tensor<T, Dims> {
 
     // Expanded version of len
     #[expanded]
-    pub fn len<Out: Integer>(self) -> impl Expr<Output = Out> {
+    pub fn len(self) -> impl Expr<Output = u32> {
         Length::new(self.0)
     }
 
     // Expanded version of len
     #[expanded]
     pub fn is_empty(self) -> impl Expr<Output = bool> {
-        EqExpr::new(self.len::<u32>(), 0)
+        EqExpr::new(self.len(), 0)
     }
 
     // Expanded version of rank.
     #[expanded]
-    pub fn rank<Out: Integer>(self) -> impl Expr<Output = Out> {
+    pub fn rank(self) -> impl Expr<Output = u32> {
         Rank::new(self.0)
     }
 }

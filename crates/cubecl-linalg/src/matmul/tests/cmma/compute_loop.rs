@@ -33,7 +33,7 @@ fn compute_loop_test<F: Float, FC: Float>(
         accumulate_array[i] = F::new(0.);
     }
 
-    let shared_memories = SharedMemories { lhs, rhs };
+    let shared_memories = SharedMemories::<FC> { lhs, rhs };
     let accumulators = make_accumulators::<F>();
 
     compute_loop(shared_memories, accumulators, config);

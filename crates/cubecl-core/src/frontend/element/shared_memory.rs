@@ -1,7 +1,7 @@
 use std::{
     marker::PhantomData,
     num::NonZero,
-    ops::{Index, IndexMut},
+    ops::{Index, IndexMut, Range, RangeFrom, RangeInclusive, RangeTo, RangeToInclusive},
 };
 
 use crate::{
@@ -119,13 +119,40 @@ impl<T: Primitive> SharedMemory<T> {
     }
 
     #[expanded]
-    pub fn slice<TNum: Integer>(
+    pub fn slice<Start: Expr>(
         self,
-        ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<TNum>>>>,
-    ) -> impl Expr<Output = Slice<__Inner, TNum>> {
+        ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<Start>>>>,
+    ) -> impl Expr<Output = Slice<__Inner, Start::Output>>
+    where
+        Start::Output: Integer,
+    {
         SliceExpr::new(self.0, ranges)
     }
 }
+
+macro_rules! slice_impl {
+    ($range:ident) => {
+        impl<T: SquareType, Idx: Integer> Index<$range<Idx>> for SharedMemory<T> {
+            type Output = Slice<Self, Idx>;
+
+            fn index(&self, _index: $range<Idx>) -> &Self::Output {
+                unexpanded!()
+            }
+        }
+
+        impl<T: SquareType, Idx: Integer> IndexMut<$range<Idx>> for SharedMemory<T> {
+            fn index_mut(&mut self, _index: $range<Idx>) -> &mut Self::Output {
+                unexpanded!()
+            }
+        }
+    };
+}
+
+slice_impl!(Range);
+slice_impl!(RangeFrom);
+slice_impl!(RangeInclusive);
+slice_impl!(RangeTo);
+slice_impl!(RangeToInclusive);
 
 impl<T: SquareType, I: Integer> Index<I> for SharedMemory<T> {
     type Output = T;

@@ -87,6 +87,10 @@ pub trait ExpandExpr<Inner: Expand>: Expr<Output = Inner> + Sized {
 impl<Expression: Expr> ExpandExpr<Expression::Output> for Expression where Expression::Output: Expand
 {}
 
+pub trait Runtime {
+    type Runtime;
+}
+
 impl SquareType for () {
     fn ir_type() -> Elem {
         Elem::Unit

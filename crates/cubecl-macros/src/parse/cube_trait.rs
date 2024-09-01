@@ -2,9 +2,8 @@ use darling::usage::{GenericsExt, Purpose, UsesLifetimes, UsesTypeParams};
 use proc_macro2::TokenStream;
 use quote::{format_ident, ToTokens};
 use syn::{
-    parse_quote, punctuated::Punctuated, visit_mut::VisitMut, Attribute, GenericArgument,
-    GenericParam, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Path, PathArguments, Token,
-    TraitItem, TypeParam, Visibility,
+    parse_quote, visit_mut::VisitMut, Attribute, Generics, Ident, ImplItem, ItemImpl, ItemTrait,
+    Path, Token, TraitItem, Visibility,
 };
 
 use crate::paths::ir_type;
@@ -26,15 +25,11 @@ pub struct CubeTrait {
 }
 
 pub struct CubeTraitImpl {
-    pub attrs: Vec<Attribute>,
     pub unsafety: Option<Token![unsafe]>,
-    pub struct_name: Path,
     pub struct_expand_name: Ident,
     pub struct_generics: Generics,
-    pub trait_name: Path,
     pub trait_expand_name: Path,
     pub generics: Generics,
-    pub generic_names: Generics,
     pub items: Vec<CubeTraitImplItem>,
 }
 
@@ -73,7 +68,6 @@ impl CubeTraitImplItem {
 impl CubeTrait {
     pub fn from_item_trait(item: ItemTrait, args: CubeTraitArgs) -> syn::Result<Self> {
         let static_expand = ir_type("StaticExpand");
-        let static_expanded = ir_type("StaticExpanded");
         let mut original_trait = item.clone();
         RemoveHelpers.visit_item_trait_mut(&mut original_trait);
 
@@ -92,10 +86,6 @@ impl CubeTrait {
 
         let mut generics = item.generics;
         StripDefault.visit_generics_mut(&mut generics);
-        /*         let where_generics = generics.make_where_clause();
-        where_generics.predicates.push(
-            parse_quote![<Self as #static_expanded>::Unexpanded: #name #original_generic_names],
-        ); */
 
         let items = item
             .items
@@ -105,11 +95,7 @@ impl CubeTrait {
 
         original_trait
             .supertraits
-            .push(parse_quote![#static_expand]);
-        let where_clause = original_trait.generics.make_where_clause();
-        where_clause.predicates.push(
-            parse_quote![<Self as #static_expand>::Expanded: #expand_name #original_generic_names],
-        );
+            .push(parse_quote![#static_expand<Expanded: #expand_name #original_generic_names>]);
 
         Ok(Self {
             attrs,
@@ -134,22 +120,12 @@ impl CubeTraitImpl {
             )
         });
         let trait_name = item_impl.trait_.unwrap().1;
-        let mut trait_expand_name = args.trait_expand_name.unwrap_or_else(|| {
+        let trait_expand_name = args.trait_expand_name.unwrap_or_else(|| {
             let mut path = trait_name.clone();
             let last = path.segments.last_mut().unwrap();
             last.ident = format_ident!("{}Expand", last.ident);
             path
         });
-        // let trait_args = &mut trait_expand_name.segments.last_mut().unwrap().arguments;
-        // match trait_args {
-        //     PathArguments::None => {
-        //         *trait_args = PathArguments::AngleBracketed(parse_quote![<Self>])
-        //     }
-        //     PathArguments::AngleBracketed(args) => {
-        //         args.args.push(GenericArgument::Type(parse_quote!([Self])))
-        //     }
-        //     _ => unreachable!(),
-        // }
 
         let mut attrs = item_impl.attrs;
         attrs.retain(|attr| !attr.path().is_ident("cube"));
@@ -184,15 +160,11 @@ impl CubeTraitImpl {
             .collect::<Result<_, _>>()?;
 
         Ok(Self {
-            attrs,
             unsafety,
-            struct_name,
             struct_expand_name,
             struct_generics,
-            trait_name,
             trait_expand_name,
             generics,
-            generic_names,
             items,
         })
     }

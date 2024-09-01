@@ -1,22 +1,16 @@
 use cubecl_core::prelude::*;
 
-impl Init for CmmaConfig {
-    fn init(self, _context: &mut CubeContext) -> Self {
-        self
-    }
-}
-
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Tiling 2D parameters
 pub struct CmmaConfig {
     /// Block size along dimension of lhs
-    pub block_size_m: UInt,
+    pub block_size_m: u32,
     /// Block size along common dimension
-    pub block_size_k: UInt,
+    pub block_size_k: u32,
     /// Block size along dimension of rhs
-    pub block_size_n: UInt,
+    pub block_size_n: u32,
     /// Tile size (dimension of one side). Should correspond to cmma supported tile size
-    pub tile_size: UInt,
+    pub tile_size: u32,
     /// Bounds must be checked on lhs dimension
     pub check_m_bounds: bool,
     /// Bounds must be checked on common dimension
