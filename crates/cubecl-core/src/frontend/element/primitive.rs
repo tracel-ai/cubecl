@@ -1,8 +1,9 @@
 use crate::{
-    compute::KernelLauncher,
+    compute::{KernelBuilder, KernelLauncher},
     ir::{ConstantScalarValue, Elem, FloatKind, IntKind},
     new_ir::{
-        Expand, Expanded, Expr, Expression, SquareType, StaticExpanded, UnaryOp, Vectorization,
+        Expand, Expanded, Expr, Expression, GlobalVariable, SquareType, StaticExpand,
+        StaticExpanded, UnaryOp, Vectorization,
     },
     prelude::{VecIndex, VecIndexMut},
     Runtime,
@@ -14,7 +15,17 @@ use num_traits::{NumAssign, NumCast, ToPrimitive};
 use super::{ArgSettings, LaunchArg, LaunchArgExpand};
 
 pub trait Numeric:
-    Primitive + NumCast + NumAssign + PartialOrd + PartialEq + Expand + VecIndex + VecIndexMut
+    Primitive
+    + NumCast
+    + NumAssign
+    + PartialOrd
+    + PartialEq
+    + Expand
+    + StaticExpand
+    + VecIndex
+    + VecIndexMut
+    + Send
+    + Sync
 {
     fn new<N: ToPrimitive>(n: N) -> Self {
         <Self as NumCast>::from(n).unwrap()
@@ -46,7 +57,7 @@ where
 
 impl<T: Expanded> FloatExpand for T where T::Unexpanded: Float {}
 
-pub trait Primitive: SquareType + 'static {
+pub trait Primitive: SquareType + Copy + 'static {
     fn value(&self) -> ConstantScalarValue;
 }
 
@@ -114,6 +125,9 @@ macro_rules! numeric_primitive {
             ) -> <Self as Expand>::Expanded<Inner> {
                 $expand_name(inner)
             }
+        }
+        impl StaticExpand for $primitive {
+            type Expanded = $expand_name<Self>;
         }
         impl<Inner: Expr<Output = $primitive>> Expanded for $expand_name<Inner> {
             type Unexpanded = $primitive;
@@ -204,6 +218,12 @@ impl<T: Numeric + ScalarArgSettings, R: Runtime> ArgSettings<R> for ScalarArg<T>
 impl<T: Numeric + ScalarArgSettings + LaunchArgExpand> LaunchArg for T {
     type RuntimeArg<'a, R: Runtime> = ScalarArg<T>;
 }
+impl<T: Numeric + ScalarArgSettings> LaunchArgExpand for T {
+    fn expand(builder: &mut KernelBuilder, vectorization: u8) -> GlobalVariable<Self> {
+        assert_eq!(vectorization, 1, "Attempted to vectorize a scalar");
+        builder.scalar(T::ir_type())
+    }
+}
 
 impl ScalarArgSettings for f16 {
     fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
@@ -238,5 +258,11 @@ impl ScalarArgSettings for i32 {
 impl ScalarArgSettings for i64 {
     fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
         settings.register_i64(*self);
+    }
+}
+
+impl ScalarArgSettings for u32 {
+    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
+        settings.register_u32(*self);
     }
 }

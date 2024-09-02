@@ -49,10 +49,10 @@ impl Default for CmmaLaunchConfig {
 impl CmmaConfig {
     pub(crate) fn new(m: usize, k: usize, n: usize, launch_config: CmmaLaunchConfig) -> Self {
         CmmaConfig {
-            block_size_m: launch_config.block_size_m.into(),
-            block_size_k: launch_config.block_size_k.into(),
-            block_size_n: launch_config.block_size_n.into(),
-            tile_size: launch_config.tile_size.into(),
+            block_size_m: launch_config.block_size_m as u32,
+            block_size_k: launch_config.block_size_k as u32,
+            block_size_n: launch_config.block_size_n as u32,
+            tile_size: launch_config.tile_size as u32,
             unroll: launch_config.unroll,
             check_m_bounds: m % launch_config.block_size_m != 0,
             check_k_bounds: k % launch_config.block_size_k != 0,

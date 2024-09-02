@@ -1,4 +1,4 @@
-use darling::{ast::Data, FromDeriveInput, FromField};
+use darling::{ast::Data, util::Flag, FromDeriveInput, FromField};
 use quote::format_ident;
 use syn::{visit_mut::VisitMut, Expr, Generics, Ident, Type, Visibility};
 
@@ -30,7 +30,7 @@ pub struct StaticExpand {
 }
 
 #[derive(FromDeriveInput)]
-#[darling(supports(struct_named), attributes(expand), and_then = unwrap_runtime)]
+#[darling(supports(struct_named), attributes(runtime), and_then = unwrap_runtime)]
 pub struct Runtime {
     pub vis: Visibility,
     pub generics: Generics,
@@ -87,6 +87,7 @@ pub struct ExpandField {
     pub ty: Type,
     #[darling(default)]
     pub skip: bool,
+    pub comptime: Flag,
 }
 
 #[derive(FromField, Clone)]
@@ -95,6 +96,7 @@ pub struct RuntimeField {
     pub vis: Visibility,
     pub ident: Option<Ident>,
     pub ty: Type,
+    pub comptime: Flag,
 }
 
 fn is_phantom_data(field: &Type) -> bool {

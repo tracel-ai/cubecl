@@ -1,8 +1,8 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, Runtime};
 use std::marker::PhantomData;
 
-use crate::matmul::tiling2d::load_shared_memory::{LoadInfo, Loader};
+use crate::matmul::tiling2d::load_shared_memory::{LoadInfo, Loader, LoaderExpand};
 
 use super::{
     block_io::base::BlockLoader,
@@ -11,33 +11,34 @@ use super::{
 
 // Transposed tensor's vectorization must be 1
 // Plain tensor's vectorization must equal tile size
+#[derive(StaticExpand)]
 pub(crate) struct TileLoader<F: Float> {
     _f: PhantomData<F>,
 }
 
-#[derive(CubeType)]
+#[derive(Expand)]
 pub(crate) struct LoadIndices {
-    pub offset: UInt,
-    pub gm_stride: UInt,
-    pub sm_stride: UInt,
+    pub offset: u32,
+    pub gm_stride: u32,
+    pub sm_stride: u32,
 }
 
-#[derive(CubeType, Copy, Clone)]
+#[derive(Expand, Runtime, Copy, Clone)]
 pub(crate) struct CheckBounds {
-    pub dim_vertical: UInt,
-    pub dim_horizontal: UInt,
-    pub skip_row: UInt,
-    pub skip_col: UInt,
+    pub dim_vertical: u32,
+    pub dim_horizontal: u32,
+    pub skip_row: u32,
+    pub skip_col: u32,
 }
 
-#[derive(CubeType, Copy, Clone)]
+#[derive(Expand, Copy, Clone)]
 pub(crate) struct ReadTileInfo {
-    pub read_row: UInt,
-    pub read_col: UInt,
-    pub gm_position_base: UInt,
-    pub sm_position_base: UInt,
-    pub gm_stride: UInt,
-    pub sm_stride: UInt,
+    pub read_row: u32,
+    pub read_col: u32,
+    pub gm_position_base: u32,
+    pub sm_position_base: u32,
+    pub gm_stride: u32,
+    pub sm_stride: u32,
 }
 
 #[cube]
@@ -51,7 +52,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
         let load_indices = LoadIndices {
             offset: coordinates.skip_row + load_info.k * gm_stride + load_info.batch_offset,
             gm_stride,
-            sm_stride: Comptime::runtime(Comptime::map(config, |c| c.block_size_n)),
+            sm_stride: config.block_size_n,
         };
         let check_bounds = CheckBounds {
             dim_vertical: dims.k,
@@ -72,7 +73,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
         let load_indices = LoadIndices {
             offset: coordinates.skip_row * gm_stride + load_info.k + load_info.batch_offset,
             gm_stride,
-            sm_stride: Comptime::runtime(Comptime::map(config, |c| c.block_size_m)),
+            sm_stride: config.block_size_m,
         };
         let check_bounds = CheckBounds {
             dim_vertical: dims.m,
@@ -93,7 +94,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
         let load_indices = LoadIndices {
             offset: coordinates.skip_col + load_info.k * gm_stride + load_info.batch_offset,
             gm_stride,
-            sm_stride: Comptime::runtime(Comptime::map(config, |c| c.block_size_n)),
+            sm_stride: config.block_size_n,
         };
         let check_bounds = CheckBounds {
             dim_vertical: dims.k,

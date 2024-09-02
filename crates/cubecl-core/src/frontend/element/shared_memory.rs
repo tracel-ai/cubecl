@@ -8,8 +8,8 @@ use crate::{
     frontend::CubeContext,
     ir::Elem,
     new_ir::{
-        flatten::item, Container, Expr, Expression, IndexExpr, SliceExpr, SliceRangeExpr,
-        SquareType, Strided, Vectorization,
+        flatten::item, Container, Expand, Expanded, Expr, Expression, IndexExpr, SliceExpr,
+        SliceRangeExpr, SquareType, StaticExpand, StaticExpanded, Strided, Vectorization,
     },
     prelude::*,
     unexpanded,
@@ -17,9 +17,45 @@ use crate::{
 
 use super::{Dim1, ExpandElement, Integer, Primitive, Slice};
 
-#[derive(Clone, Copy, Expand)]
+#[derive(Clone, Copy)]
 pub struct SharedMemory<T: SquareType> {
-    _val: PhantomData<T>,
+    size: u32,
+    vectorization: Vectorization,
+    _type: PhantomData<T>,
+}
+
+#[derive(Clone, Copy)]
+pub struct SharedMemoryExpand<T: SquareType, Inner: Expr<Output = SharedMemory<T>>>(Inner);
+
+impl<T: SquareType> StaticExpand for SharedMemory<T> {
+    type Expanded = Self;
+}
+impl<T: SquareType> StaticExpanded for SharedMemory<T> {
+    type Unexpanded = Self;
+}
+
+impl<T: SquareType> Expand for SharedMemory<T> {
+    type Expanded<Inner: Expr<Output = Self>> = SharedMemoryExpand<T, Inner>;
+
+    fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
+        SharedMemoryExpand(inner)
+    }
+}
+
+impl<T: SquareType, Inner: Expr<Output = SharedMemory<T>>> Expanded
+    for SharedMemoryExpand<T, Inner>
+{
+    type Unexpanded = SharedMemory<T>;
+
+    fn inner(self) -> impl Expr<Output = Self::Unexpanded> {
+        self.0
+    }
+}
+
+impl<T: SquareType> SquareType for SharedMemory<T> {
+    fn ir_type() -> Elem {
+        T::ir_type()
+    }
 }
 
 impl<T: SquareType> Strided for SharedMemory<T> {
@@ -66,21 +102,21 @@ impl SharedMemoryExpr {
     }
 }
 
-#[derive(new)]
-pub struct SharedMemoryInit<T: SquareType> {
-    pub size: u32,
-    pub vectorization: Vectorization,
-    pub _type: PhantomData<T>,
-}
+// #[derive(new)]
+// pub struct SharedMemoryInit<T: SquareType> {
+//     pub size: u32,
+//     pub vectorization: Vectorization,
+//     pub _type: PhantomData<T>,
+// }
 
-impl<T: SquareType> Expr for SharedMemoryInit<T> {
+impl<T: SquareType> Expr for SharedMemory<T> {
     type Output = SharedMemory<T>;
 
     fn expression_untyped(&self) -> Expression {
         SharedMemoryExpr::Init {
             size: self.size,
             ty: T::ir_type(),
-            vectorization: self.vectorization(),
+            vectorization: self.vectorization,
         }
         .into()
     }
@@ -90,24 +126,46 @@ impl<T: SquareType> Expr for SharedMemoryInit<T> {
     }
 }
 
+impl<T: SquareType> Expr for &SharedMemory<T> {
+    type Output = SharedMemory<T>;
+
+    fn expression_untyped(&self) -> Expression {
+        SharedMemory::<T>::expression_untyped(self)
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        self.vectorization
+    }
+}
+
+impl<T: SquareType> Expr for &mut SharedMemory<T> {
+    type Output = SharedMemory<T>;
+
+    fn expression_untyped(&self) -> Expression {
+        SharedMemory::<T>::expression_untyped(self)
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        self.vectorization
+    }
+}
+
 #[expand_impl]
 impl<T: Primitive> SharedMemory<T> {
-    pub fn new(_size: u32) -> Self {
-        SharedMemory { _val: PhantomData }
+    pub fn new(size: u32) -> Self {
+        SharedMemory {
+            size,
+            vectorization: None,
+            _type: PhantomData,
+        }
     }
 
-    pub fn vectorized(_size: u32, _vectorization_factor: u8) -> Self {
-        SharedMemory { _val: PhantomData }
-    }
-
-    #[expanded]
-    pub fn vectorized(size: u32, vectorization_factor: u8) -> impl Expr<Output = SharedMemory<T>> {
-        SharedMemoryInit::new(size, NonZero::new(vectorization_factor))
-    }
-
-    #[expanded]
-    pub fn new(size: u32) -> impl Expr<Output = SharedMemory<T>> {
-        SharedMemoryInit::new(size, None)
+    pub fn vectorized(size: u32, vectorization_factor: u32) -> Self {
+        SharedMemory {
+            size,
+            vectorization: NonZero::new(vectorization_factor as u8),
+            _type: PhantomData,
+        }
     }
 
     #[expanded]

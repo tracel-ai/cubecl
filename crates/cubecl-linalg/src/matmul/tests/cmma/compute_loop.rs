@@ -9,6 +9,7 @@ use crate::matmul::cmma::{
 use crate::matmul::tests::test_utils::{
     assert_equals, cmma_available, create_empty, range_tensor_f16,
 };
+use half::f16;
 
 #[cube(launch_unchecked)]
 fn compute_loop_test<F: Float, FC: Float>(
@@ -38,20 +39,20 @@ fn compute_loop_test<F: Float, FC: Float>(
 
     compute_loop(shared_memories, accumulators, config);
 
-    let offset = UNIT_POS_Y * UInt::new(512);
-    let slice_0 = accumulate_array.slice_mut(offset, offset + UInt::new(256));
-    cmma::store::<F>(
+    let offset = UNIT_POS_Y * 512;
+    let slice_0 = &mut accumulate_array[offset..offset + 256];
+    cmma::store(
         slice_0,
         &accumulators.first,
-        UInt::new(16),
+        16,
         cmma::MatrixLayout::RowMajor,
     );
 
-    let slice_1 = accumulate_array.slice_mut(offset + UInt::new(256), offset + UInt::new(512));
-    cmma::store::<F>(
+    let slice_1 = &mut accumulate_array[offset + 256..offset + 512];
+    cmma::store(
         slice_1,
         &accumulators.second,
-        UInt::new(16),
+        16,
         cmma::MatrixLayout::RowMajor,
     );
 }
@@ -74,10 +75,10 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(m as u32),
-        block_size_k: UInt::new(k as u32),
-        block_size_n: UInt::new(n as u32),
-        tile_size: UInt::new(16),
+        block_size_m: m as u32,
+        block_size_k: k as u32,
+        block_size_n: n as u32,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -85,16 +86,16 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        compute_loop_test::launch_unchecked::<F32, F16, R>(
+        compute_loop_test::launch_unchecked::<f32, f16, R>(
             &R::client(device),
             cube_count,
             cube_dim,
             TensorArg::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, 1),
             TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, 1),
             ArrayArg::from_raw_parts(&results, m * n, 1),
-            UInt::new(m as u32),
-            UInt::new(k as u32),
-            UInt::new(n as u32),
+            m as u32,
+            k as u32,
+            n as u32,
             config,
         );
     };
@@ -152,10 +153,10 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(m as u32),
-        block_size_k: UInt::new(k as u32),
-        block_size_n: UInt::new(n as u32),
-        tile_size: UInt::new(16),
+        block_size_m: m as u32,
+        block_size_k: k as u32,
+        block_size_n: n as u32,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -163,16 +164,16 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        compute_loop_test::launch_unchecked::<F32, F16, R>(
+        compute_loop_test::launch_unchecked::<f32, f16, R>(
             &R::client(device),
             cube_count,
             cube_dim,
             TensorArg::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, 1),
             TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, 1),
             ArrayArg::from_raw_parts(&results, m * n, 1),
-            UInt::new(m as u32),
-            UInt::new(k as u32),
-            UInt::new(n as u32),
+            m as u32,
+            k as u32,
+            n as u32,
             config,
         );
     };
@@ -259,10 +260,10 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(m as u32),
-        block_size_k: UInt::new(k as u32),
-        block_size_n: UInt::new(n as u32),
-        tile_size: UInt::new(16),
+        block_size_m: m as u32,
+        block_size_k: k as u32,
+        block_size_n: n as u32,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -270,16 +271,16 @@ pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::De
     };
 
     unsafe {
-        compute_loop_test::launch_unchecked::<F32, F16, R>(
+        compute_loop_test::launch_unchecked::<f32, f16, R>(
             &client,
             cube_count,
             cube_dim,
             TensorArg::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, 1),
             TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, 1),
             ArrayArg::from_raw_parts(&results, m * n, 1),
-            UInt::new(m as u32),
-            UInt::new(k as u32),
-            UInt::new(n as u32),
+            m as u32,
+            k as u32,
+            n as u32,
             config,
         );
     };

@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::base::{Dimensions, DimensionsExpand, Offsets, OffsetsExpand};
+use crate::matmul::cmma::base::{Dimensions, Offsets};
 use crate::matmul::tests::test_utils::{assert_equals_range, create_empty};
 use crate::matmul::{
     cmma::{config::CmmaConfig, load_shared_memory::*},
@@ -12,31 +12,31 @@ use crate::matmul::{
 fn load_lhs_test<F: Float>(
     lhs_tensor: &Tensor<F>,
     lhs_sm_arr: &mut Array<F>,
-    k_offset: UInt,
-    m: UInt,
-    k: UInt,
-    n: UInt,
-    config: Comptime<CmmaConfig>,
+    k_offset: u32,
+    m: u32,
+    k: u32,
+    n: u32,
+    #[comptime] config: CmmaConfig,
 ) {
     let offsets = Offsets {
-        batch_lhs: UInt::new(0),
-        batch_rhs: UInt::new(0),
-        batch_out: UInt::new(0),
-        cube_row: UInt::new(0),
-        cube_col: UInt::new(0),
+        batch_lhs: 0,
+        batch_rhs: 0,
+        batch_out: 0,
+        cube_row: 0,
+        cube_col: 0,
         k: k_offset,
     };
 
     let mut lhs_sm = SharedMemory::<F>::new(2048);
-    for i in range(0u32, 2048u32, Comptime::new(false)) {
+    for i in 0..2048 {
         lhs_sm[i] = lhs_sm_arr[i];
     }
 
     let dims = Dimensions { m, k, n };
 
-    load_lhs(lhs_tensor, offsets, &mut lhs_sm, UInt::new(2), dims, config);
+    load_lhs(lhs_tensor, offsets, &mut lhs_sm, 2, dims, config);
 
-    for i in range(0u32, 2048u32, Comptime::new(false)) {
+    for i in 0..2048 {
         lhs_sm_arr[i] = lhs_sm[i];
     }
 }
@@ -45,31 +45,31 @@ fn load_lhs_test<F: Float>(
 fn load_rhs_test<F: Float>(
     rhs_tensor: &Tensor<F>,
     rhs_sm_arr: &mut Array<F>,
-    k_offset: UInt,
-    m: UInt,
-    k: UInt,
-    n: UInt,
-    config: Comptime<CmmaConfig>,
+    k_offset: u32,
+    m: u32,
+    k: u32,
+    n: u32,
+    #[comptime] config: CmmaConfig,
 ) {
     let offsets = Offsets {
-        batch_lhs: UInt::new(0),
-        batch_rhs: UInt::new(0),
-        batch_out: UInt::new(0),
-        cube_row: UInt::new(0),
-        cube_col: UInt::new(0),
+        batch_lhs: 0,
+        batch_rhs: 0,
+        batch_out: 0,
+        cube_row: 0,
+        cube_col: 0,
         k: k_offset,
     };
 
     let mut rhs_sm = SharedMemory::<F>::new(2048);
-    for i in range(0u32, 2048u32, Comptime::new(false)) {
+    for i in 0..2048 {
         rhs_sm[i] = rhs_sm_arr[i];
     }
 
     let dims = Dimensions { m, k, n };
 
-    load_rhs(rhs_tensor, offsets, &mut rhs_sm, UInt::new(2), dims, config);
+    load_rhs(rhs_tensor, offsets, &mut rhs_sm, 2, dims, config);
 
-    for i in range(0u32, 2048u32, Comptime::new(false)) {
+    for i in 0..2048 {
         rhs_sm_arr[i] = rhs_sm[i];
     }
 }
@@ -83,10 +83,10 @@ pub fn load_shared_memory_lhs_unit_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -94,7 +94,7 @@ pub fn load_shared_memory_lhs_unit_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_lhs_test::launch_unchecked::<F32, R>(
+        load_lhs_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -142,10 +142,10 @@ pub fn load_shared_memory_rhs_unit_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -153,7 +153,7 @@ pub fn load_shared_memory_rhs_unit_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_rhs_test::launch_unchecked::<F32, R>(
+        load_rhs_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -201,10 +201,10 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -212,7 +212,7 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_lhs_test::launch_unchecked::<F32, R>(
+        load_lhs_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -265,10 +265,10 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: true,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -276,7 +276,7 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
     };
 
     unsafe {
-        load_lhs_test::launch_unchecked::<F32, R>(
+        load_lhs_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -327,10 +327,10 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: true,
         check_n_bounds: false,
@@ -338,7 +338,7 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
     };
 
     unsafe {
-        load_lhs_test::launch_unchecked::<F32, R>(
+        load_lhs_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -389,10 +389,10 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: true,
         check_k_bounds: true,
         check_n_bounds: false,
@@ -400,7 +400,7 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
     };
 
     unsafe {
-        load_lhs_test::launch_unchecked::<F32, R>(
+        load_lhs_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -450,10 +450,10 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -461,7 +461,7 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_rhs_test::launch_unchecked::<F32, R>(
+        load_rhs_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -514,10 +514,10 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -525,7 +525,7 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_lhs_test::launch_unchecked::<F32, R>(
+        load_lhs_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -577,10 +577,10 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -588,7 +588,7 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_rhs_test::launch_unchecked::<F32, R>(
+        load_rhs_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -643,10 +643,10 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -654,7 +654,7 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_lhs_test::launch_unchecked::<F32, R>(
+        load_lhs_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -709,10 +709,10 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -720,7 +720,7 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_rhs_test::launch_unchecked::<F32, R>(
+        load_rhs_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -772,10 +772,10 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -783,7 +783,7 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_lhs_test::launch_unchecked::<F32, R>(
+        load_lhs_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -835,10 +835,10 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
     let cube_count = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -846,7 +846,7 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        load_rhs_test::launch_unchecked::<F32, R>(
+        load_rhs_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,

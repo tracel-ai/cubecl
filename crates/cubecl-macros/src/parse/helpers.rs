@@ -1,5 +1,9 @@
 use darling::FromMeta;
-use syn::{parse_quote, visit_mut::VisitMut, Attribute, Expr};
+use syn::{
+    parse_quote,
+    visit_mut::{self, VisitMut},
+    Attribute, Expr,
+};
 
 use crate::{expression::Expression, scope::Context};
 
@@ -50,10 +54,12 @@ impl VisitMut for RemoveHelpers {
             syn::FnArg::Receiver(recv) => recv.attrs.retain(|it| !is_comptime_attr(it)),
             syn::FnArg::Typed(typed) => typed.attrs.retain(|it| !is_comptime_attr(it)),
         }
+        visit_mut::visit_fn_arg_mut(self, i);
     }
 
     fn visit_expr_for_loop_mut(&mut self, i: &mut syn::ExprForLoop) {
-        i.attrs.retain(|attr| !is_unroll_attr(attr))
+        i.attrs.retain(|attr| !is_unroll_attr(attr));
+        visit_mut::visit_expr_for_loop_mut(self, i);
     }
 }
 

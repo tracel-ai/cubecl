@@ -178,9 +178,12 @@ impl ToTokens for RuntimeField {
         let name = self.ident.as_ref().unwrap();
         let ty = &self.ty;
         let vis = &self.vis;
-        tokens.extend(quote! {
-            #vis #name: #expr<#ty>
-        })
+        let out = if self.comptime.is_present() {
+            quote![#vis #name: #ty]
+        } else {
+            quote![#vis #name: #expr<#ty>]
+        };
+        tokens.extend(out)
     }
 }
 
@@ -191,11 +194,21 @@ impl ToTokens for ExpandField {
         let ty = &self.ty;
         let vis = &self.vis;
         let access = ir_type("FieldAccess");
-        tokens.extend(quote! {
-            #vis fn #func(self) -> #access<#ty, __Inner> {
-                #access::new(self.0, #name)
+        let out = if self.comptime.is_present() {
+            //let ident = self.ident.as_ref().unwrap();
+            quote! {
+                #vis fn #func(self) -> #ty {
+                    todo!("Comptime field")
+                }
             }
-        });
+        } else {
+            quote! {
+                #vis fn #func(self) -> #access<#ty, __Inner> {
+                    #access::new(self.0, #name)
+                }
+            }
+        };
+        tokens.extend(out);
     }
 }
 

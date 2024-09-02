@@ -64,7 +64,7 @@ pub fn into_contiguous<R: Runtime, E: Primitive>(
     let cube_dim = CubeDim::default();
     let cube_count =
         calculate_cube_count_elemwise(num_elems / vectorization_factor as usize, cube_dim);
-    let handle = client.empty(num_elems * E::as_elem().size());
+    let handle = client.empty(num_elems * E::ir_type().size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
     into_contiguous_kernel::launch::<E, R>(

@@ -3,7 +3,10 @@ use std::{marker::PhantomData, num::NonZeroU8};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::Item,
-    new_ir::{ArrayInit, Container},
+    new_ir::{
+        ArrayInit, Container, Expand, Expanded, Expression, StaticExpand, StaticExpanded,
+        Vectorization,
+    },
     prelude::*,
     unexpanded, KernelSettings, Runtime,
 };
@@ -19,14 +22,43 @@ use std::ops::{
     Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-#[derive(Expand)]
-#[expand(ir_type = T::ir_type())]
 pub struct Array<T: SquareType> {
-    _ty: PhantomData<T>,
+    size: u32,
+    vectorization: Vectorization,
+    _type: PhantomData<T>,
 }
+pub struct ArrayExpand<T: SquareType, Inner: Expr<Output = Array<T>>>(Inner);
 
 unsafe impl<T: SquareType> Send for Array<T> {}
 unsafe impl<T: SquareType> Sync for Array<T> {}
+
+impl<T: SquareType> Expand for Array<T> {
+    type Expanded<Inner: Expr<Output = Self>> = ArrayExpand<T, Inner>;
+
+    fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
+        ArrayExpand(inner)
+    }
+}
+impl<T: SquareType, Inner: Expr<Output = Array<T>>> Expanded for ArrayExpand<T, Inner> {
+    type Unexpanded = Array<T>;
+
+    fn inner(self) -> impl Expr<Output = Self::Unexpanded> {
+        self.0
+    }
+}
+
+impl<T: SquareType> StaticExpand for Array<T> {
+    type Expanded = Self;
+}
+impl<T: SquareType> StaticExpanded for Array<T> {
+    type Unexpanded = Self;
+}
+
+impl<T: SquareType> SquareType for Array<T> {
+    fn ir_type() -> crate::ir::Elem {
+        T::ir_type()
+    }
+}
 
 impl<T: SquareType> Strided for Array<T> {
     type Dims = Dim1;
@@ -61,11 +93,6 @@ impl<T: Primitive> LaunchArgExpand for Array<T> {
 impl<T: Primitive> Array<T> {
     pub fn new(_size: u32) -> Self {
         unexpanded!()
-    }
-
-    #[expanded]
-    pub fn new(size: u32) -> impl Expr<Output = Array<T>> {
-        ArrayInit::new(size, None)
     }
 
     pub fn vectorized(_size: u32, _vectorization: u8) -> Self {
@@ -104,11 +131,54 @@ impl<T: Primitive> Array<T> {
     }
 
     #[expanded]
-    pub fn slice<TNum: Integer>(
+    pub fn slice<Start: Expr>(
         self,
-        ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<TNum>>>>,
-    ) -> impl Expr<Output = Slice<__Inner, TNum>> {
+        ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<Start>>>>,
+    ) -> impl Expr<Output = Slice<__Inner, Start::Output>>
+    where
+        Start::Output: Integer,
+    {
         SliceExpr::new(self.0, ranges)
+    }
+}
+
+impl<T: SquareType> Expr for Array<T> {
+    type Output = Array<T>;
+
+    fn expression_untyped(&self) -> Expression {
+        Expression::ArrayInit {
+            size: self.size,
+            ty: T::ir_type(),
+            vectorization: self.vectorization,
+        }
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        self.vectorization
+    }
+}
+
+impl<T: SquareType> Expr for &Array<T> {
+    type Output = Array<T>;
+
+    fn expression_untyped(&self) -> Expression {
+        Array::<T>::expression_untyped(self)
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        self.vectorization
+    }
+}
+
+impl<T: SquareType> Expr for &mut Array<T> {
+    type Output = Array<T>;
+
+    fn expression_untyped(&self) -> Expression {
+        Array::<T>::expression_untyped(self)
+    }
+
+    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
+        self.vectorization
     }
 }
 

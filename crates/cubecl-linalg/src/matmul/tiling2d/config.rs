@@ -1,9 +1,4 @@
-use cubecl_core::{
-    compute::CubeCount,
-    frontend::{CubeContext, Init, UInt},
-    ir::CubeDim,
-    Runtime,
-};
+use cubecl_core::{compute::CubeCount, ir::CubeDim, Runtime};
 
 use super::base::TILE_SIZE;
 
@@ -34,21 +29,15 @@ impl Default for Tiling2dConfig {
     }
 }
 
-impl Init for CubeTiling2dConfig {
-    fn init(self, _context: &mut CubeContext) -> Self {
-        self
-    }
-}
-
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Tiling 2D parameters
 pub struct CubeTiling2dConfig {
     /// Block size along dimension of lhs
-    pub block_size_m: UInt,
+    pub block_size_m: u32,
     /// Block size along common dimension
-    pub block_size_k: UInt,
+    pub block_size_k: u32,
     /// Block size along dimension of rhs
-    pub block_size_n: UInt,
+    pub block_size_n: u32,
     /// Loop unrolling for inner compute loop. Probably slower
     pub unroll_compute: bool,
     /// Loop unrolling for all loops related to vectorization/tile size. Probably faster
@@ -60,7 +49,7 @@ pub struct CubeTiling2dConfig {
     /// Bounds must be checked on rhs dimension
     pub check_n_bounds: bool,
     /// Tile size. Should correspond to vectorization of inputs/outputs/shared memory
-    pub tile_size: UInt,
+    pub tile_size: u32,
     /// Lhs is transposed in global memory
     pub lhs_transposed: bool,
     /// Rhs is transposed in global memory
@@ -89,15 +78,15 @@ impl CubeTiling2dConfig {
         );
 
         CubeTiling2dConfig {
-            block_size_m: UInt::new(config.block_size_m as u32),
-            block_size_k: UInt::new(config.block_size_k as u32),
-            block_size_n: UInt::new(config.block_size_n as u32),
+            block_size_m: config.block_size_m as u32,
+            block_size_k: config.block_size_k as u32,
+            block_size_n: config.block_size_n as u32,
             unroll_compute: config.unroll,
             unroll_tile: true,
             check_m_bounds: m % config.block_size_m != 0,
             check_k_bounds: k % config.block_size_k != 0,
             check_n_bounds: n % config.block_size_n != 0,
-            tile_size: UInt::new(config.tile_size as u32),
+            tile_size: config.tile_size as u32,
             lhs_transposed,
             rhs_transposed,
         }

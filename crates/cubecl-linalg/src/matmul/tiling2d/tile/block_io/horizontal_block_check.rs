@@ -5,16 +5,17 @@ use crate::matmul::tiling2d::{
     config::CubeTiling2dConfig,
     tile::{
         loader::{CheckBounds, ReadTileInfo},
-        memory_access::{
-            ContiguousAccess, StridedAccess, UnmatchingVectorization, WritePositions,
-            WritePositionsExpand,
-        },
+        memory_access::{ContiguousAccess, StridedAccess, UnmatchingVectorization, WritePositions},
     },
     write_output::WriteTileInfo,
 };
 
-use super::base::{all_zeros_comptime, all_zeros_runtime, BlockLoader, BlockWriter};
+use super::base::{
+    all_zeros_comptime, all_zeros_runtime, BlockLoader, BlockLoaderExpand, BlockWriter,
+    BlockWriterExpand,
+};
 
+#[derive(StaticExpand)]
 pub(crate) struct HorizontalCheckBlockIO;
 
 #[cube]
@@ -23,20 +24,19 @@ impl<F: Float> BlockLoader<F> for HorizontalCheckBlockIO {
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<F>,
         info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let vectorization = Comptime::vectorization(&tensor);
-        let unroll = Comptime::map(config, |c| c.unroll_tile);
+        let tile_size = config.tile_size;
+        let vectorization = vectorization(&tensor);
+        let unroll = config.unroll_tile;
 
         let col = check_bounds.skip_col + info.read_col;
         if check_bounds.dim_horizontal > col {
-            for i in range(0u32, Comptime::get(tile_size), unroll) {
-                let gm_position =
-                    (info.gm_position_base + i * info.gm_stride) / Comptime::runtime(vectorization);
-                let sm_position =
-                    (info.sm_position_base + i * info.sm_stride) / Comptime::runtime(tile_size);
+            #[unroll(unroll)]
+            for i in 0..tile_size {
+                let gm_position = (info.gm_position_base + i * info.gm_stride) / vectorization;
+                let sm_position = (info.sm_position_base + i * info.sm_stride) / tile_size;
 
                 shared_memory[sm_position] =
                     A::read_contiguous_checked(tensor, gm_position, check_bounds, info, config);
@@ -50,22 +50,21 @@ impl<F: Float> BlockLoader<F> for HorizontalCheckBlockIO {
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<F>,
         info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
+        let tile_size = config.tile_size;
 
-        let mut num_reads = UInt::new(0);
+        let mut num_reads = 0;
         let col = check_bounds.skip_col + info.read_col;
         let dim_horizontal = check_bounds.dim_horizontal;
         if dim_horizontal > col {
-            num_reads = UInt::min(dim_horizontal - col, Comptime::runtime(tile_size));
+            num_reads = (dim_horizontal - col).min(tile_size);
         }
 
-        for i in range(0u32, num_reads, Comptime::new(false)) {
+        for i in 0..num_reads {
             let gm_position = info.gm_position_base + i;
-            let sm_position =
-                (info.sm_position_base + i * info.sm_stride) / Comptime::runtime(tile_size);
+            let sm_position = (info.sm_position_base + i * info.sm_stride) / tile_size;
 
             shared_memory[sm_position] = UnmatchingVectorization::read_strided_unchecked(
                 tensor,
@@ -91,11 +90,11 @@ impl<F: Float> BlockWriter<F> for HorizontalCheckBlockIO {
         out: &mut Tensor<F>,
         results: &Array<F>,
         info: WriteTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let unroll = Comptime::map(config, |c| c.unroll_tile);
+        let tile_size = config.tile_size;
+        let unroll = config.unroll_tile;
         let coordinates = info.coordinates;
 
         let col = coordinates.skip_col + coordinates.unit_col;
@@ -104,9 +103,10 @@ impl<F: Float> BlockWriter<F> for HorizontalCheckBlockIO {
             let row = coordinates.skip_row + coordinates.unit_row;
             let out_position_base = row * info.out_stride + col + info.offset_output;
 
-            for result_index in range(0u32, Comptime::get(tile_size), unroll) {
+            #[unroll(unroll)]
+            for result_index in 0..tile_size {
                 let positions = WritePositions {
-                    result: result_index * Comptime::runtime(tile_size),
+                    result: result_index * tile_size,
                     out: out_position_base + result_index * info.out_stride,
                 };
 

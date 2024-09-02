@@ -12,29 +12,25 @@ use crate::matmul::{
 fn write_output_test<F: Float>(
     out: &mut Tensor<F>,
     acc_sm_arr: &mut Array<F>,
-    m: UInt,
-    n: UInt,
-    config: Comptime<CmmaConfig>,
+    m: u32,
+    n: u32,
+    #[comptime] config: CmmaConfig,
 ) {
     let offsets = Offsets {
-        batch_lhs: UInt::new(0),
-        batch_rhs: UInt::new(0),
-        batch_out: UInt::new(0),
-        cube_row: UInt::new(0),
-        cube_col: UInt::new(0),
-        k: UInt::new(0),
+        batch_lhs: 0,
+        batch_rhs: 0,
+        batch_out: 0,
+        cube_row: 0,
+        cube_col: 0,
+        k: 0,
     };
 
     let mut accumulate = SharedMemory::<F>::new(4096);
-    for i in range(0u32, 4096u32, Comptime::new(false)) {
+    for i in 0..4096 {
         accumulate[i] = acc_sm_arr[i];
     }
 
-    let dims = Dimensions {
-        m,
-        k: UInt::new(16),
-        n,
-    };
+    let dims = Dimensions { m, k: 16, n };
 
     shared_memory_to_output(out, offsets, accumulate, dims, config);
 }
@@ -50,10 +46,10 @@ pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: false,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -61,7 +57,7 @@ pub fn cmma_write_output_unit_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        write_output_test::launch_unchecked::<F32, R>(
+        write_output_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -118,10 +114,10 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: true,
         check_k_bounds: false,
         check_n_bounds: true,
@@ -129,7 +125,7 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        write_output_test::launch_unchecked::<F32, R>(
+        write_output_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -196,10 +192,10 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: true,
         check_k_bounds: false,
         check_n_bounds: true,
@@ -207,7 +203,7 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
     };
 
     unsafe {
-        write_output_test::launch_unchecked::<F32, R>(
+        write_output_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -269,10 +265,10 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: true,
         check_k_bounds: false,
         check_n_bounds: true,
@@ -280,7 +276,7 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
     };
 
     unsafe {
-        write_output_test::launch_unchecked::<F32, R>(
+        write_output_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -342,10 +338,10 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: true,
         check_k_bounds: false,
         check_n_bounds: true,
@@ -353,7 +349,7 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
     };
 
     unsafe {
-        write_output_test::launch_unchecked::<F32, R>(
+        write_output_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -411,10 +407,10 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: true,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -422,7 +418,7 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
     };
 
     unsafe {
-        write_output_test::launch_unchecked::<F32, R>(
+        write_output_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -529,10 +525,10 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
     let cube_count: CubeCount<R::Server> = CubeCount::Static(1, 1, 1);
 
     let config = CmmaConfig {
-        block_size_m: UInt::new(64),
-        block_size_k: UInt::new(32),
-        block_size_n: UInt::new(64),
-        tile_size: UInt::new(16),
+        block_size_m: 64,
+        block_size_k: 32,
+        block_size_n: 64,
+        tile_size: 16,
         check_m_bounds: true,
         check_k_bounds: false,
         check_n_bounds: false,
@@ -540,7 +536,7 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
     };
 
     unsafe {
-        write_output_test::launch_unchecked::<F32, R>(
+        write_output_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,

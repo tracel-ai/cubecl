@@ -60,11 +60,6 @@ pub trait StaticExpanded: Sized {
     type Unexpanded;
 }
 
-/// Auto impl `StaticExpand for all `Expand` types, with `Self` as the inner expression
-impl<T: PartialExpand + Expr<Output = T>> StaticExpand for T {
-    type Expanded = <T as PartialExpand>::Expanded;
-}
-
 /// All fully expanded types can also be partially expanded if receiver is const
 impl<T: Expand + Expr<Output = T>> PartialExpand for T {
     type Expanded = <T as Expand>::Expanded<Self>;

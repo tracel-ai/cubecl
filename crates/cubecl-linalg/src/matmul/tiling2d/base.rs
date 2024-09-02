@@ -1,5 +1,5 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, Runtime};
+use cubecl_core::{new_ir::DynamicExpr, prelude::*};
 
 use super::{block_loop::block_loop, config::CubeTiling2dConfig};
 
@@ -12,7 +12,7 @@ pub fn tiling2d_cube_kernel<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
-    config: Comptime<CubeTiling2dConfig>,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
     let dims = get_dims::<F>(lhs, rhs);
     let coordinates = calculate_coordinates(CUBE_POS_X, CUBE_POS_Y, UNIT_POS, config);
@@ -30,43 +30,43 @@ pub fn tiling2d_cube_kernel<F: Float>(
     );
 }
 
-#[derive(CubeType, Copy, Clone)]
+#[derive(Expand, Runtime, Copy, Clone)]
 /// Information available at runtime only
 /// Strides assume contiguous
 pub(crate) struct Dimensions {
-    pub m: UInt,
-    pub k: UInt,
-    pub n: UInt,
+    pub m: u32,
+    pub k: u32,
+    pub n: u32,
 }
 
-#[derive(CubeType, Copy, Clone)]
+#[derive(Expand, Runtime, Copy, Clone)]
 pub(crate) struct SharedMemories<F: Float> {
     pub lhs: SharedMemory<F>,
     pub rhs: SharedMemory<F>,
 }
 
-#[derive(CubeType, Copy, Clone)]
+#[derive(Expand, Runtime, Copy, Clone)]
 /// Number of elements in previous batches
 /// Not divided by vectorization facto
 pub(crate) struct BatchOffsets {
-    pub lhs: UInt,
-    pub rhs: UInt,
-    pub out: UInt,
+    pub lhs: u32,
+    pub rhs: u32,
+    pub out: u32,
 }
 
-#[derive(CubeType, Copy, Clone)]
+#[derive(Expand, Runtime, Copy, Clone)]
 pub(crate) struct Coordinates {
-    pub unit_row: UInt,
-    pub unit_col: UInt,
-    pub skip_row: UInt,
-    pub skip_col: UInt,
+    pub unit_row: u32,
+    pub unit_col: u32,
+    pub skip_row: u32,
+    pub skip_col: u32,
 }
 
 #[cube]
 fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
     let rank = lhs.rank();
-    let first_dim = rank - UInt::new(2);
-    let second_dim = rank - UInt::new(1);
+    let first_dim = rank - 2;
+    let second_dim = rank - 1;
     let m = lhs.shape(first_dim);
     let k = lhs.shape(second_dim);
     let n = rhs.shape(second_dim);
@@ -76,26 +76,24 @@ fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
 
 #[cube]
 fn calculate_coordinates(
-    cube_pos_x: UInt,
-    cube_pos_y: UInt,
-    unit_pos: UInt,
-    config: Comptime<CubeTiling2dConfig>,
+    cube_pos_x: u32,
+    cube_pos_y: u32,
+    unit_pos: u32,
+    #[comptime] config: CubeTiling2dConfig,
 ) -> Coordinates {
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
-    let block_size_n = Comptime::map(config, |c| c.block_size_n);
-    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let block_size_m = config.block_size_m;
+    let block_size_n = config.block_size_n;
+    let tile_size = config.tile_size;
 
-    let n_units_per_row = ((Comptime::runtime(block_size_n) - UInt::new(1))
-        / Comptime::runtime(tile_size))
-        + UInt::new(1);
+    let n_units_per_row = ((block_size_n - 1) / tile_size) + 1;
 
     // Cube offset
-    let skip_row = cube_pos_x * Comptime::runtime(block_size_m);
-    let skip_col = cube_pos_y * Comptime::runtime(block_size_n);
+    let skip_row = cube_pos_x * block_size_m;
+    let skip_col = cube_pos_y * block_size_n;
 
     // Position of the first element of the unit, relative to the cube
-    let unit_row = (unit_pos / n_units_per_row) * Comptime::runtime(tile_size);
-    let unit_col = (unit_pos % n_units_per_row) * Comptime::runtime(tile_size);
+    let unit_row = (unit_pos / n_units_per_row) * tile_size;
+    let unit_col = (unit_pos % n_units_per_row) * tile_size;
 
     Coordinates {
         unit_row,
@@ -111,20 +109,20 @@ fn calculate_batch_offsets<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &Tensor<F>,
-    batch_number: UInt,
+    batch_number: u32,
 ) -> BatchOffsets {
     let rank = out.rank();
 
-    let dim_m = lhs.shape(rank - UInt::new(2));
-    let dim_n = rhs.shape(rank - UInt::new(1));
+    let dim_m = lhs.shape(rank - 2);
+    let dim_n = rhs.shape(rank - 1);
 
     // Batch offset for output
     let mut offset_out = dim_m * dim_n * batch_number;
-    let mut offset_lhs = UInt::new(0);
-    let mut offset_rhs = UInt::new(0);
+    let mut offset_lhs = 0;
+    let mut offset_rhs = 0;
 
     // Batch offset for lhs, rhs
-    for b in range(0u32, rank - UInt::new(2), Comptime::new(false)) {
+    for b in 0..rank - 2 {
         let tmp = offset_out / out.stride(b);
         offset_lhs += tmp % lhs.shape(b) * lhs.stride(b);
         offset_rhs += tmp % rhs.shape(b) * rhs.stride(b);
@@ -138,21 +136,14 @@ fn calculate_batch_offsets<F: Float>(
 }
 
 #[cube]
-fn make_shared_memories<F: Float>(config: Comptime<CubeTiling2dConfig>) -> SharedMemories<F> {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let block_size_n = Comptime::map(config, |c| c.block_size_n);
+fn make_shared_memories<F: Float>(#[comptime] config: CubeTiling2dConfig) -> SharedMemories<F> {
+    let tile_size = config.tile_size;
+    let block_size_m = config.block_size_m;
+    let block_size_k = config.block_size_k;
+    let block_size_n = config.block_size_n;
 
-    let lhs = SharedMemory::<F>::vectorized(
-        Comptime::get(block_size_k * block_size_m / tile_size),
-        Comptime::get(tile_size),
-    );
-
-    let rhs = SharedMemory::<F>::vectorized(
-        Comptime::get(block_size_k * block_size_n / tile_size),
-        Comptime::get(tile_size),
-    );
+    let lhs = SharedMemory::<F>::vectorized(block_size_k * block_size_m / tile_size, tile_size);
+    let rhs = SharedMemory::<F>::vectorized(block_size_k * block_size_n / tile_size, tile_size);
 
     SharedMemories { lhs, rhs }
 }

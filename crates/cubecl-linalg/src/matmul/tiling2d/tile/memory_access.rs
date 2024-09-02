@@ -1,37 +1,37 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, Runtime};
 
 use crate::matmul::tiling2d::config::CubeTiling2dConfig;
 
 use super::loader::{CheckBounds, ReadTileInfo};
 
-#[derive(CubeType)]
+#[derive(Expand, Runtime)]
 pub(crate) struct WritePositions {
-    pub out: UInt,
-    pub result: UInt,
+    pub out: u32,
+    pub result: u32,
 }
 
 #[cube]
 pub(crate) trait ContiguousAccess<F: Float>: Send + Sync + 'static {
     fn read_contiguous_unchecked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
-        config: Comptime<CubeTiling2dConfig>,
+        gm_position: u32,
+        #[comptime] config: CubeTiling2dConfig,
     ) -> F;
 
     fn read_contiguous_checked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
+        gm_position: u32,
         check_bounds: CheckBounds,
         read_info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
     ) -> F;
 
     fn write_contiguous_unchecked(
         out: &mut Tensor<F>,
         results: &Array<F>,
         positions: WritePositions,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
     );
 
     fn write_contiguous_checked(
@@ -39,8 +39,8 @@ pub(crate) trait ContiguousAccess<F: Float>: Send + Sync + 'static {
         results: &Array<F>,
         positions: WritePositions,
         check_bounds: CheckBounds,
-        write_col: UInt,
-        config: Comptime<CubeTiling2dConfig>,
+        write_col: u32,
+        #[comptime] config: CubeTiling2dConfig,
     );
 }
 
@@ -48,43 +48,45 @@ pub(crate) trait ContiguousAccess<F: Float>: Send + Sync + 'static {
 pub(crate) trait StridedAccess<F: Float>: Send + Sync + 'static {
     fn read_strided_unchecked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
-        gm_stride: UInt,
-        config: Comptime<CubeTiling2dConfig>,
+        gm_position: u32,
+        gm_stride: u32,
+        #[comptime] config: CubeTiling2dConfig,
     ) -> F;
 
     fn read_strided_checked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
-        gm_stride: UInt,
+        gm_position: u32,
+        gm_stride: u32,
         check_bounds: CheckBounds,
         info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
     ) -> F;
 }
 
 /// When vectorization == tile_size
+#[derive(StaticExpand)]
 pub(crate) struct MatchingVectorization;
 
 /// When vectorization != tile_size
+#[derive(StaticExpand)]
 pub(crate) struct UnmatchingVectorization;
 
 #[cube]
 impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
     fn read_contiguous_unchecked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
-        _config: Comptime<CubeTiling2dConfig>,
+        gm_position: u32,
+        #[comptime] _config: CubeTiling2dConfig,
     ) -> F {
         tensor[gm_position]
     }
 
     fn read_contiguous_checked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
+        gm_position: u32,
         _check_bounds: CheckBounds,
         _read_info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
     ) -> F {
         // If vectorization matches, then it's certain to fit since tile_size divides block_sizes
         MatchingVectorization::read_contiguous_unchecked(tensor, gm_position, config)
@@ -94,18 +96,19 @@ impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
         out: &mut Tensor<F>,
         results: &Array<F>,
         positions: WritePositions,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let unroll = Comptime::map(config, |c| c.unroll_tile);
+        let tile_size = config.tile_size;
+        let unroll = config.unroll_tile;
 
-        let mut output_elem = F::vectorized_empty(Comptime::get(tile_size));
+        let mut output_elem = F::vectorized_empty(tile_size);
 
-        for i in range(0u32, Comptime::get(tile_size), unroll) {
+        #[unroll(unroll)]
+        for i in 0..tile_size {
             output_elem[i] = results[positions.result + i];
         }
 
-        out[positions.out / Comptime::runtime(tile_size)] = output_elem;
+        out[positions.out / tile_size] = output_elem;
     }
 
     fn write_contiguous_checked(
@@ -113,8 +116,8 @@ impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
         results: &Array<F>,
         positions: WritePositions,
         _check_bounds: CheckBounds,
-        _write_col: UInt,
-        config: Comptime<CubeTiling2dConfig>,
+        _write_col: u32,
+        #[comptime] config: CubeTiling2dConfig,
     ) {
         // If vectorization matches, then it's certain to fit since tile_size divides block_sizes
         MatchingVectorization::write_contiguous_unchecked(out, results, positions, config)
@@ -125,30 +128,26 @@ impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
 impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     fn read_contiguous_unchecked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
-        config: Comptime<CubeTiling2dConfig>,
+        gm_position: u32,
+        #[comptime] config: CubeTiling2dConfig,
     ) -> F {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let unroll = Comptime::map(config, |c| c.unroll_tile);
-        let vectorization_factor = Comptime::vectorization(tensor);
-        let is_scalar = Comptime::map(vectorization_factor, |v| v.val == 1);
+        let tile_size = config.tile_size;
+        let unroll = config.unroll_tile;
+        let vectorization_factor = vectorization(tensor);
+        let is_scalar = vectorization_factor == 1;
 
-        let mut vector = F::vectorized(0., Comptime::get(tile_size));
+        let mut vector = F::vectorized(0., tile_size);
 
-        for i in range(
-            0u32,
-            Comptime::get(tile_size / vectorization_factor),
-            unroll,
-        ) {
-            let runtime_vectorization = Comptime::runtime(vectorization_factor);
-
-            if Comptime::get(is_scalar) {
+        #[unroll(unroll)]
+        for i in 0u32..tile_size / vectorization_factor {
+            if is_scalar {
                 vector[i] = tensor[gm_position + i];
             } else {
                 let intermediate = tensor[gm_position + i];
 
-                for j in range(0u32, Comptime::get(vectorization_factor), unroll) {
-                    vector[i * runtime_vectorization + j] = intermediate[j];
+                #[unroll(unroll)]
+                for j in 0..vectorization_factor {
+                    vector[i * vectorization_factor + j] = intermediate.vec_index(j);
                 }
             }
         }
@@ -158,36 +157,33 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
 
     fn read_contiguous_checked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
+        gm_position: u32,
         check_bounds: CheckBounds,
         read_info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
     ) -> F {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let unroll = Comptime::map(config, |c| c.unroll_tile);
-        let vectorization_factor = Comptime::vectorization(tensor);
-        let is_scalar = Comptime::map(vectorization_factor, |v| v.val == 1);
-        let runtime_vectorization = Comptime::runtime(vectorization_factor);
+        let tile_size = config.tile_size;
+        let unroll = config.unroll_tile;
+        let vectorization_factor = vectorization(tensor);
+        let is_scalar = vectorization_factor == 1;
 
-        let mut vector = F::vectorized(0., Comptime::get(tile_size));
+        let mut vector = F::vectorized(0., tile_size);
 
-        let mut num_loops = UInt::new(0);
+        let mut num_loops = 0;
         if check_bounds.dim_horizontal > read_info.read_col {
-            let num_reads = UInt::min(
-                check_bounds.dim_horizontal - read_info.read_col,
-                Comptime::runtime(tile_size),
-            );
-            num_loops = num_reads / runtime_vectorization;
+            let num_reads = (check_bounds.dim_horizontal - read_info.read_col).min(tile_size);
+            num_loops = num_reads / vectorization_factor;
         }
 
-        for i in range(0u32, num_loops, Comptime::new(false)) {
-            if Comptime::get(is_scalar) {
+        for i in 0..num_loops {
+            if is_scalar {
                 vector[i] = tensor[gm_position + i];
             } else {
                 let intermediate = tensor[gm_position + i];
 
-                for j in range(0u32, Comptime::get(vectorization_factor), unroll) {
-                    vector[i * runtime_vectorization + j] = intermediate[j];
+                #[unroll(unroll)]
+                for j in 0..vectorization_factor {
+                    vector[i * vectorization_factor + j] = intermediate.vec_index(j);
                 }
             }
         }
@@ -199,30 +195,27 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
         out: &mut Tensor<F>,
         results: &Array<F>,
         positions: WritePositions,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let unroll = Comptime::map(config, |c| c.unroll_tile);
-        let vectorization_factor = Comptime::vectorization(out);
-        let runtime_vectorization = Comptime::runtime(vectorization_factor);
-        let is_scalar = Comptime::map(vectorization_factor, |v| v.val == 1);
+        let tile_size = config.tile_size;
+        let unroll = config.unroll_tile;
+        let vectorization_factor = vectorization(out);
+        let is_scalar = vectorization_factor == 1;
 
-        for i in range(
-            0u32,
-            Comptime::get(tile_size / vectorization_factor),
-            unroll,
-        ) {
-            if Comptime::get(is_scalar) {
+        #[unroll(unroll)]
+        for i in 0..tile_size / vectorization_factor {
+            if is_scalar {
                 out[i + positions.out] = results[positions.result + i];
             } else {
-                let mut output_elem = F::vectorized_empty(Comptime::get(vectorization_factor));
+                let mut output_elem = F::vectorized_empty(vectorization_factor);
 
-                for j in range(0u32, Comptime::get(vectorization_factor), unroll) {
-                    let index = i * runtime_vectorization + j;
+                #[unroll(unroll)]
+                for j in 0..vectorization_factor {
+                    let index = i * vectorization_factor + j;
                     output_elem[j] = results[positions.result + index];
                 }
 
-                out[i + positions.out / runtime_vectorization] = output_elem;
+                out[i + positions.out / vectorization_factor] = output_elem;
             }
         }
     }
@@ -232,37 +225,34 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
         results: &Array<F>,
         positions: WritePositions,
         check_bounds: CheckBounds,
-        write_col: UInt,
-        config: Comptime<CubeTiling2dConfig>,
+        write_col: u32,
+        #[comptime] config: CubeTiling2dConfig,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let vectorization_factor = Comptime::vectorization(out);
-        let runtime_vectorization = Comptime::runtime(vectorization_factor);
-        let is_scalar = Comptime::map(vectorization_factor, |v| v.val == 1);
+        let tile_size = config.tile_size;
+        let vectorization_factor = vectorization(out);
+        let is_scalar = vectorization_factor == 1;
 
-        let mut num_loops = UInt::new(0);
+        let mut num_loops = 0;
         if check_bounds.dim_horizontal > write_col {
-            let num_writes = UInt::min(
-                check_bounds.dim_horizontal - write_col,
-                Comptime::runtime(tile_size),
-            );
-            num_loops = num_writes / runtime_vectorization;
+            let num_writes = (check_bounds.dim_horizontal - write_col).min(tile_size);
+            num_loops = num_writes / vectorization_factor;
         }
 
-        for i in range(0u32, num_loops, Comptime::new(false)) {
-            let unroll = Comptime::map(config, |c| c.unroll_tile);
+        for i in 0..num_loops {
+            let unroll = config.unroll_tile;
 
-            if Comptime::get(is_scalar) {
+            if is_scalar {
                 out[i + positions.out] = results[positions.result + i];
             } else {
-                let mut output_elem = F::vectorized_empty(Comptime::get(vectorization_factor));
+                let mut output_elem = F::vectorized_empty(vectorization_factor);
 
-                for j in range(0u32, Comptime::get(vectorization_factor), unroll) {
-                    let index = i * runtime_vectorization + j;
+                #[unroll(unroll)]
+                for j in 0u32..vectorization_factor {
+                    let index = i * vectorization_factor + j;
                     output_elem[j] = results[positions.result + index];
                 }
 
-                out[i + positions.out / runtime_vectorization] = output_elem;
+                out[i + positions.out / vectorization_factor] = output_elem;
             }
         }
     }
@@ -272,15 +262,16 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
 impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
     fn read_strided_unchecked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
-        gm_stride: UInt,
-        config: Comptime<CubeTiling2dConfig>,
+        gm_position: u32,
+        gm_stride: u32,
+        #[comptime] config: CubeTiling2dConfig,
     ) -> F {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let unroll = Comptime::map(config, |c| c.unroll_tile);
+        let tile_size = config.tile_size;
+        let unroll = config.unroll_tile;
 
-        let mut vertical = F::vectorized_empty(Comptime::get(tile_size));
-        for i in range(0u32, Comptime::get(tile_size), unroll) {
+        let mut vertical = F::vectorized_empty(tile_size);
+        #[unroll(unroll)]
+        for i in 0..tile_size {
             vertical[i] = tensor[gm_position + i * gm_stride];
         }
 
@@ -289,27 +280,27 @@ impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
 
     fn read_strided_checked(
         tensor: &Tensor<F>,
-        gm_position: UInt,
-        gm_stride: UInt,
+        gm_position: u32,
+        gm_stride: u32,
         check_bounds: CheckBounds,
         info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
     ) -> F {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
+        let tile_size = config.tile_size;
 
-        let mut vertical = F::vectorized_empty(Comptime::get(tile_size));
+        let mut vertical = F::vectorized_empty(tile_size);
 
-        let mut num_reads = UInt::new(0);
+        let mut num_reads = 0;
         let row = check_bounds.skip_row + info.read_row;
         let dim_vertical = check_bounds.dim_vertical;
         if dim_vertical > row {
-            num_reads = UInt::min(dim_vertical - row, Comptime::runtime(tile_size));
+            num_reads = (dim_vertical - row).min(tile_size);
         }
 
-        for i in range(0u32, num_reads, Comptime::new(false)) {
+        for i in 0..num_reads {
             vertical[i] = tensor[gm_position + i * gm_stride];
         }
-        for i in range(num_reads, Comptime::get(tile_size), Comptime::new(false)) {
+        for i in num_reads..tile_size {
             vertical[i] = F::new(0.);
         }
 

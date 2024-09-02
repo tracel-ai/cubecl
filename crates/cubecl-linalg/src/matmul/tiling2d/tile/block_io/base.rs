@@ -12,7 +12,7 @@ pub(crate) trait BlockLoader<F: Float>: Send + Sync + 'static {
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<F>,
         read_tile_info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
     );
 
@@ -20,7 +20,7 @@ pub(crate) trait BlockLoader<F: Float>: Send + Sync + 'static {
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<F>,
         read_tile_info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
     );
 }
@@ -31,7 +31,7 @@ pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
         out: &mut Tensor<F>,
         results: &Array<F>,
         write_tile_info: WriteTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
     );
 }
@@ -39,16 +39,16 @@ pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
 #[cube]
 pub(crate) fn all_zeros_runtime<F: Float>(
     shared_memory: &mut SharedMemory<F>,
-    start: UInt,
-    sm_position_base: UInt,
-    sm_stride: UInt,
-    config: Comptime<CubeTiling2dConfig>,
+    start: u32,
+    sm_position_base: u32,
+    sm_stride: u32,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let zeros = F::vectorized(0., Comptime::get(tile_size));
+    let tile_size = config.tile_size;
+    let zeros = vectorize(F::new(0.), tile_size);
 
-    for i in range(start, Comptime::get(tile_size), Comptime::new(false)) {
-        let sm_position = (sm_position_base + i * sm_stride) / Comptime::runtime(tile_size);
+    for i in 0..tile_size {
+        let sm_position = (sm_position_base + i * sm_stride) / tile_size;
 
         shared_memory[sm_position] = zeros;
     }
@@ -57,16 +57,17 @@ pub(crate) fn all_zeros_runtime<F: Float>(
 #[cube]
 pub(crate) fn all_zeros_comptime<F: Float>(
     shared_memory: &mut SharedMemory<F>,
-    sm_position_base: UInt,
-    sm_stride: UInt,
-    config: Comptime<CubeTiling2dConfig>,
+    sm_position_base: u32,
+    sm_stride: u32,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let unroll = Comptime::map(config, |c| c.unroll_tile);
-    let zeros = F::vectorized(0., Comptime::get(tile_size));
+    let tile_size = config.tile_size;
+    let unroll = config.unroll_tile;
+    let zeros = vectorize(F::new(0.), tile_size);
 
-    for i in range(0u32, Comptime::get(tile_size), unroll) {
-        let sm_position = (sm_position_base + i * sm_stride) / Comptime::runtime(tile_size);
+    #[unroll(unroll)]
+    for i in 0..tile_size {
+        let sm_position = (sm_position_base + i * sm_stride) / tile_size;
 
         shared_memory[sm_position] = zeros;
     }

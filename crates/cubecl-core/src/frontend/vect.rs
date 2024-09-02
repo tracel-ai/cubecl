@@ -105,7 +105,7 @@ where
 }
 
 pub trait VecIndex: Expand {
-    fn vec_index(&self, _index: u32) -> &Self {
+    fn vec_index(&self, _index: u32) -> Self {
         unexpanded!()
     }
 }

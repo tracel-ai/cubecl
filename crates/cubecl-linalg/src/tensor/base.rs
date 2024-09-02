@@ -119,7 +119,7 @@ where
 {
     pub fn zeros(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
         let num_elements: usize = shape.iter().product();
-        let size = E::as_elem().size();
+        let size = E::ir_type().size();
 
         let handle = client.empty(size * num_elements);
         let strides = Self::contiguous_strides(&shape);

@@ -10,22 +10,21 @@ pub(crate) fn compute_loop<F: Float>(
     shared_lhs: SharedMemory<F>,
     shared_rhs: SharedMemory<F>,
     results: &mut Array<F>,
-    config: Comptime<CubeTiling2dConfig>,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
-    let block_size_k = Comptime::runtime(Comptime::map(config, |c| c.block_size_k));
-    let block_size_n = Comptime::map(config, |c| c.block_size_n);
-    let unroll = Comptime::map(config, |c| c.unroll_compute);
+    let tile_size = config.tile_size;
+    let block_size_m = config.block_size_m;
+    let block_size_k = config.block_size_k;
+    let block_size_n = config.block_size_n;
+    let unroll = config.unroll_compute;
 
     let unit_row = coordinates.unit_row;
     let unit_col = coordinates.unit_col;
 
-    for dot_index in range(0u32, block_size_k, unroll) {
-        let register_m = shared_lhs[(unit_row + dot_index * Comptime::runtime(block_size_m))
-            / Comptime::runtime(tile_size)];
-        let register_n = shared_rhs[(unit_col + dot_index * Comptime::runtime(block_size_n))
-            / Comptime::runtime(tile_size)];
+    #[unroll(unroll)]
+    for dot_index in 0..block_size_k {
+        let register_m = shared_lhs[(unit_row + dot_index * block_size_m) / tile_size];
+        let register_n = shared_rhs[(unit_col + dot_index * block_size_n) / tile_size];
 
         tile_outer_product::<F>(register_m, register_n, results, config);
     }
