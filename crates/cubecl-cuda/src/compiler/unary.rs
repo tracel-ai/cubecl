@@ -82,6 +82,7 @@ function!(Exp, "exp");
 function!(Erf, "erf");
 function!(Ceil, "ceil");
 function!(Floor, "floor");
+function!(Round, "rint");
 
 pub struct Not;
 

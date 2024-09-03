@@ -221,6 +221,10 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
+    Round {
+        input: Variable,
+        out: Variable,
+    },
     Floor {
         input: Variable,
         out: Variable,
@@ -602,6 +606,9 @@ for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
             }
             Instruction::ShiftRight { lhs, rhs, out } => {
                 f.write_fmt(format_args!("{out} = {lhs} >> {rhs};\n"))
+            }
+            Instruction::Round { input, out } => {
+                f.write_fmt(format_args!("{out} = round({input});\n"))
             }
             Instruction::Floor { input, out } => {
                 f.write_fmt(format_args!("{out} = floor({input});\n"))

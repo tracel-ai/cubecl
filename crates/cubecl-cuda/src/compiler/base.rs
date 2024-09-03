@@ -487,6 +487,9 @@ impl CudaCompiler {
                     out: self.compile_variable(op.out),
                 }))
             }
+            gpu::Operator::Round(op) => {
+                instructions.push(Instruction::Round(self.compile_unary(op)))
+            }
             gpu::Operator::Floor(op) => {
                 instructions.push(Instruction::Floor(self.compile_unary(op)))
             }

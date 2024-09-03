@@ -39,6 +39,7 @@ pub enum Operator {
     Tanh(UnaryOperator),
     Powf(BinaryOperator),
     Sqrt(UnaryOperator),
+    Round(UnaryOperator),
     Floor(UnaryOperator),
     Ceil(UnaryOperator),
     Erf(UnaryOperator),

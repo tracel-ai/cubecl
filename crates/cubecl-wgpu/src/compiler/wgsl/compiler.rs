@@ -564,6 +564,10 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),
             },
+            cube::Operator::Round(op) => wgsl::Instruction::Round {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(op.out),
+            },
             cube::Operator::Floor(op) => wgsl::Instruction::Floor {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),

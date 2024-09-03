@@ -76,6 +76,9 @@ impl ScopeProcessing {
                 Operator::Sqrt(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
                 }
+                Operator::Round(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
+                }
                 Operator::Floor(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
                 }

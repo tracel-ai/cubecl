@@ -115,6 +115,7 @@ pub enum Instruction {
     },
     SyncThreads,
     ThreadFence,
+    Round(UnaryInstruction),
     Ceil(UnaryInstruction),
     Floor(UnaryInstruction),
     Wrap(WarpInstruction),
@@ -266,6 +267,7 @@ for (uint {i} = {start}; {i} < {end}; {increment}) {{
             } => Clamp::format(f, input, min_value, max_value, out),
             Instruction::SyncThreads => f.write_str("__syncthreads();\n"),
             Instruction::ThreadFence => f.write_str("__threadfence();\n"),
+            Instruction::Round(it) => Round::format(f, &it.input, &it.out),
             Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),
             Instruction::Floor(it) => Floor::format(f, &it.input, &it.out),
             Instruction::SliceLength { input, out } => {
