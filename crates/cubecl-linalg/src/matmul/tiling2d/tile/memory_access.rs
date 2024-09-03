@@ -1,11 +1,11 @@
 use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, Runtime};
+use cubecl_core::{self as cubecl, CubeType};
 
 use crate::matmul::tiling2d::config::CubeTiling2dConfig;
 
 use super::loader::{CheckBounds, ReadTileInfo};
 
-#[derive(Expand, Runtime)]
+#[derive(Expand, CubeType)]
 pub(crate) struct WritePositions {
     pub out: u32,
     pub result: u32,
@@ -101,11 +101,11 @@ impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
 
-        let mut output_elem = F::vectorized_empty(tile_size);
+        let mut output_elem = vectorize(F::new(0.0), tile_size);
 
         #[unroll(unroll)]
         for i in 0..tile_size {
-            output_elem[i] = results[positions.result + i];
+            *output_elem.vec_index_mut(i) = results[positions.result + i];
         }
 
         out[positions.out / tile_size] = output_elem;
@@ -136,18 +136,18 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
         let vectorization_factor = vectorization(tensor);
         let is_scalar = vectorization_factor == 1;
 
-        let mut vector = F::vectorized(0., tile_size);
+        let mut vector = vectorize(F::new(0.), tile_size);
 
         #[unroll(unroll)]
         for i in 0u32..tile_size / vectorization_factor {
             if is_scalar {
-                vector[i] = tensor[gm_position + i];
+                *vector.vec_index_mut(i) = tensor[gm_position + i];
             } else {
                 let intermediate = tensor[gm_position + i];
 
                 #[unroll(unroll)]
                 for j in 0..vectorization_factor {
-                    vector[i * vectorization_factor + j] = intermediate.vec_index(j);
+                    *vector.vec_index_mut(i * vectorization_factor + j) = intermediate.vec_index(j);
                 }
             }
         }
@@ -167,7 +167,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
         let vectorization_factor = vectorization(tensor);
         let is_scalar = vectorization_factor == 1;
 
-        let mut vector = F::vectorized(0., tile_size);
+        let mut vector = vectorize(F::new(0.), tile_size);
 
         let mut num_loops = 0;
         if check_bounds.dim_horizontal > read_info.read_col {
@@ -177,13 +177,13 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
 
         for i in 0..num_loops {
             if is_scalar {
-                vector[i] = tensor[gm_position + i];
+                *vector.vec_index_mut(i) = tensor[gm_position + i];
             } else {
                 let intermediate = tensor[gm_position + i];
 
                 #[unroll(unroll)]
                 for j in 0..vectorization_factor {
-                    vector[i * vectorization_factor + j] = intermediate.vec_index(j);
+                    *vector.vec_index_mut(i * vectorization_factor + j) = intermediate.vec_index(j);
                 }
             }
         }
@@ -207,12 +207,12 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
             if is_scalar {
                 out[i + positions.out] = results[positions.result + i];
             } else {
-                let mut output_elem = F::vectorized_empty(vectorization_factor);
+                let mut output_elem = vectorize_like(F::new(0.), out);
 
                 #[unroll(unroll)]
                 for j in 0..vectorization_factor {
                     let index = i * vectorization_factor + j;
-                    output_elem[j] = results[positions.result + index];
+                    *output_elem.vec_index_mut(j) = results[positions.result + index];
                 }
 
                 out[i + positions.out / vectorization_factor] = output_elem;
@@ -244,12 +244,12 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
             if is_scalar {
                 out[i + positions.out] = results[positions.result + i];
             } else {
-                let mut output_elem = F::vectorized_empty(vectorization_factor);
+                let mut output_elem = vectorize_like(F::new(0.), out);
 
                 #[unroll(unroll)]
                 for j in 0u32..vectorization_factor {
                     let index = i * vectorization_factor + j;
-                    output_elem[j] = results[positions.result + index];
+                    *output_elem.vec_index_mut(j) = results[positions.result + index];
                 }
 
                 out[i + positions.out / vectorization_factor] = output_elem;
@@ -269,10 +269,10 @@ impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
 
-        let mut vertical = F::vectorized_empty(tile_size);
+        let mut vertical = vectorize(F::new(0.), tile_size);
         #[unroll(unroll)]
         for i in 0..tile_size {
-            vertical[i] = tensor[gm_position + i * gm_stride];
+            *vertical.vec_index_mut(i) = tensor[gm_position + i * gm_stride];
         }
 
         vertical
@@ -288,7 +288,7 @@ impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
     ) -> F {
         let tile_size = config.tile_size;
 
-        let mut vertical = F::vectorized_empty(tile_size);
+        let mut vertical = vectorize(F::new(0.), tile_size);
 
         let mut num_reads = 0;
         let row = check_bounds.skip_row + info.read_row;
@@ -298,10 +298,10 @@ impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
         }
 
         for i in 0..num_reads {
-            vertical[i] = tensor[gm_position + i * gm_stride];
+            *vertical.vec_index_mut(i) = tensor[gm_position + i * gm_stride];
         }
         for i in num_reads..tile_size {
-            vertical[i] = F::new(0.);
+            *vertical.vec_index_mut(i) = F::new(0.);
         }
 
         vertical

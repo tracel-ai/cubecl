@@ -305,24 +305,10 @@ impl ToTokens for Expression {
                 }
             }
             Expression::StructInit { path, fields } => {
-                let runtime = ir_type("Runtime");
-                let dyn_expr = ir_type("DynamicExpr");
-                let fields = fields
-                    .iter()
-                    .map(|(member, value)| quote![#member: #dyn_expr::new(#value)]);
-                let mut path = path.clone();
-                let type_name = path.segments.last_mut().unwrap();
-                let generics = std::mem::replace(&mut type_name.arguments, PathArguments::None);
-                let mut type_generics = generics.clone();
-                if let PathArguments::AngleBracketed(path) = &mut type_generics {
-                    path.colon2_token.take();
-                };
+                let cube_type = ir_type("CubeType");
 
                 quote! {
-                    {
-                        type __RuntimeTy #type_generics = <#path #generics as #runtime>::Runtime;
-                        __RuntimeTy #generics { #(#fields),* }
-                    }
+                    <#path as #cube_type>::Runtime::new(#(#fields),*)
                 }
             }
             Expression::Closure { tokens } => tokens.clone(),

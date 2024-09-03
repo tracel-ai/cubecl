@@ -1,5 +1,5 @@
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, Runtime};
+use cubecl_core::{self as cubecl};
+use cubecl_core::{prelude::*, CubeType};
 
 use super::{
     base::{Coordinates, Dimensions},
@@ -11,7 +11,7 @@ use super::{
     },
 };
 
-#[derive(Expand, Runtime)]
+#[derive(Expand, CubeType)]
 pub(crate) struct WriteTileInfo {
     pub coordinates: Coordinates,
     pub offset_output: u32,

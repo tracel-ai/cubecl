@@ -2,8 +2,8 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{ConstantScalarValue, Elem, FloatKind, IntKind},
     new_ir::{
-        Expand, Expanded, Expr, Expression, GlobalVariable, SquareType, StaticExpand,
-        StaticExpanded, UnaryOp, Vectorization,
+        Expand, Expanded, Expr, Expression, GlobalVariable, MaxExpr, MinExpr, SquareType,
+        StaticExpand, StaticExpanded, UnaryOp, Vectorization,
     },
     prelude::{VecIndex, VecIndexMut},
     Runtime,
@@ -32,9 +32,9 @@ pub trait Numeric:
     }
 }
 pub trait Float: Numeric + num_traits::Float {}
-pub trait Integer: Numeric {}
+pub trait Integer: Numeric + Ord {}
 
-pub trait NumericExpand: StaticExpanded + Sized
+pub trait NumericExpandStatic: StaticExpanded + Sized
 where
     Self::Unexpanded: Numeric,
 {
@@ -44,7 +44,24 @@ where
     }
 }
 
-impl<T: StaticExpanded> NumericExpand for T where T::Unexpanded: Numeric {}
+pub trait IntegerExpand: Expanded<Unexpanded: Numeric> + Sized {
+    fn min(
+        self,
+        other: impl Expr<Output = Self::Unexpanded>,
+    ) -> impl Expr<Output = Self::Unexpanded> {
+        MinExpr::new(self.inner(), other)
+    }
+
+    fn max(
+        self,
+        other: impl Expr<Output = Self::Unexpanded>,
+    ) -> impl Expr<Output = Self::Unexpanded> {
+        MaxExpr::new(self.inner(), other)
+    }
+}
+
+impl<T: StaticExpanded> NumericExpandStatic for T where T::Unexpanded: Numeric {}
+impl<T: Expanded> IntegerExpand for T where T::Unexpanded: Integer {}
 
 pub trait FloatExpand: Expanded + Sized
 where

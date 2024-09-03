@@ -109,8 +109,9 @@ impl ToTokens for Expand {
 impl ToTokens for Runtime {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let expr = ir_type("Expr");
+        let once_expr = ir_type("OnceExpr");
         let expression = ir_type("Expression");
-        let runtime = ir_type("Runtime");
+        let runtime = ir_type("CubeType");
         let square_ty = ir_type("SquareType");
         let elem_ty = ir_type("Elem");
 
@@ -134,10 +135,37 @@ impl ToTokens for Runtime {
                 quote![__fields.insert(#name_str, self.#name.expression_untyped())]
             })
             .collect::<Vec<_>>();
+        let new_args = fields.iter().map(|field| {
+            let name = field.ident.as_ref().unwrap();
+            let ty = &field.ty;
+            let comptime = field.comptime;
+            if comptime.is_present() {
+                quote![#name: #ty]
+            } else {
+                quote![#name: impl #expr<Output = #ty> + 'static]
+            }
+        });
+        let new_inits = fields.iter().map(|field| {
+            let name = field.ident.as_ref().unwrap();
+            let comptime = field.comptime;
+            if comptime.is_present() {
+                name.to_token_stream()
+            } else {
+                quote![#name: #once_expr::new(#name)]
+            }
+        });
 
         let out = quote! {
             #vis struct #name #generics #where_clause {
                 #(#fields),*
+            }
+
+            impl #generics #name #generic_names #where_clause {
+                pub fn new(#(#new_args),*) -> Self {
+                    Self {
+                        #(#new_inits),*
+                    }
+                }
             }
 
             impl #generics #runtime for #base_name #generic_names #where_clause {
@@ -173,7 +201,7 @@ impl ToTokens for Runtime {
 
 impl ToTokens for RuntimeField {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let expr = ir_type("DynamicExpr");
+        let expr = ir_type("OnceExpr");
 
         let name = self.ident.as_ref().unwrap();
         let ty = &self.ty;

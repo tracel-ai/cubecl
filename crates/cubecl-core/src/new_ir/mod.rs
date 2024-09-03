@@ -1,6 +1,7 @@
 use std::num::NonZero;
 
 mod array;
+mod backend;
 mod branch;
 mod expression;
 mod operators;
@@ -13,6 +14,7 @@ mod types;
 pub mod flatten;
 
 pub use array::*;
+pub use backend::*;
 pub use branch::*;
 pub use expression::*;
 pub use operators::*;

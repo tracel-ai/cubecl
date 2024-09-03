@@ -541,7 +541,7 @@ where
 }
 
 #[derive(new)]
-pub struct BitCast<From: Expr, TTo: SquareType>
+pub struct BitCastExpr<From: Expr, TTo: SquareType>
 where
     From::Output: SquareType,
 {
@@ -549,7 +549,7 @@ where
     pub _to: PhantomData<TTo>,
 }
 
-impl<From: Expr, TTo: SquareType> Expr for BitCast<From, TTo>
+impl<From: Expr, TTo: SquareType> Expr for BitCastExpr<From, TTo>
 where
     From::Output: SquareType,
 {

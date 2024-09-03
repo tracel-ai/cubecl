@@ -1,11 +1,14 @@
 use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, Runtime};
+use cubecl_core::{self as cubecl, CubeType};
 use std::marker::PhantomData;
 
-use crate::matmul::tiling2d::load_shared_memory::{LoadInfo, Loader, LoaderExpand};
+use crate::matmul::tiling2d::{
+    config::CubeTiling2dConfig,
+    load_shared_memory::{LoadInfo, Loader, LoaderExpand},
+};
 
 use super::{
-    block_io::base::BlockLoader,
+    block_io::base::{BlockLoader, BlockLoaderExpand},
     memory_access::{MatchingVectorization, UnmatchingVectorization},
 };
 
@@ -16,14 +19,14 @@ pub(crate) struct TileLoader<F: Float> {
     _f: PhantomData<F>,
 }
 
-#[derive(Expand)]
+#[derive(Expand, CubeType)]
 pub(crate) struct LoadIndices {
     pub offset: u32,
     pub gm_stride: u32,
     pub sm_stride: u32,
 }
 
-#[derive(Expand, Runtime, Copy, Clone)]
+#[derive(Expand, CubeType, Copy, Clone)]
 pub(crate) struct CheckBounds {
     pub dim_vertical: u32,
     pub dim_horizontal: u32,
@@ -31,7 +34,7 @@ pub(crate) struct CheckBounds {
     pub skip_col: u32,
 }
 
-#[derive(Expand, Copy, Clone)]
+#[derive(Expand, CubeType, Copy, Clone)]
 pub(crate) struct ReadTileInfo {
     pub read_row: u32,
     pub read_col: u32,
@@ -43,8 +46,11 @@ pub(crate) struct ReadTileInfo {
 
 #[cube]
 impl<F: Float> Loader<F> for TileLoader<F> {
-    fn load_lhs_plain<B: BlockLoader<F>>(lhs: &Tensor<F>, load_info: LoadInfo<F>) {
-        let config = load_info.config;
+    fn load_lhs_plain<B: BlockLoader<F>>(
+        lhs: &Tensor<F>,
+        load_info: LoadInfo<F>,
+        #[comptime] config: CubeTiling2dConfig,
+    ) {
         let dims = load_info.dims;
         let coordinates = load_info.coordinates;
         let gm_stride = dims.m;
@@ -61,11 +67,14 @@ impl<F: Float> Loader<F> for TileLoader<F> {
             skip_col: coordinates.skip_row,
         };
 
-        load_plain::<F, B>(lhs, load_info, load_indices, check_bounds);
+        load_plain::<F, B>(lhs, load_info, load_indices, check_bounds, config);
     }
 
-    fn load_lhs_transposed<B: BlockLoader<F>>(lhs: &Tensor<F>, load_info: LoadInfo<F>) {
-        let config = load_info.config;
+    fn load_lhs_transposed<B: BlockLoader<F>>(
+        lhs: &Tensor<F>,
+        load_info: LoadInfo<F>,
+        #[comptime] config: CubeTiling2dConfig,
+    ) {
         let dims = load_info.dims;
         let coordinates = load_info.coordinates;
         let gm_stride = dims.k;
@@ -82,13 +91,16 @@ impl<F: Float> Loader<F> for TileLoader<F> {
             skip_col: load_info.k,
         };
 
-        load_transposed::<F, B>(lhs, load_info, load_indices, check_bounds);
+        load_transposed::<F, B>(lhs, load_info, load_indices, check_bounds, config);
     }
 
-    fn load_rhs_plain<B: BlockLoader<F>>(rhs: &Tensor<F>, load_info: LoadInfo<F>) {
+    fn load_rhs_plain<B: BlockLoader<F>>(
+        rhs: &Tensor<F>,
+        load_info: LoadInfo<F>,
+        #[comptime] config: CubeTiling2dConfig,
+    ) {
         let coordinates = load_info.coordinates;
         let dims = load_info.dims;
-        let config = load_info.config;
         let gm_stride = dims.n;
 
         let load_indices = LoadIndices {
@@ -103,11 +115,14 @@ impl<F: Float> Loader<F> for TileLoader<F> {
             skip_col: coordinates.skip_col,
         };
 
-        load_plain::<F, B>(rhs, load_info, load_indices, check_bounds);
+        load_plain::<F, B>(rhs, load_info, load_indices, check_bounds, config);
     }
 
-    fn load_rhs_transposed<B: BlockLoader<F>>(rhs: &Tensor<F>, load_info: LoadInfo<F>) {
-        let config = load_info.config;
+    fn load_rhs_transposed<B: BlockLoader<F>>(
+        rhs: &Tensor<F>,
+        load_info: LoadInfo<F>,
+        #[comptime] config: CubeTiling2dConfig,
+    ) {
         let dims = load_info.dims;
         let coordinates = load_info.coordinates;
         let gm_stride = dims.k;
@@ -115,7 +130,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
         let load_indices = LoadIndices {
             offset: coordinates.skip_col * gm_stride + load_info.k + load_info.batch_offset,
             gm_stride,
-            sm_stride: Comptime::runtime(Comptime::map(config, |c| c.block_size_n)),
+            sm_stride: config.block_size_n,
         };
         let check_bounds = CheckBounds {
             dim_vertical: dims.n,
@@ -124,7 +139,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
             skip_col: load_info.k,
         };
 
-        load_transposed::<F, B>(rhs, load_info, load_indices, check_bounds);
+        load_transposed::<F, B>(rhs, load_info, load_indices, check_bounds, config);
     }
 }
 
@@ -134,13 +149,14 @@ pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
     load_info: LoadInfo<F>,
     load_indices: LoadIndices,
     check_bounds: CheckBounds,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
     let coordinates = load_info.coordinates;
-    let config = load_info.config;
+    //let config = load_info.config;
 
-    let vectorization = Comptime::vectorization(tensor);
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let sm_dim_vertical = Comptime::runtime(Comptime::map(config, |c| c.block_size_k));
+    let vectorization = vectorization(tensor);
+    let tile_size = config.tile_size;
+    let sm_dim_vertical = config.block_size_k;
 
     let read_row = coordinates.unit_row;
     let read_col = coordinates.unit_col;
@@ -187,11 +203,12 @@ pub(crate) fn load_transposed<F: Float, L: BlockLoader<F>>(
     load_info: LoadInfo<F>,
     load_indices: LoadIndices,
     check_bounds: CheckBounds,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
     let coordinates = load_info.coordinates;
-    let config = load_info.config;
+    //let config = load_info.config;
 
-    let sm_dim_vertical = Comptime::runtime(Comptime::map(config, |c| c.block_size_k));
+    let sm_dim_vertical = config.block_size_k;
 
     let read_row = coordinates.unit_row;
     let read_col = coordinates.unit_col;

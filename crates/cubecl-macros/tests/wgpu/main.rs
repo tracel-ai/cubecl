@@ -1,4 +1,5 @@
 use common::*;
+use cubecl_core as cubecl;
 use cubecl_core::{prelude::*, CubeCount, CubeDim};
 use cubecl_wgpu::WgpuRuntime;
 use pretty_assertions::assert_eq;
@@ -83,17 +84,13 @@ pub fn sequence_for_loop() {
 }
 
 #[cube(launch, create_dummy_kernel)]
-fn execute_unary_kernel<F: cubecl_core::new_ir::Float>(
-    lhs: &Tensor<F>,
-    rhs: &Tensor<F>,
-    out: &mut Tensor<F>,
-) {
+fn execute_unary_kernel<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
     if ABSOLUTE_POS < out.len() {
         for i in 0..256u32 {
             if i % 2 == 0 {
-                out[ABSOLUTE_POS] -= F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
+                out[ABSOLUTE_POS] -= (lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]).cos();
             } else {
-                out[ABSOLUTE_POS] += F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
+                out[ABSOLUTE_POS] += (lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]).cos();
             }
         }
     }

@@ -94,7 +94,13 @@ impl Expression {
                 GlobalType::InputArray => context.input(index, item(ty, vectorization)),
                 GlobalType::OutputArray => context.output(index, item(ty, vectorization)),
             },
-            Expression::FieldAccess { .. } => todo!("Field access"),
+            Expression::FieldAccess { base, name, .. } => {
+                let base = base.flatten(context).unwrap();
+                match base {
+                    ExpandElement::Struct(vars) => vars[&name].clone(),
+                    _ => panic!("Tried to access field on non-struct"),
+                }
+            }
             Expression::Literal { value, .. } => {
                 ExpandElement::Plain(Variable::ConstantScalar(value))
             }

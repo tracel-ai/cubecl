@@ -1,7 +1,7 @@
 use super::block_loop::block_loop;
 use super::config::CmmaConfig;
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, new_ir::DynamicExpr, Runtime};
+use cubecl_core::{self as cubecl, CubeType};
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -27,26 +27,26 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     );
 }
 
-#[derive(Expand, Runtime, Copy, Clone)]
+#[derive(Expand, CubeType, Copy, Clone)]
 pub(crate) struct Dimensions {
     pub m: u32,
     pub k: u32,
     pub n: u32,
 }
 
-#[derive(Expand, Runtime, Copy, Clone)]
+#[derive(Expand, CubeType, Copy, Clone)]
 pub(crate) struct SharedMemories<FC: Float> {
     pub lhs: SharedMemory<FC>,
     pub rhs: SharedMemory<FC>,
 }
 
-#[derive(Expand, Runtime, Copy, Clone)]
+#[derive(Expand, CubeType, Copy, Clone)]
 pub(crate) struct Accumulators<F: Float> {
     pub first: cmma::Matrix<F>,
     pub second: cmma::Matrix<F>,
 }
 
-#[derive(Expand, Runtime, Copy, Clone)]
+#[derive(Expand, CubeType, Copy, Clone)]
 /// Not divided by vectorization factor
 ///
 /// Note: batch offsets take stride into account, but not the others

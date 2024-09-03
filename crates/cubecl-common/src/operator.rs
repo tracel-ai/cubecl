@@ -81,6 +81,10 @@ pub enum Operator {
     // Function-like
     /// The cosign operator
     Cos,
+    /// Min operator
+    Min,
+    /// Max operator
+    Max,
 }
 
 impl Operator {

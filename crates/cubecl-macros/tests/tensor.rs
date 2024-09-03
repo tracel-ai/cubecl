@@ -1,6 +1,7 @@
 use std::num::NonZero;
 
 use common::*;
+use cubecl_core::{self as cubecl, cube, prelude::Tensor2};
 use cubecl_core::{
     ir::{Elem, IntKind},
     new_ir::*,

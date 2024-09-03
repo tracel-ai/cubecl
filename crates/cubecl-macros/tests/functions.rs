@@ -1,3 +1,4 @@
+use cubecl_core as cubecl;
 use cubecl_core::{ir::Elem, new_ir::*, prelude::*};
 use pretty_assertions::assert_eq;
 
@@ -80,6 +81,10 @@ fn method_call() {
     assert_eq!(expanded, expected);
 }
 
+impl StaticExpand for Dummy {
+    type Expanded = DummyExpand<Self>;
+}
+
 #[expand_impl]
 impl Dummy {
     fn associated(b: u32) -> u32 {
@@ -118,11 +123,11 @@ fn associated_call() {
 #[test]
 fn trait_functions() {
     #[cube]
-    fn trait_functions<T: BitCast>() -> T {
+    fn trait_functions<T: BitCast<u32>>() -> T {
         T::bitcast_from(1)
     }
 
-    let expanded = associated_call::expand::<f32>().expression_untyped();
+    let expanded = trait_functions::expand::<f32>().expression_untyped();
     let expected = block_expr(
         vec![],
         Some(Expression::Binary {

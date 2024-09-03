@@ -1,4 +1,4 @@
-use cubecl_core::new_ir::{element::Tensor1, ABSOLUTE_POS};
+use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 mod common;

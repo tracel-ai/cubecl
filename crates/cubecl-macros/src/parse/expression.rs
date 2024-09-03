@@ -299,7 +299,7 @@ impl Expression {
                 tokens: quote![#mac],
             },
             Expr::Struct(init) => {
-                let fields = init
+                let mut fields = init
                     .fields
                     .clone()
                     .into_iter()
@@ -314,9 +314,10 @@ impl Expression {
                         tokens: quote![#init],
                     }
                 } else {
+                    fields.sort_by_key(|(member, _)| member.to_token_stream().to_string());
                     Expression::StructInit {
                         path: init.path,
-                        fields,
+                        fields: fields.into_iter().map(|(_, value)| value).collect(),
                     }
                 }
             }

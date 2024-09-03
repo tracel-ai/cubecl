@@ -146,7 +146,7 @@ pub enum Expression {
     },
     StructInit {
         path: Path,
-        fields: Vec<(Member, Expression)>,
+        fields: Vec<Expression>,
     },
     Closure {
         tokens: proc_macro2::TokenStream,

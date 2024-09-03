@@ -2,6 +2,7 @@
 
 mod common;
 use common::*;
+use cubecl_core as cubecl;
 use cubecl_core::{
     ir::{Elem, FloatKind, IntKind},
     new_ir::{Expr, Expression, Operator},

@@ -6,14 +6,13 @@ use crate::{
 use super::Primitive;
 
 /// Enable elegant casting from any to any CubeElem
-pub trait Cast<From: Primitive>: Primitive + StaticExpand
-where
-    <Self as StaticExpand>::Expanded: CastExpand<From, Self>,
+pub trait Cast<From: Primitive>:
+    Primitive + StaticExpand<Expanded: CastExpand<From, Self>>
 {
     fn cast_from(value: From) -> Self;
 }
 
-pub trait CastExpand<From: Primitive, To: Primitive + Cast<From>> {
+pub trait CastExpand<From: Primitive, To: Primitive> {
     fn cast_from(value: impl Expr<Output = From>) -> impl Expr<Output = To> {
         new_ir::Cast::new(value)
     }
@@ -28,7 +27,10 @@ where
     }
 }
 
-impl<P: Primitive + StaticExpand, From: Primitive> CastExpand<From, P> for P::Expanded {}
+impl<P: StaticExpanded, From: Primitive> CastExpand<From, P::Unexpanded> for P where
+    P::Unexpanded: Primitive
+{
+}
 
 /// Enables reinterpet-casting/bitcasting from any floating point value to any integer value and vice
 /// versa
@@ -46,7 +48,7 @@ where
 
 pub trait BitCastExpand<From: Primitive, To: Primitive>: Sized {
     fn bitcast_from(value: impl Expr<Output = From>) -> impl Expr<Output = To> {
-        new_ir::BitCast::new(value)
+        new_ir::BitCastExpr::new(value)
     }
 }
 

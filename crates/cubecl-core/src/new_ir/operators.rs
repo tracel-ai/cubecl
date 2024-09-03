@@ -71,7 +71,10 @@ macro_rules! bin_op {
 
 macro_rules! cmp_op {
     ($name:ident, $trait:ident, $operator:path) => {
-        pub struct $name<Left: Expr, Right: Expr>(pub BinaryOp<Left, Right, bool>)
+        cmp_op!($name, $trait, $operator, bool);
+    };
+    ($name:ident, $trait:ident, $operator:path, $out:path) => {
+        pub struct $name<Left: Expr, Right: Expr>(pub BinaryOp<Left, Right, $out>)
         where
             Left::Output: $trait<Right::Output> + SquareType,
             Right::Output: SquareType;
@@ -91,7 +94,7 @@ macro_rules! cmp_op {
             Left::Output: $trait<Right::Output> + SquareType,
             Right::Output: SquareType,
         {
-            type Output = bool;
+            type Output = $out;
 
             fn expression_untyped(&self) -> Expression {
                 Expression::Binary {
@@ -208,6 +211,9 @@ cmp_op!(LtExpr, PartialOrd, Operator::Lt);
 cmp_op!(LeExpr, PartialOrd, Operator::Le);
 cmp_op!(GeExpr, PartialOrd, Operator::Ge);
 cmp_op!(GtExpr, PartialOrd, Operator::Gt);
+
+cmp_op!(MinExpr, PartialOrd, Operator::Min, Left::Output);
+cmp_op!(MaxExpr, PartialOrd, Operator::Max, Left::Output);
 
 // Boolean
 bin_op!(BitXorExpr, BitXor, Operator::BitXor);

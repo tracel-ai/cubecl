@@ -65,6 +65,9 @@ fn unwrap_fields(mut expand: Expand) -> darling::Result<Expand> {
 fn unwrap_runtime(mut runtime: Runtime) -> darling::Result<Runtime> {
     let fields = runtime.data.as_ref().take_struct().unwrap();
     runtime.fields = fields.into_iter().cloned().collect();
+    runtime
+        .fields
+        .sort_by_key(|field| field.ident.as_ref().unwrap().to_string());
     StripDefault.visit_generics_mut(&mut runtime.generics);
     Ok(runtime)
 }

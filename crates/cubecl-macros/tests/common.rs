@@ -2,7 +2,8 @@ use std::num::NonZero;
 
 use cubecl_core::{
     ir::Elem,
-    new_ir::{Block, Expr, Expression, Primitive, SquareType, Statement, Var},
+    new_ir::{Block, Expr, Expression, SquareType, Statement, Var},
+    prelude::Primitive,
 };
 
 #[allow(unused)]

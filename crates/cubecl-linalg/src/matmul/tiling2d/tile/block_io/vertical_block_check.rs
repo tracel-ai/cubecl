@@ -5,7 +5,10 @@ use crate::matmul::tiling2d::{
     config::CubeTiling2dConfig,
     tile::{
         loader::{CheckBounds, ReadTileInfo},
-        memory_access::{ContiguousAccess, StridedAccess, UnmatchingVectorization, WritePositions},
+        memory_access::{
+            ContiguousAccess, ContiguousAccessExpand, StridedAccess, StridedAccessExpand,
+            UnmatchingVectorization, WritePositions,
+        },
     },
     write_output::WriteTileInfo,
 };

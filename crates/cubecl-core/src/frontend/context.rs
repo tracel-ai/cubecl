@@ -29,6 +29,7 @@ impl VariablePool {
                     }
                 }
                 ExpandElement::Plain(_) => (),
+                ExpandElement::Struct(_) => (),
             }
         }
 

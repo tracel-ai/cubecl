@@ -1,5 +1,5 @@
 #![allow(clippy::all)]
-
+use cubecl_core as cubecl;
 use cubecl_core::{ir::Elem, new_ir::*, prelude::*};
 use pretty_assertions::assert_eq;
 

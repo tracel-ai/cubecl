@@ -1,5 +1,5 @@
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, Runtime};
+use cubecl_core as cubecl;
+use cubecl_core::{prelude::*, CubeType};
 
 use super::{
     base::{BatchOffsets, Coordinates, Dimensions, SharedMemories},
@@ -11,24 +11,39 @@ use super::{
     },
 };
 
-#[derive(Expand, Runtime)]
+#[derive(Expand, CubeType)]
 #[allow(dead_code)]
 pub(crate) struct LoadInfo<F: Float> {
     pub coordinates: Coordinates,
     pub k: u32,
     pub batch_offset: u32,
     pub shared_memory: SharedMemory<F>,
-    #[expand(comptime)]
     pub config: CubeTiling2dConfig, // TODO: comptime
     pub dims: Dimensions,
 }
 
 #[cube]
 pub(crate) trait Loader<F: Float>: Sync + Send + 'static {
-    fn load_lhs_plain<B: BlockLoader<F>>(lhs: &Tensor<F>, load_info: LoadInfo<F>);
-    fn load_lhs_transposed<B: BlockLoader<F>>(lhs: &Tensor<F>, load_info: LoadInfo<F>);
-    fn load_rhs_plain<B: BlockLoader<F>>(rhs: &Tensor<F>, load_info: LoadInfo<F>);
-    fn load_rhs_transposed<B: BlockLoader<F>>(rhs: &Tensor<F>, load_info: LoadInfo<F>);
+    fn load_lhs_plain<B: BlockLoader<F>>(
+        lhs: &Tensor<F>,
+        load_info: LoadInfo<F>,
+        #[comptime] config: CubeTiling2dConfig,
+    );
+    fn load_lhs_transposed<B: BlockLoader<F>>(
+        lhs: &Tensor<F>,
+        load_info: LoadInfo<F>,
+        #[comptime] config: CubeTiling2dConfig,
+    );
+    fn load_rhs_plain<B: BlockLoader<F>>(
+        rhs: &Tensor<F>,
+        load_info: LoadInfo<F>,
+        #[comptime] config: CubeTiling2dConfig,
+    );
+    fn load_rhs_transposed<B: BlockLoader<F>>(
+        rhs: &Tensor<F>,
+        load_info: LoadInfo<F>,
+        #[comptime] config: CubeTiling2dConfig,
+    );
 }
 
 #[cube]
@@ -88,14 +103,14 @@ pub(crate) fn load_lhs_transposed<F: Float, L: Loader<F>>(
 
     if check_m_bounds {
         if check_k_bounds {
-            L::load_lhs_transposed::<WholeCheckBlockIO>(lhs, load_info);
+            L::load_lhs_transposed::<WholeCheckBlockIO>(lhs, load_info, config);
         } else {
-            L::load_lhs_transposed::<VerticalCheckBlockIO>(lhs, load_info);
+            L::load_lhs_transposed::<VerticalCheckBlockIO>(lhs, load_info, config);
         }
     } else if check_k_bounds {
-        L::load_lhs_transposed::<HorizontalCheckBlockIO>(lhs, load_info);
+        L::load_lhs_transposed::<HorizontalCheckBlockIO>(lhs, load_info, config);
     } else {
-        L::load_lhs_transposed::<UncheckedBlockIO>(lhs, load_info);
+        L::load_lhs_transposed::<UncheckedBlockIO>(lhs, load_info, config);
     }
 }
 
@@ -110,14 +125,14 @@ pub(crate) fn load_lhs_plain<F: Float, L: Loader<F>>(
 
     if check_k_bounds {
         if check_m_bounds {
-            L::load_lhs_plain::<WholeCheckBlockIO>(lhs, load_info);
+            L::load_lhs_plain::<WholeCheckBlockIO>(lhs, load_info, config);
         } else {
-            L::load_lhs_plain::<VerticalCheckBlockIO>(lhs, load_info);
+            L::load_lhs_plain::<VerticalCheckBlockIO>(lhs, load_info, config);
         }
     } else if check_m_bounds {
-        L::load_lhs_plain::<HorizontalCheckBlockIO>(lhs, load_info);
+        L::load_lhs_plain::<HorizontalCheckBlockIO>(lhs, load_info, config);
     } else {
-        L::load_lhs_plain::<UncheckedBlockIO>(lhs, load_info);
+        L::load_lhs_plain::<UncheckedBlockIO>(lhs, load_info, config);
     }
 }
 
@@ -132,14 +147,14 @@ pub(crate) fn load_rhs_transposed<F: Float, L: Loader<F>>(
 
     if check_n_bounds {
         if check_k_bounds {
-            L::load_rhs_transposed::<WholeCheckBlockIO>(rhs, load_info);
+            L::load_rhs_transposed::<WholeCheckBlockIO>(rhs, load_info, config);
         } else {
-            L::load_rhs_transposed::<VerticalCheckBlockIO>(rhs, load_info);
+            L::load_rhs_transposed::<VerticalCheckBlockIO>(rhs, load_info, config);
         }
     } else if check_k_bounds {
-        L::load_rhs_transposed::<HorizontalCheckBlockIO>(rhs, load_info);
+        L::load_rhs_transposed::<HorizontalCheckBlockIO>(rhs, load_info, config);
     } else {
-        L::load_rhs_transposed::<UncheckedBlockIO>(rhs, load_info);
+        L::load_rhs_transposed::<UncheckedBlockIO>(rhs, load_info, config);
     }
 }
 
@@ -154,13 +169,13 @@ pub(crate) fn load_rhs_plain<F: Float, L: Loader<F>>(
 
     if check_k_bounds {
         if check_n_bounds {
-            L::load_rhs_plain::<WholeCheckBlockIO>(rhs, load_info);
+            L::load_rhs_plain::<WholeCheckBlockIO>(rhs, load_info, config);
         } else {
-            L::load_rhs_plain::<VerticalCheckBlockIO>(rhs, load_info);
+            L::load_rhs_plain::<VerticalCheckBlockIO>(rhs, load_info, config);
         }
     } else if check_n_bounds {
-        L::load_rhs_plain::<HorizontalCheckBlockIO>(rhs, load_info);
+        L::load_rhs_plain::<HorizontalCheckBlockIO>(rhs, load_info, config);
     } else {
-        L::load_rhs_plain::<UncheckedBlockIO>(rhs, load_info);
+        L::load_rhs_plain::<UncheckedBlockIO>(rhs, load_info, config);
     }
 }

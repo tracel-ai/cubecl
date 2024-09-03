@@ -2,6 +2,7 @@
 
 use std::marker::PhantomData;
 
+use cubecl_core as cubecl;
 use cubecl_core::{
     ir::Elem,
     new_ir::{Expr, Expression, Operator, Variable},

@@ -5,7 +5,7 @@ use crate::{
     KernelSettings, Runtime,
 };
 use alloc::rc::Rc;
-use std::rc::Weak;
+use std::{collections::HashMap, rc::Weak};
 
 /// Defines how a [launch argument](LaunchArg) can be expanded.
 ///
@@ -57,6 +57,8 @@ pub enum ExpandElement {
     Managed(Rc<Variable>),
     /// Variable not kept in the variable pool.
     Plain(Variable),
+    /// Struct with subexpressions
+    Struct(HashMap<String, ExpandElement>),
 }
 
 /// Weak reference to a JIT variable for variable name mapping
@@ -66,6 +68,8 @@ pub enum ExpandElementWeak {
     Managed(Weak<Variable>),
     /// Variable not kept in the variable pool.
     Plain(Variable),
+    /// Struct with subexpressions
+    Struct(HashMap<String, ExpandElement>),
 }
 
 impl PartialEq for ExpandElementWeak {
@@ -87,6 +91,7 @@ impl ExpandElementWeak {
         match self {
             ExpandElementWeak::Managed(var) => Some(ExpandElement::Managed(var.upgrade()?)),
             ExpandElementWeak::Plain(var) => Some(ExpandElement::Plain(var)),
+            ExpandElementWeak::Struct(vars) => Some(ExpandElement::Struct(vars)),
         }
     }
 }
@@ -103,6 +108,7 @@ impl ExpandElement {
                 }
             }
             ExpandElement::Plain(_) => false,
+            ExpandElement::Struct(_) => false,
         }
     }
 
@@ -110,6 +116,7 @@ impl ExpandElement {
         match self {
             ExpandElement::Managed(var) => ExpandElementWeak::Managed(Rc::downgrade(var)),
             ExpandElement::Plain(var) => ExpandElementWeak::Plain(*var),
+            ExpandElement::Struct(var) => ExpandElementWeak::Struct(var.clone()),
         }
     }
 
@@ -117,6 +124,7 @@ impl ExpandElement {
         match self {
             ExpandElement::Managed(var) => *var,
             ExpandElement::Plain(var) => var,
+            ExpandElement::Struct(_) => panic!("Can't turn struct into variable"),
         }
     }
 
@@ -124,6 +132,7 @@ impl ExpandElement {
         match self {
             ExpandElement::Managed(var) => *var.as_ref(),
             ExpandElement::Plain(var) => *var,
+            ExpandElement::Struct(_) => panic!("Can't turn struct into variable"),
         }
     }
 
@@ -137,6 +146,7 @@ impl From<ExpandElement> for Variable {
         match value {
             ExpandElement::Managed(var) => *var,
             ExpandElement::Plain(var) => var,
+            ExpandElement::Struct(_) => panic!("Can't turn struct into variable"),
         }
     }
 }

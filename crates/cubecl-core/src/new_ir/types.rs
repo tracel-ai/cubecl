@@ -82,7 +82,7 @@ pub trait ExpandExpr<Inner: Expand>: Expr<Output = Inner> + Sized {
 impl<Expression: Expr> ExpandExpr<Expression::Output> for Expression where Expression::Output: Expand
 {}
 
-pub trait Runtime {
+pub trait CubeType {
     type Runtime;
 }
 

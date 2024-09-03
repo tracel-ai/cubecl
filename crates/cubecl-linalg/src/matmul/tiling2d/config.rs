@@ -1,4 +1,5 @@
-use cubecl_core::{compute::CubeCount, ir::CubeDim, Runtime};
+use cubecl_core as cubecl;
+use cubecl_core::{compute::CubeCount, ir::CubeDim, CubeType, Expand, Runtime};
 
 use super::base::TILE_SIZE;
 
@@ -29,7 +30,7 @@ impl Default for Tiling2dConfig {
     }
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Expand, CubeType)]
 /// Tiling 2D parameters
 pub struct CubeTiling2dConfig {
     /// Block size along dimension of lhs

@@ -79,8 +79,8 @@ pub fn derive_expand(input: TokenStream) -> TokenStream {
     expand.to_token_stream().into()
 }
 
-#[proc_macro_derive(Runtime, attributes(expand))]
-pub fn derive_runtime(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(CubeType, attributes(expand))]
+pub fn derive_cube_type(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let expand = match Runtime::from_derive_input(&input) {
         Ok(expand) => expand,

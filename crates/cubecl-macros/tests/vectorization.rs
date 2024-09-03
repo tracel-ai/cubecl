@@ -1,6 +1,8 @@
 use std::num::NonZero;
 
+use cubecl_core as cubecl;
 use cubecl_core::{
+    cube,
     ir::Elem,
     new_ir::{Expr, Expression, Operator, Variable},
 };

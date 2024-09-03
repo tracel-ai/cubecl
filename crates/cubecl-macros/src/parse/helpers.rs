@@ -44,6 +44,25 @@ impl Unroll {
         };
         Ok(Some(res))
     }
+
+    pub fn unroll_expr(attrs: &[Attribute]) -> Option<Expr> {
+        #[derive(FromMeta)]
+        struct NameVal {
+            pub value: Expr,
+        }
+
+        let attr = attrs.iter().find(|attr| attr.path().is_ident("unroll"));
+        let attr = match attr {
+            Some(attr) => attr,
+            None => return None,
+        };
+
+        match &attr.meta {
+            syn::Meta::Path(_) => None,
+            syn::Meta::List(list) => syn::parse2(list.tokens.clone()).ok(),
+            meta => Some(NameVal::from_meta(meta).ok()?.value),
+        }
+    }
 }
 
 pub struct RemoveHelpers;
@@ -58,7 +77,13 @@ impl VisitMut for RemoveHelpers {
     }
 
     fn visit_expr_for_loop_mut(&mut self, i: &mut syn::ExprForLoop) {
+        let unroll = Unroll::unroll_expr(&i.attrs);
         i.attrs.retain(|attr| !is_unroll_attr(attr));
+        if let Some(unroll) = unroll {
+            i.body
+                .stmts
+                .insert(0, parse_quote![let __unroll = #unroll;])
+        }
         visit_mut::visit_expr_for_loop_mut(self, i);
     }
 }

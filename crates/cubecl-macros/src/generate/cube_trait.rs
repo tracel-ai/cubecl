@@ -65,7 +65,7 @@ impl ToTokens for CubeTraitImpl {
         let out = quote! {
             #unsafety impl #generics #trait_expand_name for #struct_expand_name #struct_generic_names #impl_where {
                 #(
-                    #[allow(unused)]
+                    #[allow(unused, clone_on_copy, clippy::all)]
                     #fns
                 )*
             }
