@@ -16,8 +16,15 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
     lhs: TensorHandle<R, F>,
     rhs: TensorHandle<R, F>,
     out: TensorHandle<R, F>,
+    block_config: CmmaBlockConfig,
 ) -> TensorHandle<R, F> {
-    matmul_cmma_ref::<R, F>(client, lhs.as_ref(), rhs.as_ref(), out.as_ref());
+    matmul_cmma_ref::<R, F>(
+        client,
+        lhs.as_ref(),
+        rhs.as_ref(),
+        out.as_ref(),
+        block_config,
+    );
     out
 }
 
@@ -52,6 +59,7 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
+    block_config: CmmaBlockConfig,
 ) {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => true,
@@ -66,24 +74,27 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
     let rhs_correct_layout = check_layout(&rhs);
 
     match (lhs_correct_layout, rhs_correct_layout) {
-        (true, true) => matmul_cmma_ref_no_check::<R, F>(client, lhs, rhs, out),
+        (true, true) => matmul_cmma_ref_no_check::<R, F>(client, lhs, rhs, out, block_config),
         (true, false) => matmul_cmma_ref_no_check::<R, F>(
             client,
             lhs,
             into_contiguous::<R, F>(client, rhs).as_ref(),
             out,
+            block_config,
         ),
         (false, true) => matmul_cmma_ref_no_check::<R, F>(
             client,
             into_contiguous::<R, F>(client, lhs).as_ref(),
             rhs,
             out,
+            block_config,
         ),
         (false, false) => matmul_cmma_ref_no_check::<R, F>(
             client,
             into_contiguous::<R, F>(client, lhs).as_ref(),
             into_contiguous::<R, F>(client, rhs).as_ref(),
             out,
+            block_config,
         ),
     }
 }
@@ -93,6 +104,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
+    block_config: CmmaBlockConfig,
 ) {
     let rank = lhs.strides.len();
 
@@ -113,17 +125,15 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let rhs_vectorization = vectorization(n);
     let out_vectorization = vectorization(n);
 
-    let config = CmmaBlockConfig::new(64, 32);
-
     unsafe {
         cmma_kernel::launch_unchecked::<F, F16, R>(
             client,
-            config.cube_count::<R>(out.shape),
-            config.cube_dim(),
+            block_config.cube_count::<R>(out.shape),
+            block_config.cube_dim(),
             TensorArg::from_raw_parts(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
             TensorArg::from_raw_parts(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
             TensorArg::from_raw_parts(out.handle, out.strides, out.shape, out_vectorization),
-            config.comptime_info(m, k, n),
+            block_config.comptime_info(m, k, n),
         );
     }
 }

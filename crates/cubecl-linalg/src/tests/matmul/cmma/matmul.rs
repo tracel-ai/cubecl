@@ -8,6 +8,21 @@ macro_rules! testgen_cmma_matmul {
         }
 
         #[test]
+        pub fn test_matmul_cmma_square_block() {
+            tests::matmul_tests::test_matmul_cmma_one_cube::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_matmul_cmma_b_mn_larger() {
+            tests::matmul_tests::test_matmul_cmma_one_cube::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_matmul_cmma_b_mn_much_larger() {
+            tests::matmul_tests::test_matmul_cmma_one_cube::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
         pub fn test_matmul_cmma_several_cubes() {
             tests::matmul_tests::test_matmul_cmma_several_cubes::<TestRuntime>(&Default::default())
         }

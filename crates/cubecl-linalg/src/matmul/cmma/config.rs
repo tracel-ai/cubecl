@@ -13,6 +13,12 @@ pub struct CmmaBlockConfig {
     pub alpha: usize,
 }
 
+impl Default for CmmaBlockConfig {
+    fn default() -> Self {
+        Self::new(64, 32)
+    }
+}
+
 impl CmmaBlockConfig {
     pub(crate) fn new(b_mn: usize, b_k: usize) -> CmmaBlockConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
