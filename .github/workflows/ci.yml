@@ -1,9 +1,5 @@
 name: CI
 
-env:
-  CARGO_TERM_COLOR: always
-
-# For now we execute CI only on PR to save on CI time
 on:
   push:
     branches:
@@ -27,44 +23,112 @@ on:
       - '!LICENSE-APACHE'
       - '!LICENSE-MIT'
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_PREVIOUS_VERSION: 1.79.0
+
+  # Sourced from https://vulkan.lunarg.com/sdk/home#linux
+  VULKAN_SDK_VERSION: "1.3.268"
+
+  # Sourced from https://archive.mesa3d.org/. Bumping this requires
+  # updating the mesa build in https://github.com/gfx-rs/ci-build and creating a new release.
+  MESA_VERSION: "23.3.1"
+  # Corresponds to https://github.com/gfx-rs/ci-build/releases
+  MESA_CI_BINARY_BUILD: "build18"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  crates:
-    runs-on: ubuntu-latest
+  prepare-checks:
+    runs-on: ubuntu-22.04
+    outputs:
+      rust-prev-version: ${{ env.RUST_PREVIOUS_VERSION }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - name: Do Nothing
+        if: false
+        run: echo
+
+  code-quality:
+    runs-on: ubuntu-22.04
+    needs: prepare-checks
+    strategy:
+      matrix:
+        rust: [stable]
+        include:
+          - rust: stable
+            toolchain: stable
+    steps:
+      - name: Setup Rust
+        uses: tracel-ai/github-actions/setup-rust@v1
         with:
-          components: clippy, rustfmt
-          toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Format
-        run: cargo xtask ci --target crates format
-      - name: Lint
-        run: cargo xtask ci --target crates lint
+          rust-toolchain: ${{ matrix.toolchain }}
+          cache-key: ${{ matrix.rust }}-linux
+      # --------------------------------------------------------------------------------
       - name: Audit
-        run: cargo xtask ci --target crates audit
-      - name: Unit Tests
-        run: cargo xtask ci --target crates unit-tests
-      - name: Integration Tests
-        run: cargo xtask ci --target crates integration-tests
-      - name: Documentation Tests
-        run: cargo xtask ci --target crates doc-tests
-  examples:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          components: clippy, rustfmt
-          toolchain: stable
-      - uses: Swatinem/rust-cache@v2
+        run: cargo xtask check audit
+      # --------------------------------------------------------------------------------
       - name: Format
-        run: cargo xtask ci --target examples format
+        shell: bash
+        env:
+          # work around for colors
+          # see: https://github.com/rust-lang/rustfmt/issues/3385
+          TERM: xterm-256color
+        run: cargo xtask check format
+      # --------------------------------------------------------------------------------
       - name: Lint
-        run: cargo xtask ci --target examples lint
-      - name: Unit Tests
-        run: cargo xtask ci --target examples unit-tests
-      - name: Integration Tests
-        run: cargo xtask ci --target examples integration-tests
+        run: cargo xtask check lint
+      # --------------------------------------------------------------------------------
+      - name: Typos
+        uses: tracel-ai/github-actions/check-typos@v1
+
+  documentation:
+    runs-on: ubuntu-22.04
+    needs: prepare-checks
+    strategy:
+      matrix:
+        rust: [stable]
+        include:
+          - rust: stable
+            toolchain: stable
+    steps:
+      - name: Setup Rust
+        uses: tracel-ai/github-actions/setup-rust@v1
+        with:
+          rust-toolchain: ${{ matrix.toolchain }}
+          cache-key: ${{ matrix.rust }}-linux
+      # --------------------------------------------------------------------------------
+      - name: Documentation Build
+        run: cargo xtask doc build
+      # --------------------------------------------------------------------------------
       - name: Documentation Tests
-        run: cargo xtask ci --target examples doc-tests
+        run: cargo xtask doc tests
+
+  linux-std-tests:
+    runs-on: ubuntu-22.04
+    needs: prepare-checks
+    strategy:
+      matrix:
+        rust: [stable, prev]
+        include:
+          - rust: stable
+            toolchain: stable
+          - rust: prev
+            toolchain: ${{ needs.prepare-checks.outputs.rust-prev-version }}
+    steps:
+      - name: Setup Rust
+        uses: tracel-ai/github-actions/setup-rust@v1
+        with:
+          rust-toolchain: ${{ matrix.toolchain }}
+          cache-key: ${{ matrix.rust }}-linux
+      # --------------------------------------------------------------------------------
+      - name: Setup Linux runner
+        uses: tracel-ai/github-actions/setup-linux@v1
+        with:
+          vulkan-sdk-version: ${{ env.VULKAN_SDK_VERSION }}
+          mesa-version: ${{ env.MESA_VERSION }}
+          mesa-ci-build-version: ${{ env.MESA_CI_BINARY_BUILD }}
+      # --------------------------------------------------------------------------------
+      - name: Tests
+        run: cargo xtask test --ci
