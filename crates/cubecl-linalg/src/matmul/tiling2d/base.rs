@@ -145,5 +145,5 @@ fn make_shared_memories<F: Float>(#[comptime] config: CubeTiling2dConfig) -> Sha
     let lhs = SharedMemory::<F>::vectorized(block_size_k * block_size_m / tile_size, tile_size);
     let rhs = SharedMemory::<F>::vectorized(block_size_k * block_size_n / tile_size, tile_size);
 
-    SharedMemories { lhs, rhs }
+    SharedMemories::<F> { lhs, rhs }
 }

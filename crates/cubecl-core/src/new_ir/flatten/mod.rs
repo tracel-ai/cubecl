@@ -1,4 +1,4 @@
-use std::{iter, num::NonZero, ops::DerefMut};
+use std::{iter, num::NonZero, ops::DerefMut, rc::Rc};
 
 use cubecl_common::operator::Operator;
 
@@ -32,11 +32,11 @@ impl Expression {
                 }
 
                 let left = left.flatten(context).unwrap();
-                let right = right.flatten(context).unwrap().as_variable();
+                let right = right.flatten(context).unwrap();
                 if operator.is_assign() {
                     let bin_op = BinaryOperator {
                         lhs: left.as_variable(),
-                        rhs: right,
+                        rhs: right.as_variable(),
                         out: left.as_variable(),
                     };
                     context.register(map_bin_op(operator, bin_op));
@@ -46,10 +46,11 @@ impl Expression {
                     let out = context.create_local(item(ty, vectorization));
                     let bin_op = BinaryOperator {
                         lhs: left,
-                        rhs: right,
+                        rhs: right.as_variable(),
                         out: out.as_variable(),
                     };
-                    context.register(map_bin_op(operator, bin_op));
+                    let op = map_bin_op(operator, bin_op);
+                    context.register(op);
                     out
                 }
             }
@@ -74,13 +75,17 @@ impl Expression {
                 name,
                 vectorization,
                 ty,
+                ..
             }) => {
                 if let Some(var) = context.get_local(&name) {
+                    if Rc::strong_count(&name) <= 2 {
+                        context.remove_local(&name);
+                    }
                     var
                 } else {
                     // This must be a declaration, because non-existing variables don't compile
                     let new = context.create_local(item(ty, vectorization));
-                    context.register_local(name, new.as_weak());
+                    context.register_local(name.clone(), new.as_weak());
                     new
                 }
             }
@@ -97,7 +102,7 @@ impl Expression {
             Expression::FieldAccess { base, name, .. } => {
                 let base = base.flatten(context).unwrap();
                 match base {
-                    ExpandElement::Struct(vars) => vars[&name].clone(),
+                    ExpandElement::Struct(vars) => vars[name.as_str()].clone(),
                     _ => panic!("Tried to access field on non-struct"),
                 }
             }
@@ -105,14 +110,14 @@ impl Expression {
                 ExpandElement::Plain(Variable::ConstantScalar(value))
             }
             Expression::Assigment { left, right, .. } => {
-                let right = right.flatten(context).unwrap().into_variable();
+                let right = right.flatten(context).unwrap();
                 match *left {
                     Expression::Tensor(TensorExpression::Index { tensor, index, .. }) => {
-                        let index = index.flatten(context).unwrap().as_variable();
+                        let index = index.flatten(context).unwrap();
                         let tensor = tensor.flatten(context).unwrap();
                         context.register(ir::Operator::IndexAssign(BinaryOperator {
-                            lhs: index,
-                            rhs: right,
+                            lhs: index.as_variable(),
+                            rhs: right.as_variable(),
                             out: tensor.as_variable(),
                         }));
                         tensor
@@ -120,19 +125,33 @@ impl Expression {
                     left => {
                         let left = left.flatten(context).unwrap();
                         context.register(ir::Operator::Assign(UnaryOperator {
-                            input: right,
+                            input: right.as_variable(),
                             out: left.as_variable(),
                         }));
                         left
                     }
                 }
             }
-            Expression::Init { left, right, .. } => {
+            Expression::Init {
+                left,
+                right,
+                ty,
+                vectorization,
+            } => {
                 let right = right.flatten(context).unwrap();
-                context.register_local(left.name, right.as_weak());
-                right
+                if left.mutable && !right.can_mut() {
+                    let out = context.create_local(item(ty, vectorization));
+                    context.register(ir::Operator::Assign(UnaryOperator {
+                        input: right.as_variable(),
+                        out: out.as_variable(),
+                    }));
+                    out
+                } else {
+                    context.register_local(left.name, right.as_weak());
+                    right
+                }
             }
-            Expression::Block(block) => flatten_block(block, &mut context.child())?,
+            Expression::Block(block) => flatten_block(block, context)?,
             Expression::Break => {
                 context.register(Branch::Break);
                 None?
@@ -168,67 +187,71 @@ impl Expression {
             }
             Expression::ForLoop {
                 range,
-                unroll,
                 variable,
                 block,
+                unroll: true,
             } => {
-                if unroll {
-                    let start = range.start.as_lit().unwrap().as_usize();
-                    let end = range.end.as_lit().unwrap().as_usize();
-                    let step = range.step.map(|it| it.as_lit().unwrap().as_usize());
+                let start = range.start.as_lit().unwrap().as_usize();
+                let end = range.end.as_lit().unwrap().as_usize();
+                let step = range.step.map(|it| it.as_lit().unwrap().as_usize());
+                //println!("Block: {block:?}\n");
 
-                    let mut func = |i: usize| {
-                        let value = ExpandElement::Plain(variable.ty.constant_from_u64(i as u64));
-                        let mut scope = context.child();
-                        scope.register_local(variable.name.clone(), value.as_weak());
-                        flatten_block(block.clone(), &mut scope)
-                    };
+                let mut func = |i: usize| {
+                    let value = ExpandElement::Plain(variable.ty.constant_from_u64(i as u64));
+                    context.register_local(variable.name.clone(), value.as_weak());
+                    flatten_block(block.deep_clone(), context);
+                };
 
-                    match (step, range.inclusive) {
-                        (None, true) => {
-                            for i in start..=end {
-                                func(i);
-                            }
-                        }
-                        (None, false) => {
-                            for i in start..end {
-                                func(i);
-                            }
-                        }
-                        (Some(step), true) => {
-                            for i in (start..=end).step_by(step) {
-                                func(i);
-                            }
-                        }
-                        (Some(step), false) => {
-                            for i in (start..end).step_by(step) {
-                                func(i);
-                            }
+                match (step, range.inclusive) {
+                    (None, true) => {
+                        for i in start..=end {
+                            func(i);
                         }
                     }
-                    None?
-                } else {
-                    let start = range.start.flatten(context).unwrap().as_variable();
-                    let end = range.end.flatten(context).unwrap().as_variable();
-                    let step = range.step.and_then(|expr| expr.flatten(context));
-                    let mut scope = context.child();
-                    let i = scope
-                        .scope
-                        .borrow_mut()
-                        .create_local_undeclared(start.item());
-                    let var = ExpandElement::Plain(i);
-                    scope.register_local(variable.name, var.as_weak());
-                    flatten_block(block, &mut scope);
-
-                    context.register(Branch::RangeLoop(RangeLoop {
-                        i,
-                        start,
-                        end,
-                        step: step.as_ref().map(|it| it.as_variable()),
-                        scope: scope.into_scope(),
-                    }));
-                    None?
+                    (None, false) => {
+                        for i in start..end {
+                            func(i);
+                        }
+                    }
+                    (Some(step), true) => {
+                        for i in (start..=end).step_by(step) {
+                            func(i);
+                        }
+                    }
+                    (Some(step), false) => {
+                        for i in (start..end).step_by(step) {
+                            func(i);
+                        }
+                    }
                 }
+                None?
+            }
+            Expression::ForLoop {
+                range,
+                variable,
+                block,
+                unroll: false,
+            } => {
+                let start = range.start.flatten(context).unwrap();
+                let end = range.end.flatten(context).unwrap();
+                let step = range.step.and_then(|expr| expr.flatten(context));
+                let mut scope = context.child();
+                let i = scope
+                    .scope
+                    .borrow_mut()
+                    .create_local_undeclared(start.item());
+                let var = ExpandElement::Plain(i);
+                scope.register_local(variable.name, var.as_weak());
+                flatten_block(block, &mut scope);
+
+                context.register(Branch::RangeLoop(RangeLoop {
+                    i,
+                    start: start.as_variable(),
+                    end: end.as_variable(),
+                    step: step.as_ref().map(|it| it.as_variable()),
+                    scope: scope.into_scope(),
+                }));
+                None?
             }
             Expression::WhileLoop {
                 condition,
@@ -276,33 +299,34 @@ impl Expression {
             } => {
                 let ty = then_block.ty;
                 let has_ret = then_block.ret.ir_type() != Elem::Unit;
-                let cond = condition.flatten(context).unwrap().as_variable();
+                let cond = condition.flatten(context).unwrap();
 
                 if has_ret {
-                    let lhs = flatten_block(then_block, context).unwrap().into_variable();
-                    let rhs = else_branch
-                        .and_then(|expr| expr.flatten(context))
-                        .unwrap()
-                        .as_variable();
+                    let lhs = flatten_block(then_block, context).unwrap();
+                    let rhs = else_branch.and_then(|expr| expr.flatten(context)).unwrap();
+                    let cond = cond.into_variable();
                     let out = context.create_local(Item::new(ty));
                     ConditionalAssign::expand(
                         ConditionalAssign {
                             cond,
-                            lhs,
-                            rhs,
+                            lhs: lhs.as_variable(),
+                            rhs: rhs.as_variable(),
                             out: out.as_variable(),
                         },
                         context.scope.borrow_mut().deref_mut(),
                     );
                     out
                 } else if let Some(right) = else_branch {
+                    let cond = cond.into_variable();
                     let mut scope_if = context.child();
                     flatten_block(then_block, &mut scope_if).unwrap();
                     let mut scope_else = context.child();
-                    match *right {
-                        Expression::Block(block) => flatten_block(block, &mut scope_else),
-                        right => right.flatten(&mut scope_else),
-                    };
+                    right.flatten(&mut scope_else);
+
+                    // match *right {
+                    //     Expression::Block(block) => flatten_block(block, &mut scope_else),
+                    //     right => right.flatten(&mut scope_else),
+                    // };
                     context.register(Branch::IfElse(IfElse {
                         cond,
                         scope_if: scope_if.into_scope(),
@@ -310,8 +334,10 @@ impl Expression {
                     }));
                     None?
                 } else {
+                    let cond = cond.into_variable();
                     let mut scope = context.child();
                     flatten_block(then_block, &mut scope);
+
                     context.register(Branch::If(If {
                         cond,
                         scope: scope.into_scope(),
@@ -343,14 +369,14 @@ impl Expression {
                 vectorization,
                 ty,
             } => {
+                let min = min.flatten(context).unwrap();
+                let max = max.flatten(context).unwrap();
                 let input = input.flatten(context).unwrap().into_variable();
-                let min = min.flatten(context).unwrap().as_variable();
-                let max = max.flatten(context).unwrap().as_variable();
                 let out = context.create_local(item(ty, vectorization));
                 context.register(ir::Operator::Clamp(ClampOperator {
                     input,
-                    min_value: min,
-                    max_value: max,
+                    min_value: min.as_variable(),
+                    max_value: max.as_variable(),
                     out: out.as_variable(),
                 }));
                 out
@@ -364,18 +390,30 @@ impl Expression {
                 ty,
                 vectorization,
             } => {
-                let a = a.flatten(context).unwrap().into_variable();
-                let b = b.flatten(context).unwrap().as_variable();
-                let c = c.flatten(context).unwrap().as_variable();
-                let output = context.create_local(item(ty, vectorization));
-                let out = output.as_variable();
+                let a = a.flatten(context).unwrap();
+                let b = b.flatten(context).unwrap();
+                let c = c.flatten(context).unwrap();
+                let a = a.into_variable();
+                let out = context.create_local(item(ty, vectorization));
 
-                context.register(ir::Operator::Fma(FmaOperator { a, b, c, out }));
+                context.register(ir::Operator::Fma(FmaOperator {
+                    a,
+                    b: b.as_variable(),
+                    c: c.as_variable(),
+                    out: out.as_variable(),
+                }));
 
-                output
+                out
             }
-            Expression::RuntimeStruct { .. } => {
-                todo!("RuntimeStruct")
+            Expression::RuntimeStruct { fields } => {
+                let fields = fields
+                    .into_iter()
+                    .map(|(name, value)| {
+                        let value = value.flatten(context).unwrap();
+                        (name, value)
+                    })
+                    .collect();
+                ExpandElement::Struct(fields)
             }
             Expression::Sync(sync) => {
                 context.register(sync);
@@ -391,7 +429,12 @@ impl Expression {
 
 pub fn flatten_statement(stmt: Statement, context: &mut CubeContext) -> Option<ExpandElement> {
     match stmt {
-        Statement::Local { variable, .. } => variable.flatten(context),
+        Statement::Local { variable, .. } => {
+            println!("Local init: {variable:?}");
+            let res = variable.flatten(context);
+            println!("Flattened: {res:?}\n");
+            res
+        }
         Statement::Expression(expr) => expr.flatten(context),
     }
 }
@@ -406,33 +449,33 @@ pub fn flatten_block(block: Block, scope: &mut CubeContext) -> Option<ExpandElem
 fn flatten_tensor_expr(expr: TensorExpression, context: &mut CubeContext) -> Option<ExpandElement> {
     let res = match expr {
         TensorExpression::Stride { tensor, dim } => {
-            let tensor = tensor.flatten(context).unwrap().as_variable();
-            let dim = dim.flatten(context).unwrap().as_variable();
+            let tensor = tensor.flatten(context).unwrap();
+            let dim = dim.flatten(context).unwrap();
             let out = context.create_local(Item::new(Elem::UInt));
             context.register(Metadata::Stride {
-                dim,
-                var: tensor,
+                dim: dim.as_variable(),
+                var: tensor.as_variable(),
                 out: out.as_variable(),
             });
             out
         }
         TensorExpression::Shape { tensor, dim } => {
-            let tensor = tensor.flatten(context).unwrap().as_variable();
-            let dim = dim.flatten(context).unwrap().as_variable();
+            let tensor = tensor.flatten(context).unwrap();
+            let dim = dim.flatten(context).unwrap();
             let out = context.create_local(Item::new(Elem::UInt));
             context.register(Metadata::Shape {
-                dim,
-                var: tensor,
+                dim: dim.as_variable(),
+                var: tensor.as_variable(),
                 out: out.as_variable(),
             });
             out
         }
         TensorExpression::Length { tensor } => {
-            let tensor = tensor.flatten(context).unwrap().as_variable();
+            let tensor = tensor.flatten(context).unwrap();
             let out = context.create_local(Item::new(Elem::UInt));
             context.register(Metadata::Length {
-                var: tensor,
-                out: out.clone().into(),
+                var: tensor.as_variable(),
+                out: out.as_variable(),
             });
             out
         }
@@ -442,25 +485,25 @@ fn flatten_tensor_expr(expr: TensorExpression, context: &mut CubeContext) -> Opt
             index,
             vectorization,
         } => {
-            let tensor: Variable = tensor.flatten(context).unwrap().into();
-            let index: Variable = index.flatten(context).unwrap().into();
-            let out = context.create_local(item(tensor.item().elem, vectorization));
+            // When operation has no hard vectorization, fall back to tensor vectorization
+            let tensor = tensor.flatten(context).unwrap();
+            let vectorization = vectorization
+                .map(|it| it.get())
+                .unwrap_or_else(|| tensor.item().vectorization);
+            let index = index.flatten(context).unwrap();
+            let out = context.create_local(Item::vectorized(tensor.item().elem, vectorization));
+
             context.register(ir::Operator::Index(BinaryOperator {
-                rhs: index,
-                lhs: tensor,
-                out: out.clone().into(),
+                rhs: index.as_variable(),
+                lhs: tensor.as_variable(),
+                out: out.as_variable(),
             }));
             out
         }
         TensorExpression::Slice { ranges, tensor } => {
-            let input = tensor.clone().flatten(context).unwrap().as_variable();
+            let input = tensor.clone().flatten(context).unwrap();
             assert_eq!(ranges.len(), 1, "Multi-slices not currently supported");
-            let start = ranges[0]
-                .start
-                .clone()
-                .flatten(context)
-                .unwrap()
-                .as_variable();
+            let start = ranges[0].start.clone().flatten(context).unwrap();
             let end = ranges[0]
                 .end
                 .clone()
@@ -472,8 +515,8 @@ fn flatten_tensor_expr(expr: TensorExpression, context: &mut CubeContext) -> Opt
             let out = context.create_slice(input.item());
 
             context.register(ir::Operator::Slice(ir::SliceOperator {
-                input,
-                start,
+                input: input.as_variable(),
+                start: start.as_variable(),
                 end,
                 out: out.as_variable(),
             }));
@@ -500,12 +543,13 @@ fn flatten_subcube(subcube: SubcubeExpression, context: &mut CubeContext) -> Opt
             ty,
             vectorization,
         } => {
-            let lhs = left.flatten(context).unwrap().into_variable();
-            let rhs = right.flatten(context).unwrap().as_variable();
+            let lhs = left.flatten(context).unwrap();
+            let rhs = right.flatten(context).unwrap();
+            let lhs = lhs.into_variable();
             let out = context.create_local(item(ty, vectorization));
             context.register(Operation::Subcube(Subcube::Broadcast(BinaryOperator {
                 lhs,
-                rhs,
+                rhs: rhs.as_variable(),
                 out: out.as_variable(),
             })));
             out
@@ -572,7 +616,9 @@ fn map_bin_op(operator: Operator, bin_op: BinaryOperator) -> ir::Operator {
         Operator::Shr => ir::Operator::ShiftRight(bin_op),
         Operator::ShlAssign => ir::Operator::ShiftLeft(bin_op),
         Operator::ShrAssign => ir::Operator::ShiftRight(bin_op),
-        _ => unreachable!("Operator must be binary"),
+        Operator::Min => ir::Operator::Min(bin_op),
+        Operator::Max => ir::Operator::Max(bin_op),
+        _ => unreachable!("Must be binop"),
     }
 }
 
@@ -582,6 +628,8 @@ fn map_un_op(operator: Operator, un_op: UnaryOperator) -> ir::Operator {
         Operator::Not => ir::Operator::Not(un_op),
         Operator::Neg => ir::Operator::Neg(un_op),
         Operator::Cos => ir::Operator::Cos(un_op),
+        Operator::Sqrt => ir::Operator::Sqrt(un_op),
+        Operator::Erf => ir::Operator::Erf(un_op),
         _ => unreachable!("Operator must be unary"),
     }
 }
@@ -610,13 +658,13 @@ fn split_assign_op(
         _ => unreachable!(),
     };
     let binary = {
-        let right = right.flatten(context).unwrap().as_variable();
         let left = left.flatten(context).unwrap();
+        let right = right.flatten(context).unwrap();
         let operation = map_bin_op(
             new_operator,
             BinaryOperator {
                 lhs: left.as_variable(),
-                rhs: right,
+                rhs: right.as_variable(),
                 out: left.as_variable(),
             },
         );
@@ -624,12 +672,12 @@ fn split_assign_op(
         left
     };
 
-    let index = index.flatten(context).unwrap().as_variable();
-    let tensor = tensor.flatten(context).unwrap().as_variable();
+    let index = index.flatten(context).unwrap();
+    let tensor = tensor.flatten(context).unwrap();
     context.register(ir::Operator::IndexAssign(BinaryOperator {
-        lhs: index,
+        lhs: index.as_variable(),
         rhs: binary.into_variable(),
-        out: tensor,
+        out: tensor.as_variable(),
     }));
     None
 }

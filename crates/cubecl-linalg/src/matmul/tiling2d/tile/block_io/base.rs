@@ -47,7 +47,7 @@ pub(crate) fn all_zeros_runtime<F: Float>(
     let tile_size = config.tile_size;
     let zeros = vectorize(F::new(0.), tile_size);
 
-    for i in 0..tile_size {
+    for i in start..tile_size {
         let sm_position = (sm_position_base + i * sm_stride) / tile_size;
 
         shared_memory[sm_position] = zeros;

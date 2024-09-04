@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use crate::ir::Elem;
 
 use super::{Block, Expr, Expression, SquareType};
@@ -10,6 +12,23 @@ pub enum Statement {
         ty: Option<Elem>,
     },
     Expression(Expression),
+}
+
+impl Statement {
+    pub fn deep_clone(&self) -> Statement {
+        match self {
+            Statement::Local {
+                variable,
+                mutable,
+                ty,
+            } => Statement::Local {
+                variable: variable.deep_clone(),
+                mutable: *mutable,
+                ty: *ty,
+            },
+            Statement::Expression(expr) => Statement::Expression(expr.deep_clone()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, new)]
@@ -36,7 +55,7 @@ where
         })
     }
 
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        todo!()
+    fn vectorization(&self) -> Option<NonZero<u8>> {
+        self.ret.vectorization()
     }
 }

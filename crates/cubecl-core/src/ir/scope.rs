@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{ir::ConstantScalarValue, prelude::ExpandElementWeak};
 
@@ -33,7 +33,7 @@ pub struct Scope {
     pub layout_ref: Option<Variable>,
     undeclared: u16,
     #[serde(skip)]
-    var_map: HashMap<String, ExpandElementWeak>,
+    pub var_map: HashMap<*const String, ExpandElementWeak>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Hash, Eq)]
@@ -462,11 +462,15 @@ impl Scope {
         local_array
     }
 
-    pub fn register_local(&mut self, name: String, value: ExpandElementWeak) {
-        self.var_map.insert(name, value);
+    pub fn register_local(&mut self, name: Rc<String>, value: ExpandElementWeak) {
+        self.var_map.insert(Rc::as_ptr(&name), value);
     }
 
-    pub fn get_local(&self, name: &str) -> Option<ExpandElementWeak> {
-        self.var_map.get(name).cloned()
+    pub fn get_local(&self, name: &Rc<String>) -> Option<ExpandElementWeak> {
+        self.var_map.get(&Rc::as_ptr(name)).cloned()
+    }
+
+    pub fn remove_local(&mut self, name: &Rc<String>) {
+        self.var_map.remove(&Rc::as_ptr(name));
     }
 }

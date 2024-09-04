@@ -1,9 +1,12 @@
 use cubecl_common::operator::Operator;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{Ident, Lit, Member, Path, PathSegment, Type};
+use syn::{Ident, Lit, Member, Path, PathArguments, PathSegment, Type};
 
 use crate::statement::Statement;
+
+const CONSTANT_FNS: &[&str] = &["vectorization_of"];
+const CONSTANT_TYPES: &[&str] = &["::cubecl::prelude::Sequence"];
 
 #[derive(Clone, Debug)]
 pub enum Expression {
@@ -48,12 +51,7 @@ pub enum Expression {
         ty: Option<Type>,
         span: Span,
     },
-    Block {
-        inner: Vec<Statement>,
-        ret: Option<Box<Expression>>,
-        ty: Option<Type>,
-        span: Span,
-    },
+    Block(Block),
     FunctionCall {
         func: Box<Expression>,
         args: Vec<Expression>,
@@ -89,21 +87,21 @@ pub enum Expression {
         unroll: Option<Box<Expression>>,
         var_name: syn::Ident,
         var_ty: Option<syn::Type>,
-        block: Box<Expression>,
+        block: Block,
         span: Span,
     },
     WhileLoop {
         condition: Box<Expression>,
-        block: Box<Expression>,
+        block: Block,
         span: Span,
     },
     Loop {
-        block: Box<Expression>,
+        block: Block,
         span: Span,
     },
     If {
         condition: Box<Expression>,
-        then_block: Box<Expression>,
+        then_block: Block,
         else_branch: Option<Box<Expression>>,
         span: Span,
     },
@@ -153,6 +151,14 @@ pub enum Expression {
     },
 }
 
+#[derive(Clone, Debug)]
+pub struct Block {
+    pub inner: Vec<Statement>,
+    pub ret: Option<Box<Expression>>,
+    pub ty: Option<Type>,
+    pub span: Span,
+}
+
 impl Expression {
     pub fn ty(&self) -> Option<Type> {
         match self {
@@ -163,7 +169,7 @@ impl Expression {
             Expression::Literal { ty, .. } => Some(ty.clone()),
             Expression::Assigment { ty, .. } => ty.clone(),
             Expression::Verbatim { .. } => None,
-            Expression::Block { ty, .. } => ty.clone(),
+            Expression::Block(block) => block.ty.clone(),
             Expression::FunctionCall { .. } => None,
             Expression::Break { .. } => None,
             Expression::Cast { to, .. } => Some(to.clone()),
@@ -175,7 +181,7 @@ impl Expression {
             Expression::Range { start, .. } => start.ty(),
             Expression::WhileLoop { .. } => None,
             Expression::Loop { .. } => None,
-            Expression::If { then_block, .. } => then_block.ty(),
+            Expression::If { then_block, .. } => then_block.ty.clone(),
             Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
             Expression::Array { .. } => None,
             Expression::Index { .. } => None,
@@ -200,10 +206,10 @@ impl Expression {
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::FunctionCall {
-                args,
+                func,
                 associated_type,
                 ..
-            } if associated_type.is_some() => args.iter().all(|it| it.is_const()),
+            } if is_const_fn(func, associated_type) => true,
             _ => false,
         }
     }
@@ -233,8 +239,8 @@ impl Expression {
 
     pub fn needs_terminator(&self) -> bool {
         match self {
-            Expression::If { then_block, .. } => then_block.needs_terminator(),
-            Expression::Block { ret, .. } => ret.is_some(),
+            Expression::If { then_block, .. } => then_block.ret.is_some(),
+            Expression::Block(block) => block.ret.is_some(),
             Expression::ForLoop { .. } => false,
             Expression::WhileLoop { .. } => false,
             Expression::Loop { .. } => false,
@@ -242,4 +248,22 @@ impl Expression {
             _ => true,
         }
     }
+}
+
+fn is_const_fn(func: &Expression, assoc_type: &Option<(Path, PathSegment)>) -> bool {
+    if let Some((path, _)) = assoc_type {
+        let mut path = path.clone();
+        path.segments.last_mut().unwrap().arguments = PathArguments::None;
+        let path = quote![#path].to_string();
+        return CONSTANT_TYPES.iter().any(|ty| ty.ends_with(&path));
+    }
+    fn is_const(func: &Expression) -> Option<bool> {
+        if let Expression::Path { path } = func {
+            let ident = path.segments.last()?.ident.to_string();
+            Some(CONSTANT_FNS.contains(&ident.as_str()))
+        } else {
+            None
+        }
+    }
+    is_const(func).unwrap_or(false)
 }

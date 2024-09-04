@@ -1,8 +1,4 @@
-use cubecl::{
-    calculate_cube_count_elemwise, frontend,
-    new_ir::{element::Tensor, Float, ABSOLUTE_POS},
-    prelude::*,
-};
+use cubecl::{calculate_cube_count_elemwise, frontend, prelude::*};
 use std::marker::PhantomData;
 
 #[cfg(feature = "cuda")]
@@ -17,9 +13,9 @@ fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
     if ABSOLUTE_POS < out.len() {
         for i in 0..256u32 {
             if i % 2 == 0 {
-                out[ABSOLUTE_POS] -= F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
+                out[ABSOLUTE_POS] -= (lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]).cos();
             } else {
-                out[ABSOLUTE_POS] += F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
+                out[ABSOLUTE_POS] += (lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]).cos();
             }
         }
     }

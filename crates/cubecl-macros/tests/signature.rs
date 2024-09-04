@@ -1,7 +1,5 @@
 #![allow(clippy::all)]
 
-use std::marker::PhantomData;
-
 use cubecl_core as cubecl;
 use cubecl_core::{
     ir::Elem,
@@ -34,19 +32,12 @@ pub fn const_param() {
     //     },
     // );
 
-    let expanded = const_param::expand(
-        Variable::<u32> {
-            name: "a",
-            vectorization: None,
-            _type: PhantomData,
-        },
-        2,
-    )
-    .expression_untyped();
+    let expanded =
+        const_param::expand(Variable::<u32>::new("a", false, None), 2).expression_untyped();
 
     let expected = block_expr(
         vec![expr(Expression::Binary {
-            left: var_expr("a", UInt),
+            left: var_expr("a", false, UInt),
             operator: Operator::Mul,
             right: Box::new(lit(2u32)),
             ty: UInt,
@@ -66,20 +57,13 @@ pub fn const_generic() {
         a * b + D;
     }
 
-    let expanded = const_generic::expand::<3>(
-        Variable::<u32> {
-            name: "a",
-            vectorization: None,
-            _type: PhantomData,
-        },
-        2,
-    )
-    .expression_untyped();
+    let expanded =
+        const_generic::expand::<3>(Variable::<u32>::new("a", false, None), 2).expression_untyped();
 
     let expected = block_expr(
         vec![expr(Expression::Binary {
             left: Box::new(Expression::Binary {
-                left: var_expr("a", UInt),
+                left: var_expr("a", false, UInt),
                 operator: Operator::Mul,
                 right: Box::new(lit(2u32)),
                 ty: UInt,
@@ -110,19 +94,19 @@ pub fn struct_param() {
         arg.a * arg.b
     }
 
-    let expanded = struct_param::expand(Variable::new("param", None)).expression_untyped();
+    let expanded = struct_param::expand(Variable::new("param", false, None)).expression_untyped();
     let expected = block_expr(
         vec![],
         Some(Expression::Binary {
             left: Box::new(Expression::FieldAccess {
-                base: var_expr("param", Elem::Unit),
+                base: var_expr("param", false, Elem::Unit),
                 name: "a".to_string(),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             operator: Operator::Mul,
             right: Box::new(Expression::FieldAccess {
-                base: var_expr("param", Elem::Unit),
+                base: var_expr("param", false, Elem::Unit),
                 name: "b".to_string(),
                 ty: Elem::UInt,
                 vectorization: None,
@@ -158,13 +142,13 @@ pub fn destructure() {
         a * b
     }
 
-    let expanded = destructure::expand(Variable::new("arg", None)).expression_untyped();
+    let expanded = destructure::expand(Variable::new("arg", false, None)).expression_untyped();
     let expected = block_expr(
         vec![
             local_init(
                 "a",
                 Expression::FieldAccess {
-                    base: var_expr("arg", Elem::Unit),
+                    base: var_expr("arg", false, Elem::Unit),
                     name: "a".to_string(),
                     vectorization: None,
                     ty: Elem::UInt,
@@ -175,7 +159,7 @@ pub fn destructure() {
             local_init(
                 "b",
                 Expression::FieldAccess {
-                    base: var_expr("arg", Elem::Unit),
+                    base: var_expr("arg", false, Elem::Unit),
                     name: "b".to_string(),
                     vectorization: None,
                     ty: Elem::UInt,
@@ -185,9 +169,9 @@ pub fn destructure() {
             ),
         ],
         Some(Expression::Binary {
-            left: var_expr("a", Elem::UInt),
+            left: var_expr("a", false, Elem::UInt),
             operator: Operator::Mul,
-            right: var_expr("b", Elem::UInt),
+            right: var_expr("b", false, Elem::UInt),
             vectorization: None,
             ty: Elem::UInt,
         }),

@@ -4,12 +4,12 @@ use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment, RangeLimits, Type};
 
 use crate::{
-    expression::Expression,
+    expression::{Block, Expression},
     scope::{Context, ManagedVar},
 };
 
 use super::{
-    branch::{expand_for_loop, expand_if, expand_loop, expand_while_loop, parse_block},
+    branch::{expand_for_loop, expand_if, expand_loop, expand_while_loop},
     operator::{parse_binop, parse_unop},
 };
 
@@ -87,9 +87,9 @@ impl Expression {
             }
             Expr::Block(block) => {
                 context.push_scope();
-                let block = parse_block(block.block, context)?;
+                let block = Block::from_block(block.block, context)?;
                 context.pop_scope();
-                block
+                Expression::Block(block)
             }
             Expr::Break(br) => Expression::Break { span: br.span() },
             Expr::Call(call) => {
@@ -321,9 +321,9 @@ impl Expression {
                     }
                 }
             }
-            Expr::Unsafe(unsafe_expr) => {
-                context.with_scope(|context| parse_block(unsafe_expr.block, context))?
-            }
+            Expr::Unsafe(unsafe_expr) => Expression::Block(
+                context.with_scope(|context| Block::from_block(unsafe_expr.block, context))?,
+            ),
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
             Expr::Reference(reference) => Expression::Reference {

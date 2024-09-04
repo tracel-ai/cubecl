@@ -30,7 +30,7 @@ impl<F: Float> BlockLoader<F> for VerticalCheckBlockIO {
         check_bounds: CheckBounds,
     ) {
         let tile_size = config.tile_size;
-        let vectorization = vectorization(&tensor);
+        let vectorization = vectorization_of(&tensor);
 
         let mut num_reads = 0;
         let row = check_bounds.skip_row + info.read_row;

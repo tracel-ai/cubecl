@@ -36,7 +36,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     }
 
     fn name(&self) -> String {
-        format!("matmul-{}-{}-{:?}", R::name(), E::as_elem(), self.kind).to_lowercase()
+        format!("matmul-{}-{}-{:?}", R::name(), E::ir_type(), self.kind).to_lowercase()
     }
 
     fn sync(&self) {

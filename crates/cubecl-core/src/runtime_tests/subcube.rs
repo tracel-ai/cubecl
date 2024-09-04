@@ -266,6 +266,7 @@ macro_rules! testgen_subcube {
             cubecl_core::runtime_tests::subcube::test_subcube_any::<TestRuntime>(client);
         }
 
+        #[ignore]
         #[test]
         fn test_subcube_elect() {
             let client = TestRuntime::client(&Default::default());

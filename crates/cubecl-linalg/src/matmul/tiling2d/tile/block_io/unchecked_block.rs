@@ -30,7 +30,7 @@ impl<F: Float> BlockLoader<F> for UncheckedBlockIO {
     ) {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
-        let vectorization = vectorization(&tensor);
+        let vectorization = vectorization_of(&tensor);
 
         #[unroll(unroll)]
         for i in 0..tile_size {

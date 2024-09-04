@@ -161,6 +161,47 @@ impl CmmaExpression {
         None
     }
 
+    pub fn deep_clone(&self) -> Self {
+        match self {
+            CmmaExpression::Init { .. } => self.clone(),
+            CmmaExpression::Fill { matrix, value } => CmmaExpression::Fill {
+                matrix: Box::new(matrix.deep_clone()),
+                value: Box::new(value.deep_clone()),
+            },
+            CmmaExpression::Load {
+                matrix,
+                values,
+                stride,
+            } => CmmaExpression::Load {
+                matrix: Box::new(matrix.deep_clone()),
+                values: Box::new(values.deep_clone()),
+                stride: Box::new(stride.deep_clone()),
+            },
+            CmmaExpression::Store {
+                matrix,
+                out,
+                stride,
+                layout,
+            } => CmmaExpression::Store {
+                matrix: Box::new(matrix.deep_clone()),
+                out: Box::new(out.deep_clone()),
+                stride: Box::new(stride.deep_clone()),
+                layout: *layout,
+            },
+            CmmaExpression::Execute {
+                mat_a,
+                mat_b,
+                mat_c,
+                mat_d,
+            } => CmmaExpression::Execute {
+                mat_a: Box::new(mat_a.deep_clone()),
+                mat_b: Box::new(mat_b.deep_clone()),
+                mat_c: Box::new(mat_c.deep_clone()),
+                mat_d: Box::new(mat_d.deep_clone()),
+            },
+        }
+    }
+
     pub fn flatten(self, context: &mut CubeContext) -> Option<ExpandElement> {
         match self {
             CmmaExpression::Init {

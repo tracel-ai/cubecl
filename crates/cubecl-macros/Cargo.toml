@@ -38,4 +38,4 @@ cubecl-core = { path = "../cubecl-core", version = "0.2", default-features = fal
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.2", default-features = false }
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.2", default-features = false }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2", default-features = false }
-pretty_assertions = "1.4"
+pretty_assertions = { workspace = true }

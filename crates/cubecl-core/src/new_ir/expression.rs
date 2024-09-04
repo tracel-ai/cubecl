@@ -5,7 +5,9 @@ use crate::{
     prelude::{AtomicExpr, ExpandElement, SharedMemoryExpr},
 };
 use derive_more::derive::From;
-use std::{cell::RefCell, collections::HashMap, marker::PhantomData, num::NonZero, rc::Rc};
+use std::{
+    cell::RefCell, collections::HashMap, fmt::Debug, marker::PhantomData, num::NonZero, rc::Rc,
+};
 
 use super::{
     largest_common_vectorization, Operator, SquareType, Statement, SubcubeExpression,
@@ -13,6 +15,21 @@ use super::{
 };
 
 pub type Vectorization = Option<NonZero<u8>>;
+
+#[derive(Clone)]
+pub struct BlockConstructor(pub Rc<dyn Fn() -> Block>);
+
+impl Debug for BlockConstructor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("BlockConstructor").finish()
+    }
+}
+
+impl PartialEq for BlockConstructor {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, From)]
 pub enum Expression {
@@ -86,8 +103,8 @@ pub enum Expression {
     Continue,
     ForLoop {
         range: Range,
-        unroll: bool,
         variable: Var,
+        unroll: bool,
         block: Block,
     },
     WhileLoop {
@@ -141,7 +158,8 @@ pub enum Expression {
 
 #[derive(Clone, Debug, PartialEq, new)]
 pub struct Var {
-    pub name: String,
+    pub name: Rc<String>,
+    pub mutable: bool,
     pub vectorization: Vectorization,
     pub ty: Elem,
 }
@@ -154,12 +172,34 @@ pub struct Range {
     pub inclusive: bool,
 }
 
+impl Range {
+    pub fn deep_clone(&self) -> Self {
+        Self {
+            start: Box::new(self.start.deep_clone()),
+            end: Box::new(self.end.deep_clone()),
+            step: self.step.as_ref().map(|it| Box::new(it.deep_clone())),
+            inclusive: self.inclusive,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Block {
     pub inner: Vec<Statement>,
     pub ret: Box<Expression>,
     pub vectorization: Vectorization,
     pub ty: Elem,
+}
+
+impl Block {
+    pub fn deep_clone(&self) -> Self {
+        Block {
+            inner: self.inner.iter().map(|it| it.deep_clone()).collect(),
+            ret: Box::new(self.ret.deep_clone()),
+            vectorization: self.vectorization,
+            ty: self.ty,
+        }
+    }
 }
 
 impl Expression {
@@ -238,6 +278,183 @@ impl Expression {
         }
     }
 
+    /// Do a deep clone including of `Once` values
+    pub fn deep_clone(&self) -> Self {
+        match self {
+            Expression::Init {
+                left,
+                right,
+                vectorization,
+                ty,
+            } => Expression::Init {
+                left: left.clone(),
+                right: Box::new(right.deep_clone()),
+                vectorization: *vectorization,
+                ty: *ty,
+            },
+            Expression::Once(once) => Expression::Once(Rc::new(once.deep_clone())),
+            Expression::Binary {
+                left,
+                operator,
+                right,
+                vectorization,
+                ty,
+            } => Expression::Binary {
+                left: Box::new(left.deep_clone()),
+                operator: *operator,
+                right: Box::new(right.deep_clone()),
+                vectorization: *vectorization,
+                ty: *ty,
+            },
+            Expression::Unary {
+                input,
+                operator,
+                vectorization,
+                ty,
+            } => Expression::Unary {
+                input: Box::new(input.deep_clone()),
+                operator: *operator,
+                vectorization: *vectorization,
+                ty: *ty,
+            },
+            Expression::Clamp {
+                input,
+                min,
+                max,
+                vectorization,
+                ty,
+            } => Expression::Clamp {
+                input: Box::new(input.deep_clone()),
+                min: Box::new(min.deep_clone()),
+                max: Box::new(max.deep_clone()),
+                vectorization: *vectorization,
+                ty: *ty,
+            },
+            Expression::Variable(var) => Expression::Variable(var.clone()),
+            Expression::Global {
+                index,
+                global_ty,
+                vectorization,
+                ty,
+            } => Expression::Global {
+                index: *index,
+                global_ty: *global_ty,
+                vectorization: *vectorization,
+                ty: *ty,
+            },
+            Expression::FieldAccess {
+                base,
+                name,
+                vectorization,
+                ty,
+            } => Expression::FieldAccess {
+                base: Box::new(base.deep_clone()),
+                name: name.clone(),
+                vectorization: *vectorization,
+                ty: *ty,
+            },
+            Expression::RuntimeStruct { fields } => Expression::RuntimeStruct {
+                fields: fields
+                    .iter()
+                    .map(|(name, value)| (*name, value.deep_clone()))
+                    .collect(),
+            },
+            Expression::Literal {
+                value,
+                vectorization,
+                ty,
+            } => Expression::Literal {
+                value: *value,
+                vectorization: *vectorization,
+                ty: *ty,
+            },
+            Expression::Assigment {
+                left,
+                right,
+                vectorization,
+                ty,
+            } => Expression::Assigment {
+                left: Box::new(left.deep_clone()),
+                right: Box::new(right.deep_clone()),
+                vectorization: *vectorization,
+                ty: *ty,
+            },
+            Expression::Block(block) => Expression::Block(block.deep_clone()),
+            Expression::Break => todo!(),
+            Expression::Cast {
+                from,
+                vectorization,
+                to,
+            } => Expression::Cast {
+                from: Box::new(from.deep_clone()),
+                vectorization: *vectorization,
+                to: *to,
+            },
+            Expression::BitCast {
+                from,
+                vectorization,
+                to,
+            } => Expression::BitCast {
+                from: Box::new(from.deep_clone()),
+                vectorization: *vectorization,
+                to: *to,
+            },
+            Expression::Continue => Expression::Continue,
+            Expression::ForLoop {
+                range,
+                variable,
+                unroll,
+                block,
+            } => Expression::ForLoop {
+                range: range.deep_clone(),
+                variable: variable.clone(),
+                unroll: *unroll,
+                block: block.deep_clone(),
+            },
+            Expression::WhileLoop { condition, block } => Expression::WhileLoop {
+                condition: Box::new(condition.deep_clone()),
+                block: block.deep_clone(),
+            },
+            Expression::Loop { block } => Expression::Loop {
+                block: block.deep_clone(),
+            },
+            Expression::If {
+                condition,
+                then_block,
+                else_branch,
+            } => Expression::If {
+                condition: Box::new(condition.deep_clone()),
+                then_block: then_block.deep_clone(),
+                else_branch: else_branch.as_ref().map(|it| Box::new(it.deep_clone())),
+            },
+            Expression::Return { expr } => Expression::Return {
+                expr: expr.as_ref().map(|it| Box::new(it.deep_clone())),
+            },
+            Expression::Tensor(tensor) => Expression::Tensor(tensor.deep_clone()),
+            Expression::Subcube(subcube) => Expression::Subcube(subcube.deep_clone()),
+            Expression::Cmma(cmma) => Expression::Cmma(cmma.deep_clone()),
+            Expression::Atomic(atomic) => Expression::Atomic(atomic.deep_clone()),
+            Expression::SharedMemory(shared) => Expression::SharedMemory(shared.deep_clone()),
+            Expression::ArrayInit { .. } => self.clone(),
+            Expression::KernelVar { .. } => self.clone(),
+            Expression::__Range(range) => Expression::__Range(range.deep_clone()),
+            Expression::Fma {
+                a,
+                b,
+                c,
+                ty,
+                vectorization,
+            } => Expression::Fma {
+                a: Box::new(a.deep_clone()),
+                b: Box::new(b.deep_clone()),
+                c: Box::new(c.deep_clone()),
+                ty: *ty,
+                vectorization: *vectorization,
+            },
+            Expression::Sync(_) => self.clone(),
+        }
+    }
+
     pub fn as_range(&self) -> Option<&Range> {
         match self {
             Expression::__Range(range) => Some(range),
@@ -269,7 +486,7 @@ impl Expression {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct OnceExpression {
-    expr: RefCell<Option<Expression>>,
+    expr: Expression,
     expanded: RefCell<Option<ExpandElement>>,
     ty: Elem,
     vectorization: Vectorization,
@@ -280,7 +497,7 @@ impl OnceExpression {
         OnceExpression {
             ty: expr.ir_type(),
             vectorization: expr.vectorization(),
-            expr: RefCell::new(Some(expr)),
+            expr,
             expanded: RefCell::new(None),
         }
     }
@@ -289,12 +506,23 @@ impl OnceExpression {
         &self,
         init: impl FnOnce(Expression) -> ExpandElement,
     ) -> ExpandElement {
-        if let Some(expr) = self.expr.borrow_mut().take() {
-            let expanded = init(expr);
+        let value = { self.expanded.borrow().clone() };
+        if let Some(value) = value {
+            value
+        } else {
+            let expanded = init(self.expr.clone());
             *self.expanded.borrow_mut() = Some(expanded.clone());
             expanded
-        } else {
-            self.expanded.borrow().clone().unwrap()
+        }
+    }
+
+    fn deep_clone(&self) -> Self {
+        // Reset value
+        Self {
+            expr: self.expr.deep_clone(),
+            expanded: RefCell::new(None),
+            vectorization: self.vectorization,
+            ty: self.ty,
         }
     }
 }
@@ -308,7 +536,8 @@ pub trait Expr {
 
 #[derive(Debug, Hash, PartialEq)]
 pub struct Variable<T: SquareType> {
-    pub name: &'static str,
+    pub name: Rc<String>,
+    pub mutable: bool,
     pub vectorization: Vectorization,
     pub _type: PhantomData<T>,
 }
@@ -342,21 +571,23 @@ impl<T: SquareType> Expr for KernelVariable<T> {
 }
 
 impl<T: SquareType> Variable<T> {
-    pub const fn new(name: &'static str, vectorization: Vectorization) -> Self {
+    pub fn new(name: &'static str, mutable: bool, vectorization: Vectorization) -> Self {
         Self {
-            name,
+            name: Rc::new(name.to_string()),
+            mutable,
             vectorization,
             _type: PhantomData,
         }
     }
 }
 
-impl<T: SquareType> Copy for Variable<T> {}
+//impl<T: SquareType> Copy for Variable<T> {}
 #[allow(clippy::non_canonical_clone_impl)]
 impl<T: SquareType> Clone for Variable<T> {
     fn clone(&self) -> Self {
         Self {
-            name: self.name,
+            name: self.name.clone(),
+            mutable: self.mutable,
             vectorization: self.vectorization,
             _type: PhantomData,
         }
@@ -368,7 +599,8 @@ impl<T: SquareType> Expr for Variable<T> {
 
     fn expression_untyped(&self) -> Expression {
         Var {
-            name: self.name.to_string(),
+            name: self.name.clone(),
+            mutable: self.mutable,
             ty: <T as SquareType>::ir_type(),
             vectorization: self.vectorization(),
         }
@@ -452,7 +684,8 @@ impl<T: SquareType, TBase: Expr> Expr for FieldAccess<T, TBase> {
     }
 
     fn vectorization(&self) -> Option<NonZero<u8>> {
-        self.base.vectorization()
+        // Reset vectorization for indexing
+        None
     }
 }
 

@@ -29,7 +29,7 @@ impl<F: Float> OutputWriter<F> for TileWriter<F> {
         dims: Dimensions,
         #[comptime] config: CubeTiling2dConfig,
     ) {
-        let vectorization = vectorization(out);
+        let vectorization = vectorization_of(out);
         let tile_size = config.tile_size;
         let coordinates = write_info.coordinates;
 

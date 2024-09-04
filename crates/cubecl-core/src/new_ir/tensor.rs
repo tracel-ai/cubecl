@@ -38,6 +38,16 @@ pub struct SliceRange {
     pub inclusive: bool,
 }
 
+impl SliceRange {
+    pub fn deep_clone(&self) -> Self {
+        Self {
+            start: Box::new(self.start.deep_clone()),
+            end: self.end.as_ref().map(|it| Box::new(it.deep_clone())),
+            inclusive: self.inclusive,
+        }
+    }
+}
+
 impl TensorExpression {
     pub fn ir_type(&self) -> Elem {
         match self {
@@ -60,6 +70,41 @@ impl TensorExpression {
             TensorExpression::Index { vectorization, .. } => *vectorization,
             TensorExpression::Slice { tensor, .. } => tensor.vectorization(),
             TensorExpression::__SliceRange(_) => None,
+        }
+    }
+
+    pub fn deep_clone(&self) -> Self {
+        match self {
+            TensorExpression::Stride { tensor, dim } => TensorExpression::Stride {
+                tensor: Box::new(tensor.deep_clone()),
+                dim: Box::new(dim.deep_clone()),
+            },
+            TensorExpression::Shape { tensor, dim } => TensorExpression::Shape {
+                tensor: Box::new(tensor.deep_clone()),
+                dim: Box::new(dim.deep_clone()),
+            },
+            TensorExpression::Length { tensor } => TensorExpression::Length {
+                tensor: Box::new(tensor.deep_clone()),
+            },
+            TensorExpression::Rank { tensor } => TensorExpression::Rank {
+                tensor: Box::new(tensor.deep_clone()),
+            },
+            TensorExpression::Index {
+                tensor,
+                index,
+                vectorization,
+            } => TensorExpression::Index {
+                tensor: Box::new(tensor.deep_clone()),
+                index: Box::new(index.deep_clone()),
+                vectorization: *vectorization,
+            },
+            TensorExpression::Slice { ranges, tensor } => TensorExpression::Slice {
+                ranges: ranges.iter().map(|range| range.deep_clone()).collect(),
+                tensor: Box::new(tensor.deep_clone()),
+            },
+            TensorExpression::__SliceRange(range) => {
+                TensorExpression::__SliceRange(range.deep_clone())
+            }
         }
     }
 }

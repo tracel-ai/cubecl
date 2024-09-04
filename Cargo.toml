@@ -73,6 +73,7 @@ strum = { version = "0.26.3", features = ["derive"] }
 portable-atomic-util = { version = "0.2.2", features = [
     "alloc",
 ] } # alloc is for no_std
+pretty_assertions = "1.4"
 
 [profile.dev]
 opt-level = 2

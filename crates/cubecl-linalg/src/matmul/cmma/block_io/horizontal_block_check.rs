@@ -20,7 +20,7 @@ impl<F: Float, FC: Float> BlockLoader<F, FC> for HorizontalCheckBlockIO {
         _dim_vertical: u32,
         dim_horizontal: u32,
     ) {
-        let tensor_vec = vectorization(tensor);
+        let tensor_vec = vectorization_of(tensor);
 
         if read_col < dim_horizontal {
             let read_pos = (batch_offset + read_row * dim_horizontal + read_col) / tensor_vec;
@@ -53,7 +53,7 @@ impl<F: Float> BlockWriter<F> for HorizontalCheckBlockIO {
         #[comptime] config: CmmaConfig,
     ) {
         let tile_size = config.tile_size;
-        let out_vec = vectorization(out);
+        let out_vec = vectorization_of(out);
 
         let col_with_n_iter = write_col + n_iter * tile_size;
 

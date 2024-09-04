@@ -30,12 +30,12 @@ fn for_loop() {
                     inclusive: false,
                 },
                 unroll: false,
-                variable: var("i", Elem::UInt),
+                variable: var("i", true, Elem::UInt),
                 block: block(
                     vec![Statement::Expression(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
-                        right: var_expr("i", Elem::UInt),
+                        right: var_expr("i", true, Elem::UInt),
                         vectorization: None,
                         ty: Elem::UInt,
                     })],
@@ -43,7 +43,7 @@ fn for_loop() {
                 ),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -73,12 +73,12 @@ fn for_loop_inclusive() {
                     inclusive: true,
                 },
                 unroll: false,
-                variable: var("i", Elem::UInt),
+                variable: var("i", true, Elem::UInt),
                 block: block(
                     vec![Statement::Expression(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
-                        right: var_expr("i", Elem::UInt),
+                        right: var_expr("i", true, Elem::UInt),
                         vectorization: None,
                         ty: Elem::UInt,
                     })],
@@ -86,7 +86,7 @@ fn for_loop_inclusive() {
                 ),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -116,12 +116,12 @@ fn for_loop_stepped() {
                     inclusive: false,
                 },
                 unroll: false,
-                variable: var("i", Elem::UInt),
+                variable: var("i", true, Elem::UInt),
                 block: block(
                     vec![Statement::Expression(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
-                        right: var_expr("i", Elem::UInt),
+                        right: var_expr("i", true, Elem::UInt),
                         vectorization: None,
                         ty: Elem::UInt,
                     })],
@@ -129,7 +129,7 @@ fn for_loop_stepped() {
                 ),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -160,12 +160,12 @@ fn for_loop_unroll() {
                     inclusive: false,
                 },
                 unroll: true,
-                variable: var("i", Elem::UInt),
+                variable: var("i", true, Elem::UInt),
                 block: block(
                     vec![expr(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
-                        right: var_expr("i", Elem::UInt),
+                        right: var_expr("i", true, Elem::UInt),
                         vectorization: None,
                         ty: Elem::UInt,
                     })],
@@ -173,7 +173,7 @@ fn for_loop_unroll() {
                 ),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -204,12 +204,12 @@ fn for_loop_unroll_comptime() {
                     inclusive: false,
                 },
                 unroll: false,
-                variable: var("i", Elem::UInt),
+                variable: var("i", true, Elem::UInt),
                 block: block(
                     vec![expr(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
-                        right: var_expr("i", Elem::UInt),
+                        right: var_expr("i", true, Elem::UInt),
                         vectorization: None,
                         ty: Elem::UInt,
                     })],
@@ -217,7 +217,7 @@ fn for_loop_unroll_comptime() {
                 ),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -237,24 +237,24 @@ fn for_loop_unroll_dynamic_fails() {
         a
     }
 
-    let expanded = for_loop::expand(Variable::new("end", None)).expression_untyped();
+    let expanded = for_loop::expand(Variable::new("end", false, None)).expression_untyped();
     let expected = block_expr(
         vec![
             local_init("a", lit(0u32), true, None),
             Statement::Expression(Expression::ForLoop {
                 range: Range {
                     start: Box::new(lit(0u32)),
-                    end: var_expr("end", Elem::UInt),
+                    end: var_expr("end", false, Elem::UInt),
                     step: None,
                     inclusive: false,
                 },
                 unroll: false,
-                variable: var("i", Elem::UInt),
+                variable: var("i", true, Elem::UInt),
                 block: block(
                     vec![expr(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
-                        right: var_expr("i", Elem::UInt),
+                        right: var_expr("i", true, Elem::UInt),
                         vectorization: None,
                         ty: Elem::UInt,
                     })],
@@ -262,7 +262,7 @@ fn for_loop_unroll_dynamic_fails() {
                 ),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -283,25 +283,25 @@ fn for_loop_unroll_comptime_bounds() {
         a
     }
 
-    let expanded = for_loop::expand(Variable::new("a", None), None).expression_untyped();
+    let expanded = for_loop::expand(Variable::new("a", false, None), None).expression_untyped();
     let expected = block_expr(
         vec![
-            local_init("end", *var_expr("a", Elem::UInt), false, None),
+            local_init("end", *var_expr("a", true, Elem::UInt), false, None),
             local_init("a", lit(0u32), true, None),
             Statement::Expression(Expression::ForLoop {
                 range: Range {
                     start: Box::new(lit(0u32)),
-                    end: var_expr("end", Elem::UInt),
+                    end: var_expr("end", false, Elem::UInt),
                     step: None,
                     inclusive: false,
                 },
                 unroll: false,
-                variable: var("i", Elem::UInt),
+                variable: var("i", true, Elem::UInt),
                 block: block(
                     vec![expr(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
-                        right: var_expr("i", Elem::UInt),
+                        right: var_expr("i", true, Elem::UInt),
                         vectorization: None,
                         ty: Elem::UInt,
                     })],
@@ -309,7 +309,7 @@ fn for_loop_unroll_comptime_bounds() {
                 ),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -334,7 +334,7 @@ fn while_loop() {
             Statement::Expression(Expression::WhileLoop {
                 condition: Box::new(Expression::Binary {
                     left: Box::new(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::Rem,
                         right: Box::new(lit(4u32)),
                         vectorization: None,
@@ -347,7 +347,7 @@ fn while_loop() {
                 }),
                 block: block(
                     vec![expr(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
                         right: Box::new(lit(1u32)),
                         vectorization: None,
@@ -357,7 +357,7 @@ fn while_loop() {
                 ),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -382,7 +382,7 @@ fn loop_expr() {
             Statement::Expression(Expression::Loop {
                 block: block(
                     vec![expr(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
                         right: Box::new(lit(1u32)),
                         vectorization: None,
@@ -392,7 +392,7 @@ fn loop_expr() {
                 ),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -412,15 +412,15 @@ fn if_expr() {
         a
     }
 
-    let expanded = if_expr::expand(Variable::new("cond", None)).expression_untyped();
+    let expanded = if_expr::expand(Variable::new("cond", false, None)).expression_untyped();
     let expected = block_expr(
         vec![
             local_init("a", lit(0u32), true, None),
             Statement::Expression(Expression::If {
-                condition: var_expr("cond", Elem::Bool),
+                condition: var_expr("cond", false, Elem::Bool),
                 then_block: block(
                     vec![expr(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
                         right: Box::new(lit(1u32)),
                         vectorization: None,
@@ -430,7 +430,7 @@ fn if_expr() {
                 ),
                 else_branch: Some(Box::new(block_expr(
                     vec![expr(Expression::Binary {
-                        left: var_expr("a", Elem::UInt),
+                        left: var_expr("a", true, Elem::UInt),
                         operator: Operator::AddAssign,
                         right: Box::new(lit(2u32)),
                         vectorization: None,
@@ -440,7 +440,7 @@ fn if_expr() {
                 ))),
             }),
         ],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", true, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -455,19 +455,19 @@ fn if_returns() {
         a
     }
 
-    let expanded = if_returns::expand(Variable::new("cond", None)).expression_untyped();
+    let expanded = if_returns::expand(Variable::new("cond", false, None)).expression_untyped();
     let expected = block_expr(
         vec![local_init(
             "a",
             Expression::If {
-                condition: var_expr("cond", Elem::Bool),
+                condition: var_expr("cond", false, Elem::Bool),
                 then_block: block(vec![], Some(lit(1u32))),
                 else_branch: Some(Box::new(block_expr(vec![], Some(lit(2u32))))),
             },
             false,
             None,
         )],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", false, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -488,16 +488,19 @@ fn chained_if() {
         a
     }
 
-    let expanded = if_returns::expand(Variable::new("cond1", None), Variable::new("cond2", None))
-        .expression_untyped();
+    let expanded = if_returns::expand(
+        Variable::new("cond1", false, None),
+        Variable::new("cond2", false, None),
+    )
+    .expression_untyped();
     let expected = block_expr(
         vec![local_init(
             "a",
             Expression::If {
-                condition: var_expr("cond1", Elem::Bool),
+                condition: var_expr("cond1", false, Elem::Bool),
                 then_block: block(vec![], Some(lit(1u32))),
                 else_branch: Some(Box::new(Expression::If {
-                    condition: var_expr("cond2", Elem::Bool),
+                    condition: var_expr("cond2", false, Elem::Bool),
                     then_block: block(vec![], Some(lit(2u32))),
                     else_branch: Some(Box::new(block_expr(vec![], Some(lit(3u32))))),
                 })),
@@ -505,7 +508,7 @@ fn chained_if() {
             false,
             None,
         )],
-        Some(*var_expr("a", Elem::UInt)),
+        Some(*var_expr("a", false, Elem::UInt)),
     );
 
     assert_eq!(expanded, expected);
@@ -522,10 +525,10 @@ fn explicit_return() {
         1
     }
 
-    let expanded = if_returns::expand(Variable::new("cond", None)).expression_untyped();
+    let expanded = if_returns::expand(Variable::new("cond", false, None)).expression_untyped();
     let expected = block_expr(
         vec![expr(Expression::If {
-            condition: var_expr("cond", Elem::Bool),
+            condition: var_expr("cond", false, Elem::Bool),
             then_block: block(
                 vec![expr(Expression::Return {
                     expr: Some(Box::new(lit(10u32))),

@@ -2,7 +2,10 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{spanned::Spanned, Ident, PathArguments, Type};
 
-use crate::{expression::Expression, ir_type, prefix_ir};
+use crate::{
+    expression::{Block, Expression},
+    ir_type, prefix_ir,
+};
 
 impl ToTokens for Expression {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
@@ -73,22 +76,7 @@ impl ToTokens for Expression {
                     #tokens
                 }
             }
-            Expression::Block {
-                inner, ret, span, ..
-            } => {
-                let block = ir_type("BlockExpr");
-                let ret = ret
-                    .as_ref()
-                    .map(|ret| quote![#ret])
-                    .unwrap_or_else(|| quote![()]);
-                quote_spanned! {*span=>
-                    {
-                        let mut __statements = Vec::new();
-                        #(#inner)*
-                        #block::new(__statements, #ret)
-                    }
-                }
-            }
+            Expression::Block(block) => block.to_token_stream(),
             Expression::FunctionCall {
                 func,
                 span,
@@ -165,17 +153,18 @@ impl ToTokens for Expression {
                 block,
                 span,
             } => {
-                let variable = generate_var(var_name, var_ty, *span, None);
+                let variable = generate_var(var_name, true, var_ty, *span, None);
                 let for_ty = ir_type("ForLoop");
 
                 if let Some(unroll) = unroll {
+                    //let unrolled = generate_unroll(block, range, var_name);
                     quote_spanned! {*span=>
                         {
                             let #var_name = #variable;
                             if #unroll {
-                                #for_ty::new_unroll(#range, #var_name, #block)
+                                #for_ty::new_unroll(#range, #var_name.clone(), #block)
                             } else {
-                                #for_ty::new(#range, #var_name, #block)
+                                #for_ty::new(#range, #var_name.clone(), #block)
                             }
                         }
                     }
@@ -183,7 +172,7 @@ impl ToTokens for Expression {
                     quote_spanned! {*span=>
                         {
                             let #var_name = #variable;
-                            #for_ty::new(#range, #var_name, #block)
+                            #for_ty::new(#range, #var_name.clone(), #block)
                         }
                     }
                 }
@@ -217,12 +206,28 @@ impl ToTokens for Expression {
                 span,
             } => {
                 let if_ty = ir_type("If");
-                let else_branch = else_branch
-                    .as_ref()
-                    .map(|it| quote![Some(#it)])
-                    .unwrap_or_else(|| quote![None::<()>]);
-                quote_spanned! {*span=>
-                    #if_ty::new(#condition, #then_block, #else_branch)
+
+                if let Some(as_const) = condition.as_const() {
+                    let else_branch = else_branch.as_ref().map(|it| {
+                        quote! {
+                            else {
+                                #it
+                            }
+                        }
+                    });
+                    quote_spanned! {*span=>
+                        if #as_const {
+                            #then_block
+                        } #else_branch
+                    }
+                } else {
+                    let else_branch = else_branch
+                        .as_ref()
+                        .map(|it| quote![Some(#it)])
+                        .unwrap_or_else(|| quote![None::<()>]);
+                    quote_spanned! {*span=>
+                        #if_ty::new(#condition, #then_block, #else_branch)
+                    }
                 }
             }
             Expression::ConstVariable { name, .. } => quote![#name],
@@ -245,7 +250,7 @@ impl ToTokens for Expression {
                         .map(|it| quote![Some(Box::new(#it))])
                         .unwrap_or_else(|| quote![None]);
                     quote_spanned! {*span=>
-                        #range::new(Box::new(#start), #end, #inclusive)
+                        #range::new(#start, #end, #inclusive)
                     }
                 }
             }
@@ -318,8 +323,28 @@ impl ToTokens for Expression {
     }
 }
 
+impl ToTokens for Block {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let block = ir_type("BlockExpr");
+        let ret = self
+            .ret
+            .as_ref()
+            .map(|ret| quote![#ret])
+            .unwrap_or_else(|| quote![()]);
+        let inner = &self.inner;
+        tokens.extend(quote_spanned! {self.span=>
+            {
+                let mut __statements = Vec::new();
+                #(#inner)*
+                #block::new(__statements, #ret)
+            }
+        });
+    }
+}
+
 pub fn generate_var(
     name: &Ident,
+    mutable: bool,
     ty: &Option<Type>,
     span: Span,
     vectorization: Option<TokenStream>,
@@ -333,7 +358,7 @@ pub fn generate_var(
     });
     let vectorization = vectorization.unwrap_or(quote![None]);
     quote_spanned! {span=>
-        #var #ty ::new(#name, #vectorization)
+        #var #ty ::new(#name, #mutable, #vectorization)
     }
 }
 
@@ -349,3 +374,50 @@ fn split_generics(path: &Expression) -> (PathArguments, TokenStream) {
     };
     (generics, quote![#path])
 }
+
+// fn generate_unroll(block: &Block, range: &Expression, var: &Ident) -> TokenStream {
+//     let ret = block.ret.as_ref().map(|ret| Statement::Expression {
+//         expression: ret.clone(),
+//         terminated: true,
+//         span: ret.span(),
+//     });
+
+//     let inner = &block.inner;
+
+//     let func = quote! {
+//         #(#inner)*
+//         #ret
+//     };
+
+//     let block = ir_type("BlockExpr");
+//     let for_range = ir_type("ForLoopRange");
+//     quote! {
+//         let (__start, __end, __step, __inclusive) = #for_range::as_primitive(&(#range));
+//         let mut __statements = Vec::new();
+
+//         match (__step, __inclusive) {
+//             (None, true) => {
+//                 for #var in __start..=__end {
+//                     #func
+//                 }
+//             }
+//             (None, false) => {
+//                 for #var in __start..__end {
+//                     #func
+//                 }
+//             }
+//             (Some(step), true) => {
+//                 for #var in (__start..=__end).step_by(__step) {
+//                     #func
+//                 }
+//             }
+//             (Some(step), false) => {
+//                 for #var in (__start..__end).step_by(__step) {
+//                     #func
+//                 }
+//             }
+//         };
+
+//         #block::new(__statements, ())
+//     }
+// }

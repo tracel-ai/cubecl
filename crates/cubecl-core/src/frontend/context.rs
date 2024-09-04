@@ -151,14 +151,18 @@ impl CubeContext {
         ExpandElement::Plain(crate::ir::Variable::GlobalScalar { id, elem })
     }
 
-    pub fn register_local(&mut self, name: String, element: ExpandElementWeak) {
+    pub fn register_local(&mut self, name: Rc<String>, element: ExpandElementWeak) {
         self.scope.borrow_mut().register_local(name, element);
     }
 
-    pub fn get_local(&mut self, name: &str) -> Option<ExpandElement> {
+    pub fn get_local(&mut self, name: &Rc<String>) -> Option<ExpandElement> {
         self.scope
             .borrow()
             .get_local(name)
             .and_then(|it| it.upgrade())
+    }
+
+    pub fn remove_local(&mut self, name: &Rc<String>) {
+        self.scope.borrow_mut().remove_local(name);
     }
 }

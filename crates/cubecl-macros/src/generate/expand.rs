@@ -161,6 +161,7 @@ impl ToTokens for Runtime {
             }
 
             impl #generics #name #generic_names #where_clause {
+                #[allow(clippy::too_many_arguments)]
                 pub fn new(#(#new_args),*) -> Self {
                     Self {
                         #(#new_inits),*

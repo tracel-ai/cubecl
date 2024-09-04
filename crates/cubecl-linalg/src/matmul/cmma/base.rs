@@ -124,7 +124,7 @@ fn make_shared_memories<FC: Float>(#[comptime] config: CmmaConfig) -> SharedMemo
     // This is a workaround, only necessary for expressions that seem "static" without type info but
     // are actually runtime expressions. E.g. `SharedMemory::new`, which actually executes at
     // runtime but has no runtime params.
-    SharedMemories { lhs, rhs }
+    SharedMemories::<FC> { lhs, rhs }
 }
 
 #[cube]

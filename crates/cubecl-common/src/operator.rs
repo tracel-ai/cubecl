@@ -81,6 +81,10 @@ pub enum Operator {
     // Function-like
     /// The cosign operator
     Cos,
+    /// The sqrt operator
+    Sqrt,
+    /// The error function operator
+    Erf,
     /// Min operator
     Min,
     /// Max operator
@@ -102,9 +106,6 @@ impl Operator {
                 | Operator::BitOrAssign
                 | Operator::ShlAssign
                 | Operator::ShrAssign
-                | Operator::Deref
-                | Operator::Not
-                | Operator::Neg
         )
     }
 }

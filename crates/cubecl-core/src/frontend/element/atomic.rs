@@ -118,7 +118,7 @@ pub enum AtomicExpr {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AtomicOp {
     Add,
     Sub,
@@ -142,6 +142,46 @@ impl AtomicExpr {
 
     pub fn vectorization(&self) -> Vectorization {
         None
+    }
+
+    pub fn deep_clone(&self) -> Self {
+        match self {
+            AtomicExpr::Load { atomic, ty } => AtomicExpr::Load {
+                atomic: Box::new(atomic.deep_clone()),
+                ty: *ty,
+            },
+            AtomicExpr::Store { atomic, value } => AtomicExpr::Store {
+                atomic: Box::new(atomic.deep_clone()),
+                value: Box::new(value.deep_clone()),
+            },
+            AtomicExpr::Swap { atomic, value, ty } => AtomicExpr::Swap {
+                atomic: Box::new(atomic.deep_clone()),
+                value: Box::new(value.deep_clone()),
+                ty: *ty,
+            },
+            AtomicExpr::CompareAndSwap {
+                atomic,
+                cmp,
+                value,
+                ty,
+            } => AtomicExpr::CompareAndSwap {
+                atomic: Box::new(atomic.deep_clone()),
+                cmp: Box::new(cmp.deep_clone()),
+                value: Box::new(value.deep_clone()),
+                ty: *ty,
+            },
+            AtomicExpr::Binary {
+                atomic,
+                value,
+                op,
+                ty,
+            } => AtomicExpr::Binary {
+                atomic: Box::new(atomic.deep_clone()),
+                value: Box::new(value.deep_clone()),
+                op: *op,
+                ty: *ty,
+            },
+        }
     }
 
     pub fn flatten(self, context: &mut CubeContext) -> Option<ExpandElement> {

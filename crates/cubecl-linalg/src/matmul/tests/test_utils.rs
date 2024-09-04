@@ -115,7 +115,7 @@ pub(crate) fn assert_equals<R: Runtime>(
     let actual = client.read(output.binding());
     let actual = f32::from_bytes(&actual);
 
-    assert_eq!(actual, expected);
+    pretty_assertions::assert_eq!(actual, expected);
 }
 
 pub(crate) fn assert_equals_approx<R: Runtime>(

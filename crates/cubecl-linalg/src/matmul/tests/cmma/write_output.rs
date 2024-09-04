@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::base::{Dimensions, DimensionsExpand, Offsets, OffsetsExpand};
+use crate::matmul::cmma::base::{Dimensions, Offsets};
 use crate::matmul::tests::test_utils::{assert_equals, assert_equals_range, zeros_tensor};
 use crate::matmul::{
     cmma::{config::CmmaConfig, write_output::*},

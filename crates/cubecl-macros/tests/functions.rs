@@ -18,13 +18,13 @@ fn function_call() {
         helper_fn(a)
     }
 
-    let expanded = function_call::expand(Variable::new("a", None)).expression_untyped();
+    let expanded = function_call::expand(Variable::new("a", false, None)).expression_untyped();
     let expected = block_expr(
         vec![],
         Some(block_expr(
             vec![],
             Some(Expression::Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", false, Elem::UInt),
                 operator: Operator::Mul,
                 right: Box::new(lit(2u32)),
                 vectorization: None,
@@ -61,12 +61,12 @@ fn method_call() {
         a.method(2)
     }
 
-    let expanded = method_call::expand(Variable::new("a", None)).expression_untyped();
+    let expanded = method_call::expand(Variable::new("a", false, None)).expression_untyped();
     let expected = block_expr(
         vec![],
         Some(Expression::Binary {
             left: Box::new(Expression::FieldAccess {
-                base: var_expr("a", Elem::Unit),
+                base: var_expr("a", false, Elem::Unit),
                 name: "a".to_string(),
                 vectorization: None,
                 ty: Elem::UInt,

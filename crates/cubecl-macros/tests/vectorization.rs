@@ -21,17 +21,17 @@ pub fn vectorization_simple() {
     }
 
     let expanded = vectorized::expand(
-        Variable::new("a", NonZero::new(4)),
-        Variable::new("b", None),
+        Variable::new("a", false, NonZero::new(4)),
+        Variable::new("b", false, None),
     )
     .expression_untyped();
     let expected = block_expr(
         vec![init_vec(
             "c",
             Expression::Binary {
-                left: vec_var_expr("a", Elem::UInt, 4),
+                left: vec_var_expr("a", false, Elem::UInt, 4),
                 operator: Operator::Mul,
-                right: var_expr("b", Elem::UInt),
+                right: var_expr("b", false, Elem::UInt),
                 vectorization: NonZero::new(4),
                 ty: Elem::UInt,
             },
@@ -40,9 +40,9 @@ pub fn vectorization_simple() {
             4,
         )],
         Some(Expression::Binary {
-            left: vec_var_expr("c", Elem::UInt, 4),
+            left: vec_var_expr("c", false, Elem::UInt, 4),
             operator: Operator::Mul,
-            right: vec_var_expr("a", Elem::UInt, 4),
+            right: vec_var_expr("a", false, Elem::UInt, 4),
             vectorization: NonZero::new(4),
             ty: Elem::UInt,
         }),

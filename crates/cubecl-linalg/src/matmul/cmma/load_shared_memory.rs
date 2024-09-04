@@ -182,7 +182,7 @@ fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
     #[comptime] config: CmmaConfig,
 ) {
     let tile_size = config.tile_size;
-    let tensor_vec = vectorization(tensor);
+    let tensor_vec = vectorization_of(tensor);
 
     // Will likely fail if SUBCUBE_DIM is not 32
     let coop_dim = 32;

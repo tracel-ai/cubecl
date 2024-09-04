@@ -38,7 +38,7 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
             RemoveHelpers.visit_item_mut(&mut item);
 
             Ok(TokenStream::from(quote! {
-                #[allow(dead_code)]
+                #[allow(dead_code, clippy::too_many_arguments)]
                 #item
                 #kernel
             }))
@@ -57,7 +57,7 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
             RemoveHelpers.visit_item_mut(&mut item);
 
             Ok(TokenStream::from(quote! {
-                #[allow(dead_code)]
+                #[allow(dead_code, clippy::too_many_arguments)]
                 #item
                 #expand_impl
             }))

@@ -6,7 +6,7 @@ use crate::{
         StaticExpand, StaticExpanded, UnaryOp, Vectorization,
     },
     prelude::{VecIndex, VecIndexMut},
-    Runtime,
+    unexpanded, Runtime,
 };
 use cubecl_common::operator::Operator;
 use half::{bf16, f16};
@@ -20,8 +20,7 @@ pub trait Numeric:
     + NumAssign
     + PartialOrd
     + PartialEq
-    + Expand
-    + StaticExpand
+    + StaticExpand<Expanded: NumericExpandStatic>
     + VecIndex
     + VecIndexMut
     + Send
@@ -31,7 +30,11 @@ pub trait Numeric:
         <Self as NumCast>::from(n).unwrap()
     }
 }
-pub trait Float: Numeric + num_traits::Float {}
+pub trait Float: Numeric + num_traits::Float {
+    fn erf(self) -> Self {
+        unexpanded!()
+    }
+}
 pub trait Integer: Numeric + Ord {}
 
 pub trait NumericExpandStatic: StaticExpanded + Sized
@@ -68,7 +71,15 @@ where
     Self::Unexpanded: Float,
 {
     fn cos(self) -> impl Expr<Output = Self::Unexpanded> {
-        CosExpr(UnaryOp::new(self.inner()))
+        CosExpr::new(self.inner())
+    }
+
+    fn sqrt(self) -> impl Expr<Output = Self::Unexpanded> {
+        SqrtExpr::new(self.inner())
+    }
+
+    fn erf(self) -> impl Expr<Output = Self::Unexpanded> {
+        ErfExpr::new(self.inner())
     }
 }
 
@@ -94,30 +105,46 @@ impl<T: Primitive> Expr for T {
     }
 }
 
-#[derive(new)]
-pub struct CosExpr<In: Expr>(pub UnaryOp<In, In::Output>)
-where
-    In::Output: Float;
+macro_rules! num_un_op {
+    ($name:ident, $trait:path, $op:ident) => {
+        pub struct $name<In: Expr>(pub UnaryOp<In, In::Output>)
+        where
+            In::Output: $trait;
 
-impl<In: Expr> Expr for CosExpr<In>
-where
-    In::Output: Float,
-{
-    type Output = In::Output;
-
-    fn expression_untyped(&self) -> Expression {
-        Expression::Unary {
-            input: Box::new(self.0.input.expression_untyped()),
-            operator: Operator::Cos,
-            vectorization: self.vectorization(),
-            ty: In::Output::ir_type(),
+        impl<In: Expr> $name<In>
+        where
+            In::Output: $trait,
+        {
+            pub fn new(input: In) -> Self {
+                Self(UnaryOp::new(input))
+            }
         }
-    }
 
-    fn vectorization(&self) -> Vectorization {
-        self.0.input.vectorization()
-    }
+        impl<In: Expr> Expr for $name<In>
+        where
+            In::Output: $trait,
+        {
+            type Output = In::Output;
+
+            fn expression_untyped(&self) -> Expression {
+                Expression::Unary {
+                    input: Box::new(self.0.input.expression_untyped()),
+                    operator: Operator::$op,
+                    vectorization: self.vectorization(),
+                    ty: In::Output::ir_type(),
+                }
+            }
+
+            fn vectorization(&self) -> Vectorization {
+                self.0.input.vectorization()
+            }
+        }
+    };
 }
+
+num_un_op!(CosExpr, Float, Cos);
+num_un_op!(SqrtExpr, Float, Sqrt);
+num_un_op!(ErfExpr, Float, Erf);
 
 macro_rules! primitive {
     ($primitive:ident, $var_type:expr) => {

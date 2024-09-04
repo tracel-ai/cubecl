@@ -17,7 +17,7 @@ pub enum SubcubeExpression {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SubcubeOp {
     All,
     Any,
@@ -41,6 +41,32 @@ impl SubcubeExpression {
             SubcubeExpression::Elect => None,
             SubcubeExpression::Broadcast { vectorization, .. } => *vectorization,
             SubcubeExpression::Unary { input, .. } => input.vectorization(),
+        }
+    }
+
+    pub fn deep_clone(&self) -> Self {
+        match self {
+            SubcubeExpression::Elect => SubcubeExpression::Elect,
+            SubcubeExpression::Broadcast {
+                left,
+                right,
+                ty,
+                vectorization,
+            } => SubcubeExpression::Broadcast {
+                left: Box::new(left.deep_clone()),
+                right: Box::new(right.deep_clone()),
+                ty: *ty,
+                vectorization: *vectorization,
+            },
+            SubcubeExpression::Unary {
+                input,
+                operation,
+                ty,
+            } => SubcubeExpression::Unary {
+                input: Box::new(input.deep_clone()),
+                operation: *operation,
+                ty: *ty,
+            },
         }
     }
 }

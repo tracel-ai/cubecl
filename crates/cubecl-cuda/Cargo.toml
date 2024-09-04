@@ -39,3 +39,4 @@ cubecl-core = { path = "../cubecl-core", version = "0.2.0", features = [
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", features = [
   "export_tests",
 ] }
+pretty_assertions = { workspace = true }

@@ -101,7 +101,7 @@ macro_rules! cmp_op {
                     left: Box::new(self.0.left.expression_untyped()),
                     right: Box::new(self.0.right.expression_untyped()),
                     operator: $operator,
-                    ty: <bool as SquareType>::ir_type(),
+                    ty: <Self::Output as SquareType>::ir_type(),
                     vectorization: self.vectorization(),
                 }
             }
@@ -263,10 +263,16 @@ where
     type Output = TOut;
 
     fn expression_untyped(&self) -> Expression {
-        Expression::Cast {
-            from: Box::new(self.0.input.expression_untyped()),
-            vectorization: self.vectorization(),
-            to: TOut::ir_type(),
+        let in_ty = In::Output::ir_type();
+        let out_ty = TOut::ir_type();
+        if in_ty != out_ty {
+            Expression::Cast {
+                from: Box::new(self.0.input.expression_untyped()),
+                vectorization: self.vectorization(),
+                to: TOut::ir_type(),
+            }
+        } else {
+            self.0.input.expression_untyped()
         }
     }
 

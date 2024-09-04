@@ -41,7 +41,7 @@ pub fn vectorize_like<T: SquareType, Other: SquareType>(_this: T, _other: &Other
     unexpanded!()
 }
 
-pub fn vectorization<T: SquareType>(_this: &T) -> u32 {
+pub fn vectorization_of<T: SquareType>(_this: &T) -> u32 {
     unexpanded!()
 }
 
@@ -56,7 +56,7 @@ pub mod vectorize {
     }
 }
 
-pub mod vectorization {
+pub mod vectorization_of {
     use super::*;
 
     pub fn expand<T: SquareType>(this: impl Expr<Output = T>) -> u32 {

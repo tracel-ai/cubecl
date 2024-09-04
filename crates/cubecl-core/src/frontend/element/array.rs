@@ -1,11 +1,10 @@
-use std::{marker::PhantomData, num::NonZeroU8};
+use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::Item,
     new_ir::{
-        ArrayInit, Container, Expand, Expanded, Expression, StaticExpand, StaticExpanded,
-        Vectorization,
+        Container, Expand, Expanded, Expression, StaticExpand, StaticExpanded, Vectorization,
     },
     prelude::*,
     unexpanded, KernelSettings, Runtime,
@@ -91,21 +90,24 @@ impl<T: Primitive> LaunchArgExpand for Array<T> {
 
 #[expand_impl]
 impl<T: Primitive> Array<T> {
-    pub fn new(_size: u32) -> Self {
-        unexpanded!()
+    pub fn new(size: u32) -> Self {
+        Array {
+            size,
+            vectorization: None,
+            _type: PhantomData,
+        }
     }
 
-    pub fn vectorized(_size: u32, _vectorization: u8) -> Self {
-        unexpanded!()
-    }
-
-    #[expanded]
-    pub fn vectorized(size: u32, vectorization: u8) -> impl Expr<Output = Array<T>> {
-        ArrayInit::new(size, NonZeroU8::new(vectorization))
+    pub fn vectorized(size: u32, vectorization: u8) -> Self {
+        Array {
+            size,
+            vectorization: NonZero::new(vectorization),
+            _type: PhantomData,
+        }
     }
 
     pub fn len(&self) -> u32 {
-        unexpanded!()
+        self.size
     }
 
     #[expanded]

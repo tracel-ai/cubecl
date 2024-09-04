@@ -8,8 +8,9 @@ use crate::{
     frontend::CubeContext,
     ir::Elem,
     new_ir::{
-        flatten::item, Container, Expand, Expanded, Expr, Expression, IndexExpr, SliceExpr,
-        SliceRangeExpr, SquareType, StaticExpand, StaticExpanded, Strided, Vectorization,
+        flatten::item, Container, Expand, Expanded, Expr, Expression, IndexExpr, OnceExpr,
+        SliceExpr, SliceRangeExpr, SquareType, StaticExpand, StaticExpanded, Strided,
+        Vectorization,
     },
     prelude::*,
     unexpanded,
@@ -88,6 +89,10 @@ impl SharedMemoryExpr {
         }
     }
 
+    pub fn deep_clone(&self) -> Self {
+        self.clone()
+    }
+
     pub fn flatten(self, context: &mut CubeContext) -> Option<ExpandElement> {
         match self {
             SharedMemoryExpr::Init {
@@ -160,12 +165,22 @@ impl<T: Primitive> SharedMemory<T> {
         }
     }
 
+    #[expanded]
+    pub fn new(size: u32) -> OnceExpr<SharedMemory<T>> {
+        OnceExpr::new(SharedMemory::new(size))
+    }
+
     pub fn vectorized(size: u32, vectorization_factor: u32) -> Self {
         SharedMemory {
             size,
             vectorization: NonZero::new(vectorization_factor as u8),
             _type: PhantomData,
         }
+    }
+
+    #[expanded]
+    pub fn vectorized(size: u32, vectorization_factor: u32) -> OnceExpr<SharedMemory<T>> {
+        OnceExpr::new(SharedMemory::vectorized(size, vectorization_factor))
     }
 
     #[expanded]

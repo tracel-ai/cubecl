@@ -31,7 +31,7 @@ fn simple_arithmetic() {
             local_init(
                 "b",
                 Expression::Binary {
-                    left: var_expr("a", Elem::UInt),
+                    left: var_expr("a", true, Elem::UInt),
                     right: Box::new(lit(3u32)),
                     operator: Operator::Mul,
                     ty: Elem::UInt,
@@ -43,9 +43,9 @@ fn simple_arithmetic() {
             local_init(
                 "c",
                 Expression::Binary {
-                    left: var_expr("b", Elem::UInt),
+                    left: var_expr("b", true, Elem::UInt),
                     operator: Operator::Add,
-                    right: var_expr("a", Elem::UInt),
+                    right: var_expr("a", true, Elem::UInt),
                     ty: Elem::UInt,
                     vectorization: None,
                 },
@@ -57,7 +57,7 @@ fn simple_arithmetic() {
                 Expression::Binary {
                     left: Box::new(lit(2u32)),
                     operator: Operator::Div,
-                    right: var_expr("a", Elem::UInt),
+                    right: var_expr("a", true, Elem::UInt),
                     ty: Elem::UInt,
                     vectorization: None,
                 },
@@ -69,7 +69,7 @@ fn simple_arithmetic() {
                 Expression::Binary {
                     left: Box::new(lit(3u32)),
                     operator: Operator::Rem,
-                    right: var_expr("b", Elem::UInt),
+                    right: var_expr("b", true, Elem::UInt),
                     ty: Elem::UInt,
                     vectorization: None,
                 },
@@ -79,9 +79,9 @@ fn simple_arithmetic() {
             local_init(
                 "f",
                 Expression::Binary {
-                    left: var_expr("b", Elem::UInt),
+                    left: var_expr("b", true, Elem::UInt),
                     operator: Operator::Sub,
-                    right: var_expr("a", Elem::UInt),
+                    right: var_expr("a", true, Elem::UInt),
                     ty: Elem::UInt,
                     vectorization: None,
                 },
@@ -116,7 +116,7 @@ fn cmp_ops() {
             local_init(
                 "b",
                 Binary {
-                    left: var_expr("a", Elem::UInt),
+                    left: var_expr("a", true, Elem::UInt),
                     operator: Operator::Gt,
                     right: Box::new(lit(1u32)),
                     ty: Elem::Bool,
@@ -128,7 +128,7 @@ fn cmp_ops() {
             local_init(
                 "c",
                 Binary {
-                    left: var_expr("a", Elem::UInt),
+                    left: var_expr("a", true, Elem::UInt),
                     operator: Operator::Le,
                     right: Box::new(lit(1u32)),
                     ty: Elem::Bool,
@@ -140,7 +140,7 @@ fn cmp_ops() {
             local_init(
                 "d",
                 Binary {
-                    left: var_expr("a", Elem::UInt),
+                    left: var_expr("a", true, Elem::UInt),
                     operator: Operator::Lt,
                     right: Box::new(lit(11u32)),
                     ty: Elem::Bool,
@@ -154,7 +154,7 @@ fn cmp_ops() {
                 Binary {
                     left: Box::new(lit(1u32)),
                     operator: Operator::Ge,
-                    right: var_expr("a", Elem::UInt),
+                    right: var_expr("a", true, Elem::UInt),
                     ty: Elem::Bool,
                     vectorization: None,
                 },
@@ -164,7 +164,7 @@ fn cmp_ops() {
             local_init(
                 "f",
                 Binary {
-                    left: var_expr("a", Elem::UInt),
+                    left: var_expr("a", true, Elem::UInt),
                     operator: Operator::Eq,
                     right: Box::new(lit(2u32)),
                     ty: Elem::Bool,
@@ -176,7 +176,7 @@ fn cmp_ops() {
             local_init(
                 "g",
                 Binary {
-                    left: var_expr("a", Elem::UInt),
+                    left: var_expr("a", true, Elem::UInt),
                     operator: Operator::Ne,
                     right: Box::new(lit(2u32)),
                     ty: Elem::Bool,
@@ -210,35 +210,35 @@ fn assign_arithmetic() {
         vec![
             local_init("a", lit(1u32), true, Some(Elem::UInt)),
             expr(Expression::Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 right: Box::new(lit(3u32)),
                 operator: Operator::MulAssign,
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             expr(Expression::Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::AddAssign,
                 right: Box::new(lit(2u32)),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             expr(Expression::Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::DivAssign,
                 right: Box::new(lit(2u32)),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             expr(Expression::Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::RemAssign,
                 right: Box::new(lit(1u32)),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             expr(Expression::Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::SubAssign,
                 right: Box::new(lit(0u32)),
                 ty: Elem::UInt,
@@ -272,7 +272,7 @@ fn boolean_ops() {
             local_init(
                 "b",
                 Binary {
-                    left: var_expr("a", Elem::Bool),
+                    left: var_expr("a", true, Elem::Bool),
                     operator: Operator::And,
                     right: Box::new(lit(true)),
                     ty: Elem::Bool,
@@ -283,28 +283,28 @@ fn boolean_ops() {
             ),
             local_init("c", lit(1), true, None),
             expr(Binary {
-                left: var_expr("b", Elem::Bool),
+                left: var_expr("b", true, Elem::Bool),
                 operator: Operator::Or,
-                right: var_expr("a", Elem::Bool),
+                right: var_expr("a", true, Elem::Bool),
                 ty: Elem::Bool,
                 vectorization: None,
             }),
             expr(Binary {
-                left: var_expr("c", Elem::Int(IntKind::I32)),
+                left: var_expr("c", true, Elem::Int(IntKind::I32)),
                 operator: Operator::BitXor,
                 right: Box::new(lit(2)),
                 ty: Elem::Int(IntKind::I32),
                 vectorization: None,
             }),
             expr(Binary {
-                left: var_expr("c", Elem::Int(IntKind::I32)),
+                left: var_expr("c", true, Elem::Int(IntKind::I32)),
                 operator: Operator::BitOr,
                 right: Box::new(lit(3)),
                 ty: Elem::Int(IntKind::I32),
                 vectorization: None,
             }),
             expr(Binary {
-                left: var_expr("c", Elem::Int(IntKind::I32)),
+                left: var_expr("c", true, Elem::Int(IntKind::I32)),
                 operator: Operator::BitAnd,
                 right: Box::new(lit(1)),
                 ty: Elem::Int(IntKind::I32),
@@ -333,21 +333,21 @@ fn boolean_assign_ops() {
         vec![
             local_init("a", lit(10u32), true, None),
             expr(Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::BitOrAssign,
                 right: Box::new(lit(5u32)),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             expr(Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::BitAndAssign,
                 right: Box::new(lit(10u32)),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             expr(Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::BitXorAssign,
                 right: Box::new(lit(3u32)),
                 ty: Elem::UInt,
@@ -377,28 +377,28 @@ fn shift_ops() {
         vec![
             local_init("a", lit(10u32), true, None),
             expr(Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::Shl,
                 right: Box::new(lit(5)),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             expr(Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::Shr,
                 right: Box::new(lit(2)),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             expr(Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::ShlAssign,
                 right: Box::new(lit(1)),
                 ty: Elem::UInt,
                 vectorization: None,
             }),
             expr(Binary {
-                left: var_expr("a", Elem::UInt),
+                left: var_expr("a", true, Elem::UInt),
                 operator: Operator::ShrAssign,
                 right: Box::new(lit(2)),
                 ty: Elem::UInt,

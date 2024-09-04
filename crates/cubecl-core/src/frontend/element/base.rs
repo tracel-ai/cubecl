@@ -5,7 +5,7 @@ use crate::{
     KernelSettings, Runtime,
 };
 use alloc::rc::Rc;
-use std::{collections::HashMap, rc::Weak};
+use std::collections::HashMap;
 
 /// Defines how a [launch argument](LaunchArg) can be expanded.
 ///
@@ -58,38 +58,38 @@ pub enum ExpandElement {
     /// Variable not kept in the variable pool.
     Plain(Variable),
     /// Struct with subexpressions
-    Struct(HashMap<String, ExpandElement>),
+    Struct(HashMap<&'static str, ExpandElement>),
 }
 
 /// Weak reference to a JIT variable for variable name mapping
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExpandElementWeak {
     /// Variable kept in the variable pool.
-    Managed(Weak<Variable>),
+    Managed(Rc<Variable>),
     /// Variable not kept in the variable pool.
     Plain(Variable),
     /// Struct with subexpressions
-    Struct(HashMap<String, ExpandElement>),
+    Struct(HashMap<&'static str, ExpandElement>),
 }
 
-impl PartialEq for ExpandElementWeak {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (ExpandElementWeak::Managed(var), ExpandElementWeak::Managed(var2)) => var
-                .upgrade()
-                .zip(var2.upgrade())
-                .map(|(var1, var2)| var1 == var2)
-                .unwrap_or(false),
-            (ExpandElementWeak::Plain(var), ExpandElementWeak::Plain(var2)) => var == var2,
-            _unused => false,
-        }
-    }
-}
+// impl PartialEq for ExpandElementWeak {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (ExpandElementWeak::Managed(var), ExpandElementWeak::Managed(var2)) => var
+//                 .upgrade()
+//                 .zip(var2.upgrade())
+//                 .map(|(var1, var2)| var1 == var2)
+//                 .unwrap_or(false),
+//             (ExpandElementWeak::Plain(var), ExpandElementWeak::Plain(var2)) => var == var2,
+//             _unused => false,
+//         }
+//     }
+// }
 
 impl ExpandElementWeak {
     pub fn upgrade(self) -> Option<ExpandElement> {
         match self {
-            ExpandElementWeak::Managed(var) => Some(ExpandElement::Managed(var.upgrade()?)),
+            ExpandElementWeak::Managed(var) => Some(ExpandElement::Managed(var)),
             ExpandElementWeak::Plain(var) => Some(ExpandElement::Plain(var)),
             ExpandElementWeak::Struct(vars) => Some(ExpandElement::Struct(vars)),
         }
@@ -107,14 +107,16 @@ impl ExpandElement {
                     false
                 }
             }
-            ExpandElement::Plain(_) => false,
-            ExpandElement::Struct(_) => false,
+            ExpandElement::Plain(Variable::LocalArray { .. } | Variable::SharedMemory { .. }) => {
+                true
+            }
+            _ => false,
         }
     }
 
     pub fn as_weak(&self) -> ExpandElementWeak {
         match self {
-            ExpandElement::Managed(var) => ExpandElementWeak::Managed(Rc::downgrade(var)),
+            ExpandElement::Managed(var) => ExpandElementWeak::Managed(var.clone()),
             ExpandElement::Plain(var) => ExpandElementWeak::Plain(*var),
             ExpandElement::Struct(var) => ExpandElementWeak::Struct(var.clone()),
         }

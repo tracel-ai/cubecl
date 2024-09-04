@@ -1,6 +1,6 @@
 use super::{BlockExpr, Expand, Expanded, Expr, Expression, Range, SquareType, Variable};
 use crate::prelude::Integer;
-use std::num::NonZero;
+use std::{num::NonZero, rc::Rc};
 
 pub struct Break;
 
@@ -31,7 +31,9 @@ impl Expr for Continue {
 }
 
 pub trait ForLoopRange {
-    type Primitive: SquareType;
+    type Primitive: Integer;
+
+    //fn as_primitive(&self) -> (i64, i64, Option<i64>, bool);
 }
 
 pub struct ForLoop<Range: Expr>
@@ -42,7 +44,7 @@ where
     pub unroll: bool,
     pub variable: Variable<<Range::Output as ForLoopRange>::Primitive>,
 
-    pub block: BlockExpr<()>,
+    pub block: Rc<BlockExpr<()>>,
 }
 
 impl<Range: Expr> ForLoop<Range>
@@ -57,7 +59,7 @@ where
         Self {
             range,
             variable,
-            block,
+            block: Rc::new(block),
             unroll: false,
         }
     }
@@ -75,7 +77,7 @@ where
         Self {
             range,
             variable,
-            block,
+            block: Rc::new(block),
             unroll: true,
         }
     }
@@ -107,9 +109,9 @@ where
         }
         Expression::ForLoop {
             range,
-            unroll: self.unroll,
             variable: self.variable.expression_untyped().as_variable().unwrap(),
             block: self.block.expression_untyped().as_block().unwrap(),
+            unroll: self.unroll,
         }
     }
 
@@ -209,6 +211,26 @@ where
     Start::Output: Integer,
 {
     type Primitive = Start::Output;
+
+    // fn as_primitive(&self) -> (i64, i64, Option<i64>, bool) {
+    //     let start = self.start.expression_untyped();
+    //     let end = self.end.expression_untyped();
+    //     assert!(
+    //         matches!(start, Expression::Literal { .. }),
+    //         "Can't unroll loop with dynamic start"
+    //     );
+    //     assert!(
+    //         matches!(end, Expression::Literal { .. }),
+    //         "Can't unroll loop with dynamic end"
+    //     );
+    //     let start = start.as_lit().unwrap();
+    //     let end = end.as_lit().unwrap();
+    //     match start {
+    //         ConstantScalarValue::Int(i, _) => (i, end.as_i64(), None, self.inclusive),
+    //         ConstantScalarValue::UInt(u) => (u as i64, end.as_u64() as i64, None, self.inclusive),
+    //         _ => unreachable!(),
+    //     }
+    // }
 }
 
 impl<Start: Expr, End: Expr<Output = Start::Output>, Step: Expr<Output = Start::Output>, Inner> Expr
@@ -239,6 +261,39 @@ where
     Inner: Expr<Output = RangeExpr<Start, End>>,
 {
     type Primitive = Start::Output;
+
+    // fn as_primitive(&self) -> (i64, i64, Option<i64>, bool) {
+    //     let inner = self.inner.expression_untyped();
+    //     let inner = inner.as_range().unwrap().clone();
+    //     let step = self.step.expression_untyped();
+    //     assert!(
+    //         matches!(*inner.start, Expression::Literal { .. }),
+    //         "Can't unroll loop with dynamic start"
+    //     );
+    //     assert!(
+    //         matches!(*inner.end, Expression::Literal { .. }),
+    //         "Can't unroll loop with dynamic end"
+    //     );
+    //     assert!(
+    //         matches!(step, Expression::Literal { .. }),
+    //         "Can't unroll loop with dynamic step"
+    //     );
+    //     let start = inner.start.as_lit().unwrap();
+    //     let end = inner.end.as_lit().unwrap();
+    //     let step = step.as_lit().unwrap();
+    //     match step {
+    //         ConstantScalarValue::Int(i, _) => {
+    //             (start.as_i64(), end.as_i64(), Some(i), inner.inclusive)
+    //         }
+    //         ConstantScalarValue::UInt(u) => (
+    //             start.as_u64() as i64,
+    //             end.as_u64() as i64,
+    //             Some(u as i64),
+    //             inner.inclusive,
+    //         ),
+    //         _ => unreachable!(),
+    //     }
+    // }
 }
 
 #[derive(new)]

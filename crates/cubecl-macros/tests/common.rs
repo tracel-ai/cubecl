@@ -25,35 +25,43 @@ pub fn block_expr(statements: Vec<Statement>, ret: Option<Expression>) -> Expres
 }
 
 #[allow(unused)]
-pub fn var(name: &str, ty: Elem) -> Var {
+pub fn var(name: &str, mutable: bool, ty: Elem) -> Var {
     Var {
-        name: name.to_string(),
+        name: name.to_string().into(),
+        mutable,
         ty,
         vectorization: None,
     }
 }
 
 #[allow(unused)]
-pub fn var_expr(name: &str, ty: Elem) -> Box<Expression> {
+pub fn var_expr(name: &str, mutable: bool, ty: Elem) -> Box<Expression> {
     Box::new(Expression::Variable(Var {
-        name: name.to_string(),
+        name: name.to_string().into(),
+        mutable,
         ty,
         vectorization: None,
     }))
 }
 
 #[allow(unused)]
-pub fn vec_var(name: &str, ty: Elem, vectorization: u8) -> Var {
+pub fn vec_var(name: &str, mutable: bool, ty: Elem, vectorization: u8) -> Var {
     Var {
-        name: name.to_string(),
+        name: name.to_string().into(),
+        mutable,
         ty,
         vectorization: NonZero::new(vectorization),
     }
 }
 
 #[allow(unused)]
-pub fn vec_var_expr(name: &str, ty: Elem, vectorization: u8) -> Box<Expression> {
-    Box::new(Expression::Variable(vec_var(name, ty, vectorization)))
+pub fn vec_var_expr(name: &str, mutable: bool, ty: Elem, vectorization: u8) -> Box<Expression> {
+    Box::new(Expression::Variable(vec_var(
+        name,
+        mutable,
+        ty,
+        vectorization,
+    )))
 }
 
 #[allow(unused)]
@@ -69,7 +77,7 @@ pub fn lit<T: Primitive>(value: T) -> Expression {
 pub fn local_init(name: &str, right: Expression, mutable: bool, ty: Option<Elem>) -> Statement {
     Statement::Local {
         variable: Expression::Init {
-            left: var(name, right.ir_type()),
+            left: var(name, mutable, right.ir_type()),
             ty: right.ir_type(),
             right: Box::new(right),
             vectorization: None,
@@ -88,7 +96,7 @@ pub fn init_vec(
 ) -> Statement {
     Statement::Local {
         variable: Expression::Init {
-            left: vec_var(name, right.ir_type(), vectorization),
+            left: vec_var(name, mutable, right.ir_type(), vectorization),
             ty: right.ir_type(),
             right: Box::new(right),
             vectorization: NonZero::new(vectorization),

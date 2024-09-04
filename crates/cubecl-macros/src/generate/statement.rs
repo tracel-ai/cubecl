@@ -40,7 +40,7 @@ impl ToTokens for Statement {
                         let init_ty = ir_type("Initializer");
                         quote_spanned! {*span=>
                             #init_ty {
-                                left: #name,
+                                left: #name.clone(),
                                 right: __init
                             }
                         }
@@ -52,7 +52,7 @@ impl ToTokens for Statement {
                         .is_some()
                         .then(|| quote![#expr::vectorization(&__init)]);
                     let variable: proc_macro2::TokenStream =
-                        generate_var(name, ty, *span, vectorization);
+                        generate_var(name, *mutable, ty, *span, vectorization);
                     let variable_decl = quote_spanned! {*span=>
                         let #name = #variable;
                     };

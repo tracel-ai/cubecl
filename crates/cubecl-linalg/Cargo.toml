@@ -15,7 +15,7 @@ version.workspace = true
 
 [features]
 default = []
-export_tests = []
+export_tests = ["pretty_assertions"]
 std = []
 
 [dependencies]
@@ -23,6 +23,7 @@ bytemuck = { workspace = true }
 cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false }
 half = { workspace = true, features = ["bytemuck"] }
+pretty_assertions = { workspace = true, optional = true }
 
 [dev-dependencies]
 trybuild = "1"

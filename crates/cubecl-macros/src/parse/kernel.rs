@@ -1,13 +1,13 @@
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::{Span, TokenStream};
 use syn::{
-    parse_quote, spanned::Spanned, Block, FnArg, Generics, Ident, ItemFn, Path, Signature,
-    TraitItemFn, Type, Visibility,
+    parse_quote, spanned::Spanned, FnArg, Generics, Ident, ItemFn, Path, Signature, TraitItemFn,
+    Type, Visibility,
 };
 
-use crate::{expression::Expression, ir_type, scope::Context, statement::parse_pat};
+use crate::{expression::Block, ir_type, scope::Context, statement::parse_pat};
 
-use super::{branch::parse_block, helpers::is_comptime_attr};
+use super::helpers::is_comptime_attr;
 
 #[derive(Default, FromMeta)]
 pub(crate) struct KernelArgs {
@@ -49,7 +49,7 @@ pub struct Kernel {
 pub struct KernelFn {
     pub sig: KernelSignature,
     pub kernel_vars: Vec<TokenStream>,
-    pub block: Expression,
+    pub block: Block,
 }
 
 #[derive(Clone)]
@@ -145,14 +145,18 @@ impl KernelSignature {
 }
 
 impl KernelFn {
-    pub fn from_sig_and_block(sig: Signature, block: Block, launch: bool) -> syn::Result<Self> {
+    pub fn from_sig_and_block(
+        sig: Signature,
+        block: syn::Block,
+        launch: bool,
+    ) -> syn::Result<Self> {
         let sig = KernelSignature::from_signature(sig)?;
 
         let mut context = Context::new(sig.returns.clone(), launch);
         let kernel_vars = context.current_scope().generate_kernel_vars();
         context.extend(sig.parameters.clone());
         context.push_scope(); // Push function local scope
-        let block = parse_block(block, &mut context)?;
+        let block = Block::from_block(block, &mut context)?;
         context.pop_scope(); // Pop function local scope
 
         Ok(KernelFn {

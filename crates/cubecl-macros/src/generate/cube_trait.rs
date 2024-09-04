@@ -19,11 +19,15 @@ impl ToTokens for CubeTrait {
         let fns = &self.items;
 
         let out = quote! {
+            #[allow(clippy::too_many_arguments)]
             #original
 
             #(#attrs)*
             #vis #unsafety trait #expand_name #generics: #static_expanded {
-                #(#fns)*
+                #(
+                    #[allow(clippy::too_many_arguments)]
+                    #fns
+                )*
             }
         };
         tokens.extend(out);
