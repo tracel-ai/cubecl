@@ -12,6 +12,7 @@ pub struct CmmaBlockConfig {
     /// Corresponds to the number of accumulators per warp. Equals b_mn / b_k
     pub alpha: usize,
 }
+
 impl CmmaBlockConfig {
     pub(crate) fn new(b_mn: usize, b_k: usize) -> CmmaBlockConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);

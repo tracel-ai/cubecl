@@ -17,7 +17,7 @@ pub fn launch_ref<R: Runtime, F: Float>(
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
 ) {
-    if cmma::is_available::<R, F>(client, None).is_ok() {
+    if cmma::is_available::<R, F>(client).is_ok() {
         cmma::launch_ref::<R, F>(client, lhs, rhs, out);
     } else {
         tiling2d::launch_ref::<R, F>(client, lhs, rhs, out, Default::default());

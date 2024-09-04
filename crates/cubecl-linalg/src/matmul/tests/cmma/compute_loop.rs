@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::cmma::{
     base::{make_accumulators, SharedMemories, SharedMemoriesExpand},
     compute_loop::compute_loop,
-    config::CmmaComptimeInfo,
+    config::{CmmaBlockConfig, CmmaComptimeInfo},
 };
 use crate::matmul::tests::test_utils::{
     assert_equals, cmma_available, create_empty, range_tensor_f16,
@@ -15,21 +15,20 @@ fn compute_loop_test<F: Float, FC: Float>(
     lhs_tensor: &Tensor<FC>,
     rhs_tensor: &Tensor<FC>,
     accumulate_array: &mut Array<F>,
-    b_m: Comptime<UInt>,
+    b_mn: Comptime<UInt>,
     b_k: Comptime<UInt>,
-    b_n: Comptime<UInt>,
     comptime_info: Comptime<CmmaComptimeInfo>,
 ) {
-    let mut lhs = SharedMemory::<FC>::new(Comptime::get(b_m * b_k));
-    let mut rhs = SharedMemory::<FC>::new(Comptime::get(b_k * b_n));
+    let mut lhs = SharedMemory::<FC>::new(Comptime::get(b_mn * b_k));
+    let mut rhs = SharedMemory::<FC>::new(Comptime::get(b_k * b_mn));
 
-    for i in range(0u32, Comptime::get(b_m * b_k), Comptime::new(false)) {
+    for i in range(0u32, Comptime::get(b_mn * b_k), Comptime::new(false)) {
         lhs[i] = lhs_tensor[i];
     }
-    for i in range(0u32, Comptime::get(b_k * b_n), Comptime::new(false)) {
+    for i in range(0u32, Comptime::get(b_k * b_mn), Comptime::new(false)) {
         rhs[i] = rhs_tensor[i];
     }
-    for i in range(0u32, Comptime::get(b_m * b_n), Comptime::new(false)) {
+    for i in range(0u32, Comptime::get(b_mn * b_mn), Comptime::new(false)) {
         accumulate_array[i] = F::new(0.);
     }
 
@@ -56,7 +55,7 @@ fn compute_loop_test<F: Float, FC: Float>(
 }
 
 fn compute_loop_test_case<R: Runtime>(
-    launch_config: CmmaLaunchConfig,
+    block_config: CmmaBlockConfig,
     expected: &[f32],
     device: &R::Device,
 ) {
@@ -66,34 +65,14 @@ fn compute_loop_test_case<R: Runtime>(
     }
 
     let client = R::client(device);
-    let lhs = range_tensor_f16::<R>(
-        &client,
-        launch_config.block_size_m,
-        launch_config.block_size_k,
-    );
-    let rhs = range_tensor_f16::<R>(
-        &client,
-        launch_config.block_size_k,
-        launch_config.block_size_n,
-    );
-    let results = create_empty::<R>(
-        &client,
-        launch_config.block_size_m,
-        launch_config.block_size_n,
-    );
-    let cube_dim = CubeDim::new(
-        launch_config.cube_dim_x as u32,
-        launch_config.cube_dim_y as u32,
-        1,
-    );
-    let cube_count = CubeCount::Static(1, 1, 1);
+    let lhs = range_tensor_f16::<R>(&client, block_config.b_mn, block_config.b_k);
+    let rhs = range_tensor_f16::<R>(&client, block_config.b_k, block_config.b_mn);
+    let results = create_empty::<R>(&client, block_config.b_mn, block_config.b_mn);
+    let cube_dim = block_config.cube_dim();
+    let cube_count = block_config.cube_count::<R>(&[block_config.b_mn, block_config.b_mn]);
 
-    let comptime_info = CmmaComptimeInfo::new(
-        launch_config.block_size_m,
-        launch_config.block_size_k,
-        launch_config.block_size_n,
-        &launch_config,
-    );
+    let comptime_info =
+        block_config.comptime_info(block_config.b_mn, block_config.b_k, block_config.b_mn);
 
     unsafe {
         compute_loop_test::launch_unchecked::<F32, F16, R>(
@@ -102,14 +81,9 @@ fn compute_loop_test_case<R: Runtime>(
             cube_dim,
             TensorArg::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, 1),
             TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, 1),
-            ArrayArg::from_raw_parts(
-                &results,
-                launch_config.block_size_m * launch_config.block_size_n,
-                1,
-            ),
-            UInt::new(launch_config.block_size_m as u32),
-            UInt::new(launch_config.block_size_k as u32),
-            UInt::new(launch_config.block_size_n as u32),
+            ArrayArg::from_raw_parts(&results, block_config.b_mn * block_config.b_mn, 1),
+            UInt::new(block_config.b_mn as u32),
+            UInt::new(block_config.b_k as u32),
             comptime_info,
         );
     };
@@ -120,14 +94,7 @@ fn compute_loop_test_case<R: Runtime>(
 /// Exported test
 pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
     compute_loop_test_case::<R>(
-        CmmaLaunchConfig {
-            block_size_m: 16,
-            block_size_k: 32,
-            block_size_n: 16,
-            cube_dim_x: 32,
-            cube_dim_y: 1,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(32, 32),
         &[
             1610496., 1614832., 1619168., 1623504., 1627840., 1632176., 1636512., 1640848.,
             1645184., 1649520., 1653856., 1658192., 1662528., 1666864., 1671200., 1675536.,
@@ -169,14 +136,7 @@ pub fn compute_loop_k_test<R: Runtime>(device: &R::Device) {
 /// Exported test
 pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
     compute_loop_test_case::<R>(
-        CmmaLaunchConfig {
-            block_size_m: 16,
-            block_size_k: 32,
-            block_size_n: 32,
-            cube_dim_x: 32,
-            cube_dim_y: 1,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(32, 32),
         &[
             1610496., 1614832., 1619168., 1623504., 1627840., 1632176., 1636512., 1640848.,
             1645184., 1649520., 1653856., 1658192., 1662528., 1666864., 1671200., 1675536.,
@@ -250,14 +210,7 @@ pub fn compute_loop_warp_test<R: Runtime>(device: &R::Device) {
 /// Exported test
 pub fn cmma_compute_loop_two_warps_same_tile_row_test<R: Runtime>(device: &R::Device) {
     compute_loop_test_case::<R>(
-        CmmaLaunchConfig {
-            block_size_m: 16,
-            block_size_k: 32,
-            block_size_n: 64,
-            cube_dim_x: 32,
-            cube_dim_y: 2,
-            unroll: false,
-        },
+        CmmaBlockConfig::new(32, 32),
         &[
             1610496.0, 1614832.0, 1619168.0, 1623504.0, 1627840.0, 1632176.0, 1636512.0, 1640848.0,
             1645184.0, 1649520.0, 1653856.0, 1658192.0, 1662528.0, 1666864.0, 1671200.0, 1675536.0,
