@@ -451,6 +451,9 @@ impl CudaCompiler {
             gpu::Operator::NotEqual(op) => {
                 instructions.push(Instruction::NotEqual(self.compile_binary(op)))
             }
+            gpu::Operator::BitwiseOr(op) => {
+                instructions.push(Instruction::BitwiseOr(self.compile_binary(op)))
+            }
             gpu::Operator::BitwiseAnd(op) => {
                 instructions.push(Instruction::BitwiseAnd(self.compile_binary(op)))
             }

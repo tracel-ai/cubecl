@@ -162,6 +162,11 @@ pub fn bitand_op(a: UInt, b: UInt) -> UInt {
 }
 
 #[cube]
+pub fn bitor_op(a: UInt, b: UInt) -> UInt {
+    a | b
+}
+
+#[cube]
 pub fn bitxor_op(a: UInt, b: UInt) -> UInt {
     a ^ b
 }
@@ -349,6 +354,7 @@ mod tests {
     binary_boolean_test!(cube_can_and, and_op::__expand, "And");
     binary_boolean_test!(cube_can_or, or_op::__expand, "Or");
     binary_uint_test!(cube_can_bitand, bitand_op::__expand, "BitwiseAnd");
+    binary_uint_test!(cube_can_bitor, bitor_op::__expand, "BitwiseOr");
     binary_uint_test!(cube_can_bitxor, bitxor_op::__expand, "BitwiseXor");
     binary_uint_test!(cube_can_shl, shl_op::__expand, "ShiftLeft");
     binary_uint_test!(cube_can_shr, shr_op::__expand, "ShiftRight");

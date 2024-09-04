@@ -64,6 +64,7 @@ pub enum Operator {
     Max(BinaryOperator),
     Min(BinaryOperator),
     BitwiseAnd(BinaryOperator),
+    BitwiseOr(BinaryOperator),
     BitwiseXor(BinaryOperator),
     ShiftLeft(BinaryOperator),
     ShiftRight(BinaryOperator),
