@@ -131,4 +131,55 @@ jobs:
           mesa-ci-build-version: ${{ env.MESA_CI_BINARY_BUILD }}
       # --------------------------------------------------------------------------------
       - name: Tests
-        run: cargo xtask test
+        run: cargo xtask test --ci
+
+  windows-std-tests:
+    runs-on: windows-2022
+    needs: prepare-checks
+    env:
+      DISABLE_WGPU: '1'
+    # Keep the stragegy to be able to easily add new rust versions if required
+    strategy:
+      matrix:
+        rust: [stable]
+        include:
+          - rust: stable
+            toolchain: stable
+    steps:
+      - name: Setup Rust
+        uses: tracel-ai/github-actions/setup-rust@v1
+        with:
+          rust-toolchain: ${{ matrix.toolchain }}
+          cache-key: ${{ matrix.rust }}-windows
+      # --------------------------------------------------------------------------------
+      - name: Setup Windows runner
+        if: env.DISABLE_WGPU != '1'
+        uses: tracel-ai/github-actions/setup-windows@v1
+        with:
+          dxc-release: ${{ env.DXC_RELEASE }}
+          dxc-filename: ${{ env.DXC_FILENAME }}
+          mesa-version: ${{ env.MESA_VERSION }}
+          warp-version: ${{ env.WARP_VERSION }}
+      # --------------------------------------------------------------------------------
+      - name: Tests
+        run: cargo xtask test --ci
+
+  macos-std-tests:
+    runs-on: macos-14
+    needs: prepare-checks
+    # Keep the stragegy to be able to easily add new rust versions if required
+    strategy:
+      matrix:
+        rust: [stable]
+        include:
+          - rust: stable
+            toolchain: stable
+    steps:
+      - name: Setup Rust
+        uses: tracel-ai/github-actions/setup-rust@v1
+        with:
+          rust-toolchain: ${{ matrix.toolchain }}
+          cache-key: ${{ matrix.rust }}-macos
+      # --------------------------------------------------------------------------------
+      - name: Tests
+        run: cargo xtask test --ci
