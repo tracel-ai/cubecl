@@ -131,4 +131,4 @@ jobs:
           mesa-ci-build-version: ${{ env.MESA_CI_BINARY_BUILD }}
       # --------------------------------------------------------------------------------
       - name: Tests
-        run: cargo xtask test --ci
+        run: cargo xtask test
