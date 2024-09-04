@@ -35,6 +35,11 @@ impl Runtime for CudaRuntime {
         fn init(index: usize) -> CudaContext<DynamicMemoryManagement<CudaStorage>> {
             cudarc::driver::result::init().unwrap();
             let device_ptr = cudarc::driver::result::device::get(index as i32).unwrap();
+            let arch = unsafe {
+                let major = cudarc::driver::result::device::get_attribute(device_ptr, cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR).unwrap();
+                let minor = cudarc::driver::result::device::get_attribute(device_ptr, cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR).unwrap();
+                major * 10 + minor
+            } as u32;
 
             let ctx = unsafe {
                 let ctx = cudarc::driver::result::primary_ctx::retain(device_ptr).unwrap();
@@ -49,19 +54,14 @@ impl Runtime for CudaRuntime {
             let storage = CudaStorage::new(stream);
             let options = DynamicMemoryManagementOptions::preset(2048 + 512 * 1024 * 1024, 32);
             let memory_management = DynamicMemoryManagement::new(storage, options);
-            CudaContext::new(memory_management, stream, ctx)
+            CudaContext::new(memory_management, stream, ctx, arch)
         }
 
         RUNTIME.client(device, move || {
             let mut server = CudaServer::new(device.index, Box::new(init));
             let mut features = FeatureSet::new(&[Feature::Subcube]);
 
-            if let Some(wmma_minimum_version) = register_wmma_features(&mut features, &server.archs)
-            {
-                server.minimum_arch_version =
-                    i32::max(server.minimum_arch_version, wmma_minimum_version);
-            }
-
+            register_wmma_features(&mut features, server.arch_version());
             ComputeClient::new(MutexComputeChannel::new(server), Arc::new(features))
         })
     }
@@ -75,15 +75,12 @@ impl Runtime for CudaRuntime {
     }
 }
 
-fn register_wmma_features(features: &mut FeatureSet, archs: &[i32]) -> Option<i32> {
+fn register_wmma_features(features: &mut FeatureSet, arch: u32) {
     let wmma_minimum_version = 70;
     let mut wmma = false;
 
-    for arch in archs {
-        if *arch >= wmma_minimum_version {
-            wmma = true;
-            break;
-        }
+    if arch >= wmma_minimum_version {
+        wmma = true;
     }
 
     if wmma {
@@ -130,8 +127,5 @@ fn register_wmma_features(features: &mut FeatureSet, archs: &[i32]) -> Option<i3
                 n: 16,
             });
         }
-        return Some(wmma_minimum_version);
     }
-
-    None
 }
