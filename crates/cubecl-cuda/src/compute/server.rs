@@ -69,7 +69,9 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
 
     fn read_sync(&mut self, binding: server::Binding<Self>) -> Vec<u8> {
         let ctx = self.get_context();
-        let resource = ctx.memory_management.get_resource(binding.memory);
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset);
 
         // TODO: Check if it is possible to make this faster
         let mut data = vec![0; resource.size() as usize];
@@ -96,9 +98,10 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         let handle = self.empty(data.len());
         let ctx = self.get_context();
 
+        let binding = handle.clone().binding();
         let resource = ctx
             .memory_management
-            .get_resource(handle.clone().binding().memory);
+            .get_resource(binding.memory, binding.offset);
 
         unsafe {
             cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream).unwrap();
@@ -110,7 +113,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
     fn empty(&mut self, size: usize) -> server::Handle<Self> {
         let ctx = self.get_context();
         let handle = ctx.memory_management.reserve(size, &[]);
-        server::Handle::new(handle)
+        server::Handle::new(handle, None)
     }
 
     unsafe fn execute(
@@ -147,7 +150,10 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
 
         let resources = bindings
             .into_iter()
-            .map(|binding| ctx.memory_management.get_resource(binding.memory))
+            .map(|binding| {
+                ctx.memory_management
+                    .get_resource(binding.memory, binding.offset)
+            })
             .collect::<Vec<_>>();
 
         ctx.execute_task(kernel_id, count, resources);
@@ -170,7 +176,8 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         binding: server::Binding<Self>,
     ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
         let ctx = self.get_context();
-        ctx.memory_management.get_resource(binding.memory)
+        ctx.memory_management
+            .get_resource(binding.memory, binding.offset)
     }
 }
 

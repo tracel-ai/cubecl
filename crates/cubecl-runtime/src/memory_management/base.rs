@@ -27,8 +27,12 @@ pub trait MemoryManagement<Storage: ComputeStorage>: Send + core::fmt::Debug {
     fn get(&mut self, binding: Self::Binding) -> StorageHandle;
 
     /// Returns the resource from the storage at the specified handle
-    fn get_resource(&mut self, binding: Self::Binding) -> Storage::Resource {
+    fn get_resource(&mut self, binding: Self::Binding, offset: Option<usize>) -> Storage::Resource {
         let handle = self.get(binding);
+        let handle = match offset {
+            Some(offset) => handle.add_offset(offset),
+            None => handle,
+        };
         self.storage().get(&handle)
     }
 

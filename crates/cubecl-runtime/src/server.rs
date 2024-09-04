@@ -66,6 +66,21 @@ where
 pub struct Handle<Server: ComputeServer> {
     /// Memory handle.
     pub memory: <Server::MemoryManagement as MemoryManagement<Server::Storage>>::Handle,
+    /// Memory offset in bytes.
+    pub offset: Option<usize>,
+}
+
+impl<Server: ComputeServer> Handle<Server> {
+    /// Add to the current offset in bytes.
+    pub fn offset(mut self, offset: usize) -> Self {
+        if let Some(val) = &mut self.offset {
+            *val += offset;
+        } else {
+            self.offset = Some(offset);
+        }
+
+        self
+    }
 }
 
 /// Binding of a [tensor handle](Handle) to execute a kernel.
@@ -73,6 +88,8 @@ pub struct Handle<Server: ComputeServer> {
 pub struct Binding<Server: ComputeServer> {
     /// Memory binding.
     pub memory: <Server::MemoryManagement as MemoryManagement<Server::Storage>>::Binding,
+    /// Memory offset in bytes.
+    pub offset: Option<usize>,
 }
 
 impl<Server: ComputeServer> Handle<Server> {
@@ -87,6 +104,7 @@ impl<Server: ComputeServer> Handle<Server> {
     pub fn binding(self) -> Binding<Server> {
         Binding {
             memory: MemoryHandle::binding(self.memory),
+            offset: self.offset,
         }
     }
 }
@@ -95,6 +113,7 @@ impl<Server: ComputeServer> Clone for Handle<Server> {
     fn clone(&self) -> Self {
         Self {
             memory: self.memory.clone(),
+            offset: self.offset,
         }
     }
 }
@@ -103,6 +122,7 @@ impl<Server: ComputeServer> Clone for Binding<Server> {
     fn clone(&self) -> Self {
         Self {
             memory: self.memory.clone(),
+            offset: self.offset,
         }
     }
 }

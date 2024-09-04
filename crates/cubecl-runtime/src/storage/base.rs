@@ -42,6 +42,25 @@ impl StorageHandle {
             StorageUtilization::Slice { offset, .. } => offset,
         }
     }
+
+    /// Add the provided offset.
+    pub fn add_offset(&self, add_offset: usize) -> Self {
+        let utilization = match self.utilization {
+            StorageUtilization::Full(size) => StorageUtilization::Slice {
+                offset: add_offset,
+                size,
+            },
+            StorageUtilization::Slice { offset, size } => StorageUtilization::Slice {
+                offset: offset + add_offset,
+                size: size - add_offset,
+            },
+        };
+
+        Self {
+            id: self.id.clone(),
+            utilization,
+        }
+    }
 }
 
 /// Storage types are responsible for allocating and deallocating memory.

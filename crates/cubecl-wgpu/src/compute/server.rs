@@ -190,7 +190,9 @@ where
         &mut self,
         binding: server::Binding<Self>,
     ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
-        self.memory_management.get_resource(binding.memory)
+        println!("Offset {:?}", binding.offset);
+        self.memory_management
+            .get_resource(binding.memory, binding.offset)
     }
 
     /// When we create a new handle from existing data, we use custom allocations so that we don't
@@ -229,11 +231,11 @@ where
                 .copy_from_slice(data);
         }
 
-        Handle::new(memory)
+        Handle::new(memory, None)
     }
 
     fn empty(&mut self, size: usize) -> server::Handle<Self> {
-        server::Handle::new(self.memory_management.reserve(size, &[]))
+        server::Handle::new(self.memory_management.reserve(size, &[]), None)
     }
 
     unsafe fn execute(
