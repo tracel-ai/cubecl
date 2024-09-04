@@ -8,18 +8,33 @@ macro_rules! testgen_cmma_matmul {
         }
 
         #[test]
-        pub fn test_matmul_cmma_square_block() {
-            tests::matmul_tests::test_matmul_cmma_one_cube::<TestRuntime>(&Default::default())
+        pub fn test_matmul_cmma_16_16() {
+            tests::matmul_tests::test_matmul_cmma_16_16::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn test_matmul_cmma_b_mn_larger() {
-            tests::matmul_tests::test_matmul_cmma_one_cube::<TestRuntime>(&Default::default())
+        pub fn test_matmul_cmma_32_16() {
+            tests::matmul_tests::test_matmul_cmma_32_16::<TestRuntime>(&Default::default())
+        }
+        
+        #[test]
+        pub fn test_matmul_cmma_32_32() {
+            tests::matmul_tests::test_matmul_cmma_32_32::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn test_matmul_cmma_b_mn_much_larger() {
-            tests::matmul_tests::test_matmul_cmma_one_cube::<TestRuntime>(&Default::default())
+        pub fn test_matmul_cmma_64_16() {
+            tests::matmul_tests::test_matmul_cmma_64_16::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_matmul_cmma_64_32() {
+            tests::matmul_tests::test_matmul_cmma_64_32::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_matmul_cmma_128_16() {
+            tests::matmul_tests::test_matmul_cmma_128_16::<TestRuntime>(&Default::default())
         }
 
         #[test]

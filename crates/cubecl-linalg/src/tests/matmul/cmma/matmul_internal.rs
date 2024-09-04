@@ -3,18 +3,18 @@
 macro_rules! testgen_cmma_internal {
     () => {
         #[test]
-        pub fn cmma_compute_loop_k_test() {
-            tests::cmma::compute_loop::compute_loop_k_test::<TestRuntime>(&Default::default())
+        pub fn cmma_compute_loop_block_equal_tile_test() {
+            tests::cmma::compute_loop::cmma_compute_loop_block_equal_tile_test::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn cmma_compute_loop_warp_test() {
-            tests::cmma::compute_loop::compute_loop_warp_test::<TestRuntime>(&Default::default())
+        pub fn cmma_compute_loop_block_larger_than_tile_test() {
+            tests::cmma::compute_loop::cmma_compute_loop_block_larger_than_tile_test::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn cmma_compute_loop_two_warps_same_tile_row_test() {
-            tests::cmma::compute_loop::cmma_compute_loop_two_warps_same_tile_row_test::<TestRuntime>(
+        pub fn cmma_compute_loop_b_mn_larger_than_b_k_test() {
+            tests::cmma::compute_loop::cmma_compute_loop_b_mn_larger_than_b_k_test::<TestRuntime>(
                 &Default::default(),
             )
         }

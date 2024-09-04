@@ -26,44 +26,29 @@ pub fn test_matmul_cmma_one_cube<R: Runtime>(device: &R::Device) {
     .test_cmma::<R>(CmmaBlockConfig::default(), device);
 }
 
-pub fn test_matmul_cmma_square_block<R: Runtime>(device: &R::Device) {
-    MatmulTestCase {
-        m: 64,
-        k: 64,
-        n: 64,
-        batch: 1,
-        factor: 100000.,
-        epsilon: 0.1,
-        compute_f16: true,
+macro_rules! alternate_block_sizes {
+    ($name:ident, $b_mn:expr, $b_k:expr) => {
+        pub fn $name<R: Runtime>(device: &R::Device) {
+            MatmulTestCase {
+                m: 128,
+                k: 128,
+                n: 128,
+                batch: 1,
+                factor: 100000.,
+                epsilon: 0.1,
+                compute_f16: true
+            }
+            .test_cmma::<R>(CmmaBlockConfig::new($b_mn, $b_k), device);
+        }
     }
-    .test_cmma::<R>(CmmaBlockConfig::new(32, 32), device);
 }
 
-pub fn test_matmul_cmma_b_mn_larger<R: Runtime>(device: &R::Device) {
-    MatmulTestCase {
-        m: 128,
-        k: 128,
-        n: 128,
-        batch: 1,
-        factor: 100000.,
-        epsilon: 0.1,
-        compute_f16: true,
-    }
-    .test_cmma::<R>(CmmaBlockConfig::new(64, 16), device);
-}
-
-pub fn test_matmul_cmma_b_mn_much_larger<R: Runtime>(device: &R::Device) {
-    MatmulTestCase {
-        m: 64,
-        k: 64,
-        n: 64,
-        batch: 1,
-        factor: 100000.,
-        epsilon: 0.1,
-        compute_f16: true,
-    }
-    .test_cmma::<R>(CmmaBlockConfig::new(128, 16), device);
-}
+alternate_block_sizes!(test_matmul_cmma_16_16, 16, 16);
+alternate_block_sizes!(test_matmul_cmma_32_16, 32, 16);
+alternate_block_sizes!(test_matmul_cmma_32_32, 32, 32);
+alternate_block_sizes!(test_matmul_cmma_64_16, 64, 16);
+alternate_block_sizes!(test_matmul_cmma_64_32, 64, 32);
+alternate_block_sizes!(test_matmul_cmma_128_16, 128, 16);
 
 pub fn test_matmul_cmma_several_cubes<R: Runtime>(device: &R::Device) {
     MatmulTestCase {
