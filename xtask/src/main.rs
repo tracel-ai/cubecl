@@ -1,59 +1,33 @@
-mod commands;
-// mod dependencies;
-mod logging;
-// mod runchecks;
-mod utils;
-// mod vulnerabilities;
-
-use crate::{logging::init_logger, utils::time::format_duration};
-use clap::{Parser, Subcommand};
-use std::time::Instant;
-
 #[macro_use]
 extern crate log;
 
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-struct XtaskArgs {
-    #[command(subcommand)]
-    command: Command,
-}
+use std::time::Instant;
+use tracel_xtask::prelude::*;
 
-#[derive(Subcommand)]
-enum Command {
-    /// Bump the version of all crates to be published
-    Bump(commands::bump::BumpCmdArgs),
-    /// Runs checks and fix issues (used for development purposes)
-    Check(commands::check::CheckCmdArgs),
-    /// Runs checks for Continous Integration
-    CI(commands::ci::CICmdArgs),
-    /// Publish a crate to crates.io
-    Publish(commands::publish::PublishCmdArgs),
-    /// Runs tests.
-    Test(commands::test::TestCmdArgs),
-    /// Runs all tests and checks that should pass before opening a Pull Request.
-    PullRequestChecks,
-}
+#[macros::base_commands(
+    Bump,
+    Build,
+    Check,
+    Compile,
+    Coverage,
+    Doc,
+    Dependencies,
+    Fix,
+    Publish,
+    Test,
+    Validate,
+    Vulnerabilities
+)]
+pub enum Command {}
 
 fn main() -> anyhow::Result<()> {
-    init_logger().init();
-    let args = XtaskArgs::parse();
-
     let start = Instant::now();
-    match args.command {
-        Command::Bump(args) => commands::bump::handle_command(args),
-        Command::Check(args) => commands::check::handle_command(args, None),
-        Command::CI(args) => commands::ci::handle_command(args),
-        Command::Publish(args) => commands::publish::handle_command(args),
-        Command::Test(args) => commands::test::handle_command(args),
-        Command::PullRequestChecks => commands::pull_request_checks::handle_command(),
-    }?;
-
+    let args = init_xtask::<Command>()?;
+    dispatch_base_commands(args)?;
     let duration = start.elapsed();
     info!(
         "\x1B[32;1mTime elapsed for the current execution: {}\x1B[0m",
         format_duration(&duration)
     );
-
     Ok(())
 }
