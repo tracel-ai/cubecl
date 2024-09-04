@@ -16,7 +16,7 @@ macro_rules! testgen_cmma_matmul {
         pub fn test_matmul_cmma_32_16() {
             tests::matmul_tests::test_matmul_cmma_32_16::<TestRuntime>(&Default::default())
         }
-        
+
         #[test]
         #[ignore]
         // Will fail on matmul where m*k*n*batch is more than around 140000, don't know why

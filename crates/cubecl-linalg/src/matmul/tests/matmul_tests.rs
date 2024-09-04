@@ -36,11 +36,11 @@ macro_rules! alternate_block_sizes {
                 batch: 2,
                 factor: 100000.,
                 epsilon: 0.1,
-                compute_f16: true
+                compute_f16: true,
             }
             .test_cmma::<R>(CmmaBlockConfig::new($b_mn, $b_k), device);
         }
-    }
+    };
 }
 
 alternate_block_sizes!(test_matmul_cmma_16_16, 16, 16);
