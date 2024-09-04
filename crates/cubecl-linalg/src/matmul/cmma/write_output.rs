@@ -93,6 +93,9 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let tile_size_r = Comptime::runtime(tile_size);
     let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
     let num_accumulators_r = Comptime::runtime(num_accumulators);
+    let block_size_n = Comptime::map(config, |c| c.block_size_n);
+    let num_accum_groups_in_block_row =
+        Comptime::runtime(block_size_n / (tile_size * num_accumulators));
 
     let out_vec = Comptime::vectorization(out);
     let out_vec_r = Comptime::runtime(out_vec);
@@ -103,8 +106,8 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let coop_id = coop_id(config);
     let lane_id = lane_id(config);
 
-    let tile_row = coop_id / num_accumulators_r;
-    let tile_col = (coop_id % num_accumulators_r) * num_accumulators_r;
+    let tile_row = coop_id / num_accum_groups_in_block_row;
+    let tile_col = (coop_id % num_accum_groups_in_block_row) * num_accum_groups_in_block_row;
 
     let num_unit_writes = tile_size * tile_size / (out_vec * coop_dim);
 
