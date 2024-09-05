@@ -37,7 +37,7 @@ fn fragment_to_shared_memory<F: Float>(
 
     let mut acc_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
 
-    let coop_id = coop_id(config);
+    let coop_id = coop_id();
     let slice_offset = coop_id * Comptime::runtime(num_accumulators * sm_stride);
 
     for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
@@ -103,8 +103,8 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let sm_stride = Comptime::runtime(tile_size * tile_size);
     let coop_dim = Comptime::map(config, |c| c.coop_dim);
 
-    let coop_id = coop_id(config);
-    let lane_id = lane_id(config);
+    let coop_id = coop_id();
+    let lane_id = lane_id();
 
     let tile_row = coop_id / num_accum_groups_in_block_row;
     let tile_col = (coop_id % num_accum_groups_in_block_row) * num_accum_groups_in_block_row;
@@ -125,7 +125,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
         let read_pos = read_offset + i * sm_step;
         let write_row = row_offset + unit_write_row + i * lane_row_step;
 
-        for n in range(0u32, num_accumulators_r, Comptime::new(true)) {
+        for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
             W::write_output(
                 out,
                 accumulator_sm,

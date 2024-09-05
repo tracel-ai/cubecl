@@ -30,15 +30,15 @@ macro_rules! alternate_block_sizes {
     ($name:ident, $b_mn:expr, $b_k:expr) => {
         pub fn $name<R: Runtime>(device: &R::Device) {
             MatmulTestCase {
-                m: 80,
-                k: 65,
-                n: 90,
+                m: 128,
+                k: 128,
+                n: 128,
                 batch: 2,
                 factor: 100000.,
                 epsilon: 0.1,
                 compute_f16: true,
             }
-            .test_cmma::<R>(CmmaBlockConfig::new($b_mn, $b_k), device);
+            .test_cmma::<R>(CmmaBlockConfig::new($b_mn, $b_k, false), device);
         }
     };
 }

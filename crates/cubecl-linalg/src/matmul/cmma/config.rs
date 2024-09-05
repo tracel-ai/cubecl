@@ -1,6 +1,7 @@
 use cubecl_core::prelude::*;
 
-// CMMA uses 32 units to compute 16x16x16 tiles
+// It is assumed that CMMA uses 32 units to compute 16x16x16 tiles
+// TODO put it in config and split tile size into three different parameters
 pub(crate) const CMMA_COOP_DIM: usize = 32;
 pub(crate) const CMMA_TILE_SIZE: usize = 16;
 
@@ -11,16 +12,18 @@ pub struct CmmaBlockConfig {
     pub b_k: usize,
     /// Corresponds to the number of accumulators per warp. Equals b_mn / b_k
     pub alpha: usize,
+    /// Whether to unroll loop over k within the shared memory
+    pub unroll: bool,
 }
 
 impl Default for CmmaBlockConfig {
     fn default() -> Self {
-        Self::new(64, 32)
+        Self::new(64, 32, false)
     }
 }
 
 impl CmmaBlockConfig {
-    pub(crate) fn new(b_mn: usize, b_k: usize) -> CmmaBlockConfig {
+    pub(crate) fn new(b_mn: usize, b_k: usize, unroll: bool) -> CmmaBlockConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
         assert!(b_mn % b_k == 0);
@@ -28,6 +31,7 @@ impl CmmaBlockConfig {
             b_mn,
             b_k,
             alpha: b_mn / b_k,
+            unroll,
         }
     }
 
@@ -39,7 +43,7 @@ impl CmmaBlockConfig {
             block_size_k: self.b_k.into(),
             block_size_n: self.b_mn.into(),
             tile_size: CMMA_TILE_SIZE.into(),
-            unroll: true,
+            unroll: self.unroll,
             check_m_bounds: m % self.b_mn != 0,
             check_k_bounds: k % self.b_k != 0,
             check_n_bounds: n % self.b_mn != 0,
@@ -76,6 +80,10 @@ impl CmmaBlockConfig {
             y: ((self.b_mn * self.b_k) / (CMMA_TILE_SIZE * CMMA_TILE_SIZE)) as u32,
             z: 1,
         }
+    }
+
+    pub(crate) fn vectorization_available(&self, v: usize) -> bool {
+        v * CMMA_COOP_DIM % (CMMA_TILE_SIZE * CMMA_TILE_SIZE) == 0
     }
 }
 

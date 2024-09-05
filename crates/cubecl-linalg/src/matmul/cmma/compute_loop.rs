@@ -17,7 +17,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
 
     let num_coop_per_row = Comptime::runtime((block_size_n / tile_size) / num_accumulators);
 
-    let coop_id = coop_id(config);
+    let coop_id = coop_id();
     let tile_row = coop_id / num_coop_per_row;
     let tile_col_base = (coop_id % num_coop_per_row) * Comptime::runtime(num_accumulators);
 

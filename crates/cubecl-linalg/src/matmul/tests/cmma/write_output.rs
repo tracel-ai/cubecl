@@ -95,7 +95,7 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
             k: 16,
             n: 32,
         },
-        CmmaBlockConfig::new(32, 16),
+        CmmaBlockConfig::new(32, 16, false),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -153,7 +153,7 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
             k: 16,
             n: 28,
         },
-        CmmaBlockConfig::new(32, 16),
+        CmmaBlockConfig::new(32, 16, false),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -205,7 +205,7 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
             k: 16,
             n: 32,
         },
-        CmmaBlockConfig::new(32, 16),
+        CmmaBlockConfig::new(32, 16, false),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -257,7 +257,7 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
             k: 16,
             n: 28,
         },
-        CmmaBlockConfig::new(32, 16),
+        CmmaBlockConfig::new(32, 16, false),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -305,7 +305,7 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
             k: 16,
             n: 64,
         },
-        CmmaBlockConfig::new(32, 16),
+        CmmaBlockConfig::new(32, 16, false),
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -404,7 +404,7 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
             k: 16,
             n: 64,
         },
-        CmmaBlockConfig::new(32, 16),
+        CmmaBlockConfig::new(32, 16, false),
         &[
             512.0, 513.0, 514.0, 515.0, 516.0, 517.0, 518.0, 519.0, 520.0, 521.0, 522.0, 523.0,
             524.0, 525.0, 526.0, 527.0, 768.0, 769.0, 770.0, 771.0, 772.0, 773.0, 774.0, 775.0,

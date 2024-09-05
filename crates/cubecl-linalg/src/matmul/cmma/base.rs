@@ -144,11 +144,11 @@ pub(crate) fn make_accumulators<F: Float>(
 }
 
 #[cube]
-pub(crate) fn coop_id(config: Comptime<CmmaComptimeInfo>) -> UInt {
-    UNIT_POS / Comptime::runtime(Comptime::map(config, |c| c.coop_dim))
+pub(crate) fn coop_id() -> UInt {
+    UNIT_POS_Y
 }
 
 #[cube]
-pub(crate) fn lane_id(config: Comptime<CmmaComptimeInfo>) -> UInt {
-    UNIT_POS % Comptime::runtime(Comptime::map(config, |c| c.coop_dim))
+pub(crate) fn lane_id() -> UInt {
+    UNIT_POS_X
 }

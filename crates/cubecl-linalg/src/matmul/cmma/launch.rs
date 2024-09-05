@@ -116,6 +116,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
         [4, 2]
             .into_iter()
             .filter(|v| shape % v == 0)
+            .filter(|v| block_config.vectorization_available(*v))
             .map(|v| v as u8)
             .next()
             .unwrap_or(1)
