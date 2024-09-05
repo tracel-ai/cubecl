@@ -85,7 +85,7 @@ impl CmmaBlockConfig {
     pub(crate) fn available_vectorizations(&self) -> Vec<u8> {
         let vectorizations = vec![8, 4, 2];
         for v in vectorizations.iter() {
-            assert!(*v as usize * CMMA_COOP_DIM % (CMMA_TILE_SIZE * CMMA_TILE_SIZE) == 0);
+            assert!(CMMA_TILE_SIZE * CMMA_TILE_SIZE % (*v as usize * CMMA_COOP_DIM) == 0);
         }
         vectorizations
     }
