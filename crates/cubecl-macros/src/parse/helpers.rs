@@ -96,6 +96,10 @@ pub fn is_unroll_attr(attr: &Attribute) -> bool {
     attr.path().is_ident("unroll")
 }
 
+pub fn is_expr_attribute(attr: &Attribute) -> bool {
+    attr.path().is_ident("expr")
+}
+
 pub fn is_helper(attr: &Attribute) -> bool {
-    is_comptime_attr(attr) || is_unroll_attr(attr)
+    is_comptime_attr(attr) || is_unroll_attr(attr) || is_expr_attribute(attr)
 }

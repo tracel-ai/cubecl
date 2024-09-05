@@ -335,3 +335,44 @@ impl<Left: Expr<Output = bool>, Right: Expr<Output = bool>> Expr for OrExpr<Left
         None
     }
 }
+
+pub mod new {
+    use std::ops::{Add, Div, Mul, Rem, Sub};
+
+    use cubecl_common::operator::Operator;
+
+    use crate::{
+        new_ir::{backend::Backend, largest_common_vectorization, CubeType, NewExpr, SquareType},
+        prelude::ExpandElement,
+    };
+    use cubecl_macros::expression;
+
+    macro_rules! bin_op {
+        ($name:ident, $trait:ident, $op:ident) => {
+            #[expression(output = <Left::Output as $trait<Right::Output>>::Output)]
+            pub fn $name<Left: NewExpr<B>, Right: NewExpr<B>, B: Backend>(
+                left: &Left,
+                right: &Right,
+                backend: &mut B,
+            ) -> ExpandElement
+            where
+                Left::Output: $trait<Right::Output>,
+                <Left::Output as $trait<Right::Output>>::Output: CubeType + SquareType,
+            {
+                backend.expand_binop(
+                    left,
+                    right,
+                    Operator::$op,
+                    <Left::Output as $trait<Right::Output>>::Output::ir_type(),
+                    largest_common_vectorization(left.vectorization(), right.vectorization()),
+                )
+            }
+        };
+    }
+
+    bin_op!(add_expr, Add, Add);
+    bin_op!(sub_expr, Sub, Sub);
+    bin_op!(mul_expr, Mul, Mul);
+    bin_op!(div_expr, Div, Div);
+    bin_op!(rem_expr, Rem, Rem);
+}

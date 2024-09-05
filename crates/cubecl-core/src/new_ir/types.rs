@@ -84,6 +84,8 @@ impl<Expression: Expr> ExpandExpr<Expression::Output> for Expression where Expre
 
 pub trait CubeType {
     type Runtime;
+
+    //fn ir_type() -> Elem;
 }
 
 impl SquareType for () {

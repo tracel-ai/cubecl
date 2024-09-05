@@ -4,6 +4,7 @@ use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
     expand::{Expand, Runtime, StaticExpand},
     expand_impl::ExpandImplVisitor,
+    expr::Expression,
     helpers::RemoveHelpers,
     kernel::{from_tokens, Kernel},
 };
@@ -18,6 +19,7 @@ mod parse;
 mod paths;
 mod scope;
 mod statement;
+mod types;
 
 pub(crate) use paths::{core_type, ir_path, ir_type, prefix_ir, prelude_type};
 
@@ -65,6 +67,32 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
         item => Err(syn::Error::new_spanned(
             item,
             "`#[cube]` is only supported on traits and functions",
+        ))?,
+    }
+}
+
+#[proc_macro_attribute]
+pub fn expression(args: TokenStream, input: TokenStream) -> TokenStream {
+    match expression_impl(args, input.clone()) {
+        Ok(tokens) => tokens,
+        Err(e) => error_into_token_stream(e, input.into()).into(),
+    }
+}
+
+fn expression_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let item: Item = syn::parse(input)?;
+    match item.clone() {
+        Item::Fn(expression) => {
+            let args = from_tokens(args.into())?;
+            let expression = Expression::from_item_fn(expression, args)?;
+
+            Ok(TokenStream::from(quote! {
+                #expression
+            }))
+        }
+        item => Err(syn::Error::new_spanned(
+            item,
+            "`#[expression]` is only supported on functions",
         ))?,
     }
 }

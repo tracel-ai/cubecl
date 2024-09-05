@@ -10,8 +10,8 @@ use std::{
 };
 
 use super::{
-    largest_common_vectorization, Operator, SquareType, Statement, SubcubeExpression,
-    TensorExpression,
+    backend::Backend, largest_common_vectorization, CubeType, Operator, SquareType, Statement,
+    SubcubeExpression, TensorExpression,
 };
 
 pub type Vectorization = Option<NonZero<u8>>;
@@ -532,6 +532,13 @@ pub trait Expr {
 
     fn expression_untyped(&self) -> Expression;
     fn vectorization(&self) -> Option<NonZero<u8>>;
+}
+
+pub trait NewExpr<B: Backend> {
+    type Output: CubeType;
+
+    fn expand(&self, backend: &mut B) -> ExpandElement;
+    fn vectorization(&self) -> Vectorization;
 }
 
 #[derive(Debug, Hash, PartialEq)]

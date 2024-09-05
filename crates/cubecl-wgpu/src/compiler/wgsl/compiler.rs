@@ -132,7 +132,7 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
+    pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
         match value {
             cube::Variable::GlobalInputArray { id, item } => {
                 wgsl::Variable::GlobalInputArray(id, Self::compile_item(item))

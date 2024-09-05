@@ -9,8 +9,10 @@ mod subcube;
 mod tensor;
 mod types;
 
+mod backend;
 pub mod flatten;
 
+pub use backend::*;
 pub use branch::*;
 pub use expression::*;
 pub use operators::*;
