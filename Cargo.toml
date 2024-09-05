@@ -63,8 +63,7 @@ quote = "1.0.36"
 
 ### For xtask crate ###
 strum = {version = "0.26.3", features = ["derive"]}
-# tracel-xtask = { version = "1.0.6" }
-tracel-xtask = { git = "https://github.com/tracel-ai/xtask", rev = "f58273ba7aeaef9553edb4ff3f56adfd8ed4fedb" }
+tracel-xtask = { version = "~1.0" }
 
 portable-atomic-util = { version = "0.2.2", features = ["alloc"] } # alloc is for no_std
 
