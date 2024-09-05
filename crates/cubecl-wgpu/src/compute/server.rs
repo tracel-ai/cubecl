@@ -190,7 +190,6 @@ where
         &mut self,
         binding: server::Binding<Self>,
     ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
-        println!("Offset {:?}", binding.offset);
         self.memory_management
             .get_resource(binding.memory, binding.offset)
     }

@@ -43,16 +43,16 @@ impl StorageHandle {
         }
     }
 
-    /// Add the provided offset.
-    pub fn add_offset(&self, add_offset: usize) -> Self {
+    /// Increase the current offset with the given value in bytes.
+    pub fn add_offset(&self, offset_bytes: usize) -> Self {
         let utilization = match self.utilization {
             StorageUtilization::Full(size) => StorageUtilization::Slice {
-                offset: add_offset,
+                offset: offset_bytes,
                 size,
             },
             StorageUtilization::Slice { offset, size } => StorageUtilization::Slice {
-                offset: offset + add_offset,
-                size: size - add_offset,
+                offset: offset + offset_bytes,
+                size: size - offset_bytes,
             },
         };
 
