@@ -57,7 +57,7 @@ impl StorageHandle {
         };
 
         Self {
-            id: self.id.clone(),
+            id: self.id,
             utilization,
         }
     }
