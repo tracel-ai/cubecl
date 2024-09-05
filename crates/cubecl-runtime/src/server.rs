@@ -67,16 +67,28 @@ pub struct Handle<Server: ComputeServer> {
     /// Memory handle.
     pub memory: <Server::MemoryManagement as MemoryManagement<Server::Storage>>::Handle,
     /// Memory offset in bytes.
-    pub offset: Option<usize>,
+    pub offset_start: Option<usize>,
+    /// Memory offset in bytes.
+    pub offset_end: Option<usize>,
 }
 
 impl<Server: ComputeServer> Handle<Server> {
     /// Add to the current offset in bytes.
-    pub fn offset(mut self, offset: usize) -> Self {
-        if let Some(val) = &mut self.offset {
+    pub fn offset_start(mut self, offset: usize) -> Self {
+        if let Some(val) = &mut self.offset_start {
             *val += offset;
         } else {
-            self.offset = Some(offset);
+            self.offset_start = Some(offset);
+        }
+
+        self
+    }
+    /// Add to the current offset in bytes.
+    pub fn offset_end(mut self, offset: usize) -> Self {
+        if let Some(val) = &mut self.offset_end {
+            *val += offset;
+        } else {
+            self.offset_end = Some(offset);
         }
 
         self
@@ -104,7 +116,7 @@ impl<Server: ComputeServer> Handle<Server> {
     pub fn binding(self) -> Binding<Server> {
         Binding {
             memory: MemoryHandle::binding(self.memory),
-            offset: self.offset,
+            offset: self.offset_start,
         }
     }
 }
@@ -113,7 +125,8 @@ impl<Server: ComputeServer> Clone for Handle<Server> {
     fn clone(&self) -> Self {
         Self {
             memory: self.memory.clone(),
-            offset: self.offset,
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
         }
     }
 }

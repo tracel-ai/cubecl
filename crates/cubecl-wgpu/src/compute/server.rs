@@ -230,11 +230,11 @@ where
                 .copy_from_slice(data);
         }
 
-        Handle::new(memory, None)
+        Handle::new(memory, None, None)
     }
 
     fn empty(&mut self, size: usize) -> server::Handle<Self> {
-        server::Handle::new(self.memory_management.reserve(size, &[]), None)
+        server::Handle::new(self.memory_management.reserve(size, &[]), None, None)
     }
 
     unsafe fn execute(

@@ -54,7 +54,7 @@ where
     }
 
     fn empty(&mut self, size: usize) -> Handle<Self> {
-        Handle::new(self.memory_management.reserve(size, &[]), None)
+        Handle::new(self.memory_management.reserve(size, &[]), None, None)
     }
 
     unsafe fn execute(
