@@ -1,15 +1,11 @@
+use crate::ir::{Elem, Item, Visibility};
+use crate::prelude::KernelDefinition;
+use crate::KernelSettings;
 use crate::{
-    frontend::CubeContext,
-    new_ir::{flatten::flatten_block, Expression},
+    frontend::{CubeContext, ExpandElement},
     InputInfo, KernelExpansion, KernelIntegrator, OutputInfo,
 };
-use crate::{
-    ir::{Elem, Item, Visibility},
-    prelude::Primitive,
-};
-use crate::{new_ir::GlobalVariable, prelude::KernelDefinition};
-use crate::{new_ir::SquareType, KernelSettings};
-use std::{collections::HashMap, num::NonZero};
+use std::collections::HashMap;
 
 /// Prepare a kernel to create a [kernel definition](crate::KernelDefinition).
 pub struct KernelBuilder {
@@ -22,16 +18,9 @@ pub struct KernelBuilder {
     num_output: u16,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum GlobalType {
-    Scalar,
-    InputArray,
-    OutputArray,
-}
-
 impl KernelBuilder {
     /// Register a scalar and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn scalar<T: Primitive>(&mut self, elem: Elem) -> GlobalVariable<T> {
+    pub fn scalar(&mut self, elem: Elem) -> ExpandElement {
         let index = match self.indices.get_mut(&elem) {
             Some(index) => match self.inputs.get_mut(*index).unwrap() {
                 InputInfo::Scalar { elem: _, size } => {
@@ -47,40 +36,47 @@ impl KernelBuilder {
             }
         };
 
-        GlobalVariable::new(index, GlobalType::Scalar, None)
+        self.context.scalar(index, elem)
     }
 
     /// Register an output array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn output_array<T: SquareType>(&mut self, item: Item) -> GlobalVariable<T> {
+    pub fn output_tensor(&mut self, item: Item) -> ExpandElement {
         self.outputs.push(OutputInfo::Array { item });
-        let variable = GlobalVariable::new(
-            self.num_output,
-            GlobalType::OutputArray,
-            NonZero::new(item.vectorization),
-        );
+        let variable = self.context.output(self.num_output, item);
         self.num_output += 1;
 
         variable
     }
 
     /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn input_array<T: SquareType>(&mut self, item: Item) -> GlobalVariable<T> {
+    pub fn input_tensor(&mut self, item: Item) -> ExpandElement {
         self.inputs.push(InputInfo::Array {
             item,
             visibility: Visibility::Read,
         });
-        let variable = GlobalVariable::new(
-            self.num_input,
-            GlobalType::InputArray,
-            NonZero::new(item.vectorization),
-        );
+        let variable = self.context.input(self.num_input, item);
         self.num_input += 1;
         variable
     }
 
-    pub fn apply_expansion(&mut self, expr: Expression) {
-        let block = expr.as_block().unwrap();
-        flatten_block(block, &mut self.context);
+    /// Register an output array and return the [element](ExpandElement) to be used for kernel expansion.
+    pub fn output_array(&mut self, item: Item) -> ExpandElement {
+        self.outputs.push(OutputInfo::Array { item });
+        let variable = self.context.output(self.num_output, item);
+        self.num_output += 1;
+
+        variable
+    }
+
+    /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.
+    pub fn input_array(&mut self, item: Item) -> ExpandElement {
+        self.inputs.push(InputInfo::Array {
+            item,
+            visibility: Visibility::Read,
+        });
+        let variable = self.context.input(self.num_input, item);
+        self.num_input += 1;
+        variable
     }
 
     /// Build the [kernel definition](KernelDefinition).

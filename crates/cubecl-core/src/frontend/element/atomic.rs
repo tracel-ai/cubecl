@@ -1,32 +1,41 @@
+use super::{
+    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand, Numeric,
+    Vectorized, I32, I64,
+};
 use crate::{
-    ir::{BinaryOperator, CompareAndSwapOperator, Elem, Item, Operator, UnaryOperator},
-    new_ir::{BinaryOp, Expr, Expression, SquareType, Vectorization},
-    prelude::*,
+    frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, UInt},
+    ir::{
+        BinaryOperator, CompareAndSwapOperator, Elem, IntKind, Item, Operator, UnaryOperator,
+        Vectorization,
+    },
+    prelude::KernelBuilder,
     unexpanded,
 };
 
-use super::{ExpandElement, Numeric};
-
 /// An atomic type. Represents an shared value that can be operated on atomically.
-pub trait Atomic: Sized + SquareType {
+pub trait Atomic: Sized + CubeType
+where
+    ExpandElement: From<<Self::Primitive as CubeType>::ExpandType>,
+    ExpandElement: From<<Self as CubeType>::ExpandType>,
+{
     /// The numeric primitive represented by the atomic wrapper.
     type Primitive: Numeric;
 
     /// Load the value of the atomic.
     #[allow(unused_variables)]
-    fn load(&self) -> Self::Primitive {
+    fn load(pointer: &Self) -> Self::Primitive {
         unexpanded!()
     }
 
     /// Store the value of the atomic.
     #[allow(unused_variables)]
-    fn store(&self, value: Self::Primitive) {
+    fn store(pointer: &Self, value: Self::Primitive) {
         unexpanded!()
     }
 
     /// Atomically stores the value into the atomic and returns the old value.
     #[allow(unused_variables)]
-    fn swap(&self, value: Self::Primitive) -> Self::Primitive {
+    fn swap(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
 
@@ -87,449 +96,301 @@ pub trait Atomic: Sized + SquareType {
     fn xor(pointer: &Self, value: Self::Primitive) -> Self::Primitive {
         unexpanded!()
     }
+
+    fn __expand_load(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let pointer: ExpandElement = pointer.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicLoad(UnaryOperator {
+            input: *pointer,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_store(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        context.register(Operator::AtomicStore(UnaryOperator {
+            input: *value,
+            out: *ptr,
+        }));
+    }
+
+    fn __expand_swap(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicSwap(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_compare_and_swap(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        cmp: <Self::Primitive as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let pointer: ExpandElement = pointer.into();
+        let cmp: ExpandElement = cmp.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicCompareAndSwap(CompareAndSwapOperator {
+            out: *new_var,
+            input: *pointer,
+            cmp: *cmp,
+            val: *value,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_add(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicAdd(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_sub(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicSub(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_max(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicMax(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_min(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicMin(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_and(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicAnd(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_or(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicOr(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
+
+    fn __expand_xor(
+        context: &mut CubeContext,
+        pointer: <Self as CubeType>::ExpandType,
+        value: <Self::Primitive as CubeType>::ExpandType,
+    ) -> <Self::Primitive as CubeType>::ExpandType {
+        let ptr: ExpandElement = pointer.into();
+        let value: ExpandElement = value.into();
+        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        context.register(Operator::AtomicXor(BinaryOperator {
+            lhs: *ptr,
+            rhs: *value,
+            out: *new_var,
+        }));
+        new_var.into()
+    }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum AtomicExpr {
-    Load {
-        atomic: Box<Expression>,
-        ty: Elem,
-    },
-    Store {
-        atomic: Box<Expression>,
-        value: Box<Expression>,
-    },
-    Swap {
-        atomic: Box<Expression>,
-        value: Box<Expression>,
-        ty: Elem,
-    },
-    CompareAndSwap {
-        atomic: Box<Expression>,
-        cmp: Box<Expression>,
-        value: Box<Expression>,
-        ty: Elem,
-    },
-    Binary {
-        atomic: Box<Expression>,
-        value: Box<Expression>,
-        op: AtomicOp,
-        ty: Elem,
-    },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum AtomicOp {
-    Add,
-    Sub,
-    Max,
-    Min,
-    And,
-    Or,
-    Xor,
-}
-
-impl AtomicExpr {
-    pub fn ir_type(&self) -> Elem {
-        match self {
-            AtomicExpr::Load { ty, .. } => *ty,
-            AtomicExpr::Store { .. } => Elem::Unit,
-            AtomicExpr::Swap { ty, .. } => *ty,
-            AtomicExpr::CompareAndSwap { ty, .. } => *ty,
-            AtomicExpr::Binary { ty, .. } => *ty,
+macro_rules! impl_atomic_int {
+    ($type:ident, $inner_type:ident, $primitive:ty) => {
+        /// An unsigned atomic integer. Can only be acted on atomically.
+        #[allow(clippy::derived_hash_with_manual_eq)]
+        #[derive(Clone, Copy, Hash, PartialEq, Eq)]
+        pub struct $type {
+            pub val: $primitive,
+            pub vectorization: u8,
         }
-    }
 
-    pub fn vectorization(&self) -> Vectorization {
-        None
-    }
-
-    pub fn deep_clone(&self) -> Self {
-        match self {
-            AtomicExpr::Load { atomic, ty } => AtomicExpr::Load {
-                atomic: Box::new(atomic.deep_clone()),
-                ty: *ty,
-            },
-            AtomicExpr::Store { atomic, value } => AtomicExpr::Store {
-                atomic: Box::new(atomic.deep_clone()),
-                value: Box::new(value.deep_clone()),
-            },
-            AtomicExpr::Swap { atomic, value, ty } => AtomicExpr::Swap {
-                atomic: Box::new(atomic.deep_clone()),
-                value: Box::new(value.deep_clone()),
-                ty: *ty,
-            },
-            AtomicExpr::CompareAndSwap {
-                atomic,
-                cmp,
-                value,
-                ty,
-            } => AtomicExpr::CompareAndSwap {
-                atomic: Box::new(atomic.deep_clone()),
-                cmp: Box::new(cmp.deep_clone()),
-                value: Box::new(value.deep_clone()),
-                ty: *ty,
-            },
-            AtomicExpr::Binary {
-                atomic,
-                value,
-                op,
-                ty,
-            } => AtomicExpr::Binary {
-                atomic: Box::new(atomic.deep_clone()),
-                value: Box::new(value.deep_clone()),
-                op: *op,
-                ty: *ty,
-            },
+        impl CubeType for $type {
+            type ExpandType = ExpandElementTyped<Self>;
         }
-    }
 
-    pub fn flatten(self, context: &mut CubeContext) -> Option<ExpandElement> {
-        match self {
-            AtomicExpr::Load { atomic, ty } => {
-                let atomic = atomic.flatten(context).unwrap().into_variable();
-                let out = context.create_local(Item::new(ty));
-                context.register(Operator::AtomicLoad(UnaryOperator {
-                    input: atomic,
-                    out: out.as_variable(),
-                }));
-                out.into()
-            }
-            AtomicExpr::Store { atomic, value } => {
-                let atomic = atomic.flatten(context).unwrap().into_variable();
-                let value = value.flatten(context).unwrap().into_variable();
-                context.register(Operator::AtomicStore(UnaryOperator {
-                    input: value,
-                    out: atomic,
-                }));
-                None
-            }
-            AtomicExpr::Swap { atomic, value, ty } => {
-                let atomic = atomic.flatten(context).unwrap().into_variable();
-                let value = value.flatten(context).unwrap().into_variable();
-                let out = context.create_local(Item::new(ty));
-                context.register(Operator::AtomicSwap(BinaryOperator {
-                    lhs: atomic,
-                    rhs: value,
-                    out: out.as_variable(),
-                }));
-                out.into()
-            }
-            AtomicExpr::CompareAndSwap {
-                atomic,
-                cmp,
-                value,
-                ty,
-            } => {
-                let atomic = atomic.flatten(context).unwrap().into_variable();
-                let cmp = cmp.flatten(context).unwrap().into_variable();
-                let value = value.flatten(context).unwrap().into_variable();
-                let out = context.create_local(Item::new(ty));
-                context.register(Operator::AtomicCompareAndSwap(CompareAndSwapOperator {
-                    out: out.as_variable(),
-                    input: atomic,
-                    cmp,
-                    val: value,
-                }));
-                out.into()
-            }
-            AtomicExpr::Binary {
-                atomic,
-                value,
-                op,
-                ty,
-            } => {
-                let atomic = atomic.flatten(context).unwrap().into_variable();
-                let value = value.flatten(context).unwrap().into_variable();
-                let out = context.create_local(Item::new(ty));
-                let bin_op = BinaryOperator {
-                    lhs: atomic,
-                    rhs: value,
-                    out: out.as_variable(),
-                };
-                context.register(map_op(op, bin_op));
-                out.into()
-            }
-        }
-    }
-}
-
-fn map_op(op: AtomicOp, bin_op: BinaryOperator) -> Operator {
-    match op {
-        AtomicOp::Add => Operator::AtomicAdd(bin_op),
-        AtomicOp::Sub => Operator::AtomicSub(bin_op),
-        AtomicOp::Max => Operator::AtomicMax(bin_op),
-        AtomicOp::Min => Operator::AtomicMin(bin_op),
-        AtomicOp::And => Operator::AtomicAnd(bin_op),
-        AtomicOp::Or => Operator::AtomicOr(bin_op),
-        AtomicOp::Xor => Operator::AtomicXor(bin_op),
-    }
-}
-
-#[derive(new)]
-pub struct AtomicLoad<T: Expr>(pub T)
-where
-    T::Output: Atomic;
-
-impl<T: Expr> Expr for AtomicLoad<T>
-where
-    T::Output: Atomic,
-{
-    type Output = <T::Output as Atomic>::Primitive;
-
-    fn expression_untyped(&self) -> Expression {
-        AtomicExpr::Load {
-            atomic: Box::new(self.0.expression_untyped()),
-            ty: <T::Output as Atomic>::Primitive::ir_type(),
-        }
-        .into()
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        None
-    }
-}
-
-#[derive(new)]
-pub struct AtomicStore<T: Expr, Value: Expr<Output = <T::Output as Atomic>::Primitive>>
-where
-    T::Output: Atomic,
-{
-    pub atomic: T,
-    pub value: Value,
-}
-
-impl<T: Expr, Value: Expr<Output = <T::Output as Atomic>::Primitive>> Expr for AtomicStore<T, Value>
-where
-    T::Output: Atomic,
-{
-    type Output = ();
-
-    fn expression_untyped(&self) -> Expression {
-        AtomicExpr::Store {
-            atomic: Box::new(self.atomic.expression_untyped()),
-            value: Box::new(self.value.expression_untyped()),
-        }
-        .into()
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        None
-    }
-}
-
-#[derive(new)]
-pub struct AtomicSwap<T: Expr, Value: Expr<Output = <T::Output as Atomic>::Primitive>>
-where
-    T::Output: Atomic,
-{
-    pub atomic: T,
-    pub value: Value,
-}
-
-impl<T: Expr, Value: Expr<Output = <T::Output as Atomic>::Primitive>> Expr for AtomicSwap<T, Value>
-where
-    T::Output: Atomic,
-{
-    type Output = <T::Output as Atomic>::Primitive;
-
-    fn expression_untyped(&self) -> Expression {
-        AtomicExpr::Swap {
-            atomic: Box::new(self.atomic.expression_untyped()),
-            value: Box::new(self.value.expression_untyped()),
-            ty: <T::Output as Atomic>::Primitive::ir_type(),
-        }
-        .into()
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        None
-    }
-}
-
-#[derive(new)]
-pub struct AtomicCompareAndSwap<
-    T: Expr,
-    Cmp: Expr<Output = <T::Output as Atomic>::Primitive>,
-    Value: Expr<Output = <T::Output as Atomic>::Primitive>,
-> where
-    T::Output: Atomic,
-{
-    pub atomic: T,
-    pub cmp: Cmp,
-    pub value: Value,
-}
-
-impl<
-        T: Expr,
-        Cmp: Expr<Output = <T::Output as Atomic>::Primitive>,
-        Value: Expr<Output = <T::Output as Atomic>::Primitive>,
-    > Expr for AtomicCompareAndSwap<T, Cmp, Value>
-where
-    T::Output: Atomic,
-{
-    type Output = <T::Output as Atomic>::Primitive;
-
-    fn expression_untyped(&self) -> Expression {
-        AtomicExpr::CompareAndSwap {
-            atomic: Box::new(self.atomic.expression_untyped()),
-            cmp: Box::new(self.cmp.expression_untyped()),
-            value: Box::new(self.value.expression_untyped()),
-            ty: <T::Output as Atomic>::Primitive::ir_type(),
-        }
-        .into()
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        None
-    }
-}
-
-macro_rules! atomic_bin_op {
-    ($name:ident, $op:ident) => {
-        pub struct $name<T: Expr, Value: Expr<Output = <T::Output as Atomic>::Primitive>>(
-            pub BinaryOp<T, Value, <T::Output as Atomic>::Primitive>,
-        )
-        where
-            T::Output: Atomic;
-
-        impl<T: Expr, Value: Expr<Output = <T::Output as Atomic>::Primitive>> $name<T, Value>
-        where
-            T::Output: Atomic,
-        {
-            pub fn new(left: T, right: Value) -> Self {
-                Self(BinaryOp::new(left, right))
+        impl CubePrimitive for $type {
+            fn as_elem() -> Elem {
+                Elem::AtomicInt(IntKind::$inner_type)
             }
         }
 
-        impl<T: Expr, Value: Expr<Output = <T::Output as Atomic>::Primitive>> Expr
-            for $name<T, Value>
-        where
-            T::Output: Atomic,
-        {
-            type Output = <T::Output as Atomic>::Primitive;
+        impl ExpandElementBaseInit for $type {
+            fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+                init_expand_element(context, elem)
+            }
+        }
 
-            fn expression_untyped(&self) -> Expression {
-                AtomicExpr::Binary {
-                    atomic: Box::new(self.0.left.expression_untyped()),
-                    value: Box::new(self.0.right.expression_untyped()),
-                    op: AtomicOp::$op,
-                    ty: <T::Output as Atomic>::Primitive::ir_type(),
+        impl LaunchArgExpand for $type {
+            fn expand(
+                builder: &mut KernelBuilder,
+                vectorization: Vectorization,
+            ) -> ExpandElementTyped<Self> {
+                assert_eq!(vectorization, 1, "Attempted to vectorize a scalar");
+                builder.scalar(Elem::AtomicInt(IntKind::$inner_type)).into()
+            }
+        }
+
+        impl Vectorized for $type {
+            fn vectorization_factor(&self) -> UInt {
+                UInt {
+                    val: self.vectorization as u32,
+                    vectorization: 1,
                 }
-                .into()
             }
 
-            fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-                None
-            }
-        }
-    };
-}
-
-atomic_bin_op!(AtomicAdd, Add);
-atomic_bin_op!(AtomicSub, Sub);
-atomic_bin_op!(AtomicMin, Min);
-atomic_bin_op!(AtomicMax, Max);
-atomic_bin_op!(AtomicOr, Or);
-atomic_bin_op!(AtomicAnd, And);
-atomic_bin_op!(AtomicXor, Xor);
-
-macro_rules! impl_atomic_expand {
-    ($name:ident, $unexpanded:ident) => {
-        impl<Inner: Expr<Output = $unexpanded>> $name<Inner> {
-            pub fn load(self) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicLoad::new(self.0)
-            }
-
-            pub fn store(
-                self,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = ()> {
-                AtomicStore::new(self.0, value)
-            }
-
-            pub fn swap(
-                self,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicSwap::new(self.0, value)
-            }
-
-            pub fn compare_and_swap(
-                self,
-                cmp: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicCompareAndSwap::new(self.0, cmp, value)
-            }
-
-            #[allow(clippy::should_implement_trait)]
-            pub fn add(
-                self,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicAdd::new(self.0, value)
-            }
-
-            #[allow(clippy::should_implement_trait)]
-            pub fn sub(
-                self,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicSub::new(self.0, value)
-            }
-
-            pub fn max(
-                self,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicMax::new(self.0, value)
-            }
-
-            pub fn min(
-                self,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicMin::new(self.0, value)
-            }
-
-            pub fn and(
-                self,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicAnd::new(self.0, value)
-            }
-
-            pub fn or(
-                self,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicOr::new(self.0, value)
-            }
-
-            pub fn xor(
-                self,
-                value: impl Expr<Output = <Inner::Output as Atomic>::Primitive>,
-            ) -> impl Expr<Output = <Inner::Output as Atomic>::Primitive> {
-                AtomicXor::new(self.0, value)
+            fn vectorize(mut self, factor: UInt) -> Self {
+                self.vectorization = factor.vectorization;
+                self
             }
         }
     };
 }
 
-#[derive(Expand, Clone, Copy)]
-#[expand(ir_type = u32::ir_type())]
-pub struct AtomicU32(#[expand(skip)] pub u32);
-impl Atomic for AtomicU32 {
-    type Primitive = u32;
+impl_atomic_int!(AtomicI32, I32, i32);
+impl_atomic_int!(AtomicI64, I64, i64);
+
+/// An atomic version of `UInt`. Can only be acted on atomically.
+#[allow(clippy::derived_hash_with_manual_eq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+/// An atomic unsigned int.
+pub struct AtomicUInt {
+    pub val: u32,
+    pub vectorization: u8,
 }
 
-#[derive(Expand, Clone, Copy)]
-#[expand(ir_type = i32::ir_type())]
-pub struct AtomicI32(#[expand(skip)] pub i32);
+impl core::fmt::Debug for AtomicUInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.vectorization == 1 {
+            f.write_fmt(format_args!("{}", self.val))
+        } else {
+            f.write_fmt(format_args!("{}-{}", self.val, self.vectorization))
+        }
+    }
+}
+
+impl CubeType for AtomicUInt {
+    type ExpandType = ExpandElementTyped<Self>;
+}
+
+impl CubePrimitive for AtomicUInt {
+    fn as_elem() -> Elem {
+        Elem::AtomicUInt
+    }
+}
+
+impl ExpandElementBaseInit for AtomicUInt {
+    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(context, elem)
+    }
+}
+
+impl LaunchArgExpand for AtomicUInt {
+    fn expand(
+        builder: &mut KernelBuilder,
+        vectorization: Vectorization,
+    ) -> ExpandElementTyped<Self> {
+        assert_eq!(vectorization, 1, "Attempted to vectorize a scalar");
+        builder.scalar(Elem::AtomicUInt).into()
+    }
+}
+
 impl Atomic for AtomicI32 {
-    type Primitive = i32;
+    type Primitive = I32;
+}
+impl Atomic for AtomicI64 {
+    type Primitive = I64;
+}
+impl Atomic for AtomicUInt {
+    type Primitive = UInt;
 }
 
-impl_atomic_expand!(AtomicU32Expand, AtomicU32);
-impl_atomic_expand!(AtomicI32Expand, AtomicI32);
+impl Vectorized for AtomicUInt {
+    fn vectorization_factor(&self) -> UInt {
+        UInt {
+            val: self.vectorization as u32,
+            vectorization: 1,
+        }
+    }
+
+    fn vectorize(mut self, factor: UInt) -> Self {
+        self.vectorization = factor.vectorization;
+        self
+    }
+}

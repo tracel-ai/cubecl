@@ -3,9 +3,6 @@ extern crate alloc;
 #[macro_use]
 extern crate derive_new;
 
-// For using macros in self
-extern crate self as cubecl;
-
 /// Cube Frontend Types.
 pub mod frontend;
 
@@ -22,17 +19,13 @@ pub mod prelude;
 mod pod;
 mod runtime;
 
-pub mod new_ir;
-
 pub use codegen::*;
 pub use pod::*;
 pub use runtime::*;
 
 pub use cubecl_macros::cube;
-pub use cubecl_macros::expand_impl;
+pub use cubecl_macros::CubeLaunch;
 pub use cubecl_macros::CubeType;
-pub use cubecl_macros::Expand;
-pub use cubecl_macros::StaticExpand;
 pub use cubecl_runtime::benchmark;
 
 /// An approximation of the subcube dimension.

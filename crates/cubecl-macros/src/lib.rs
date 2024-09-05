@@ -1,10 +1,10 @@
 use darling::FromDeriveInput;
 use error::error_into_token_stream;
+use generate::cube_type::generate_cube_type;
 use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
     expand::{Expand, Runtime, StaticExpand},
     expand_impl::ExpandImplVisitor,
-    expr::Expression,
     helpers::RemoveHelpers,
     kernel::{from_tokens, Kernel},
 };
@@ -19,7 +19,6 @@ mod parse;
 mod paths;
 mod scope;
 mod statement;
-mod types;
 
 pub(crate) use paths::{core_type, ir_path, ir_type, prefix_ir, prelude_type};
 
@@ -71,30 +70,20 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
     }
 }
 
-#[proc_macro_attribute]
-pub fn expression(args: TokenStream, input: TokenStream) -> TokenStream {
-    match expression_impl(args, input.clone()) {
-        Ok(tokens) => tokens,
-        Err(e) => error_into_token_stream(e, input.into()).into(),
-    }
+// Derive macro to define a cube type that is launched with a kernel
+#[proc_macro_derive(CubeLaunch, attributes(cube_type))]
+pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
+    let input = syn::parse(input).unwrap();
+
+    generate_cube_type(&input, true).into()
 }
 
-fn expression_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
-    let item: Item = syn::parse(input)?;
-    match item.clone() {
-        Item::Fn(expression) => {
-            let args = from_tokens(args.into())?;
-            let expression = Expression::from_item_fn(expression, args)?;
+// Derive macro to define a cube type that is not launched
+#[proc_macro_derive(CubeType, attributes(cube_type))]
+pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
+    let input = syn::parse(input).unwrap();
 
-            Ok(TokenStream::from(quote! {
-                #expression
-            }))
-        }
-        item => Err(syn::Error::new_spanned(
-            item,
-            "`#[expression]` is only supported on functions",
-        ))?,
-    }
+    generate_cube_type(&input, false).into()
 }
 
 #[proc_macro_derive(Expand, attributes(expand))]
@@ -107,15 +96,15 @@ pub fn derive_expand(input: TokenStream) -> TokenStream {
     expand.to_token_stream().into()
 }
 
-#[proc_macro_derive(CubeType, attributes(expand))]
-pub fn derive_cube_type(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let expand = match Runtime::from_derive_input(&input) {
-        Ok(expand) => expand,
-        Err(e) => return e.write_errors().into(),
-    };
-    expand.to_token_stream().into()
-}
+// #[proc_macro_derive(CubeType, attributes(expand))]
+// pub fn derive_cube_type(input: TokenStream) -> TokenStream {
+//     let input = parse_macro_input!(input as DeriveInput);
+//     let expand = match Runtime::from_derive_input(&input) {
+//         Ok(expand) => expand,
+//         Err(e) => return e.write_errors().into(),
+//     };
+//     expand.to_token_stream().into()
+// }
 
 #[proc_macro_derive(StaticExpand, attributes(expand))]
 pub fn derive_static_expand(input: TokenStream) -> TokenStream {

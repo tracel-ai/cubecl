@@ -1,241 +1,288 @@
-use std::{
-    marker::PhantomData,
-    ops::{
-        Index, IndexMut, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo,
-        RangeToInclusive,
-    },
-};
+use std::marker::PhantomData;
 
+use super::{
+    Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory, Tensor,
+    UInt,
+};
 use crate::{
-    new_ir::{
-        Container, EqExpr, Expr, IndexExpr, Length, SliceExpr, SliceRangeExpr, SquareType, Strided,
-    },
-    prelude::*,
+    frontend::indexation::Index,
+    ir::{self, Operator},
+    prelude::CubeContext,
     unexpanded,
 };
 
-use super::{Dim2, Dim3, Dim4, Dim5, Dim6, Integer};
-
-#[derive(new, Expand)]
-#[expand(ir_type = <Inner::Output as Container>::Item::ir_type())]
-pub struct Slice<Inner: Expr, Num: Integer>
-where
-    Inner::Output: Strided + Container,
-    <Inner::Output as Container>::Item: SquareType,
-{
-    #[expand(skip)]
-    pub inner: Inner,
-    pub _num: PhantomData<Num>,
+/// A read-only contiguous list of elements
+pub struct Slice<'a, E> {
+    _e: PhantomData<E>,
+    _l: &'a (),
 }
 
-impl<Inner: Expr, Num: Integer> Strided for Slice<Inner, Num>
-where
-    Inner::Output: Strided + Container,
-    <Inner::Output as Container>::Item: SquareType,
-{
-    type Dims = <Inner::Output as Strided>::Dims;
+/// A read-write contiguous list of elements.
+pub struct SliceMut<'a, E> {
+    _e: PhantomData<E>,
+    _l: &'a mut (),
 }
 
-impl<Inner: Expr, Num: Integer> Container for Slice<Inner, Num>
-where
-    Inner::Output: Strided + Container,
-    <Inner::Output as Container>::Item: SquareType,
-{
-    type Item = <Inner::Output as Container>::Item;
-}
-
-#[expand_impl]
-impl<Inner: Expr, Idx: Integer> Slice<Inner, Idx>
-where
-    Inner::Output: Strided + Container,
-    <Inner::Output as Container>::Item: SquareType,
-{
-    #[expanded]
-    pub fn index(
-        self,
-        index: impl Expr<Output = Idx>,
-    ) -> impl Expr<Output = <Inner::Output as Container>::Item>
-    where
-        Inner::Output: Index<Idx>,
-    {
-        IndexExpr::new(self.0, index)
-    }
-
-    #[expanded]
-    pub fn slice<TNum: Integer>(
-        self,
-        ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<TNum>>>>,
-    ) -> impl Expr<Output = Slice<__Inner, TNum>> {
-        SliceExpr::new(self.0, ranges)
-    }
-
-    pub fn len(&self) -> u32 {
-        unexpanded!()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    // Expanded version of len
-    #[expanded]
-    pub fn len<Out: Integer>(self) -> impl Expr<Output = Out> {
-        Length::new(self.0)
-    }
-
-    // Expanded version of is_empty
-    #[expanded]
-    pub fn is_empty(self) -> impl Expr<Output = bool> {
-        EqExpr::new(Length::<_, u32>::new(self.0), 0)
-    }
-}
-
-impl<Inner: Expr, Idx: Integer> Index<Idx> for Slice<Inner, Idx>
-where
-    Inner::Output: Strided + Container,
-    <Inner::Output as Container>::Item: SquareType,
-{
-    type Output = <Inner::Output as Container>::Item;
-
-    fn index(&self, _index: Idx) -> &Self::Output {
+impl<'a, E> Slice<'a, E> {
+    /// Get the length of the slice.
+    pub fn len(&self) -> UInt {
         unexpanded!()
     }
 }
 
-impl<Inner: Expr, Idx: Integer> IndexMut<Idx> for Slice<Inner, Idx>
-where
-    Inner::Output: Strided + Container,
-    <Inner::Output as Container>::Item: SquareType,
-{
-    fn index_mut(&mut self, _index: Idx) -> &mut Self::Output {
+impl<'a, E> SliceMut<'a, E> {
+    /// Get the length of the slice.
+    pub fn len(&self) -> UInt {
         unexpanded!()
     }
 }
 
-macro_rules! slice_impl {
-    ($range:ident) => {
-        impl<Inner: Expr, Idx: Integer> Index<$range<Idx>> for Slice<Inner, Idx>
-            where Inner::Output: Strided + Container,
-            <Inner::Output as Container>::Item: SquareType
-        {
-            type Output = Self;
+impl<'a, E: CubeType> CubeType for Slice<'a, E> {
+    type ExpandType = ExpandElementTyped<Slice<'static, E>>;
+}
 
-            fn index(&self, _index: $range<Idx>) -> &Self::Output {
-                unexpanded!()
+impl<'a, C: CubeType> Init for ExpandElementTyped<Slice<'a, C>> {
+    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+        // The type can't be deeply cloned/copied.
+        self
+    }
+}
+
+impl<'a, E: CubeType> CubeType for SliceMut<'a, E> {
+    type ExpandType = ExpandElementTyped<SliceMut<'static, E>>;
+}
+
+impl<'a, C: CubeType> Init for ExpandElementTyped<SliceMut<'a, C>> {
+    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+        // The type can't be deeply cloned/copied.
+        self
+    }
+}
+
+pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
+    type Expand: SliceOperatorExpand<E>;
+
+    /// Return a read-only view of all elements comprise between the start and end index.
+    #[allow(unused_variables)]
+    fn slice<Start: Index, End: Index>(&self, start: Start, end: End) -> &'_ Slice<'_, E> {
+        unexpanded!()
+    }
+    /// Expand function of [SliceOperator::slice].
+    fn __expand_slice<Start: Index, End: Index>(
+        context: &mut CubeContext,
+        expand: Self::Expand,
+        start: Start,
+        end: End,
+    ) -> ExpandElementTyped<Slice<'static, E>> {
+        expand.__expand_slice_method(context, start, end)
+    }
+
+    /// Return a read-write view of all elements comprise between the start and end index.
+    #[allow(unused_variables)]
+    fn slice_mut<Start: Index, End: Index>(
+        &mut self,
+        start: Start,
+        end: End,
+    ) -> &'_ mut SliceMut<'_, E> {
+        unexpanded!()
+    }
+
+    /// Expand function of [SliceOperator::slice_mut].
+    fn __expand_slice_mut<Start: Index, End: Index>(
+        context: &mut CubeContext,
+        expand: Self::Expand,
+        start: Start,
+        end: End,
+    ) -> ExpandElementTyped<SliceMut<'static, E>> {
+        expand.__expand_slice_mut_method(context, start, end)
+    }
+
+    /// Return a read-write view of all elements comprise between the start and end index.
+    ///
+    /// # Warning
+    ///
+    /// Ignore the multiple borrow rule.
+    #[allow(unused_variables)]
+    fn slice_mut_unsafe<Start: Index, End: Index>(
+        &self,
+        start: Start,
+        end: End,
+    ) -> &'_ mut SliceMut<'_, E> {
+        unexpanded!()
+    }
+
+    /// Expand function of [SliceOperator::slice_mut_unsafe].
+    fn __expand_slice_mut_unsafe<Start: Index, End: Index>(
+        context: &mut CubeContext,
+        expand: Self::Expand,
+        start: Start,
+        end: End,
+    ) -> ExpandElementTyped<SliceMut<'static, E>> {
+        expand.__expand_slice_mut_unsafe_method(context, start, end)
+    }
+
+    /// Reinterprete the current type as a read-only slice.
+    #[allow(unused_variables)]
+    fn as_slice(&self) -> &'_ Slice<'_, E> {
+        unexpanded!()
+    }
+
+    /// Expand function of [SliceOperator::as_slice].
+    fn __expand_as_slice(
+        context: &mut CubeContext,
+        expand: Self::Expand,
+    ) -> ExpandElementTyped<Slice<'static, E>> {
+        expand.__expand_as_slice_method(context)
+    }
+
+    /// Reinterprete the current type as a read-write slice.
+    #[allow(unused_variables)]
+    fn as_slice_mut(&mut self) -> &'_ mut SliceMut<'_, E> {
+        unexpanded!()
+    }
+
+    /// Expand function of [SliceOperator::as_slice_mut].
+    fn __expand_as_slice_mut(
+        context: &mut CubeContext,
+        expand: Self::Expand,
+    ) -> ExpandElementTyped<SliceMut<'static, E>> {
+        expand.__expand_as_slice_mut_method(context)
+    }
+
+    /// Reinterprete the current type as a read-write slice.
+    ///
+    /// # Warning
+    ///
+    /// Ignore the multiple borrow rule.
+    #[allow(unused_variables)]
+    fn as_slice_mut_unsafe(&self) -> &'_ mut SliceMut<'_, E> {
+        unexpanded!()
+    }
+
+    /// Expand function of [SliceOperator::as_slice_mut_unsafe].
+    fn __expand_as_slice_mut_unsafe(
+        context: &mut CubeContext,
+        expand: Self::Expand,
+    ) -> ExpandElementTyped<SliceMut<'static, E>> {
+        expand.__expand_as_slice_mut_unsafe_method(context)
+    }
+}
+
+pub trait SliceOperatorExpand<E: CubeType>: Into<ExpandElement> + Clone {
+    fn slice_base<Start: Index, End: Index>(
+        &self,
+        context: &mut CubeContext,
+        start: Start,
+        end: End,
+    ) -> ExpandElement;
+
+    fn __expand_slice_method<Start: Index, End: Index>(
+        &self,
+        context: &mut CubeContext,
+        start: Start,
+        end: End,
+    ) -> ExpandElementTyped<Slice<'static, E>> {
+        ExpandElementTyped::new(self.slice_base(context, start, end))
+    }
+
+    fn __expand_slice_mut_method<Start: Index, End: Index>(
+        &self,
+        context: &mut CubeContext,
+        start: Start,
+        end: End,
+    ) -> ExpandElementTyped<SliceMut<'static, E>> {
+        ExpandElementTyped::new(self.slice_base(context, start, end))
+    }
+
+    fn __expand_slice_mut_unsafe_method<Start: Index, End: Index>(
+        &self,
+        context: &mut CubeContext,
+        start: Start,
+        end: End,
+    ) -> ExpandElementTyped<SliceMut<'static, E>> {
+        ExpandElementTyped::new(self.slice_base(context, start, end))
+    }
+
+    fn __expand_as_slice_method(
+        &self,
+        _context: &mut CubeContext,
+    ) -> ExpandElementTyped<Slice<'static, E>> {
+        let expand = self.clone().into();
+        ExpandElementTyped::new(expand)
+    }
+
+    fn __expand_as_slice_mut_unsafe_method(
+        &self,
+        context: &mut CubeContext,
+    ) -> ExpandElementTyped<SliceMut<'static, E>> {
+        self.__expand_as_slice_mut_method(context)
+    }
+
+    fn __expand_as_slice_mut_method(
+        &self,
+        _context: &mut CubeContext,
+    ) -> ExpandElementTyped<SliceMut<'static, E>> {
+        let expand = self.clone().into();
+        ExpandElementTyped::new(expand)
+    }
+}
+
+macro_rules! slice_op {
+    ($type:ident) => {
+        impl<E: CubePrimitive> SliceOperator<E> for $type<E> {
+            type Expand = ExpandElementTyped<$type<E>>;
+        }
+
+        impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<$type<E>> {
+            fn slice_base<Start: Index, End: Index>(
+                &self,
+                context: &mut CubeContext,
+                start: Start,
+                end: End,
+            ) -> ExpandElement {
+                slice_expand(context, self.clone(), start, end)
             }
         }
     };
-    ($dims:ident, $range:ident, $dim_count:literal) => {
-        impl<Inner: Expr, Idx: Integer> Index<[$range<Idx>; $dim_count]> for Slice<Inner, Idx>
-            where Inner::Output: Strided<Dims = $dims> + Container,
-            <Inner::Output as Container>::Item: SquareType
-        {
-            type Output = Self;
-
-            fn index(&self, _index: [$range<Idx>; $dim_count]) -> &Self::Output {
-                unexpanded!()
-            }
+    (slice $type:ident) => {
+        impl<'a, E: CubePrimitive> SliceOperator<E> for $type<'a, E> {
+            type Expand = ExpandElementTyped<$type<'static, E>>;
         }
-    };
-    ($dims:ident, $ty:ident, $($args:ident),*) => {
-        impl<Inner: Expr, $($args: RangeBounds<$ty>),*> Index<($($args),*)> for Slice<Inner, $ty>
-            where Inner::Output: Strided<Dims = $dims> + Container,
-            <Inner::Output as Container>::Item: SquareType
-        {
-            type Output = Self;
 
-            fn index(&self, _index: ($($args),*)) -> &Self::Output {
-                unexpanded!()
+        impl<'a, E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<$type<'a, E>> {
+            fn slice_base<Start: Index, End: Index>(
+                &self,
+                context: &mut CubeContext,
+                start: Start,
+                end: End,
+            ) -> ExpandElement {
+                slice_expand(context, self.clone(), start, end)
             }
         }
     };
 }
 
-macro_rules! slice_impls {
-    () => {
-        slice_impl!(Range);
-        slice_impl!(RangeFrom);
-        slice_impl!(RangeInclusive);
-        slice_impl!(RangeTo);
-        slice_impl!(RangeToInclusive);
+slice_op!(Array);
+slice_op!(Tensor);
+slice_op!(SharedMemory);
+slice_op!(slice Slice);
+slice_op!(slice SliceMut);
 
-        impl<Inner: Expr, Idx: Integer> Index<RangeFull> for Slice<Inner, Idx>
-            where Inner::Output: Strided + Container,
-            <Inner::Output as Container>::Item: SquareType
-        {
-            type Output = Self;
+pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
+    context: &mut CubeContext,
+    input: I,
+    start: S1,
+    end: S2, // Todo use it to get the length.
+) -> ExpandElement {
+    let input = input.into();
+    let out = context.create_slice(input.item());
 
-            fn index(&self, _index: RangeFull) -> &Self::Output {
-                unexpanded!()
-            }
-        }
-    };
-    ($dims:ident, $dim_count:literal) => {
-        slice_impl!($dims, Range, $dim_count);
-        slice_impl!($dims, RangeFrom, $dim_count);
-        slice_impl!($dims, RangeInclusive, $dim_count);
-        slice_impl!($dims, RangeTo, $dim_count);
-        slice_impl!($dims, RangeToInclusive, $dim_count);
+    context.register(Operator::Slice(ir::SliceOperator {
+        input: *input,
+        start: start.value(),
+        end: end.value(),
+        out: *out,
+    }));
 
-        impl<Inner: Expr, Idx: Integer> Index<[RangeFull; $dim_count]> for Slice<Inner, Idx>
-            where Inner::Output: Strided<Dims = $dims> + Container,
-            <Inner::Output as Container>::Item: SquareType
-        {
-            type Output = Self;
-
-            fn index(&self, _index: [RangeFull; $dim_count]) -> &Self::Output {
-                unexpanded!()
-            }
-        }
-
-    };
-    ($dims:ident, $($args:ident),*) => {
-        slice_impl!($dims, u32, $($args),*);
-    };
+    out
 }
-
-slice_impls!();
-
-macro_rules! impl_index_array {
-    ($dim:ident, $num_dims:literal) => {
-        impl<Inner: Expr, Idx: Integer> Index<[Idx; $num_dims]> for Slice<Inner, Idx>
-        where
-            Inner::Output: Strided<Dims = $dim> + Container,
-            <Inner::Output as Container>::Item: SquareType,
-        {
-            type Output = <Inner::Output as Container>::Item;
-
-            fn index(&self, _index: [Idx; $num_dims]) -> &Self::Output {
-                unexpanded!()
-            }
-        }
-
-        impl<Inner: Expr, Idx: Integer> IndexMut<[Idx; $num_dims]> for Slice<Inner, Idx>
-        where
-            Inner::Output: Strided<Dims = $dim> + Container,
-            <Inner::Output as Container>::Item: SquareType,
-        {
-            fn index_mut(&mut self, _index: [Idx; $num_dims]) -> &mut Self::Output {
-                unexpanded!()
-            }
-        }
-    };
-}
-
-impl_index_array!(Dim2, 2);
-impl_index_array!(Dim3, 3);
-impl_index_array!(Dim4, 4);
-impl_index_array!(Dim5, 5);
-impl_index_array!(Dim6, 6);
-
-slice_impls!(Dim2, 2);
-slice_impls!(Dim3, 3);
-slice_impls!(Dim4, 4);
-slice_impls!(Dim5, 5);
-slice_impls!(Dim6, 6);
-
-slice_impls!(Dim2, Range1, Range2);
-slice_impls!(Dim3, Range1, Range2, Range3);
-slice_impls!(Dim4, Range1, Range2, Range3, Range4);
-slice_impls!(Dim5, Range1, Range2, Range3, Range4, Range5);
-slice_impls!(Dim6, Range1, Range2, Range3, Range4, Range5, Range6);

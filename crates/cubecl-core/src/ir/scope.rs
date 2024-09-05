@@ -1,6 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
-
-use crate::{ir::ConstantScalarValue, prelude::ExpandElementWeak};
+use crate::ir::ConstantScalarValue;
 
 use super::{
     cpa, processing::ScopeProcessing, Elem, IndexOffsetGlobalWithLayout, Item, Matrix, Operation,
@@ -32,8 +30,6 @@ pub struct Scope {
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
     undeclared: u16,
-    #[serde(skip)]
-    pub var_map: HashMap<*const String, ExpandElementWeak>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Hash, Eq)]
@@ -65,7 +61,6 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: None,
             undeclared: 0,
-            var_map: HashMap::new(),
         }
     }
 
@@ -91,7 +86,6 @@ impl Scope {
             Elem::UInt => ConstantScalarValue::UInt(value.to_u64().unwrap()),
             Elem::AtomicUInt => ConstantScalarValue::UInt(value.to_u64().unwrap()),
             Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
-            Elem::Unit => panic!("Can't initialize pointer with a value"),
         };
         let local = self.create_local(item);
         let value = Variable::ConstantScalar(value);
@@ -289,7 +283,6 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: self.layout_ref,
             undeclared: 0,
-            var_map: self.var_map.clone(),
         }
     }
 
@@ -460,17 +453,5 @@ impl Scope {
         };
         self.local_arrays.push(local_array);
         local_array
-    }
-
-    pub fn register_local(&mut self, name: Rc<String>, value: ExpandElementWeak) {
-        self.var_map.insert(Rc::as_ptr(&name), value);
-    }
-
-    pub fn get_local(&self, name: &Rc<String>) -> Option<ExpandElementWeak> {
-        self.var_map.get(&Rc::as_ptr(name)).cloned()
-    }
-
-    pub fn remove_local(&mut self, name: &Rc<String>) {
-        self.var_map.remove(&Rc::as_ptr(name));
     }
 }

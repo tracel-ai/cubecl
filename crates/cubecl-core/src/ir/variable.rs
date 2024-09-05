@@ -250,13 +250,6 @@ impl Variable {
             Variable::SubcubeDim => Item::new(Elem::UInt),
         }
     }
-
-    pub fn as_const(&self) -> Option<ConstantScalarValue> {
-        match self {
-            Variable::ConstantScalar(value) => Some(*value),
-            _ => None,
-        }
-    }
 }
 
 // Useful with the cube_inline macro.

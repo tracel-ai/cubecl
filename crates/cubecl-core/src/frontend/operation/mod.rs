@@ -1,5 +1,15 @@
+mod assignation;
+mod base;
+mod binary;
 mod clamp;
-mod fused_mul_add;
+mod cmp;
+mod fma;
+mod unary;
 
+pub use assignation::*;
+pub use base::*;
+pub use binary::*;
 pub use clamp::*;
-pub use fused_mul_add::*;
+pub use cmp::*;
+pub use fma::*;
+pub use unary::*;

@@ -1,229 +1,143 @@
-use std::{marker::PhantomData, num::NonZero};
+use std::marker::PhantomData;
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
-    ir::Item,
-    new_ir::{
-        Container, Expand, Expanded, Expression, StaticExpand, StaticExpanded, Vectorization,
-    },
-    prelude::*,
+    frontend::CubeType,
+    ir::{Item, Vectorization},
     unexpanded, KernelSettings, Runtime,
+};
+use crate::{
+    frontend::{indexation::Index, CubeContext},
+    prelude::{assign, index, index_assign, Comptime},
 };
 
 use super::{
-    ArgSettings, Dim1, Integer, LaunchArg, LaunchArgExpand, Primitive, Slice, TensorHandleRef,
+    ArgSettings, CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
+    LaunchArg, LaunchArgExpand, TensorHandleRef, UInt,
 };
 
-use crate::new_ir::{
-    EqExpr, Expr, GlobalVariable, IndexExpr, Length, SliceExpr, SliceRangeExpr, SquareType, Strided,
-};
-use std::ops::{
-    Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
-};
-
-pub struct Array<T: SquareType> {
-    size: u32,
-    vectorization: Vectorization,
-    _type: PhantomData<T>,
+/// A contiguous array of elements.
+pub struct Array<E> {
+    _val: PhantomData<E>,
 }
-pub struct ArrayExpand<T: SquareType, Inner: Expr<Output = Array<T>>>(Inner);
 
-unsafe impl<T: SquareType> Send for Array<T> {}
-unsafe impl<T: SquareType> Sync for Array<T> {}
+impl<C: CubeType> CubeType for Array<C> {
+    type ExpandType = ExpandElementTyped<Array<C>>;
+}
 
-impl<T: SquareType> Expand for Array<T> {
-    type Expanded<Inner: Expr<Output = Self>> = ArrayExpand<T, Inner>;
-
-    fn expand<Inner: Expr<Output = Self>>(inner: Inner) -> Self::Expanded<Inner> {
-        ArrayExpand(inner)
+impl<T: CubePrimitive + Clone> Array<T> {
+    pub fn new<S: Index>(_size: S) -> Self {
+        Array { _val: PhantomData }
     }
-}
-impl<T: SquareType, Inner: Expr<Output = Array<T>>> Expanded for ArrayExpand<T, Inner> {
-    type Unexpanded = Array<T>;
 
-    fn inner(self) -> impl Expr<Output = Self::Unexpanded> {
-        self.0
+    pub fn vectorized<S: Index>(_size: S, _vectorization_factor: UInt) -> Self {
+        Array { _val: PhantomData }
     }
-}
 
-impl<T: SquareType> StaticExpand for Array<T> {
-    type Expanded = Self;
-}
-impl<T: SquareType> StaticExpanded for Array<T> {
-    type Unexpanded = Self;
-}
-
-impl<T: SquareType> SquareType for Array<T> {
-    fn ir_type() -> crate::ir::Elem {
-        T::ir_type()
+    pub fn __expand_new<S: Index>(
+        context: &mut CubeContext,
+        size: S,
+    ) -> <Self as CubeType>::ExpandType {
+        let size = size.value();
+        let size = match size {
+            crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
+            _ => panic!("Array need constant initialization value"),
+        };
+        context
+            .create_local_array(Item::new(T::as_elem()), size)
+            .into()
     }
-}
 
-impl<T: SquareType> Strided for Array<T> {
-    type Dims = Dim1;
-}
+    pub fn __expand_vectorized<S: Index>(
+        context: &mut CubeContext,
+        size: S,
+        vectorization_factor: UInt,
+    ) -> <Self as CubeType>::ExpandType {
+        let size = size.value();
+        let size = match size {
+            crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
+            _ => panic!("Shared memory need constant initialization value"),
+        };
+        context
+            .create_local_array(
+                Item::vectorized(T::as_elem(), vectorization_factor.val as u8),
+                size,
+            )
+            .into()
+    }
 
-impl<T: SquareType> Container for Array<T> {
-    type Item = T;
-}
-
-impl<T: SquareType, Idx: Integer> Index<Idx> for Array<T> {
-    type Output = T;
-
-    fn index(&self, _index: Idx) -> &Self::Output {
+    pub fn to_vectorized(self, _vectorization_factor: Comptime<UInt>) -> T {
         unexpanded!()
     }
 }
 
-impl<T: Primitive> LaunchArg for Array<T> {
+impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
+    pub fn __expand_to_vectorized_method(
+        self,
+        context: &mut CubeContext,
+        vectorization_factor: UInt,
+    ) -> ExpandElementTyped<C> {
+        let factor = vectorization_factor.val;
+        let var = self.expand.clone();
+        let new_var = context.create_local(Item::vectorized(var.item().elem(), factor as u8));
+
+        if vectorization_factor.val == 1 {
+            let element = index::expand(context, self.clone(), ExpandElementTyped::from_lit(0u32));
+            assign::expand(context, element, new_var.clone());
+        } else {
+            for i in 0..factor {
+                let expand: Self = self.expand.clone().into();
+                let element = index::expand(context, expand, ExpandElementTyped::from_lit(i));
+                index_assign::expand::<Array<C>>(
+                    context,
+                    new_var.clone().into(),
+                    ExpandElementTyped::from_lit(i),
+                    element,
+                );
+            }
+        }
+        new_var.into()
+    }
+}
+
+impl<C: CubeType> CubeType for &Array<C> {
+    type ExpandType = ExpandElementTyped<Array<C>>;
+}
+
+impl<C: CubeType> ExpandElementBaseInit for Array<C> {
+    fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
+        // The type can't be deeply cloned/copied.
+        elem
+    }
+}
+
+impl<E: CubeType> Array<E> {
+    /// Obtain the array length
+    pub fn len(&self) -> UInt {
+        unexpanded!()
+    }
+}
+
+impl<C: CubePrimitive> LaunchArg for Array<C> {
     type RuntimeArg<'a, R: Runtime> = ArrayArg<'a, R>;
 }
 
-impl<T: Primitive> LaunchArgExpand for Array<T> {
-    fn expand(builder: &mut KernelBuilder, vectorization: u8) -> GlobalVariable<Self> {
-        builder.input_array(Item::vectorized(T::ir_type(), vectorization))
+impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
+    fn expand(
+        builder: &mut KernelBuilder,
+        vectorization: Vectorization,
+    ) -> ExpandElementTyped<Array<C>> {
+        builder
+            .input_array(Item::vectorized(C::as_elem(), vectorization))
+            .into()
     }
-    fn expand_output(builder: &mut KernelBuilder, vectorization: u8) -> GlobalVariable<Self> {
-        builder.output_array(Item::vectorized(T::ir_type(), vectorization))
-    }
-}
-
-#[expand_impl]
-impl<T: Primitive> Array<T> {
-    pub fn new(size: u32) -> Self {
-        Array {
-            size,
-            vectorization: None,
-            _type: PhantomData,
-        }
-    }
-
-    pub fn vectorized(size: u32, vectorization: u8) -> Self {
-        Array {
-            size,
-            vectorization: NonZero::new(vectorization),
-            _type: PhantomData,
-        }
-    }
-
-    pub fn len(&self) -> u32 {
-        self.size
-    }
-
-    #[expanded]
-    pub fn len(self) -> impl Expr<Output = u32> {
-        Length::new(self.0)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    #[expanded]
-    pub fn is_empty(self) -> impl Expr<Output = bool> {
-        EqExpr::new(self.len(), 0)
-    }
-
-    #[expanded]
-    pub fn index<Idx: Expr>(self, index: Idx) -> impl Expr<Output = T>
-    where
-        Idx::Output: Integer,
-    {
-        IndexExpr::new(self.0, index)
-    }
-
-    #[expanded]
-    pub fn slice<Start: Expr>(
-        self,
-        ranges: Vec<Box<dyn Expr<Output = SliceRangeExpr<Start>>>>,
-    ) -> impl Expr<Output = Slice<__Inner, Start::Output>>
-    where
-        Start::Output: Integer,
-    {
-        SliceExpr::new(self.0, ranges)
-    }
-}
-
-impl<T: SquareType> Expr for Array<T> {
-    type Output = Array<T>;
-
-    fn expression_untyped(&self) -> Expression {
-        Expression::ArrayInit {
-            size: self.size,
-            ty: T::ir_type(),
-            vectorization: self.vectorization,
-        }
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        self.vectorization
-    }
-}
-
-impl<T: SquareType> Expr for &Array<T> {
-    type Output = Array<T>;
-
-    fn expression_untyped(&self) -> Expression {
-        Array::<T>::expression_untyped(self)
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        self.vectorization
-    }
-}
-
-impl<T: SquareType> Expr for &mut Array<T> {
-    type Output = Array<T>;
-
-    fn expression_untyped(&self) -> Expression {
-        Array::<T>::expression_untyped(self)
-    }
-
-    fn vectorization(&self) -> Option<std::num::NonZero<u8>> {
-        self.vectorization
-    }
-}
-
-impl<T: SquareType, Idx: Integer> IndexMut<Idx> for Array<T> {
-    fn index_mut(&mut self, _index: Idx) -> &mut Self::Output {
-        unexpanded!()
-    }
-}
-
-macro_rules! slice_impl {
-    ($range:ident) => {
-        impl<T: SquareType, Idx: Integer> Index<$range<Idx>> for Array<T> {
-            type Output = Slice<Self, Idx>;
-
-            fn index(&self, _index: $range<Idx>) -> &Self::Output {
-                unexpanded!()
-            }
-        }
-
-        impl<T: SquareType, Idx: Integer> IndexMut<$range<Idx>> for Array<T> {
-            fn index_mut(&mut self, _index: $range<Idx>) -> &mut Self::Output {
-                unexpanded!()
-            }
-        }
-    };
-}
-
-slice_impl!(Range);
-slice_impl!(RangeFrom);
-slice_impl!(RangeInclusive);
-slice_impl!(RangeTo);
-slice_impl!(RangeToInclusive);
-
-impl<T: SquareType> Index<RangeFull> for Array<T> {
-    type Output = Slice<Self, u32>;
-
-    fn index(&self, _index: RangeFull) -> &Self::Output {
-        unexpanded!()
-    }
-}
-impl<T: SquareType> IndexMut<RangeFull> for Array<T> {
-    fn index_mut(&mut self, _index: RangeFull) -> &mut Self::Output {
-        unexpanded!()
+    fn expand_output(
+        builder: &mut KernelBuilder,
+        vectorization: Vectorization,
+    ) -> ExpandElementTyped<Array<C>> {
+        builder
+            .output_array(Item::vectorized(C::as_elem(), vectorization))
+            .into()
     }
 }
 

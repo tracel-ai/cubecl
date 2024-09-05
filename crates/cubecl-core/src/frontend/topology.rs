@@ -1,18 +1,24 @@
 //! In this file we use a trick where the constant has the same name as the module containing
 //! the expand function, so that a user implicitly imports the expand function when importing the constant.
 
-pub struct ExpandedGlobals;
+use super::ExpandElementTyped;
+use crate::frontend::UInt;
 
 macro_rules! constant {
     ($ident:ident, $var:expr, $doc:expr) => {
         #[doc = $doc]
-        pub const $ident: u32 = 10;
-        impl ExpandedGlobals {
-            pub const $ident: $crate::new_ir::KernelVariable<u32> =
-                $crate::new_ir::KernelVariable {
-                    kind: $var,
-                    _type: ::core::marker::PhantomData,
-                };
+        pub const $ident: UInt = UInt::new(0u32);
+
+        #[allow(non_snake_case)]
+        #[doc = $doc]
+        pub mod $ident {
+            use super::*;
+            use crate::frontend::{CubeContext, ExpandElement};
+
+            /// Expansion of the constant variable.
+            pub fn expand(_context: &mut CubeContext) -> ExpandElementTyped<UInt> {
+                ExpandElementTyped::new(ExpandElement::Plain($var))
+            }
         }
     };
 }

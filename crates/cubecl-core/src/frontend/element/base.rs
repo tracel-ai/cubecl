@@ -1,11 +1,41 @@
+use super::{Bool, CubePrimitive, Numeric, UInt, Vectorized, F32, F64, I32, I64};
 use crate::{
-    ir::Variable,
-    new_ir::{GlobalVariable, SquareType},
-    prelude::{KernelBuilder, KernelLauncher},
+    ir::{ConstantScalarValue, Elem, Item, Operator, Variable, Vectorization},
+    prelude::{index_assign, init_expand, CubeContext, KernelBuilder, KernelLauncher},
     KernelSettings, Runtime,
 };
 use alloc::rc::Rc;
-use std::collections::HashMap;
+use std::marker::PhantomData;
+
+/// Types used in a cube function must implement this trait
+///
+/// Variables whose values will be known at runtime must
+/// have ExpandElement as associated type
+/// Variables whose values will be known at compile time
+/// must have the primitive type as associated type
+///
+/// Note: Cube functions should be written using CubeTypes,
+/// so that the code generated uses the associated ExpandType.
+/// This allows Cube code to not necessitate cloning, which is cumbersome
+/// in algorithmic code. The necessary cloning will automatically appear in
+/// the generated code.
+pub trait CubeType {
+    type ExpandType: Clone + Init;
+
+    /// Wrapper around the init method, necessary to type inference.
+    fn init(context: &mut CubeContext, expand: Self::ExpandType) -> Self::ExpandType {
+        expand.init(context)
+    }
+}
+
+/// Trait to be implemented by [cube types](CubeType) implementations.
+pub trait Init: Sized {
+    /// Initialize a type within a [context](CubeContext).
+    ///
+    /// You can return the same value when the variable is a non-mutable data structure or
+    /// if the type can not be deeply cloned/copied.
+    fn init(self, context: &mut CubeContext) -> Self;
+}
 
 /// Defines how a [launch argument](LaunchArg) can be expanded.
 ///
@@ -13,11 +43,17 @@ use std::collections::HashMap;
 /// Once for the reference and the other for the mutable reference. Often time, the reference
 /// should expand the argument as an input while the mutable reference should expand the argument
 /// as an output.
-pub trait LaunchArgExpand: SquareType + Sized {
+pub trait LaunchArgExpand: CubeType {
     /// Register an input variable during compilation that fill the [KernelBuilder].
-    fn expand(builder: &mut KernelBuilder, vectorization: u8) -> GlobalVariable<Self>;
+    fn expand(
+        builder: &mut KernelBuilder,
+        vectorization: Vectorization,
+    ) -> <Self as CubeType>::ExpandType;
     /// Register an output variable during compilation that fill the [KernelBuilder].
-    fn expand_output(builder: &mut KernelBuilder, vectorization: u8) -> GlobalVariable<Self> {
+    fn expand_output(
+        builder: &mut KernelBuilder,
+        vectorization: Vectorization,
+    ) -> <Self as CubeType>::ExpandType {
         Self::expand(builder, vectorization)
     }
 }
@@ -28,11 +64,31 @@ pub trait LaunchArg: LaunchArgExpand + Send + Sync + 'static {
     type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
 }
 
-pub type RuntimeArg<'a, T, R> = <T as LaunchArg>::RuntimeArg<'a, R>;
+impl LaunchArg for () {
+    type RuntimeArg<'a, R: Runtime> = ();
+}
 
 impl<R: Runtime> ArgSettings<R> for () {
     fn register(&self, _launcher: &mut KernelLauncher<R>) {
         // nothing to do
+    }
+}
+
+impl LaunchArgExpand for () {
+    fn expand(
+        _builder: &mut KernelBuilder,
+        _vectorization: Vectorization,
+    ) -> <Self as CubeType>::ExpandType {
+    }
+}
+
+impl CubeType for () {
+    type ExpandType = ();
+}
+
+impl Init for () {
+    fn init(self, _context: &mut CubeContext) -> Self {
+        self
     }
 }
 
@@ -51,47 +107,148 @@ pub trait ArgSettings<R: Runtime>: Send + Sync {
 }
 
 /// Reference to a JIT variable
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum ExpandElement {
     /// Variable kept in the variable pool.
     Managed(Rc<Variable>),
     /// Variable not kept in the variable pool.
     Plain(Variable),
-    /// Struct with subexpressions
-    Struct(HashMap<&'static str, ExpandElement>),
 }
 
-/// Weak reference to a JIT variable for variable name mapping
-#[derive(Clone, Debug, PartialEq)]
-pub enum ExpandElementWeak {
-    /// Variable kept in the variable pool.
-    Managed(Rc<Variable>),
-    /// Variable not kept in the variable pool.
-    Plain(Variable),
-    /// Struct with subexpressions
-    Struct(HashMap<&'static str, ExpandElement>),
+/// Expand type associated with a type.
+#[derive(new)]
+pub struct ExpandElementTyped<T: CubeType> {
+    pub(crate) expand: ExpandElement,
+    pub(crate) _type: PhantomData<T>,
 }
 
-// impl PartialEq for ExpandElementWeak {
-//     fn eq(&self, other: &Self) -> bool {
-//         match (self, other) {
-//             (ExpandElementWeak::Managed(var), ExpandElementWeak::Managed(var2)) => var
-//                 .upgrade()
-//                 .zip(var2.upgrade())
-//                 .map(|(var1, var2)| var1 == var2)
-//                 .unwrap_or(false),
-//             (ExpandElementWeak::Plain(var), ExpandElementWeak::Plain(var2)) => var == var2,
-//             _unused => false,
-//         }
-//     }
-// }
+macro_rules! from_const {
+    ($lit:ty, $ty:ty) => {
+        impl From<$lit> for ExpandElementTyped<$ty> {
+            fn from(value: $lit) -> Self {
+                let variable: Variable = value.into();
 
-impl ExpandElementWeak {
-    pub fn upgrade(self) -> Option<ExpandElement> {
-        match self {
-            ExpandElementWeak::Managed(var) => Some(ExpandElement::Managed(var)),
-            ExpandElementWeak::Plain(var) => Some(ExpandElement::Plain(var)),
-            ExpandElementWeak::Struct(vars) => Some(ExpandElement::Struct(vars)),
+                ExpandElement::Plain(variable).into()
+            }
+        }
+    };
+    (val $($lit:ty),*) => {
+        $(
+            impl From<$lit> for ExpandElementTyped<UInt> {
+                fn from(value: $lit) -> Self {
+                    let variable: Variable = value.val.into();
+
+                    ExpandElement::Plain(variable).into()
+                }
+            }
+        )*
+    };
+}
+
+from_const!(u32, UInt);
+from_const!(i64, I64);
+from_const!(i32, I32);
+from_const!(f64, F64);
+from_const!(f32, F32);
+from_const!(bool, Bool);
+from_const!(val UInt, I32, I64, F32, F64);
+
+macro_rules! tuple_cube_type {
+    ($($P:ident),*) => {
+        impl<$($P: CubeType),*> CubeType for ($($P,)*) {
+            type ExpandType = ($($P::ExpandType,)*);
+        }
+    }
+}
+macro_rules! tuple_init {
+    ($($P:ident),*) => {
+        impl<$($P: Init),*> Init for ($($P,)*) {
+            #[allow(non_snake_case)]
+            fn init(self, context: &mut CubeContext) -> Self {
+                let ($($P,)*) = self;
+                ($(
+                    $P.init(context),
+                )*)
+            }
+        }
+    }
+}
+
+tuple_cube_type!(P1);
+tuple_cube_type!(P1, P2);
+tuple_cube_type!(P1, P2, P3);
+tuple_cube_type!(P1, P2, P3, P4);
+tuple_cube_type!(P1, P2, P3, P4, P5);
+tuple_cube_type!(P1, P2, P3, P4, P5, P6);
+
+tuple_init!(P1);
+tuple_init!(P1, P2);
+tuple_init!(P1, P2, P3);
+tuple_init!(P1, P2, P3, P4);
+tuple_init!(P1, P2, P3, P4, P5);
+tuple_init!(P1, P2, P3, P4, P5, P6);
+
+pub trait ExpandElementBaseInit: CubeType {
+    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement;
+}
+
+impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
+    fn init(self, context: &mut CubeContext) -> Self {
+        <T as ExpandElementBaseInit>::init_elem(context, self.into()).into()
+    }
+}
+
+impl<T: CubeType> Vectorized for ExpandElementTyped<T> {
+    fn vectorization_factor(&self) -> UInt {
+        self.expand.vectorization_factor()
+    }
+
+    fn vectorize(self, factor: UInt) -> Self {
+        Self {
+            expand: self.expand.vectorize(factor),
+            _type: PhantomData,
+        }
+    }
+}
+
+impl<T: CubeType> Clone for ExpandElementTyped<T> {
+    fn clone(&self) -> Self {
+        Self {
+            expand: self.expand.clone(),
+            _type: PhantomData,
+        }
+    }
+}
+
+impl<T: CubeType> From<ExpandElement> for ExpandElementTyped<T> {
+    fn from(expand: ExpandElement) -> Self {
+        Self {
+            expand,
+            _type: PhantomData,
+        }
+    }
+}
+
+impl<T: CubeType> From<ExpandElementTyped<T>> for ExpandElement {
+    fn from(value: ExpandElementTyped<T>) -> Self {
+        value.expand
+    }
+}
+
+impl<T: CubePrimitive> ExpandElementTyped<T> {
+    /// Create an [ExpandElementTyped] from a value that is normaly a literal.
+    pub fn from_lit<L: Into<Variable>>(lit: L) -> Self {
+        let variable: Variable = lit.into();
+        let variable = T::as_elem().from_constant(variable);
+
+        ExpandElementTyped::new(ExpandElement::Plain(variable))
+    }
+
+    /// Get the [ConstantScalarValue] from the variable.
+    pub fn constant(&self) -> Option<ConstantScalarValue> {
+        match *self.expand {
+            Variable::ConstantScalar(val) => Some(val),
+            _ => None,
         }
     }
 }
@@ -107,39 +264,19 @@ impl ExpandElement {
                     false
                 }
             }
-            ExpandElement::Plain(Variable::LocalArray { .. } | Variable::SharedMemory { .. }) => {
-                true
-            }
-            _ => false,
+            ExpandElement::Plain(_) => false,
         }
     }
+}
 
-    pub fn as_weak(&self) -> ExpandElementWeak {
-        match self {
-            ExpandElement::Managed(var) => ExpandElementWeak::Managed(var.clone()),
-            ExpandElement::Plain(var) => ExpandElementWeak::Plain(*var),
-            ExpandElement::Struct(var) => ExpandElementWeak::Struct(var.clone()),
-        }
-    }
+impl core::ops::Deref for ExpandElement {
+    type Target = Variable;
 
-    pub fn into_variable(self) -> Variable {
+    fn deref(&self) -> &Self::Target {
         match self {
-            ExpandElement::Managed(var) => *var,
+            ExpandElement::Managed(var) => var.as_ref(),
             ExpandElement::Plain(var) => var,
-            ExpandElement::Struct(_) => panic!("Can't turn struct into variable"),
         }
-    }
-
-    pub fn as_variable(&self) -> Variable {
-        match self {
-            ExpandElement::Managed(var) => *var.as_ref(),
-            ExpandElement::Plain(var) => *var,
-            ExpandElement::Struct(_) => panic!("Can't turn struct into variable"),
-        }
-    }
-
-    pub fn item(&self) -> crate::ir::Item {
-        self.as_variable().item()
     }
 }
 
@@ -148,7 +285,136 @@ impl From<ExpandElement> for Variable {
         match value {
             ExpandElement::Managed(var) => *var,
             ExpandElement::Plain(var) => var,
-            ExpandElement::Struct(_) => panic!("Can't turn struct into variable"),
         }
+    }
+}
+
+pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
+    context: &mut CubeContext,
+    element: E,
+) -> ExpandElement {
+    let elem = element.into();
+
+    if elem.can_mut() {
+        // Can reuse inplace :)
+        return elem;
+    }
+
+    let mut init = |elem: ExpandElement| init_expand(context, elem, Operator::Assign);
+
+    match *elem {
+        Variable::GlobalScalar { .. } => init(elem),
+        Variable::LocalScalar { .. } => init(elem),
+        Variable::ConstantScalar { .. } => init(elem),
+        Variable::Local { .. } => init(elem),
+        // Constant should be initialized since the new variable can be mutated afterward.
+        // And it is assumed those values are cloned.
+        Variable::Rank
+        | Variable::UnitPos
+        | Variable::UnitPosX
+        | Variable::UnitPosY
+        | Variable::UnitPosZ
+        | Variable::CubePos
+        | Variable::CubePosX
+        | Variable::CubePosY
+        | Variable::CubePosZ
+        | Variable::CubeDim
+        | Variable::CubeDimX
+        | Variable::CubeDimY
+        | Variable::CubeDimZ
+        | Variable::CubeCount
+        | Variable::CubeCountX
+        | Variable::CubeCountY
+        | Variable::CubeCountZ
+        | Variable::SubcubeDim
+        | Variable::AbsolutePos
+        | Variable::AbsolutePosX
+        | Variable::AbsolutePosY
+        | Variable::AbsolutePosZ => init(elem),
+        // Array types can't be copied, so we should simply return the same variable.
+        Variable::SharedMemory { .. }
+        | Variable::GlobalInputArray { .. }
+        | Variable::GlobalOutputArray { .. }
+        | Variable::LocalArray { .. }
+        | Variable::Slice { .. }
+        | Variable::Matrix { .. } => elem,
+    }
+}
+
+impl Init for ExpandElement {
+    fn init(self, context: &mut CubeContext) -> Self {
+        init_expand_element(context, self)
+    }
+}
+
+macro_rules! impl_init_for {
+    ($($t:ty),*) => {
+        $(
+            impl Init for $t {
+                fn init(self, _context: &mut CubeContext) -> Self {
+                    panic!("Shouln't be called, only for comptime.")
+                }
+            }
+
+        )*
+    };
+}
+
+// Add all types used within comptime
+impl_init_for!(u32, bool, UInt);
+
+impl<T: Init> Init for Option<T> {
+    fn init(self, context: &mut CubeContext) -> Self {
+        self.map(|o| Init::init(o, context))
+    }
+}
+
+impl<T: CubeType> CubeType for Vec<T> {
+    type ExpandType = Vec<T::ExpandType>;
+}
+
+impl<T: CubeType> CubeType for &mut Vec<T> {
+    type ExpandType = Vec<T::ExpandType>;
+}
+
+impl<T: Init> Init for Vec<T> {
+    fn init(self, context: &mut CubeContext) -> Self {
+        self.into_iter().map(|e| e.init(context)).collect()
+    }
+}
+
+/// Create a constant element of the correct type during expansion.
+pub(crate) fn __expand_new<C: Numeric>(
+    _context: &mut CubeContext,
+    val: ExpandElementTyped<C>,
+    elem: Elem,
+) -> ExpandElementTyped<C> {
+    ExpandElement::Plain(elem.from_constant(*val.expand)).into()
+}
+
+/// Create a vectorized constant element of the correct type during expansion.
+pub(crate) fn __expand_vectorized<C: Numeric>(
+    context: &mut CubeContext,
+    val: ExpandElementTyped<C>,
+    vectorization: UInt,
+    elem: Elem,
+) -> ExpandElementTyped<C> {
+    if vectorization.val == 1 {
+        __expand_new(context, val, elem)
+    } else {
+        let new_var = context.create_local(Item::vectorized(elem, vectorization.val as u8));
+
+        for (i, element) in vec![val; vectorization.val as usize].iter().enumerate() {
+            let element = elem.from_constant(*element.expand);
+
+            index_assign::expand::<C>(
+                context,
+                new_var.clone().into(),
+                ExpandElementTyped::from_lit(i),
+                ExpandElement::Plain(element).into(),
+            );
+        }
+
+        new_var.into()
     }
 }
