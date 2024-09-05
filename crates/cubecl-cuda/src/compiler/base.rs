@@ -6,17 +6,14 @@ use cubecl_core::{
 };
 use cubecl_runtime::ExecutionMode;
 
-use super::{Instruction, WarpInstruction};
+use super::{Instruction, VariableSettings, WarpInstruction};
 
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug, Default)]
 pub struct CudaCompiler {
     shared_memories: Vec<super::SharedMemory>,
     local_arrays: Vec<super::LocalArray>,
-    idx_global: bool,
     rank: bool,
-    thread_idx_global: bool,
-    absolute_idx: (bool, bool, bool),
     wrap_size_checked: bool,
     wmma: bool,
     bf16: bool,
@@ -27,6 +24,7 @@ pub struct CudaCompiler {
     num_outputs: usize,
     items: HashSet<super::Item>,
     strategy: ExecutionMode,
+    settings: VariableSettings,
 }
 
 impl Compiler for CudaCompiler {
@@ -82,10 +80,8 @@ impl CudaCompiler {
             shared_memories: self.shared_memories,
             local_arrays: self.local_arrays,
             rank: self.rank,
-            idx_global: self.idx_global,
-            thread_idx_global: self.thread_idx_global,
-            global_invocation_id: self.absolute_idx,
             wrap_size_checked: self.wrap_size_checked,
+            settings: self.settings,
         };
 
         super::ComputeKernel {
@@ -158,15 +154,36 @@ impl CudaCompiler {
                             out: self.compile_variable(op.out),
                         }))
                     }
-
                     gpu::Subcube::Min(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::ReduceMin {
                             input: self.compile_variable(op.input),
                             out: self.compile_variable(op.out),
                         }))
                     }
-
-                    _ => todo!(),
+                    gpu::Subcube::Elect(op) => {
+                        instructions.push(Instruction::Wrap(WarpInstruction::Elect {
+                            out: self.compile_variable(op.out),
+                        }))
+                    }
+                    gpu::Subcube::All(op) => {
+                        instructions.push(Instruction::Wrap(WarpInstruction::All {
+                            input: self.compile_variable(op.input),
+                            out: self.compile_variable(op.out),
+                        }))
+                    }
+                    gpu::Subcube::Any(op) => {
+                        instructions.push(Instruction::Wrap(WarpInstruction::Any {
+                            input: self.compile_variable(op.input),
+                            out: self.compile_variable(op.out),
+                        }))
+                    }
+                    gpu::Subcube::Broadcast(op) => {
+                        instructions.push(Instruction::Wrap(WarpInstruction::Broadcast {
+                            input: self.compile_variable(op.lhs),
+                            id: self.compile_variable(op.rhs),
+                            out: self.compile_variable(op.out),
+                        }))
+                    }
                 }
             }
             gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma)),
@@ -578,7 +595,7 @@ impl CudaCompiler {
                 super::Variable::SharedMemory(id, item, length)
             }
             gpu::Variable::AbsolutePos => {
-                self.idx_global = true;
+                self.settings.idx_global = true;
                 super::Variable::IdxGlobal
             }
             gpu::Variable::Rank => {
@@ -586,7 +603,7 @@ impl CudaCompiler {
                 super::Variable::Rank
             }
             gpu::Variable::UnitPos => {
-                self.thread_idx_global = true;
+                self.settings.thread_idx_global = true;
                 super::Variable::ThreadIdxGlobal
             }
             gpu::Variable::UnitPosX => super::Variable::ThreadIdxX,
@@ -596,15 +613,15 @@ impl CudaCompiler {
             gpu::Variable::CubePosY => super::Variable::BlockIdxY,
             gpu::Variable::CubePosZ => super::Variable::BlockIdxZ,
             gpu::Variable::AbsolutePosX => {
-                self.absolute_idx.0 = true;
+                self.settings.absolute_idx.0 = true;
                 super::Variable::AbsoluteIdxX
             }
             gpu::Variable::AbsolutePosY => {
-                self.absolute_idx.1 = true;
+                self.settings.absolute_idx.1 = true;
                 super::Variable::AbsoluteIdxY
             }
             gpu::Variable::AbsolutePosZ => {
-                self.absolute_idx.2 = true;
+                self.settings.absolute_idx.2 = true;
                 super::Variable::AbsoluteIdxZ
             }
             gpu::Variable::CubeDimX => super::Variable::BlockDimX,
@@ -630,10 +647,19 @@ impl CudaCompiler {
                 }
                 super::Variable::LocalArray(id, item, depth, length)
             }
-            gpu::Variable::CubePos => todo!(),
-            gpu::Variable::CubeDim => todo!(),
-            gpu::Variable::CubeCount => todo!(),
-            gpu::Variable::SubcubeDim => todo!(),
+            gpu::Variable::CubePos => {
+                self.settings.block_idx_global = true;
+                super::Variable::BlockIdxGlobal
+            }
+            gpu::Variable::CubeDim => {
+                self.settings.block_dim_global = true;
+                super::Variable::BlockDimGlobal
+            }
+            gpu::Variable::CubeCount => {
+                self.settings.grid_dim_global = true;
+                super::Variable::GridDimGlobal
+            }
+            gpu::Variable::SubcubeDim => super::Variable::WarpSize,
             gpu::Variable::Matrix { id, mat, depth } => {
                 self.wmma = true;
                 super::Variable::WmmaFragment {

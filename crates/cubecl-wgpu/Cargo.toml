@@ -17,13 +17,14 @@ default = [
   "cubecl-core/default",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+simple-memory-management = []
 
 [dependencies]
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.1.1", default-features = false, features = [
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false, features = [
   "channel-mutex",
 ] }
-cubecl-common = { path = "../cubecl-common", version = "0.1.1" }
-cubecl-core = { path = "../cubecl-core", version = "0.1.1" }
+cubecl-common = { path = "../cubecl-common", version = "0.2.0" }
+cubecl-core = { path = "../cubecl-core", version = "0.2.0" }
 
 bytemuck = { workspace = true }
 wgpu = { version = "22.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
@@ -35,9 +36,12 @@ derive-new = { workspace = true }
 hashbrown = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.1.1", features = [
+cubecl-core = { path = "../cubecl-core", version = "0.2.0", features = [
   "export_tests",
 ] }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.1.1", features = [
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", features = [
   "export_tests",
 ] }
+
+[build-dependencies]
+cfg_aliases = "0.2.1"

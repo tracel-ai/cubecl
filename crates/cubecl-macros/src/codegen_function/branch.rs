@@ -15,11 +15,11 @@ use super::{
 
 /// Codegen of for loops
 /// Supports range:
-/// ```norun
+/// ```ignore
 /// for i in range(start, end, unroll) {...}
 /// ```
 /// and range_stepped:
-/// ```norun
+/// ```ignore
 /// for i in range_stepped(start, end, step, unroll) {...}
 /// ```
 pub(crate) fn codegen_for_loop(

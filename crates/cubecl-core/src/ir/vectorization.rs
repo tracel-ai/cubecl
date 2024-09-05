@@ -168,9 +168,6 @@ impl Subcube {
             Subcube::Broadcast(op) => Subcube::Broadcast(op.vectorize(vectorization)),
             Subcube::Sum(op) => Subcube::Sum(op.vectorize(vectorization)),
             Subcube::Prod(op) => Subcube::Prod(op.vectorize(vectorization)),
-            Subcube::And(op) => Subcube::And(op.vectorize(vectorization)),
-            Subcube::Or(op) => Subcube::Or(op.vectorize(vectorization)),
-            Subcube::Xor(op) => Subcube::Xor(op.vectorize(vectorization)),
             Subcube::Min(op) => Subcube::Min(op.vectorize(vectorization)),
             Subcube::Max(op) => Subcube::Max(op.vectorize(vectorization)),
         }

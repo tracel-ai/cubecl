@@ -43,11 +43,6 @@ impl Display for Item {
             return f.write_fmt(format_args!("{}", self.elem));
         }
 
-        if self.is_vec_native() {
-            let elem = self.optimized().elem;
-            return f.write_fmt(format_args!("{elem}"));
-        }
-
         return f.write_fmt(format_args!("{}_{}", self.elem, self.vectorization));
     }
 }
@@ -121,6 +116,9 @@ impl Component for Variable {
                 frag,
                 depth: _,
             } => Item::scalar(frag.elem),
+            Variable::BlockIdxGlobal => Item::scalar(Elem::U32),
+            Variable::BlockDimGlobal => Item::scalar(Elem::U32),
+            Variable::GridDimGlobal => Item::scalar(Elem::U32),
         }
     }
 }
@@ -143,15 +141,18 @@ pub enum Variable {
     ThreadIdxY,
     ThreadIdxZ,
     Rank,
+    BlockIdxGlobal,
     BlockIdxX,
     BlockIdxY,
     BlockIdxZ,
     AbsoluteIdxX,
     AbsoluteIdxY,
     AbsoluteIdxZ,
+    BlockDimGlobal,
     BlockDimX,
     BlockDimY,
     BlockDimZ,
+    GridDimGlobal,
     GridDimX,
     GridDimY,
     GridDimZ,
@@ -209,9 +210,11 @@ impl Display for Variable {
             Variable::ThreadIdxY => f.write_str("threadIdx.y"),
             Variable::ThreadIdxZ => f.write_str("threadIdx.z"),
             Variable::Rank => f.write_str("rank"),
+            Variable::BlockIdxGlobal => f.write_str("blockIdxGlobal"),
             Variable::BlockIdxX => f.write_str("blockIdx.x"),
             Variable::BlockIdxY => f.write_str("blockIdx.y"),
             Variable::BlockIdxZ => f.write_str("blockIdx.z"),
+            Variable::BlockDimGlobal => f.write_str("blockDimGlobal"),
             Variable::BlockDimX => f.write_str("blockDim.x"),
             Variable::BlockDimY => f.write_str("blockDim.y"),
             Variable::BlockDimZ => f.write_str("blockDim.z"),
@@ -231,6 +234,7 @@ impl Display for Variable {
                 frag: _,
                 depth,
             } => f.write_fmt(format_args!("frag_{index}_{depth}")),
+            Variable::GridDimGlobal => f.write_str("gridDimGlobal"),
         }
     }
 }
@@ -358,6 +362,9 @@ impl Variable {
                 frag: _,
                 depth: _,
             } => false,
+            Variable::BlockIdxGlobal => true,
+            Variable::BlockDimGlobal => true,
+            Variable::GridDimGlobal => true,
         }
     }
 
@@ -385,14 +392,19 @@ impl Display for IndexedVariable {
             if self.optimized {
                 let item = self.var.item();
                 f.write_fmt(format_args!(
-                    "(reinterpret_cast<{item}*>(&{var}))->i_{}",
+                    "(reinterpret_cast<{item}&>({var})).i_{}",
                     self.index
                 ))
             } else {
                 f.write_fmt(format_args!("{var}.i_{}", self.index))
             }
         } else {
-            f.write_fmt(format_args!("{var}"))
+            if self.optimized {
+                let item = self.var.item();
+                f.write_fmt(format_args!("reinterpret_cast<{item}&>({var})"))
+            } else {
+                f.write_fmt(format_args!("{var}"))
+            }
         }
     }
 }
@@ -424,16 +436,6 @@ impl Item {
 
     pub fn is_optimized(&self) -> bool {
         matches!(self.elem, Elem::F162 | Elem::BF162)
-    }
-
-    pub fn is_vec_native(&self) -> bool {
-        match &self.elem {
-            Elem::F16 => self.vectorization == 2,
-            Elem::BF16 => self.vectorization == 2,
-            Elem::F162 => self.vectorization == 1,
-            Elem::BF162 => self.vectorization == 1,
-            _ => false,
-        }
     }
 
     pub fn optimized(&self) -> Item {

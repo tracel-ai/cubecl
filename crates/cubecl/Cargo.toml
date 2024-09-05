@@ -22,16 +22,17 @@ default = ["std", "linalg", "cubecl-core/default", "cubecl-wgpu?/default", "cube
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 linalg = ["dep:cubecl-linalg"]
+simple-memory-management = ["cubecl-wgpu?/simple-memory-management"]
 
 # Runtimes
 wgpu = ["cubecl-wgpu"]
 cuda = ["cubecl-cuda"]
 
 [dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.1.1", default-features = false }
-cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.1.1", default-features = false, optional = true }
-cubecl-cuda = { path = "../cubecl-cuda", version = "0.1.1", default-features = false, optional = true }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.1.1", default-features = false, optional = true }
+cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0", default-features = false, optional = true }
+cubecl-cuda = { path = "../cubecl-cuda", version = "0.2.0", default-features = false, optional = true }
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", default-features = false, optional = true }
 
 [[bench]]
 name = "matmul"

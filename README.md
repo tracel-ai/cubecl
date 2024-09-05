@@ -4,8 +4,14 @@
 <br />
 <br />
 
-[![Rust Version](https://img.shields.io/badge/Rust-1.75.0+-blue)](https://releases.rs/docs/1.75.0)
+[![Discord](https://img.shields.io/discord/1038839012602941528.svg?color=7289da&&logo=discord)](https://discord.gg/KSBSPhAUCc)
+[![Current Crates.io Version](https://img.shields.io/crates/v/cubecl.svg)](https://crates.io/crates/cubecl)
+[![Test Status](https://github.com/tracel-ai/cubecl/actions/workflows/ci.yml/badge.svg)](https://github.com/tracel-ai/cubecl/actions/workflows/test.yml)
+[![Rust Version](https://img.shields.io/badge/Rust-1.79.0+-blue)](https://releases.rs/docs/1.79.0)
 ![license](https://shields.io/badge/license-MIT%2FApache--2.0-blue)
+<br />
+[![NVIDIA](https://img.shields.io/badge/nvidia-cuda-84b629)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda)
+[![GPU](https://img.shields.io/badge/any_gpu-wgpu-ef604b)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-wgpu)
 
 ---
 
