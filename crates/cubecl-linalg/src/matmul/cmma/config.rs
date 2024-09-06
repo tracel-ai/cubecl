@@ -29,7 +29,7 @@ pub struct CmmaConfig {
 
 impl Default for CmmaConfig {
     fn default() -> Self {
-        Self::new(64, 16, true, WriteOutStrategy::LargeSmem)
+        Self::new(128, 16, true, WriteOutStrategy::ReuseSmem)
     }
 }
 

@@ -42,7 +42,7 @@ macro_rules! alternate_block_sizes {
                 compute_f16: true,
             }
             .test_cmma::<R>(
-                CmmaConfig::new($b_mn, $b_k, false, WriteOutStrategy::LargeSmem),
+                CmmaConfig::new($b_mn, $b_k, false, WriteOutStrategy::ReuseSmem),
                 device,
             );
         }
@@ -54,7 +54,9 @@ alternate_block_sizes!(test_matmul_cmma_32_16, 32, 16);
 alternate_block_sizes!(test_matmul_cmma_32_32, 32, 32);
 alternate_block_sizes!(test_matmul_cmma_64_16, 64, 16);
 alternate_block_sizes!(test_matmul_cmma_64_32, 64, 32);
+alternate_block_sizes!(test_matmul_cmma_64_64, 64, 64);
 alternate_block_sizes!(test_matmul_cmma_128_16, 128, 16);
+alternate_block_sizes!(test_matmul_cmma_128_32, 128, 32);
 
 pub fn test_matmul_cmma_several_cubes<R: Runtime>(device: &R::Device) {
     MatmulTestCase {
