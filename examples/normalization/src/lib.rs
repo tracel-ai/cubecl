@@ -4,7 +4,6 @@ use cubecl::prelude::*;
 fn norm_test<F: Float>(input: &Array<F>, output: &mut Array<F>) {
     if ABSOLUTE_POS < input.len() {
         output[ABSOLUTE_POS] = F::normalize(input[ABSOLUTE_POS]);
-        output[ABSOLUTE_POS] = F::normalize(input[ABSOLUTE_POS]);
     }
 }
 
