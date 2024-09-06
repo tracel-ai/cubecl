@@ -398,13 +398,11 @@ impl Display for IndexedVariable {
             } else {
                 f.write_fmt(format_args!("{var}.i_{}", self.index))
             }
+        } else if self.optimized {
+            let item = self.var.item();
+            f.write_fmt(format_args!("reinterpret_cast<{item}&>({var})"))
         } else {
-            if self.optimized {
-                let item = self.var.item();
-                f.write_fmt(format_args!("reinterpret_cast<{item}&>({var})"))
-            } else {
-                f.write_fmt(format_args!("{var}"))
-            }
+            f.write_fmt(format_args!("{var}"))
         }
     }
 }

@@ -13,7 +13,7 @@ NVIDIA Nsight Compute is a powerful tool for GPU profiling. Make sure it is inst
 For effective profiling, isolate the kernel you want to profile into a main function. This allows you to focus on the performance of a specific kernel without interference from other parts of your code.
 
 ## 4. Use the CUDA device/runtime
-Make sure your code uses the CUDA runtime API and device for lauching the kernel.
+Make sure your code uses the CUDA runtime API and device for launching the kernel.
 
 ```rust
 #[cfg(feature = "cube-cuda")]
@@ -29,19 +29,19 @@ mod cube_cuda {
         let client = CudaRuntime::client(&device);
 
         let num_of_batch = 12;
-        let heigth = 1024;
+        let height = 1024;
         let width = 1024;
 
-        let tensor_values: Vec<f32> = (0..num_of_batch * heigth * width)
+        let tensor_values: Vec<f32> = (0..num_of_batch * height * width)
             .map(|x| x as f32)
             .collect();
         let tensor_a_handle = client.create(f32::as_bytes(&tensor_values));
         let tensor_b_handle = client.create(f32::as_bytes(&tensor_values));
         let tensor_c_handle = client.empty(12 * 1024 * 1024 * core::mem::size_of::<f32>());
 
-        let tensor_a_shape = vec![num_of_batch, heigth, width];
-        let tensor_b_shape = vec![num_of_batch, heigth, width];
-        let tensor_c_shape = vec![num_of_batch, heigth, width];
+        let tensor_a_shape = vec![num_of_batch, height, width];
+        let tensor_b_shape = vec![num_of_batch, height, width];
+        let tensor_c_shape = vec![num_of_batch, height, width];
 
         let tensor_a: TensorHandle<CudaRuntime, F32> =
             TensorHandle::new_contiguous(tensor_a_shape, tensor_a_handle);

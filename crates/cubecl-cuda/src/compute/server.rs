@@ -6,8 +6,8 @@ use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
-use cubecl_core::FeatureSet;
 use cubecl_core::{prelude::*, KernelId};
+use cubecl_core::{FeatureSet, Properties};
 use cubecl_runtime::debug::DebugLogger;
 use cubecl_runtime::ExecutionMode;
 use cubecl_runtime::{
@@ -69,7 +69,11 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
 
     fn read_sync(&mut self, binding: server::Binding<Self>) -> Vec<u8> {
         let ctx = self.get_context();
-        let resource = ctx.memory_management.get_resource(binding.memory);
+        let resource = ctx.memory_management.get_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        );
 
         // TODO: Check if it is possible to make this faster
         let mut data = vec![0; resource.size() as usize];
@@ -87,6 +91,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
     type Storage = CudaStorage;
     type MemoryManagement = MM;
     type FeatureSet = FeatureSet;
+    type Properties = Properties;
 
     fn read(&mut self, binding: server::Binding<Self>) -> Reader {
         reader_from_concrete(self.read_sync(binding))
@@ -96,9 +101,12 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         let handle = self.empty(data.len());
         let ctx = self.get_context();
 
-        let resource = ctx
-            .memory_management
-            .get_resource(handle.clone().binding().memory);
+        let binding = handle.clone().binding();
+        let resource = ctx.memory_management.get_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        );
 
         unsafe {
             cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream).unwrap();
@@ -110,7 +118,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
     fn empty(&mut self, size: usize) -> server::Handle<Self> {
         let ctx = self.get_context();
         let handle = ctx.memory_management.reserve(size, &[]);
-        server::Handle::new(handle)
+        server::Handle::new(handle, None, None)
     }
 
     unsafe fn execute(
@@ -147,7 +155,13 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
 
         let resources = bindings
             .into_iter()
-            .map(|binding| ctx.memory_management.get_resource(binding.memory))
+            .map(|binding| {
+                ctx.memory_management.get_resource(
+                    binding.memory,
+                    binding.offset_start,
+                    binding.offset_end,
+                )
+            })
             .collect::<Vec<_>>();
 
         ctx.execute_task(kernel_id, count, resources);
@@ -170,7 +184,8 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         binding: server::Binding<Self>,
     ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
         let ctx = self.get_context();
-        ctx.memory_management.get_resource(binding.memory)
+        ctx.memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 }
 
