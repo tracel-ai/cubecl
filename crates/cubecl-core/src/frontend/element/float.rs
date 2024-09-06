@@ -1,12 +1,13 @@
 use half::{bf16, f16};
 
-use crate::frontend::{Ceil, Cos, Erf, Exp, Floor, Log, Log1p, Powf, Recip, Sin, Sqrt, Tanh};
+use crate::frontend::{
+    Ceil, Cos, Erf, Exp, Floor, Log, Log1p, Normalize, Powf, Recip, Sin, Sqrt, Tanh,
+};
 use crate::frontend::{
     ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
     ExpandElementTyped, Numeric,
 };
 use crate::ir::{ConstantScalarValue, Elem, FloatKind, Item, Variable, Vectorization};
-use crate::prelude::Normalize;
 
 use super::{
     init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized, __expand_new,
