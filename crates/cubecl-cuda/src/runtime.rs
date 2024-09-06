@@ -65,7 +65,7 @@ impl Runtime for CudaRuntime {
                 MutexComputeChannel::new(server),
                 features,
                 Properties {
-                    memory_offset_aligment: 4,
+                    memory_offset_alignment: 4,
                 },
             )
         })

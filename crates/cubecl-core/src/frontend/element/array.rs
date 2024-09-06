@@ -207,7 +207,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     ///
     /// # Safety
     ///
-    /// Specifying the wrong lenght may lead to out-of-bounds reads and writes.
+    /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
         handle: &'a cubecl_runtime::server::Handle<R::Server>,
         length: usize,
@@ -225,7 +225,7 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
     ///
     /// # Safety
     ///
-    /// Specifying the wrong lenght may lead to out-of-bounds reads and writes.
+    /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
         handle: &'a cubecl_runtime::server::Handle<R::Server>,
         length: usize,

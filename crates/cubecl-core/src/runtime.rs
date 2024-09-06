@@ -48,8 +48,8 @@ pub struct FeatureSet {
 /// The [runtime](Runtime) properties.
 #[derive(Default, Debug)]
 pub struct Properties {
-    /// The minimum offset size for a slice, in bytes.
-    pub memory_offset_aligment: u32,
+    /// The memory offset alignment in bytes.
+    pub memory_offset_alignment: u32,
 }
 
 impl FeatureSet {

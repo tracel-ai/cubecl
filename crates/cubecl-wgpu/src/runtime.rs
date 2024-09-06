@@ -151,7 +151,7 @@ fn create_client(
         features_cube.register(Feature::Subcube);
     }
     let properties = Properties {
-        memory_offset_aligment: limits.min_storage_buffer_offset_alignment,
+        memory_offset_alignment: limits.min_storage_buffer_offset_alignment,
     };
 
     ComputeClient::new(channel, features_cube, properties)

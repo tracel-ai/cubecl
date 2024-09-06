@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use super::DummyServer;
 use cubecl_runtime::channel::MutexComputeChannel;
 use cubecl_runtime::client::ComputeClient;
