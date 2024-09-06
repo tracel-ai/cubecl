@@ -1,16 +1,13 @@
-use darling::FromDeriveInput;
 use error::error_into_token_stream;
 use generate::cube_type::generate_cube_type;
 use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
-    expand::{Expand, StaticExpand},
-    expand_impl::ExpandImplVisitor,
     helpers::RemoveHelpers,
     kernel::{from_tokens, Launch},
 };
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
-use syn::{parse_macro_input, visit_mut::VisitMut, DeriveInput, Item, ItemImpl};
+use quote::quote;
+use syn::{visit_mut::VisitMut, Item};
 
 mod error;
 mod expression;
@@ -82,47 +79,4 @@ pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
 
     generate_cube_type(&input, false).into()
-}
-
-#[proc_macro_derive(Expand, attributes(expand))]
-pub fn derive_expand(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let expand = match Expand::from_derive_input(&input) {
-        Ok(expand) => expand,
-        Err(e) => return e.write_errors().into(),
-    };
-    expand.to_token_stream().into()
-}
-
-// #[proc_macro_derive(CubeType, attributes(expand))]
-// pub fn derive_cube_type(input: TokenStream) -> TokenStream {
-//     let input = parse_macro_input!(input as DeriveInput);
-//     let expand = match Runtime::from_derive_input(&input) {
-//         Ok(expand) => expand,
-//         Err(e) => return e.write_errors().into(),
-//     };
-//     expand.to_token_stream().into()
-// }
-
-#[proc_macro_derive(StaticExpand, attributes(expand))]
-pub fn derive_static_expand(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let expand = match StaticExpand::from_derive_input(&input) {
-        Ok(expand) => expand,
-        Err(e) => return e.write_errors().into(),
-    };
-    expand.to_token_stream().into()
-}
-
-#[proc_macro_attribute]
-pub fn expand_impl(_args: TokenStream, input: TokenStream) -> TokenStream {
-    let mut impl_block = parse_macro_input!(input as ItemImpl);
-    let mut visitor = ExpandImplVisitor::default();
-    visitor.visit_item_impl_mut(&mut impl_block);
-    let expansion = visitor.0.unwrap();
-
-    TokenStream::from(quote! {
-        #impl_block
-        #expansion
-    })
 }
