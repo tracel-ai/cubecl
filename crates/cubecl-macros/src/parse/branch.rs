@@ -22,10 +22,10 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
         return expand_for_in_loop(var_name, right, for_loop.body, span, context);
     }
 
-    context.push_scope();
-    context.push_variable(var_name.clone(), ty.clone(), false);
-    let block = Block::from_block(for_loop.body, context)?;
-    context.pop_scope();
+    let block = context.with_scope(|context| {
+        context.push_variable(var_name.clone(), ty.clone(), false);
+        Block::from_block(for_loop.body, context)
+    })?;
 
     Ok(Expression::ForLoop {
         range: Box::new(right),
@@ -75,9 +75,7 @@ pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::R
     let condition = Expression::from_expr(*while_loop.cond, context)
         .map_err(|_| syn::Error::new(span, "Unsupported while condition"))?;
 
-    context.push_scope();
-    let block = Block::from_block(while_loop.body, context)?;
-    context.pop_scope();
+    let block = context.with_scope(|ctx| Block::from_block(while_loop.body, ctx))?;
     Ok(Expression::WhileLoop {
         condition: Box::new(condition),
         block,
@@ -87,9 +85,7 @@ pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::R
 
 pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Expression> {
     let span = loop_expr.span();
-    context.push_scope();
-    let block = Block::from_block(loop_expr.body, context)?;
-    context.pop_scope();
+    let block = context.with_scope(|ctx| Block::from_block(loop_expr.body, ctx))?;
     Ok(Expression::Loop { block, span })
 }
 
@@ -98,9 +94,7 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
     let condition = Expression::from_expr(*if_expr.cond, context)
         .map_err(|_| syn::Error::new(span, "Unsupported while condition"))?;
 
-    context.push_scope();
-    let then_block = Block::from_block(if_expr.then_branch, context)?;
-    context.pop_scope();
+    let then_block = context.with_scope(|ctx| Block::from_block(if_expr.then_branch, ctx))?;
     let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
         Some(Expression::from_expr(*else_branch, context)?)
     } else {

@@ -1,8 +1,7 @@
-use std::iter;
-
 use crate::{expression::Block, paths::prelude_type, scope::Context, statement::parse_pat};
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::{Span, TokenStream};
+use std::iter;
 use syn::{
     parse_quote, punctuated::Punctuated, spanned::Spanned, FnArg, Generics, Ident, ItemFn, Path,
     Signature, TraitItemFn, Type, Visibility,
@@ -51,8 +50,8 @@ pub struct Launch {
 #[derive(Clone)]
 pub struct KernelFn {
     pub sig: KernelSignature,
-    pub kernel_vars: Vec<TokenStream>,
     pub block: Block,
+    pub context: Context,
 }
 
 #[derive(Clone)]
@@ -156,16 +155,13 @@ impl KernelFn {
         let sig = KernelSignature::from_signature(sig)?;
 
         let mut context = Context::new(sig.returns.clone(), launch);
-        let kernel_vars = context.current_scope().generate_kernel_vars();
         context.extend(sig.parameters.clone());
-        context.push_scope(); // Push function local scope
-        let block = Block::from_block(block, &mut context)?;
-        context.pop_scope(); // Pop function local scope
+        let block = context.with_scope(|ctx| Block::from_block(block, ctx))?;
 
         Ok(KernelFn {
             sig,
             block,
-            kernel_vars,
+            context,
         })
     }
 }

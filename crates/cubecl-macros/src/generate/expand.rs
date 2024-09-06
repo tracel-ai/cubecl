@@ -1,6 +1,6 @@
 use crate::{
-    ir_type,
     parse::expand::{Expand, ExpandField, Runtime, RuntimeField, StaticExpand},
+    paths::frontend_type,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
@@ -8,12 +8,12 @@ use syn::parse_quote;
 
 impl ToTokens for Expand {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let expand_ty = ir_type("Expand");
-        let expanded_trait = ir_type("Expanded");
-        let expr = ir_type("Expr");
-        let expression = ir_type("Expression");
-        let square_ty = ir_type("SquareType");
-        let elem_ty = ir_type("Elem");
+        let expand_ty = frontend_type("Expand");
+        let expanded_trait = frontend_type("Expanded");
+        let expr = frontend_type("Expr");
+        let expression = frontend_type("Expression");
+        let square_ty = frontend_type("SquareType");
+        let elem_ty = frontend_type("Elem");
         let elem = self
             .ir_type
             .as_ref()
@@ -108,12 +108,12 @@ impl ToTokens for Expand {
 
 impl ToTokens for Runtime {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let expr = ir_type("Expr");
-        let once_expr = ir_type("OnceExpr");
-        let expression = ir_type("Expression");
-        let runtime = ir_type("CubeType");
-        let square_ty = ir_type("SquareType");
-        let elem_ty = ir_type("Elem");
+        let expr = frontend_type("Expr");
+        let once_expr = frontend_type("OnceExpr");
+        let expression = frontend_type("Expression");
+        let runtime = frontend_type("CubeType");
+        let square_ty = frontend_type("SquareType");
+        let elem_ty = frontend_type("Elem");
 
         let vis = &self.vis;
         let base_name = &self.ident;
@@ -202,7 +202,7 @@ impl ToTokens for Runtime {
 
 impl ToTokens for RuntimeField {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let expr = ir_type("OnceExpr");
+        let expr = frontend_type("OnceExpr");
 
         let name = self.ident.as_ref().unwrap();
         let ty = &self.ty;
@@ -222,7 +222,7 @@ impl ToTokens for ExpandField {
         let func = format_ident!("__{name}");
         let ty = &self.ty;
         let vis = &self.vis;
-        let access = ir_type("FieldAccess");
+        let access = frontend_type("FieldAccess");
         let out = if self.comptime.is_present() {
             //let ident = self.ident.as_ref().unwrap();
             quote! {
@@ -243,8 +243,8 @@ impl ToTokens for ExpandField {
 
 impl ToTokens for StaticExpand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let static_expand = ir_type("StaticExpand");
-        let static_expanded = ir_type("StaticExpanded");
+        let static_expand = frontend_type("StaticExpand");
+        let static_expanded = frontend_type("StaticExpanded");
 
         let vis = &self.vis;
         let unexpanded_name = &self.ident;

@@ -1,25 +1,24 @@
 use std::ops::Deref;
 
-use crate::frontend::{CubeContext, ExpandElement, UInt};
+use crate::frontend::{CubeContext, ExpandElement};
 use crate::ir::{Branch, Elem, If, IfElse, Item, Loop, RangeLoop, Variable};
 
-use super::comptime::Comptime;
 use super::ExpandElementTyped;
 
-/// UInt range. Equivalent to:
+/// u32 range. Equivalent to:
 ///
 /// ```ignore
 /// for i in start..end { ... }
 /// ```
-pub fn range<S, E>(start: S, end: E, _unroll: Comptime<bool>) -> impl Iterator<Item = UInt>
+pub fn range<S, E>(start: S, end: E, _unroll: bool) -> impl Iterator<Item = u32>
 where
-    S: Into<UInt>,
-    E: Into<UInt>,
+    S: Into<u32>,
+    E: Into<u32>,
 {
-    let start: UInt = start.into();
-    let end: UInt = end.into();
+    let start: u32 = start.into();
+    let end: u32 = end.into();
 
-    (start.val..end.val).map(UInt::new)
+    start..end
 }
 
 /// Stepped range. Equivalent to:
@@ -31,30 +30,28 @@ pub fn range_stepped<S, E, Step>(
     start: S,
     end: E,
     step: Step,
-    _unroll: Comptime<bool>,
-) -> impl Iterator<Item = UInt>
+    _unroll: bool,
+) -> impl Iterator<Item = u32>
 where
-    S: Into<UInt>,
-    E: Into<UInt>,
-    Step: Into<UInt>,
+    S: Into<u32>,
+    E: Into<u32>,
+    Step: Into<u32>,
 {
-    let start: UInt = start.into();
-    let end: UInt = end.into();
-    let step: UInt = step.into();
+    let start: u32 = start.into();
+    let end: u32 = end.into();
+    let step: u32 = step.into();
 
-    (start.val..end.val)
-        .step_by(step.val as usize)
-        .map(UInt::new)
+    (start..end).step_by(step as usize)
 }
 
 pub fn range_expand<F, S, E>(context: &mut CubeContext, start: S, end: E, unroll: bool, mut func: F)
 where
-    F: FnMut(&mut CubeContext, ExpandElementTyped<UInt>),
-    S: Into<ExpandElementTyped<UInt>>,
-    E: Into<ExpandElementTyped<UInt>>,
+    F: FnMut(&mut CubeContext, ExpandElementTyped<u32>),
+    S: Into<ExpandElementTyped<u32>>,
+    E: Into<ExpandElementTyped<u32>>,
 {
-    let start: ExpandElementTyped<UInt> = start.into();
-    let end: ExpandElementTyped<UInt> = end.into();
+    let start: ExpandElementTyped<u32> = start.into();
+    let end: ExpandElementTyped<u32> = end.into();
     let start = start.expand;
     let end = end.expand;
 
@@ -98,14 +95,14 @@ pub fn range_stepped_expand<F, S, E, Step>(
     unroll: bool,
     mut func: F,
 ) where
-    F: FnMut(&mut CubeContext, ExpandElementTyped<UInt>),
-    S: Into<ExpandElementTyped<UInt>>,
-    E: Into<ExpandElementTyped<UInt>>,
-    Step: Into<ExpandElementTyped<UInt>>,
+    F: FnMut(&mut CubeContext, ExpandElementTyped<u32>),
+    S: Into<ExpandElementTyped<u32>>,
+    E: Into<ExpandElementTyped<u32>>,
+    Step: Into<ExpandElementTyped<u32>>,
 {
-    let start: ExpandElementTyped<UInt> = start.into();
-    let end: ExpandElementTyped<UInt> = end.into();
-    let step: ExpandElementTyped<UInt> = step.into();
+    let start: ExpandElementTyped<u32> = start.into();
+    let end: ExpandElementTyped<u32> = end.into();
+    let step: ExpandElementTyped<u32> = step.into();
     let start = start.expand;
     let end = end.expand;
     let step = step.expand;

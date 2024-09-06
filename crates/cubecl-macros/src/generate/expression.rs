@@ -5,8 +5,8 @@ use syn::{spanned::Spanned, Ident, PathArguments, Type};
 
 use crate::{
     expression::{Block, Expression},
-    ir_type,
-    paths::frontend_path,
+    generate::kernel::CONTEXT,
+    paths::{frontend_path, frontend_type, prelude_type},
 };
 
 macro_rules! error {
@@ -79,9 +79,12 @@ impl ToTokens for Expression {
             Expression::Keyword { name } => {
                 quote![#name::expand(context)]
             }
-            Expression::Variable { name, span, .. } => {
-                quote_spanned! {*span=>
-                    #name.clone()
+            Expression::Variable { name, .. } => {
+                let last_use = CONTEXT.with_borrow(|ctx| ctx.try_consume(name));
+                if last_use {
+                    quote![#name]
+                } else {
+                    quote![#name.clone()]
                 }
             }
             Expression::FieldAccess {
@@ -95,7 +98,10 @@ impl ToTokens for Expression {
                     #base.#field.clone()
                 }
             }
-            Expression::Literal { value, .. } => quote![#value],
+            Expression::Literal { value, .. } => {
+                let expand_elem = frontend_type("ExpandElementTyped");
+                quote![#expand_elem::from_lit(#value)]
+            }
             Expression::Assigment {
                 left, right, span, ..
             } if matches!(**left, Expression::Index { .. }) => {
@@ -134,7 +140,7 @@ impl ToTokens for Expression {
                 let args: Vec<TokenStream> = if self.is_const() {
                     args.iter().map(|arg| arg.to_token_stream()).collect()
                 } else {
-                    let once_expr = ir_type("OnceExpr");
+                    let once_expr = frontend_type("OnceExpr");
                     args.iter()
                         .map(|arg| {
                             if arg.is_const() {
@@ -149,7 +155,7 @@ impl ToTokens for Expression {
                 // We pass in the `Variable`s and `Literal`s into the expansion so they can be rebound
                 // in the function root scope
                 if let Some((ty_path, name)) = associated_type {
-                    let static_expand = ir_type("StaticExpand");
+                    let static_expand = frontend_type("StaticExpand");
                     quote_spanned! {*span=>
                         <#ty_path as #static_expand>::Expanded::#name(#(#args),*)
                     }
@@ -163,34 +169,35 @@ impl ToTokens for Expression {
             Expression::MethodCall {
                 receiver,
                 method,
+                generics,
                 args,
                 span,
             } => {
-                let expand = if receiver.is_const() {
-                    format_ident!("partial_expand")
-                } else {
-                    format_ident!("expand")
-                };
+                let method = format_ident!("__expand_{method}_method");
                 quote_spanned! {*span=>
-                    #receiver.#expand().#method(#(#args),*)
+                    #receiver.#method #generics(#(#args),*)
                 }
             }
             Expression::Break { span } => {
-                let brk = ir_type("Break");
+                let path = frontend_path();
                 quote_spanned! {*span=>
-                    #brk
+                    #path::branch::break_expand(context);
+                }
+            }
+            Expression::Continue { span } => error!(*span, "Continue not supported yet"),
+            Expression::Return { expr, span, .. } => {
+                if expr.is_some() {
+                    error!(*span, "Only void return is supported.")
+                } else {
+                    quote::quote! {
+                        cubecl::frontend::branch::return_expand(context);
+                    }
                 }
             }
             Expression::Cast { from, to, span } => {
-                let cast = ir_type("Cast");
+                let cast = prelude_type("Cast");
                 quote_spanned! {*span=>
-                    #cast::<_, #to>::new(#from)
-                }
-            }
-            Expression::Continue { span } => {
-                let cont = ir_type("Continue");
-                quote_spanned! {*span=>
-                    #cont
+                    <#to as #cast>::cast_from(#from)
                 }
             }
             Expression::ForLoop {
@@ -202,7 +209,7 @@ impl ToTokens for Expression {
                 span,
             } => {
                 let variable = generate_var(var_name, true, var_ty, *span, None);
-                let for_ty = ir_type("ForLoop");
+                let for_ty = frontend_type("ForLoop");
 
                 if let Some(unroll) = unroll {
                     //let unrolled = generate_unroll(block, range, var_name);
@@ -230,7 +237,7 @@ impl ToTokens for Expression {
                 block,
                 span,
             } => {
-                let while_ty = ir_type("WhileLoop");
+                let while_ty = frontend_type("WhileLoop");
 
                 quote_spanned! {*span=>
                     {
@@ -239,7 +246,7 @@ impl ToTokens for Expression {
                 }
             }
             Expression::Loop { block, span } => {
-                let loop_ty = ir_type("Loop");
+                let loop_ty = frontend_type("Loop");
 
                 quote_spanned! {*span=>
                     {
@@ -252,30 +259,35 @@ impl ToTokens for Expression {
                 then_block,
                 else_branch,
                 span,
+            } if condition.is_const() => {
+                let as_const = condition.as_const().unwrap();
+                let else_branch = else_branch.as_ref().map(|it| quote![else #it]);
+                quote_spanned! {*span=>
+                    if #as_const #then_block #else_branch
+                }
+            }
+            Expression::If {
+                condition,
+                then_block,
+                else_branch: Some(else_branch),
+                span,
             } => {
-                let if_ty = ir_type("If");
-
-                if let Some(as_const) = condition.as_const() {
-                    let else_branch = else_branch.as_ref().map(|it| {
-                        quote! {
-                            else {
-                                #it
-                            }
-                        }
-                    });
-                    quote_spanned! {*span=>
-                        if #as_const {
-                            #then_block
-                        } #else_branch
-                    }
-                } else {
-                    let else_branch = else_branch
-                        .as_ref()
-                        .map(|it| quote![Some(#it)])
-                        .unwrap_or_else(|| quote![None::<()>]);
-                    quote_spanned! {*span=>
-                        #if_ty::new(#condition, #then_block, #else_branch)
-                    }
+                let path = frontend_path();
+                quote_spanned! {*span=>
+                    let _cond = #condition;
+                    #path::branch::if_else_expand(context, None, _cond.into(), |context| #then_block, |context| #else_branch);
+                }
+            }
+            Expression::If {
+                condition,
+                then_block,
+                span,
+                ..
+            } => {
+                let path = frontend_path();
+                quote_spanned! {*span=>
+                    let _cond = #condition;
+                    #path::branch::if_expand(context, None, _cond.into(), |context| #then_block);
                 }
             }
             Expression::ConstVariable { name, .. } => quote![#name],
@@ -287,12 +299,12 @@ impl ToTokens for Expression {
                 span,
             } => {
                 if let Some(end) = end {
-                    let range = ir_type("RangeExpr");
+                    let range = frontend_type("RangeExpr");
                     quote_spanned! {*span=>
                         #range::new(#start, #end, #inclusive)
                     }
                 } else {
-                    let range = ir_type("SliceRangeExpr");
+                    let range = frontend_type("SliceRangeExpr");
                     let end = end
                         .as_ref()
                         .map(|it| quote![Some(Box::new(#it))])
@@ -302,20 +314,7 @@ impl ToTokens for Expression {
                     }
                 }
             }
-            Expression::Return { expr, ty, span } => {
-                let ret_ty = ir_type("Return");
-                let ty = expr
-                    .as_ref()
-                    .map(|_| quote![::<#ty, _>])
-                    .unwrap_or_else(|| quote![::<(), ()>]);
-                let ret_expr = expr
-                    .as_ref()
-                    .map(|it| quote![Some(#it)])
-                    .unwrap_or_else(|| quote![None]);
-                quote_spanned! {*span=>
-                    #ret_ty #ty::new(#ret_expr)
-                }
-            }
+
             Expression::Array { span, .. } => {
                 if let Some(constant) = self.as_const() {
                     constant
@@ -338,13 +337,13 @@ impl ToTokens for Expression {
                 }
             }
             Expression::Slice { expr, ranges, span } => {
-                let range_ty = ir_type("SliceRangeExpr");
+                let range_ty = frontend_type("SliceRangeExpr");
                 quote_spanned! {*span=>
                     #expr.expand().slice(vec![#(Box::new(#range_ty::from(#ranges))),*])
                 }
             }
             Expression::ArrayInit { init, len, span } => {
-                let init_ty = ir_type("ArrayInit");
+                let init_ty = frontend_type("ArrayInit");
                 quote_spanned! {*span=>
                     #init_ty::new(#len, #init)
                 }
@@ -358,7 +357,7 @@ impl ToTokens for Expression {
                 }
             }
             Expression::StructInit { path, fields } => {
-                let cube_type = ir_type("CubeType");
+                let cube_type = frontend_type("CubeType");
 
                 quote! {
                     <#path as #cube_type>::Runtime::new(#(#fields),*)
@@ -373,6 +372,7 @@ impl ToTokens for Expression {
 
 impl ToTokens for Block {
     fn to_tokens(&self, tokens: &mut TokenStream) {
+        CONTEXT.with_borrow_mut(|ctx| ctx.restore_scope());
         let ret = self
             .ret
             .as_ref()
@@ -385,6 +385,7 @@ impl ToTokens for Block {
                 #ret
             }
         });
+        CONTEXT.with_borrow_mut(|ctx| ctx.delete_scope());
     }
 }
 
@@ -395,7 +396,7 @@ pub fn generate_var(
     span: Span,
     vectorization: Option<TokenStream>,
 ) -> TokenStream {
-    let var = ir_type("Variable");
+    let var = frontend_type("Variable");
     let name = name.to_token_stream().to_string();
     let ty = ty.as_ref().map(|ty| {
         quote_spanned! {ty.span()=>

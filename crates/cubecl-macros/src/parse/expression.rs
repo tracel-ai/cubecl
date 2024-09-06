@@ -48,7 +48,6 @@ impl Expression {
             Expr::Lit(literal) => {
                 let ty = lit_ty(&literal.lit)?;
                 Expression::Literal {
-                    span: literal.span(),
                     value: literal.lit,
                     ty,
                 }
@@ -63,6 +62,7 @@ impl Expression {
                     ty,
                     is_const,
                     is_keyword,
+                    ..
                 }) = variable
                 {
                     if is_const {
@@ -70,11 +70,7 @@ impl Expression {
                     } else if is_keyword {
                         Expression::Keyword { name }
                     } else {
-                        Expression::Variable {
-                            span: path.span(),
-                            name,
-                            ty,
-                        }
+                        Expression::Variable { name, ty }
                     }
                 } else {
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
@@ -94,9 +90,7 @@ impl Expression {
                 }
             }
             Expr::Block(block) => {
-                context.push_scope();
-                let block = Block::from_block(block.block, context)?;
-                context.pop_scope();
+                let block = context.with_scope(|ctx| Block::from_block(block.block, ctx))?;
                 Expression::Block(block)
             }
             Expr::Break(br) => Expression::Break { span: br.span() },
@@ -133,6 +127,7 @@ impl Expression {
                     Expression::MethodCall {
                         receiver: Box::new(receiver),
                         method: method.method,
+                        generics: method.turbofish,
                         args,
                         span,
                     }
@@ -178,7 +173,6 @@ impl Expression {
                         Expression::Literal {
                             value: lit,
                             ty: parse_quote![i32],
-                            span,
                         }
                     });
                 let end = range
@@ -211,7 +205,7 @@ impl Expression {
                     .map(|expr| Expression::from_expr(*expr, context))
                     .transpose()?
                     .map(Box::new),
-                ty: context.return_type.clone(),
+                _ty: context.return_type.clone(),
             },
             Expr::Array(array) => {
                 let span = array.span();
@@ -330,7 +324,7 @@ impl Expression {
                 }
             }
             Expr::Unsafe(unsafe_expr) => Expression::Block(
-                context.with_scope(|context| Block::from_block(unsafe_expr.block, context))?,
+                context.with_scope(|ctx| Block::from_block(unsafe_expr.block, ctx))?,
             ),
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
@@ -406,9 +400,9 @@ fn generate_strided_index(
             args: vec![Expression::Literal {
                 value: i,
                 ty: index_ty.clone(),
-                span,
             }],
             span,
+            generics: None,
         };
         Expression::Binary {
             left: Box::new(elem),

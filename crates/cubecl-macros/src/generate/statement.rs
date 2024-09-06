@@ -4,16 +4,11 @@ use syn::{spanned::Spanned, Pat, Token};
 
 use crate::{
     expression::Expression,
-    generate::expression::generate_var,
-    ir_type,
     statement::{parse_pat, Statement},
 };
 
 impl ToTokens for Statement {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let statement = ir_type("Statement");
-        let expr = ir_type("Expr");
-
         let out = match self {
             Statement::Local {
                 left,
@@ -26,57 +21,20 @@ impl ToTokens for Statement {
                     Expression::Variable { name, .. } => name,
                     _ => panic!("Local is always variable or init"),
                 };
+                let mutable = mutable.then(|| quote![mut]);
                 let as_const = init.as_ref().and_then(|init| init.as_const());
-                if as_const.is_some() && !mutable {
+                if as_const.is_some() && mutable.is_some() {
                     let init = as_const.unwrap();
                     quote_spanned! {*span=>
                         let #name = #init;
                     }
-                } else {
-                    // Separate init and declaration in case initializer uses an identically named
-                    // variable that would be overwritten by the declaration.
-                    let initializer = init.as_ref().map(|init| quote![let __init = #init;]);
-                    let left = if init.is_some() {
-                        let init_ty = ir_type("Initializer");
-                        quote_spanned! {*span=>
-                            #init_ty {
-                                left: #name.clone(),
-                                right: __init
-                            }
-                        }
-                    } else {
-                        quote![#name]
-                    };
-                    let expr = ir_type("Expr");
-                    let vectorization = initializer
-                        .is_some()
-                        .then(|| quote![#expr::vectorization(&__init)]);
-                    let variable: proc_macro2::TokenStream =
-                        generate_var(name, *mutable, ty, *span, vectorization);
-                    let variable_decl = quote_spanned! {*span=>
-                        let #name = #variable;
-                    };
-
-                    let ty = if let Some(ty) = ty {
-                        let span = ty.span();
-                        let sq_type = ir_type("SquareType");
-                        quote_spanned! {span=>
-                            Some(<#ty as #sq_type>::ir_type())
-                        }
-                    } else {
-                        quote![None]
-                    };
-
+                } else if let Some(init) = init {
                     quote_spanned! {*span=>
-                        #initializer
-                        #variable_decl
-                        __statements.push({
-                            #statement::Local {
-                                variable: #expr::expression_untyped(&(#left)),
-                                mutable: #mutable,
-                                ty: #ty
-                            }
-                        });
+                        let #mutable #name = #init;
+                    }
+                } else {
+                    quote_spanned! {*span=>
+                        let #mutable #name: #ty;
                     }
                 }
             }
@@ -121,7 +79,6 @@ fn generate_struct_destructure(
                 left: Box::new(Expression::Variable {
                     name: ident,
                     ty: None,
-                    span,
                 }),
                 init: Some(Box::new(init.clone())),
                 mutable,

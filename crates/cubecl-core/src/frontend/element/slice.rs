@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use super::{
     Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory, Tensor,
-    UInt,
 };
 use crate::{
     frontend::indexation::Index,
@@ -25,14 +24,14 @@ pub struct SliceMut<'a, E> {
 
 impl<'a, E> Slice<'a, E> {
     /// Get the length of the slice.
-    pub fn len(&self) -> UInt {
+    pub fn len(&self) -> u32 {
         unexpanded!()
     }
 }
 
 impl<'a, E> SliceMut<'a, E> {
     /// Get the length of the slice.
-    pub fn len(&self) -> UInt {
+    pub fn len(&self) -> u32 {
         unexpanded!()
     }
 }

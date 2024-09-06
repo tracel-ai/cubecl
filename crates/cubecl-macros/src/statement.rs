@@ -43,7 +43,6 @@ impl Statement {
                 let is_const = init.as_ref().map(|init| init.is_const()).unwrap_or(false);
                 let variable = Box::new(Expression::Variable {
                     name: ident.clone(),
-                    span,
                     ty: ty.clone(),
                 });
 

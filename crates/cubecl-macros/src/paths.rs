@@ -1,6 +1,6 @@
 use quote::format_ident;
 use std::cell::LazyCell;
-use syn::{Ident, Path};
+use syn::Path;
 
 #[allow(clippy::declare_interior_mutable_const)]
 const CORE_PATH: LazyCell<Path> = LazyCell::new(|| {
@@ -10,9 +10,9 @@ const CORE_PATH: LazyCell<Path> = LazyCell::new(|| {
     //path
 });
 #[allow(clippy::declare_interior_mutable_const)]
-const IR_PATH: LazyCell<Path> = LazyCell::new(|| {
+const FRONTEND_PATH: LazyCell<Path> = LazyCell::new(|| {
     let mut path = core_path();
-    path.segments.push(format_ident!("new_ir").into());
+    path.segments.push(format_ident!("frontend").into());
     path
 });
 #[allow(clippy::declare_interior_mutable_const)]
@@ -24,7 +24,7 @@ const PRELUDE_PATH: LazyCell<Path> = LazyCell::new(|| {
 
 pub fn frontend_path() -> Path {
     #[allow(clippy::borrow_interior_mutable_const)]
-    IR_PATH.clone()
+    FRONTEND_PATH.clone()
 }
 
 pub fn prelude_path() -> Path {
@@ -37,12 +37,6 @@ pub fn core_path() -> Path {
     CORE_PATH.clone()
 }
 
-pub fn prefix_ir(ident: Ident) -> Path {
-    let mut path = frontend_path();
-    path.segments.push(ident.into());
-    path
-}
-
 pub fn core_type(ty: &str) -> Path {
     let mut path = core_path();
     let ident = format_ident!("{ty}");
@@ -50,7 +44,7 @@ pub fn core_type(ty: &str) -> Path {
     path
 }
 
-pub fn ir_type(ty: &str) -> Path {
+pub fn frontend_type(ty: &str) -> Path {
     let mut path = frontend_path();
     let ident = format_ident!("{ty}");
     path.segments.push(ident.into());

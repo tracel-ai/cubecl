@@ -1,11 +1,11 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
     frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType},
     ir::Item,
 };
 
-use super::{ExpandElementTyped, Init, UInt};
+use super::{ExpandElementTyped, Init};
 
 #[derive(Clone, Copy)]
 pub struct SharedMemory<T: CubeType> {
@@ -27,14 +27,14 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         SharedMemory { _val: PhantomData }
     }
 
-    pub fn vectorized<S: Index>(_size: S, _vectorization_factor: UInt) -> Self {
+    pub fn vectorized<S: Index>(_size: S, _vectorization_factor: u32) -> Self {
         SharedMemory { _val: PhantomData }
     }
 
     pub fn __expand_vectorized<S: Index>(
         context: &mut CubeContext,
         size: S,
-        vectorization_factor: UInt,
+        vectorization_factor: u32,
     ) -> <Self as CubeType>::ExpandType {
         let size = size.value();
         let size = match size {
@@ -42,7 +42,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             _ => panic!("Shared memory need constant initialization value"),
         };
         let var = context.create_shared(
-            Item::vectorized(T::as_elem(), vectorization_factor.val as u8),
+            Item::vectorized(T::as_elem(), NonZero::new(vectorization_factor as u8)),
             size,
         );
         ExpandElementTyped::new(var)

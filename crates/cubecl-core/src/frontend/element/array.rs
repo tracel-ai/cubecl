@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
@@ -8,12 +8,12 @@ use crate::{
 };
 use crate::{
     frontend::{indexation::Index, CubeContext},
-    prelude::{assign, index, index_assign, Comptime},
+    prelude::{assign, index, index_assign},
 };
 
 use super::{
     ArgSettings, CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
-    LaunchArg, LaunchArgExpand, TensorHandleRef, UInt,
+    LaunchArg, LaunchArgExpand, TensorHandleRef,
 };
 
 /// A contiguous array of elements.
@@ -30,7 +30,7 @@ impl<T: CubePrimitive + Clone> Array<T> {
         Array { _val: PhantomData }
     }
 
-    pub fn vectorized<S: Index>(_size: S, _vectorization_factor: UInt) -> Self {
+    pub fn vectorized<S: Index>(_size: S, _vectorization_factor: u32) -> Self {
         Array { _val: PhantomData }
     }
 
@@ -51,7 +51,7 @@ impl<T: CubePrimitive + Clone> Array<T> {
     pub fn __expand_vectorized<S: Index>(
         context: &mut CubeContext,
         size: S,
-        vectorization_factor: UInt,
+        vectorization_factor: u32,
     ) -> <Self as CubeType>::ExpandType {
         let size = size.value();
         let size = match size {
@@ -60,13 +60,13 @@ impl<T: CubePrimitive + Clone> Array<T> {
         };
         context
             .create_local_array(
-                Item::vectorized(T::as_elem(), vectorization_factor.val as u8),
+                Item::vectorized(T::as_elem(), NonZero::new(vectorization_factor as u8)),
                 size,
             )
             .into()
     }
 
-    pub fn to_vectorized(self, _vectorization_factor: Comptime<UInt>) -> T {
+    pub fn to_vectorized(self, _vectorization_factor: u32) -> T {
         unexpanded!()
     }
 }
@@ -75,13 +75,16 @@ impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
     pub fn __expand_to_vectorized_method(
         self,
         context: &mut CubeContext,
-        vectorization_factor: UInt,
+        vectorization_factor: u32,
     ) -> ExpandElementTyped<C> {
-        let factor = vectorization_factor.val;
+        let factor = vectorization_factor;
         let var = self.expand.clone();
-        let new_var = context.create_local(Item::vectorized(var.item().elem(), factor as u8));
+        let new_var = context.create_local(Item::vectorized(
+            var.item().elem(),
+            NonZero::new(factor as u8),
+        ));
 
-        if vectorization_factor.val == 1 {
+        if vectorization_factor == 1 {
             let element = index::expand(context, self.clone(), ExpandElementTyped::from_lit(0u32));
             assign::expand(context, element, new_var.clone());
         } else {
@@ -113,7 +116,7 @@ impl<C: CubeType> ExpandElementBaseInit for Array<C> {
 
 impl<E: CubeType> Array<E> {
     /// Obtain the array length
-    pub fn len(&self) -> UInt {
+    pub fn len(&self) -> u32 {
         unexpanded!()
     }
 }
@@ -178,7 +181,7 @@ impl<'a, R: Runtime> ArgSettings<R> for ArrayArg<'a, R> {
             Self::Handle {
                 handle: _,
                 vectorization_factor,
-            } => settings.vectorize_input(position, *vectorization_factor),
+            } => settings.vectorize_input(position, NonZero::new(*vectorization_factor)),
             Self::Alias { input_pos: _ } => {
                 panic!("Not yet supported, only output can be aliased for now.");
             }
@@ -190,7 +193,7 @@ impl<'a, R: Runtime> ArgSettings<R> for ArrayArg<'a, R> {
             Self::Handle {
                 handle: _,
                 vectorization_factor,
-            } => settings.vectorize_output(position, *vectorization_factor),
+            } => settings.vectorize_output(position, NonZero::new(*vectorization_factor)),
             Self::Alias { input_pos } => {
                 settings.mappings.push(crate::InplaceMapping {
                     pos_input: *input_pos,

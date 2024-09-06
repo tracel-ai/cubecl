@@ -3,7 +3,7 @@ use error::error_into_token_stream;
 use generate::cube_type::generate_cube_type;
 use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
-    expand::{Expand, Runtime, StaticExpand},
+    expand::{Expand, StaticExpand},
     expand_impl::ExpandImplVisitor,
     helpers::RemoveHelpers,
     kernel::{from_tokens, Launch},
@@ -19,8 +19,6 @@ mod parse;
 mod paths;
 mod scope;
 mod statement;
-
-pub(crate) use paths::{core_type, frontend_path, ir_type, prefix_ir, prelude_type};
 
 #[proc_macro_attribute]
 pub fn cube(args: TokenStream, input: TokenStream) -> TokenStream {

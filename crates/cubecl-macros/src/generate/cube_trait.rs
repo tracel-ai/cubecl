@@ -1,6 +1,6 @@
 use crate::{
     parse::cube_trait::{CubeTrait, CubeTraitImpl, CubeTraitImplItem, CubeTraitItem},
-    paths::ir_type,
+    paths::frontend_type,
 };
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -8,7 +8,7 @@ use quote::ToTokens;
 
 impl ToTokens for CubeTrait {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let static_expanded = ir_type("StaticExpanded");
+        let static_expanded = frontend_type("StaticExpanded");
 
         let original = &self.original_trait;
         let attrs = &self.attrs;

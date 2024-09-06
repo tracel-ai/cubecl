@@ -1,4 +1,4 @@
-use super::{CubeContext, CubePrimitive, ExpandElement, UInt};
+use super::{CubeContext, CubePrimitive, ExpandElement};
 use crate::prelude::{Bool, ExpandElementTyped};
 use crate::{
     ir::{Elem, InitOperator, Item, Operation, Subcube, UnaryOperator},
@@ -29,7 +29,7 @@ pub mod subcube_elect {
 /// Broadcasts the value from the specified subcube unit at the given index
 /// to all active units within that subcube.
 #[allow(unused_variables)]
-pub fn subcube_broadcast<E: CubePrimitive>(value: E, index: UInt) -> E {
+pub fn subcube_broadcast<E: CubePrimitive>(value: E, index: u32) -> E {
     unexpanded!()
 }
 
@@ -42,7 +42,7 @@ pub mod subcube_broadcast {
     pub fn __expand<E: CubePrimitive>(
         context: &mut CubeContext,
         value: ExpandElementTyped<E>,
-        id: ExpandElementTyped<UInt>,
+        id: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<E> {
         let output = context.create_local(value.expand.item());
         let out = *output;

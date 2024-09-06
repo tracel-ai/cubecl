@@ -1,11 +1,11 @@
 use ident_case::RenameRule;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{parse_quote, spanned::Spanned as _, Ident};
+use quote::{format_ident, quote, ToTokens};
+use syn::{parse_quote, Ident};
 
 use crate::{
     parse::kernel::{KernelParam, Launch},
-    paths::{core_path, core_type, ir_type, prelude_type},
+    paths::{core_path, core_type, prelude_type},
 };
 
 impl ToTokens for Launch {
@@ -17,7 +17,6 @@ impl ToTokens for Launch {
         let launch_unchecked = self.launch_unchecked();
         let dummy = self.create_dummy_kernel();
         let kernel = self.kernel_definition();
-        let checks = self.check_args();
         let mut func = self.func.clone();
         func.sig.name = format_ident!("expand");
 
@@ -32,7 +31,6 @@ impl ToTokens for Launch {
                 #launch
                 #launch_unchecked
                 #dummy
-                #checks
             }
         };
 
@@ -121,13 +119,15 @@ impl Launch {
         let settings = self.configure_settings();
         let kernel_name = self.kernel_name();
         let core_path = core_path();
+        let kernel_generics = self.kernel_generics.split_for_impl();
+        let kernel_generics = kernel_generics.1.as_turbofish();
         let comptime_args = self.comptime_params().map(|it| &it.name);
 
         quote! {
             use #core_path::frontend::ArgSettings as _;
 
             #settings
-            let kernel = #kernel_name::new(__settings, #(#comptime_args),*);
+            let kernel = #kernel_name #kernel_generics::new(__settings, #(#comptime_args),*);
             let mut launcher = #kernel_launcher::<__R>::default();
             #(#registers)*
         }
@@ -150,68 +150,6 @@ impl Launch {
             let mut __settings = #kernel_settings::default().cube_dim(__cube_dim);
             #(#input_configs)*
             #(#output_configs)*
-        }
-    }
-
-    pub fn io_mappings(&self) -> TokenStream {
-        let launch_arg_expand = prelude_type("LaunchArgExpand");
-        let expand_fn = |i, expand_name, vec_name, ty| {
-            quote! {
-                #i => ::std::sync::Arc::new(<#ty as #launch_arg_expand>::#expand_name(builder, settings.#vec_name(#i)))
-            }
-        };
-        let inputs = self.runtime_inputs().enumerate().map(|(i, input)| {
-            expand_fn(
-                i,
-                format_ident!("expand"),
-                format_ident!("vectorization_input"),
-                &input.ty,
-            )
-        });
-        let outputs = self.runtime_outputs().enumerate().map(|(i, output)| {
-            expand_fn(
-                i,
-                format_ident!("expand_output"),
-                format_ident!("vectorization_output"),
-                &output.ty,
-            )
-        });
-        let map = quote![::std::collections::BTreeMap<usize, std::sync::Arc<dyn core::any::Any>> = std::collections::BTreeMap::new()];
-        let inputs_len = self.runtime_inputs().count();
-        let outputs_len = self.runtime_outputs().count();
-        let register_input = register_fn("register_input", inputs);
-        let register_output = register_fn("register_output", outputs);
-
-        let in_params = self
-            .runtime_inputs()
-            .enumerate()
-            .map(runtime_param("inputs"));
-        let out_params = self
-            .runtime_outputs()
-            .enumerate()
-            .map(runtime_param("outputs"));
-
-        quote! {
-            let mut inputs: #map;
-            let mut outputs: #map;
-
-            #register_input
-            #register_output
-
-            for i in 0..#inputs_len {
-                inputs.insert(i, register_input(&mut builder, &self.settings, i));
-            }
-            for mapping in &self.settings.mappings {
-                let input = inputs.get(&mappings.pos_input).unwrap();
-                outputs.insert(mapping.pos_output, input.clone());
-            }
-            for i in 0..#outputs_len {
-                if !outputs.contains_key(&i) {
-                    outputs.insert(i, register_output(&mut builder, &self.settings, i));
-                }
-            }
-            #(#in_params)*
-            #(#out_params)*
         }
     }
 
@@ -284,72 +222,5 @@ impl Launch {
             .parameters
             .iter()
             .filter(|param| param.is_const)
-    }
-
-    fn check_args(&self) -> TokenStream {
-        if self.args.is_launch() {
-            let generics = &self.func.sig.generics;
-
-            let input_checks = self
-                .func
-                .sig
-                .parameters
-                .iter()
-                // Const can be anything as long as the accessed fields are cube types, since the access
-                // gets resolved at expansion time and collapsed into a literal in the kernel
-                .filter(|arg| !arg.is_const)
-                .map(|arg| {
-                    let span = arg.ty.span();
-                    let check = ir_type("assert_valid_type");
-                    let ty = arg.ty_owned();
-                    quote_spanned! {span=>
-                        #check::<#ty>();
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            quote! {
-                fn __check_inputs #generics() {
-                    #(#input_checks)*
-                }
-            }
-        } else {
-            TokenStream::new()
-        }
-    }
-}
-
-fn register_fn(name: &str, values: impl Iterator<Item = TokenStream>) -> TokenStream {
-    let kernel_settings = prelude_type("KernelSettings");
-    let kernel_builder = prelude_type("KernelBuilder");
-
-    let name = format_ident!("{name}");
-    quote! {
-        #[allow(unused)]
-        fn #name(
-            builder: &mut #kernel_builder,
-            settings: &#kernel_settings,
-            position: usize,
-        ) -> ::std::sync::Arc<dyn ::core::any::Any> {
-            match position {
-                #(#values,)*
-                _ => {
-                    panic!("Input {position} is invalid");
-                }
-            }
-        }
-    }
-}
-
-fn runtime_param(io_map: &str) -> impl FnMut((usize, &KernelParam)) -> TokenStream {
-    let cube_type = prelude_type("CubeType");
-    let io_map = format_ident!("{io_map}");
-    move |(i, input)| {
-        let name: &Ident = &input.name;
-        let ty = &input.ty;
-        quote! {
-            let #name: &<#ty as #cube_type>::ExpandType = #io_map.get(&#i).unwrap().downcast_ref()
-                .expect("Output type should be correct. It could be caused by an invalid kernel input/output alias.");
-        }
     }
 }

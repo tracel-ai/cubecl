@@ -1,7 +1,9 @@
 use cubecl_common::operator::Operator;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{Ident, Lit, Member, Path, PathArguments, PathSegment, Type};
+use syn::{
+    AngleBracketedGenericArguments, Ident, Lit, Member, Path, PathArguments, PathSegment, Type,
+};
 
 use crate::statement::Statement;
 
@@ -26,7 +28,6 @@ pub enum Expression {
     Variable {
         name: Ident,
         ty: Option<Type>,
-        span: Span,
     },
     ConstVariable {
         name: Ident,
@@ -43,7 +44,6 @@ pub enum Expression {
     Literal {
         value: Lit,
         ty: Type,
-        span: Span,
     },
     Assigment {
         left: Box<Expression>,
@@ -61,6 +61,7 @@ pub enum Expression {
     MethodCall {
         receiver: Box<Expression>,
         method: Ident,
+        generics: Option<AngleBracketedGenericArguments>,
         args: Vec<Expression>,
         span: Span,
     },
@@ -107,7 +108,7 @@ pub enum Expression {
     },
     Return {
         expr: Option<Box<Expression>>,
-        ty: Type,
+        _ty: Type,
         span: Span,
     },
     Range {

@@ -1,6 +1,8 @@
+use std::num::NonZero;
+
 use crate::frontend::{CubeContext, ExpandElement};
 use crate::ir::{BinaryOperator, Elem, Item, Operator, UnaryOperator, Variable, Vectorization};
-use crate::prelude::{CubeType, ExpandElementTyped, UInt};
+use crate::prelude::{CubeType, ExpandElementTyped};
 
 pub(crate) fn binary_expand<F>(
     context: &mut CubeContext,
@@ -17,7 +19,7 @@ where
     let item_lhs = lhs.item();
     let item_rhs = rhs.item();
 
-    let vectorization = check_vectorization(item_lhs.vectorization, item_rhs.vectorization);
+    let vectorization = find_vectorization(item_lhs.vectorization, item_rhs.vectorization);
     let item = Item::vectorized(item_lhs.elem, vectorization);
 
     // We can only reuse rhs.
@@ -94,7 +96,7 @@ where
     let rhs: Variable = *rhs;
     let item = lhs.item();
 
-    check_vectorization(item.vectorization, rhs.item().vectorization);
+    find_vectorization(item.vectorization, rhs.item().vectorization);
 
     let out_item = Item {
         elem: Elem::Bool,
@@ -127,7 +129,7 @@ where
     let lhs_var: Variable = *lhs;
     let rhs: Variable = *rhs;
 
-    check_vectorization(lhs_var.item().vectorization, rhs.item().vectorization);
+    find_vectorization(lhs_var.item().vectorization, rhs.item().vectorization);
 
     let op = func(BinaryOperator {
         lhs: lhs_var,
@@ -190,28 +192,29 @@ where
     out
 }
 
-fn check_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
-    let output = u8::max(lhs, rhs);
-
-    if lhs == 1 || rhs == 1 {
-        return output;
+fn find_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
+    match (lhs, rhs) {
+        (None, None) => None,
+        (None, Some(rhs)) => Some(rhs),
+        (Some(lhs), None) => Some(lhs),
+        (Some(lhs), Some(rhs)) => {
+            let min = lhs.get().min(rhs.get());
+            let common = (0..=min)
+                .rev()
+                .find(|i| lhs.get() % i == 0 && rhs.get() % i == 0)
+                .unwrap_or(1);
+            NonZero::new(common)
+        }
     }
-
-    assert!(
-        lhs == rhs,
-        "Tried to perform binary operation on different vectorization schemes."
-    );
-
-    output
 }
 
 pub fn array_assign_binary_op_expand<
-    A: CubeType + core::ops::Index<UInt>,
+    A: CubeType + core::ops::Index<u32>,
     F: Fn(BinaryOperator) -> Operator,
 >(
     context: &mut CubeContext,
     array: ExpandElementTyped<A>,
-    index: ExpandElementTyped<UInt>,
+    index: ExpandElementTyped<u32>,
     value: ExpandElementTyped<A::Output>,
     func: F,
 ) where

@@ -1,13 +1,13 @@
 use super::{ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand};
 use crate::{
     frontend::{
-        indexation::Index, ArgSettings, CubeContext, CubePrimitive, CubeType, ExpandElement, UInt,
+        indexation::Index, ArgSettings, CubeContext, CubePrimitive, CubeType, ExpandElement,
     },
     ir::{Elem, Item, Metadata, Variable, Vectorization},
     prelude::{KernelBuilder, KernelLauncher},
     unexpanded, KernelSettings, LaunchArg, Runtime,
 };
-use std::marker::PhantomData;
+use std::{marker::PhantomData, num::NonZero};
 
 /// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
 /// metadata such as [stride](Tensor::stride) and [shape](Tensor::shape).
@@ -143,7 +143,7 @@ impl<'a, R: Runtime> ArgSettings<R> for TensorArg<'a, R> {
             TensorArg::Handle {
                 handle: _,
                 vectorization_factor,
-            } => settings.vectorize_input(position, *vectorization_factor),
+            } => settings.vectorize_input(position, NonZero::new(*vectorization_factor)),
             TensorArg::Alias { input_pos: _ } => {
                 panic!("Not yet supported, only output can be aliased for now.");
             }
@@ -155,7 +155,7 @@ impl<'a, R: Runtime> ArgSettings<R> for TensorArg<'a, R> {
             TensorArg::Handle {
                 handle: _,
                 vectorization_factor,
-            } => settings.vectorize_output(position, *vectorization_factor),
+            } => settings.vectorize_output(position, NonZero::new(*vectorization_factor)),
             TensorArg::Alias { input_pos } => {
                 settings.mappings.push(crate::InplaceMapping {
                     pos_input: *input_pos,
@@ -169,12 +169,12 @@ impl<'a, R: Runtime> ArgSettings<R> for TensorArg<'a, R> {
 
 impl<T: CubeType> Tensor<T> {
     /// Obtain the stride of input at dimension dim
-    pub fn stride<C: Index>(&self, _dim: C) -> UInt {
+    pub fn stride<C: Index>(&self, _dim: C) -> u32 {
         unexpanded!()
     }
 
     /// Obtain the shape of input at dimension dim
-    pub fn shape<C: Index>(&self, _dim: C) -> UInt {
+    pub fn shape<C: Index>(&self, _dim: C) -> u32 {
         unexpanded!()
     }
 
@@ -184,12 +184,12 @@ impl<T: CubeType> Tensor<T> {
     ///
     /// The length will be affected by the vectorization factor. To obtain the number of elements,
     /// you should multiply the length by the vectorization factor.
-    pub fn len(&self) -> UInt {
+    pub fn len(&self) -> u32 {
         unexpanded!()
     }
 
     /// Returns the rank of the tensor.
-    pub fn rank(&self) -> UInt {
+    pub fn rank(&self) -> u32 {
         unexpanded!()
     }
 }
@@ -200,7 +200,7 @@ impl<T: CubeType> ExpandElementTyped<T> {
         self,
         context: &mut CubeContext,
         dim: C,
-    ) -> ExpandElementTyped<UInt> {
+    ) -> ExpandElementTyped<u32> {
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Stride {
             dim: dim.value(),
@@ -215,7 +215,7 @@ impl<T: CubeType> ExpandElementTyped<T> {
         self,
         context: &mut CubeContext,
         dim: C,
-    ) -> ExpandElementTyped<UInt> {
+    ) -> ExpandElementTyped<u32> {
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Shape {
             dim: dim.value(),
@@ -226,7 +226,7 @@ impl<T: CubeType> ExpandElementTyped<T> {
     }
 
     // Expanded version of len
-    pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<UInt> {
+    pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Length {
             var: self.expand.into(),
@@ -236,7 +236,7 @@ impl<T: CubeType> ExpandElementTyped<T> {
     }
 
     // Expanded version of rank.
-    pub fn __expand_rank_method(self, _context: &mut CubeContext) -> ExpandElementTyped<UInt> {
+    pub fn __expand_rank_method(self, _context: &mut CubeContext) -> ExpandElementTyped<u32> {
         ExpandElement::Plain(Variable::Rank).into()
     }
 }

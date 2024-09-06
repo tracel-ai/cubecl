@@ -1,8 +1,13 @@
-use proc_macro2::TokenStream;
-use quote::{format_ident, quote_spanned};
+use std::{
+    collections::{HashMap, VecDeque},
+    rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+use quote::format_ident;
 use syn::{parse_quote, Ident, Type};
 
-use crate::{ir_type, parse::kernel::KernelParam, paths::prelude_path};
+use crate::parse::kernel::KernelParam;
 
 pub const KEYWORDS: [&str; 21] = [
     "ABSOLUTE_POS",
@@ -28,11 +33,12 @@ pub const KEYWORDS: [&str; 21] = [
     "SUBCUBE_DIM",
 ];
 
+#[derive(Clone)]
 pub struct Context {
     pub return_type: Type,
     scopes: Vec<Scope>,
     // Allows for global variable analysis
-    scope_history: Vec<Scope>,
+    scope_history: HashMap<usize, VecDeque<Scope>>,
 }
 
 impl Context {
@@ -58,6 +64,7 @@ impl Context {
                 ty: Some(ty),
                 is_const: false,
                 is_keyword: true,
+                use_count: AtomicUsize::new(0).into(),
             }
         }));
         Self {
@@ -77,16 +84,24 @@ impl Context {
                 ty,
                 is_const,
                 is_keyword: false,
+                use_count: AtomicUsize::new(0).into(),
             });
     }
 
-    pub fn push_scope(&mut self) {
+    fn push_scope(&mut self) {
         self.scopes.push(Scope::default())
     }
 
-    pub fn pop_scope(&mut self) {
+    fn pop_scope(&mut self) {
         let scope = self.scopes.pop().expect("Can't pop root scope");
-        self.scope_history.push(scope);
+        self.scope_history
+            .entry(self.scopes.len())
+            .or_default()
+            .push_back(scope);
+    }
+
+    pub fn delete_scope(&mut self) {
+        self.scopes.pop();
     }
 
     pub fn with_scope<T>(&mut self, with: impl FnOnce(&mut Self) -> T) -> T {
@@ -98,16 +113,13 @@ impl Context {
 
     #[allow(unused)]
     pub fn restore_scope(&mut self) {
-        let scope = self.scope_history.pop();
+        let scope = self
+            .scope_history
+            .get_mut(&(self.scopes.len()))
+            .and_then(|it| it.pop_front());
         if let Some(scope) = scope {
             self.scopes.push(scope);
         }
-    }
-
-    pub fn current_scope(&self) -> &Scope {
-        self.scopes
-            .last()
-            .expect("Scopes must at least have root scope")
     }
 
     pub fn variable(&self, name: &Ident) -> Option<ManagedVar> {
@@ -117,7 +129,34 @@ impl Context {
             .rev()
             .flat_map(|scope| scope.variables.iter().rev())
             .find(|var| name == &var.name)
-            .cloned()
+            .map(|var| {
+                var.use_count.fetch_add(1, Ordering::AcqRel);
+                var.clone()
+            })
+    }
+
+    pub fn try_consume(&self, name: &Ident) -> bool {
+        let (level, var) = self
+            .scopes
+            .iter()
+            .enumerate()
+            .rev()
+            .flat_map(|(i, scope)| scope.variables.iter().rev().map(move |it| (i, it)))
+            .find(|(_, var)| &var.name == name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Trying to get use count of variable {name} that never existed.\nScopes: {:#?}\nHistory:{:#?}",
+                    self.scopes,
+                    self.scope_history
+                );
+            });
+        if level == 0 {
+            // Kernel params should always be cloned because of Rust type closure semantics
+            false
+        } else {
+            let count = var.use_count.fetch_sub(1, Ordering::AcqRel);
+            count <= 1
+        }
     }
 
     pub fn extend(&mut self, vars: impl IntoIterator<Item = KernelParam>) {
@@ -129,17 +168,18 @@ impl Context {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct Scope {
     variables: Vec<ManagedVar>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ManagedVar {
     pub name: Ident,
     pub ty: Option<Type>,
     pub is_const: bool,
     pub is_keyword: bool,
+    pub use_count: Rc<AtomicUsize>,
 }
 
 impl From<KernelParam> for ManagedVar {
@@ -149,23 +189,7 @@ impl From<KernelParam> for ManagedVar {
             ty: Some(value.ty),
             is_const: value.is_const,
             is_keyword: false,
+            use_count: AtomicUsize::new(0).into(),
         }
-    }
-}
-
-impl Scope {
-    pub fn generate_kernel_vars(&self) -> Vec<TokenStream> {
-        self.variables
-            .iter()
-            .map(|ManagedVar { name, ty, .. }| {
-                let span = name.span();
-                let kernel_var_ty = ir_type("KernelVariable");
-                let prelude_path = prelude_path();
-                let ty = ty.as_ref().unwrap();
-                quote_spanned! {span=>
-                    const #name: #kernel_var_ty<#ty> = #prelude_path::ExpandedGlobals::#name;
-                }
-            })
-            .collect()
     }
 }

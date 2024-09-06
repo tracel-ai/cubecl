@@ -6,7 +6,7 @@ use syn::{
     Path, Token, TraitItem, Visibility,
 };
 
-use crate::paths::ir_type;
+use crate::paths::frontend_type;
 
 use super::{
     helpers::RemoveHelpers,
@@ -67,7 +67,7 @@ impl CubeTraitImplItem {
 
 impl CubeTrait {
     pub fn from_item_trait(item: ItemTrait, args: CubeTraitArgs) -> syn::Result<Self> {
-        let static_expand = ir_type("StaticExpand");
+        let static_expand = frontend_type("StaticExpand");
         let mut original_trait = item.clone();
         RemoveHelpers.visit_item_trait_mut(&mut original_trait);
 

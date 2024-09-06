@@ -1,7 +1,7 @@
 use quote::{format_ident, quote_spanned, ToTokens};
 use syn::{parse_quote, spanned::Spanned, Generics, Path, PathArguments, Type};
 
-use crate::{ir_type, parse::expand_impl::ExpandImpl};
+use crate::{parse::expand_impl::ExpandImpl, paths::frontend_type};
 
 impl ToTokens for ExpandImpl {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
@@ -40,7 +40,7 @@ fn type_path(ty: &Type) -> Path {
 }
 
 fn apply_generic_params(args: &mut Generics, base: &Path) {
-    let expr = ir_type("Expr");
+    let expr = frontend_type("Expr");
     args.params
         .push(parse_quote![__Inner: #expr<Output = #base>]);
 }
