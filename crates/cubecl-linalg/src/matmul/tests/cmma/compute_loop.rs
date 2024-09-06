@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::cmma::{
     base::{make_accumulators, SharedMemories, SharedMemoriesExpand},
     compute_loop::compute_loop,
-    config::{CmmaBlockConfig, CmmaComptimeInfo},
+    config::{CmmaComptimeInfo, CmmaConfig, WriteOutStrategy},
 };
 use crate::matmul::tests::test_utils::{
     assert_equals, cmma_available, create_empty, range_tensor_f16,
@@ -55,7 +55,7 @@ fn compute_loop_test<F: Float, FC: Float>(
 }
 
 fn compute_loop_test_case<R: Runtime>(
-    block_config: CmmaBlockConfig,
+    block_config: CmmaConfig,
     expected: &[f32],
     device: &R::Device,
 ) {
@@ -94,7 +94,7 @@ fn compute_loop_test_case<R: Runtime>(
 /// Exported test
 pub fn cmma_compute_loop_block_equal_tile_test<R: Runtime>(device: &R::Device) {
     compute_loop_test_case::<R>(
-        CmmaBlockConfig::new(16, 16, false),
+        CmmaConfig::new(16, 16, false, WriteOutStrategy::LargeSmem),
         &[
             19840.0, 19960.0, 20080.0, 20200.0, 20320.0, 20440.0, 20560.0, 20680.0, 20800.0,
             20920.0, 21040.0, 21160.0, 21280.0, 21400.0, 21520.0, 21640.0, 50560.0, 50936.0,
@@ -136,7 +136,7 @@ pub fn cmma_compute_loop_block_equal_tile_test<R: Runtime>(device: &R::Device) {
 /// Exported test
 pub fn cmma_compute_loop_block_larger_than_tile_test<R: Runtime>(device: &R::Device) {
     compute_loop_test_case::<R>(
-        CmmaBlockConfig::new(32, 32, false),
+        CmmaConfig::new(32, 32, false, WriteOutStrategy::LargeSmem),
         &[
             1610496.0, 1614832.0, 1619168.0, 1623504.0, 1627840.0, 1632176.0, 1636512.0, 1640848.0,
             1645184.0, 1649520.0, 1653856.0, 1658192.0, 1662528.0, 1666864.0, 1671200.0, 1675536.0,
@@ -279,7 +279,7 @@ pub fn cmma_compute_loop_block_larger_than_tile_test<R: Runtime>(device: &R::Dev
 /// Exported test
 pub fn cmma_compute_loop_b_mn_larger_than_b_k_test<R: Runtime>(device: &R::Device) {
     compute_loop_test_case::<R>(
-        CmmaBlockConfig::new(32, 16, false),
+        CmmaConfig::new(32, 16, false, WriteOutStrategy::LargeSmem),
         &[
             19840.0, 19960.0, 20080.0, 20200.0, 20320.0, 20440.0, 20560.0, 20680.0, 20800.0,
             20920.0, 21040.0, 21160.0, 21280.0, 21400.0, 21520.0, 21640.0, 50560.0, 50936.0,

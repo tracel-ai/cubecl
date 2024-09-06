@@ -14,10 +14,10 @@ use super::{
     base::OutputWriter,
 };
 
-pub(crate) struct ReusedSmemWriter;
+pub(crate) struct ReuseSmemWriter;
 
 #[cube]
-impl OutputWriter for ReusedSmemWriter {
+impl OutputWriter for ReuseSmemWriter {
     fn write_to_output<F: Float>(
         out: &mut Tensor<F>,
         accumulators: Sequence<cmma::Matrix<F>>,

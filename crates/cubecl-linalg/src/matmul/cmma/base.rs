@@ -3,11 +3,10 @@ use cubecl_core::prelude::*;
 
 use super::block_loop::block_loop;
 use super::config::CmmaComptimeInfo;
-use super::write_output::base::OutputWriter;
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
-pub fn cmma_kernel<F: Float, FC: Float, O: OutputWriter>(
+pub fn cmma_kernel<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
@@ -17,7 +16,7 @@ pub fn cmma_kernel<F: Float, FC: Float, O: OutputWriter>(
     let offsets = calculate_offsets::<F>(lhs, rhs, out, config);
     let shared_memories = make_shared_memories::<FC>(config);
     let accumulate = make_accumulators::<F>(config);
-    block_loop::<F, FC, O>(
+    block_loop::<F, FC>(
         lhs,
         rhs,
         out,

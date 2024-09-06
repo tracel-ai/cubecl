@@ -3,7 +3,10 @@ use half::f16;
 
 use crate::{
     matmul::{
-        cmma::{config::CmmaBlockConfig, launch},
+        cmma::{
+            config::{CmmaConfig, WriteOutStrategy},
+            launch,
+        },
         tiling2d,
     },
     tensor::TensorHandle,
@@ -23,7 +26,7 @@ pub fn test_matmul_cmma_one_cube<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(CmmaBlockConfig::default(), device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
 
 macro_rules! alternate_block_sizes {
@@ -38,7 +41,10 @@ macro_rules! alternate_block_sizes {
                 epsilon: 0.1,
                 compute_f16: true,
             }
-            .test_cmma::<R>(CmmaBlockConfig::new($b_mn, $b_k, false), device);
+            .test_cmma::<R>(
+                CmmaConfig::new($b_mn, $b_k, false, WriteOutStrategy::LargeSmem),
+                device,
+            );
         }
     };
 }
@@ -60,7 +66,7 @@ pub fn test_matmul_cmma_several_cubes<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(CmmaBlockConfig::default(), device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
 
 pub fn test_matmul_cmma_with_check_bounds<R: Runtime>(device: &R::Device) {
@@ -73,7 +79,7 @@ pub fn test_matmul_cmma_with_check_bounds<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(CmmaBlockConfig::default(), device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
 
 pub fn test_matmul_cmma_with_batches<R: Runtime>(device: &R::Device) {
@@ -86,7 +92,7 @@ pub fn test_matmul_cmma_with_batches<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(CmmaBlockConfig::default(), device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
 
 pub fn test_matmul_cmma_unvectorizable_shapes<R: Runtime>(device: &R::Device) {
@@ -99,7 +105,7 @@ pub fn test_matmul_cmma_unvectorizable_shapes<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(CmmaBlockConfig::default(), device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
 
 pub fn test_matmul_cmma_vec2_shapes<R: Runtime>(device: &R::Device) {
@@ -112,7 +118,7 @@ pub fn test_matmul_cmma_vec2_shapes<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(CmmaBlockConfig::default(), device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
 
 pub fn test_matmul_tiling2d_one_cube<R: Runtime>(device: &R::Device) {
@@ -199,7 +205,7 @@ impl MatmulTestCase {
         assert_equals_approx::<R>(&client, out.handle, &expected, self.epsilon);
     }
 
-    fn test_cmma<R: Runtime>(&self, config: CmmaBlockConfig, device: &R::Device) {
+    fn test_cmma<R: Runtime>(&self, config: CmmaConfig, device: &R::Device) {
         if !cmma_available::<R>(device) {
             // We can't execute the test, skip.
             return;

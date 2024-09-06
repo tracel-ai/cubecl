@@ -6,11 +6,11 @@ use super::{
     compute_loop::compute_loop,
     config::CmmaComptimeInfo,
     load_shared_memory::load_to_shared_memories,
-    write_output::base::OutputWriter,
+    write_output::{base::OutputWriter, large_smem::LargeSmemWriter, reuse_smem::ReuseSmemWriter},
 };
 
 #[cube]
-pub(crate) fn block_loop<F: Float, FC: Float, O: OutputWriter>(
+pub(crate) fn block_loop<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
@@ -21,6 +21,7 @@ pub(crate) fn block_loop<F: Float, FC: Float, O: OutputWriter>(
     dims: Dimensions,
 ) {
     let block_size_k = Comptime::runtime(Comptime::map(config, |c| c.block_size_k));
+    let write_out_reuse_smem = Comptime::map(config, |c| c.write_out_reuse_smem);
 
     // Equals ceil(dims.k / block_size_k)
     let num_loops = (dims.k + block_size_k - 1) / block_size_k;
@@ -37,5 +38,9 @@ pub(crate) fn block_loop<F: Float, FC: Float, O: OutputWriter>(
         sync_units();
     }
 
-    O::write_to_output(out, accumulators, offsets, dims, config);
+    if Comptime::get(write_out_reuse_smem) {
+        ReuseSmemWriter::write_to_output(out, accumulators, offsets, dims, config);
+    } else {
+        LargeSmemWriter::write_to_output(out, accumulators, offsets, dims, config);
+    }
 }

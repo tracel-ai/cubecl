@@ -6,11 +6,9 @@ use cubecl_core::{
 };
 
 use crate::{
-    matmul::cmma::{base::cmma_kernel, config::CmmaBlockConfig},
+    matmul::cmma::{base::cmma_kernel, config::CmmaConfig},
     tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle},
 };
-
-use super::write_output::{large_smem::LargeSmemWriter, reused_smem::ReusedSmemWriter};
 
 /// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
 pub fn matmul_cmma<R: Runtime, F: Float>(
@@ -18,7 +16,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
     lhs: TensorHandle<R, F>,
     rhs: TensorHandle<R, F>,
     out: TensorHandle<R, F>,
-    block_config: CmmaBlockConfig,
+    block_config: CmmaConfig,
 ) -> TensorHandle<R, F> {
     matmul_cmma_ref::<R, F>(
         client,
@@ -61,7 +59,7 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
-    block_config: CmmaBlockConfig,
+    block_config: CmmaConfig,
 ) {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => true,
@@ -106,7 +104,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
-    block_config: CmmaBlockConfig,
+    cmma_config: CmmaConfig,
 ) {
     let rank = lhs.strides.len();
 
@@ -114,7 +112,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let k = lhs.shape[rank - 1];
     let n = rhs.shape[rank - 1];
 
-    let available_vectorizations = block_config.available_vectorizations();
+    let available_vectorizations = cmma_config.available_vectorizations();
     let lhs_vectorization = tensor_vectorization_factor(
         &available_vectorizations,
         &lhs.shape,
@@ -135,14 +133,14 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     );
 
     unsafe {
-        cmma_kernel::launch_unchecked::<F, F16, LargeSmemWriter, R>(
+        cmma_kernel::launch_unchecked::<F, F16, R>(
             client,
-            block_config.cube_count::<R>(out.shape),
-            block_config.cube_dim(),
+            cmma_config.cube_count::<R>(out.shape),
+            cmma_config.cube_dim(),
             TensorArg::from_raw_parts(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
             TensorArg::from_raw_parts(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
             TensorArg::from_raw_parts(out.handle, out.strides, out.shape, out_vectorization),
-            block_config.comptime_info(m, k, n),
+            cmma_config.comptime_info(m, k, n),
         );
     }
 }

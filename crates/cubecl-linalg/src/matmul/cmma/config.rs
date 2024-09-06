@@ -5,7 +5,13 @@ use cubecl_core::prelude::*;
 pub(crate) const CMMA_COOP_DIM: usize = 32;
 pub(crate) const CMMA_TILE_SIZE: usize = 16;
 
-pub struct CmmaBlockConfig {
+#[derive(PartialEq, Eq)]
+pub enum WriteOutStrategy {
+    LargeSmem,
+    ReuseSmem,
+}
+
+pub struct CmmaConfig {
     /// Corresponds to the number of tiles in the m and n dimensions for a block
     pub b_mn: usize,
     /// Corresponds to the number of tiles in the k dimension for a block
@@ -14,24 +20,32 @@ pub struct CmmaBlockConfig {
     pub alpha: usize,
     /// Whether to unroll loop over k within the shared memory
     pub unroll: bool,
+    /// Whether to write all accumulators in different spots of a large shared memory or reuse the space
+    pub write_out_strategy: WriteOutStrategy,
 }
 
-impl Default for CmmaBlockConfig {
+impl Default for CmmaConfig {
     fn default() -> Self {
-        Self::new(128, 16, true)
+        Self::new(64, 16, true, WriteOutStrategy::LargeSmem)
     }
 }
 
-impl CmmaBlockConfig {
-    pub(crate) fn new(b_mn: usize, b_k: usize, unroll: bool) -> CmmaBlockConfig {
+impl CmmaConfig {
+    pub(crate) fn new(
+        b_mn: usize,
+        b_k: usize,
+        unroll: bool,
+        write_out_strategy: WriteOutStrategy,
+    ) -> CmmaConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
         assert!(b_mn % b_k == 0);
-        CmmaBlockConfig {
+        CmmaConfig {
             b_mn,
             b_k,
             alpha: b_mn / b_k,
             unroll,
+            write_out_strategy,
         }
     }
 
@@ -50,6 +64,7 @@ impl CmmaBlockConfig {
             coop_dim: CMMA_COOP_DIM.into(),
             lane_dim: UInt::new(lane_dim as u32),
             num_accumulators: UInt::new(self.alpha as u32),
+            write_out_reuse_smem: self.write_out_strategy == WriteOutStrategy::ReuseSmem,
         }
     }
 
@@ -120,4 +135,6 @@ pub struct CmmaComptimeInfo {
     pub lane_dim: UInt,
     /// Number of cmma per subcube performed in one pass
     pub num_accumulators: UInt,
+    /// Write out strategy: false = large, true = reuse
+    pub write_out_reuse_smem: bool,
 }
