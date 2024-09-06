@@ -63,7 +63,7 @@ impl<F: Float> BlockWriter<F> for HorizontalCheckBlockIO {
         let col_with_n_iter = write_col + n_iter * Comptime::runtime(tile_size);
 
         if col_with_n_iter < dims.n {
-            let n_iter_read_offset = n_iter * Comptime::runtime(tile_size * tile_size);
+            let n_iter_read_offset = UInt::new(0);//n_iter * Comptime::runtime(tile_size * tile_size);
             let read_position = read_position + n_iter_read_offset;
 
             let write_position = batch_offset + write_row * dims.n + col_with_n_iter;

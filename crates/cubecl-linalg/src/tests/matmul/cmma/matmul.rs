@@ -35,7 +35,6 @@ macro_rules! testgen_cmma_matmul {
         }
 
         #[test]
-        #[ignore]
         // Will bust shared memory limit with the current output handling based on shared memory
         pub fn test_matmul_cmma_128_16() {
             tests::matmul_tests::test_matmul_cmma_128_16::<TestRuntime>(&Default::default())

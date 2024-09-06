@@ -18,7 +18,7 @@ pub struct CmmaBlockConfig {
 
 impl Default for CmmaBlockConfig {
     fn default() -> Self {
-        Self::new(64, 32, false)
+        Self::new(128, 16, true)
     }
 }
 
