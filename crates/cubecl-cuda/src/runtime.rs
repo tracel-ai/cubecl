@@ -1,6 +1,6 @@
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    Feature, FeatureSet, Runtime,
+    Feature, FeatureSet, Properties, Runtime,
 };
 use cubecl_runtime::{
     channel::MutexComputeChannel,
@@ -8,7 +8,6 @@ use cubecl_runtime::{
     memory_management::dynamic::{DynamicMemoryManagement, DynamicMemoryManagementOptions},
     ComputeRuntime,
 };
-use std::sync::Arc;
 
 use crate::{
     compiler::CudaCompiler,
@@ -62,7 +61,13 @@ impl Runtime for CudaRuntime {
             let mut features = FeatureSet::new(&[Feature::Subcube]);
 
             register_wmma_features(&mut features, server.arch_version());
-            ComputeClient::new(MutexComputeChannel::new(server), Arc::new(features))
+            ComputeClient::new(
+                MutexComputeChannel::new(server),
+                features,
+                Properties {
+                    memory_offset_aligment: 4,
+                },
+            )
         })
     }
 

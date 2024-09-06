@@ -25,6 +25,8 @@ where
     type MemoryManagement: MemoryManagement<Self::Storage>;
     /// Features supported by the compute server.
     type FeatureSet: Send + Sync;
+    /// Properties of the compute server.
+    type Properties: Send + Sync;
 
     /// Given a handle, returns the owned resource as bytes.
     fn read(&mut self, binding: Binding<Self>) -> Reader;
@@ -101,7 +103,9 @@ pub struct Binding<Server: ComputeServer> {
     /// Memory binding.
     pub memory: <Server::MemoryManagement as MemoryManagement<Server::Storage>>::Binding,
     /// Memory offset in bytes.
-    pub offset: Option<usize>,
+    pub offset_start: Option<usize>,
+    /// Memory offset in bytes.
+    pub offset_end: Option<usize>,
 }
 
 impl<Server: ComputeServer> Handle<Server> {
@@ -116,7 +120,8 @@ impl<Server: ComputeServer> Handle<Server> {
     pub fn binding(self) -> Binding<Server> {
         Binding {
             memory: MemoryHandle::binding(self.memory),
-            offset: self.offset_start,
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
         }
     }
 }
@@ -135,7 +140,8 @@ impl<Server: ComputeServer> Clone for Binding<Server> {
     fn clone(&self) -> Self {
         Self {
             memory: self.memory.clone(),
-            offset: self.offset,
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
         }
     }
 }

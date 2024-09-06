@@ -20,6 +20,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
         Kernel = Box<dyn CubeTask>,
         DispatchOptions = CubeCount<Self::Server>,
         FeatureSet = FeatureSet,
+        Properties = Properties,
     >;
     /// The channel used to communicate with the compute server.
     type Channel: ComputeChannel<Self::Server>;
@@ -42,6 +43,13 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 #[derive(Default)]
 pub struct FeatureSet {
     set: alloc::collections::BTreeSet<Feature>,
+}
+
+/// The [runtime](Runtime) properties.
+#[derive(Default, Debug)]
+pub struct Properties {
+    /// The minimum offset size for a slice, in bytes.
+    pub memory_offset_aligment: u32,
 }
 
 impl FeatureSet {

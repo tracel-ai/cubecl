@@ -3,7 +3,9 @@ use std::num::NonZero;
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
-use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, FeatureSet, KernelId};
+use cubecl_core::{
+    compute::DebugInformation, prelude::*, server::Handle, FeatureSet, KernelId, Properties,
+};
 use cubecl_runtime::{
     debug::DebugLogger,
     memory_management::{MemoryHandle, MemoryManagement},
@@ -129,6 +131,7 @@ where
     type Storage = WgpuStorage;
     type MemoryManagement = MM;
     type FeatureSet = FeatureSet;
+    type Properties = Properties;
 
     fn read(&mut self, binding: server::Binding<Self>) -> Reader {
         let resource = self.get_resource(binding);
@@ -190,8 +193,11 @@ where
         &mut self,
         binding: server::Binding<Self>,
     ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
-        self.memory_management
-            .get_resource(binding.memory, binding.offset)
+        self.memory_management.get_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )
     }
 
     /// When we create a new handle from existing data, we use custom allocations so that we don't
@@ -256,7 +262,15 @@ where
                 // Keep track of the storage we've used so far.
                 self.compute_storage_used.push(resource_handle.id);
 
-                self.memory_management.storage().get(&resource_handle)
+                let handle = match binding.offset_start {
+                    Some(offset) => resource_handle.offset_start(offset),
+                    None => resource_handle.clone(),
+                };
+                let handle = match binding.offset_end {
+                    Some(offset) => handle.offset_end(offset),
+                    None => handle,
+                };
+                self.memory_management.storage().get(&handle)
             })
             .collect();
 
