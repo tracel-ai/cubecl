@@ -3,9 +3,11 @@ use std::ops::Range;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::base::{Dimensions, DimensionsExpand, Offsets, OffsetsExpand};
+use crate::matmul::cmma::base::{
+    Dimensions, DimensionsExpand, Ids, IdsExpand, Offsets, OffsetsExpand,
+};
 use crate::matmul::cmma::config::{CmmaComptimeInfo, CmmaConfig, WriteOutStrategy};
-use crate::matmul::cmma::write_output::large_smem::large_shared_memory_to_output;
+use crate::matmul::cmma::write_output::base::shared_memory_to_output;
 use crate::matmul::tests::test_utils::{
     assert_equals, assert_equals_range, range_tensor, zeros_tensor,
 };
@@ -36,7 +38,6 @@ fn write_output_test<F: Float>(
         batch_out: UInt::new(0),
         cube_row: CUBE_POS_X * Comptime::runtime(block_size_m),
         cube_col: CUBE_POS_Y * Comptime::runtime(block_size_n),
-        k: UInt::new(0),
     };
 
     let mut accumulate = SharedMemory::<F>::new(Comptime::get(sm_size));
@@ -45,9 +46,23 @@ fn write_output_test<F: Float>(
     }
 
     let dims = Dimensions { m, k, n };
+    let ids = Ids {
+        coop: UNIT_POS_Y,
+        lane: UNIT_POS_X,
+    };
 
+    let smem_position_base = Comptime::runtime(num_accumulators) * ids.coop;
     for n_iter in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
-        large_shared_memory_to_output(out, offsets, accumulate, dims, config, n_iter);
+        shared_memory_to_output(
+            out,
+            offsets,
+            smem_position_base + n_iter,
+            accumulate,
+            dims,
+            config,
+            n_iter,
+            ids,
+        );
     }
 }
 

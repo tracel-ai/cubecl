@@ -6,8 +6,11 @@ pub(crate) const CMMA_COOP_DIM: usize = 32;
 pub(crate) const CMMA_TILE_SIZE: usize = 16;
 
 #[derive(PartialEq, Eq)]
+/// Defines how data travels from accumulators to global output
 pub enum WriteOutStrategy {
+    /// Accumulators for one warp are put concurrently in a shared memory large enough to contain them all
     LargeSmem,
+    /// Accumulators for one warp are put sequentially in a shared memory with only one reusable spot 
     ReuseSmem,
 }
 

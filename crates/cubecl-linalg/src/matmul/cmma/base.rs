@@ -16,6 +16,7 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     let offsets = calculate_offsets::<F>(lhs, rhs, out, config);
     let shared_memories = make_shared_memories::<FC>(config);
     let accumulate = make_accumulators::<F>(config);
+    let ids = get_ids();
     block_loop::<F, FC>(
         lhs,
         rhs,
@@ -25,6 +26,7 @@ pub fn cmma_kernel<F: Float, FC: Float>(
         accumulate,
         config,
         dims,
+        ids,
     );
 }
 
@@ -33,6 +35,19 @@ pub(crate) struct Dimensions {
     pub m: UInt,
     pub k: UInt,
     pub n: UInt,
+}
+
+#[derive(CubeType, Copy, Clone)]
+pub(crate) struct Ids {
+    pub coop: UInt,
+    pub lane: UInt,
+}
+
+#[derive(CubeType, Copy, Clone)]
+pub(crate) struct RuntimeInfo {
+    pub ids: Ids,
+    pub dims: Dimensions,
+    pub offsets: Offsets,
 }
 
 #[derive(CubeType, Copy, Clone)]
@@ -51,7 +66,6 @@ pub(crate) struct Offsets {
     pub batch_out: UInt,
     pub cube_row: UInt,
     pub cube_col: UInt,
-    pub k: UInt,
 }
 
 #[cube]
@@ -103,7 +117,6 @@ fn calculate_offsets<F: Float>(
         batch_out,
         cube_row,
         cube_col,
-        k: UInt::new(0), // Changes during kernel
     }
 }
 
@@ -144,11 +157,9 @@ pub(crate) fn make_accumulators<F: Float>(
 }
 
 #[cube]
-pub(crate) fn coop_id() -> UInt {
-    UNIT_POS_Y
-}
-
-#[cube]
-pub(crate) fn lane_id() -> UInt {
-    UNIT_POS_X
+fn get_ids() -> Ids {
+    Ids {
+        coop: UNIT_POS_Y,
+        lane: UNIT_POS_X,
+    }
 }

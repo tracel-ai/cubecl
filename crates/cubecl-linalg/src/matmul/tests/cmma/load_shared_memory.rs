@@ -3,7 +3,9 @@ use std::ops::Range;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::base::{Dimensions, DimensionsExpand, Offsets, OffsetsExpand};
+use crate::matmul::cmma::base::{
+    Dimensions, DimensionsExpand, Ids, IdsExpand, Offsets, OffsetsExpand,
+};
 use crate::matmul::cmma::config::{CmmaConfig, WriteOutStrategy};
 use crate::matmul::tests::test_utils::{assert_equals_range, create_empty};
 use crate::matmul::{
@@ -33,7 +35,6 @@ fn load_lhs_test<F: Float>(
         batch_out: UInt::new(0),
         cube_row: UInt::new(0),
         cube_col: UInt::new(0),
-        k: k_offset,
     };
 
     let mut lhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
@@ -43,7 +44,19 @@ fn load_lhs_test<F: Float>(
 
     let dims = Dimensions { m, k, n };
 
-    load_lhs(lhs_tensor, offsets, &mut lhs_sm, UInt::new(2), dims, config);
+    load_lhs(
+        lhs_tensor,
+        offsets,
+        &mut lhs_sm,
+        UInt::new(2),
+        k_offset,
+        dims,
+        config,
+        Ids {
+            coop: UNIT_POS_Y,
+            lane: UNIT_POS_X,
+        },
+    );
 
     for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
         lhs_sm_arr[i] = lhs_sm[i];
@@ -70,7 +83,6 @@ fn load_rhs_test<F: Float>(
         batch_out: UInt::new(0),
         cube_row: UInt::new(0),
         cube_col: UInt::new(0),
-        k: k_offset,
     };
 
     let mut rhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
@@ -80,7 +92,19 @@ fn load_rhs_test<F: Float>(
 
     let dims = Dimensions { m, k, n };
 
-    load_rhs(rhs_tensor, offsets, &mut rhs_sm, UInt::new(2), dims, config);
+    load_rhs(
+        rhs_tensor,
+        offsets,
+        &mut rhs_sm,
+        UInt::new(2),
+        k_offset,
+        dims,
+        config,
+        Ids {
+            coop: UNIT_POS_Y,
+            lane: UNIT_POS_X,
+        },
+    );
 
     for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
         rhs_sm_arr[i] = rhs_sm[i];

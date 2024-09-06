@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::base::{coop_id, SharedMemories};
+use super::base::{Ids, SharedMemories};
 use super::config::CmmaComptimeInfo;
 
 #[cube]
@@ -10,6 +10,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     shared_memories: SharedMemories<FC>,
     accumulators: &mut Sequence<cmma::Matrix<F>>,
     config: Comptime<CmmaComptimeInfo>,
+    ids: Ids,
 ) {
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
     let tile_size = Comptime::map(config, |c| c.tile_size);
@@ -17,9 +18,8 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
 
     let num_coop_per_row = Comptime::runtime((block_size_n / tile_size) / num_accumulators);
 
-    let coop_id = coop_id();
-    let tile_row = coop_id / num_coop_per_row;
-    let tile_col_base = (coop_id % num_coop_per_row) * Comptime::runtime(num_accumulators);
+    let tile_row = ids.coop / num_coop_per_row;
+    let tile_col_base = (ids.coop % num_coop_per_row) * Comptime::runtime(num_accumulators);
 
     for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
         compute_tile::<F, FC>(
