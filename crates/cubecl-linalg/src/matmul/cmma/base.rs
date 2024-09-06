@@ -12,21 +12,21 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     out: &mut Tensor<F>,
     config: Comptime<CmmaComptimeInfo>,
 ) {
+    let ids = get_ids();
     let dims = get_dims::<F>(lhs, rhs);
     let offsets = calculate_offsets::<F>(lhs, rhs, out, config);
+    let runtime_info = RuntimeInfo { ids, dims, offsets };
+
     let shared_memories = make_shared_memories::<FC>(config);
     let accumulate = make_accumulators::<F>(config);
-    let ids = get_ids();
     block_loop::<F, FC>(
         lhs,
         rhs,
         out,
-        offsets,
         shared_memories,
         accumulate,
+        runtime_info,
         config,
-        dims,
-        ids,
     );
 }
 
