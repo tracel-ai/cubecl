@@ -149,6 +149,9 @@ pub enum Expression {
     Closure {
         tokens: proc_macro2::TokenStream,
     },
+    Keyword {
+        name: syn::Ident,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -192,6 +195,7 @@ impl Expression {
             Expression::Reference { inner } => inner.ty(),
             Expression::StructInit { .. } => None,
             Expression::Closure { .. } => None,
+            Expression::Keyword { .. } => None,
         }
     }
 
@@ -233,6 +237,13 @@ impl Expression {
             }
             Expression::Reference { inner } => inner.as_const().map(|base| quote![&#base]),
             Expression::FunctionCall { .. } if self.is_const() => Some(quote![#self]),
+            _ => None,
+        }
+    }
+
+    pub fn as_index(&self) -> Option<(&Expression, &Expression)> {
+        match self {
+            Expression::Index { expr, index, .. } => Some((&**expr, &**index)),
             _ => None,
         }
     }

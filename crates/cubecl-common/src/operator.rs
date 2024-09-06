@@ -108,4 +108,24 @@ impl Operator {
                 | Operator::ShrAssign
         )
     }
+
+    /// Get the expanded op name for this operation
+    pub fn op_name(&self) -> String {
+        if self.is_assign() {
+            let name = self.to_string().to_lowercase();
+            format!("{}_assign_op", &name[..name.len() - 6])
+        } else {
+            self.to_string().to_lowercase()
+        }
+    }
+
+    /// Get the expanded op name for this array operation
+    pub fn array_op_name(&self) -> String {
+        if self.is_assign() {
+            let name = self.to_string().to_lowercase();
+            format!("{}_assign_array_op", &name[..name.len() - 6])
+        } else {
+            self.to_string().to_lowercase()
+        }
+    }
 }

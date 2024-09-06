@@ -6,7 +6,7 @@ use parse::{
     expand::{Expand, Runtime, StaticExpand},
     expand_impl::ExpandImplVisitor,
     helpers::RemoveHelpers,
-    kernel::{from_tokens, Kernel},
+    kernel::{from_tokens, Launch},
 };
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
@@ -20,7 +20,7 @@ mod paths;
 mod scope;
 mod statement;
 
-pub(crate) use paths::{core_type, ir_path, ir_type, prefix_ir, prelude_type};
+pub(crate) use paths::{core_type, frontend_path, ir_type, prefix_ir, prelude_type};
 
 #[proc_macro_attribute]
 pub fn cube(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -35,7 +35,7 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
     match item.clone() {
         Item::Fn(kernel) => {
             let args = from_tokens(args.into())?;
-            let kernel = Kernel::from_item_fn(kernel, args)?;
+            let kernel = Launch::from_item_fn(kernel, args)?;
             RemoveHelpers.visit_item_mut(&mut item);
 
             Ok(TokenStream::from(quote! {

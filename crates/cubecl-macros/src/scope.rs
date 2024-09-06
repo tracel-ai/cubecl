@@ -57,6 +57,7 @@ impl Context {
                 name,
                 ty: Some(ty),
                 is_const: false,
+                is_keyword: true,
             }
         }));
         Self {
@@ -71,7 +72,12 @@ impl Context {
             .last_mut()
             .expect("Scopes must at least have root scope")
             .variables
-            .push(ManagedVar { name, ty, is_const });
+            .push(ManagedVar {
+                name,
+                ty,
+                is_const,
+                is_keyword: false,
+            });
     }
 
     pub fn push_scope(&mut self) {
@@ -133,6 +139,7 @@ pub struct ManagedVar {
     pub name: Ident,
     pub ty: Option<Type>,
     pub is_const: bool,
+    pub is_keyword: bool,
 }
 
 impl From<KernelParam> for ManagedVar {
@@ -141,6 +148,7 @@ impl From<KernelParam> for ManagedVar {
             name: value.name,
             ty: Some(value.ty),
             is_const: value.is_const,
+            is_keyword: false,
         }
     }
 }

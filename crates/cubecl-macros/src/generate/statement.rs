@@ -92,14 +92,12 @@ impl ToTokens for Statement {
                 span,
                 terminated,
             } => {
+                let terminator = terminated.then(|| Token![;](*span));
                 if let Some(as_const) = expression.as_const() {
-                    let terminator = terminated.then(|| Token![;](*span));
                     quote![#as_const #terminator]
                 } else {
                     quote_spanned! {*span=>
-                        __statements.push(#statement::Expression(
-                            #expr::expression_untyped(&(#expression))
-                        ));
+                        #expression #terminator
                     }
                 }
             }

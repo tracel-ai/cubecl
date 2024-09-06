@@ -1,11 +1,19 @@
+use cubecl_common::operator::Operator;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{spanned::Spanned, Ident, PathArguments, Type};
 
 use crate::{
     expression::{Block, Expression},
-    ir_type, prefix_ir,
+    ir_type,
+    paths::frontend_path,
 };
+
+macro_rules! error {
+    ($span:expr, $fmt:literal $(,$args:expr)*) => {
+        syn::Error::new($span, format!($fmt $(,$args)*)).into_compile_error()
+    };
+}
 
 impl ToTokens for Expression {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
@@ -16,27 +24,60 @@ impl ToTokens for Expression {
                 right,
                 span,
                 ..
-            } => {
-                let expr_ty = prefix_ir(format_ident!("{}Expr", operator.to_string()));
+            } if operator.is_assign() && matches!(**left, Expression::Index { .. }) => {
+                let frontend_path = frontend_path();
+                let (array, index) = left.as_index().unwrap();
+                let op = format_ident!("{}", operator.array_op_name());
                 quote_spanned! {*span=>
-                    #expr_ty::new(
-                        #left,
-                        #right
-                    )
+                    {
+                        let _array = #array;
+                        let _index = #index;
+                        let _value = #right;
+                        #frontend_path::#op::expand(context, _array, _index, _value)
+                    }
+                }
+            }
+            Expression::Binary {
+                left,
+                operator,
+                right,
+                span,
+                ..
+            } => {
+                let frontend_path = frontend_path();
+                let op = format_ident!("{}", operator.op_name());
+                quote_spanned! {*span=>
+                    {
+                        let _lhs = #left;
+                        let _rhs = #right;
+                        #frontend_path::#op::expand(context, _lhs, _rhs)
+                    }
                 }
             }
             Expression::Unary {
                 input,
-                operator,
+                operator: Operator::Not,
                 span,
                 ..
             } => {
-                let ty = prefix_ir(format_ident!("{}Expr", operator.to_string()));
+                let frontend_path = frontend_path();
                 quote_spanned! {*span=>
-                    #ty::new(
-                        #input,
-                    )
+                    {
+                        let _inner = #input;
+                        #frontend_path::not::expand(context, _inner)
+                    }
                 }
+            }
+            Expression::Unary {
+                input,
+                operator: Operator::Deref,
+                ..
+            } => quote![#input],
+            Expression::Unary { operator, span, .. } => {
+                error!(*span, "Unary operator {operator} not yet supported")
+            }
+            Expression::Keyword { name } => {
+                quote![#name::expand(context)]
             }
             Expression::Variable { name, span, .. } => {
                 quote_spanned! {*span=>
@@ -51,23 +92,30 @@ impl ToTokens for Expression {
                     syn::Member::Unnamed(index) => format_ident!("__{}", index.index),
                 };
                 quote_spanned! {*span=>
-                    #base.expand().#field()
+                    #base.#field.clone()
                 }
             }
-            Expression::Literal { value, span, .. } => {
+            Expression::Literal { value, .. } => quote![#value],
+            Expression::Assigment {
+                left, right, span, ..
+            } if matches!(**left, Expression::Index { .. }) => {
+                let (array, index) = left.as_index().unwrap();
+                let frontend_path = frontend_path();
                 quote_spanned! {*span=>
-                    #value
+                    let _array = #array;
+                    let _index = #index;
+                    let _value = #right;
+                    #frontend_path::index_assign::expand(context, _array, _index, _value)
                 }
             }
             Expression::Assigment {
                 left, right, span, ..
             } => {
-                let ty = prefix_ir(format_ident!("Assignment"));
+                let frontend_path = frontend_path();
                 quote_spanned! {*span=>
-                    #ty {
-                        left: #left,
-                        right: #right
-                    }
+                    let _var = #left;
+                    let _value = #right;
+                    #frontend_path::assign::expand(context, _value, _var)
                 }
             }
             Expression::Verbatim { tokens, .. } => {
@@ -325,7 +373,6 @@ impl ToTokens for Expression {
 
 impl ToTokens for Block {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let block = ir_type("BlockExpr");
         let ret = self
             .ret
             .as_ref()
@@ -334,9 +381,8 @@ impl ToTokens for Block {
         let inner = &self.inner;
         tokens.extend(quote_spanned! {self.span=>
             {
-                let mut __statements = Vec::new();
                 #(#inner)*
-                #block::new(__statements, #ret)
+                #ret
             }
         });
     }
@@ -374,50 +420,3 @@ fn split_generics(path: &Expression) -> (PathArguments, TokenStream) {
     };
     (generics, quote![#path])
 }
-
-// fn generate_unroll(block: &Block, range: &Expression, var: &Ident) -> TokenStream {
-//     let ret = block.ret.as_ref().map(|ret| Statement::Expression {
-//         expression: ret.clone(),
-//         terminated: true,
-//         span: ret.span(),
-//     });
-
-//     let inner = &block.inner;
-
-//     let func = quote! {
-//         #(#inner)*
-//         #ret
-//     };
-
-//     let block = ir_type("BlockExpr");
-//     let for_range = ir_type("ForLoopRange");
-//     quote! {
-//         let (__start, __end, __step, __inclusive) = #for_range::as_primitive(&(#range));
-//         let mut __statements = Vec::new();
-
-//         match (__step, __inclusive) {
-//             (None, true) => {
-//                 for #var in __start..=__end {
-//                     #func
-//                 }
-//             }
-//             (None, false) => {
-//                 for #var in __start..__end {
-//                     #func
-//                 }
-//             }
-//             (Some(step), true) => {
-//                 for #var in (__start..=__end).step_by(__step) {
-//                     #func
-//                 }
-//             }
-//             (Some(step), false) => {
-//                 for #var in (__start..__end).step_by(__step) {
-//                     #func
-//                 }
-//             }
-//         };
-
-//         #block::new(__statements, ())
-//     }
-// }

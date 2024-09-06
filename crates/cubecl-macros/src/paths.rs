@@ -22,7 +22,7 @@ const PRELUDE_PATH: LazyCell<Path> = LazyCell::new(|| {
     path
 });
 
-pub fn ir_path() -> Path {
+pub fn frontend_path() -> Path {
     #[allow(clippy::borrow_interior_mutable_const)]
     IR_PATH.clone()
 }
@@ -38,7 +38,7 @@ pub fn core_path() -> Path {
 }
 
 pub fn prefix_ir(ident: Ident) -> Path {
-    let mut path = ir_path();
+    let mut path = frontend_path();
     path.segments.push(ident.into());
     path
 }
@@ -51,7 +51,7 @@ pub fn core_type(ty: &str) -> Path {
 }
 
 pub fn ir_type(ty: &str) -> Path {
-    let mut path = ir_path();
+    let mut path = frontend_path();
     let ident = format_ident!("{ty}");
     path.segments.push(ident.into());
     path

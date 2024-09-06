@@ -1,9 +1,7 @@
-use std::iter;
-
-use darling::{ast::Data, FromDeriveInput, FromField};
+use darling::FromDeriveInput;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-use syn::{parse_quote, punctuated::Punctuated, Generics, Ident, Type, Visibility};
+use quote::quote;
+use syn::{Ident, Type, Visibility};
 
 use crate::{
     parse::cube_type::{TypeCodegen, TypeField},
@@ -231,13 +229,11 @@ pub(crate) fn generate_cube_type(ast: &syn::DeriveInput, with_launch: bool) -> T
             #launch_arg_impl
             #expand_type_impl
         }
-        .into()
     } else {
         quote! {
             #expand_ty
             #cube_type_impl
             #expand_type_impl
         }
-        .into()
     }
 }

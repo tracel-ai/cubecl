@@ -1,11 +1,12 @@
+use std::iter;
+
+use crate::{expression::Block, paths::prelude_type, scope::Context, statement::parse_pat};
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::{Span, TokenStream};
 use syn::{
-    parse_quote, spanned::Spanned, FnArg, Generics, Ident, ItemFn, Path, Signature, TraitItemFn,
-    Type, Visibility,
+    parse_quote, punctuated::Punctuated, spanned::Spanned, FnArg, Generics, Ident, ItemFn, Path,
+    Signature, TraitItemFn, Type, Visibility,
 };
-
-use crate::{expression::Block, ir_type, scope::Context, statement::parse_pat};
 
 use super::helpers::is_comptime_attr;
 
@@ -39,10 +40,12 @@ impl KernelArgs {
     }
 }
 
-pub struct Kernel {
+pub struct Launch {
     pub args: KernelArgs,
     pub vis: Visibility,
     pub func: KernelFn,
+    pub kernel_generics: Generics,
+    pub launch_generics: Generics,
 }
 
 #[derive(Clone)]
@@ -167,22 +170,35 @@ impl KernelFn {
     }
 }
 
-impl Kernel {
+impl Launch {
     pub fn from_item_fn(function: ItemFn, args: KernelArgs) -> syn::Result<Self> {
+        let runtime = prelude_type("Runtime");
+
         let vis = function.vis;
         let func = KernelFn::from_sig_and_block(function.sig, *function.block, args.is_launch())?;
+        let mut kernel_generics = func.sig.generics.clone();
+        kernel_generics.params.push(parse_quote![__R: #runtime]);
+        let mut expand_generics = kernel_generics.clone();
+        expand_generics.params =
+            Punctuated::from_iter(iter::once(parse_quote!['kernel]).chain(expand_generics.params));
 
-        Ok(Kernel { args, vis, func })
+        Ok(Launch {
+            args,
+            vis,
+            func,
+            kernel_generics,
+            launch_generics: expand_generics,
+        })
     }
 }
 
 fn normalize_kernel_ty(ty: Type, is_const: bool, is_ref_mut: &mut bool) -> Type {
     let ty = strip_ref(ty, is_ref_mut);
-    let expr = ir_type("Expr");
+    let cube_type = prelude_type("CubeType");
     if is_const {
         ty
     } else {
-        parse_quote![impl #expr<Output = #ty> + 'static + Clone]
+        parse_quote![<#ty as #cube_type>::ExpandType]
     }
 }
 

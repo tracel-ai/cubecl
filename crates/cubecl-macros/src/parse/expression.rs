@@ -58,9 +58,17 @@ impl Expression {
                     .path
                     .get_ident()
                     .and_then(|ident| context.variable(ident));
-                if let Some(ManagedVar { name, ty, is_const }) = variable {
+                if let Some(ManagedVar {
+                    name,
+                    ty,
+                    is_const,
+                    is_keyword,
+                }) = variable
+                {
                     if is_const {
                         Expression::ConstVariable { name, ty }
+                    } else if is_keyword {
+                        Expression::Keyword { name }
                     } else {
                         Expression::Variable {
                             span: path.span(),
