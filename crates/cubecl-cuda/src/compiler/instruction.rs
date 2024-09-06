@@ -466,10 +466,15 @@ impl Remainder {
     }
 }
 
-macro_rules! unique_variable_name {
-    ($base:expr) => {
-        concat!("__", $base, "_", line!())
-    };
+fn function_prefix(elem: Elem) -> &'static str {
+    match elem {
+        Elem::F16 => "h",
+        Elem::F162 => "h2",
+        Elem::BF16 => "h",
+        Elem::BF162 => "h2",
+        Elem::F32 => "",
+        _ => "",
+    }
 }
 
 struct Normalize;
@@ -481,17 +486,19 @@ impl Normalize {
         out: &Variable,
     ) -> core::fmt::Result {
         let num = input.item().vectorization;
-        let norm = unique_variable_name!("norm");
+        let elem = input.elem();
+        let norm = format!("{out}_norm");
+        let sqrt = format!("{}sqrt", function_prefix(elem));
 
         f.write_fmt(format_args!("{{\n"))?;
-        f.write_fmt(format_args!("float {norm} = 0.0;\n"))?;
+        f.write_fmt(format_args!("{elem} {norm} = 0.0;\n"))?;
 
         for i in 0..num {
             let input_i = input.index(i);
             f.write_fmt(format_args!("{norm} += {input_i} * {input_i};\n"))?;
         }
 
-        f.write_fmt(format_args!("{norm} = sqrt({norm});\n"))?;
+        f.write_fmt(format_args!("{norm} = {sqrt}({norm});\n"))?;
 
         for i in 0..num {
             let input_i = input.index(i);
