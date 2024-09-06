@@ -20,12 +20,12 @@ impl OutputWriter for LargeSmemWriter {
     ) {
         let num_accumulators = Comptime::map(comptime_info, |c| c.num_accumulators);
         let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
-        let lane_dim = Comptime::map(comptime_info, |c| c.lane_dim);
+        let num_coops = Comptime::map(comptime_info, |c| c.num_coops);
         let ids = runtime_info.ids;
 
         let smem_stride = tile_size * tile_size;
         let smem_stride_r = Comptime::runtime(smem_stride);
-        let smem_size = num_accumulators * lane_dim * smem_stride;
+        let smem_size = num_accumulators * num_coops * smem_stride;
 
         let mut acc_sm = SharedMemory::<F>::new(Comptime::get(smem_size));
 

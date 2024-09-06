@@ -26,12 +26,12 @@ fn write_output_test<F: Float>(
 ) {
     let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
     let tile_size = Comptime::map(config, |c| c.tile_size);
-    let lane_dim = Comptime::map(config, |c| c.lane_dim);
+    let num_coops = Comptime::map(config, |c| c.num_coops);
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
 
     let sm_stride = tile_size * tile_size;
-    let sm_size = num_accumulators * lane_dim * sm_stride;
+    let sm_size = num_accumulators * num_coops * sm_stride;
 
     let mut accumulate = SharedMemory::<F>::new(Comptime::get(sm_size));
     for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {

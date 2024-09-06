@@ -53,7 +53,7 @@ impl CmmaConfig {
     }
 
     pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> ComptimeCmmaInfo {
-        let lane_dim = self.b_mn * self.b_k / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
+        let num_coops = self.b_mn * self.b_k / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
 
         ComptimeCmmaInfo {
             block_size_m: self.b_mn.into(),
@@ -65,7 +65,7 @@ impl CmmaConfig {
             check_k_bounds: k % self.b_k != 0,
             check_n_bounds: n % self.b_mn != 0,
             coop_dim: CMMA_COOP_DIM.into(),
-            lane_dim: UInt::new(lane_dim as u32),
+            num_coops: UInt::new(num_coops as u32),
             num_accumulators: UInt::new(self.alpha as u32),
             write_out_reuse_smem: self.write_out_strategy == WriteOutStrategy::ReuseSmem,
         }
@@ -135,7 +135,7 @@ pub struct ComptimeCmmaInfo {
     /// The number of units that can collaborate
     pub coop_dim: UInt,
     /// The number of collaboration groups
-    pub lane_dim: UInt,
+    pub num_coops: UInt,
     /// Number of cmma per subcube performed in one pass
     pub num_accumulators: UInt,
     /// Write out strategy: false = large, true = reuse

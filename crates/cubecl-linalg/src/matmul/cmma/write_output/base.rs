@@ -96,7 +96,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let out_vec_r = Comptime::runtime(out_vec);
     let n_units_per_tile_row = Comptime::runtime(tile_size / out_vec);
     let sm_stride = Comptime::runtime(tile_size * tile_size);
-    let coop_dim = Comptime::map(comptime_info, |c| c.coop_dim);
+    let coop_dim = Comptime::map(comptime_info, |c| c.num_coops);
 
     let dims = runtime_info.dims;
     let ids = runtime_info.ids;
