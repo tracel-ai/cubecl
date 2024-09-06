@@ -236,7 +236,7 @@ impl<T: CubeType> From<ExpandElementTyped<T>> for ExpandElement {
 }
 
 impl<T: CubePrimitive> ExpandElementTyped<T> {
-    /// Create an [ExpandElementTyped] from a value that is normaly a literal.
+    /// Create an [ExpandElementTyped] from a value that is normally a literal.
     pub fn from_lit<L: Into<Variable>>(lit: L) -> Self {
         let variable: Variable = lit.into();
         let variable = T::as_elem().from_constant(variable);

@@ -28,7 +28,7 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
     offset / vectorization_factor_runtime
 }
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn into_contiguous_kernel<N: CubePrimitive>(
     input: &Tensor<N>,
     output: &mut Tensor<N>,
@@ -69,14 +69,16 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     let handle = client.empty(num_elems * E::as_elem().size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
-    into_contiguous_kernel::launch::<E, R>(
-        client,
-        cube_count,
-        cube_dim,
-        input.as_tensor_arg(vectorization_factor),
-        output.as_ref().as_tensor_arg(vectorization_factor),
-        Some(UInt::new(rank as u32)),
-    );
+    unsafe {
+        into_contiguous_kernel::launch_unchecked::<E, R>(
+            client,
+            cube_count,
+            cube_dim,
+            input.as_tensor_arg(vectorization_factor),
+            output.as_ref().as_tensor_arg(vectorization_factor),
+            Some(UInt::new(rank as u32)),
+        );
+    }
 
     output
 }

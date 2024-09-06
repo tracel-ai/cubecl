@@ -25,6 +25,8 @@ where
     type MemoryManagement: MemoryManagement<Self::Storage>;
     /// Features supported by the compute server.
     type FeatureSet: Send + Sync;
+    /// Properties of the compute server.
+    type Properties: Send + Sync;
 
     /// Given a handle, returns the owned resource as bytes.
     fn read(&mut self, binding: Binding<Self>) -> Reader;
@@ -66,6 +68,33 @@ where
 pub struct Handle<Server: ComputeServer> {
     /// Memory handle.
     pub memory: <Server::MemoryManagement as MemoryManagement<Server::Storage>>::Handle,
+    /// Memory offset in bytes.
+    pub offset_start: Option<usize>,
+    /// Memory offset in bytes.
+    pub offset_end: Option<usize>,
+}
+
+impl<Server: ComputeServer> Handle<Server> {
+    /// Add to the current offset in bytes.
+    pub fn offset_start(mut self, offset: usize) -> Self {
+        if let Some(val) = &mut self.offset_start {
+            *val += offset;
+        } else {
+            self.offset_start = Some(offset);
+        }
+
+        self
+    }
+    /// Add to the current offset in bytes.
+    pub fn offset_end(mut self, offset: usize) -> Self {
+        if let Some(val) = &mut self.offset_end {
+            *val += offset;
+        } else {
+            self.offset_end = Some(offset);
+        }
+
+        self
+    }
 }
 
 /// Binding of a [tensor handle](Handle) to execute a kernel.
@@ -73,6 +102,10 @@ pub struct Handle<Server: ComputeServer> {
 pub struct Binding<Server: ComputeServer> {
     /// Memory binding.
     pub memory: <Server::MemoryManagement as MemoryManagement<Server::Storage>>::Binding,
+    /// Memory offset in bytes.
+    pub offset_start: Option<usize>,
+    /// Memory offset in bytes.
+    pub offset_end: Option<usize>,
 }
 
 impl<Server: ComputeServer> Handle<Server> {
@@ -87,6 +120,8 @@ impl<Server: ComputeServer> Handle<Server> {
     pub fn binding(self) -> Binding<Server> {
         Binding {
             memory: MemoryHandle::binding(self.memory),
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
         }
     }
 }
@@ -95,6 +130,8 @@ impl<Server: ComputeServer> Clone for Handle<Server> {
     fn clone(&self) -> Self {
         Self {
             memory: self.memory.clone(),
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
         }
     }
 }
@@ -103,6 +140,8 @@ impl<Server: ComputeServer> Clone for Binding<Server> {
     fn clone(&self) -> Self {
         Self {
             memory: self.memory.clone(),
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
         }
     }
 }
