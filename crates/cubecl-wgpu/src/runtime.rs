@@ -4,7 +4,7 @@ use crate::{
     AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
 use alloc::sync::Arc;
-use cubecl_core::{Feature, FeatureSet, Runtime};
+use cubecl_core::{Feature, FeatureSet, Properties, Runtime};
 use cubecl_runtime::memory_management;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
 use wgpu::{DeviceDescriptor, Limits};
@@ -150,8 +150,11 @@ fn create_client(
     if features.contains(wgpu::Features::SUBGROUP) {
         features_cube.register(Feature::Subcube);
     }
+    let properties = Properties {
+        memory_offset_alignment: limits.min_storage_buffer_offset_alignment,
+    };
 
-    ComputeClient::new(channel, Arc::new(features_cube))
+    ComputeClient::new(channel, features_cube, properties)
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).

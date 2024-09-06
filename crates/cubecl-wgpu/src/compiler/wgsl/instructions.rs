@@ -201,6 +201,11 @@ pub enum Instruction {
     Loop {
         instructions: Vec<Instruction>,
     },
+    BitwiseOr {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
     BitwiseAnd {
         lhs: Variable,
         rhs: Variable,
@@ -219,6 +224,10 @@ pub enum Instruction {
     ShiftRight {
         lhs: Variable,
         rhs: Variable,
+        out: Variable,
+    },
+    Round {
+        input: Variable,
         out: Variable,
     },
     Floor {
@@ -595,6 +604,9 @@ for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
                 }
                 f.write_str("}\n")
             }
+            Instruction::BitwiseOr { lhs, rhs, out } => {
+                f.write_fmt(format_args!("{out} = {lhs} | {rhs};\n"))
+            }
             Instruction::BitwiseAnd { lhs, rhs, out } => {
                 f.write_fmt(format_args!("{out} = {lhs} & {rhs};\n"))
             }
@@ -606,6 +618,9 @@ for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
             }
             Instruction::ShiftRight { lhs, rhs, out } => {
                 f.write_fmt(format_args!("{out} = {lhs} >> {rhs};\n"))
+            }
+            Instruction::Round { input, out } => {
+                f.write_fmt(format_args!("{out} = round({input});\n"))
             }
             Instruction::Floor { input, out } => {
                 f.write_fmt(format_args!("{out} = floor({input});\n"))
