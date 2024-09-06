@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::cmma::{
     base::{make_accumulators, Ids, IdsExpand, SharedMemories, SharedMemoriesExpand},
     compute_loop::compute_loop,
-    config::{CmmaComptimeInfo, CmmaConfig, WriteOutStrategy},
+    config::{CmmaConfig, ComptimeCmmaInfo, WriteOutStrategy},
 };
 use crate::matmul::tests::test_utils::{
     assert_equals, cmma_available, create_empty, range_tensor_f16,
@@ -17,7 +17,7 @@ fn compute_loop_test<F: Float, FC: Float>(
     accumulate_array: &mut Array<F>,
     b_mn: Comptime<UInt>,
     b_k: Comptime<UInt>,
-    comptime_info: Comptime<CmmaComptimeInfo>,
+    comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
     let mut lhs = SharedMemory::<FC>::new(Comptime::get(b_mn * b_k));
     let mut rhs = SharedMemory::<FC>::new(Comptime::get(b_k * b_mn));
@@ -38,11 +38,11 @@ fn compute_loop_test<F: Float, FC: Float>(
     compute_loop(
         shared_memories,
         &mut accumulators,
-        comptime_info,
         Ids {
             coop: UNIT_POS_Y,
             lane: UNIT_POS_X,
         },
+        comptime_info,
     );
 
     let num_accumulators = Comptime::map(comptime_info, |c| c.num_accumulators);

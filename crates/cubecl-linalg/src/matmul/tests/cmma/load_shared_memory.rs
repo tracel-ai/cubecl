@@ -4,12 +4,13 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::base::{
-    Dimensions, DimensionsExpand, Ids, IdsExpand, Offsets, OffsetsExpand,
+    Dimensions, DimensionsExpand, Ids, IdsExpand, Offsets, OffsetsExpand, RuntimeCmmaInfo,
+    RuntimeCmmaInfoExpand,
 };
 use crate::matmul::cmma::config::{CmmaConfig, WriteOutStrategy};
 use crate::matmul::tests::test_utils::{assert_equals_range, create_empty};
 use crate::matmul::{
-    cmma::{config::CmmaComptimeInfo, load_shared_memory::*},
+    cmma::{config::ComptimeCmmaInfo, load_shared_memory::*},
     tests::test_utils::range_tensor,
 };
 
@@ -23,11 +24,16 @@ fn load_lhs_test<F: Float>(
     m: UInt,
     k: UInt,
     n: UInt,
-    config: Comptime<CmmaComptimeInfo>,
+    config: Comptime<ComptimeCmmaInfo>,
 ) {
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let sm_size = block_size_k * block_size_m;
+
+    let mut lhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+        lhs_sm[i] = F::new(0.);
+    }
 
     let offsets = Offsets {
         batch_lhs: UInt::new(0),
@@ -36,26 +42,20 @@ fn load_lhs_test<F: Float>(
         cube_row: UInt::new(0),
         cube_col: UInt::new(0),
     };
-
-    let mut lhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
-        lhs_sm[i] = F::new(0.);
-    }
-
     let dims = Dimensions { m, k, n };
+    let ids = Ids {
+        coop: UNIT_POS_Y,
+        lane: UNIT_POS_X,
+    };
+    let runtime_info = RuntimeCmmaInfo { offsets, dims, ids };
 
     load_lhs(
         lhs_tensor,
-        offsets,
         &mut lhs_sm,
         UInt::new(2),
         k_offset,
-        dims,
+        runtime_info,
         config,
-        Ids {
-            coop: UNIT_POS_Y,
-            lane: UNIT_POS_X,
-        },
     );
 
     for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
@@ -71,11 +71,16 @@ fn load_rhs_test<F: Float>(
     m: UInt,
     k: UInt,
     n: UInt,
-    config: Comptime<CmmaComptimeInfo>,
+    config: Comptime<ComptimeCmmaInfo>,
 ) {
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
     let sm_size = block_size_k * block_size_n;
+    let mut rhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
+
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+        rhs_sm[i] = F::new(0.);
+    }
 
     let offsets = Offsets {
         batch_lhs: UInt::new(0),
@@ -84,26 +89,20 @@ fn load_rhs_test<F: Float>(
         cube_row: UInt::new(0),
         cube_col: UInt::new(0),
     };
-
-    let mut rhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
-        rhs_sm[i] = F::new(0.);
-    }
-
     let dims = Dimensions { m, k, n };
+    let ids = Ids {
+        coop: UNIT_POS_Y,
+        lane: UNIT_POS_X,
+    };
+    let runtime_info = RuntimeCmmaInfo { offsets, dims, ids };
 
     load_rhs(
         rhs_tensor,
-        offsets,
         &mut rhs_sm,
         UInt::new(2),
         k_offset,
-        dims,
+        runtime_info,
         config,
-        Ids {
-            coop: UNIT_POS_Y,
-            lane: UNIT_POS_X,
-        },
     );
 
     for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {

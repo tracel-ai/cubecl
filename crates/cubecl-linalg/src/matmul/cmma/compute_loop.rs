@@ -2,20 +2,19 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::base::{Ids, SharedMemories};
-use super::config::CmmaComptimeInfo;
+use super::config::ComptimeCmmaInfo;
 
 #[cube]
 #[allow(unused_mut)]
 pub(crate) fn compute_loop<F: Float, FC: Float>(
     shared_memories: SharedMemories<FC>,
     accumulators: &mut Sequence<cmma::Matrix<F>>,
-    config: Comptime<CmmaComptimeInfo>,
     ids: Ids,
+    comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
-    let block_size_n = Comptime::map(config, |c| c.block_size_n);
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
-
+    let block_size_n = Comptime::map(comptime_info, |c| c.block_size_n);
+    let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
+    let num_accumulators = Comptime::map(comptime_info, |c| c.num_accumulators);
     let num_coop_per_row = Comptime::runtime((block_size_n / tile_size) / num_accumulators);
 
     let tile_row = ids.coop / num_coop_per_row;
@@ -28,7 +27,7 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
             tile_col_base,
             shared_memories,
             *accumulators.index(n),
-            config,
+            comptime_info,
         );
     }
 }
@@ -40,11 +39,11 @@ fn compute_tile<F: Float, FC: Float>(
     tile_col_base: UInt,
     shared_memories: SharedMemories<FC>,
     accumulator: cmma::Matrix<F>,
-    config: Comptime<CmmaComptimeInfo>,
+    comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let unroll = Comptime::map(config, |c| c.unroll);
+    let block_size_k = Comptime::map(comptime_info, |c| c.block_size_k);
+    let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
+    let unroll = Comptime::map(comptime_info, |c| c.unroll);
 
     let num_tile_elems = Comptime::runtime(tile_size * tile_size);
     let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size);

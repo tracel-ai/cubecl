@@ -1,11 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::cmma::base::RuntimeCmmaInfo;
+
 use super::{
-    super::{
-        base::{Dimensions, Ids, Offsets},
-        config::CmmaComptimeInfo,
-    },
+    super::config::ComptimeCmmaInfo,
     base::{shared_memory_to_output, OutputWriter},
 };
 
@@ -16,14 +15,13 @@ impl OutputWriter for ReuseSmemWriter {
     fn write_to_output<F: Float>(
         out: &mut Tensor<F>,
         accumulators: Sequence<cmma::Matrix<F>>,
-        offsets: Offsets,
-        dims: Dimensions,
-        config: Comptime<CmmaComptimeInfo>,
-        ids: Ids,
+        runtime_info: RuntimeCmmaInfo,
+        comptime_info: Comptime<ComptimeCmmaInfo>,
     ) {
-        let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let lane_dim = Comptime::map(config, |c| c.lane_dim);
+        let num_accumulators = Comptime::map(comptime_info, |c| c.num_accumulators);
+        let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
+        let lane_dim = Comptime::map(comptime_info, |c| c.lane_dim);
+        let ids = runtime_info.ids;
 
         let sm_stride = tile_size * tile_size;
         let sm_size = lane_dim * sm_stride;
@@ -42,7 +40,7 @@ impl OutputWriter for ReuseSmemWriter {
                 cmma::MatrixLayout::RowMajor,
             );
 
-            shared_memory_to_output(out, offsets, ids.coop, acc_sm, dims, config, n, ids);
+            shared_memory_to_output(out, ids.coop, acc_sm, n, runtime_info, comptime_info);
         }
     }
 }

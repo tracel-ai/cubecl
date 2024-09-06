@@ -4,9 +4,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::base::{
-    Dimensions, DimensionsExpand, Ids, IdsExpand, Offsets, OffsetsExpand,
+    Dimensions, DimensionsExpand, Ids, IdsExpand, Offsets, OffsetsExpand, RuntimeCmmaInfo,
+    RuntimeCmmaInfoExpand,
 };
-use crate::matmul::cmma::config::{CmmaComptimeInfo, CmmaConfig, WriteOutStrategy};
+use crate::matmul::cmma::config::{CmmaConfig, ComptimeCmmaInfo, WriteOutStrategy};
 use crate::matmul::cmma::write_output::base::shared_memory_to_output;
 use crate::matmul::tests::test_utils::{
     assert_equals, assert_equals_range, range_tensor, zeros_tensor,
@@ -21,7 +22,7 @@ fn write_output_test<F: Float>(
     m: UInt,
     k: UInt,
     n: UInt,
-    config: Comptime<CmmaComptimeInfo>,
+    config: Comptime<ComptimeCmmaInfo>,
 ) {
     let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
     let tile_size = Comptime::map(config, |c| c.tile_size);
@@ -32,6 +33,11 @@ fn write_output_test<F: Float>(
     let sm_stride = tile_size * tile_size;
     let sm_size = num_accumulators * lane_dim * sm_stride;
 
+    let mut accumulate = SharedMemory::<F>::new(Comptime::get(sm_size));
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+        accumulate[i] = acc_sm_arr[i];
+    }
+
     let offsets = Offsets {
         batch_lhs: UInt::new(0),
         batch_rhs: UInt::new(0),
@@ -39,29 +45,22 @@ fn write_output_test<F: Float>(
         cube_row: CUBE_POS_X * Comptime::runtime(block_size_m),
         cube_col: CUBE_POS_Y * Comptime::runtime(block_size_n),
     };
-
-    let mut accumulate = SharedMemory::<F>::new(Comptime::get(sm_size));
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
-        accumulate[i] = acc_sm_arr[i];
-    }
-
     let dims = Dimensions { m, k, n };
     let ids = Ids {
         coop: UNIT_POS_Y,
         lane: UNIT_POS_X,
     };
+    let runtime_info = RuntimeCmmaInfo { offsets, dims, ids };
 
     let smem_position_base = Comptime::runtime(num_accumulators) * ids.coop;
     for n_iter in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
         shared_memory_to_output(
             out,
-            offsets,
             smem_position_base + n_iter,
             accumulate,
-            dims,
-            config,
             n_iter,
-            ids,
+            runtime_info,
+            config,
         );
     }
 }

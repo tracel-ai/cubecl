@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::block_loop::block_loop;
-use super::config::CmmaComptimeInfo;
+use super::config::ComptimeCmmaInfo;
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -10,15 +10,15 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
-    config: Comptime<CmmaComptimeInfo>,
+    comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
     let ids = get_ids();
     let dims = get_dims::<F>(lhs, rhs);
-    let offsets = calculate_offsets::<F>(lhs, rhs, out, config);
-    let runtime_info = RuntimeInfo { ids, dims, offsets };
+    let offsets = calculate_offsets::<F>(lhs, rhs, out, comptime_info);
+    let runtime_info = RuntimeCmmaInfo { ids, dims, offsets };
 
-    let shared_memories = make_shared_memories::<FC>(config);
-    let accumulate = make_accumulators::<F>(config);
+    let shared_memories = make_shared_memories::<FC>(comptime_info);
+    let accumulate = make_accumulators::<F>(comptime_info);
     block_loop::<F, FC>(
         lhs,
         rhs,
@@ -26,7 +26,7 @@ pub fn cmma_kernel<F: Float, FC: Float>(
         shared_memories,
         accumulate,
         runtime_info,
-        config,
+        comptime_info,
     );
 }
 
@@ -44,7 +44,7 @@ pub(crate) struct Ids {
 }
 
 #[derive(CubeType, Copy, Clone)]
-pub(crate) struct RuntimeInfo {
+pub(crate) struct RuntimeCmmaInfo {
     pub ids: Ids,
     pub dims: Dimensions,
     pub offsets: Offsets,
@@ -85,7 +85,7 @@ fn calculate_offsets<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &Tensor<F>,
-    config: Comptime<CmmaComptimeInfo>,
+    config: Comptime<ComptimeCmmaInfo>,
 ) -> Offsets {
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
@@ -121,7 +121,7 @@ fn calculate_offsets<F: Float>(
 }
 
 #[cube]
-fn make_shared_memories<FC: Float>(config: Comptime<CmmaComptimeInfo>) -> SharedMemories<FC> {
+fn make_shared_memories<FC: Float>(config: Comptime<ComptimeCmmaInfo>) -> SharedMemories<FC> {
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let block_size_n = Comptime::map(config, |c| c.block_size_n);
@@ -134,7 +134,7 @@ fn make_shared_memories<FC: Float>(config: Comptime<CmmaComptimeInfo>) -> Shared
 
 #[cube]
 pub(crate) fn make_accumulators<F: Float>(
-    config: Comptime<CmmaComptimeInfo>,
+    config: Comptime<ComptimeCmmaInfo>,
 ) -> Sequence<cmma::Matrix<F>> {
     let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
     let mut accumulators = Sequence::<cmma::Matrix<F>>::new();

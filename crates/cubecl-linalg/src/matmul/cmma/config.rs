@@ -10,7 +10,7 @@ pub(crate) const CMMA_TILE_SIZE: usize = 16;
 pub enum WriteOutStrategy {
     /// Accumulators for one warp are put concurrently in a shared memory large enough to contain them all
     LargeSmem,
-    /// Accumulators for one warp are put sequentially in a shared memory with only one reusable spot 
+    /// Accumulators for one warp are put sequentially in a shared memory with only one reusable spot
     ReuseSmem,
 }
 
@@ -19,12 +19,12 @@ pub struct CmmaConfig {
     pub b_mn: usize,
     /// Corresponds to the number of tiles in the k dimension for a block
     pub b_k: usize,
-    /// Corresponds to the number of accumulators per warp. Equals b_mn / b_k
-    pub alpha: usize,
     /// Whether to unroll loop over k within the shared memory
     pub unroll: bool,
     /// Whether to write all accumulators in different spots of a large shared memory or reuse the space
     pub write_out_strategy: WriteOutStrategy,
+    /// Corresponds to the number of accumulators per warp. Equals b_mn / b_k
+    pub alpha: usize,
 }
 
 impl Default for CmmaConfig {
@@ -52,10 +52,10 @@ impl CmmaConfig {
         }
     }
 
-    pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> CmmaComptimeInfo {
+    pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> ComptimeCmmaInfo {
         let lane_dim = self.b_mn * self.b_k / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
 
-        CmmaComptimeInfo {
+        ComptimeCmmaInfo {
             block_size_m: self.b_mn.into(),
             block_size_k: self.b_k.into(),
             block_size_n: self.b_mn.into(),
@@ -107,7 +107,7 @@ impl CmmaConfig {
     }
 }
 
-impl Init for CmmaComptimeInfo {
+impl Init for ComptimeCmmaInfo {
     fn init(self, _context: &mut CubeContext) -> Self {
         self
     }
@@ -115,7 +115,7 @@ impl Init for CmmaComptimeInfo {
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Tiling 2D parameters
-pub struct CmmaComptimeInfo {
+pub struct ComptimeCmmaInfo {
     /// Block size along dimension of lhs
     pub block_size_m: UInt,
     /// Block size along common dimension
