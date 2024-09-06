@@ -67,6 +67,11 @@ pub fn sqrt_op<F: Float>(a: F) -> F {
 }
 
 #[cube]
+pub fn round_op<F: Float>(a: F) -> F {
+    F::round(a)
+}
+
+#[cube]
 pub fn floor_op<F: Float>(a: F) -> F {
     F::floor(a)
 }
@@ -154,6 +159,11 @@ pub fn not_op(a: bool) -> bool {
 #[cube]
 pub fn bitand_op(a: UInt, b: UInt) -> UInt {
     a & b
+}
+
+#[cube]
+pub fn bitor_op(a: UInt, b: UInt) -> UInt {
+    a | b
 }
 
 #[cube]
@@ -286,6 +296,7 @@ mod tests {
     unary_test!(cube_can_sqrt, sqrt_op::__expand::<F32>, "Sqrt");
     unary_test!(cube_can_erf, erf_op::__expand::<F32>, "Erf");
     unary_test!(cube_can_recip, recip_op::__expand::<F32>, "Recip");
+    unary_test!(cube_can_round, round_op::__expand::<F32>, "Round");
     unary_test!(cube_can_floor, floor_op::__expand::<F32>, "Floor");
     unary_test!(cube_can_ceil, ceil_op::__expand::<F32>, "Ceil");
     binary_test!(cube_can_eq, equal_op::__expand::<F32>, "Equal", ref_ops_cmp);
@@ -343,6 +354,7 @@ mod tests {
     binary_boolean_test!(cube_can_and, and_op::__expand, "And");
     binary_boolean_test!(cube_can_or, or_op::__expand, "Or");
     binary_uint_test!(cube_can_bitand, bitand_op::__expand, "BitwiseAnd");
+    binary_uint_test!(cube_can_bitor, bitor_op::__expand, "BitwiseOr");
     binary_uint_test!(cube_can_bitxor, bitxor_op::__expand, "BitwiseXor");
     binary_uint_test!(cube_can_shl, shl_op::__expand, "ShiftLeft");
     binary_uint_test!(cube_can_shr, shr_op::__expand, "ShiftRight");
