@@ -115,20 +115,20 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let available_vectorizations = cmma_config.available_vectorizations();
     let lhs_vectorization = tensor_vectorization_factor(
         &available_vectorizations,
-        &lhs.shape,
-        &lhs.strides,
+        lhs.shape,
+        lhs.strides,
         rank - 1,
     );
     let rhs_vectorization = tensor_vectorization_factor(
         &available_vectorizations,
-        &rhs.shape,
-        &rhs.strides,
+        rhs.shape,
+        rhs.strides,
         rank - 1,
     );
     let out_vectorization = tensor_vectorization_factor(
         &available_vectorizations,
-        &out.shape,
-        &out.strides,
+        out.shape,
+        out.strides,
         rank - 1,
     );
 

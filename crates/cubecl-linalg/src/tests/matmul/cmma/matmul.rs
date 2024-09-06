@@ -51,7 +51,6 @@ macro_rules! testgen_cmma_matmul {
             tests::matmul_tests::test_matmul_cmma_128_32::<TestRuntime>(&Default::default())
         }
 
-
         #[test]
         pub fn test_matmul_cmma_several_cubes() {
             tests::matmul_tests::test_matmul_cmma_several_cubes::<TestRuntime>(&Default::default())

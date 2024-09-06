@@ -57,22 +57,20 @@ impl<F: Float> BlockWriter<F> for WholeCheckBlockIO {
         let out_vec_r = Comptime::runtime(out_vec);
         let is_scalar = Comptime::map(out_vec, |v| v.val == 1);
 
-        if write_row < dims.m {
-            if write_col < dims.n {
-                let write_position = batch_offset + write_row * dims.n + write_col;
+        if write_row < dims.m && write_col < dims.n {
+            let write_position = batch_offset + write_row * dims.n + write_col;
 
-                if Comptime::get(is_scalar) {
-                    let val = accumulator_sm[read_position];
-                    out[write_position / out_vec_r] = val;
-                } else {
-                    let mut value = F::vectorized_empty(Comptime::get(out_vec));
+            if Comptime::get(is_scalar) {
+                let val = accumulator_sm[read_position];
+                out[write_position / out_vec_r] = val;
+            } else {
+                let mut value = F::vectorized_empty(Comptime::get(out_vec));
 
-                    for i in range(0u32, Comptime::get(out_vec), Comptime::new(true)) {
-                        value[i] = accumulator_sm[read_position + i];
-                    }
-
-                    out[write_position / out_vec_r] = value;
+                for i in range(0u32, Comptime::get(out_vec), Comptime::new(true)) {
+                    value[i] = accumulator_sm[read_position + i];
                 }
+
+                out[write_position / out_vec_r] = value;
             }
         }
     }
