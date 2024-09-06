@@ -2,7 +2,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::base::Dimensions;
-use crate::matmul::cmma::config::CmmaComptimeInfo;
 
 #[cube]
 pub(crate) trait BlockLoader<F: Float, FC: Float>: Send + Sync + 'static {
@@ -24,12 +23,10 @@ pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
     fn write_output(
         out: &mut Tensor<F>,
         accumulator_sm: SharedMemory<F>,
-        n_iter: UInt,
         batch_offset: UInt,
         read_position: UInt,
         write_row: UInt,
         write_col: UInt,
         dims: Dimensions,
-        config: Comptime<CmmaComptimeInfo>,
     );
 }

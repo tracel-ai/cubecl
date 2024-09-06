@@ -46,7 +46,9 @@ fn write_output_test<F: Float>(
 
     let dims = Dimensions { m, k, n };
 
-    large_shared_memory_to_output(out, offsets, accumulate, dims, config);
+    for n_iter in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
+        large_shared_memory_to_output(out, offsets, accumulate, dims, config, n_iter);
+    }
 }
 
 fn write_output_test_case<R: Runtime>(

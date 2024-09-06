@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::{base::Dimensions, config::CmmaComptimeInfo};
+use crate::matmul::cmma::base::Dimensions;
 
 use super::base::{BlockLoader, BlockWriter};
 
@@ -47,25 +47,18 @@ impl<F: Float> BlockWriter<F> for VerticalCheckBlockIO {
     fn write_output(
         out: &mut Tensor<F>,
         accumulator_sm: SharedMemory<F>,
-        n_iter: UInt,
         batch_offset: UInt,
         read_position: UInt,
         write_row: UInt,
         write_col: UInt,
         dims: Dimensions,
-        config: Comptime<CmmaComptimeInfo>,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
         let out_vec = Comptime::vectorization(out);
         let out_vec_r = Comptime::runtime(out_vec);
         let is_scalar = Comptime::map(out_vec, |v| v.val == 1);
 
         if write_row < dims.m {
-            let col_with_n_iter = write_col + n_iter * Comptime::runtime(tile_size);
-            let n_iter_read_offset = UInt::new(0);//n_iter * Comptime::runtime(tile_size * tile_size);
-            let read_position = read_position + n_iter_read_offset;
-
-            let write_position = batch_offset + write_row * dims.n + col_with_n_iter;
+            let write_position = batch_offset + write_row * dims.n + write_col;
 
             if Comptime::get(is_scalar) {
                 let val = accumulator_sm[read_position];

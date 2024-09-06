@@ -32,11 +32,12 @@ impl OutputWriter for ReusedSmemWriter {
         let sm_stride = tile_size * tile_size;
         let sm_size = lane_dim * sm_stride;
 
-        let mut acc_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
+        let acc_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
 
         let coop_id = coop_id();
         let slice_offset = coop_id * Comptime::runtime(sm_stride);
-        let slice = acc_sm.slice_mut_unsafe(slice_offset, slice_offset + Comptime::runtime(sm_stride));
+        let slice =
+            acc_sm.slice_mut_unsafe(slice_offset, slice_offset + Comptime::runtime(sm_stride));
 
         for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
             cmma::store::<F>(
@@ -58,7 +59,7 @@ pub(crate) fn reused_shared_memory_to_output<F: Float>(
     accumulator_sm: SharedMemory<F>,
     dims: Dimensions,
     config: Comptime<CmmaComptimeInfo>,
-    n_iter: UInt
+    n_iter: UInt,
 ) {
     let check_m_bounds = Comptime::map(config, |c| c.check_m_bounds);
     let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
@@ -67,7 +68,14 @@ pub(crate) fn reused_shared_memory_to_output<F: Float>(
         if Comptime::get(check_n_bounds) {
             write_tile::<F, WholeCheckBlockIO>(out, offsets, accumulator_sm, dims, config, n_iter);
         } else {
-            write_tile::<F, VerticalCheckBlockIO>(out, offsets, accumulator_sm, dims, config, n_iter);
+            write_tile::<F, VerticalCheckBlockIO>(
+                out,
+                offsets,
+                accumulator_sm,
+                dims,
+                config,
+                n_iter,
+            );
         }
     } else if Comptime::get(check_n_bounds) {
         write_tile::<F, HorizontalCheckBlockIO>(out, offsets, accumulator_sm, dims, config, n_iter);
@@ -83,7 +91,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     accumulator_sm: SharedMemory<F>,
     dims: Dimensions,
     config: Comptime<CmmaComptimeInfo>,
-    n_iter: UInt
+    n_iter: UInt,
 ) {
     let tile_size = Comptime::map(config, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);
@@ -114,7 +122,8 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let unit_write_col = lane_id % n_units_per_tile_row * out_vec_r;
 
     let row_offset = offsets.cube_row + tile_row * tile_size_r;
-    let write_col = offsets.cube_col + tile_col * tile_size_r + unit_write_col;
+    let write_col =
+        offsets.cube_col + tile_col * tile_size_r + unit_write_col + n_iter * tile_size_r;
 
     for i in range(0u32, Comptime::get(num_unit_writes), Comptime::new(true)) {
         let read_pos = read_offset + i * sm_step;
@@ -123,13 +132,11 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
         W::write_output(
             out,
             accumulator_sm,
-            n_iter,
             offsets.batch_out,
             read_pos,
             write_row,
             write_col,
             dims,
-            config,
         );
     }
 }
