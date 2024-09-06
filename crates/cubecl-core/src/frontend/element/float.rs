@@ -6,6 +6,7 @@ use crate::frontend::{
     ExpandElementTyped, Numeric,
 };
 use crate::ir::{ConstantScalarValue, Elem, FloatKind, Item, Variable, Vectorization};
+use crate::prelude::Normalize;
 
 use super::{
     init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized, __expand_new,
@@ -29,6 +30,7 @@ pub trait Float:
     + Ceil
     + Erf
     + Recip
+    + Normalize
     + From<f32>
     + core::ops::Add<f32, Output = Self>
     + core::ops::Sub<f32, Output = Self>
