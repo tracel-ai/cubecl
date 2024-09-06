@@ -472,11 +472,8 @@ impl Remainder {
 
 fn function_prefix(elem: Elem) -> &'static str {
     match elem {
-        Elem::F16 => "h",
-        Elem::F162 => "h2",
-        Elem::BF16 => "h",
-        Elem::BF162 => "h2",
-        Elem::F32 => "",
+        Elem::F16 | Elem::BF16 => "h",
+        Elem::F162 | Elem::BF162 => "h2",
         _ => "",
     }
 }
