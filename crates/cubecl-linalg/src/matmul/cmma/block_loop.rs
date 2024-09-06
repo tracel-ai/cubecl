@@ -6,11 +6,11 @@ use super::{
     compute_loop::compute_loop,
     config::CmmaComptimeInfo,
     load_shared_memory::load_to_shared_memories,
-    write_output::write_to_output,
+    write_output::base::OutputWriter,
 };
 
 #[cube]
-pub(crate) fn block_loop<F: Float, FC: Float>(
+pub(crate) fn block_loop<F: Float, FC: Float, O: OutputWriter>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
@@ -37,5 +37,5 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
         sync_units();
     }
 
-    write_to_output::<F>(out, accumulators, offsets, dims, config);
+    O::write_to_output(out, accumulators, offsets, dims, config);
 }

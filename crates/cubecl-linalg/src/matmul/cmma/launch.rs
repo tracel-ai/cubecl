@@ -10,6 +10,8 @@ use crate::{
     tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle},
 };
 
+use super::write_output::reused_smem::ReusedSmemWriter;
+
 /// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
 pub fn matmul_cmma<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
@@ -133,7 +135,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     );
 
     unsafe {
-        cmma_kernel::launch_unchecked::<F, F16, R>(
+        cmma_kernel::launch_unchecked::<F, F16, ReusedSmemWriter, R>(
             client,
             block_config.cube_count::<R>(out.shape),
             block_config.cube_dim(),

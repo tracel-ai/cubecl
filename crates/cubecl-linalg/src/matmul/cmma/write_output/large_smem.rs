@@ -2,25 +2,32 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    base::{coop_id, lane_id, Dimensions, Offsets},
-    block_io::{
-        base::BlockWriter, horizontal_block_check::HorizontalCheckBlockIO,
-        unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
-        whole_block_check::WholeCheckBlockIO,
+    super::{
+        base::{coop_id, lane_id, Dimensions, Offsets},
+        block_io::{
+            base::BlockWriter, horizontal_block_check::HorizontalCheckBlockIO,
+            unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
+            whole_block_check::WholeCheckBlockIO,
+        },
+        config::CmmaComptimeInfo,
     },
-    config::CmmaComptimeInfo,
+    base::OutputWriter,
 };
 
+pub(crate) struct LargeSmemWriter;
+
 #[cube]
-pub(crate) fn write_to_output<F: Float>(
-    out: &mut Tensor<F>,
-    accumulators: Sequence<cmma::Matrix<F>>,
-    offsets: Offsets,
-    dims: Dimensions,
-    config: Comptime<CmmaComptimeInfo>,
-) {
-    let accumulator_sm = fragment_to_shared_memory(accumulators, config);
-    shared_memory_to_output(out, offsets, accumulator_sm, dims, config);
+impl OutputWriter for LargeSmemWriter {
+    fn write_to_output<F: Float>(
+        out: &mut Tensor<F>,
+        accumulators: Sequence<cmma::Matrix<F>>,
+        offsets: Offsets,
+        dims: Dimensions,
+        config: Comptime<CmmaComptimeInfo>,
+    ) {
+        let accumulator_sm = fragment_to_shared_memory(accumulators, config);
+        large_shared_memory_to_output(out, offsets, accumulator_sm, dims, config);
+    }
 }
 
 #[cube]
@@ -58,7 +65,7 @@ fn fragment_to_shared_memory<F: Float>(
 }
 
 #[cube]
-pub(crate) fn shared_memory_to_output<F: Float>(
+pub(crate) fn large_shared_memory_to_output<F: Float>(
     out: &mut Tensor<F>,
     offsets: Offsets,
     accumulator_sm: SharedMemory<F>,

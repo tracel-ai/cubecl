@@ -73,8 +73,6 @@ impl CmmaBlockConfig {
     }
 
     pub(crate) fn cube_dim(&self) -> CubeDim {
-        // A bit arbitrary as long as number of elements stays the same
-        // TODO allow trying other combinations that have same product
         CubeDim {
             x: CMMA_COOP_DIM as u32,
             y: ((self.b_mn * self.b_k) / (CMMA_TILE_SIZE * CMMA_TILE_SIZE)) as u32,
