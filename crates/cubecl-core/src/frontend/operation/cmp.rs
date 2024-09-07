@@ -8,10 +8,16 @@ pub mod ne {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: ExpandElementTyped<C>,
-        rhs: ExpandElementTyped<C>,
+        lhs: impl Into<ExpandElementTyped<C>>,
+        rhs: impl Into<ExpandElementTyped<C>>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(context, lhs.into(), rhs.into(), Operator::NotEqual).into()
+        cmp_expand(
+            context,
+            lhs.into().into(),
+            rhs.into().into(),
+            Operator::NotEqual,
+        )
+        .into()
     }
 }
 
@@ -20,10 +26,16 @@ pub mod gt {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: ExpandElementTyped<C>,
-        rhs: ExpandElementTyped<C>,
+        lhs: impl Into<ExpandElementTyped<C>>,
+        rhs: impl Into<ExpandElementTyped<C>>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(context, lhs.into(), rhs.into(), Operator::Greater).into()
+        cmp_expand(
+            context,
+            lhs.into().into(),
+            rhs.into().into(),
+            Operator::Greater,
+        )
+        .into()
     }
 }
 
@@ -32,10 +44,16 @@ pub mod lt {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: ExpandElementTyped<C>,
-        rhs: ExpandElementTyped<C>,
+        lhs: impl Into<ExpandElementTyped<C>>,
+        rhs: impl Into<ExpandElementTyped<C>>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(context, lhs.into(), rhs.into(), Operator::Lower).into()
+        cmp_expand(
+            context,
+            lhs.into().into(),
+            rhs.into().into(),
+            Operator::Lower,
+        )
+        .into()
     }
 }
 
@@ -44,10 +62,16 @@ pub mod ge {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: ExpandElementTyped<C>,
-        rhs: ExpandElementTyped<C>,
+        lhs: impl Into<ExpandElementTyped<C>>,
+        rhs: impl Into<ExpandElementTyped<C>>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(context, lhs.into(), rhs.into(), Operator::GreaterEqual).into()
+        cmp_expand(
+            context,
+            lhs.into().into(),
+            rhs.into().into(),
+            Operator::GreaterEqual,
+        )
+        .into()
     }
 }
 
@@ -56,10 +80,16 @@ pub mod le {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: ExpandElementTyped<C>,
-        rhs: ExpandElementTyped<C>,
+        lhs: impl Into<ExpandElementTyped<C>>,
+        rhs: impl Into<ExpandElementTyped<C>>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(context, lhs.into(), rhs.into(), Operator::LowerEqual).into()
+        cmp_expand(
+            context,
+            lhs.into().into(),
+            rhs.into().into(),
+            Operator::LowerEqual,
+        )
+        .into()
     }
 }
 
@@ -69,10 +99,16 @@ pub mod eq {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: ExpandElementTyped<C>,
-        rhs: ExpandElementTyped<C>,
+        lhs: impl Into<ExpandElementTyped<C>>,
+        rhs: impl Into<ExpandElementTyped<C>>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(context, lhs.into(), rhs.into(), Operator::Equal).into()
+        cmp_expand(
+            context,
+            lhs.into().into(),
+            rhs.into().into(),
+            Operator::Equal,
+        )
+        .into()
     }
 }
 
@@ -81,9 +117,9 @@ pub mod add_assign {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: ExpandElementTyped<C>,
-        rhs: ExpandElementTyped<C>,
+        lhs: impl Into<ExpandElementTyped<C>>,
+        rhs: impl Into<ExpandElementTyped<C>>,
     ) -> ExpandElementTyped<C> {
-        cmp_expand(context, lhs.into(), rhs.into(), Operator::Add).into()
+        cmp_expand(context, lhs.into().into(), rhs.into().into(), Operator::Add).into()
     }
 }

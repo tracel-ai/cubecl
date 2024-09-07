@@ -14,7 +14,6 @@ use super::{
 pub trait Int:
     Numeric
     + std::ops::Rem<Output = Self>
-    + From<i32>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>
     + core::ops::Mul<Output = Self>
@@ -28,15 +27,12 @@ pub trait Int:
 {
     fn new(val: i64) -> Self;
     fn vectorized(val: i64, vectorization: u32) -> Self;
-    fn __expand_new(
-        context: &mut CubeContext,
-        val: Self::ExpandType,
-    ) -> <Self as CubeType>::ExpandType {
-        __expand_new(context, val, Self::as_elem())
+    fn __expand_new(context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType {
+        __expand_new(context, val)
     }
     fn __expand_vectorized(
         context: &mut CubeContext,
-        val: Self::ExpandType,
+        val: i64,
         vectorization: u32,
     ) -> <Self as CubeType>::ExpandType {
         __expand_vectorized(context, val, vectorization, Self::as_elem())
@@ -87,6 +83,16 @@ macro_rules! impl_int {
 
 impl_int!(i32, I32);
 impl_int!(i64, I64);
+
+impl Int for u32 {
+    fn new(val: i64) -> Self {
+        val as u32
+    }
+
+    fn vectorized(val: i64, _vectorization: u32) -> Self {
+        Self::new(val)
+    }
+}
 
 impl ScalarArgSettings for i32 {
     fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {

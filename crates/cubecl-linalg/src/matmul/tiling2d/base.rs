@@ -30,7 +30,7 @@ pub fn tiling2d_cube_kernel<F: Float>(
     );
 }
 
-#[derive(Expand, CubeType, Copy, Clone)]
+#[derive(CubeType, Copy, Clone)]
 /// Information available at runtime only
 /// Strides assume contiguous
 pub(crate) struct Dimensions {
@@ -39,13 +39,13 @@ pub(crate) struct Dimensions {
     pub n: u32,
 }
 
-#[derive(Expand, CubeType, Copy, Clone)]
+#[derive(CubeType, Copy, Clone)]
 pub(crate) struct SharedMemories<F: Float> {
     pub lhs: SharedMemory<F>,
     pub rhs: SharedMemory<F>,
 }
 
-#[derive(Expand, CubeType, Copy, Clone)]
+#[derive(CubeType, Copy, Clone)]
 /// Number of elements in previous batches
 /// Not divided by vectorization facto
 pub(crate) struct BatchOffsets {
@@ -54,7 +54,7 @@ pub(crate) struct BatchOffsets {
     pub out: u32,
 }
 
-#[derive(Expand, CubeType, Copy, Clone)]
+#[derive(CubeType, Copy, Clone)]
 pub(crate) struct Coordinates {
     pub unit_row: u32,
     pub unit_col: u32,

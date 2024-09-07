@@ -6,7 +6,7 @@ use super::ExpandElementTyped;
 macro_rules! constant {
     ($ident:ident, $var:expr, $doc:expr) => {
         #[doc = $doc]
-        pub const $ident: u32 = 0;
+        pub const $ident: u32 = 1;
 
         #[allow(non_snake_case)]
         #[doc = $doc]

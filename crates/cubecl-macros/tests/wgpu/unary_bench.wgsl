@@ -41,10 +41,10 @@ if l_0_2 {
 l_0_3 = input_0_global[id];
 l_0_4 = input_1_global[id];
 l_0_3 = l_0_3 * l_0_4;
-l_0_4 = cos(l_0_3);
-l_0_3 = output_0_global[id];
-l_0_3 = l_0_3 - l_0_4;
-output_0_global[id] = vec4<f32>(l_0_3);
+l_0_3 = cos(l_0_3);
+l_0_4 = output_0_global[id];
+l_0_4 = l_0_4 - l_0_3;
+output_0_global[id] = vec4<f32>(l_0_4);
 } else {
 l_0_4 = input_0_global[id];
 l_0_3 = input_1_global[id];

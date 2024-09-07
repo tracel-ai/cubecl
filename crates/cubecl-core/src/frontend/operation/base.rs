@@ -1,8 +1,11 @@
 use std::num::NonZero;
 
-use crate::frontend::{CubeContext, ExpandElement};
 use crate::ir::{BinaryOperator, Elem, Item, Operator, UnaryOperator, Variable, Vectorization};
 use crate::prelude::{CubeType, ExpandElementTyped};
+use crate::{
+    frontend::{CubeContext, ExpandElement},
+    prelude::CubeIndex,
+};
 
 pub(crate) fn binary_expand<F>(
     context: &mut CubeContext,
@@ -209,7 +212,7 @@ fn find_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
 }
 
 pub fn array_assign_binary_op_expand<
-    A: CubeType + core::ops::Index<u32>,
+    A: CubeType + CubeIndex<u32>,
     F: Fn(BinaryOperator) -> Operator,
 >(
     context: &mut CubeContext,

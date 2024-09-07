@@ -4,7 +4,7 @@ use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_vectoriz
 
 /// Returns the offset of the tensor corresponding to the layout tensor.
 #[cube]
-pub fn index_offset_with_layout<N: Primitive, L: Primitive>(
+pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
     tensor: &Tensor<N>,
     layout: &Tensor<L>,
     offset_layout: u32,
@@ -12,7 +12,7 @@ pub fn index_offset_with_layout<N: Primitive, L: Primitive>(
     dim_end: u32,
     #[comptime] unroll: bool,
 ) -> u32 {
-    let vectorization = vectorization_of(tensor);
+    let vectorization = tensor.vectorization_factor();
 
     let offset_ref = offset_layout * vectorization;
     let mut offset = 0;
@@ -27,7 +27,7 @@ pub fn index_offset_with_layout<N: Primitive, L: Primitive>(
 }
 
 #[cube(launch)]
-fn into_contiguous_kernel<N: Primitive>(
+fn into_contiguous_kernel<N: CubePrimitive>(
     input: &Tensor<N>,
     output: &mut Tensor<N>,
     #[comptime] rank: Option<u32>,
@@ -51,7 +51,7 @@ fn into_contiguous_kernel<N: Primitive>(
 }
 
 /// Make a jit tensor contiguous.
-pub fn into_contiguous<R: Runtime, E: Primitive>(
+pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<'_, R>,
 ) -> TensorHandle<R, E> {
@@ -64,7 +64,7 @@ pub fn into_contiguous<R: Runtime, E: Primitive>(
     let cube_dim = CubeDim::default();
     let cube_count =
         calculate_cube_count_elemwise(num_elems / vectorization_factor as usize, cube_dim);
-    let handle = client.empty(num_elems * E::ir_type().size());
+    let handle = client.empty(num_elems * E::as_elem().size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
     into_contiguous_kernel::launch::<E, R>(

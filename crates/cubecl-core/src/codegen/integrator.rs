@@ -136,7 +136,7 @@ impl KernelSettings {
     pub fn vectorize_input(mut self, position: usize, vectorization: Vectorization) -> Self {
         // Not setting the vectorization factor when it's the default value reduces the kernel id
         // size.
-        if vectorization == None {
+        if vectorization.is_none() {
             return self;
         }
 
@@ -153,7 +153,7 @@ impl KernelSettings {
     pub fn vectorize_output(mut self, position: usize, vectorization: Vectorization) -> Self {
         // Not setting the vectorization factor when it's the default value reduces the kernel id
         // size.
-        if vectorization == None {
+        if vectorization.is_none() {
             return self;
         }
 

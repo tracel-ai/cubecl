@@ -7,10 +7,8 @@ use super::{
 };
 
 use crate::matmul::cmma::block_io::{
-    base::{BlockLoader, BlockLoaderExpand},
-    horizontal_block_check::HorizontalCheckBlockIO,
-    unchecked_block::UncheckedBlockIO,
-    vertical_block_check::VerticalCheckBlockIO,
+    base::BlockLoader, horizontal_block_check::HorizontalCheckBlockIO,
+    unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
     whole_block_check::WholeCheckBlockIO,
 };
 
@@ -182,7 +180,7 @@ fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
     #[comptime] config: CmmaConfig,
 ) {
     let tile_size = config.tile_size;
-    let tensor_vec = vectorization_of(tensor);
+    let tensor_vec = tensor.vectorization_factor();
 
     // Will likely fail if SUBCUBE_DIM is not 32
     let coop_dim = 32;

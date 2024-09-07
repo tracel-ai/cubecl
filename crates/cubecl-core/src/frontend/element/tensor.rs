@@ -184,6 +184,7 @@ impl<T: CubeType> Tensor<T> {
     ///
     /// The length will be affected by the vectorization factor. To obtain the number of elements,
     /// you should multiply the length by the vectorization factor.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u32 {
         unexpanded!()
     }
@@ -196,14 +197,15 @@ impl<T: CubeType> Tensor<T> {
 
 impl<T: CubeType> ExpandElementTyped<T> {
     // Expanded version of stride
-    pub fn __expand_stride_method<C: Index>(
+    pub fn __expand_stride_method(
         self,
         context: &mut CubeContext,
-        dim: C,
+        dim: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
+        let dim: ExpandElement = dim.into();
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Stride {
-            dim: dim.value(),
+            dim: *dim,
             var: self.expand.into(),
             out: out.clone().into(),
         });
@@ -211,14 +213,15 @@ impl<T: CubeType> ExpandElementTyped<T> {
     }
 
     // Expanded version of shape
-    pub fn __expand_shape_method<C: Index>(
+    pub fn __expand_shape_method(
         self,
         context: &mut CubeContext,
-        dim: C,
+        dim: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
+        let dim: ExpandElement = dim.into();
         let out = context.create_local(Item::new(Elem::UInt));
         context.register(Metadata::Shape {
-            dim: dim.value(),
+            dim: *dim,
             var: self.expand.into(),
             out: out.clone().into(),
         });

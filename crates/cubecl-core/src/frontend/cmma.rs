@@ -134,7 +134,7 @@ pub mod fill {
     use super::*;
 
     /// Expand method of [fill()].
-    pub fn __expand<C: CubeType>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
         mat: MatrixExpand,
         value: ExpandElementTyped<C>,
@@ -159,7 +159,7 @@ pub mod load {
 
     /// Expand method of [load()].
     #[allow(unused_variables)]
-    pub fn __expand<C: CubeType>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
         mat: MatrixExpand,
         value: ExpandElementTyped<Slice<'static, C>>,
@@ -192,7 +192,7 @@ pub mod store {
 
     /// Expand method of [store()].
     #[allow(unused_variables)]
-    pub fn __expand<C: CubePrimitive>(
+    pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
         output: ExpandElementTyped<SliceMut<'static, C>>,
         mat: MatrixExpand,
@@ -226,7 +226,7 @@ pub mod execute {
     use super::*;
 
     /// Expand method of [execute()].
-    pub fn __expand<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrimitive>(
+    pub fn expand<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrimitive>(
         context: &mut CubeContext,
         mat_a: MatrixExpand,
         mat_b: MatrixExpand,

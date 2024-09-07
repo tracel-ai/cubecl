@@ -45,7 +45,7 @@ pub(crate) fn all_zeros_runtime<F: Float>(
     #[comptime] config: CubeTiling2dConfig,
 ) {
     let tile_size = config.tile_size;
-    let zeros = vectorize(F::new(0.), tile_size);
+    let zeros = F::vectorized(0., tile_size);
 
     for i in start..tile_size {
         let sm_position = (sm_position_base + i * sm_stride) / tile_size;
@@ -63,7 +63,7 @@ pub(crate) fn all_zeros_comptime<F: Float>(
 ) {
     let tile_size = config.tile_size;
     let unroll = config.unroll_tile;
-    let zeros = vectorize(F::new(0.), tile_size);
+    let zeros = F::vectorized(0., tile_size);
 
     #[unroll(unroll)]
     for i in 0..tile_size {

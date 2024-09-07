@@ -31,16 +31,15 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         SharedMemory { _val: PhantomData }
     }
 
-    pub fn __expand_vectorized<S: Index>(
+    pub fn __expand_vectorized(
         context: &mut CubeContext,
-        size: S,
+        size: ExpandElementTyped<u32>,
         vectorization_factor: u32,
     ) -> <Self as CubeType>::ExpandType {
-        let size = size.value();
-        let size = match size {
-            crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
-            _ => panic!("Shared memory need constant initialization value"),
-        };
+        let size = size
+            .constant()
+            .expect("Shared memory need constant initialization value")
+            .as_u32();
         let var = context.create_shared(
             Item::vectorized(T::as_elem(), NonZero::new(vectorization_factor as u8)),
             size,
@@ -48,15 +47,14 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         ExpandElementTyped::new(var)
     }
 
-    pub fn __expand_new<S: Index>(
+    pub fn __expand_new(
         context: &mut CubeContext,
-        size: S,
+        size: ExpandElementTyped<u32>,
     ) -> <Self as CubeType>::ExpandType {
-        let size = size.value();
-        let size = match size {
-            crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
-            _ => panic!("Shared memory need constant initialization value"),
-        };
+        let size = size
+            .constant()
+            .expect("Shared memory need constant initialization value")
+            .as_u32();
         let var = context.create_shared(Item::new(T::as_elem()), size);
         ExpandElementTyped::new(var)
     }

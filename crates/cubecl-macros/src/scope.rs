@@ -39,22 +39,11 @@ pub struct Context {
     scopes: Vec<Scope>,
     // Allows for global variable analysis
     scope_history: HashMap<usize, VecDeque<Scope>>,
+    pub must_clone: bool,
 }
 
 impl Context {
-    pub fn new(return_type: Type, launch: bool) -> Self {
-        if launch {
-            Self::new_launch(return_type)
-        } else {
-            Self {
-                return_type,
-                scopes: vec![Scope::default()],
-                scope_history: Default::default(),
-            }
-        }
-    }
-
-    pub fn new_launch(return_type: Type) -> Self {
+    pub fn new(return_type: Type) -> Self {
         let mut root_scope = Scope::default();
         root_scope.variables.extend(KEYWORDS.iter().map(|it| {
             let name = format_ident!("{it}");
@@ -71,6 +60,7 @@ impl Context {
             return_type,
             scopes: vec![root_scope],
             scope_history: Default::default(),
+            must_clone: false,
         }
     }
 
@@ -155,7 +145,7 @@ impl Context {
             false
         } else {
             let count = var.use_count.fetch_sub(1, Ordering::AcqRel);
-            count <= 1
+            count <= 1 && !self.must_clone
         }
     }
 

@@ -4,6 +4,7 @@ use syn::{spanned::Spanned, ExprForLoop, ExprIf, ExprLoop, ExprWhile, Ident};
 
 use crate::{
     expression::{Block, Expression},
+    operator::Operator,
     scope::Context,
     statement::{parse_pat, Statement},
 };
@@ -50,6 +51,8 @@ fn expand_for_in_loop(
         .map(|stmt| Statement::from_stmt(stmt, context))
         .collect::<Result<Vec<_>, _>>()?;
 
+    let right = right.to_tokens(context);
+    let statements = statements.into_iter().map(|it| it.to_tokens(context));
     let for_loop = Expression::VerbatimTerminated {
         tokens: quote_spanned! {span=>
             for #var_name in #right {
@@ -74,10 +77,16 @@ pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::R
 
     let condition = Expression::from_expr(*while_loop.cond, context)
         .map_err(|_| syn::Error::new(span, "Unsupported while condition"))?;
+    let inverted = Expression::Unary {
+        input: Box::new(condition),
+        operator: Operator::Not,
+        ty: None,
+        span,
+    };
 
     let block = context.with_scope(|ctx| Block::from_block(while_loop.body, ctx))?;
     Ok(Expression::WhileLoop {
-        condition: Box::new(condition),
+        condition: Box::new(inverted),
         block,
         span,
     })

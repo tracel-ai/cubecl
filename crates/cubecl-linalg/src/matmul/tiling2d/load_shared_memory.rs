@@ -11,14 +11,15 @@ use super::{
     },
 };
 
-#[derive(Expand, CubeType)]
+#[derive(CubeType)]
 #[allow(dead_code)]
 pub(crate) struct LoadInfo<F: Float> {
     pub coordinates: Coordinates,
     pub k: u32,
     pub batch_offset: u32,
     pub shared_memory: SharedMemory<F>,
-    pub config: CubeTiling2dConfig, // TODO: comptime
+    #[expand(comptime)]
+    pub config: CubeTiling2dConfig,
     pub dims: Dimensions,
 }
 

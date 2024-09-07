@@ -5,18 +5,14 @@ use crate::matmul::tiling2d::{
     config::CubeTiling2dConfig,
     tile::{
         loader::{CheckBounds, ReadTileInfo},
-        memory_access::{
-            ContiguousAccess, ContiguousAccessExpand, StridedAccess, StridedAccessExpand,
-            UnmatchingVectorization, WritePositions,
-        },
+        memory_access::{ContiguousAccess, StridedAccess, UnmatchingVectorization, WritePositions},
     },
     write_output::WriteTileInfo,
 };
 
-use super::base::{BlockLoader, BlockLoaderExpand, BlockWriter, BlockWriterExpand};
+use super::base::{BlockLoader, BlockWriter};
 
 /// Assumes block sizes divide tensor shape
-#[derive(StaticExpand)]
 pub(crate) struct UncheckedBlockIO;
 
 #[cube]
@@ -30,7 +26,7 @@ impl<F: Float> BlockLoader<F> for UncheckedBlockIO {
     ) {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
-        let vectorization = vectorization_of(&tensor);
+        let vectorization = tensor.vectorization_factor();
 
         #[unroll(unroll)]
         for i in 0..tile_size {

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, num::NonZero};
 
 use cubecl_core::{
     ir::{self as gpu, ConstantScalarValue},
@@ -479,9 +479,6 @@ impl CudaCompiler {
                     gpu::Elem::AtomicInt(_) | gpu::Elem::AtomicUInt => {
                         panic!("Cannot use recip with atomics")
                     }
-                    gpu::Elem::Unit => {
-                        panic!("Cannot use recip with pointers")
-                    }
                 };
 
                 instructions.push(Instruction::Div(super::BinaryInstruction {
@@ -715,7 +712,10 @@ impl CudaCompiler {
     }
 
     fn compile_item(&mut self, item: gpu::Item) -> super::Item {
-        let item = super::Item::new(self.compile_elem(item.elem), item.vectorization.into());
+        let item = super::Item::new(
+            self.compile_elem(item.elem),
+            item.vectorization.map(NonZero::get).unwrap_or(1).into(),
+        );
         self.items.insert(item);
         self.items.insert(item.optimized());
         item
@@ -746,7 +746,6 @@ impl CudaCompiler {
             gpu::Elem::UInt => super::Elem::U32,
             gpu::Elem::AtomicUInt => super::Elem::U32,
             gpu::Elem::Bool => super::Elem::Bool,
-            gpu::Elem::Unit => super::Elem::Pointer,
         }
     }
 }

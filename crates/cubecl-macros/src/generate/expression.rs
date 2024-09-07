@@ -1,12 +1,14 @@
-use cubecl_common::operator::Operator;
-use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{spanned::Spanned, Ident, PathArguments, Type};
+use std::mem;
+
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote, quote_spanned};
+use syn::{spanned::Spanned, PathArguments};
 
 use crate::{
     expression::{Block, Expression},
-    generate::kernel::CONTEXT,
+    operator::Operator,
     paths::{frontend_path, frontend_type, prelude_type},
+    scope::Context,
 };
 
 macro_rules! error {
@@ -15,9 +17,9 @@ macro_rules! error {
     };
 }
 
-impl ToTokens for Expression {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let out = match self {
+impl Expression {
+    pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
+        match self {
             Expression::Binary {
                 left,
                 operator,
@@ -27,6 +29,9 @@ impl ToTokens for Expression {
             } if operator.is_assign() && matches!(**left, Expression::Index { .. }) => {
                 let frontend_path = frontend_path();
                 let (array, index) = left.as_index().unwrap();
+                let array = array.to_tokens(context);
+                let index = index.to_tokens(context);
+                let right = right.to_tokens(context);
                 let op = format_ident!("{}", operator.array_op_name());
                 quote_spanned! {*span=>
                     {
@@ -46,6 +51,8 @@ impl ToTokens for Expression {
             } => {
                 let frontend_path = frontend_path();
                 let op = format_ident!("{}", operator.op_name());
+                let left = left.to_tokens(context);
+                let right = right.to_tokens(context);
                 quote_spanned! {*span=>
                     {
                         let _lhs = #left;
@@ -61,6 +68,7 @@ impl ToTokens for Expression {
                 ..
             } => {
                 let frontend_path = frontend_path();
+                let input = input.to_tokens(context);
                 quote_spanned! {*span=>
                     {
                         let _inner = #input;
@@ -72,7 +80,7 @@ impl ToTokens for Expression {
                 input,
                 operator: Operator::Deref,
                 ..
-            } => quote![#input],
+            } => input.to_tokens(context),
             Expression::Unary { operator, span, .. } => {
                 error!(*span, "Unary operator {operator} not yet supported")
             }
@@ -80,7 +88,7 @@ impl ToTokens for Expression {
                 quote![#name::expand(context)]
             }
             Expression::Variable { name, .. } => {
-                let last_use = CONTEXT.with_borrow(|ctx| ctx.try_consume(name));
+                let last_use = context.try_consume(name);
                 if last_use {
                     quote![#name]
                 } else {
@@ -90,10 +98,7 @@ impl ToTokens for Expression {
             Expression::FieldAccess {
                 base, field, span, ..
             } => {
-                let field = match field {
-                    syn::Member::Named(ident) => format_ident!("__{ident}"),
-                    syn::Member::Unnamed(index) => format_ident!("__{}", index.index),
-                };
+                let base = base.to_tokens(context);
                 quote_spanned! {*span=>
                     #base.#field.clone()
                 }
@@ -102,10 +107,17 @@ impl ToTokens for Expression {
                 let expand_elem = frontend_type("ExpandElementTyped");
                 quote![#expand_elem::from_lit(#value)]
             }
+            Expression::ConstVariable { name, .. } => {
+                let expand_elem = frontend_type("ExpandElementTyped");
+                quote![#expand_elem::from_lit(#name)]
+            }
             Expression::Assigment {
                 left, right, span, ..
             } if matches!(**left, Expression::Index { .. }) => {
                 let (array, index) = left.as_index().unwrap();
+                let array = array.to_tokens(context);
+                let index = index.to_tokens(context);
+                let right = right.to_tokens(context);
                 let frontend_path = frontend_path();
                 quote_spanned! {*span=>
                     let _array = #array;
@@ -118,51 +130,54 @@ impl ToTokens for Expression {
                 left, right, span, ..
             } => {
                 let frontend_path = frontend_path();
+                let left = left.to_tokens(context);
+                let right = right.to_tokens(context);
                 quote_spanned! {*span=>
                     let _var = #left;
                     let _value = #right;
                     #frontend_path::assign::expand(context, _value, _var)
                 }
             }
-            Expression::Verbatim { tokens, .. } => {
-                let span = tokens.span();
-                quote_spanned! {span=>
-                    #tokens
+            Expression::Index { expr, index, span } => {
+                let expr = expr.to_tokens(context);
+                let index = index.to_tokens(context);
+                let index_fn = frontend_type("index");
+                quote_spanned! {*span=>
+                    {
+                        let _array = #expr;
+                        let _index = #index;
+                        #index_fn::expand(context, _array, _index)
+                    }
                 }
             }
-            Expression::Block(block) => block.to_token_stream(),
             Expression::FunctionCall {
                 func,
                 span,
                 args,
-                associated_type,
+                associated_type: None,
             } => {
-                let args: Vec<TokenStream> = if self.is_const() {
-                    args.iter().map(|arg| arg.to_token_stream()).collect()
-                } else {
-                    let once_expr = frontend_type("OnceExpr");
-                    args.iter()
-                        .map(|arg| {
-                            if arg.is_const() {
-                                arg.to_token_stream()
-                            } else {
-                                quote![#once_expr::new(#arg)]
-                            }
-                        })
-                        .collect()
-                };
-
-                // We pass in the `Variable`s and `Literal`s into the expansion so they can be rebound
-                // in the function root scope
-                if let Some((ty_path, name)) = associated_type {
-                    let static_expand = frontend_type("StaticExpand");
-                    quote_spanned! {*span=>
-                        <#ty_path as #static_expand>::Expanded::#name(#(#args),*)
+                let (args, arg_names) = map_args(args, context);
+                let (generics, path) = split_generics(func, context);
+                quote_spanned! {*span=>
+                    {
+                        #(#args)*
+                        #path::expand #generics(context, #(#arg_names),*)
                     }
-                } else {
-                    let (generics, path) = split_generics(func);
-                    quote_spanned! {*span=>
-                        #path::expand #generics(#(#args),*)
+                }
+            }
+            Expression::FunctionCall {
+                span,
+                args,
+                associated_type: Some((ty_path, func)),
+                ..
+            } => {
+                let (args, arg_names) = map_args(args, context);
+                let mut name = func.clone();
+                name.ident = format_ident!("__expand_{}", name.ident);
+                quote_spanned! {*span=>
+                    {
+                        #(#args)*
+                        #ty_path::#name(context, #(#arg_names),*)
                     }
                 }
             }
@@ -174,8 +189,15 @@ impl ToTokens for Expression {
                 span,
             } => {
                 let method = format_ident!("__expand_{method}_method");
+                let receiver = receiver
+                    .as_const(context)
+                    .unwrap_or_else(|| receiver.to_tokens(context));
+                let (args, arg_names) = map_args(args, context);
                 quote_spanned! {*span=>
-                    #receiver.#method #generics(#(#args),*)
+                    {
+                        #(#args)*
+                        #receiver.#method #generics(context, #(#arg_names),*)
+                    }
                 }
             }
             Expression::Break { span } => {
@@ -196,8 +218,9 @@ impl ToTokens for Expression {
             }
             Expression::Cast { from, to, span } => {
                 let cast = prelude_type("Cast");
+                let from = from.to_tokens(context);
                 quote_spanned! {*span=>
-                    <#to as #cast>::cast_from(#from)
+                    <#to as #cast>::__expand_cast_from(context, #from)
                 }
             }
             Expression::ForLoop {
@@ -208,27 +231,24 @@ impl ToTokens for Expression {
                 block,
                 span,
             } => {
-                let variable = generate_var(var_name, true, var_ty, *span, None);
-                let for_ty = frontend_type("ForLoop");
+                let for_ty = frontend_type("branch");
 
-                if let Some(unroll) = unroll {
-                    //let unrolled = generate_unroll(block, range, var_name);
-                    quote_spanned! {*span=>
-                        {
-                            let #var_name = #variable;
-                            if #unroll {
-                                #for_ty::new_unroll(#range, #var_name.clone(), #block)
-                            } else {
-                                #for_ty::new(#range, #var_name.clone(), #block)
-                            }
-                        }
-                    }
-                } else {
-                    quote_spanned! {*span=>
-                        {
-                            let #var_name = #variable;
-                            #for_ty::new(#range, #var_name.clone(), #block)
-                        }
+                let range = range.to_tokens(context);
+                let unroll = unroll
+                    .as_ref()
+                    .and_then(|it| it.as_const(context))
+                    .unwrap_or(quote![false]);
+                let must_clone = context.must_clone;
+                context.must_clone = true;
+                let block = block.to_tokens(context);
+                context.must_clone = must_clone;
+                let var_ty = var_ty.as_ref().map(|it| quote![: #it]);
+
+                quote_spanned! {*span=>
+                    {
+                        let _range = #range;
+                        let _unroll = #unroll;
+                        #for_ty::for_expand(context, _range, _unroll, |context, #var_name #var_ty| #block);
                     }
                 }
             }
@@ -237,21 +257,22 @@ impl ToTokens for Expression {
                 block,
                 span,
             } => {
-                let while_ty = frontend_type("WhileLoop");
+                let while_ty = frontend_type("branch");
+                let condition = condition.to_tokens(context);
+                let block = block.to_tokens(context);
 
                 quote_spanned! {*span=>
                     {
-                        #while_ty::new(#condition, #block)
+                        #while_ty::while_loop_expand(context, |context| #condition, |context| #block);
                     }
                 }
             }
             Expression::Loop { block, span } => {
-                let loop_ty = frontend_type("Loop");
+                let loop_ty = frontend_type("branch");
+                let block = block.to_tokens(context);
 
                 quote_spanned! {*span=>
-                    {
-                        #loop_ty::new(#block)
-                    }
+                    #loop_ty::loop_expand(context, |context| #block);
                 }
             }
             Expression::If {
@@ -260,8 +281,12 @@ impl ToTokens for Expression {
                 else_branch,
                 span,
             } if condition.is_const() => {
-                let as_const = condition.as_const().unwrap();
-                let else_branch = else_branch.as_ref().map(|it| quote![else #it]);
+                let as_const = condition.as_const(context).unwrap();
+                let then_block = then_block.to_tokens(context);
+                let else_branch = else_branch
+                    .as_ref()
+                    .map(|it| it.to_tokens(context))
+                    .map(|it| quote![else #it]);
                 quote_spanned! {*span=>
                     if #as_const #then_block #else_branch
                 }
@@ -273,9 +298,14 @@ impl ToTokens for Expression {
                 span,
             } => {
                 let path = frontend_path();
+                let condition = condition.to_tokens(context);
+                let must_clone = mem::replace(&mut context.must_clone, true);
+                let then_block = then_block.to_tokens(context);
+                let else_branch = else_branch.to_tokens(context);
+                context.must_clone = must_clone;
                 quote_spanned! {*span=>
                     let _cond = #condition;
-                    #path::branch::if_else_expand(context, None, _cond.into(), |context| #then_block, |context| #else_branch);
+                    #path::branch::if_else_expand(context, _cond.into(), |context| #then_block, |context| #else_branch);
                 }
             }
             Expression::If {
@@ -285,12 +315,13 @@ impl ToTokens for Expression {
                 ..
             } => {
                 let path = frontend_path();
+                let condition = condition.to_tokens(context);
+                let then_block = then_block.to_tokens(context);
                 quote_spanned! {*span=>
                     let _cond = #condition;
-                    #path::branch::if_expand(context, None, _cond.into(), |context| #then_block);
+                    #path::branch::if_expand(context, _cond.into(), |context| #then_block);
                 }
             }
-            Expression::ConstVariable { name, .. } => quote![#name],
             Expression::Path { path, .. } => quote![#path],
             Expression::Range {
                 start,
@@ -298,25 +329,32 @@ impl ToTokens for Expression {
                 inclusive,
                 span,
             } => {
+                let start = start
+                    .as_const(context)
+                    .unwrap_or_else(|| start.to_tokens(context));
                 if let Some(end) = end {
-                    let range = frontend_type("RangeExpr");
+                    let range = frontend_type("Range");
+                    let end = end
+                        .as_const(context)
+                        .unwrap_or_else(|| end.to_tokens(context));
                     quote_spanned! {*span=>
-                        #range::new(#start, #end, #inclusive)
+                        {
+                            let _start = #start;
+                            let _end = #end;
+                            #range::new(_start.into(), _end.into(), #inclusive)
+                        }
                     }
                 } else {
-                    let range = frontend_type("SliceRangeExpr");
-                    let end = end
-                        .as_ref()
-                        .map(|it| quote![Some(Box::new(#it))])
-                        .unwrap_or_else(|| quote![None]);
-                    quote_spanned! {*span=>
-                        #range::new(#start, #end, #inclusive)
-                    }
+                    error!(*span, "Slice range not yet supported")
+                    // let range = frontend_type("SliceRangeExpr");
+                    // quote_spanned! {*span=>
+                    //     #range::new(#start, None, #inclusive)
+                    // }
                 }
             }
 
             Expression::Array { span, .. } => {
-                if let Some(constant) = self.as_const() {
+                if let Some(constant) = self.as_const(context) {
                     constant
                 } else {
                     syn::Error::new(*span, "Array expressions can't be used at runtime")
@@ -324,95 +362,100 @@ impl ToTokens for Expression {
                 }
             }
             Expression::Tuple { span, .. } => {
-                if let Some(constant) = self.as_const() {
+                if let Some(constant) = self.as_const(context) {
                     constant
                 } else {
                     syn::Error::new(*span, "Tuple expressions can't be used at runtime")
                         .to_compile_error()
                 }
             }
-            Expression::Index { expr, index, span } => {
-                quote_spanned! {*span=>
-                    #expr.expand().index(#index)
-                }
-            }
+
             Expression::Slice { expr, ranges, span } => {
                 let range_ty = frontend_type("SliceRangeExpr");
+                let expr = expr.to_tokens(context);
+                let ranges = ranges.iter().map(|it| it.to_tokens(context));
+
                 quote_spanned! {*span=>
                     #expr.expand().slice(vec![#(Box::new(#range_ty::from(#ranges))),*])
                 }
             }
             Expression::ArrayInit { init, len, span } => {
                 let init_ty = frontend_type("ArrayInit");
+                let init = init.to_tokens(context);
+                let len = len.to_tokens(context);
+
                 quote_spanned! {*span=>
                     #init_ty::new(#len, #init)
                 }
             }
             Expression::VerbatimTerminated { tokens } => tokens.clone(),
             Expression::Reference { inner } => {
-                if let Some(as_const) = inner.as_const() {
+                if let Some(as_const) = inner.as_const(context) {
                     quote![&#as_const]
                 } else {
+                    let inner = inner.to_tokens(context);
                     quote![#inner]
                 }
             }
             Expression::StructInit { path, fields } => {
-                let cube_type = frontend_type("CubeType");
+                let cube_type = prelude_type("CubeType");
+                let fields = fields.iter().map(|(pat, it)| {
+                    let value = it
+                        .as_const(context)
+                        .map(|as_const| quote![#as_const.into()])
+                        .unwrap_or_else(|| it.to_tokens(context));
+                    quote![#pat: #value]
+                });
+                let path_last = path.segments.last().unwrap();
+                let turbofish = path_last.arguments.clone();
+                let generics = match &turbofish {
+                    PathArguments::None => None,
+                    PathArguments::AngleBracketed(params) => {
+                        let params = params.args.iter();
+                        Some(quote![<#(#params),*>])
+                    }
+                    _ => panic!("Fn generics not supported when constructing runtime structs"),
+                };
 
                 quote! {
-                    <#path as #cube_type>::Runtime::new(#(#fields),*)
+                    {
+                        type _Ty #generics = <#path as #cube_type>::ExpandType;
+                        _Ty #turbofish { #(#fields),* }
+                    }
                 }
             }
             Expression::Closure { tokens } => tokens.clone(),
-        };
-
-        tokens.extend(out);
+            Expression::Verbatim { tokens, .. } => tokens.clone(),
+            Expression::Block(block) => block.to_tokens(context),
+        }
     }
 }
 
-impl ToTokens for Block {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        CONTEXT.with_borrow_mut(|ctx| ctx.restore_scope());
+impl Block {
+    pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
+        context.restore_scope();
+
+        let inner: Vec<_> = self.inner.iter().map(|it| it.to_tokens(context)).collect();
         let ret = self
             .ret
             .as_ref()
-            .map(|ret| quote![#ret])
+            .map(|ret| ret.to_tokens(context))
             .unwrap_or_else(|| quote![()]);
-        let inner = &self.inner;
-        tokens.extend(quote_spanned! {self.span=>
+
+        context.delete_scope();
+        quote_spanned! {self.span=>
             {
                 #(#inner)*
                 #ret
             }
-        });
-        CONTEXT.with_borrow_mut(|ctx| ctx.delete_scope());
-    }
-}
-
-pub fn generate_var(
-    name: &Ident,
-    mutable: bool,
-    ty: &Option<Type>,
-    span: Span,
-    vectorization: Option<TokenStream>,
-) -> TokenStream {
-    let var = frontend_type("Variable");
-    let name = name.to_token_stream().to_string();
-    let ty = ty.as_ref().map(|ty| {
-        quote_spanned! {ty.span()=>
-            ::<#ty>
         }
-    });
-    let vectorization = vectorization.unwrap_or(quote![None]);
-    quote_spanned! {span=>
-        #var #ty ::new(#name, #mutable, #vectorization)
     }
 }
 
-fn split_generics(path: &Expression) -> (PathArguments, TokenStream) {
+fn split_generics(path: &Expression, context: &mut Context) -> (PathArguments, TokenStream) {
     let mut path = match path {
         Expression::Path { path, .. } => path.clone(),
-        _ => return (PathArguments::None, quote![#path]),
+        _ => return (PathArguments::None, path.to_tokens(context)),
     };
     let generics = if let Some(last) = path.segments.last_mut() {
         core::mem::replace(&mut last.arguments, PathArguments::None)
@@ -420,4 +463,36 @@ fn split_generics(path: &Expression) -> (PathArguments, TokenStream) {
         PathArguments::None
     };
     (generics, quote![#path])
+}
+
+fn map_args(args: &[Expression], context: &mut Context) -> (Vec<TokenStream>, Vec<TokenStream>) {
+    let names: Vec<_> = (0..args.len()).map(|i| format_ident!("_arg_{i}")).collect();
+    let values = names
+        .iter()
+        .zip(args.iter())
+        .map(|(i, value)| {
+            if matches!(value, Expression::Closure { .. }) {
+                quote![]
+            } else {
+                let tokens = value
+                    .as_const(context)
+                    .unwrap_or_else(|| value.to_tokens(context));
+                quote_spanned! {tokens.span()=>
+                    let #i = #tokens;
+                }
+            }
+        })
+        .collect();
+    let names = names
+        .into_iter()
+        .zip(args.iter())
+        .map(|(name, value)| {
+            if matches!(value, Expression::Closure { .. }) {
+                value.to_tokens(context)
+            } else {
+                quote![#name.into()]
+            }
+        })
+        .collect();
+    (values, names)
 }

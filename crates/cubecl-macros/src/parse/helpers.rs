@@ -88,6 +88,67 @@ impl VisitMut for RemoveHelpers {
     }
 }
 
+pub struct ReplaceIndices;
+pub struct ReplaceIndex;
+pub struct ReplaceIndexMut;
+
+impl VisitMut for ReplaceIndices {
+    fn visit_expr_assign_mut(&mut self, i: &mut syn::ExprAssign) {
+        ReplaceIndexMut.visit_expr_mut(&mut i.left);
+        ReplaceIndex.visit_expr_mut(&mut i.right);
+        visit_mut::visit_expr_assign_mut(self, i);
+    }
+
+    fn visit_expr_binary_mut(&mut self, i: &mut syn::ExprBinary) {
+        match i.op {
+            syn::BinOp::AddAssign(_)
+            | syn::BinOp::SubAssign(_)
+            | syn::BinOp::MulAssign(_)
+            | syn::BinOp::DivAssign(_)
+            | syn::BinOp::RemAssign(_)
+            | syn::BinOp::BitXorAssign(_)
+            | syn::BinOp::BitAndAssign(_)
+            | syn::BinOp::BitOrAssign(_)
+            | syn::BinOp::ShlAssign(_)
+            | syn::BinOp::ShrAssign(_) => {
+                ReplaceIndexMut.visit_expr_mut(&mut i.left);
+                ReplaceIndex.visit_expr_mut(&mut i.right);
+            }
+            _ => {}
+        }
+        visit_mut::visit_expr_binary_mut(self, i)
+    }
+
+    fn visit_expr_mut(&mut self, i: &mut syn::Expr) {
+        if matches!(i, Expr::Index(_)) {
+            ReplaceIndex.visit_expr_mut(i)
+        }
+        visit_mut::visit_expr_mut(self, i);
+    }
+}
+
+impl VisitMut for ReplaceIndex {
+    fn visit_expr_mut(&mut self, i: &mut Expr) {
+        if let Expr::Index(index) = i {
+            let inner = &index.expr;
+            let index = &index.index;
+            *i = parse_quote![*#inner.cube_idx(#index)]
+        }
+        visit_mut::visit_expr_mut(self, i);
+    }
+}
+
+impl VisitMut for ReplaceIndexMut {
+    fn visit_expr_mut(&mut self, i: &mut syn::Expr) {
+        if let Expr::Index(index) = i {
+            let inner = &index.expr;
+            let index = &index.index;
+            *i = parse_quote![*#inner.cube_idx_mut(#index)]
+        }
+        visit_mut::visit_expr_mut(self, i);
+    }
+}
+
 pub fn is_comptime_attr(attr: &Attribute) -> bool {
     attr.path().is_ident("comptime")
 }

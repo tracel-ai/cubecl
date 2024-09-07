@@ -34,15 +34,14 @@ impl<T: CubePrimitive + Clone> Array<T> {
         Array { _val: PhantomData }
     }
 
-    pub fn __expand_new<S: Index>(
+    pub fn __expand_new(
         context: &mut CubeContext,
-        size: S,
+        size: ExpandElementTyped<u32>,
     ) -> <Self as CubeType>::ExpandType {
-        let size = size.value();
-        let size = match size {
-            crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
-            _ => panic!("Array need constant initialization value"),
-        };
+        let size = size
+            .constant()
+            .expect("Array need constant initialization value")
+            .as_u32();
         context
             .create_local_array(Item::new(T::as_elem()), size)
             .into()
@@ -116,6 +115,7 @@ impl<C: CubeType> ExpandElementBaseInit for Array<C> {
 
 impl<E: CubeType> Array<E> {
     /// Obtain the array length
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u32 {
         unexpanded!()
     }

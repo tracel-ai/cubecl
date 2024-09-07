@@ -13,15 +13,15 @@ fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
     if ABSOLUTE_POS < out.len() {
         for i in 0..256u32 {
             if i % 2 == 0 {
-                out[ABSOLUTE_POS] -= (lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]).cos();
+                out[ABSOLUTE_POS] -= F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
             } else {
-                out[ABSOLUTE_POS] += (lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]).cos();
+                out[ABSOLUTE_POS] += F::cos(lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS]);
             }
         }
     }
 }
 
-impl<R: Runtime, E: frontend::Float, F: Float> Benchmark for UnaryBench<R, E, F> {
+impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     type Args = (TensorHandle<R, E>, TensorHandle<R, E>, TensorHandle<R, E>);
 
     fn prepare(&self) -> Self::Args {
@@ -42,7 +42,7 @@ impl<R: Runtime, E: frontend::Float, F: Float> Benchmark for UnaryBench<R, E, F>
             cube_dim,
         );
 
-        execute::launch::<F, R>(
+        execute::launch::<E, R>(
             &self.client,
             cube_count,
             cube_dim,
@@ -60,7 +60,7 @@ impl<R: Runtime, E: frontend::Float, F: Float> Benchmark for UnaryBench<R, E, F>
         format!(
             "unary-{}-{}-{:?}",
             R::name(),
-            F::ir_type(),
+            E::as_elem(),
             self.vectorization
         )
         .to_lowercase()
@@ -72,13 +72,12 @@ impl<R: Runtime, E: frontend::Float, F: Float> Benchmark for UnaryBench<R, E, F>
 }
 
 #[allow(dead_code)]
-struct UnaryBench<R: Runtime, E, F> {
+struct UnaryBench<R: Runtime, E> {
     shape: Vec<usize>,
     vectorization: u8,
     device: R::Device,
     client: ComputeClient<R::Server, R::Channel>,
     _e: PhantomData<E>,
-    _f: PhantomData<F>,
 }
 
 #[allow(dead_code)]
@@ -89,14 +88,13 @@ enum MatmulKind {
 }
 
 #[allow(dead_code)]
-fn run<R: Runtime, E: frontend::Float, F: Float>(device: R::Device, vectorization: u8) {
-    let bench = UnaryBench::<R, E, F> {
+fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
+    let bench = UnaryBench::<R, E> {
         shape: vec![32, 512, 2048],
         vectorization,
         client: R::client(&device),
         device,
         _e: PhantomData,
-        _f: PhantomData,
     };
     println!("{}", bench.name());
     println!("{}", bench.run());
@@ -104,11 +102,11 @@ fn run<R: Runtime, E: frontend::Float, F: Float>(device: R::Device, vectorizatio
 
 fn main() {
     #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F16, f16>(Default::default(), 8);
+    run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), 8);
     #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F32, f32>(Default::default(), 4);
+    run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), 4);
     #[cfg(feature = "wgpu")]
-    run::<cubecl::wgpu::WgpuRuntime, F32, f32>(Default::default(), 1);
+    run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), 1);
     #[cfg(feature = "wgpu")]
-    run::<cubecl::wgpu::WgpuRuntime, F32, f32>(Default::default(), 4);
+    run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), 4);
 }

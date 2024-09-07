@@ -1,15 +1,16 @@
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{quote, quote_spanned};
 use syn::{spanned::Spanned, Pat, Token};
 
 use crate::{
     expression::Expression,
+    scope::Context,
     statement::{parse_pat, Statement},
 };
 
-impl ToTokens for Statement {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let out = match self {
+impl Statement {
+    pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
+        match self {
             Statement::Local {
                 left,
                 init,
@@ -22,13 +23,15 @@ impl ToTokens for Statement {
                     _ => panic!("Local is always variable or init"),
                 };
                 let mutable = mutable.then(|| quote![mut]);
-                let as_const = init.as_ref().and_then(|init| init.as_const());
-                if as_const.is_some() && mutable.is_some() {
+                let as_const = init.as_ref().and_then(|init| init.as_const(context));
+
+                if as_const.is_some() && mutable.is_none() {
                     let init = as_const.unwrap();
                     quote_spanned! {*span=>
                         let #name = #init;
                     }
                 } else if let Some(init) = init {
+                    let init = init.to_tokens(context);
                     quote_spanned! {*span=>
                         let #mutable #name = #init;
                     }
@@ -39,7 +42,7 @@ impl ToTokens for Statement {
                 }
             }
             Statement::Destructure { fields, span } => {
-                let fields = generate_struct_destructure(fields, *span);
+                let fields = generate_struct_destructure(fields, *span, context);
                 match fields {
                     Ok(fields) => fields,
                     Err(e) => e.to_compile_error(),
@@ -51,24 +54,24 @@ impl ToTokens for Statement {
                 terminated,
             } => {
                 let terminator = terminated.then(|| Token![;](*span));
-                if let Some(as_const) = expression.as_const() {
+                if let Some(as_const) = expression.as_const(context) {
                     quote![#as_const #terminator]
                 } else {
+                    let expression = expression.to_tokens(context);
                     quote_spanned! {*span=>
                         #expression #terminator
                     }
                 }
             }
             Statement::Skip => TokenStream::new(),
-        };
-
-        tokens.extend(out);
+        }
     }
 }
 
 fn generate_struct_destructure(
     fields: &[(Pat, Expression)],
     span: Span,
+    context: &mut Context,
 ) -> syn::Result<TokenStream> {
     let fields = fields
         .iter()
@@ -85,6 +88,7 @@ fn generate_struct_destructure(
                 ty,
                 span,
             };
+            let statement = statement.to_tokens(context);
             Ok(quote![#statement])
         })
         .collect::<syn::Result<Vec<_>>>()?;

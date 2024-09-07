@@ -4,29 +4,28 @@ use std::marker::PhantomData;
 
 use crate::matmul::tiling2d::{
     config::CubeTiling2dConfig,
-    load_shared_memory::{LoadInfo, Loader, LoaderExpand},
+    load_shared_memory::{LoadInfo, Loader},
 };
 
 use super::{
-    block_io::base::{BlockLoader, BlockLoaderExpand},
+    block_io::base::BlockLoader,
     memory_access::{MatchingVectorization, UnmatchingVectorization},
 };
 
 // Transposed tensor's vectorization must be 1
 // Plain tensor's vectorization must equal tile size
-#[derive(StaticExpand)]
 pub(crate) struct TileLoader<F: Float> {
     _f: PhantomData<F>,
 }
 
-#[derive(Expand, CubeType)]
+#[derive(CubeType)]
 pub(crate) struct LoadIndices {
     pub offset: u32,
     pub gm_stride: u32,
     pub sm_stride: u32,
 }
 
-#[derive(Expand, CubeType, Copy, Clone)]
+#[derive(CubeType, Copy, Clone)]
 pub(crate) struct CheckBounds {
     pub dim_vertical: u32,
     pub dim_horizontal: u32,
@@ -34,7 +33,7 @@ pub(crate) struct CheckBounds {
     pub skip_col: u32,
 }
 
-#[derive(Expand, CubeType, Copy, Clone)]
+#[derive(CubeType, Copy, Clone)]
 pub(crate) struct ReadTileInfo {
     pub read_row: u32,
     pub read_col: u32,
@@ -154,7 +153,7 @@ pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
     let coordinates = load_info.coordinates;
     //let config = load_info.config;
 
-    let vectorization = vectorization_of(tensor);
+    let vectorization = tensor.vectorization_factor();
     let tile_size = config.tile_size;
     let sm_dim_vertical = config.block_size_k;
 

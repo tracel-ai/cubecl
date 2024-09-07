@@ -2,10 +2,9 @@ use crate::matmul::cmma::{base::Dimensions, config::CmmaConfig};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::base::{BlockLoader, BlockLoaderExpand, BlockWriter, BlockWriterExpand};
+use super::base::{BlockLoader, BlockWriter};
 
 /// Assumes block sizes divide tensor shape
-#[derive(StaticExpand)]
 pub(crate) struct UncheckedBlockIO;
 
 #[cube]
@@ -20,14 +19,14 @@ impl<F: Float, FC: Float> BlockLoader<F, FC> for UncheckedBlockIO {
         _dim_vertical: u32,
         dim_horizontal: u32,
     ) {
-        let tensor_vec = vectorization_of(tensor);
+        let tensor_vec = tensor.vectorization_factor();
 
         let read_pos = (batch_offset + read_row * dim_horizontal + read_col) / tensor_vec;
         let value = tensor[read_pos];
 
         #[unroll]
         for i in 0..tensor_vec {
-            shared_memory[write_pos + i] = FC::cast_from(value.vec_index(i));
+            shared_memory[write_pos + i] = FC::cast_from(value[i]);
         }
     }
 }
@@ -46,7 +45,7 @@ impl<F: Float> BlockWriter<F> for UncheckedBlockIO {
         #[comptime] config: CmmaConfig,
     ) {
         let tile_size = config.tile_size;
-        let out_vec = vectorization_of(out);
+        let out_vec = out.vectorization_factor();
 
         let col_with_n_iter = write_col + n_iter * tile_size;
 
@@ -55,11 +54,11 @@ impl<F: Float> BlockWriter<F> for UncheckedBlockIO {
 
         let write_position = batch_offset + write_row * dims.n + col_with_n_iter;
 
-        let mut value = vectorize_like(F::new(0.0), out);
+        let mut value = F::vectorized_empty(out_vec);
 
         #[unroll]
         for i in 0..4 {
-            *value.vec_index_mut(i) = accumulator_sm[read_position + i];
+            value[i] = accumulator_sm[read_position + i];
         }
 
         out[write_position / out_vec] = value;

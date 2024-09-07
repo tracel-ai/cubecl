@@ -24,8 +24,8 @@ fn tile_outer_product_test<F: Float>(
     // We launch with array then convert to vectorized float,
     // because direct launch of vectorized float is not supported
     let tile_size = config.tile_size;
-    let register_m = vectorize(register_m, tile_size);
-    let register_n = vectorize(register_n, tile_size);
+    let register_m = register_m.vectorize(tile_size);
+    let register_n = register_n.vectorize(tile_size);
 
     for i in 0..tile_size * tile_size {
         results[i] = F::new(0.);

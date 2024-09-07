@@ -1,13 +1,16 @@
 use std::num::NonZero;
 
 use crate::compute::KernelLauncher;
-use crate::frontend::{CubeContext, CubePrimitive, CubeType};
 use crate::ir::{Item, Variable};
 use crate::prelude::Clamp;
 use crate::Runtime;
 use crate::{
     frontend::{index_assign, Abs, Max, Min, Remainder},
     unexpanded,
+};
+use crate::{
+    frontend::{CubeContext, CubePrimitive, CubeType},
+    prelude::CubeIndexMut,
 };
 
 use super::{
@@ -28,6 +31,9 @@ pub trait Numeric:
     + CubePrimitive
     + LaunchArgExpand
     + ScalarArgSettings
+    + Into<ExpandElementTyped<Self>>
+    + CubeIndexMut<u32, Output = Self>
+    + num_traits::NumCast
     + std::ops::AddAssign
     + std::ops::SubAssign
     + std::ops::MulAssign
@@ -60,14 +66,6 @@ pub trait Numeric:
         unexpanded!()
     }
 
-    fn idx(&self) -> &Self {
-        unexpanded!()
-    }
-
-    fn idx_mut(&mut self) -> &mut Self {
-        unexpanded!()
-    }
-
     fn __expand_from_int(
         _context: &mut CubeContext,
         val: ExpandElementTyped<i64>,
@@ -92,7 +90,7 @@ pub trait Numeric:
             let var: Variable = elem.constant_from_i64(element.constant().unwrap().as_i64());
             let expand = ExpandElement::Plain(var);
 
-            index_assign::expand_vec::<u32>(
+            index_assign::expand::<u32>(
                 context,
                 new_var.clone().into(),
                 ExpandElementTyped::from_lit(i),

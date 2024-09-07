@@ -16,7 +16,7 @@ pub mod subcube_elect {
     use super::*;
 
     /// Expand method of [subcube_elect()].
-    pub fn __expand(context: &mut CubeContext) -> ExpandElementTyped<Bool> {
+    pub fn expand(context: &mut CubeContext) -> ExpandElementTyped<Bool> {
         let output = context.create_local(Item::new(Elem::Bool));
         let out = *output;
 
@@ -39,7 +39,7 @@ pub mod subcube_broadcast {
     use super::*;
 
     /// Expand method of [subcube_broadcast()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         value: ExpandElementTyped<E>,
         id: ExpandElementTyped<u32>,
@@ -68,7 +68,7 @@ pub mod subcube_sum {
     use super::*;
 
     /// Expand method of [subcube_sum()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
@@ -97,7 +97,7 @@ pub mod subcube_prod {
     use super::*;
 
     /// Expand method of [subcube_prod()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
@@ -126,7 +126,7 @@ pub mod subcube_max {
     use super::*;
 
     /// Expand method of [subcube_max()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
@@ -155,7 +155,7 @@ pub mod subcube_min {
     use super::*;
 
     /// Expand method of [subcube_min()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
@@ -185,7 +185,7 @@ pub mod subcube_all {
     use super::*;
 
     /// Expand method of [subcube_all()].
-    pub fn __expand(
+    pub fn expand(
         context: &mut CubeContext,
         elem: ExpandElementTyped<Bool>,
     ) -> ExpandElementTyped<Bool> {
@@ -215,7 +215,7 @@ pub mod subcube_any {
     use super::*;
 
     /// Expand method of [subcube_any()].
-    pub fn __expand(
+    pub fn expand(
         context: &mut CubeContext,
         elem: ExpandElementTyped<Bool>,
     ) -> ExpandElementTyped<Bool> {

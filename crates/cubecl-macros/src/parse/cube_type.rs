@@ -1,13 +1,13 @@
 use std::iter;
 
-use darling::{ast::Data, FromDeriveInput, FromField};
+use darling::{ast::Data, util::Flag, FromDeriveInput, FromField};
 use quote::format_ident;
 use syn::{parse_quote, punctuated::Punctuated, Generics, Ident, Type, Visibility};
 
 use crate::paths::prelude_type;
 
 #[derive(FromDeriveInput)]
-#[darling(supports(struct_named), attributes(cube_type), map = unwrap_fields)]
+#[darling(supports(struct_named), attributes(expand), map = unwrap_fields)]
 pub struct TypeCodegen {
     pub ident: Ident,
     pub name_launch: Option<Ident>,
@@ -20,10 +20,12 @@ pub struct TypeCodegen {
 }
 
 #[derive(FromField, Clone)]
+#[darling(attributes(expand))]
 pub struct TypeField {
     pub vis: Visibility,
     pub ident: Option<Ident>,
     pub ty: Type,
+    pub comptime: Flag,
 }
 
 fn unwrap_fields(mut ty: TypeCodegen) -> TypeCodegen {

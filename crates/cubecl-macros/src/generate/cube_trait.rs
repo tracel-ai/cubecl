@@ -1,32 +1,29 @@
-use crate::{
-    parse::cube_trait::{CubeTrait, CubeTraitImpl, CubeTraitImplItem, CubeTraitItem},
-    paths::frontend_type,
-};
+use crate::parse::cube_trait::{CubeTrait, CubeTraitImpl, CubeTraitImplItem, CubeTraitItem};
 use proc_macro2::TokenStream;
 use quote::quote;
 use quote::ToTokens;
 
 impl ToTokens for CubeTrait {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let static_expanded = frontend_type("StaticExpanded");
-
-        let original = &self.original_trait;
+        let original_body = &self.original_trait.items;
+        let colon = &self.original_trait.colon_token;
+        let base_traits = &self.original_trait.supertraits;
         let attrs = &self.attrs;
         let vis = &self.vis;
         let unsafety = &self.unsafety;
-        let expand_name = &self.expand_name;
+        let name = &self.name;
         let generics = &self.generics;
-        let fns = &self.items;
+        let fns = self.items.iter().filter_map(CubeTraitItem::func);
 
         let out = quote! {
-            #[allow(clippy::too_many_arguments)]
-            #original
-
             #(#attrs)*
-            #vis #unsafety trait #expand_name #generics: #static_expanded {
+            #[allow(clippy::too_many_arguments)]
+            #vis #unsafety trait #name #generics #colon #base_traits {
+                #(#original_body)*
+
                 #(
                     #[allow(clippy::too_many_arguments)]
-                    #fns
+                    #fns;
                 )*
             }
         };
@@ -34,46 +31,28 @@ impl ToTokens for CubeTrait {
     }
 }
 
-impl ToTokens for CubeTraitItem {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let out = match self {
-            CubeTraitItem::Fn(func) => quote![#func;],
-            CubeTraitItem::Other(tokens) => tokens.clone(),
-        };
-        tokens.extend(out);
-    }
-}
-
-impl ToTokens for CubeTraitImplItem {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let out = match self {
-            CubeTraitImplItem::Fn(func) => quote![#func],
-            CubeTraitImplItem::Other(tokens) => tokens.clone(),
-        };
-        tokens.extend(out);
-    }
-}
-
-impl ToTokens for CubeTraitImpl {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        //let static_expand = ir_type("StaticExpand");
-
+impl CubeTraitImpl {
+    pub fn to_tokens_mut(&mut self) -> TokenStream {
         let unsafety = &self.unsafety;
-        let fns = &self.items;
-        //let struct_name = &self.struct_name;
-        let struct_expand_name = &self.struct_expand_name;
-        let trait_expand_name = &self.trait_expand_name;
+        let items = &self.original_items;
+        let fns = &self
+            .items
+            .iter_mut()
+            .filter_map(CubeTraitImplItem::func)
+            .map(|it| it.to_tokens_mut())
+            .collect::<Vec<_>>();
+        let struct_name = &self.struct_name;
+        let trait_name = &self.trait_name;
         let (generics, _, impl_where) = self.generics.split_for_impl();
-        let (_, struct_generic_names, _) = self.struct_generics.split_for_impl();
 
-        let out = quote! {
-            #unsafety impl #generics #trait_expand_name for #struct_expand_name #struct_generic_names #impl_where {
+        quote! {
+            #unsafety impl #generics #trait_name for #struct_name #impl_where {
+                #(#items)*
                 #(
                     #[allow(unused, clone_on_copy, clippy::all)]
                     #fns
                 )*
             }
-        };
-        tokens.extend(out);
+        }
     }
 }

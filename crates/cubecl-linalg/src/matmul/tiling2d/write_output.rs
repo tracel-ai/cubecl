@@ -11,7 +11,7 @@ use super::{
     },
 };
 
-#[derive(Expand, CubeType)]
+#[derive(CubeType)]
 pub(crate) struct WriteTileInfo {
     pub coordinates: Coordinates,
     pub offset_output: u32,

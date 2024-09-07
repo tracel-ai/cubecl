@@ -18,7 +18,7 @@ pub(crate) fn tile_outer_product<F: Float>(
         let res_pos_base = res_idx_m * tile_size;
         #[unroll(unroll)]
         for res_idx_n in 0..tile_size {
-            let mul = register_m.vec_index(res_idx_m) * register_n.vec_index(res_idx_n);
+            let mul = register_m[res_idx_m] * register_n[res_idx_n];
             results[res_pos_base + res_idx_n] += mul;
         }
     }

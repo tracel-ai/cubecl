@@ -1,25 +1,19 @@
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use std::{cell::RefCell, iter};
-use syn::{parse_quote, Ident};
+use std::iter;
+use syn::Ident;
 
 use crate::{
     parse::kernel::{KernelFn, KernelParam, KernelSignature, Launch},
     paths::{core_type, prelude_type},
-    scope::Context,
 };
 
-thread_local! {
-    pub static CONTEXT: RefCell<Context> = RefCell::new(Context::new(parse_quote![()], false));
-}
-
-impl ToTokens for KernelFn {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
+impl KernelFn {
+    pub fn to_tokens_mut(&mut self) -> TokenStream {
         let sig = &self.sig;
-        let block = &self.block;
-        CONTEXT.set(self.context.clone());
-        CONTEXT.with_borrow_mut(|ctx| ctx.restore_scope());
+        let block = self.block.to_tokens(&mut self.context);
+        //CONTEXT.with_borrow_mut(|ctx| ctx.restore_scope());
 
         let out = quote! {
             #sig {
@@ -27,8 +21,8 @@ impl ToTokens for KernelFn {
             }
         };
 
-        CONTEXT.with_borrow_mut(|ctx| ctx.delete_scope());
-        tokens.extend(out);
+        //CONTEXT.with_borrow_mut(|ctx| ctx.delete_scope());
+        out
     }
 }
 
@@ -113,6 +107,23 @@ impl Launch {
         let register_input = register_fn("register_input", inputs);
         let register_output = register_fn("register_output", outputs);
 
+        let insert_inputs = (inputs_len > 0).then(|| {
+            quote! {
+                for i in 0..#inputs_len {
+                    inputs.insert(i, register_input(&mut builder, &self.settings, i));
+                }
+            }
+        });
+        let insert_outputs = (outputs_len > 0).then(|| {
+            quote! {
+                for i in 0..#outputs_len {
+                    if !outputs.contains_key(&i) {
+                        outputs.insert(i, register_output(&mut builder, &self.settings, i));
+                    }
+                }
+            }
+        });
+
         let in_params = self
             .runtime_inputs()
             .enumerate()
@@ -129,18 +140,12 @@ impl Launch {
             #register_input
             #register_output
 
-            for i in 0..#inputs_len {
-                inputs.insert(i, register_input(&mut builder, &self.settings, i));
-            }
+            #insert_inputs
             for mapping in &self.settings.mappings {
                 let input = inputs.get(&mapping.pos_input).unwrap();
                 outputs.insert(mapping.pos_output, input.clone());
             }
-            for i in 0..#outputs_len {
-                if !outputs.contains_key(&i) {
-                    outputs.insert(i, register_output(&mut builder, &self.settings, i));
-                }
-            }
+            #insert_outputs
             #(#in_params)*
             #(#out_params)*
         }
@@ -151,11 +156,13 @@ impl Launch {
         let io_map = self.io_mappings();
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
+        let (_, generics, _) = self.func.sig.generics.split_for_impl();
+        let generics = generics.as_turbofish();
 
         quote! {
             let mut builder = #kernel_builder::default();
             #io_map
-            expand(&mut builder.context, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
+            expand #generics(&mut builder.context, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
             builder.build(self.settings.clone())
         }
     }
@@ -172,18 +179,33 @@ impl Launch {
             let kernel_doc = format!("{} Kernel", self.func.sig.name);
 
             let (generics, generic_names, where_clause) = self.kernel_generics.split_for_impl();
-            let const_params = self.comptime_params();
+            let const_params: Vec<_> = self.comptime_params().collect();
+            let param_names = self
+                .comptime_params()
+                .map(|param| param.name.clone())
+                .collect::<Vec<_>>();
             let phantom_data = self.kernel_phantom_data();
-            let info = iter::once(format_ident!("settings"))
-                .chain(self.comptime_params().map(|param| param.name.clone()));
+            let info = iter::once(format_ident!("settings")).chain(param_names.clone());
+            let phantom_data_init = phantom_data
+                .as_ref()
+                .map(|_| quote![__ty: ::core::marker::PhantomData]);
 
             quote! {
                 #[doc = #kernel_doc]
-                #[derive(new)]
                 pub struct #kernel_name #generics #where_clause {
                     settings: #kernel_settings,
                     #(#const_params,)*
                     #phantom_data
+                }
+
+                impl #generics #kernel_name #generic_names #where_clause {
+                    pub fn new(settings: #kernel_settings, #(#const_params),*) -> Self {
+                        Self {
+                            settings,
+                            #(#param_names,)*
+                            #phantom_data_init
+                        }
+                    }
                 }
 
                 impl #generics #kernel for #kernel_name #generic_names #where_clause {
@@ -209,18 +231,18 @@ fn register_fn(name: &str, values: impl Iterator<Item = TokenStream>) -> TokenSt
     let name = format_ident!("{name}");
     quote! {
         #[allow(unused)]
-        fn #name(
+        let #name = |
             builder: &mut #kernel_builder,
             settings: &#kernel_settings,
             position: usize,
-        ) -> ::std::sync::Arc<dyn ::core::any::Any> {
+        | -> ::std::sync::Arc<dyn ::core::any::Any> {
             match position {
                 #(#values,)*
                 _ => {
                     panic!("Input {position} is invalid");
                 }
             }
-        }
+        };
     }
 }
 

@@ -14,7 +14,11 @@ impl TypeField {
         let vis = &self.vis;
         let name = self.ident.as_ref().unwrap();
         let ty = &self.ty;
-        quote![#vis #name: <#ty as #cube_type>::ExpandType]
+        if self.comptime.is_present() {
+            quote![#vis #name: #ty]
+        } else {
+            quote![#vis #name: <#ty as #cube_type>::ExpandType]
+        }
     }
 
     pub fn launch_field(&self) -> TokenStream {
@@ -183,17 +187,19 @@ impl TypeCodegen {
     }
 
     pub fn expand_type_impl(&self) -> proc_macro2::TokenStream {
+        let init = prelude_type("Init");
+        let context = prelude_type("CubeContext");
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let body = self
             .fields
             .iter()
             .map(TypeField::split)
-            .map(|(_, ident, _)| quote![#ident: Init::init(self.#ident, context)]);
+            .map(|(_, ident, _)| quote![#ident: #init::init(self.#ident, context)]);
 
         quote! {
-            impl #generics Init for #name_expand #generic_names #where_clause {
-                fn init(self, context: &mut CubeContext) -> Self {
+            impl #generics #init for #name_expand #generic_names #where_clause {
+                fn init(self, context: &mut #context) -> Self {
                     Self {
                         #(#body),*
                     }

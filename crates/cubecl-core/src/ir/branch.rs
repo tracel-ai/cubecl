@@ -40,6 +40,7 @@ pub struct RangeLoop {
     pub start: Variable,
     pub end: Variable,
     pub step: Option<Variable>,
+    pub inclusive: bool,
     pub scope: Scope,
 }
 
@@ -93,6 +94,7 @@ impl RangeLoop {
         start: Variable,
         end: Variable,
         step: Option<Variable>,
+        inclusive: bool,
         func: F,
     ) {
         let mut scope = parent_scope.child();
@@ -107,6 +109,7 @@ impl RangeLoop {
             end,
             step,
             scope,
+            inclusive,
         }));
     }
 }

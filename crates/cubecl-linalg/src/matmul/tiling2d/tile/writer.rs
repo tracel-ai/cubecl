@@ -6,16 +6,15 @@ use std::marker::PhantomData;
 use crate::matmul::tiling2d::{
     base::Dimensions,
     config::CubeTiling2dConfig,
-    write_output::{OutputWriter, OutputWriterExpand, WriteTileInfo},
+    write_output::{OutputWriter, WriteTileInfo},
 };
 
 use super::{
-    block_io::base::{BlockWriter, BlockWriterExpand},
+    block_io::base::BlockWriter,
     loader::CheckBounds,
     memory_access::{MatchingVectorization, UnmatchingVectorization},
 };
 
-#[derive(StaticExpand)]
 pub(crate) struct TileWriter<F: Float> {
     _f: PhantomData<F>,
 }
@@ -29,7 +28,7 @@ impl<F: Float> OutputWriter<F> for TileWriter<F> {
         dims: Dimensions,
         #[comptime] config: CubeTiling2dConfig,
     ) {
-        let vectorization = vectorization_of(out);
+        let vectorization = out.vectorization_factor();
         let tile_size = config.tile_size;
         let coordinates = write_info.coordinates;
 

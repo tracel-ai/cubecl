@@ -156,6 +156,7 @@ impl ScopeProcessing {
                 Operator::Not(op) => {
                     sanitize_constant_scalar_ref_elem(&mut op.input, Elem::Bool);
                 }
+                Operator::Neg(op) => sanitize_constant_scalar_ref_var(&mut op.input, &op.out),
                 Operator::Max(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);

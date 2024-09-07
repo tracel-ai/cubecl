@@ -4,10 +4,8 @@ use cubecl_core::prelude::*;
 use super::{
     base::{Accumulators, Dimensions, Offsets},
     block_io::{
-        base::{BlockWriter, BlockWriterExpand},
-        horizontal_block_check::HorizontalCheckBlockIO,
-        unchecked_block::UncheckedBlockIO,
-        vertical_block_check::VerticalCheckBlockIO,
+        base::BlockWriter, horizontal_block_check::HorizontalCheckBlockIO,
+        unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
         whole_block_check::WholeCheckBlockIO,
     },
     config::CmmaConfig,
@@ -34,10 +32,10 @@ fn fragment_to_shared_memory<F: Float>(accumulators: Accumulators<F>) -> SharedM
     let slice_offset_1 = slice_offset_0 + 256;
     let slice_offset_2 = slice_offset_1 + 256;
 
-    let slice = &mut acc_sm[slice_offset_0..slice_offset_1];
+    let slice = acc_sm.slice_mut(slice_offset_0, slice_offset_1);
     cmma::store(slice, &accumulators.first, 16, cmma::MatrixLayout::RowMajor);
 
-    let slice = &mut acc_sm[slice_offset_1..slice_offset_2];
+    let slice = acc_sm.slice_mut(slice_offset_1, slice_offset_2);
     cmma::store(
         slice,
         &accumulators.second,
@@ -84,7 +82,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let n_tiles = 2;
 
     let tile_size = config.tile_size;
-    let out_vec = vectorization_of(out);
+    let out_vec = out.vectorization_factor();
     let n_units_per_tile_row = tile_size / out_vec;
     let num_tile_elems = tile_size * tile_size;
 

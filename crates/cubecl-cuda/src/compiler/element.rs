@@ -14,7 +14,6 @@ pub enum Elem {
     I32,
     U32,
     Bool,
-    Pointer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
@@ -34,7 +33,6 @@ impl Display for Elem {
             Elem::I32 => f.write_str("int"),
             Elem::U32 => f.write_str("uint"),
             Elem::Bool => f.write_str("bool"),
-            Elem::Pointer => f.write_str("int*"),
         }
     }
 }
@@ -484,7 +482,6 @@ impl Elem {
             Self::I32 => core::mem::size_of::<i32>(),
             Self::U32 => core::mem::size_of::<u32>(),
             Self::Bool => core::mem::size_of::<bool>(),
-            Self::Pointer => core::mem::size_of::<usize>(),
         }
     }
 }

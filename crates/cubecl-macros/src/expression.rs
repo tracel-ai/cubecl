@@ -1,14 +1,8 @@
-use cubecl_common::operator::Operator;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{
-    AngleBracketedGenericArguments, Ident, Lit, Member, Path, PathArguments, PathSegment, Type,
-};
+use syn::{AngleBracketedGenericArguments, Ident, Lit, Member, Path, PathSegment, Type};
 
-use crate::statement::Statement;
-
-const CONSTANT_FNS: &[&str] = &["vectorization_of"];
-const CONSTANT_TYPES: &[&str] = &["::cubecl::prelude::Sequence"];
+use crate::{operator::Operator, scope::Context, statement::Statement};
 
 #[derive(Clone, Debug)]
 pub enum Expression {
@@ -145,7 +139,7 @@ pub enum Expression {
     },
     StructInit {
         path: Path,
-        fields: Vec<Expression>,
+        fields: Vec<(Member, Expression)>,
     },
     Closure {
         tokens: proc_macro2::TokenStream,
@@ -210,16 +204,11 @@ impl Expression {
             Expression::FieldAccess { base, .. } => base.is_const(),
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
-            Expression::FunctionCall {
-                func,
-                associated_type,
-                ..
-            } if is_const_fn(func, associated_type) => true,
             _ => false,
         }
     }
 
-    pub fn as_const(&self) -> Option<TokenStream> {
+    pub fn as_const(&self, context: &mut Context) -> Option<TokenStream> {
         match self {
             Expression::Literal { value, .. } => Some(quote![#value]),
             Expression::Verbatim { tokens, .. } => Some(tokens.clone()),
@@ -229,15 +218,15 @@ impl Expression {
             Expression::Array { elements, .. } => {
                 let elements = elements
                     .iter()
-                    .map(|it| it.as_const())
+                    .map(|it| it.as_const(context))
                     .collect::<Option<Vec<_>>>()?;
                 Some(quote![[#(#elements),*]])
             }
             Expression::FieldAccess { base, field, .. } => {
-                base.as_const().map(|base| quote![#base.#field])
+                base.as_const(context).map(|base| quote![#base.#field])
             }
-            Expression::Reference { inner } => inner.as_const().map(|base| quote![&#base]),
-            Expression::FunctionCall { .. } if self.is_const() => Some(quote![#self]),
+            Expression::Reference { inner } => inner.as_const(context).map(|base| quote![&#base]),
+            Expression::FunctionCall { .. } if self.is_const() => Some(self.to_tokens(context)),
             _ => None,
         }
     }
@@ -260,22 +249,4 @@ impl Expression {
             _ => true,
         }
     }
-}
-
-fn is_const_fn(func: &Expression, assoc_type: &Option<(Path, PathSegment)>) -> bool {
-    if let Some((path, _)) = assoc_type {
-        let mut path = path.clone();
-        path.segments.last_mut().unwrap().arguments = PathArguments::None;
-        let path = quote![#path].to_string();
-        return CONSTANT_TYPES.iter().any(|ty| ty.ends_with(&path));
-    }
-    fn is_const(func: &Expression) -> Option<bool> {
-        if let Expression::Path { path } = func {
-            let ident = path.segments.last()?.ident.to_string();
-            Some(CONSTANT_FNS.contains(&ident.as_str()))
-        } else {
-            None
-        }
-    }
-    is_const(func).unwrap_or(false)
 }

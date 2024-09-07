@@ -100,7 +100,7 @@ impl WgslCompiler {
 
     fn compile_item(item: cube::Item) -> Item {
         let elem = Self::compile_elem(item.elem);
-        match item.vectorization {
+        match item.vectorization.map(|it| it.get()).unwrap_or(1) {
             1 => wgsl::Item::Scalar(elem),
             2 => wgsl::Item::Vec2(elem),
             3 => wgsl::Item::Vec3(elem),
@@ -128,7 +128,6 @@ impl WgslCompiler {
                 cube::IntKind::I64 => panic!("atomic<i64> is not a valid WgpuElement"),
             },
             cube::Elem::AtomicUInt => wgsl::Elem::AtomicU32,
-            cube::Elem::Unit => wgsl::Elem::Pointer,
         }
     }
 

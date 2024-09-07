@@ -65,8 +65,12 @@ fn compute_tile<F: Float, FC: Float>(
         let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
         let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
 
-        let lhs_slice = &shared_memories.lhs[shared_lhs_pos..shared_lhs_pos + num_tile_elems];
-        let rhs_slice = &shared_memories.rhs[shared_rhs_pos..shared_rhs_pos + num_tile_elems];
+        let lhs_slice = shared_memories
+            .lhs
+            .slice(shared_lhs_pos, shared_lhs_pos + num_tile_elems);
+        let rhs_slice = shared_memories
+            .rhs
+            .slice(shared_rhs_pos, shared_rhs_pos + num_tile_elems);
 
         let a = cmma::Matrix::<FC>::new(
             cmma::MatrixIdent::A,
@@ -86,6 +90,6 @@ fn compute_tile<F: Float, FC: Float>(
         cmma::load(&a, lhs_slice, 16);
         cmma::load(&b, rhs_slice, 16);
 
-        cmma::execute(&a, &b, &accumulator, &accumulator);
+        cmma::execute::<FC, FC, F, F>(&a, &b, &accumulator, &accumulator);
     }
 }

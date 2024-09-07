@@ -1,4 +1,4 @@
-use super::{indexation::Index, CubeContext, CubeType, Init};
+use super::{branch::Iterable, indexation::Index, CubeContext, CubeType, ExpandElementTyped, Init};
 use crate::unexpanded;
 use std::{cell::RefCell, rc::Rc};
 
@@ -53,10 +53,10 @@ impl<T: CubeType> Sequence<T> {
     }
 
     /// Expand function of [index](Self::index).
-    pub fn __expand_index<I: Index>(
+    pub fn __expand_index(
         context: &mut CubeContext,
         expand: SequenceExpand<T>,
-        index: I,
+        index: ExpandElementTyped<u32>,
     ) -> T::ExpandType {
         expand.__expand_index_method(context, index)
     }
@@ -67,6 +67,26 @@ pub struct SequenceExpand<T: CubeType> {
     // We clone the expand type during the compilation phase, but for register reuse, not for
     // copying data. To achieve the intended behavior, we have to share the same underlying values.
     values: Rc<RefCell<Vec<T::ExpandType>>>,
+}
+
+impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
+    fn expand(
+        self,
+        context: &mut CubeContext,
+        func: impl FnMut(&mut CubeContext, <T as CubeType>::ExpandType),
+    ) {
+        self.expand_unroll(context, func);
+    }
+
+    fn expand_unroll(
+        self,
+        context: &mut CubeContext,
+        mut func: impl FnMut(&mut CubeContext, <T as CubeType>::ExpandType),
+    ) {
+        for elem in self {
+            func(context, elem);
+        }
+    }
 }
 
 impl<T: CubeType> Init for SequenceExpand<T> {
@@ -114,20 +134,15 @@ impl<T: CubeType> SequenceExpand<T> {
     }
 
     /// Expand method of [index](Sequence::index).
-    pub fn __expand_index_method<I: Index>(
+    pub fn __expand_index_method(
         &self,
         _context: &mut CubeContext,
-        index: I,
+        index: ExpandElementTyped<u32>,
     ) -> T::ExpandType {
-        let value = index.value();
-        let index = match value {
-            crate::ir::Variable::ConstantScalar(value) => match value {
-                crate::ir::ConstantScalarValue::Int(val, _) => val as usize,
-                crate::ir::ConstantScalarValue::UInt(val) => val as usize,
-                _ => panic!("Only integer types are supported"),
-            },
-            _ => panic!("Only constant are supported"),
-        };
+        let index = index
+            .constant()
+            .expect("Only constant are supported")
+            .as_usize();
         self.values.borrow()[index].clone()
     }
 }

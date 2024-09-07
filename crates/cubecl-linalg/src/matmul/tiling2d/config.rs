@@ -1,5 +1,8 @@
-use cubecl_core as cubecl;
-use cubecl_core::{compute::CubeCount, ir::CubeDim, CubeType, Expand, Runtime};
+use cubecl_core::{
+    self as cubecl,
+    prelude::{CubeContext, Init},
+};
+use cubecl_core::{compute::CubeCount, ir::CubeDim, CubeType, Runtime};
 
 use super::base::TILE_SIZE;
 
@@ -30,7 +33,7 @@ impl Default for Tiling2dConfig {
     }
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Expand, CubeType)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, CubeType)]
 /// Tiling 2D parameters
 pub struct CubeTiling2dConfig {
     /// Block size along dimension of lhs
@@ -55,6 +58,12 @@ pub struct CubeTiling2dConfig {
     pub lhs_transposed: bool,
     /// Rhs is transposed in global memory
     pub rhs_transposed: bool,
+}
+
+impl Init for CubeTiling2dConfig {
+    fn init(self, _context: &mut CubeContext) -> Self {
+        self
+    }
 }
 
 impl CubeTiling2dConfig {

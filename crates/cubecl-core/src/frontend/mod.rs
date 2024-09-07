@@ -3,6 +3,7 @@ pub mod cmma;
 pub mod synchronization;
 
 mod base;
+mod const_expand;
 mod context;
 mod element;
 mod indexation;
@@ -11,6 +12,8 @@ mod sequence;
 mod subcube;
 mod topology;
 
+pub use branch::{Range, SteppedRange};
+pub use const_expand::*;
 pub use context::*;
 pub use element::*;
 pub use indexation::*;

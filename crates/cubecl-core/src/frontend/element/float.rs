@@ -35,6 +35,7 @@ pub trait Float:
     + Ceil
     + Erf
     + Recip
+    + Into<Self::ExpandType>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>
     + core::ops::Mul<Output = Self>
@@ -49,15 +50,12 @@ pub trait Float:
     fn new(val: f32) -> Self;
     fn vectorized(val: f32, vectorization: u32) -> Self;
     fn vectorized_empty(vectorization: u32) -> Self;
-    fn __expand_new(
-        context: &mut CubeContext,
-        val: Self::ExpandType,
-    ) -> <Self as CubeType>::ExpandType {
-        __expand_new(context, val, Self::as_elem())
+    fn __expand_new(context: &mut CubeContext, val: f32) -> <Self as CubeType>::ExpandType {
+        __expand_new(context, val)
     }
     fn __expand_vectorized(
         context: &mut CubeContext,
-        val: Self::ExpandType,
+        val: f32,
         vectorization: u32,
     ) -> <Self as CubeType>::ExpandType {
         __expand_vectorized(context, val, vectorization, Self::as_elem())

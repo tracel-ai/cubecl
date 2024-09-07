@@ -24,6 +24,7 @@ pub struct SliceMut<'a, E> {
 
 impl<'a, E> Slice<'a, E> {
     /// Get the length of the slice.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u32 {
         unexpanded!()
     }
@@ -31,6 +32,7 @@ impl<'a, E> Slice<'a, E> {
 
 impl<'a, E> SliceMut<'a, E> {
     /// Get the length of the slice.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u32 {
         unexpanded!()
     }
@@ -67,11 +69,11 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
         unexpanded!()
     }
     /// Expand function of [SliceOperator::slice].
-    fn __expand_slice<Start: Index, End: Index>(
+    fn __expand_slice(
         context: &mut CubeContext,
         expand: Self::Expand,
-        start: Start,
-        end: End,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Slice<'static, E>> {
         expand.__expand_slice_method(context, start, end)
     }
@@ -87,11 +89,11 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Expand function of [SliceOperator::slice_mut].
-    fn __expand_slice_mut<Start: Index, End: Index>(
+    fn __expand_slice_mut(
         context: &mut CubeContext,
         expand: Self::Expand,
-        start: Start,
-        end: End,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {
         expand.__expand_slice_mut_method(context, start, end)
     }
@@ -111,11 +113,11 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Expand function of [SliceOperator::slice_mut_unsafe].
-    fn __expand_slice_mut_unsafe<Start: Index, End: Index>(
+    fn __expand_slice_mut_unsafe(
         context: &mut CubeContext,
         expand: Self::Expand,
-        start: Start,
-        end: End,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {
         expand.__expand_slice_mut_unsafe_method(context, start, end)
     }
@@ -175,29 +177,29 @@ pub trait SliceOperatorExpand<E: CubeType>: Into<ExpandElement> + Clone {
         end: End,
     ) -> ExpandElement;
 
-    fn __expand_slice_method<Start: Index, End: Index>(
+    fn __expand_slice_method(
         &self,
         context: &mut CubeContext,
-        start: Start,
-        end: End,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Slice<'static, E>> {
         ExpandElementTyped::new(self.slice_base(context, start, end))
     }
 
-    fn __expand_slice_mut_method<Start: Index, End: Index>(
+    fn __expand_slice_mut_method(
         &self,
         context: &mut CubeContext,
-        start: Start,
-        end: End,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {
         ExpandElementTyped::new(self.slice_base(context, start, end))
     }
 
-    fn __expand_slice_mut_unsafe_method<Start: Index, End: Index>(
+    fn __expand_slice_mut_unsafe_method(
         &self,
         context: &mut CubeContext,
-        start: Start,
-        end: End,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<SliceMut<'static, E>> {
         ExpandElementTyped::new(self.slice_base(context, start, end))
     }

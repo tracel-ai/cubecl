@@ -1,10 +1,15 @@
-use cubecl_common::operator::Operator;
+use std::iter;
+
 use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment, RangeLimits, Type};
+use syn::{
+    parse_quote, punctuated::Punctuated, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment,
+    RangeLimits, Type,
+};
 
 use crate::{
     expression::{Block, Expression},
+    operator::Operator,
     scope::{Context, ManagedVar},
 };
 
@@ -119,7 +124,9 @@ impl Expression {
                     .map(|arg| Expression::from_expr(arg.clone(), context))
                     .collect::<Result<Vec<_>, _>>()?;
                 if receiver.is_const() && args.iter().all(|arg| arg.is_const()) {
+                    let receiver = receiver.as_const(context).unwrap();
                     let method = &method.method;
+                    let args = args.iter().map(|it| it.to_tokens(context));
                     Expression::Verbatim {
                         tokens: quote![#receiver.#method(#(#args),*)],
                     }
@@ -144,7 +151,7 @@ impl Expression {
                     }
                 }
                 let from = Expression::from_expr(from_expr, context)?;
-                if let Some(as_const) = from.as_const() {
+                if let Some(as_const) = from.as_const(context) {
                     Expression::Verbatim { tokens: as_const }
                 } else {
                     Expression::Cast {
@@ -301,7 +308,7 @@ impl Expression {
                 tokens: quote![#mac],
             },
             Expr::Struct(init) => {
-                let mut fields = init
+                let fields = init
                     .fields
                     .clone()
                     .into_iter()
@@ -311,16 +318,9 @@ impl Expression {
                         syn::Result::Ok((member, value))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                if fields.iter().all(|(_, value)| value.is_const()) {
-                    Expression::Verbatim {
-                        tokens: quote![#init],
-                    }
-                } else {
-                    fields.sort_by_key(|(member, _)| member.to_token_stream().to_string());
-                    Expression::StructInit {
-                        path: init.path,
-                        fields: fields.into_iter().map(|(_, value)| value).collect(),
-                    }
+                Expression::StructInit {
+                    path: init.path,
+                    fields,
                 }
             }
             Expr::Unsafe(unsafe_expr) => Expression::Block(
@@ -333,14 +333,16 @@ impl Expression {
             },
             Expr::Closure(mut expr) => {
                 let body = Expression::from_expr(*expr.body, context)?;
-                expr.body = Box::new(Expr::Verbatim(body.to_token_stream()));
+                expr.body = Box::new(Expr::Verbatim(body.to_tokens(context)));
+                expr.inputs =
+                    Punctuated::from_iter(iter::once(parse_quote![context]).chain(expr.inputs));
                 let tokens = expr.to_token_stream();
                 Expression::Closure { tokens }
             }
             Expr::Try(expr) => {
                 let span = expr.span();
                 let expr = Expression::from_expr(*expr.expr, context)?
-                    .as_const()
+                    .as_const(context)
                     .ok_or_else(|| syn::Error::new(span, "? Operator not supported at runtime"))?;
                 Expression::Verbatim {
                     tokens: quote_spanned![span=>

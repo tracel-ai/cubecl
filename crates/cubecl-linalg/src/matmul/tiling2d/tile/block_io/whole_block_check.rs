@@ -5,20 +5,13 @@ use crate::matmul::tiling2d::{
     config::CubeTiling2dConfig,
     tile::{
         loader::{CheckBounds, ReadTileInfo},
-        memory_access::{
-            ContiguousAccess, ContiguousAccessExpand, StridedAccess, StridedAccessExpand,
-            UnmatchingVectorization, WritePositions,
-        },
+        memory_access::{ContiguousAccess, StridedAccess, UnmatchingVectorization, WritePositions},
     },
     write_output::WriteTileInfo,
 };
 
-use super::base::{
-    all_zeros_comptime, all_zeros_runtime, BlockLoader, BlockLoaderExpand, BlockWriter,
-    BlockWriterExpand,
-};
+use super::base::{all_zeros_comptime, all_zeros_runtime, BlockLoader, BlockWriter};
 
-#[derive(StaticExpand)]
 pub(crate) struct WholeCheckBlockIO;
 
 #[cube]
@@ -31,7 +24,7 @@ impl<F: Float> BlockLoader<F> for WholeCheckBlockIO {
         check_bounds: CheckBounds,
     ) {
         let tile_size = config.tile_size;
-        let vectorization = vectorization_of(&tensor);
+        let vectorization = tensor.vectorization_factor();
 
         let col = check_bounds.skip_col + info.read_col;
         if check_bounds.dim_horizontal > col {

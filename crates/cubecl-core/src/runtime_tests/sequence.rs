@@ -7,7 +7,7 @@ pub fn sequence_for_loop(output: &mut Array<f32>) {
         return;
     }
 
-    let sequence = Sequence::<f32>::new();
+    let mut sequence = Sequence::<f32>::new();
     sequence.push(1.0);
     sequence.push(4.0);
 
@@ -22,7 +22,7 @@ pub fn sequence_index(output: &mut Array<f32>) {
         return;
     }
 
-    let sequence = Sequence::<f32>::new();
+    let mut sequence = Sequence::<f32>::new();
     sequence.push(2.0);
     sequence.push(4.0);
 

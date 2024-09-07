@@ -1,5 +1,6 @@
-use cubecl_common::operator::Operator;
 use syn::{BinOp, UnOp};
+
+use crate::operator::Operator;
 
 pub fn parse_binop(op: &BinOp) -> syn::Result<Operator> {
     let op = match op {

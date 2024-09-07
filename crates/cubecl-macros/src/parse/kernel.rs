@@ -3,7 +3,7 @@ use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::{Span, TokenStream};
 use std::iter;
 use syn::{
-    parse_quote, punctuated::Punctuated, spanned::Spanned, FnArg, Generics, Ident, ItemFn, Path,
+    parse_quote, punctuated::Punctuated, spanned::Spanned, FnArg, Generics, Ident, ItemFn,
     Signature, TraitItemFn, Type, Visibility,
 };
 
@@ -20,17 +20,6 @@ pub(crate) struct KernelArgs {
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
     let meta = NestedMeta::parse_meta_list(tokens)?;
     T::from_list(&meta).map_err(syn::Error::from)
-}
-
-#[derive(Default, FromMeta)]
-pub(crate) struct CubeTraitArgs {
-    pub expand_name: Option<Ident>,
-}
-
-#[derive(Default, FromMeta)]
-pub(crate) struct CubeTraitImplArgs {
-    pub expand_name: Option<Ident>,
-    pub trait_expand_name: Option<Path>,
 }
 
 impl KernelArgs {
@@ -147,14 +136,10 @@ impl KernelSignature {
 }
 
 impl KernelFn {
-    pub fn from_sig_and_block(
-        sig: Signature,
-        block: syn::Block,
-        launch: bool,
-    ) -> syn::Result<Self> {
+    pub fn from_sig_and_block(sig: Signature, block: syn::Block) -> syn::Result<Self> {
         let sig = KernelSignature::from_signature(sig)?;
 
-        let mut context = Context::new(sig.returns.clone(), launch);
+        let mut context = Context::new(sig.returns.clone());
         context.extend(sig.parameters.clone());
         let block = context.with_scope(|ctx| Block::from_block(block, ctx))?;
 
@@ -171,7 +156,7 @@ impl Launch {
         let runtime = prelude_type("Runtime");
 
         let vis = function.vis;
-        let func = KernelFn::from_sig_and_block(function.sig, *function.block, args.is_launch())?;
+        let func = KernelFn::from_sig_and_block(function.sig, *function.block)?;
         let mut kernel_generics = func.sig.generics.clone();
         kernel_generics.params.push(parse_quote![__R: #runtime]);
         let mut expand_generics = kernel_generics.clone();

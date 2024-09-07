@@ -78,6 +78,7 @@ impl Operator {
             Operator::And(op) => Operator::And(op.vectorize(vectorization)),
             Operator::Or(op) => Operator::Or(op.vectorize(vectorization)),
             Operator::Not(op) => Operator::Not(op.vectorize(vectorization)),
+            Operator::Neg(op) => Operator::Neg(op.vectorize(vectorization)),
             Operator::BitwiseAnd(op) => Operator::BitwiseAnd(op.vectorize(vectorization)),
             Operator::BitwiseXor(op) => Operator::BitwiseXor(op.vectorize(vectorization)),
             Operator::ShiftLeft(op) => Operator::ShiftLeft(op.vectorize(vectorization)),

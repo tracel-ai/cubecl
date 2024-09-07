@@ -19,6 +19,7 @@ impl ToTokens for Launch {
         let kernel = self.kernel_definition();
         let mut func = self.func.clone();
         func.sig.name = format_ident!("expand");
+        let func = func.to_tokens_mut();
 
         let out = quote! {
             #vis mod #name {
@@ -162,12 +163,13 @@ impl Launch {
                 "Launch the kernel [{}()] on the given runtime",
                 self.func.sig.name
             );
-            let (generics, generic_names, _) = self.kernel_generics.split_for_impl();
+            let generics = &self.launch_generics;
+            let (_, generic_names, _) = self.kernel_generics.split_for_impl();
 
             let settings = self.configure_settings();
             let kernel_name = self.kernel_name();
             let core_path = core_path();
-            let comptime_args = self.comptime_params();
+            let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);
 
             quote! {
@@ -181,7 +183,7 @@ impl Launch {
                     use #core_path::frontend::ArgSettings as _;
 
                     #settings
-                    #kernel_name::new(__settings, #(#comptime_names),*);
+                    #kernel_name::new(__settings, #(#comptime_names),*)
                 }
             }
         } else {

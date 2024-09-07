@@ -40,7 +40,7 @@ fn compute_loop_test<F: Float, FC: Float>(
     compute_loop(shared_memories, accumulators, config);
 
     let offset = UNIT_POS_Y * 512;
-    let slice_0 = &mut accumulate_array[offset..offset + 256];
+    let slice_0 = accumulate_array.slice_mut(offset, offset + 256);
     cmma::store(
         slice_0,
         &accumulators.first,
@@ -48,7 +48,7 @@ fn compute_loop_test<F: Float, FC: Float>(
         cmma::MatrixLayout::RowMajor,
     );
 
-    let slice_1 = &mut accumulate_array[offset + 256..offset + 512];
+    let slice_1 = accumulate_array.slice_mut(offset + 256, offset + 512);
     cmma::store(
         slice_1,
         &accumulators.second,
