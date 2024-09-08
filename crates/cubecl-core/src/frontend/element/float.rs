@@ -1,7 +1,8 @@
 use half::{bf16, f16};
 
 use crate::frontend::{
-    Ceil, Cos, Erf, Exp, Floor, Log, Log1p, Normalize, Powf, Recip, Round, Sin, Sqrt, Tanh,
+    Ceil, Cos, Erf, Exp, Floor, Log, Log1p, Magnitude, Normalize, Powf, Recip, Round, Sin, Sqrt,
+    Tanh,
 };
 use crate::frontend::{
     ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
@@ -32,6 +33,7 @@ pub trait Float:
     + Ceil
     + Erf
     + Recip
+    + Magnitude
     + Normalize
     + From<f32>
     + core::ops::Add<f32, Output = Self>

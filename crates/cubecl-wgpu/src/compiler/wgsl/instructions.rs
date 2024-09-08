@@ -308,6 +308,10 @@ pub enum Instruction {
         out: Variable,
     },
     Subgroup(Subgroup),
+    Magnitude {
+        input: Variable,
+        out: Variable,
+    },
     Normalize {
         input: Variable,
         out: Variable,
@@ -564,6 +568,11 @@ for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
 
                     index_assign(f, lhs, rhs, &out, Some(offset))
                 } else {
+                    // println!("{} :+: {} :+: {}", lhs, rhs, out);
+                    // panic!(
+                    //     "{}",
+                    //     format_args!("{out}[{lhs}] = {}({rhs});\n", out.item())
+                    // );
                     index_assign(f, lhs, rhs, out, None)
                 }
             }
@@ -671,6 +680,9 @@ for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
                 // For compatibility with cuda, only return old_value
                 "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;\n"
             )),
+            Instruction::Magnitude { input, out } => {
+                f.write_fmt(format_args!("{out} = length({input});\n"))
+            }
             Instruction::Normalize { input, out } => {
                 f.write_fmt(format_args!("{out} = normalize({input});\n"))
             }

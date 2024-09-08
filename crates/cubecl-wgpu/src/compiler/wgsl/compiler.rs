@@ -744,6 +744,10 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(op.out),
             },
+            cube::Operator::Magnitude(op) => wgsl::Instruction::Magnitude {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(op.out),
+            },
             cube::Operator::Normalize(op) => wgsl::Instruction::Normalize {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),

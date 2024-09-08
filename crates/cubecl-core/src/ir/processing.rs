@@ -222,6 +222,9 @@ impl ScopeProcessing {
                 Operator::AtomicXor(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
+                Operator::Magnitude(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
+                }
                 Operator::Normalize(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
                 }

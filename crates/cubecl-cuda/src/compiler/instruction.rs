@@ -138,6 +138,7 @@ pub enum Instruction {
         val: Variable,
         out: Variable,
     },
+    Magnitude(UnaryInstruction),
     Normalize(UnaryInstruction),
 }
 
@@ -382,6 +383,7 @@ for (uint {i} = {start}; {i} < {end}; {increment}) {{
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
+            Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
         }
     }
 }
@@ -475,6 +477,29 @@ fn function_prefix(elem: Elem) -> &'static str {
         Elem::F16 | Elem::BF16 => "h",
         Elem::F162 | Elem::BF162 => "h2",
         _ => "",
+    }
+}
+
+struct Magnitude;
+
+impl Magnitude {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable,
+        out: &Variable,
+    ) -> core::fmt::Result {
+        let num = input.item().vectorization;
+        let elem = input.elem();
+        let sqrt = format!("{}sqrt", function_prefix(elem));
+
+        f.write_fmt(format_args!("{out} = 0.0;\n"))?;
+
+        for i in 0..num {
+            let input_i = input.index(i);
+            f.write_fmt(format_args!("{out} += {input_i} * {input_i};\n"))?;
+        }
+
+        f.write_fmt(format_args!("{out} = {sqrt}({out});\n"))
     }
 }
 
