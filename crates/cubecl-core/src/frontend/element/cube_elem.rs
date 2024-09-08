@@ -1,12 +1,13 @@
 use crate::frontend::{CubeType, ExpandElement};
 use crate::ir::{Elem, Variable};
 
-use super::ExpandElementTyped;
+use super::{ExpandElementTyped, IntoRuntime};
 
 /// Form of CubeType that encapsulates all primitive types:
 /// Numeric, UInt, Bool
 pub trait CubePrimitive:
     CubeType<ExpandType = ExpandElementTyped<Self>>
+    + IntoRuntime
     + core::cmp::PartialEq
     + Send
     + Sync

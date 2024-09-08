@@ -1,5 +1,4 @@
-use proc_macro2::Span;
-use quote::quote_spanned;
+use quote::quote;
 use syn::{spanned::Spanned, ExprForLoop, ExprIf, ExprLoop, ExprWhile, Ident};
 
 use crate::{
@@ -20,7 +19,7 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
     let (var_name, ty, _) = parse_pat(*for_loop.pat)?;
 
     if right.is_const() && !matches!(right, Expression::Range { .. }) {
-        return expand_for_in_loop(var_name, right, for_loop.body, span, context);
+        return expand_for_in_loop(var_name, right, for_loop.body, context);
     }
 
     let block = context.with_scope(|context| {
@@ -42,7 +41,6 @@ fn expand_for_in_loop(
     var_name: Ident,
     right: Expression,
     block: syn::Block,
-    span: Span,
     context: &mut Context,
 ) -> syn::Result<Expression> {
     let statements = block
@@ -54,22 +52,13 @@ fn expand_for_in_loop(
     let right = right.to_tokens(context);
     let statements = statements.into_iter().map(|it| it.to_tokens(context));
     let for_loop = Expression::VerbatimTerminated {
-        tokens: quote_spanned! {span=>
+        tokens: quote! {
             for #var_name in #right {
                 #(#statements)*
             }
         },
     };
     Ok(for_loop)
-    // let block = ir_type("BlockExpr");
-    // let tokens = quote_spanned! {span=>
-    //     {
-    //         let mut __statements = Vec::new();
-    //         #for_loop
-    //         #block::new(__statements, ())
-    //     }
-    // };
-    // Ok(Expression::VerbatimTerminated { tokens })
 }
 
 pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::Result<Expression> {
@@ -105,7 +94,7 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
 
     let then_block = context.with_scope(|ctx| Block::from_block(if_expr.then_branch, ctx))?;
     let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
-        Some(Expression::from_expr(*else_branch, context)?)
+        Some(context.with_scope(|ctx| Expression::from_expr(*else_branch, ctx))?)
     } else {
         None
     };

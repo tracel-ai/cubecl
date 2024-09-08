@@ -7,7 +7,8 @@ use crate::ir::{Elem, IntKind, Vectorization};
 use crate::Runtime;
 
 use super::{
-    init_expand_element, LaunchArgExpand, ScalarArgSettings, __expand_new, __expand_vectorized,
+    init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
+    __expand_vectorized,
 };
 
 /// Signed integer. Used as input in int kernels
@@ -48,6 +49,16 @@ macro_rules! impl_int {
         impl CubePrimitive for $type {
             fn as_elem() -> Elem {
                 Elem::Int(IntKind::$kind)
+            }
+        }
+
+        impl IntoRuntime for $type {
+            fn __expand_runtime_method(
+                self,
+                context: &mut CubeContext,
+            ) -> ExpandElementTyped<Self> {
+                let expand: ExpandElementTyped<Self> = self.into();
+                Init::init(expand, context)
             }
         }
 

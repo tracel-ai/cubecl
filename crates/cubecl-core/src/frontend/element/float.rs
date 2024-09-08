@@ -4,7 +4,7 @@ use half::{bf16, f16};
 
 use super::{
     ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand, ScalarArgSettings,
-    __expand_new, __expand_vectorized, init_expand_element,
+    __expand_new, __expand_vectorized, init_expand_element, Init, IntoRuntime,
 };
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
@@ -83,6 +83,16 @@ macro_rules! impl_float {
             /// Return the element type to use on GPU
             fn as_elem() -> Elem {
                 Elem::Float(FloatKind::$kind)
+            }
+        }
+
+        impl IntoRuntime for $primitive {
+            fn __expand_runtime_method(
+                self,
+                context: &mut CubeContext,
+            ) -> ExpandElementTyped<Self> {
+                let expand: ExpandElementTyped<Self> = self.into();
+                Init::init(expand, context)
             }
         }
 

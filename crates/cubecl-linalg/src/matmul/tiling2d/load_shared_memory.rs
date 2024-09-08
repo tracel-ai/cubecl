@@ -18,8 +18,6 @@ pub(crate) struct LoadInfo<F: Float> {
     pub k: u32,
     pub batch_offset: u32,
     pub shared_memory: SharedMemory<F>,
-    #[expand(comptime)]
-    pub config: CubeTiling2dConfig,
     pub dims: Dimensions,
 }
 
@@ -66,7 +64,6 @@ pub(crate) fn load_to_shared_memories<F: Float, L: Loader<F>>(
         k,
         batch_offset: offsets.lhs,
         shared_memory: shared.lhs,
-        config,
         dims,
     };
     let rhs_load_info = LoadInfo::<F> {
@@ -74,7 +71,6 @@ pub(crate) fn load_to_shared_memories<F: Float, L: Loader<F>>(
         k,
         batch_offset: offsets.rhs,
         shared_memory: shared.rhs,
-        config,
         dims,
     };
 

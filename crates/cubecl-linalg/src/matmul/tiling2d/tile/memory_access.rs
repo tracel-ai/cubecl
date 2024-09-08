@@ -134,7 +134,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
         let vectorization_factor = tensor.vectorization_factor();
         let is_scalar = vectorization_factor == 1;
 
-        let mut vector = F::vectorized_empty(tile_size);
+        let mut vector = F::vectorized(0., tile_size);
 
         #[unroll(unroll)]
         for i in 0u32..tile_size / vectorization_factor {
@@ -165,7 +165,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
         let vectorization_factor = tensor.vectorization_factor();
         let is_scalar = vectorization_factor == 1;
 
-        let mut vector = F::vectorized_empty(tile_size);
+        let mut vector = F::vectorized(0., tile_size);
 
         let mut num_loops = 0;
         if check_bounds.dim_horizontal > read_info.read_col {

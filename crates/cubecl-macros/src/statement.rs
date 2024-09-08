@@ -9,11 +9,9 @@ pub enum Statement {
         init: Option<Box<Expression>>,
         mutable: bool,
         ty: Option<Type>,
-        span: Span,
     },
     Destructure {
         fields: Vec<(Pat, Expression)>,
-        span: Span,
     },
     Expression {
         expression: Box<Expression>,
@@ -27,8 +25,6 @@ impl Statement {
     pub fn from_stmt(stmt: Stmt, context: &mut Context) -> syn::Result<Self> {
         let statement = match stmt {
             Stmt::Local(local) => {
-                let span = local.span();
-
                 let init = local
                     .init
                     .map(|init| Expression::from_expr(*init.expr, context))
@@ -52,7 +48,6 @@ impl Statement {
                     init,
                     mutable,
                     ty,
-                    span,
                 }
             }
             Stmt::Expr(expr, semi) => {
@@ -108,8 +103,5 @@ fn parse_struct_destructure(
         })
         .collect::<syn::Result<Vec<_>>>()?;
 
-    Ok(Statement::Destructure {
-        fields,
-        span: Span::call_site(),
-    })
+    Ok(Statement::Destructure { fields })
 }

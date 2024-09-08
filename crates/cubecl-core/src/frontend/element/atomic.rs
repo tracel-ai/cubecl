@@ -1,5 +1,6 @@
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand, Numeric,
+    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime, LaunchArgExpand,
+    Numeric,
 };
 use crate::{
     frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement},
@@ -283,6 +284,15 @@ macro_rules! impl_atomic_int {
             type ExpandType = ExpandElementTyped<Self>;
         }
 
+        impl IntoRuntime for $type {
+            fn __expand_runtime_method(
+                self,
+                _context: &mut CubeContext,
+            ) -> ExpandElementTyped<Self> {
+                unimplemented!("Atomics don't exist at compile time")
+            }
+        }
+
         impl CubePrimitive for $type {
             fn as_elem() -> Elem {
                 Elem::AtomicInt(IntKind::$inner_type)
@@ -331,6 +341,12 @@ impl CubeType for AtomicU32 {
 impl CubePrimitive for AtomicU32 {
     fn as_elem() -> Elem {
         Elem::AtomicUInt
+    }
+}
+
+impl IntoRuntime for AtomicU32 {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> ExpandElementTyped<Self> {
+        unimplemented!("Atomics don't exist at compile time")
     }
 }
 

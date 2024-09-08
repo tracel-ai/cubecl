@@ -66,12 +66,12 @@ impl<I: Int> Iterable<I> for Range<I> {
 
         if self.inclusive {
             for i in start..=end {
-                let var: ExpandElement = i.into();
+                let var = I::from_int(i);
                 func(context, var.into())
             }
         } else {
             for i in start..end {
-                let var: ExpandElement = i.into();
+                let var = I::from_int(i);
                 func(context, var.into())
             }
         }
@@ -156,12 +156,12 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRange<I> {
 
         if self.inclusive {
             for i in (start..=end).step_by(step) {
-                let var: ExpandElement = i.into();
+                let var = I::from_int(i);
                 func(context, var.into())
             }
         } else {
             for i in (start..end).step_by(step) {
-                let var: ExpandElement = i.into();
+                let var = I::from_int(i);
                 func(context, var.into())
             }
         }

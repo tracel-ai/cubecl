@@ -1,6 +1,8 @@
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{AngleBracketedGenericArguments, Ident, Lit, Member, Path, PathSegment, Type};
+use syn::{
+    spanned::Spanned, AngleBracketedGenericArguments, Ident, Lit, Member, Path, PathSegment, Type,
+};
 
 use crate::{operator::Operator, scope::Context, statement::Statement};
 
@@ -126,7 +128,7 @@ pub enum Expression {
     },
     Slice {
         expr: Box<Expression>,
-        ranges: Vec<Expression>,
+        _ranges: Vec<Expression>,
         span: Span,
     },
     ArrayInit {
@@ -204,6 +206,9 @@ impl Expression {
             Expression::FieldAccess { base, .. } => base.is_const(),
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
+            Expression::MethodCall { method, args, .. } => {
+                method == "vectorization_factor" && args.is_empty()
+            }
             _ => false,
         }
     }
@@ -226,7 +231,7 @@ impl Expression {
                 base.as_const(context).map(|base| quote![#base.#field])
             }
             Expression::Reference { inner } => inner.as_const(context).map(|base| quote![&#base]),
-            Expression::FunctionCall { .. } if self.is_const() => Some(self.to_tokens(context)),
+            Expression::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
             _ => None,
         }
     }
@@ -247,6 +252,42 @@ impl Expression {
             Expression::Loop { .. } => false,
             Expression::VerbatimTerminated { .. } => false,
             _ => true,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        match self {
+            Expression::Binary { span, .. } => *span,
+            Expression::Unary { span, .. } => *span,
+            Expression::Variable { name, .. } => name.span(),
+            Expression::ConstVariable { name, .. } => name.span(),
+            Expression::FieldAccess { span, .. } => *span,
+            Expression::Path { path } => path.span(),
+            Expression::Literal { value, .. } => value.span(),
+            Expression::Assigment { span, .. } => *span,
+            Expression::Block(b) => b.span,
+            Expression::FunctionCall { span, .. } => *span,
+            Expression::MethodCall { span, .. } => *span,
+            Expression::Cast { span, .. } => *span,
+            Expression::Break { span } => *span,
+            Expression::Verbatim { tokens } => tokens.span(),
+            Expression::VerbatimTerminated { tokens } => tokens.span(),
+            Expression::Continue { span } => *span,
+            Expression::ForLoop { span, .. } => *span,
+            Expression::WhileLoop { span, .. } => *span,
+            Expression::Loop { span, .. } => *span,
+            Expression::If { span, .. } => *span,
+            Expression::Return { span, .. } => *span,
+            Expression::Range { span, .. } => *span,
+            Expression::Array { span, .. } => *span,
+            Expression::Tuple { span, .. } => *span,
+            Expression::Index { span, .. } => *span,
+            Expression::Slice { span, .. } => *span,
+            Expression::ArrayInit { span, .. } => *span,
+            Expression::Reference { inner } => inner.span(),
+            Expression::StructInit { path, .. } => path.span(),
+            Expression::Closure { tokens } => tokens.span(),
+            Expression::Keyword { name } => name.span(),
         }
     }
 }

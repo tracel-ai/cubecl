@@ -5,7 +5,7 @@ use crate::{
     ir::Item,
 };
 
-use super::{ExpandElementTyped, Init};
+use super::{ExpandElementTyped, Init, IntoRuntime};
 
 #[derive(Clone, Copy)]
 pub struct SharedMemory<T: CubeType> {
@@ -15,6 +15,12 @@ pub struct SharedMemory<T: CubeType> {
 impl<T: CubePrimitive> Init for ExpandElementTyped<SharedMemory<T>> {
     fn init(self, _context: &mut CubeContext) -> Self {
         self
+    }
+}
+
+impl<T: CubePrimitive> IntoRuntime for SharedMemory<T> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> ExpandElementTyped<Self> {
+        unimplemented!("Shared memory can't exist at comptime");
     }
 }
 

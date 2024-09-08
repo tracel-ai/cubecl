@@ -188,7 +188,9 @@ impl TypeCodegen {
 
     pub fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let init = prelude_type("Init");
+        let into_runtime = prelude_type("IntoRuntime");
         let context = prelude_type("CubeContext");
+        let name = &self.ident;
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let body = self
@@ -196,6 +198,11 @@ impl TypeCodegen {
             .iter()
             .map(TypeField::split)
             .map(|(_, ident, _)| quote![#ident: #init::init(self.#ident, context)]);
+        let fields_to_runtime = self
+            .fields
+            .iter()
+            .map(TypeField::split)
+            .map(|(_, name, _)| quote![#name: self.#name.__expand_runtime_method(context)]);
 
         quote! {
             impl #generics #init for #name_expand #generic_names #where_clause {
@@ -203,6 +210,15 @@ impl TypeCodegen {
                     Self {
                         #(#body),*
                     }
+                }
+            }
+
+            impl #generics #into_runtime for #name #generic_names #where_clause {
+                fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType {
+                    let expand = #name_expand {
+                        #(#fields_to_runtime),*
+                    };
+                    Init::init(expand, context)
                 }
             }
         }

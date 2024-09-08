@@ -1,6 +1,6 @@
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, quote_spanned, ToTokens};
+use quote::{format_ident, quote, ToTokens};
 use std::iter;
 use syn::Ident;
 
@@ -12,8 +12,9 @@ use crate::{
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let sig = &self.sig;
-        let block = self.block.to_tokens(&mut self.context);
-        //CONTEXT.with_borrow_mut(|ctx| ctx.restore_scope());
+        let block = self
+            .context
+            .with_restored_scope(|ctx| self.block.to_tokens(ctx));
 
         let out = quote! {
             #sig {
@@ -21,7 +22,6 @@ impl KernelFn {
             }
         };
 
-        //CONTEXT.with_borrow_mut(|ctx| ctx.delete_scope());
         out
     }
 }
@@ -50,10 +50,7 @@ impl ToTokens for KernelParam {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let name = &self.name;
         let ty = &self.normalized_ty;
-        let span = self.span;
-        tokens.extend(quote_spanned![span=>
-            #name: #ty
-        ]);
+        tokens.extend(quote![#name: #ty]);
     }
 }
 

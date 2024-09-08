@@ -54,7 +54,8 @@ use crate::{
 };
 
 use super::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, Slice, SliceMut,
+    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, IntoRuntime,
+    Slice, SliceMut,
 };
 
 pub use ir::{MatrixIdent, MatrixLayout};
@@ -76,6 +77,12 @@ pub struct MatrixExpand {
 
 impl<C: CubeType> CubeType for Matrix<C> {
     type ExpandType = MatrixExpand;
+}
+
+impl<C: CubeType> IntoRuntime for Matrix<C> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> MatrixExpand {
+        unimplemented!("Matrices can't exist at compile time")
+    }
 }
 
 impl Init for MatrixExpand {

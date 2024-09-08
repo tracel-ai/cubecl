@@ -29,6 +29,14 @@ pub trait CubeType {
     }
 }
 
+pub trait IntoRuntime: CubeType + Sized {
+    fn runtime(self) -> Self {
+        self
+    }
+
+    fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType;
+}
+
 /// Trait to be implemented by [cube types](CubeType) implementations.
 pub trait Init: Sized {
     /// Initialize a type within a [context](CubeContext).
@@ -369,22 +377,6 @@ impl Init for ExpandElement {
         init_expand_element(context, self)
     }
 }
-
-macro_rules! impl_init_for {
-    ($($t:ty),*) => {
-        $(
-            impl Init for $t {
-                fn init(self, _context: &mut CubeContext) -> Self {
-                    panic!("Shouln't be called, only for comptime.")
-                }
-            }
-
-        )*
-    };
-}
-
-// Add all types used within comptime
-impl_init_for!(u32, bool);
 
 impl<T: Init> Init for Option<T> {
     fn init(self, context: &mut CubeContext) -> Self {

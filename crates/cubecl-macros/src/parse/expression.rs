@@ -123,7 +123,10 @@ impl Expression {
                     .iter()
                     .map(|arg| Expression::from_expr(arg.clone(), context))
                     .collect::<Result<Vec<_>, _>>()?;
-                if receiver.is_const() && args.iter().all(|arg| arg.is_const()) {
+                if receiver.is_const()
+                    && args.iter().all(|arg| arg.is_const())
+                    && method.method != "runtime"
+                {
                     let receiver = receiver.as_const(context).unwrap();
                     let method = &method.method;
                     let args = args.iter().map(|it| it.to_tokens(context));
@@ -244,7 +247,7 @@ impl Expression {
                     };
                     Expression::Slice {
                         expr: Box::new(expr),
-                        ranges,
+                        _ranges: ranges,
                         span,
                     }
                 } else {
@@ -345,9 +348,7 @@ impl Expression {
                     .as_const(context)
                     .ok_or_else(|| syn::Error::new(span, "? Operator not supported at runtime"))?;
                 Expression::Verbatim {
-                    tokens: quote_spanned![span=>
-                        #expr?
-                    ],
+                    tokens: quote_spanned![span=> #expr?],
                 }
             }
             Expr::TryBlock(_) => Err(syn::Error::new_spanned(

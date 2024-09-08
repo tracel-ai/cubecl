@@ -4,8 +4,8 @@ use crate::prelude::{KernelBuilder, KernelLauncher};
 use crate::Runtime;
 
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand,
-    ScalarArgSettings,
+    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime,
+    LaunchArgExpand, ScalarArgSettings,
 };
 
 impl CubeType for u32 {
@@ -21,6 +21,13 @@ impl ExpandElementBaseInit for u32 {
 impl CubePrimitive for u32 {
     fn as_elem() -> Elem {
         Elem::UInt
+    }
+}
+
+impl IntoRuntime for u32 {
+    fn __expand_runtime_method(self, context: &mut CubeContext) -> ExpandElementTyped<Self> {
+        let expand: ExpandElementTyped<Self> = self.into();
+        Init::init(expand, context)
     }
 }
 

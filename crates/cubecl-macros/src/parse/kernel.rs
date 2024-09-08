@@ -1,10 +1,10 @@
 use crate::{expression::Block, paths::prelude_type, scope::Context, statement::parse_pat};
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use std::iter;
 use syn::{
-    parse_quote, punctuated::Punctuated, spanned::Spanned, FnArg, Generics, Ident, ItemFn,
-    Signature, TraitItemFn, Type, Visibility,
+    parse_quote, punctuated::Punctuated, FnArg, Generics, Ident, ItemFn, Signature, TraitItemFn,
+    Type, Visibility,
 };
 
 use super::helpers::is_comptime_attr;
@@ -58,12 +58,10 @@ pub struct KernelParam {
     pub normalized_ty: Type,
     pub is_const: bool,
     pub is_mut: bool,
-    pub span: Span,
 }
 
 impl KernelParam {
     fn from_param(param: FnArg) -> syn::Result<Self> {
-        let span = param.span();
         let param = match param {
             FnArg::Typed(param) => param,
             param => Err(syn::Error::new_spanned(
@@ -81,7 +79,6 @@ impl KernelParam {
             normalized_ty,
             is_const,
             is_mut: mutable,
-            span,
         })
     }
 

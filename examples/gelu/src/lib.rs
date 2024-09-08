@@ -3,13 +3,13 @@ use cubecl::prelude::*;
 #[cube(launch_unchecked)]
 fn gelu_array<F: Float>(input: &Array<F>, output: &mut Array<F>) {
     if ABSOLUTE_POS < input.len() {
-        output[ABSOLUTE_POS] = gelu_scalar(input[ABSOLUTE_POS]);
+        output[ABSOLUTE_POS] = gelu_scalar::<F>(input[ABSOLUTE_POS]);
     }
 }
 
 #[cube]
 fn gelu_scalar<F: Float>(x: F) -> F {
-    x * ((x / F::new(2.0f32.sqrt())).erf() + F::new(1.0)) / F::new(2.0)
+    x * F::erf(x / F::new(2.0f32.sqrt()) + F::new(1.0)) / F::new(2.0)
 }
 
 pub fn launch<R: Runtime>(device: &R::Device) {

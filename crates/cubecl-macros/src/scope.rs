@@ -39,7 +39,6 @@ pub struct Context {
     scopes: Vec<Scope>,
     // Allows for global variable analysis
     scope_history: HashMap<usize, VecDeque<Scope>>,
-    pub must_clone: bool,
 }
 
 impl Context {
@@ -60,7 +59,6 @@ impl Context {
             return_type,
             scopes: vec![root_scope],
             scope_history: Default::default(),
-            must_clone: false,
         }
     }
 
@@ -90,7 +88,7 @@ impl Context {
             .push_back(scope);
     }
 
-    pub fn delete_scope(&mut self) {
+    fn delete_scope(&mut self) {
         self.scopes.pop();
     }
 
@@ -101,8 +99,7 @@ impl Context {
         res
     }
 
-    #[allow(unused)]
-    pub fn restore_scope(&mut self) {
+    fn restore_scope(&mut self) {
         let scope = self
             .scope_history
             .get_mut(&(self.scopes.len()))
@@ -110,6 +107,32 @@ impl Context {
         if let Some(scope) = scope {
             self.scopes.push(scope);
         }
+    }
+
+    fn restore_mut_scope(&mut self) {
+        let scope = self
+            .scope_history
+            .get_mut(&(self.scopes.len()))
+            .and_then(|it| it.pop_front());
+        if let Some(mut scope) = scope {
+            scope.is_mut = true;
+            self.scopes.push(scope);
+        }
+    }
+
+    pub fn with_restored_scope<T>(&mut self, with: impl FnOnce(&mut Self) -> T) -> T {
+        self.restore_scope();
+        let res = with(self);
+        self.delete_scope();
+        res
+    }
+
+    /// Mutable closures (for loops) have different behaviour because outer vars must be cloned
+    pub fn with_restored_closure_scope<T>(&mut self, with: impl FnOnce(&mut Self) -> T) -> T {
+        self.restore_mut_scope();
+        let res = with(self);
+        self.delete_scope();
+        res
     }
 
     pub fn variable(&self, name: &Ident) -> Option<ManagedVar> {
@@ -126,6 +149,14 @@ impl Context {
     }
 
     pub fn try_consume(&self, name: &Ident) -> bool {
+        // Find innermost closure scope if it exists
+        let mut_scope_idx = self
+            .scopes
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, scope)| scope.is_mut)
+            .map(|(i, _)| i);
         let (level, var) = self
             .scopes
             .iter()
@@ -140,12 +171,12 @@ impl Context {
                     self.scope_history
                 );
             });
-        if level == 0 {
-            // Kernel params should always be cloned because of Rust type closure semantics
-            false
+        let count = var.use_count.fetch_sub(1, Ordering::AcqRel);
+        if let Some(mut_scope_idx) = mut_scope_idx {
+            // Always clone vars from outside closure, otherwise proceed as normal
+            level >= mut_scope_idx && count <= 1
         } else {
-            let count = var.use_count.fetch_sub(1, Ordering::AcqRel);
-            count <= 1 && !self.must_clone
+            count <= 1
         }
     }
 
@@ -161,6 +192,8 @@ impl Context {
 #[derive(Default, Clone, Debug)]
 pub struct Scope {
     variables: Vec<ManagedVar>,
+    /// Must clone outer vars
+    is_mut: bool,
 }
 
 #[derive(Clone, Debug)]

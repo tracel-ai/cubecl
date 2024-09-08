@@ -1,5 +1,7 @@
 use std::num::NonZero;
 
+use num_traits::NumCast;
+
 use crate::compute::KernelLauncher;
 use crate::ir::{Item, Variable};
 use crate::prelude::Clamp;
@@ -58,8 +60,8 @@ pub trait Numeric:
     ///
     /// This method panics when unexpanded. For creating an element
     /// with a val, use the new method of the sub type.
-    fn from_int(_val: u32) -> Self {
-        unexpanded!()
+    fn from_int(val: i64) -> Self {
+        <Self as NumCast>::from(val).unwrap()
     }
 
     fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {

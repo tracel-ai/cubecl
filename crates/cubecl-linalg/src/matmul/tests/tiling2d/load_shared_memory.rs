@@ -51,7 +51,6 @@ fn load_tensor_test<F: Float>(
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
@@ -67,7 +66,6 @@ fn load_tensor_test<F: Float>(
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
@@ -116,7 +114,6 @@ fn load_tensor_permuted_test<F: Float>(
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
@@ -133,7 +130,6 @@ fn load_tensor_permuted_test<F: Float>(
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
@@ -181,7 +177,6 @@ fn load_tensor_multiple_tiles_test<F: Float>(
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
@@ -197,7 +192,6 @@ fn load_tensor_multiple_tiles_test<F: Float>(
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 

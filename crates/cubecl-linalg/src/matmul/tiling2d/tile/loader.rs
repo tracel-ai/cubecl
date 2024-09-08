@@ -151,7 +151,6 @@ pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
     #[comptime] config: CubeTiling2dConfig,
 ) {
     let coordinates = load_info.coordinates;
-    //let config = load_info.config;
 
     let vectorization = tensor.vectorization_factor();
     let tile_size = config.tile_size;
