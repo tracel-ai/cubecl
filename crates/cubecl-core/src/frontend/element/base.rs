@@ -186,6 +186,19 @@ macro_rules! tuple_init {
         }
     }
 }
+macro_rules! tuple_runtime {
+    ($($P:ident),*) => {
+        impl<$($P: IntoRuntime),*> IntoRuntime for ($($P,)*) {
+            #[allow(non_snake_case)]
+            fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType {
+                let ($($P,)*) = self;
+                ($(
+                    $P.__expand_runtime_method(context),
+                )*)
+            }
+        }
+    }
+}
 
 tuple_cube_type!(P1);
 tuple_cube_type!(P1, P2);
@@ -200,6 +213,13 @@ tuple_init!(P1, P2, P3);
 tuple_init!(P1, P2, P3, P4);
 tuple_init!(P1, P2, P3, P4, P5);
 tuple_init!(P1, P2, P3, P4, P5, P6);
+
+tuple_runtime!(P1);
+tuple_runtime!(P1, P2);
+tuple_runtime!(P1, P2, P3);
+tuple_runtime!(P1, P2, P3, P4);
+tuple_runtime!(P1, P2, P3, P4, P5);
+tuple_runtime!(P1, P2, P3, P4, P5, P6);
 
 pub trait ExpandElementBaseInit: CubeType {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement;

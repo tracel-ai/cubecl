@@ -82,7 +82,7 @@ pub trait Numeric:
 
     fn __expand_from_vec<const D: usize>(
         context: &mut CubeContext,
-        vec: [ExpandElementTyped<u32>; D],
+        vec: [u32; D],
     ) -> <Self as CubeType>::ExpandType {
         let new_var = context.create_local(Item::vectorized(
             Self::as_elem(),
@@ -91,7 +91,7 @@ pub trait Numeric:
         let elem = Self::as_elem();
 
         for (i, element) in vec.iter().enumerate() {
-            let var: Variable = elem.constant_from_i64(element.constant().unwrap().as_i64());
+            let var: Variable = elem.constant_from_i64(*element as i64);
             let expand = ExpandElement::Plain(var);
 
             index_assign::expand::<u32>(

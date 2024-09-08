@@ -15,14 +15,14 @@ mod tests {
         ir::{Item, Operation, Variable},
     };
 
-    type ElemType = F32;
+    type ElemType = f32;
 
     #[test]
     fn cube_support_tensor_metadata() {
         let mut context = CubeContext::root();
         let input = context.input(0, Item::new(ElemType::as_elem()));
 
-        kernel::__expand::<ElemType>(&mut context, input.into());
+        kernel::expand::<ElemType>(&mut context, input.into());
         assert_eq!(context.into_scope().operations, inline_macro_ref());
     }
 
@@ -33,9 +33,9 @@ mod tests {
 
         let mut scope = context.into_scope();
         let input: Variable = input.into();
-        let x = scope.create_local(Item::new(UInt::as_elem()));
-        let y = scope.create_local(Item::new(UInt::as_elem()));
-        let z = scope.create_local(Item::new(UInt::as_elem()));
+        let x = scope.create_local(Item::new(u32::as_elem()));
+        let y = scope.create_local(Item::new(u32::as_elem()));
+        let z = scope.create_local(Item::new(u32::as_elem()));
 
         cpa!(&mut scope, x = shape(input, 1u32));
         cpa!(&mut scope, y = stride(input, 1u32));

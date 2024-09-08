@@ -68,15 +68,24 @@ impl Expression {
                     is_const,
                     is_mut,
                     is_keyword,
-                    ..
+                    use_count,
                 }) = variable
                 {
                     if is_const {
-                        Expression::ConstVariable { name, ty }
+                        Expression::ConstVariable {
+                            name,
+                            ty,
+                            use_count,
+                        }
                     } else if is_keyword {
                         Expression::Keyword { name }
                     } else {
-                        Expression::Variable { name, ty, is_mut }
+                        Expression::Variable {
+                            name,
+                            ty,
+                            is_mut,
+                            use_count,
+                        }
                     }
                 } else {
                     // If it's not in the scope, it's not a managed local variable. Treat it as an

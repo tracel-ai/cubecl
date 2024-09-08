@@ -1,5 +1,3 @@
-use std::num::NonZero;
-
 use crate::ir::{BinaryOperator, Elem, Item, Operator, UnaryOperator, Variable, Vectorization};
 use crate::prelude::{CubeType, ExpandElementTyped};
 use crate::{
@@ -23,6 +21,7 @@ where
     let item_rhs = rhs.item();
 
     let vectorization = find_vectorization(item_lhs.vectorization, item_rhs.vectorization);
+
     let item = Item::vectorized(item_lhs.elem, vectorization);
 
     // We can only reuse rhs.
@@ -196,17 +195,21 @@ where
 }
 
 fn find_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
+    if lhs == rhs {
+        return lhs;
+    }
     match (lhs, rhs) {
         (None, None) => None,
         (None, Some(rhs)) => Some(rhs),
         (Some(lhs), None) => Some(lhs),
-        (Some(lhs), Some(rhs)) => {
-            let min = lhs.get().min(rhs.get());
-            let common = (0..=min)
-                .rev()
-                .find(|i| lhs.get() % i == 0 && rhs.get() % i == 0)
-                .unwrap_or(1);
-            NonZero::new(common)
+        (Some(_), Some(_)) => {
+            panic!("Auto-matching fixed vectorization currently unsupported");
+            // let min = lhs.get().min(rhs.get());
+            // let common = (0..=min)
+            //     .rev()
+            //     .find(|i| lhs.get() % i == 0 && rhs.get() % i == 0)
+            //     .unwrap_or(1);
+            // NonZero::new(common)
         }
     }
 }

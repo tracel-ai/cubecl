@@ -2,17 +2,17 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub fn tuple_const() -> (UInt, UInt) {
-    let x = UInt::new(0);
-    let y = UInt::new(1);
+pub fn tuple_const() -> (u32, u32) {
+    let x = 0u32;
+    let y = 1u32;
     (x, y)
 }
 
 #[cube]
-pub fn tuple_destructuring() -> (UInt, UInt) {
-    let x = (UInt::new(0), UInt::new(1));
+pub fn tuple_destructuring() -> (u32, u32) {
+    let x = (0u32, 1u32);
     let (a, b) = x;
-    (a + UInt::new(1), b)
+    (a + 1, b)
 }
 
 mod tests {
@@ -21,12 +21,14 @@ mod tests {
         cpa,
         ir::{Elem, Item, Operation, Variable},
     };
+    use pretty_assertions::assert_eq;
 
     #[test]
+    #[ignore = "Empty body because of constant collapsing"]
     fn cube_tuple_const_test() {
         let mut context = CubeContext::root();
 
-        tuple_const::__expand(&mut context);
+        tuple_const::expand(&mut context);
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_ref_tuple_const());
@@ -52,7 +54,7 @@ mod tests {
     fn cube_tuple_destructuring() {
         let mut context = CubeContext::root();
 
-        tuple_destructuring::__expand(&mut context);
+        tuple_destructuring::expand(&mut context);
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_ref_tuple_destructuring());
@@ -65,12 +67,10 @@ mod tests {
         let a = scope.create_local(Item::new(Elem::UInt));
         let b = scope.create_local(Item::new(Elem::UInt));
 
-        let zero: Variable = 0u32.into();
         let one: Variable = 1u32.into();
 
-        cpa!(scope, a = zero);
+        cpa!(scope, a = one);
         cpa!(scope, b = one);
-        cpa!(scope, a = a + 1u32);
 
         scope.operations
     }

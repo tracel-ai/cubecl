@@ -1,13 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
-use syn::{spanned::Spanned, Pat, Token};
+use syn::{spanned::Spanned, Token};
 
-use crate::{
-    expression::Expression,
-    paths::frontend_type,
-    scope::Context,
-    statement::{parse_pat, Statement},
-};
+use crate::{expression::Expression, paths::frontend_type, scope::Context, statement::Statement};
 
 impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
@@ -64,11 +59,10 @@ impl Statement {
                     quote![let #mutable #name #ty;]
                 }
             }
-            Statement::Destructure { fields } => {
-                let fields = generate_struct_destructure(fields, context);
-                match fields {
-                    Ok(fields) => fields,
-                    Err(e) => e.to_compile_error(),
+            Statement::Group { statements } => {
+                let statements = statements.iter().map(|it| it.to_tokens(context));
+                quote! {
+                    #(#statements)*
                 }
             }
             Statement::Expression {
@@ -87,34 +81,6 @@ impl Statement {
             Statement::Skip => TokenStream::new(),
         }
     }
-}
-
-fn generate_struct_destructure(
-    fields: &[(Pat, Expression)],
-    context: &mut Context,
-) -> syn::Result<TokenStream> {
-    let fields = fields
-        .iter()
-        .map(|(pat, init)| {
-            let (ident, ty, mutable) = parse_pat(pat.clone())?;
-            let statement = Statement::Local {
-                left: Box::new(Expression::Variable {
-                    name: ident,
-                    ty: None,
-                    is_mut: mutable,
-                }),
-                init: Some(Box::new(init.clone())),
-                mutable,
-                ty,
-            };
-            let statement = statement.to_tokens(context);
-            Ok(quote![#statement])
-        })
-        .collect::<syn::Result<Vec<_>>>()?;
-
-    Ok(quote! {span=>
-        #(#fields)*
-    })
 }
 
 fn is_mut_init(expr: Option<&Expression>) -> bool {

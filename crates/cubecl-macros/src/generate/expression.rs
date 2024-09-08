@@ -366,12 +366,12 @@ impl Expression {
                         .to_compile_error()
                 }
             }
-            Expression::Tuple { span, .. } => {
+            Expression::Tuple { elements, .. } => {
                 if let Some(constant) = self.as_const(context) {
                     constant
                 } else {
-                    syn::Error::new(*span, "Tuple expressions can't be used at runtime")
-                        .to_compile_error()
+                    let elements = elements.iter().map(|it| it.to_tokens(context));
+                    quote![(#(#elements),*)]
                 }
             }
 
@@ -426,11 +426,16 @@ impl Expression {
 impl Block {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         let inner: Vec<_> = self.inner.iter().map(|it| it.to_tokens(context)).collect();
-        let ret = self
-            .ret
-            .as_ref()
-            .map(|ret| ret.to_tokens(context))
-            .unwrap_or_else(|| quote![()]);
+        let ret = if let Some(ret) = self.ret.as_ref() {
+            let as_const = ret.as_const(context);
+            if let Some(as_const) = as_const {
+                quote![#as_const.__expand_runtime_method(context)]
+            } else {
+                ret.to_tokens(context)
+            }
+        } else {
+            quote![()]
+        };
 
         quote! {
             {

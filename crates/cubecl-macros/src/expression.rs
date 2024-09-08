@@ -1,3 +1,5 @@
+use std::{rc::Rc, sync::atomic::AtomicUsize};
+
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
@@ -24,10 +26,12 @@ pub enum Expression {
     Variable {
         name: Ident,
         is_mut: bool,
+        use_count: Rc<AtomicUsize>,
         ty: Option<Type>,
     },
     ConstVariable {
         name: Ident,
+        use_count: Rc<AtomicUsize>,
         ty: Option<Type>,
     },
     FieldAccess {
@@ -207,6 +211,7 @@ impl Expression {
             Expression::FieldAccess { base, .. } => base.is_const(),
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
+            Expression::Tuple { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::MethodCall { method, args, .. } => {
                 method == "vectorization_factor" && args.is_empty()
             }
@@ -227,6 +232,13 @@ impl Expression {
                     .map(|it| it.as_const(context))
                     .collect::<Option<Vec<_>>>()?;
                 Some(quote![[#(#elements),*]])
+            }
+            Expression::Tuple { elements, .. } => {
+                let elements = elements
+                    .iter()
+                    .map(|it| it.as_const(context))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(quote![(#(#elements),*)])
             }
             Expression::FieldAccess { base, field, .. } => {
                 base.as_const(context).map(|base| quote![#base.#field])
