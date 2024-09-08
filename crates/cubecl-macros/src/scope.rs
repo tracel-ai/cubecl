@@ -174,6 +174,11 @@ impl Context {
                 );
             });
         let count = var.use_count.fetch_sub(1, Ordering::AcqRel);
+        /* if level == 0 {
+            // Always clone outer vars since we can't see whether they're still used outside the
+            // function
+            false
+        } else */
         if let Some(mut_scope_idx) = mut_scope_idx {
             // Always clone vars from outside closure, otherwise proceed as normal
             level >= mut_scope_idx && count <= 1

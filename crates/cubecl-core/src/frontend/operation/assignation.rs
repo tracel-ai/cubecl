@@ -239,12 +239,12 @@ pub mod add_assign_op {
 pub mod sub_assign_op {
     use self::ir::Operator;
     use super::*;
-    use crate::frontend::operation::base::assign_op_expand;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
-    pub fn expand<L: Into<ExpandElement>, R: Into<ExpandElement>>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
-        lhs: L,
-        rhs: R,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
         assign_op_expand(context, lhs.into(), rhs.into(), Operator::Sub)
     }
@@ -253,12 +253,12 @@ pub mod sub_assign_op {
 pub mod mul_assign_op {
     use self::ir::Operator;
     use super::*;
-    use crate::frontend::operation::base::assign_op_expand;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
-    pub fn expand<L: Into<ExpandElement>, R: Into<ExpandElement>>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
-        lhs: L,
-        rhs: R,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
         assign_op_expand(context, lhs.into(), rhs.into(), Operator::Mul)
     }
@@ -267,12 +267,12 @@ pub mod mul_assign_op {
 pub mod div_assign_op {
     use self::ir::Operator;
     use super::*;
-    use crate::frontend::operation::base::assign_op_expand;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
-    pub fn expand<L: Into<ExpandElement>, R: Into<ExpandElement>>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
-        lhs: L,
-        rhs: R,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
         assign_op_expand(context, lhs.into(), rhs.into(), Operator::Div)
     }

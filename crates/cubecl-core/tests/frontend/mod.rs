@@ -1,8 +1,8 @@
 mod array;
 mod assign;
 mod cast_elem;
-// mod cast_kind;
-// mod comptime;
+mod cast_kind;
+mod comptime;
 // mod cube_trait;
 // mod for_loop;
 // mod function_call;
