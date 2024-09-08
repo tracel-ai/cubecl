@@ -24,7 +24,6 @@ web-time = { version = "1.1.0" }
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
 derive-new = { workspace = true }
-derive_more = { workspace = true }
 pollster = { workspace = true, optional = true }
 rand = { workspace = true }
 serde = { workspace = true }

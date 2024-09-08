@@ -564,6 +564,10 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),
             },
+            cube::Operator::Round(op) => wgsl::Instruction::Round {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(op.out),
+            },
             cube::Operator::Floor(op) => wgsl::Instruction::Floor {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),
@@ -642,6 +646,11 @@ impl WgslCompiler {
             },
             cube::Operator::Not(op) => wgsl::Instruction::Not {
                 input: self.compile_variable(op.input),
+                out: self.compile_variable(op.out),
+            },
+            cube::Operator::BitwiseOr(op) => wgsl::Instruction::BitwiseOr {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(op.out),
             },
             cube::Operator::BitwiseAnd(op) => wgsl::Instruction::BitwiseAnd {

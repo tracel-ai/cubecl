@@ -76,6 +76,9 @@ impl ScopeProcessing {
                 Operator::Sqrt(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
                 }
+                Operator::Round(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
+                }
                 Operator::Floor(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
                 }
@@ -166,6 +169,10 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
                 Operator::BitwiseAnd(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
+                Operator::BitwiseOr(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }

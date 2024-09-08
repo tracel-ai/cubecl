@@ -30,7 +30,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
 #[derive(Debug)]
 pub enum UnavailabilityReason {
     NotMultipleOf4, // TODO: Support that case.
-    HiglyPermutatedInput,
+    HighlyPermutatedInput,
     ShapeMemoryLimitBusted,
     InvalidConfig(String),
     CmmaInstructionsUnsupported,

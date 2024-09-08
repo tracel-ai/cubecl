@@ -100,6 +100,24 @@ pub mod bitand {
     }
 }
 
+pub mod bitor {
+    use super::*;
+
+    pub fn expand<C: CubePrimitive>(
+        context: &mut CubeContext,
+        lhs: impl Into<ExpandElementTyped<C>>,
+        rhs: impl Into<ExpandElementTyped<C>>,
+    ) -> ExpandElementTyped<C> {
+        binary_expand(
+            context,
+            lhs.into().into(),
+            rhs.into().into(),
+            Operator::BitwiseOr,
+        )
+        .into()
+    }
+}
+
 pub mod or {
     use super::*;
 

@@ -2,23 +2,12 @@ use std::num::NonZero;
 
 use half::{bf16, f16};
 
-use super::{
-    ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand, ScalarArgSettings,
-    __expand_new, __expand_vectorized, init_expand_element, Init, IntoRuntime,
-};
 use crate::{
-    compute::{KernelBuilder, KernelLauncher},
-    ir::Vectorization,
+    ir::{Elem, FloatKind, Item, Vectorization},
+    prelude::*,
 };
-use crate::{
-    frontend::{Ceil, Cos, Erf, Exp, Floor, Log, Log1p, Powf, Recip, Sin, Sqrt, Tanh},
-    ir::Item,
-};
-use crate::{
-    frontend::{CubeContext, CubePrimitive, CubeType, Numeric},
-    ir::Elem,
-};
-use crate::{ir::FloatKind, Runtime};
+
+use super::Numeric;
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -31,6 +20,7 @@ pub trait Float:
     + Tanh
     + Powf
     + Sqrt
+    + Round
     + Floor
     + Ceil
     + Erf

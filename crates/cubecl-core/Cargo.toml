@@ -26,7 +26,6 @@ bytemuck = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "0.2.0" }
 cubecl-macros = { path = "../cubecl-macros", version = "0.2.0" }
 derive-new = { workspace = true }
-derive_more = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 num-traits = { workspace = true }
 serde = { workspace = true }

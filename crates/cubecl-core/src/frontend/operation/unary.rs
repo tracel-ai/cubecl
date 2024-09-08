@@ -85,6 +85,16 @@ impl_unary_func!(
     f64
 );
 impl_unary_func!(
+    Round,
+    round,
+    __expand_round,
+    Operator::Round,
+    f16,
+    bf16,
+    f32,
+    f64
+);
+impl_unary_func!(
     Floor,
     floor,
     __expand_floor,

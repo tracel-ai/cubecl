@@ -70,22 +70,38 @@ pub fn tensor_vectorization_factor(
     strides: &[usize],
     dim: usize,
 ) -> u8 {
-    if let Some(val) = strides.get(dim) {
-        if *val != 1 {
-            return 1;
+    match strides.get(dim) {
+        Some(val) => {
+            if *val != 1 {
+                return 1;
+            }
         }
-    } else {
-        return 1;
+        None => return 1,
     }
 
-    let dim_size = match shape.get(dim) {
+    let shape_check = match shape.get(dim) {
         Some(val) => val,
         None => return 1,
     };
 
+    let stride_check = if let Some(dim) = dim.checked_sub(1) {
+        strides.get(dim)
+    } else {
+        None
+    };
+
     for factor in factors {
-        if dim_size % *factor as usize == 0 {
-            return *factor;
+        let factor = *factor as usize;
+
+        if shape_check % factor == 0 {
+            match stride_check {
+                Some(check) => {
+                    if check % factor == 0 {
+                        return factor as u8;
+                    }
+                }
+                None => return factor as u8,
+            }
         }
     }
 

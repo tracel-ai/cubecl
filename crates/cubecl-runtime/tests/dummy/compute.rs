@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use super::DummyServer;
 use cubecl_runtime::channel::MutexComputeChannel;
 use cubecl_runtime::client::ComputeClient;
@@ -35,7 +33,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         SimpleMemoryManagement::new(storage, DeallocStrategy::Never, SliceStrategy::Never);
     let server = DummyServer::new(memory_management);
     let channel = MutexComputeChannel::new(server);
-    ComputeClient::new(channel, Arc::new(()))
+    ComputeClient::new(channel, (), ())
 }
 
 pub fn client(device: &DummyDevice) -> DummyClient {

@@ -43,11 +43,6 @@ impl Display for Item {
             return f.write_fmt(format_args!("{}", self.elem));
         }
 
-        if self.is_vec_native() {
-            let elem = self.optimized().elem;
-            return f.write_fmt(format_args!("{elem}"));
-        }
-
         return f.write_fmt(format_args!("{}_{}", self.elem, self.vectorization));
     }
 }
@@ -397,12 +392,15 @@ impl Display for IndexedVariable {
             if self.optimized {
                 let item = self.var.item();
                 f.write_fmt(format_args!(
-                    "(reinterpret_cast<{item}*>(&{var}))->i_{}",
+                    "(reinterpret_cast<{item}&>({var})).i_{}",
                     self.index
                 ))
             } else {
                 f.write_fmt(format_args!("{var}.i_{}", self.index))
             }
+        } else if self.optimized {
+            let item = self.var.item();
+            f.write_fmt(format_args!("reinterpret_cast<{item}&>({var})"))
         } else {
             f.write_fmt(format_args!("{var}"))
         }
@@ -436,16 +434,6 @@ impl Item {
 
     pub fn is_optimized(&self) -> bool {
         matches!(self.elem, Elem::F162 | Elem::BF162)
-    }
-
-    pub fn is_vec_native(&self) -> bool {
-        match &self.elem {
-            Elem::F16 => self.vectorization == 2,
-            Elem::BF16 => self.vectorization == 2,
-            Elem::F162 => self.vectorization == 1,
-            Elem::BF162 => self.vectorization == 1,
-            _ => false,
-        }
     }
 
     pub fn optimized(&self) -> Item {
