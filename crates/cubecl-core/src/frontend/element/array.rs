@@ -74,16 +74,19 @@ impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
     pub fn __expand_to_vectorized_method(
         self,
         context: &mut CubeContext,
-        vectorization_factor: u32,
+        vectorization_factor: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<C> {
-        let factor = vectorization_factor;
+        let factor = vectorization_factor
+            .constant()
+            .expect("Vectorization must be comptime")
+            .as_u32();
         let var = self.expand.clone();
         let new_var = context.create_local(Item::vectorized(
             var.item().elem(),
             NonZero::new(factor as u8),
         ));
 
-        if vectorization_factor == 1 {
+        if factor == 1 {
             let element = index::expand(context, self.clone(), ExpandElementTyped::from_lit(0u32));
             assign::expand(context, element, new_var.clone());
         } else {

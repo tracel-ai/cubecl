@@ -34,6 +34,7 @@ pub trait Numeric:
     + LaunchArgExpand
     + ScalarArgSettings
     + Into<ExpandElementTyped<Self>>
+    + CubeIndexMut<ExpandElementTyped<u32>, Output = Self>
     + CubeIndexMut<u32, Output = Self>
     + num_traits::NumCast
     + std::ops::AddAssign

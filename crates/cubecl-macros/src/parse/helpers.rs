@@ -5,7 +5,7 @@ use syn::{
     Attribute, Expr,
 };
 
-use crate::{expression::Expression, scope::Context};
+use crate::{expression::Expression, paths::prelude_path, scope::Context};
 
 pub struct Unroll {
     pub value: Expression,
@@ -124,6 +124,13 @@ impl VisitMut for ReplaceIndices {
             ReplaceIndex.visit_expr_mut(i)
         }
         visit_mut::visit_expr_mut(self, i);
+    }
+
+    fn visit_item_fn_mut(&mut self, i: &mut syn::ItemFn) {
+        let prelude_path = prelude_path();
+        let import = parse_quote![use #prelude_path::{CubeIndex as _, CubeIndexMut as _};];
+        i.block.stmts.insert(0, import);
+        visit_mut::visit_item_fn_mut(self, i);
     }
 }
 

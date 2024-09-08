@@ -4,23 +4,23 @@ use cubecl_core as cubecl;
 #[cube]
 pub fn array_read_write<T: Numeric>(#[comptime] array_size: u32) {
     let mut array = Array::<T>::new(array_size);
-    array[0] = T::new(3);
+    array[0] = T::from_int(3);
     let _a = array[0];
 }
 
 #[cube]
 pub fn array_to_vectorized_variable<T: Numeric>() -> T {
     let mut array = Array::<T>::new(2);
-    array[0] = T::new(0);
-    array[1] = T::new(1);
-    vectorize(array, 2)[0]
+    array[0] = T::from_int(0);
+    array[1] = T::from_int(1);
+    array.to_vectorized(2)
 }
 
 #[cube]
 pub fn array_of_one_to_vectorized_variable<T: Numeric>() -> T {
     let mut array = Array::<T>::new(1);
-    array[0] = T::new(3);
-    vectorize(array, 1)[0]
+    array[0] = T::from_int(3);
+    array.to_vectorized(1)
 }
 
 #[cube]
@@ -34,6 +34,9 @@ pub fn array_add_assign_expr(array: &mut Array<u32>) {
 }
 
 mod tests {
+    use pretty_assertions::assert_eq;
+    use std::num::NonZero;
+
     use super::*;
     use cubecl_core::{
         cpa,
@@ -46,7 +49,7 @@ mod tests {
     fn cube_support_array() {
         let mut context = CubeContext::root();
 
-        array_read_write::expand::<ElemType>(512);
+        array_read_write::expand::<ElemType>(&mut context, 512);
         assert_eq!(
             context.into_scope().operations,
             inline_macro_ref_read_write()
@@ -58,7 +61,7 @@ mod tests {
         let mut context = CubeContext::root();
         let array = context.input(0, Item::new(Elem::UInt));
 
-        array_add_assign_simple::expand(array.into());
+        array_add_assign_simple::expand(&mut context, array.into());
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_array_add_assign_simple());
@@ -68,7 +71,7 @@ mod tests {
     fn cube_array_to_vectorized() {
         let mut context = CubeContext::root();
 
-        array_to_vectorized_variable::expand::<ElemType>();
+        array_to_vectorized_variable::expand::<ElemType>(&mut context);
         assert_eq!(
             context.into_scope().operations,
             inline_macro_ref_to_vectorized()
@@ -79,7 +82,7 @@ mod tests {
     fn cube_array_of_one_to_vectorized() {
         let mut context = CubeContext::root();
 
-        array_of_one_to_vectorized_variable::expand::<ElemType>();
+        array_of_one_to_vectorized_variable::expand::<ElemType>(&mut context);
         assert_eq!(
             context.into_scope().operations,
             inline_macro_ref_one_to_vectorized()
@@ -111,7 +114,7 @@ mod tests {
         let mut context = CubeContext::root();
         let array = context.input(0, Item::new(Elem::UInt));
 
-        array_add_assign_expr::expand(array.into());
+        array_add_assign_expr::expand(&mut context, array.into());
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_array_add_assign_expr());
@@ -140,7 +143,7 @@ mod tests {
     fn inline_macro_ref_to_vectorized() -> Vec<ir::Operation> {
         let context = CubeContext::root();
         let scalar_item = Item::new(ElemType::as_elem());
-        let vectorized_item = Item::vectorized(ElemType::as_elem(), 2);
+        let vectorized_item = Item::vectorized(ElemType::as_elem(), NonZero::new(2));
 
         let mut scope = context.into_scope();
         let pos0: Variable = 0u32.into();
@@ -162,7 +165,7 @@ mod tests {
     fn inline_macro_ref_one_to_vectorized() -> Vec<ir::Operation> {
         let context = CubeContext::root();
         let scalar_item = Item::new(ElemType::as_elem());
-        let unvectorized_item = Item::new(ElemType::as_elem());
+        let unvectorized_item = Item::vectorized(ElemType::as_elem(), NonZero::new(1));
 
         let mut scope = context.into_scope();
         let pos0: Variable = 0u32.into();
@@ -181,18 +184,15 @@ mod tests {
         let context = CubeContext::root();
 
         let mut scope = context.into_scope();
-        let index = scope.create_local(Item::new(Elem::UInt));
         let local = scope.create_local(Item::new(Elem::UInt));
 
         let array = Variable::GlobalInputArray {
             id: 0,
             item: Item::new(Elem::UInt),
         };
-        let const1: Variable = 1u32.into();
-        let const2: Variable = 5u32.into();
+        let index: Variable = 6u32.into();
         let value: Variable = 1u32.into();
 
-        cpa!(scope, index = const1 + const2);
         cpa!(scope, local = array[index]);
         cpa!(scope, local += value);
         cpa!(scope, array[index] = local);

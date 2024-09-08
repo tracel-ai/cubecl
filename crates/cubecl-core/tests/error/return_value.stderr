@@ -2,4 +2,4 @@ error: Only void return is supported.
  --> tests/error/return_value.rs:7:9
   |
 7 |         return x;
-  |         ^^^^^^^^
+  |         ^^^^^^

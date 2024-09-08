@@ -33,4 +33,5 @@ serde = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]
+pretty_assertions = { workspace = true }
 trybuild = "1"

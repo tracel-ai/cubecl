@@ -25,11 +25,18 @@ impl Expression {
                 span,
                 ..
             } if operator.is_assign() && matches!(**left, Expression::Index { .. }) => {
+                let elem = frontend_type("ExpandElementTyped");
                 let frontend_path = frontend_path();
                 let (array, index) = left.as_index().unwrap();
                 let array = array.to_tokens(context);
-                let index = index.to_tokens(context);
-                let right = right.to_tokens(context);
+                let index = index
+                    .as_const(context)
+                    .map(|as_const| quote![#elem::from_lit(#as_const)])
+                    .unwrap_or_else(|| index.to_tokens(context));
+                let right = right
+                    .as_const(context)
+                    .map(|as_const| quote![#elem::from_lit(#as_const)])
+                    .unwrap_or_else(|| right.to_tokens(context));
                 let op = format_ident!("{}", operator.array_op_name());
                 let expand = quote_spanned![*span=> #frontend_path::#op::expand];
                 quote! {
