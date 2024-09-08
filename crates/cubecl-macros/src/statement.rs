@@ -1,5 +1,6 @@
 use crate::{expression::Expression, scope::Context};
 use proc_macro2::Span;
+use quote::format_ident;
 use syn::{spanned::Spanned, Ident, Pat, PatStruct, Stmt, Type};
 
 #[derive(Clone, Debug)]
@@ -75,6 +76,7 @@ pub fn parse_pat(pat: Pat) -> syn::Result<(Ident, Option<Type>, bool)> {
             let (ident, _, mutable) = parse_pat(*pat.pat)?;
             (ident, Some(ty), mutable)
         }
+        Pat::Wild(_) => (format_ident!("_"), None, false),
         pat => Err(syn::Error::new_spanned(
             pat.clone(),
             format!("Unsupported local pat: {pat:?}"),
