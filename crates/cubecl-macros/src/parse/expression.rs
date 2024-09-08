@@ -66,6 +66,7 @@ impl Expression {
                     name,
                     ty,
                     is_const,
+                    is_mut,
                     is_keyword,
                     ..
                 }) = variable
@@ -75,7 +76,7 @@ impl Expression {
                     } else if is_keyword {
                         Expression::Keyword { name }
                     } else {
-                        Expression::Variable { name, ty }
+                        Expression::Variable { name, ty, is_mut }
                     }
                 } else {
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
@@ -437,19 +438,19 @@ fn is_slice(index: &Expression) -> bool {
 }
 
 fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
+    // All supported primitives. Primitives don't start with an uppercase letter
+    const PRIMITIVES: &[&str] = &["bool", "i32", "i64", "u32", "f16", "bf16", "f32", "f64"];
     if !matches!(path, Expression::Path { .. }) {
         panic!("path: {path:?}");
     }
     match path {
         Expression::Path { path, .. } => {
-            let is_assoc = path
-                .segments
-                .iter()
-                .nth_back(1)
-                .and_then(|it| it.ident.to_string().chars().next())
-                .map(|ch| ch.is_uppercase())
-                .unwrap_or(false);
-            if is_assoc {
+            let second_last = path.segments.iter().nth_back(1)?;
+            let name = second_last.ident.to_string();
+            let ch = name.chars().next();
+            let is_assoc = ch.map(|ch| ch.is_uppercase()).unwrap_or(false);
+            let is_primitive = PRIMITIVES.contains(&name.as_str());
+            if is_assoc || is_primitive {
                 let mut path = path.clone();
                 let name = path.segments.pop().unwrap().into_value();
                 path.segments.pop_punct();

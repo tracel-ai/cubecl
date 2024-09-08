@@ -15,13 +15,11 @@ pub trait Cast: CubePrimitive {
         context: &mut CubeContext,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
-        let value: ExpandElement = value.into();
-        let var: Variable = *value;
         let new_var = context.create_local(Item::vectorized(
             <Self as CubePrimitive>::as_elem(),
-            var.item().vectorization,
+            value.expand.item().vectorization,
         ));
-        assign::expand(context, value, new_var.clone());
+        assign::expand(context, value, new_var.clone().into());
         new_var.into()
     }
 }

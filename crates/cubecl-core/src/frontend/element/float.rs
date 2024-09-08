@@ -5,6 +5,7 @@ use half::{bf16, f16};
 use crate::{
     ir::{Elem, FloatKind, Item, Vectorization},
     prelude::*,
+    unexpanded,
 };
 
 use super::Numeric;
@@ -87,6 +88,16 @@ macro_rules! impl_float {
         }
 
         impl Numeric for $primitive {}
+
+        impl Vectorized for $primitive {
+            fn vectorization_factor(&self) -> u32 {
+                1
+            }
+
+            fn vectorize(self, _factor: u32) -> Self {
+                unexpanded!()
+            }
+        }
 
         impl ExpandElementBaseInit for $primitive {
             fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {

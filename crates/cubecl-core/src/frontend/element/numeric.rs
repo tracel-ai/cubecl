@@ -17,7 +17,7 @@ use crate::{
 
 use super::{
     ArgSettings, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg,
-    LaunchArgExpand,
+    LaunchArgExpand, Vectorized,
 };
 
 /// Type that encompasses both (unsigned or signed) integers and floats
@@ -29,13 +29,14 @@ pub trait Numeric:
     + Min
     + Clamp
     + Remainder
-    + ExpandElementBaseInit
+    + Vectorized
     + CubePrimitive
     + LaunchArgExpand
     + ScalarArgSettings
+    + ExpandElementBaseInit
     + Into<ExpandElementTyped<Self>>
-    + CubeIndexMut<ExpandElementTyped<u32>, Output = Self>
     + CubeIndexMut<u32, Output = Self>
+    + CubeIndexMut<ExpandElementTyped<u32>, Output = Self>
     + num_traits::NumCast
     + std::ops::AddAssign
     + std::ops::SubAssign

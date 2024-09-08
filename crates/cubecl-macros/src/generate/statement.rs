@@ -18,13 +18,15 @@ impl Statement {
                 mutable,
                 ty,
             } => {
+                let cube_type = frontend_type("CubeType");
                 let name = match &**left {
                     Expression::Variable { name, .. } => name,
                     _ => panic!("Local is always variable or init"),
                 };
+                let is_mut = *mutable || is_mut_init(init.as_deref());
                 let mutable = mutable.then(|| quote![mut]);
                 let init_span = init.as_ref().map(|it| it.span());
-                let init = if mutable.is_some() {
+                let init = if is_mut {
                     if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context)) {
                         let expand = frontend_type("ExpandElementTyped");
                         Some(quote_spanned![as_const.span()=> #expand::from_lit(#as_const)])
@@ -37,8 +39,11 @@ impl Statement {
                             .unwrap_or_else(|| init.to_tokens(context))
                     })
                 };
+                let ty = ty
+                    .as_ref()
+                    .map(|ty| quote_spanned![ty.span()=> :<#ty as #cube_type>::ExpandType]);
 
-                let init = match (mutable.is_some(), init) {
+                let init = match (is_mut, init) {
                     (true, Some(init)) => {
                         let init_ty = frontend_type("Init");
                         let init_ty =
@@ -54,9 +59,9 @@ impl Statement {
                 };
 
                 if let Some(init) = init {
-                    quote![let #mutable #name = #init;]
+                    quote![let #mutable #name #ty = #init;]
                 } else {
-                    quote![let #mutable #name: #ty;]
+                    quote![let #mutable #name #ty;]
                 }
             }
             Statement::Destructure { fields } => {
@@ -96,6 +101,7 @@ fn generate_struct_destructure(
                 left: Box::new(Expression::Variable {
                     name: ident,
                     ty: None,
+                    is_mut: mutable,
                 }),
                 init: Some(Box::new(init.clone())),
                 mutable,
@@ -109,4 +115,16 @@ fn generate_struct_destructure(
     Ok(quote! {span=>
         #(#fields)*
     })
+}
+
+fn is_mut_init(expr: Option<&Expression>) -> bool {
+    fn is_mut(expr: &Expression) -> bool {
+        match expr {
+            Expression::Variable { is_mut, .. } => *is_mut,
+            Expression::FieldAccess { base, .. } => is_mut(base),
+            _ => false,
+        }
+    }
+
+    expr.map(is_mut).unwrap_or(false)
 }

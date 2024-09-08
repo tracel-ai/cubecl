@@ -39,10 +39,11 @@ impl Statement {
                 let is_const = init.as_ref().map(|init| init.is_const()).unwrap_or(false);
                 let variable = Box::new(Expression::Variable {
                     name: ident.clone(),
+                    is_mut: mutable,
                     ty: ty.clone(),
                 });
 
-                context.push_variable(ident, ty.clone(), is_const && !mutable);
+                context.push_variable(ident, ty.clone(), is_const && !mutable, mutable);
                 Self::Local {
                     left: variable,
                     init,
@@ -97,8 +98,8 @@ fn parse_struct_destructure(
                 field: field.member,
                 span,
             };
-            let (ident, ty, _) = parse_pat(*field.pat.clone())?;
-            context.push_variable(ident.clone(), ty.clone(), init.is_const());
+            let (ident, ty, mutable) = parse_pat(*field.pat.clone())?;
+            context.push_variable(ident.clone(), ty.clone(), init.is_const(), mutable);
             Ok((*field.pat, access))
         })
         .collect::<syn::Result<Vec<_>>>()?;

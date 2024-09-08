@@ -23,6 +23,7 @@ pub enum Expression {
     },
     Variable {
         name: Ident,
+        is_mut: bool,
         ty: Option<Type>,
     },
     ConstVariable {

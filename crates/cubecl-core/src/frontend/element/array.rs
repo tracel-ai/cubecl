@@ -88,7 +88,7 @@ impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
 
         if factor == 1 {
             let element = index::expand(context, self.clone(), ExpandElementTyped::from_lit(0u32));
-            assign::expand(context, element, new_var.clone());
+            assign::expand(context, element, new_var.clone().into());
         } else {
             for i in 0..factor {
                 let expand: Self = self.expand.clone().into();

@@ -1,14 +1,17 @@
-use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::frontend::{
     CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
     Numeric,
 };
 use crate::ir::{Elem, IntKind, Vectorization};
 use crate::Runtime;
+use crate::{
+    compute::{KernelBuilder, KernelLauncher},
+    unexpanded,
+};
 
 use super::{
-    init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
-    __expand_vectorized,
+    init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, Vectorized,
+    __expand_new, __expand_vectorized,
 };
 
 /// Signed integer. Used as input in int kernels
@@ -64,6 +67,16 @@ macro_rules! impl_int {
 
         impl Numeric for $type {}
 
+        impl Vectorized for $type {
+            fn vectorization_factor(&self) -> u32 {
+                1
+            }
+
+            fn vectorize(self, _factor: u32) -> Self {
+                unexpanded!()
+            }
+        }
+
         impl ExpandElementBaseInit for $type {
             fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
                 init_expand_element(context, elem)
@@ -102,6 +115,16 @@ impl Int for u32 {
 
     fn vectorized(val: i64, _vectorization: u32) -> Self {
         Self::new(val)
+    }
+}
+
+impl Vectorized for u32 {
+    fn vectorization_factor(&self) -> u32 {
+        1
+    }
+
+    fn vectorize(self, _factor: u32) -> Self {
+        unexpanded!()
     }
 }
 

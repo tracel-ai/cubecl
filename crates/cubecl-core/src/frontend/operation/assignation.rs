@@ -2,23 +2,25 @@ use half::{bf16, f16};
 
 use crate::{
     frontend::{Array, CubeContext, ExpandElement, SharedMemory, Tensor},
-    prelude::{CubeIndex, CubeIndexMut},
+    prelude::{CubeIndex, CubeIndexMut, CubeType},
 };
 use crate::{ir, prelude::Index};
 
 pub mod assign {
+    use crate::prelude::ExpandElementTyped;
+
     use self::ir::{Operator, UnaryOperator};
 
     use super::*;
 
-    pub fn expand<I: Into<ExpandElement>, O: Into<ExpandElement>>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
-        input: I,
-        output: O,
+        input: ExpandElementTyped<C>,
+        output: ExpandElementTyped<C>,
     ) {
         context.register(Operator::Assign(UnaryOperator {
-            input: *input.into(),
-            out: *output.into(),
+            input: *input.expand,
+            out: *output.expand,
         }));
     }
 }
@@ -215,17 +217,22 @@ pub mod div_assign_array_op {
 }
 
 pub mod add_assign_op {
+    use std::ops::AddAssign;
+
     use self::ir::Operator;
-    use crate::frontend::operation::base::assign_op_expand;
+    use crate::{
+        frontend::operation::base::assign_op_expand,
+        prelude::{CubeType, ExpandElementTyped},
+    };
 
     use super::*;
 
-    pub fn expand<L: Into<ExpandElement>, R: Into<ExpandElement>>(
+    pub fn expand<C: CubeType + AddAssign>(
         context: &mut CubeContext,
-        lhs: L,
-        rhs: R,
-    ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Operator::Add)
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElementTyped<C> {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::Add).into()
     }
 }
 
