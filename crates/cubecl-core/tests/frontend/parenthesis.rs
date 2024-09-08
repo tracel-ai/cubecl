@@ -13,7 +13,7 @@ mod tests {
         ir::{Item, Variable},
     };
 
-    type ElemType = F32;
+    type ElemType = f32;
 
     #[test]
     fn cube_parenthesis_priority_test() {
@@ -23,7 +23,7 @@ mod tests {
         let y = context.create_local(Item::new(ElemType::as_elem()));
         let z = context.create_local(Item::new(ElemType::as_elem()));
 
-        parenthesis::__expand::<ElemType>(&mut context, x.into(), y.into(), z.into());
+        parenthesis::expand::<ElemType>(&mut context, x.into(), y.into(), z.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref());

@@ -286,7 +286,7 @@ where
     }));
 }
 
-pub fn while_loop_expand<FC, FB>(
+pub fn while_loop_expand(
     context: &mut CubeContext,
     mut cond_fn: impl FnMut(&mut CubeContext) -> ExpandElementTyped<bool>,
     block: impl FnOnce(&mut CubeContext),

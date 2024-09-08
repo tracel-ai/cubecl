@@ -1,7 +1,7 @@
-use crate::frontend::operation::base::binary_expand;
 use crate::frontend::CubeType;
 use crate::frontend::{CubeContext, CubePrimitive, ExpandElementTyped};
 use crate::ir::Operator;
+use crate::{frontend::operation::base::binary_expand, unexpanded};
 use half::{bf16, f16};
 
 pub mod add {
@@ -188,9 +188,9 @@ pub mod shr {
 macro_rules! impl_binary_func {
     ($trait_name:ident, $method_name:ident, $func_name_expand:ident, $method_name_expand:ident, $operator:expr, $($type:ty),*) => {
         pub trait $trait_name: CubeType + Sized {
-            // fn $method_name(self, _rhs: Self) -> Self {
-            //     unexpanded!()
-            // }
+            fn $method_name(self, _rhs: Self) -> Self {
+                unexpanded!()
+            }
 
             fn $func_name_expand(
                 context: &mut CubeContext,

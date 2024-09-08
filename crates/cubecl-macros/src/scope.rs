@@ -164,8 +164,8 @@ impl Context {
             .iter()
             .enumerate()
             .rev()
-            .flat_map(|(i, scope)| scope.variables.iter().rev().map(move |it| (i, it)))
-            .find(|(_, var)| &var.name == name)
+            .flat_map(|(i, scope)| scope.variables.iter().map(move |it| (i, it)))
+            .find(|(_, var)| &var.name == name && var.use_count.load(Ordering::Acquire) > 0)
             .unwrap_or_else(|| {
                 panic!(
                     "Trying to get use count of variable {name} that never existed.\nScopes: {:#?}\nHistory:{:#?}",

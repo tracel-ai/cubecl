@@ -29,7 +29,7 @@ impl<F: Float> BlockLoader<F> for VerticalCheckBlockIO {
         let mut num_reads = 0;
         let row = check_bounds.skip_row + info.read_row;
         if check_bounds.dim_vertical > row {
-            num_reads = (check_bounds.dim_horizontal - row).min(tile_size);
+            num_reads = Min::min(check_bounds.dim_horizontal - row, tile_size);
         }
 
         for i in 0..num_reads {
@@ -93,7 +93,7 @@ impl<F: Float> BlockWriter<F> for VerticalCheckBlockIO {
 
         let mut num_writes = 0;
         if check_bounds.dim_vertical > row {
-            num_writes = (check_bounds.dim_vertical - row).min(tile_size);
+            num_writes = Min::min(check_bounds.dim_vertical - row, tile_size);
         }
 
         for result_index in 0..num_writes {

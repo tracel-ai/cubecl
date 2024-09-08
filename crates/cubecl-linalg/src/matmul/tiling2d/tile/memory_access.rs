@@ -169,7 +169,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
 
         let mut num_loops = 0;
         if check_bounds.dim_horizontal > read_info.read_col {
-            let num_reads = (check_bounds.dim_horizontal - read_info.read_col).min(tile_size);
+            let num_reads = Min::min(check_bounds.dim_horizontal - read_info.read_col, tile_size);
             num_loops = num_reads / vectorization_factor;
         }
 
@@ -232,7 +232,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
 
         let mut num_loops = 0;
         if check_bounds.dim_horizontal > write_col {
-            let num_writes = (check_bounds.dim_horizontal - write_col).min(tile_size);
+            let num_writes = Min::min(check_bounds.dim_horizontal - write_col, tile_size);
             num_loops = num_writes / vectorization_factor;
         }
 
@@ -292,7 +292,7 @@ impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
         let row = check_bounds.skip_row + info.read_row;
         let dim_vertical = check_bounds.dim_vertical;
         if dim_vertical > row {
-            num_reads = (dim_vertical - row).min(tile_size);
+            num_reads = Min::min(dim_vertical - row, tile_size);
         }
 
         for i in 0..num_reads {

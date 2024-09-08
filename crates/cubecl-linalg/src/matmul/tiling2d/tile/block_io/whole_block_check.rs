@@ -31,7 +31,7 @@ impl<F: Float> BlockLoader<F> for WholeCheckBlockIO {
             let mut num_reads_vertical = 0;
             let row = check_bounds.skip_row + info.read_row;
             if check_bounds.dim_vertical > row {
-                num_reads_vertical = (check_bounds.dim_vertical - row).min(tile_size);
+                num_reads_vertical = Min::min(check_bounds.dim_vertical - row, tile_size);
             }
 
             for i in 0..num_reads_vertical {
@@ -66,7 +66,7 @@ impl<F: Float> BlockLoader<F> for WholeCheckBlockIO {
         let col = check_bounds.skip_col + info.read_col;
         let dim_horizontal = check_bounds.dim_horizontal;
         if dim_horizontal > col {
-            num_reads_horizontal = (dim_horizontal - col).min(tile_size);
+            num_reads_horizontal = Min::min(dim_horizontal - col, tile_size);
         }
 
         for i in 0..num_reads_horizontal {
@@ -112,7 +112,7 @@ impl<F: Float> BlockWriter<F> for WholeCheckBlockIO {
             let row = coordinates.skip_row + coordinates.unit_row;
 
             if check_bounds.dim_vertical > row {
-                num_writes_vertical = (check_bounds.dim_vertical - row).min(tile_size);
+                num_writes_vertical = Min::min(check_bounds.dim_vertical - row, tile_size);
             }
 
             let out_position_base = row * info.out_stride + col + info.offset_output;

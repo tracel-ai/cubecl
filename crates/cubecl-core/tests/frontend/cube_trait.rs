@@ -60,10 +60,10 @@ mod tests {
     #[test]
     fn test_function_generic() {
         let mut context = CubeContext::root();
-        let lhs = context.create_local(Item::new(F32::as_elem()));
-        let rhs = context.create_local(Item::new(F32::as_elem()));
+        let lhs = context.create_local(Item::new(f32::as_elem()));
+        let rhs = context.create_local(Item::new(f32::as_elem()));
 
-        <Test as FunctionGeneric>::__expand_test::<F32>(&mut context, lhs.into(), rhs.into());
+        <Test as FunctionGeneric>::__expand_test::<f32>(&mut context, lhs.into(), rhs.into());
 
         assert_eq!(simple_scope(), context.into_scope());
     }
@@ -71,10 +71,10 @@ mod tests {
     #[test]
     fn test_trait_generic() {
         let mut context = CubeContext::root();
-        let lhs = context.create_local(Item::new(F32::as_elem()));
-        let rhs = context.create_local(Item::new(F32::as_elem()));
+        let lhs = context.create_local(Item::new(f32::as_elem()));
+        let rhs = context.create_local(Item::new(f32::as_elem()));
 
-        <Test as TraitGeneric<F32>>::__expand_test(&mut context, lhs.into(), rhs.into());
+        <Test as TraitGeneric<f32>>::__expand_test(&mut context, lhs.into(), rhs.into());
 
         assert_eq!(simple_scope(), context.into_scope());
     }
@@ -82,10 +82,10 @@ mod tests {
     #[test]
     fn test_combined_function_generic() {
         let mut context = CubeContext::root();
-        let lhs = context.create_local(Item::new(F32::as_elem()));
-        let rhs = context.create_local(Item::new(F32::as_elem()));
+        let lhs = context.create_local(Item::new(f32::as_elem()));
+        let rhs = context.create_local(Item::new(f32::as_elem()));
 
-        <Test as CombinedTraitFunctionGeneric<F32>>::__expand_test::<UInt>(
+        <Test as CombinedTraitFunctionGeneric<f32>>::__expand_test::<u32>(
             &mut context,
             lhs.into(),
             rhs.into(),
@@ -96,19 +96,19 @@ mod tests {
 
     fn simple_scope() -> Scope {
         let mut context_ref = CubeContext::root();
-        let lhs = context_ref.create_local(Item::new(F32::as_elem()));
-        let rhs = context_ref.create_local(Item::new(F32::as_elem()));
+        let lhs = context_ref.create_local(Item::new(f32::as_elem()));
+        let rhs = context_ref.create_local(Item::new(f32::as_elem()));
 
-        simple::__expand::<F32>(&mut context_ref, lhs.into(), rhs.into());
+        simple::expand::<f32>(&mut context_ref, lhs.into(), rhs.into());
         context_ref.into_scope()
     }
 
     fn with_cast_scope() -> Scope {
         let mut context_ref = CubeContext::root();
-        let lhs = context_ref.create_local(Item::new(F32::as_elem()));
-        let rhs = context_ref.create_local(Item::new(F32::as_elem()));
+        let lhs = context_ref.create_local(Item::new(f32::as_elem()));
+        let rhs = context_ref.create_local(Item::new(f32::as_elem()));
 
-        with_cast::__expand::<F32, UInt>(&mut context_ref, lhs.into(), rhs.into());
+        with_cast::expand::<f32, u32>(&mut context_ref, lhs.into(), rhs.into());
         context_ref.into_scope()
     }
 }

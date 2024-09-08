@@ -366,9 +366,9 @@ macro_rules! cpa {
     // range(start, end, unroll).for_each(|i, scope| { ... })
     ($scope:expr, range($start:expr, $end:expr, $unroll:expr).for_each($arg:expr)) => {
         if $unroll {
-            $crate::ir::UnrolledRangeLoop::register($scope, $start.into(), $end.into(), None, $arg);
+            $crate::ir::UnrolledRangeLoop::register($scope, $start.into(), $end.into(), None, false, $arg);
         } else {
-            $crate::ir::RangeLoop::register($scope, $start.into(), $end.into(), None, $arg);
+            $crate::ir::RangeLoop::register($scope, $start.into(), $end.into(), None, false, $arg);
         }
     };
         // range_stepped(start, end, step).for_each(|i, scope| { ... })

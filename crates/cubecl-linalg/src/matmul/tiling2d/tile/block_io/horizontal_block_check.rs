@@ -55,7 +55,7 @@ impl<F: Float> BlockLoader<F> for HorizontalCheckBlockIO {
         let col = check_bounds.skip_col + info.read_col;
         let dim_horizontal = check_bounds.dim_horizontal;
         if dim_horizontal > col {
-            num_reads = (dim_horizontal - col).min(tile_size);
+            num_reads = Min::min(dim_horizontal - col, tile_size);
         }
 
         for i in 0..num_reads {

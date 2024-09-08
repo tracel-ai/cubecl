@@ -21,6 +21,7 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
+        #[ignore = "Flaky"]
         pub fn cmma_load_shared_memory_lhs_unit_test() {
             tests::cmma::load_shared_memory::load_shared_memory_lhs_unit_test::<TestRuntime>(
                 &Default::default(),

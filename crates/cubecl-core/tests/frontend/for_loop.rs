@@ -1,18 +1,18 @@
 use cubecl_core as cubecl;
 use cubecl_core::{
     cube,
-    frontend::branch::range,
-    frontend::{Array, Comptime, CubeContext, CubePrimitive, Float, UInt, F32},
+    frontend::{Array, CubeContext, CubePrimitive, Float},
 };
 
-type ElemType = F32;
+type ElemType = f32;
 
 #[cube]
-pub fn for_loop<F: Float>(mut lhs: Array<F>, rhs: F, end: UInt, unroll: Comptime<bool>) {
+pub fn for_loop<F: Float>(mut lhs: Array<F>, rhs: F, end: u32, #[comptime] unroll: bool) {
     let tmp1 = rhs * rhs;
     let tmp2 = tmp1 + rhs;
 
-    for i in range(0u32, end, unroll) {
+    #[unroll(unroll)]
+    for i in 0..end {
         lhs[i] = tmp2 + lhs[i];
     }
 }
@@ -32,7 +32,7 @@ mod tests {
         let rhs = context.create_local(Item::new(ElemType::as_elem()));
         let end: ExpandElement = 4u32.into();
 
-        for_loop::__expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
+        for_loop::expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref(unroll));
@@ -47,7 +47,7 @@ mod tests {
         let rhs = context.create_local(Item::new(ElemType::as_elem()));
         let end: ExpandElement = 4u32.into();
 
-        for_loop::__expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
+        for_loop::expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref(unroll));
