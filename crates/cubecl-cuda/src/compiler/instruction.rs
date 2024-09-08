@@ -472,14 +472,6 @@ impl Remainder {
     }
 }
 
-fn function_prefix(elem: Elem) -> &'static str {
-    match elem {
-        Elem::F16 | Elem::BF16 => "h",
-        Elem::F162 | Elem::BF162 => "h2",
-        _ => "",
-    }
-}
-
 struct Magnitude;
 
 impl Magnitude {
@@ -490,7 +482,6 @@ impl Magnitude {
     ) -> core::fmt::Result {
         let num = input.item().vectorization;
         let elem = input.elem();
-        let sqrt = format!("{}sqrt", function_prefix(elem));
 
         f.write_fmt(format_args!("{out} = 0.0;\n"))?;
 
@@ -499,7 +490,7 @@ impl Magnitude {
             f.write_fmt(format_args!("{out} += {input_i} * {input_i};\n"))?;
         }
 
-        f.write_fmt(format_args!("{out} = {sqrt}({out});\n"))
+        Sqrt::format_unary(f, out, out, elem)
     }
 }
 
@@ -514,7 +505,6 @@ impl Normalize {
         let num = input.item().vectorization;
         let elem = input.elem();
         let norm = format!("{out}_norm");
-        let sqrt = format!("{}sqrt", function_prefix(elem));
 
         f.write_fmt(format_args!("{{\n"))?;
         f.write_fmt(format_args!("{elem} {norm} = 0.0;\n"))?;
@@ -524,7 +514,7 @@ impl Normalize {
             f.write_fmt(format_args!("{norm} += {input_i} * {input_i};\n"))?;
         }
 
-        f.write_fmt(format_args!("{norm} = {sqrt}({norm});\n"))?;
+        Sqrt::format_unary(f, &norm, &norm, elem)?;
 
         for i in 0..num {
             let input_i = input.index(i);
