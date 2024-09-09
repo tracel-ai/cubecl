@@ -87,10 +87,6 @@ impl Display for ComputeKernel {
         f.write_str("typedef unsigned int uint;\n")?;
 
         for item in self.items.iter() {
-            if item.is_vec_native() {
-                continue;
-            }
-
             let elem = item.elem;
             let size = item.vectorization;
             let alignment = elem.size() * size;

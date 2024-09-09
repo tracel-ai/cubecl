@@ -100,6 +100,7 @@ operator!(Greater, ">");
 operator!(GreaterEqual, ">=");
 operator!(ShiftLeft, "<<");
 operator!(ShiftRight, ">>");
+operator!(BitwiseOr, "|");
 operator!(BitwiseAnd, "&");
 operator!(BitwiseXor, "^");
 operator!(Or, "||");
@@ -128,29 +129,11 @@ impl Binary for IndexAssign {
         let item_rhs = rhs.item();
 
         let format_vec = |f: &mut Formatter<'_>, cast: bool| {
-            let is_vec_native = item_out.is_vec_native();
             f.write_str("{\n")?;
             let var = "broadcasted";
             f.write_fmt(format_args!("{item_out} {var};\n"))?;
             for i in 0..item_out.vectorization {
-                if is_vec_native {
-                    let char = match i {
-                        0 => 'x',
-                        1 => 'y',
-                        2 => 'z',
-                        3 => 'w',
-                        _ => panic!("Invalid"),
-                    };
-                    if cast {
-                        f.write_fmt(format_args!(
-                            "{var}.{char} = {}({});\n",
-                            item_out.elem,
-                            rhs.index(i)
-                        ))?;
-                    } else {
-                        f.write_fmt(format_args!("{var}.{char} = {};\n", rhs.index(i)))?;
-                    }
-                } else if cast {
+                if cast {
                     f.write_fmt(format_args!(
                         "{var}.i_{i} = {}({});\n",
                         item_out.elem,
@@ -254,29 +237,14 @@ impl Binary for Index {
         let item_lhs = lhs.item();
 
         let format_vec = |f: &mut Formatter<'_>| {
-            let is_vec_native = item_out.is_vec_native();
             f.write_str("{\n")?;
             let var = "broadcasted";
             f.write_fmt(format_args!("{item_out} {var};\n"))?;
             for i in 0..item_out.vectorization {
-                if is_vec_native {
-                    let char = match i {
-                        0 => 'x',
-                        1 => 'y',
-                        2 => 'z',
-                        3 => 'w',
-                        _ => panic!("Invalid"),
-                    };
-                    f.write_fmt(format_args!(
-                        "{var}.{char} = {}({lhs}[{rhs}].i_{i});\n",
-                        item_out.elem
-                    ))?;
-                } else {
-                    f.write_fmt(format_args!(
-                        "{var}.i_{i} = {}({lhs}[{rhs}].i_{i});\n",
-                        item_out.elem
-                    ))?;
-                }
+                f.write_fmt(format_args!(
+                    "{var}.i_{i} = {}({lhs}[{rhs}].i_{i});\n",
+                    item_out.elem
+                ))?;
             }
             f.write_fmt(format_args!("{out} = {var};\n"))?;
             f.write_str("}")?;

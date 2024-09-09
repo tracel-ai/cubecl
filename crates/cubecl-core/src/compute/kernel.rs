@@ -84,7 +84,7 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
     let kernel_id = kernel_id.to_string();
     let mut result = String::new();
     let mut depth = 0;
-    let indendation = 4;
+    let indentation = 4;
 
     let mut prev = ' ';
 
@@ -105,7 +105,7 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
                 }
                 result.push(start);
                 result.push('\n');
-                result.push_str(&" ".repeat(indendation * depth));
+                result.push_str(&" ".repeat(indentation * depth));
                 found_marker = true;
             } else if c == end {
                 depth -= 1;
@@ -114,10 +114,10 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
                         result.pop();
                     }
                     result.push_str(",\n");
-                    result.push_str(&" ".repeat(indendation * depth));
+                    result.push_str(&" ".repeat(indentation * depth));
                     result.push(end);
                 } else {
-                    for _ in 0..(&" ".repeat(indendation * depth).len()) + 1 + indendation {
+                    for _ in 0..(&" ".repeat(indentation * depth).len()) + 1 + indentation {
                         result.pop();
                     }
                     result.push(end);
@@ -137,7 +137,7 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
             }
 
             result.push_str(",\n");
-            result.push_str(&" ".repeat(indendation * depth));
+            result.push_str(&" ".repeat(indentation * depth));
             continue;
         }
 

@@ -28,6 +28,7 @@ where
     type Storage = BytesStorage;
     type MemoryManagement = MM;
     type FeatureSet = ();
+    type Properties = ();
 
     fn read(&mut self, binding: Binding<Self>) -> cubecl_common::reader::Reader {
         let bytes_handle = self.memory_management.get(binding.memory);
@@ -54,7 +55,7 @@ where
     }
 
     fn empty(&mut self, size: usize) -> Handle<Self> {
-        Handle::new(self.memory_management.reserve(size, &[]))
+        Handle::new(self.memory_management.reserve(size, &[]), None, None)
     }
 
     unsafe fn execute(

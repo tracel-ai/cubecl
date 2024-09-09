@@ -1,2 +1,2 @@
 [alias]
-xtask = "run --target-dir target/xtask/debug --package xtask --bin xtask --"
+xtask = "run --target-dir target/xtask --color always --package xtask --bin xtask --"
