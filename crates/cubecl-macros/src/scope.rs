@@ -51,6 +51,7 @@ impl Context {
                 name,
                 ty: Some(ty),
                 is_const: false,
+                is_ref: false,
                 is_mut: false,
                 is_keyword: true,
                 use_count: AtomicUsize::new(0).into(),
@@ -63,7 +64,14 @@ impl Context {
         }
     }
 
-    pub fn push_variable(&mut self, name: Ident, ty: Option<Type>, is_const: bool, is_mut: bool) {
+    pub fn push_variable(
+        &mut self,
+        name: Ident,
+        ty: Option<Type>,
+        is_const: bool,
+        is_ref: bool,
+        is_mut: bool,
+    ) {
         self.scopes
             .last_mut()
             .expect("Scopes must at least have root scope")
@@ -72,6 +80,7 @@ impl Context {
                 name,
                 ty,
                 is_const,
+                is_ref,
                 is_mut,
                 is_keyword: false,
                 use_count: AtomicUsize::new(0).into(),
@@ -208,6 +217,7 @@ pub struct ManagedVar {
     pub name: Ident,
     pub ty: Option<Type>,
     pub is_const: bool,
+    pub is_ref: bool,
     pub is_mut: bool,
     pub is_keyword: bool,
     pub use_count: Rc<AtomicUsize>,
@@ -221,6 +231,7 @@ impl From<KernelParam> for ManagedVar {
             is_const: value.is_const,
             is_keyword: false,
             use_count: AtomicUsize::new(0).into(),
+            is_ref: value.is_ref,
             is_mut: value.is_mut,
         }
     }

@@ -8,6 +8,7 @@ use proc_macro2::Span;
 use quote::format_ident;
 use syn::{
     spanned::Spanned, Ident, Index, Member, Pat, PatStruct, PatTuple, PatTupleStruct, Stmt, Type,
+    TypeReference,
 };
 
 #[derive(Clone, Debug)]
@@ -39,7 +40,12 @@ impl Statement {
                     .map(|init| Expression::from_expr(*init.expr, context))
                     .transpose()?
                     .map(Box::new);
-                let (ident, ty, mutable) = match local.pat {
+                let Pattern {
+                    ident,
+                    ty,
+                    is_ref,
+                    is_mut,
+                } = match local.pat {
                     Pat::Struct(pat) => {
                         return desugar_struct_local(pat, *init.unwrap(), context);
                     }
@@ -52,16 +58,17 @@ impl Statement {
                 let is_const = init.as_ref().map(|init| init.is_const()).unwrap_or(false);
                 let variable = Box::new(Expression::Variable {
                     name: ident.clone(),
-                    is_mut: mutable,
+                    is_ref,
+                    is_mut,
                     ty: ty.clone(),
                     use_count: Rc::new(AtomicUsize::new(0)),
                 });
 
-                context.push_variable(ident, ty.clone(), is_const && !mutable, mutable);
+                context.push_variable(ident, ty.clone(), is_const && !is_mut, is_ref, is_mut);
                 Self::Local {
                     left: variable,
                     init,
-                    mutable,
+                    mutable: is_mut,
                     ty,
                 }
             }
@@ -81,15 +88,45 @@ impl Statement {
     }
 }
 
-pub fn parse_pat(pat: Pat) -> syn::Result<(Ident, Option<Type>, bool)> {
+pub struct Pattern {
+    pub ident: Ident,
+    pub ty: Option<Type>,
+    pub is_ref: bool,
+    pub is_mut: bool,
+}
+
+pub fn parse_pat(pat: Pat) -> syn::Result<Pattern> {
     let res = match pat {
-        Pat::Ident(ident) => (ident.ident, None, ident.mutability.is_some()),
+        Pat::Ident(ident) => Pattern {
+            ident: ident.ident,
+            ty: None,
+            is_ref: ident.by_ref.is_some(),
+            is_mut: ident.mutability.is_some(),
+        },
         Pat::Type(pat) => {
             let ty = *pat.ty;
-            let (ident, _, mutable) = parse_pat(*pat.pat)?;
-            (ident, Some(ty), mutable)
+            let is_ref = matches!(ty, Type::Reference(_));
+            let ref_mut = matches!(
+                ty,
+                Type::Reference(TypeReference {
+                    mutability: Some(_),
+                    ..
+                })
+            );
+            let inner = parse_pat(*pat.pat)?;
+            Pattern {
+                ident: inner.ident,
+                ty: Some(ty),
+                is_ref: is_ref || inner.is_ref,
+                is_mut: ref_mut || inner.is_mut,
+            }
         }
-        Pat::Wild(_) => (format_ident!("_"), None, false),
+        Pat::Wild(_) => Pattern {
+            ident: format_ident!("_"),
+            ty: None,
+            is_ref: false,
+            is_mut: false,
+        },
         pat => Err(syn::Error::new_spanned(
             pat.clone(),
             format!("Unsupported local pat: {pat:?}"),
@@ -113,17 +150,23 @@ fn desugar_struct_local(
                 field: field.member,
                 span,
             };
-            let (ident, ty, mutable) = parse_pat(*field.pat.clone())?;
-            context.push_variable(ident.clone(), ty.clone(), init.is_const(), mutable);
+            let Pattern {
+                ident,
+                ty,
+                is_ref,
+                is_mut,
+            } = parse_pat(*field.pat.clone())?;
+            context.push_variable(ident.clone(), ty.clone(), init.is_const(), is_ref, is_mut);
             let statement = Statement::Local {
                 left: Box::new(Expression::Variable {
                     name: ident,
+                    is_ref,
+                    is_mut,
                     ty: ty.clone(),
-                    is_mut: mutable,
                     use_count: AtomicUsize::new(0).into(),
                 }),
                 init: Some(Box::new(access)),
-                mutable,
+                mutable: is_mut,
                 ty,
             };
             Ok(statement)
@@ -155,17 +198,23 @@ fn desugar_tuple_local(
                 field: Member::Unnamed(Index::from(i)),
                 span,
             };
-            let (ident, ty, mutable) = parse_pat(pat.clone())?;
-            context.push_variable(ident.clone(), ty.clone(), init.is_const(), mutable);
+            let Pattern {
+                ident,
+                ty,
+                is_ref,
+                is_mut,
+            } = parse_pat(pat.clone())?;
+            context.push_variable(ident.clone(), ty.clone(), init.is_const(), is_ref, is_mut);
             let statement = Statement::Local {
                 left: Box::new(Expression::Variable {
                     name: ident,
                     ty: ty.clone(),
-                    is_mut: mutable,
                     use_count: AtomicUsize::new(0).into(),
+                    is_ref,
+                    is_mut,
                 }),
                 init: Some(Box::new(access)),
-                mutable,
+                mutable: is_mut,
                 ty,
             };
             Ok(statement)

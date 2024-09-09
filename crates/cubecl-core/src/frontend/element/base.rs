@@ -438,6 +438,11 @@ pub(crate) fn __expand_vectorized<C: Numeric + CubeIndex<u32>, Out: Numeric>(
     let val = Out::from(val).unwrap();
     let val: ExpandElementTyped<Out> = val.into();
 
+    // Allow setting explicit vectorization of 1 without trying to index assign it
+    if vectorization == 1 {
+        return val;
+    }
+
     for (i, element) in vec![val; vectorization as usize].iter().enumerate() {
         let element = elem.from_constant(*element.expand);
 

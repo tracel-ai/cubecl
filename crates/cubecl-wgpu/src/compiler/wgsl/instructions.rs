@@ -395,9 +395,18 @@ impl Display for Instruction {
             Instruction::Modulo { lhs, rhs, out } => {
                 f.write_fmt(format_args!("{out} = {lhs} % {rhs};\n"))
             }
-            Instruction::Remainder { lhs, rhs, out } => f.write_fmt(format_args!(
-                "{out} = {lhs} - {rhs} * floor({lhs} / {rhs});\n"
-            )),
+            Instruction::Remainder { lhs, rhs, out } => {
+                let f_type = match lhs.item() {
+                    Item::Vec4(_) => Item::Vec4(Elem::F32),
+                    Item::Vec3(_) => Item::Vec3(Elem::F32),
+                    Item::Vec2(_) => Item::Vec2(Elem::F32),
+                    Item::Scalar(_) => Item::Scalar(Elem::F32),
+                };
+                let ty = lhs.item();
+                f.write_fmt(format_args!(
+                    "{out} = {lhs} - {rhs} * {ty}(floor({f_type}({lhs}) / {f_type}({rhs})));\n"
+                ))
+            }
             Instruction::Sub { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular sub on atomic");

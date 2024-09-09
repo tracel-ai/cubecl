@@ -229,7 +229,7 @@ pub mod rem_assign_array_op {
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Operator::Remainder);
+        array_assign_binary_op_expand(context, array, index, value, Operator::Modulo);
     }
 }
 
@@ -390,7 +390,7 @@ pub mod rem_assign_op {
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Operator::Remainder)
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::Modulo)
     }
 }
 

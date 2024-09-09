@@ -26,6 +26,7 @@ pub enum Expression {
     },
     Variable {
         name: Ident,
+        is_ref: bool,
         is_mut: bool,
         use_count: Rc<AtomicUsize>,
         ty: Option<Type>,
@@ -215,9 +216,12 @@ impl Expression {
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::Tuple { elements, .. } => elements.iter().all(|it| it.is_const()),
-            Expression::MethodCall { method, args, .. } => {
-                method == "vectorization_factor" && args.is_empty()
-            }
+            Expression::MethodCall {
+                method,
+                args,
+                receiver,
+                ..
+            } => method == "vectorization_factor" && args.is_empty() || receiver.is_const(),
             _ => false,
         }
     }
@@ -227,7 +231,7 @@ impl Expression {
             Expression::Literal { value, .. } => Some(quote![#value]),
             Expression::Verbatim { tokens, .. } => Some(tokens.clone()),
             Expression::VerbatimTerminated { tokens, .. } => Some(tokens.clone()),
-            Expression::ConstVariable { name, .. } => Some(quote![#name]),
+            Expression::ConstVariable { name, .. } => Some(quote![#name.clone()]),
             Expression::Path { path, .. } => Some(quote![#path]),
             Expression::Array { elements, .. } => {
                 let elements = elements

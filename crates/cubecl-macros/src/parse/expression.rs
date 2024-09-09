@@ -61,9 +61,10 @@ impl Expression {
                     name,
                     ty,
                     is_const,
-                    is_mut,
                     is_keyword,
                     use_count,
+                    is_ref,
+                    is_mut,
                 }) = variable
                 {
                     if is_const {
@@ -78,6 +79,7 @@ impl Expression {
                         Expression::Variable {
                             name,
                             ty,
+                            is_ref,
                             is_mut,
                             use_count,
                         }

@@ -18,7 +18,7 @@ impl Statement {
                     Expression::Variable { name, .. } => name,
                     _ => panic!("Local is always variable or init"),
                 };
-                let is_mut = *mutable || is_mut_init(init.as_deref());
+                let is_mut = *mutable || init.as_deref().map(is_mut_owned).unwrap_or(false);
                 let mutable = mutable.then(|| quote![mut]);
                 let init_span = init.as_ref().map(|it| it.span());
                 let init = if is_mut {
@@ -83,14 +83,10 @@ impl Statement {
     }
 }
 
-fn is_mut_init(expr: Option<&Expression>) -> bool {
-    fn is_mut(expr: &Expression) -> bool {
-        match expr {
-            Expression::Variable { is_mut, .. } => *is_mut,
-            Expression::FieldAccess { base, .. } => is_mut(base),
-            _ => false,
-        }
+fn is_mut_owned(init: &Expression) -> bool {
+    match init {
+        Expression::Variable { is_ref, is_mut, .. } => *is_mut && !is_ref,
+        Expression::FieldAccess { base, .. } => is_mut_owned(base),
+        _ => false,
     }
-
-    expr.map(is_mut).unwrap_or(false)
 }

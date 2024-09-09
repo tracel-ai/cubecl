@@ -385,7 +385,7 @@ mod tests {
     binary_test!(
         cube_can_rem_assign,
         rem_assign_op::expand::<i32>,
-        "Remainder",
+        "Modulo",
         ref_ops_binary
     );
     binary_test!(

@@ -1,4 +1,9 @@
-use crate::{expression::Block, paths::prelude_type, scope::Context, statement::parse_pat};
+use crate::{
+    expression::Block,
+    paths::prelude_type,
+    scope::Context,
+    statement::{parse_pat, Pattern},
+};
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::TokenStream;
 use std::iter;
@@ -58,6 +63,7 @@ pub struct KernelParam {
     pub normalized_ty: Type,
     pub is_const: bool,
     pub is_mut: bool,
+    pub is_ref: bool,
 }
 
 impl KernelParam {
@@ -69,21 +75,28 @@ impl KernelParam {
                 "Can't use `cube` on methods",
             ))?,
         };
-        let (name, _, mut mutable) = parse_pat(*param.pat)?;
+        let Pattern {
+            ident,
+            mut is_ref,
+            mut is_mut,
+            ..
+        } = parse_pat(*param.pat.clone())?;
         let is_const = param.attrs.iter().any(is_comptime_attr);
         let ty = *param.ty.clone();
-        let normalized_ty = normalize_kernel_ty(*param.ty, is_const, &mut mutable);
+        let normalized_ty = normalize_kernel_ty(*param.ty, is_const, &mut is_ref, &mut is_mut);
+
         Ok(Self {
-            name,
+            name: ident,
             ty,
             normalized_ty,
             is_const,
-            is_mut: mutable,
+            is_mut,
+            is_ref,
         })
     }
 
     pub fn ty_owned(&self) -> Type {
-        strip_ref(self.ty.clone(), &mut false)
+        strip_ref(self.ty.clone(), &mut false, &mut false)
     }
 }
 
@@ -170,8 +183,8 @@ impl Launch {
     }
 }
 
-fn normalize_kernel_ty(ty: Type, is_const: bool, is_ref_mut: &mut bool) -> Type {
-    let ty = strip_ref(ty, is_ref_mut);
+fn normalize_kernel_ty(ty: Type, is_const: bool, is_ref: &mut bool, is_mut: &mut bool) -> Type {
+    let ty = strip_ref(ty, is_ref, is_mut);
     let cube_type = prelude_type("CubeType");
     if is_const {
         ty
@@ -180,10 +193,11 @@ fn normalize_kernel_ty(ty: Type, is_const: bool, is_ref_mut: &mut bool) -> Type 
     }
 }
 
-fn strip_ref(ty: Type, is_ref_mut: &mut bool) -> Type {
+fn strip_ref(ty: Type, is_ref: &mut bool, is_mut: &mut bool) -> Type {
     match ty {
         Type::Reference(reference) => {
-            *is_ref_mut = *is_ref_mut || reference.mutability.is_some();
+            *is_ref = true;
+            *is_mut = *is_mut || reference.mutability.is_some();
             *reference.elem
         }
         ty => ty,

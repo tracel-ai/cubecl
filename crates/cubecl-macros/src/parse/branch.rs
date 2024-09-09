@@ -16,22 +16,28 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
 
     let right = Expression::from_expr(*for_loop.expr.clone(), context)
         .map_err(|_| syn::Error::new(span, "Unsupported for loop expression"))?;
-    let (var_name, ty, var_mut) = parse_pat(*for_loop.pat)?;
+    let var = parse_pat(*for_loop.pat)?;
 
     if right.is_const() && !matches!(right, Expression::Range { .. }) {
-        return expand_for_in_loop(var_name, right, for_loop.body, context);
+        return expand_for_in_loop(var.ident, right, for_loop.body, context);
     }
 
     let block = context.with_scope(|context| {
-        context.push_variable(var_name.clone(), ty.clone(), false, var_mut);
+        context.push_variable(
+            var.ident.clone(),
+            var.ty.clone(),
+            false,
+            var.is_ref,
+            var.is_mut,
+        );
         Block::from_block(for_loop.body, context)
     })?;
 
     Ok(Expression::ForLoop {
         range: Box::new(right),
         unroll: unroll.map(Box::new),
-        var_name,
-        var_ty: ty,
+        var_name: var.ident,
+        var_ty: var.ty,
         block,
         span,
     })
