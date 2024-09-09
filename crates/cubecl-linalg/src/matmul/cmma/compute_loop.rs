@@ -22,9 +22,8 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
 
     for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
         compute_tile::<F, FC>(
-            n,
             tile_row,
-            tile_col_base,
+            tile_col_base + n,
             shared_memories,
             *accumulators.index(n),
             comptime_info,
@@ -34,9 +33,8 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
 
 #[cube]
 fn compute_tile<F: Float, FC: Float>(
-    n_iter: UInt,
     tile_row: UInt,
-    tile_col_base: UInt,
+    tile_col: UInt,
     shared_memories: SharedMemories<FC>,
     accumulator: cmma::Matrix<F>,
     comptime_info: Comptime<ComptimeCmmaInfo>,
@@ -47,8 +45,6 @@ fn compute_tile<F: Float, FC: Float>(
 
     let num_tile_elems = Comptime::runtime(tile_size * tile_size);
     let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size);
-
-    let tile_col = tile_col_base + n_iter;
 
     for k_iter in range(0u32, num_tiles_in_k, unroll) {
         let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;

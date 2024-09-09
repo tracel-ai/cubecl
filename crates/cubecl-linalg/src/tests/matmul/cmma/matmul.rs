@@ -18,7 +18,6 @@ macro_rules! testgen_cmma_matmul {
         }
 
         #[test]
-        #[ignore]
         pub fn test_matmul_cmma_32_32() {
             tests::matmul_tests::test_matmul_cmma_32_32::<TestRuntime>(&Default::default())
         }
@@ -29,13 +28,11 @@ macro_rules! testgen_cmma_matmul {
         }
 
         #[test]
-        #[ignore]
         pub fn test_matmul_cmma_64_32() {
             tests::matmul_tests::test_matmul_cmma_64_32::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        #[ignore]
         pub fn test_matmul_cmma_64_64() {
             tests::matmul_tests::test_matmul_cmma_64_64::<TestRuntime>(&Default::default())
         }
@@ -46,7 +43,6 @@ macro_rules! testgen_cmma_matmul {
         }
 
         #[test]
-        #[ignore]
         pub fn test_matmul_cmma_128_32() {
             tests::matmul_tests::test_matmul_cmma_128_32::<TestRuntime>(&Default::default())
         }
