@@ -29,8 +29,13 @@ fn load_tensor_test<F: Float>(
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let sm_size = block_size_k * block_size_m / tile_size;
-    let shared_memory =
+    let mut shared_memory =
         SharedMemory::<F>::vectorized(Comptime::get(sm_size), Comptime::get(tile_size));
+
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+        sm_out[i] = F::vectorized(0., Comptime::get(tile_size));
+        shared_memory[i] = F::vectorized(0., Comptime::get(tile_size));
+    }
 
     let batch_offset = UInt::new(0);
 
@@ -94,8 +99,13 @@ fn load_tensor_permuted_test<F: Float>(
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let sm_size = block_size_k * block_size_m / tile_size;
-    let shared_memory =
+    let mut shared_memory =
         SharedMemory::<F>::vectorized(Comptime::get(sm_size), Comptime::get(tile_size));
+
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+        sm_out[i] = F::vectorized(0., Comptime::get(tile_size));
+        shared_memory[i] = F::vectorized(0., Comptime::get(tile_size));
+    }
 
     let batch_offset = UInt::new(0);
 
@@ -159,8 +169,13 @@ fn load_tensor_multiple_tiles_test<F: Float>(
     let block_size_k = Comptime::map(config, |c| c.block_size_k);
     let block_size_m = Comptime::map(config, |c| c.block_size_m);
     let sm_size = block_size_k * block_size_m / tile_size;
-    let shared_memory =
+    let mut shared_memory =
         SharedMemory::<F>::vectorized(Comptime::get(sm_size), Comptime::get(tile_size));
+
+    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+        sm_out[i] = F::vectorized(0., Comptime::get(tile_size));
+        shared_memory[i] = F::vectorized(0., Comptime::get(tile_size));
+    }
 
     let unit_row = UInt::new(4) * UNIT_POS_X;
     let unit_col = UInt::new(4) * UNIT_POS_Y;
