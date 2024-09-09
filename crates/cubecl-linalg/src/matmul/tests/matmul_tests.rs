@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::test_utils::{
-    assert_equals_approx, cmma_available, create_empty, range_tensor_with_factor
+    assert_equals_approx, cmma_available, create_empty, range_tensor_with_factor,
 };
 
 pub fn test_matmul_cmma_one_cube<R: Runtime>(device: &R::Device) {
