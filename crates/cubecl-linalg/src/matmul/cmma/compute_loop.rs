@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::base::{Ids, SharedMemories};
+use super::base::{CmmaMatrices, Ids, SharedMemories};
 use super::config::ComptimeCmmaInfo;
 
 #[cube]
 #[allow(unused_mut)]
 pub(crate) fn compute_loop<F: Float, FC: Float>(
     shared_memories: SharedMemories<FC>,
-    accumulators: &mut Sequence<cmma::Matrix<F>>,
+    cmma_matrices: &mut CmmaMatrices<F, FC>,
     ids: Ids,
     comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
@@ -16,6 +16,10 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
     let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
     let num_accumulators = Comptime::map(comptime_info, |c| c.num_accumulators);
     let num_coop_per_row = Comptime::runtime((block_size_n / tile_size) / num_accumulators);
+
+    let lhs = &cmma_matrices.lhs;
+    let rhs = &cmma_matrices.rhs;
+    let accumulators = &cmma_matrices.accumulators;
 
     let tile_row = ids.coop / num_coop_per_row;
     let tile_col_base = (ids.coop % num_coop_per_row) * Comptime::runtime(num_accumulators);
@@ -25,7 +29,9 @@ pub(crate) fn compute_loop<F: Float, FC: Float>(
             tile_row,
             tile_col_base + n,
             shared_memories,
-            *accumulators.index(n),
+            lhs,
+            rhs,
+            accumulators.index(n),
             comptime_info,
         );
     }
@@ -36,7 +42,9 @@ fn compute_tile<F: Float, FC: Float>(
     tile_row: UInt,
     tile_col: UInt,
     shared_memories: SharedMemories<FC>,
-    accumulator: cmma::Matrix<F>,
+    lhs: &cmma::Matrix<FC>,
+    rhs: &cmma::Matrix<FC>,
+    accumulator: &cmma::Matrix<F>,
     comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
     let block_size_k = Comptime::map(comptime_info, |c| c.block_size_k);
@@ -59,24 +67,9 @@ fn compute_tile<F: Float, FC: Float>(
             .rhs
             .slice(shared_rhs_pos, shared_rhs_pos + smem_stride);
 
-        let a = cmma::Matrix::<FC>::new(
-            cmma::MatrixIdent::A,
-            16,
-            16,
-            16,
-            cmma::MatrixLayout::RowMajor,
-        );
-        let b = cmma::Matrix::<FC>::new(
-            cmma::MatrixIdent::B,
-            16,
-            16,
-            16,
-            cmma::MatrixLayout::RowMajor,
-        );
+        cmma::load::<FC>(&lhs, lhs_slice, UInt::new(16));
+        cmma::load::<FC>(&rhs, rhs_slice, UInt::new(16));
 
-        cmma::load::<FC>(&a, lhs_slice, UInt::new(16));
-        cmma::load::<FC>(&b, rhs_slice, UInt::new(16));
-
-        cmma::execute::<FC, FC, F, F>(&a, &b, &accumulator, &accumulator);
+        cmma::execute::<FC, FC, F, F>(&lhs, &rhs, &accumulator, &accumulator);
     }
 }
