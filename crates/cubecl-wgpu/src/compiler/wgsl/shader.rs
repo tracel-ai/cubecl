@@ -73,6 +73,7 @@ pub struct ComputeShader {
     pub local_invocation_id: bool,
     pub num_workgroups: bool,
     pub workgroup_id: bool,
+    pub subgroup_size: bool,
     pub num_workgroups_no_axis: bool,
     pub workgroup_id_no_axis: bool,
     pub workgroup_size_no_axis: bool,
@@ -135,6 +136,9 @@ fn main(
 
         if self.workgroup_id {
             f.write_str("    @builtin(workgroup_id) workgroup_id: vec3<u32>,\n")?;
+        }
+        if self.subgroup_size {
+            f.write_str("    @builtin(subgroup_size) subgroup_size: u32,\n")?;
         }
 
         // Open body

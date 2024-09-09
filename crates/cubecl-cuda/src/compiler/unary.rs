@@ -47,9 +47,37 @@ pub trait Unary {
     }
 }
 
+pub trait FunctionFmt {
+    fn base_function_name() -> &'static str;
+    fn function_name(elem: Elem) -> String {
+        match elem {
+            Elem::F16 | Elem::BF16 => format!("h{}", Self::base_function_name()),
+            Elem::F162 | Elem::BF162 => format!("h2{}", Self::base_function_name()),
+            _ => Self::base_function_name().into(),
+        }
+    }
+    fn format_unary<Input: Display, Output: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        out: Output,
+        elem: Elem,
+    ) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{out} = {}({input});\n",
+            Self::function_name(elem)
+        ))
+    }
+}
+
 macro_rules! function {
     ($name:ident, $func:expr) => {
         pub struct $name;
+
+        impl FunctionFmt for $name {
+            fn base_function_name() -> &'static str {
+                $func
+            }
+        }
 
         impl Unary for $name {
             fn format_scalar<Input: Display, Out: Display>(
@@ -58,14 +86,7 @@ macro_rules! function {
                 out: Out,
                 elem: Elem,
             ) -> std::fmt::Result {
-                match elem {
-                    Elem::F16 => f.write_fmt(format_args!("{out} = h{}({input});\n", $func)),
-                    Elem::F162 => f.write_fmt(format_args!("{out} = h2{}({input});\n", $func)),
-                    Elem::BF16 => f.write_fmt(format_args!("{out} = h{}({input});\n", $func)),
-                    Elem::BF162 => f.write_fmt(format_args!("{out} = h2{}({input});\n", $func)),
-                    Elem::F32 => f.write_fmt(format_args!("{out} = {}({input});\n", $func)),
-                    _ => f.write_fmt(format_args!("{out} = {}({input});\n", $func)),
-                }
+                Self::format_unary(f, input, out, elem)
             }
         }
     };
@@ -82,6 +103,7 @@ function!(Exp, "exp");
 function!(Erf, "erf");
 function!(Ceil, "ceil");
 function!(Floor, "floor");
+function!(Round, "rint");
 
 pub struct Not;
 

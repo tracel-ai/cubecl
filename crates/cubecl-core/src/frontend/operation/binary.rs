@@ -192,6 +192,26 @@ pub mod bitand {
     }
 }
 
+pub mod bitor {
+    use super::*;
+
+    pub fn expand<C: CubePrimitive>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElementTyped<C> {
+        binary_expand(context, lhs.into(), rhs.into(), Operator::BitwiseOr).into()
+    }
+
+    impl core::ops::BitOr for UInt {
+        type Output = UInt;
+
+        fn bitor(self, _rhs: Self) -> Self::Output {
+            unexpanded!()
+        }
+    }
+}
+
 pub mod or {
     use super::*;
 

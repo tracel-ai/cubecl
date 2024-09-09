@@ -206,6 +206,14 @@ pub(crate) fn codegen_binary(
                     cubecl::frontend::or::expand(context, _lhs, _rhs)
                 }
             },
+            syn::BinOp::BitOr(_) => quote::quote! {
+                {
+
+                    let _lhs = #lhs;
+                    let _rhs = #rhs;
+                    cubecl::frontend::bitor::expand(context, _lhs, _rhs)
+                }
+            },
             syn::BinOp::BitAnd(_) => quote::quote! {
                 {
 

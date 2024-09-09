@@ -100,6 +100,7 @@ operator!(Greater, ">");
 operator!(GreaterEqual, ">=");
 operator!(ShiftLeft, "<<");
 operator!(ShiftRight, ">>");
+operator!(BitwiseOr, "|");
 operator!(BitwiseAnd, "&");
 operator!(BitwiseXor, "^");
 operator!(Or, "||");

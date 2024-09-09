@@ -83,6 +83,16 @@ impl_unary_func!(
     F64
 );
 impl_unary_func!(
+    Round,
+    round,
+    __expand_round,
+    Operator::Round,
+    F16,
+    BF16,
+    F32,
+    F64
+);
+impl_unary_func!(
     Floor,
     floor,
     __expand_floor,
@@ -108,6 +118,16 @@ impl_unary_func!(
     recip,
     __expand_recip,
     Operator::Recip,
+    F16,
+    BF16,
+    F32,
+    F64
+);
+impl_unary_func!(
+    Normalize,
+    normalize,
+    __expand_normalize,
+    Operator::Normalize,
     F16,
     BF16,
     F32,

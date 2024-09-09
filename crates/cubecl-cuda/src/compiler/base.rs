@@ -130,7 +130,7 @@ impl CudaCompiler {
             gpu::Operation::Branch(val) => self.compile_branch(instructions, val),
             gpu::Operation::Synchronization(val) => match val {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
-                gpu::Synchronization::SyncStorage => instructions.push(Instruction::ThreadFence),
+                gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
             },
             gpu::Operation::Subcube(op) => {
                 self.wrap_size_checked = true;
@@ -450,6 +450,9 @@ impl CudaCompiler {
             gpu::Operator::NotEqual(op) => {
                 instructions.push(Instruction::NotEqual(self.compile_binary(op)))
             }
+            gpu::Operator::BitwiseOr(op) => {
+                instructions.push(Instruction::BitwiseOr(self.compile_binary(op)))
+            }
             gpu::Operator::BitwiseAnd(op) => {
                 instructions.push(Instruction::BitwiseAnd(self.compile_binary(op)))
             }
@@ -485,6 +488,9 @@ impl CudaCompiler {
                     rhs: self.compile_variable(op.input),
                     out: self.compile_variable(op.out),
                 }))
+            }
+            gpu::Operator::Round(op) => {
+                instructions.push(Instruction::Round(self.compile_unary(op)))
             }
             gpu::Operator::Floor(op) => {
                 instructions.push(Instruction::Floor(self.compile_unary(op)))
@@ -538,6 +544,9 @@ impl CudaCompiler {
                 val: self.compile_variable(op.val),
                 out: self.compile_variable(op.out),
             }),
+            gpu::Operator::Normalize(op) => {
+                instructions.push(Instruction::Normalize(self.compile_unary(op)))
+            }
         };
     }
 
