@@ -131,5 +131,12 @@ macro_rules! testgen_cmma_internal {
             )
         }
 
+        #[test]
+        pub fn load_shared_memory_rhs_larger_block_test() {
+            tests::cmma::load_shared_memory::load_shared_memory_rhs_larger_block_test::<TestRuntime>(
+                &Default::default(),
+            )
+        }
+
     };
 }

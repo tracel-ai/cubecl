@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::test_utils::{
-    assert_equals_approx, cmma_available, create_empty, range_tensor_with_factor,
+    assert_equals_approx, cmma_available, create_empty, range_tensor_with_factor
 };
 
 pub fn test_matmul_cmma_one_cube<R: Runtime>(device: &R::Device) {
@@ -36,9 +36,9 @@ macro_rules! alternate_block_sizes {
                 m: 128,
                 k: 128,
                 n: 128,
-                batch: 2,
+                batch: 1,
                 factor: 100000.,
-                epsilon: 0.1,
+                epsilon: 0.001,
                 compute_f16: true,
             }
             .test_cmma::<R>(

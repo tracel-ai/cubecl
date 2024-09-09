@@ -103,7 +103,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let offsets = runtime_info.offsets;
 
     let tile_row = ids.coop / num_accum_groups_in_block_row;
-    let tile_col = (ids.coop % num_accum_groups_in_block_row) * num_accum_groups_in_block_row;
+    let tile_col = (ids.coop % num_accum_groups_in_block_row) * Comptime::runtime(num_accumulators);
 
     let num_unit_writes = tile_size * tile_size / (out_vec * coop_dim);
 
