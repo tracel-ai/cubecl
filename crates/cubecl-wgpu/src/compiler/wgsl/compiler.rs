@@ -13,6 +13,7 @@ pub struct WgslCompiler {
     local_invocation_id: bool,
     global_invocation_id: bool,
     workgroup_id: bool,
+    subgroup_size: bool,
     rank: bool,
     id: bool,
     stride: bool,
@@ -90,6 +91,7 @@ impl WgslCompiler {
                 || self.num_workgroup_no_axis
                 || self.workgroup_id_no_axis,
             workgroup_id: self.workgroup_id || self.workgroup_id_no_axis,
+            subgroup_size: self.subgroup_size,
             body,
             extensions,
             num_workgroups_no_axis: self.num_workgroup_no_axis,
@@ -256,7 +258,10 @@ impl WgslCompiler {
                 self.num_workgroup_no_axis = true;
                 wgsl::Variable::NumWorkgroups
             }
-            cube::Variable::SubcubeDim => wgsl::Variable::SubgroupSize,
+            cube::Variable::SubcubeDim => {
+                self.subgroup_size = true;
+                wgsl::Variable::SubgroupSize
+            }
             cube::Variable::Matrix { .. } => {
                 panic!("Cooperative matrix-multiply and accumulate not supported.")
             }
