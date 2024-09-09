@@ -43,21 +43,21 @@ fn compute_tile<F: Float, FC: Float>(
     let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
     let unroll = Comptime::map(comptime_info, |c| c.unroll);
 
-    let num_tile_elems = Comptime::runtime(tile_size * tile_size);
+    let smem_stride = Comptime::runtime(tile_size * tile_size);
     let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size);
 
     for k_iter in range(0u32, num_tiles_in_k, unroll) {
         let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
         let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
-        let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
-        let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
+        let shared_lhs_pos = shared_lhs_tile * smem_stride;
+        let shared_rhs_pos = shared_rhs_tile * smem_stride;
 
         let lhs_slice = shared_memories
             .lhs
-            .slice(shared_lhs_pos, shared_lhs_pos + num_tile_elems);
+            .slice(shared_lhs_pos, shared_lhs_pos + smem_stride);
         let rhs_slice = shared_memories
             .rhs
-            .slice(shared_rhs_pos, shared_rhs_pos + num_tile_elems);
+            .slice(shared_rhs_pos, shared_rhs_pos + smem_stride);
 
         let a = cmma::Matrix::<FC>::new(
             cmma::MatrixIdent::A,
