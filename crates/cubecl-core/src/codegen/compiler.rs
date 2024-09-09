@@ -17,6 +17,6 @@ pub trait Compiler: Sync + Send + 'static + Clone + Default + core::fmt::Debug {
     fn compile(kernel: KernelDefinition, mode: ExecutionMode) -> Self::Representation;
     /// The size of the given element in bytes.
     fn elem_size(elem: Elem) -> usize;
-    /// The maximal size of a shared memory
+    /// The maximal size of a shared memory, in bytes
     fn max_shared_memory_size() -> usize;
 }

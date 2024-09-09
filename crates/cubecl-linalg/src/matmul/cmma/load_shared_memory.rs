@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    base::{Dimensions, Offsets, SharedMemories},
-    config::CmmaConfig,
+    base::{RuntimeCmmaInfo, SharedMemories},
+    config::ComptimeCmmaInfo,
 };
 
 use crate::matmul::cmma::block_io::{
@@ -16,30 +16,50 @@ use crate::matmul::cmma::block_io::{
 pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
-    offsets: Offsets,
+    k_offset: UInt,
     mut shared: SharedMemories<FC>,
-    dims: Dimensions,
-    config: Comptime<CmmaConfig>,
+    runtime_info: RuntimeCmmaInfo,
+    comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let k_tiles = Comptime::runtime(block_size_k / tile_size);
+    let block_size_k = Comptime::map(comptime_info, |c| c.block_size_k);
+    let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
+    let num_tiles_in_k = Comptime::runtime(block_size_k / tile_size);
 
-    load_lhs(lhs, offsets, &mut shared.lhs, k_tiles, dims, config);
-    load_rhs(rhs, offsets, &mut shared.rhs, k_tiles, dims, config);
+    load_lhs(
+        lhs,
+        &mut shared.lhs,
+        num_tiles_in_k,
+        k_offset,
+        runtime_info,
+        comptime_info,
+    );
+    load_rhs(
+        rhs,
+        &mut shared.rhs,
+        num_tiles_in_k,
+        k_offset,
+        runtime_info,
+        comptime_info,
+    );
 }
 
 #[cube]
 pub(crate) fn load_lhs<F: Float, FC: Float>(
     lhs: &Tensor<F>,
-    offsets: Offsets,
     shared_lhs: &mut SharedMemory<FC>,
-    k_tiles: UInt,
-    dims: Dimensions,
-    config: Comptime<CmmaConfig>,
+    num_tiles_in_k: UInt,
+    k_offset: UInt,
+    runtime_info: RuntimeCmmaInfo,
+    comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
-    let check_m_bounds = Comptime::map(config, |c| c.check_m_bounds);
-    let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
+    let check_m_bounds = Comptime::map(comptime_info, |c| c.check_m_bounds);
+    let check_k_bounds = Comptime::map(comptime_info, |c| c.check_k_bounds);
+    let ids = runtime_info.ids;
+    let dims = runtime_info.dims;
+    let offsets = runtime_info.offsets;
+
+    let tile_row = ids.coop / num_tiles_in_k;
+    let tile_col = ids.coop % num_tiles_in_k;
 
     if Comptime::get(check_m_bounds) {
         if Comptime::get(check_k_bounds) {
@@ -47,26 +67,28 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
                 lhs,
                 shared_lhs,
                 offsets.batch_lhs,
-                UNIT_POS_Y / k_tiles,
-                UNIT_POS_Y % k_tiles,
+                tile_row,
+                tile_col,
                 dims.m,
                 dims.k,
                 offsets.cube_row,
-                offsets.k,
-                config,
+                k_offset,
+                runtime_info,
+                comptime_info,
             );
         } else {
             load_tile::<F, FC, VerticalCheckBlockIO>(
                 lhs,
                 shared_lhs,
                 offsets.batch_lhs,
-                UNIT_POS_Y / k_tiles,
-                UNIT_POS_Y % k_tiles,
+                tile_row,
+                tile_col,
                 dims.m,
                 dims.k,
                 offsets.cube_row,
-                offsets.k,
-                config,
+                k_offset,
+                runtime_info,
+                comptime_info,
             );
         }
     } else if Comptime::get(check_k_bounds) {
@@ -74,26 +96,28 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
             lhs,
             shared_lhs,
             offsets.batch_lhs,
-            UNIT_POS_Y / k_tiles,
-            UNIT_POS_Y % k_tiles,
+            tile_row,
+            tile_col,
             dims.m,
             dims.k,
             offsets.cube_row,
-            offsets.k,
-            config,
+            k_offset,
+            runtime_info,
+            comptime_info,
         );
     } else {
         load_tile::<F, FC, UncheckedBlockIO>(
             lhs,
             shared_lhs,
             offsets.batch_lhs,
-            UNIT_POS_Y / k_tiles,
-            UNIT_POS_Y % k_tiles,
+            tile_row,
+            tile_col,
             dims.m,
             dims.k,
             offsets.cube_row,
-            offsets.k,
-            config,
+            k_offset,
+            runtime_info,
+            comptime_info,
         );
     }
 }
@@ -101,14 +125,20 @@ pub(crate) fn load_lhs<F: Float, FC: Float>(
 #[cube]
 pub(crate) fn load_rhs<F: Float, FC: Float>(
     rhs: &Tensor<F>,
-    offsets: Offsets,
     shared_rhs: &mut SharedMemory<FC>,
-    k_tiles: UInt,
-    dims: Dimensions,
-    config: Comptime<CmmaConfig>,
+    num_tiles_in_k: UInt,
+    k_offset: UInt,
+    runtime_info: RuntimeCmmaInfo,
+    comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
-    let check_k_bounds = Comptime::map(config, |c| c.check_k_bounds);
-    let check_n_bounds = Comptime::map(config, |c| c.check_n_bounds);
+    let check_k_bounds = Comptime::map(comptime_info, |c| c.check_k_bounds);
+    let check_n_bounds = Comptime::map(comptime_info, |c| c.check_n_bounds);
+    let ids = runtime_info.ids;
+    let dims = runtime_info.dims;
+    let offsets = runtime_info.offsets;
+
+    let tile_row = ids.coop % num_tiles_in_k;
+    let tile_col = ids.coop / num_tiles_in_k;
 
     if Comptime::get(check_k_bounds) {
         if Comptime::get(check_n_bounds) {
@@ -116,26 +146,28 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
                 rhs,
                 shared_rhs,
                 offsets.batch_rhs,
-                UNIT_POS_Y % k_tiles,
-                UNIT_POS_Y / k_tiles,
+                tile_row,
+                tile_col,
                 dims.k,
                 dims.n,
-                offsets.k,
+                k_offset,
                 offsets.cube_col,
-                config,
+                runtime_info,
+                comptime_info,
             );
         } else {
             load_tile::<F, FC, VerticalCheckBlockIO>(
                 rhs,
                 shared_rhs,
                 offsets.batch_rhs,
-                UNIT_POS_Y % k_tiles,
-                UNIT_POS_Y / k_tiles,
+                tile_row,
+                tile_col,
                 dims.k,
                 dims.n,
-                offsets.k,
+                k_offset,
                 offsets.cube_col,
-                config,
+                runtime_info,
+                comptime_info,
             );
         }
     } else if Comptime::get(check_n_bounds) {
@@ -143,26 +175,28 @@ pub(crate) fn load_rhs<F: Float, FC: Float>(
             rhs,
             shared_rhs,
             offsets.batch_rhs,
-            UNIT_POS_Y % k_tiles,
-            UNIT_POS_Y / k_tiles,
+            tile_row,
+            tile_col,
             dims.k,
             dims.n,
-            offsets.k,
+            k_offset,
             offsets.cube_col,
-            config,
+            runtime_info,
+            comptime_info,
         );
     } else {
         load_tile::<F, FC, UncheckedBlockIO>(
             rhs,
             shared_rhs,
             offsets.batch_rhs,
-            UNIT_POS_Y % k_tiles,
-            UNIT_POS_Y / k_tiles,
+            tile_row,
+            tile_col,
             dims.k,
             dims.n,
-            offsets.k,
+            k_offset,
             offsets.cube_col,
-            config,
+            runtime_info,
+            comptime_info,
         );
     }
 }
@@ -177,49 +211,46 @@ fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
     dim_horizontal: UInt,
     skip_row: UInt,
     skip_col: UInt,
-    config: Comptime<CmmaConfig>,
+    runtime_info: RuntimeCmmaInfo,
+    comptime_info: Comptime<ComptimeCmmaInfo>,
 ) {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
     let tile_size_r = Comptime::runtime(tile_size);
     let tensor_vec = Comptime::vectorization(tensor);
     let tensor_vec_r = Comptime::runtime(tensor_vec);
+    let ids = runtime_info.ids;
 
-    // Will likely fail if SUBCUBE_DIM is not 32
-    let coop_dim = UInt::new(32);
-    let coop_id = UNIT_POS_Y;
-    let lane_id = UNIT_POS_X;
+    // Must equal SUBCUBE_DIM, but must be known comptime too
+    let coop_dim = Comptime::map(comptime_info, |c| c.coop_dim);
 
-    // There are two rows because 16x16 tiles with 32 threads -> 2 vec4 loads
-    let unit_read_row_0 = lane_id / tensor_vec_r;
-    let unit_read_row_1 = unit_read_row_0 + coop_dim / tensor_vec_r;
-    let read_row_0 = skip_row + tile_row * tile_size_r + unit_read_row_0;
-    let read_row_1 = skip_row + tile_row * tile_size_r + unit_read_row_1;
+    let num_unit_reads = tile_size * tile_size / (tensor_vec * coop_dim);
+    let num_units_per_row = Comptime::runtime(tile_size / tensor_vec);
 
-    let unit_read_col = lane_id % tensor_vec_r * tensor_vec_r;
-    let read_col = skip_col + tile_col * tile_size_r + unit_read_col;
+    let lane_row_step = Comptime::runtime(coop_dim * tensor_vec / tile_size);
+    let lane_row_offset = ids.lane / num_units_per_row;
+    let read_row_offset = skip_row + tile_row * tile_size_r + lane_row_offset;
+
+    let lane_col_offset = ids.lane % num_units_per_row * tensor_vec_r;
+    let read_col = skip_col + tile_col * tile_size_r + lane_col_offset;
 
     let sm_stride = Comptime::runtime(tile_size * tile_size);
-    let write_pos_0 = coop_id * sm_stride + lane_id * tensor_vec_r;
-    let write_pos_1 = write_pos_0 + sm_stride / UInt::new(2);
 
-    L::load_tile(
-        tensor,
-        shared_memory,
-        batch_offset,
-        read_row_0,
-        read_col,
-        write_pos_0,
-        dim_vertical,
-        dim_horizontal,
-    );
-    L::load_tile(
-        tensor,
-        shared_memory,
-        batch_offset,
-        read_row_1,
-        read_col,
-        write_pos_1,
-        dim_vertical,
-        dim_horizontal,
-    );
+    let write_offset = ids.coop * sm_stride + ids.lane * tensor_vec_r;
+    let sm_step = Comptime::runtime(coop_dim * tensor_vec);
+
+    for i in range(0u32, Comptime::get(num_unit_reads), Comptime::new(true)) {
+        let read_row = read_row_offset + i * lane_row_step;
+        let write_pos = write_offset + i * sm_step;
+
+        L::load_tile(
+            tensor,
+            shared_memory,
+            batch_offset,
+            read_row,
+            read_col,
+            write_pos,
+            dim_vertical,
+            dim_horizontal,
+        )
+    }
 }

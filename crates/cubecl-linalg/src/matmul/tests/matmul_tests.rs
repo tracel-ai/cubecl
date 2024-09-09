@@ -2,7 +2,13 @@ use cubecl_core::{frontend::F32, CubeElement, Runtime};
 use half::f16;
 
 use crate::{
-    matmul::{cmma::launch, tiling2d},
+    matmul::{
+        cmma::{
+            config::{CmmaConfig, WriteOutStrategy},
+            launch,
+        },
+        tiling2d,
+    },
     tensor::TensorHandle,
 };
 
@@ -20,8 +26,37 @@ pub fn test_matmul_cmma_one_cube<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
+
+macro_rules! alternate_block_sizes {
+    ($name:ident, $b_mn:expr, $b_k:expr) => {
+        pub fn $name<R: Runtime>(device: &R::Device) {
+            MatmulTestCase {
+                m: 128,
+                k: 128,
+                n: 128,
+                batch: 1,
+                factor: 100000.,
+                epsilon: 0.001,
+                compute_f16: true,
+            }
+            .test_cmma::<R>(
+                CmmaConfig::new($b_mn, $b_k, false, WriteOutStrategy::ReuseSmem),
+                device,
+            );
+        }
+    };
+}
+
+alternate_block_sizes!(test_matmul_cmma_16_16, 16, 16);
+alternate_block_sizes!(test_matmul_cmma_32_16, 32, 16);
+alternate_block_sizes!(test_matmul_cmma_32_32, 32, 32);
+alternate_block_sizes!(test_matmul_cmma_64_16, 64, 16);
+alternate_block_sizes!(test_matmul_cmma_64_32, 64, 32);
+alternate_block_sizes!(test_matmul_cmma_64_64, 64, 64);
+alternate_block_sizes!(test_matmul_cmma_128_16, 128, 16);
+alternate_block_sizes!(test_matmul_cmma_128_32, 128, 32);
 
 pub fn test_matmul_cmma_several_cubes<R: Runtime>(device: &R::Device) {
     MatmulTestCase {
@@ -33,7 +68,7 @@ pub fn test_matmul_cmma_several_cubes<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
 
 pub fn test_matmul_cmma_with_check_bounds<R: Runtime>(device: &R::Device) {
@@ -46,7 +81,7 @@ pub fn test_matmul_cmma_with_check_bounds<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
 
 pub fn test_matmul_cmma_with_batches<R: Runtime>(device: &R::Device) {
@@ -59,7 +94,33 @@ pub fn test_matmul_cmma_with_batches<R: Runtime>(device: &R::Device) {
         epsilon: 0.1,
         compute_f16: true,
     }
-    .test_cmma::<R>(device);
+    .test_cmma::<R>(CmmaConfig::default(), device);
+}
+
+pub fn test_matmul_cmma_unvectorizable_shapes<R: Runtime>(device: &R::Device) {
+    MatmulTestCase {
+        m: 63,
+        k: 63,
+        n: 63,
+        batch: 3,
+        factor: 10000.,
+        epsilon: 0.1,
+        compute_f16: true,
+    }
+    .test_cmma::<R>(CmmaConfig::default(), device);
+}
+
+pub fn test_matmul_cmma_vec2_shapes<R: Runtime>(device: &R::Device) {
+    MatmulTestCase {
+        m: 62,
+        k: 62,
+        n: 62,
+        batch: 3,
+        factor: 10000.,
+        epsilon: 0.1,
+        compute_f16: true,
+    }
+    .test_cmma::<R>(CmmaConfig::default(), device);
 }
 
 pub fn test_matmul_tiling2d_one_cube<R: Runtime>(device: &R::Device) {
@@ -114,19 +175,6 @@ pub fn test_matmul_tiling2d_with_batches<R: Runtime>(device: &R::Device) {
     .test_tiling2d::<R>(device);
 }
 
-pub fn test_matmul_cmma_unvectorizable_shapes<R: Runtime>(device: &R::Device) {
-    MatmulTestCase {
-        m: 63,
-        k: 63,
-        n: 63,
-        batch: 3,
-        factor: 10000.,
-        epsilon: 0.1,
-        compute_f16: true,
-    }
-    .test_cmma::<R>(device);
-}
-
 struct MatmulTestCase {
     m: usize,
     k: usize,
@@ -159,7 +207,7 @@ impl MatmulTestCase {
         assert_equals_approx::<R>(&client, out.handle, &expected, self.epsilon);
     }
 
-    fn test_cmma<R: Runtime>(&self, device: &R::Device) {
+    fn test_cmma<R: Runtime>(&self, config: CmmaConfig, device: &R::Device) {
         if !cmma_available::<R>(device) {
             // We can't execute the test, skip.
             return;
@@ -180,7 +228,7 @@ impl MatmulTestCase {
             f32::from_bytes(&client.read(tensor_2.handle.clone().binding())),
         );
 
-        let out = launch::<R, F32>(&client, tensor_1, tensor_2, out);
+        let out = launch::<R, F32>(&client, tensor_1, tensor_2, out, config);
 
         assert_equals_approx::<R>(&client, out.handle, &expected, self.epsilon);
     }
