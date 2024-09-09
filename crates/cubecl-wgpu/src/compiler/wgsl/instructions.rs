@@ -182,6 +182,7 @@ pub enum Instruction {
         start: Variable,
         end: Variable,
         step: Option<Variable>,
+        inclusive: bool,
         instructions: Vec<Instruction>,
     },
     And {
@@ -531,16 +532,18 @@ impl Display for Instruction {
                 start,
                 end,
                 step,
+                inclusive,
                 instructions,
             } => {
                 let increment = step
                     .as_ref()
                     .map(|step| format!("{i} += {step}"))
                     .unwrap_or_else(|| format!("{i}++"));
+                let cmp = if *inclusive { "<=" } else { "<" };
 
                 f.write_fmt(format_args!(
                     "
-for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
+for (var {i}: u32 = {start}; {i} {cmp} {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {

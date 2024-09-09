@@ -369,6 +369,7 @@ impl WgslCompiler {
                     start: self.compile_variable(range_loop.start),
                     end: self.compile_variable(range_loop.end),
                     step: range_loop.step.map(|it| self.compile_variable(it)),
+                    inclusive: range_loop.inclusive,
                     instructions: self.compile_scope(&mut range_loop.scope),
                 })
             }

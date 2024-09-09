@@ -50,6 +50,7 @@ pub enum Instruction {
         start: Variable,
         end: Variable,
         step: Option<Variable>,
+        inclusive: bool,
         instructions: Vec<Self>,
     },
     Loop {
@@ -188,15 +189,17 @@ impl Display for Instruction {
                 start,
                 end,
                 step,
+                inclusive,
                 instructions,
             } => {
                 let increment = step
                     .map(|step| format!("{i} += {step}"))
                     .unwrap_or_else(|| format!("++{i}"));
+                let cmp = if *inclusive { "<=" } else { "<" };
 
                 f.write_fmt(format_args!(
                     "
-for (uint {i} = {start}; {i} < {end}; {increment}) {{
+for (uint {i} = {start}; {i} {cmp} {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {
