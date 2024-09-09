@@ -6,11 +6,12 @@ use syn::Ident;
 
 use crate::{
     parse::kernel::{KernelFn, KernelParam, KernelSignature, Launch},
-    paths::{core_type, prelude_type},
+    paths::{core_type, prelude_path, prelude_type},
 };
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
+        let prelude_path = prelude_path();
         let sig = &self.sig;
         let block = self
             .context
@@ -18,6 +19,8 @@ impl KernelFn {
 
         let out = quote! {
             #sig {
+                use #prelude_path::IntoRuntime as _;
+
                 #block
             }
         };

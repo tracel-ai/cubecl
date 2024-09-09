@@ -86,7 +86,7 @@ impl TypeCodegen {
 
     pub fn arg_settings_impl(&self) -> proc_macro2::TokenStream {
         let arg_settings = prelude_type("ArgSettings");
-        let kernel_launcher = core_type("KernelLauncher");
+        let kernel_launcher = prelude_type("KernelLauncher");
         let kernel_settings = core_type("KernelSettings");
         let name = &self.name_launch;
         let register_body = self
