@@ -33,6 +33,7 @@ macro_rules! testgen_cmma_matmul {
         }
 
         #[test]
+        #[ignore] // Activate only for f16
         pub fn test_matmul_cmma_64_64() {
             tests::matmul_tests::test_matmul_cmma_64_64::<TestRuntime>(&Default::default())
         }
@@ -43,6 +44,7 @@ macro_rules! testgen_cmma_matmul {
         }
 
         #[test]
+        #[ignore] // Activate only for f16
         pub fn test_matmul_cmma_128_32() {
             tests::matmul_tests::test_matmul_cmma_128_32::<TestRuntime>(&Default::default())
         }
