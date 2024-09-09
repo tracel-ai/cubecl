@@ -51,9 +51,6 @@ impl<I: Int> Iterable<I> for Range<I> {
         context: &mut CubeContext,
         mut func: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
     ) {
-        println!("Start: {:?}", self.start.expand);
-        println!("End: {:?}", self.end.expand);
-
         let start = self
             .start
             .expand
