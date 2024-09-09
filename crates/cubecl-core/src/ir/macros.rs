@@ -273,6 +273,11 @@ macro_rules! cpa {
             cpa!(unary $input, $out)
         ));
     };
+    ($scope:expr, $out:ident = normalize($input:expr)) => {
+        $scope.register($crate::ir::Operator::Normalize(
+            cpa!(unary $input, $out)
+        ));
+    };
     // out = sin(input)
     ($scope:expr, $out:ident = sin($input:expr)) => {
         $scope.register($crate::ir::Operator::Sin(

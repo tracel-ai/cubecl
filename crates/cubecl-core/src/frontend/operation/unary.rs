@@ -20,6 +20,19 @@ pub mod not {
     }
 }
 
+pub mod neg {
+    use crate::prelude::Numeric;
+
+    use super::*;
+
+    pub fn expand<N: Numeric>(
+        context: &mut CubeContext,
+        x: ExpandElementTyped<N>,
+    ) -> ExpandElementTyped<N> {
+        unary_expand(context, x.into(), Operator::Neg).into()
+    }
+}
+
 macro_rules! impl_unary_func {
     ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $operator:expr, $($type:ty),*) => {
         pub trait $trait_name: CubePrimitive + Sized {
@@ -120,6 +133,16 @@ impl_unary_func!(
     recip,
     __expand_recip,
     Operator::Recip,
+    f16,
+    bf16,
+    f32,
+    f64
+);
+impl_unary_func!(
+    Normalize,
+    normalize,
+    __expand_normalize,
+    Operator::Normalize,
     f16,
     bf16,
     f32,

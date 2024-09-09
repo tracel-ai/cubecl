@@ -70,27 +70,25 @@ impl Expression {
             }
             Expression::Unary {
                 input,
-                operator: Operator::Not,
+                operator: Operator::Deref,
+                ..
+            } => input.to_tokens(context),
+            Expression::Unary {
+                input,
+                operator,
                 span,
                 ..
             } => {
                 let frontend_path = frontend_path();
                 let input = input.to_tokens(context);
-                let expand = quote_spanned![*span=> #frontend_path::not::expand];
+                let op = format_ident!("{}", operator.op_name());
+                let expand = quote_spanned![*span=> #frontend_path::#op::expand];
                 quote! {
                     {
                         let _inner = #input;
                         #expand(context, _inner)
                     }
                 }
-            }
-            Expression::Unary {
-                input,
-                operator: Operator::Deref,
-                ..
-            } => input.to_tokens(context),
-            Expression::Unary { operator, span, .. } => {
-                error!(*span, "Unary operator {operator} not yet supported")
             }
             Expression::Keyword { name } => {
                 quote![#name::expand(context)]

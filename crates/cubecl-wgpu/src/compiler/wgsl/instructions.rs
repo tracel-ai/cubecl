@@ -313,6 +313,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Normalize {
+        input: Variable,
+        out: Variable,
+    },
 }
 
 impl Display for Instruction {
@@ -683,7 +687,10 @@ for (var {i}: u32 = {start}; {i} {cmp} {end}; {increment}) {{
                 // For compatibility with cuda, only return old_value
                 "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;\n"
             )),
-            Instruction::Negate { input, out } => f.write_fmt(format_args!("{out} = !{input};\n")),
+            Instruction::Negate { input, out } => f.write_fmt(format_args!("{out} = -{input};\n")),
+            Instruction::Normalize { input, out } => {
+                f.write_fmt(format_args!("{out} = normalize({input});\n"))
+            }
         }
     }
 }

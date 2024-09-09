@@ -223,6 +223,9 @@ impl ScopeProcessing {
                 Operator::AtomicXor(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
+                Operator::Normalize(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
+                }
             },
             Operation::Metadata(op) => match op {
                 Metadata::Stride { dim, .. } => {

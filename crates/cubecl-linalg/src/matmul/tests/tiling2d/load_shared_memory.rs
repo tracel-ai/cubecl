@@ -29,7 +29,12 @@ fn load_tensor_test<F: Float>(
     let block_size_k = config.block_size_k;
     let block_size_m = config.block_size_m;
     let sm_size = block_size_k * block_size_m / tile_size;
-    let shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
+    let mut shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
+
+    for i in 0..sm_size {
+        sm_out[i] = F::vectorized(0., tile_size);
+        shared_memory[i] = F::vectorized(0., tile_size);
+    }
 
     let batch_offset = 0;
 
@@ -91,7 +96,12 @@ fn load_tensor_permuted_test<F: Float>(
     let block_size_k = config.block_size_k;
     let block_size_m = config.block_size_m;
     let sm_size = block_size_k * block_size_m / tile_size;
-    let shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
+    let mut shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
+
+    for i in 0..sm_size {
+        sm_out[i] = F::vectorized(0., tile_size);
+        shared_memory[i] = F::vectorized(0., tile_size);
+    }
 
     let batch_offset = 0;
 
@@ -153,7 +163,12 @@ fn load_tensor_multiple_tiles_test<F: Float>(
     let block_size_k = config.block_size_k;
     let block_size_m = config.block_size_m;
     let sm_size = block_size_k * block_size_m / tile_size;
-    let shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
+    let mut shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
+
+    for i in 0..sm_size {
+        sm_out[i] = F::vectorized(0., tile_size);
+        shared_memory[i] = F::vectorized(0., tile_size);
+    }
 
     let unit_row = 4 * UNIT_POS_X;
     let unit_col = 4 * UNIT_POS_Y;
