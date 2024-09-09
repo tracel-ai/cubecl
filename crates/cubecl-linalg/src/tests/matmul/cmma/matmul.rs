@@ -26,7 +26,9 @@ macro_rules! testgen_cmma_matmul {
 
         #[test]
         pub fn test_matmul_cmma_unvectorizable_shapes() {
-            tests::matmul_tests::test_matmul_cmma_unvectorizable_shapes::<TestRuntime>(&Default::default())
+            tests::matmul_tests::test_matmul_cmma_unvectorizable_shapes::<TestRuntime>(
+                &Default::default(),
+            )
         }
     };
 }

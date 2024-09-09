@@ -123,7 +123,8 @@ pub fn test_matmul_cmma_unvectorizable_shapes<R: Runtime>(device: &R::Device) {
         factor: 10000.,
         epsilon: 0.1,
         compute_f16: true,
-    }.test_cmma::<R>(device);
+    }
+    .test_cmma::<R>(device);
 }
 
 struct MatmulTestCase {
