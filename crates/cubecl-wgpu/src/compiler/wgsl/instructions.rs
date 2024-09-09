@@ -308,6 +308,10 @@ pub enum Instruction {
         out: Variable,
     },
     Subgroup(Subgroup),
+    Normalize {
+        input: Variable,
+        out: Variable,
+    },
 }
 
 impl Display for Instruction {
@@ -667,6 +671,9 @@ for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
                 // For compatibility with cuda, only return old_value
                 "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;\n"
             )),
+            Instruction::Normalize { input, out } => {
+                f.write_fmt(format_args!("{out} = normalize({input});\n"))
+            }
         }
     }
 }

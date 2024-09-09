@@ -545,6 +545,9 @@ impl CudaCompiler {
                 val: self.compile_variable(op.val),
                 out: self.compile_variable(op.out),
             }),
+            gpu::Operator::Normalize(op) => {
+                instructions.push(Instruction::Normalize(self.compile_unary(op)))
+            }
         };
     }
 

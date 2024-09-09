@@ -138,6 +138,7 @@ pub enum Instruction {
         val: Variable,
         out: Variable,
     },
+    Normalize(UnaryInstruction),
 }
 
 impl Display for Instruction {
@@ -380,6 +381,7 @@ for (uint {i} = {start}; {i} < {end}; {increment}) {{
                 f.write_fmt(format_args!("atomicExch({out}, {input});\n"))
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
         }
     }
 }
@@ -465,5 +467,38 @@ impl Remainder {
         }
 
         Ok(())
+    }
+}
+
+struct Normalize;
+
+impl Normalize {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable,
+        out: &Variable,
+    ) -> core::fmt::Result {
+        let num = input.item().vectorization;
+        let elem = input.elem();
+        let norm = format!("{out}_norm");
+
+        f.write_fmt(format_args!("{{\n"))?;
+        f.write_fmt(format_args!("{elem} {norm} = 0.0;\n"))?;
+
+        for i in 0..num {
+            let input_i = input.index(i);
+            f.write_fmt(format_args!("{norm} += {input_i} * {input_i};\n"))?;
+        }
+
+        Sqrt::format_unary(f, &norm, &norm, elem)?;
+
+        for i in 0..num {
+            let input_i = input.index(i);
+            let output_i = out.index(i);
+
+            f.write_fmt(format_args!("{output_i} = {input_i} / {norm};\n"))?;
+        }
+
+        f.write_fmt(format_args!("}}\n"))
     }
 }
