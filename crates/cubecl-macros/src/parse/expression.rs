@@ -1,11 +1,6 @@
-use std::iter;
-
 use proc_macro2::Span;
-use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{
-    parse_quote, punctuated::Punctuated, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment,
-    RangeLimits, Type,
-};
+use quote::{format_ident, quote, quote_spanned};
+use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment, RangeLimits, Type};
 
 use crate::{
     expression::{Block, Expression},
@@ -344,13 +339,12 @@ impl Expression {
             Expr::Reference(reference) => Expression::Reference {
                 inner: Box::new(Expression::from_expr(*reference.expr, context)?),
             },
-            Expr::Closure(mut expr) => {
-                let body = Expression::from_expr(*expr.body, context)?;
-                expr.body = Box::new(Expr::Verbatim(body.to_tokens(context)));
-                expr.inputs =
-                    Punctuated::from_iter(iter::once(parse_quote![context]).chain(expr.inputs));
-                let tokens = expr.to_token_stream();
-                Expression::Closure { tokens }
+            Expr::Closure(expr) => {
+                let span = expr.span();
+                let body = context.with_scope(|ctx| Expression::from_expr(*expr.body, ctx))?;
+                let body = Box::new(body);
+                let params = expr.inputs.into_iter().collect();
+                Expression::Closure { params, body, span }
             }
             Expr::Try(expr) => {
                 let span = expr.span();

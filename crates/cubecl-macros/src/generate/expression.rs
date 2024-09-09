@@ -416,7 +416,10 @@ impl Expression {
                     }
                 }
             }
-            Expression::Closure { tokens } => tokens.clone(),
+            Expression::Closure { params, body, .. } => {
+                let body = context.with_restored_closure_scope(|ctx| body.to_tokens(ctx));
+                quote![|context, #(#params),*| #body]
+            }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
             Expression::Block(block) => context.with_restored_scope(|ctx| block.to_tokens(ctx)),
         }

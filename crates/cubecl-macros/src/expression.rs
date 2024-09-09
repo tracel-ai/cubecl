@@ -3,7 +3,8 @@ use std::{rc::Rc, sync::atomic::AtomicUsize};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    spanned::Spanned, AngleBracketedGenericArguments, Ident, Lit, Member, Path, PathSegment, Type,
+    spanned::Spanned, AngleBracketedGenericArguments, Ident, Lit, Member, Pat, Path, PathSegment,
+    Type,
 };
 
 use crate::{operator::Operator, scope::Context, statement::Statement};
@@ -64,6 +65,11 @@ pub enum Expression {
         method: Ident,
         generics: Option<AngleBracketedGenericArguments>,
         args: Vec<Expression>,
+        span: Span,
+    },
+    Closure {
+        params: Vec<Pat>,
+        body: Box<Expression>,
         span: Span,
     },
     Cast {
@@ -147,9 +153,6 @@ pub enum Expression {
     StructInit {
         path: Path,
         fields: Vec<(Member, Expression)>,
-    },
-    Closure {
-        tokens: proc_macro2::TokenStream,
     },
     Keyword {
         name: syn::Ident,
@@ -299,7 +302,7 @@ impl Expression {
             Expression::ArrayInit { span, .. } => *span,
             Expression::Reference { inner } => inner.span(),
             Expression::StructInit { path, .. } => path.span(),
-            Expression::Closure { tokens } => tokens.span(),
+            Expression::Closure { span, .. } => *span,
             Expression::Keyword { name } => name.span(),
         }
     }
