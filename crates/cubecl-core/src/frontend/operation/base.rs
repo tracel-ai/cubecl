@@ -216,12 +216,13 @@ fn find_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
 
 pub fn array_assign_binary_op_expand<
     A: CubeType + CubeIndex<u32>,
+    V: CubeType,
     F: Fn(BinaryOperator) -> Operator,
 >(
     context: &mut CubeContext,
     array: ExpandElementTyped<A>,
     index: ExpandElementTyped<u32>,
-    value: ExpandElementTyped<A::Output>,
+    value: ExpandElementTyped<V>,
     func: F,
 ) where
     A::Output: CubeType + Sized,

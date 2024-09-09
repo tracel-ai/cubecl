@@ -216,6 +216,108 @@ pub mod div_assign_array_op {
     }
 }
 
+pub mod rem_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::Remainder);
+    }
+}
+
+pub mod bitor_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::BitwiseOr);
+    }
+}
+
+pub mod bitand_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::BitwiseAnd);
+    }
+}
+
+pub mod bitxor_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::BitwiseXor);
+    }
+}
+
+pub mod shl_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<u32>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::ShiftLeft);
+    }
+}
+
+pub mod shr_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<u32>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::ShiftRight);
+    }
+}
+
 pub mod add_assign_op {
     use std::ops::AddAssign;
 
@@ -275,5 +377,89 @@ pub mod div_assign_op {
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
         assign_op_expand(context, lhs.into(), rhs.into(), Operator::Div)
+    }
+}
+
+pub mod rem_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::Remainder)
+    }
+}
+
+pub mod bitor_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::BitwiseOr)
+    }
+}
+
+pub mod bitand_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::BitwiseAnd)
+    }
+}
+
+pub mod bitxor_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::BitwiseXor)
+    }
+}
+
+pub mod shl_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<u32>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::ShiftLeft)
+    }
+}
+
+pub mod shr_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<u32>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::ShiftRight)
     }
 }

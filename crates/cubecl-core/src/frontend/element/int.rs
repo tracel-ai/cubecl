@@ -14,7 +14,7 @@ use super::{
     __expand_new, __expand_vectorized,
 };
 
-/// Signed integer. Used as input in int kernels
+/// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
     Numeric
     + std::ops::Rem<Output = Self>
@@ -22,10 +22,21 @@ pub trait Int:
     + core::ops::Sub<Output = Self>
     + core::ops::Mul<Output = Self>
     + core::ops::Div<Output = Self>
+    + core::ops::BitOr<Output = Self>
+    + core::ops::BitAnd<Output = Self>
+    + core::ops::BitXor<Output = Self>
+    + core::ops::Shl<Output = Self>
+    + core::ops::Shr<Output = Self>
+    + std::ops::RemAssign
     + std::ops::AddAssign
     + std::ops::SubAssign
     + std::ops::MulAssign
     + std::ops::DivAssign
+    + std::ops::BitOrAssign
+    + std::ops::BitAndAssign
+    + std::ops::BitXorAssign
+    + std::ops::ShlAssign<u32>
+    + std::ops::ShrAssign<u32>
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
 {

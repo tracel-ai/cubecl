@@ -201,6 +201,36 @@ pub fn div_assign_op<T: Numeric>(mut a: T, b: T) {
     a /= b;
 }
 
+#[cube]
+pub fn rem_assign_op<T: Int>(mut a: T, b: T) {
+    a %= b;
+}
+
+#[cube]
+pub fn bitor_assign_op<T: Int>(mut a: T, b: T) {
+    a |= b;
+}
+
+#[cube]
+pub fn bitand_assign_op<T: Int>(mut a: T, b: T) {
+    a &= b;
+}
+
+#[cube]
+pub fn bitxor_assign_op<T: Int>(mut a: T, b: T) {
+    a ^= b;
+}
+
+#[cube]
+pub fn shl_assign_op<T: Int>(mut a: T, b: u32) {
+    a <<= b;
+}
+
+#[cube]
+pub fn shr_assign_op<T: Int>(mut a: T, b: u32) {
+    a >>= b;
+}
+
 mod tests {
     use super::*;
     use cubecl_core::ir::{Elem, FloatKind, Item};
@@ -350,6 +380,42 @@ mod tests {
         cube_can_div_assign,
         div_assign_op::expand::<f32>,
         "Div",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_rem_assign,
+        rem_assign_op::expand::<i32>,
+        "Remainder",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_bitor_assign,
+        bitor_assign_op::expand::<i32>,
+        "BitwiseOr",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_bitand_assign,
+        bitand_assign_op::expand::<i32>,
+        "BitwiseAnd",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_bitxor_assign,
+        bitxor_assign_op::expand::<i32>,
+        "BitwiseXor",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_shl_assign,
+        shl_assign_op::expand::<i32>,
+        "ShiftLeft",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_shr_assign,
+        shr_assign_op::expand::<i32>,
+        "ShiftRight",
         ref_ops_binary
     );
     binary_boolean_test!(cube_can_and, and_op::expand, "And");

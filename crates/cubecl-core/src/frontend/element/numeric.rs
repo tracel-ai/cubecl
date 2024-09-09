@@ -47,11 +47,6 @@ pub trait Numeric:
     + std::ops::Mul<Output = Self>
     + std::ops::Div<Output = Self>
     + std::cmp::PartialOrd
-    + std::ops::AddAssign
-    + std::ops::SubAssign
-    + std::ops::MulAssign
-    + std::ops::DivAssign
-    + std::cmp::PartialOrd
     + std::cmp::PartialEq
 {
     /// Create a new constant numeric.
