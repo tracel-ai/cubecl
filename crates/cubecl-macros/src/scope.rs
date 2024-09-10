@@ -172,7 +172,6 @@ impl Context {
             .scopes
             .iter()
             .enumerate()
-            .rev()
             .flat_map(|(i, scope)| scope.variables.iter().map(move |it| (i, it)))
             .find(|(_, var)| &var.name == name && var.use_count.load(Ordering::Acquire) > 0)
             .unwrap_or_else(|| {

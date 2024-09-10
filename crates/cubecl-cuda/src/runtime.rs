@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use cubecl_core::{
     ir::{Elem, FloatKind},
     Feature, FeatureSet, Properties, Runtime,
@@ -20,6 +22,8 @@ pub struct CudaRuntime;
 
 static RUNTIME: ComputeRuntime<CudaDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
+
+const MEMORY_OFFSET_ALIGNMENT: u32 = 32;
 
 type Server = CudaServer<DynamicMemoryManagement<CudaStorage>>;
 
@@ -50,8 +54,16 @@ impl Runtime for CudaRuntime {
                 cudarc::driver::result::stream::StreamKind::NonBlocking,
             )
             .unwrap();
+            let max_memory = unsafe {
+                let mut bytes = MaybeUninit::uninit();
+                cudarc::driver::sys::lib().cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
+                bytes.assume_init()
+            };
             let storage = CudaStorage::new(stream);
-            let options = DynamicMemoryManagementOptions::preset(2048 + 512 * 1024 * 1024, 32);
+            let options = DynamicMemoryManagementOptions::preset(
+                max_memory / 4, // Max chunk size is max_memory / 4
+                MEMORY_OFFSET_ALIGNMENT as usize,
+            );
             let memory_management = DynamicMemoryManagement::new(storage, options);
             CudaContext::new(memory_management, stream, ctx, arch)
         }
@@ -65,7 +77,7 @@ impl Runtime for CudaRuntime {
                 MutexComputeChannel::new(server),
                 features,
                 Properties {
-                    memory_offset_alignment: 4,
+                    memory_offset_alignment: MEMORY_OFFSET_ALIGNMENT,
                 },
             )
         })
