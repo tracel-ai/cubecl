@@ -8,35 +8,46 @@ use super::{CubeType, ExpandElementTyped, Int, Numeric};
 /// Something that can be iterated on by a for loop. Currently only includes `Range`, `StepBy` and
 /// `Sequence`.
 pub trait Iterable<T: CubeType>: Sized {
+    /// Expand a runtime loop without unrolling
+    ///
+    /// # Arguments
+    /// * `context` - the expansion context
+    /// * `body` - the loop body to be executed repeatedly
     fn expand(
         self,
         context: &mut CubeContext,
-        func: impl FnMut(&mut CubeContext, <T as CubeType>::ExpandType),
+        body: impl FnMut(&mut CubeContext, <T as CubeType>::ExpandType),
     );
+    /// Expand an unrolled loop. The body should be invoced `n` times, where `n` is the number of
+    /// iterations.
+    ///
+    /// # Arguments
+    /// * `context` - the expansion context
+    /// * `body` - the loop body to be executed repeatedly
     fn expand_unroll(
         self,
         context: &mut CubeContext,
-        func: impl FnMut(&mut CubeContext, <T as CubeType>::ExpandType),
+        body: impl FnMut(&mut CubeContext, <T as CubeType>::ExpandType),
     );
 }
 
-pub struct Range<I: Int> {
+pub struct RangeExpand<I: Int> {
     pub start: ExpandElementTyped<I>,
     pub end: ExpandElementTyped<I>,
     pub inclusive: bool,
 }
 
-impl<I: Int> Range<I> {
+impl<I: Int> RangeExpand<I> {
     pub fn new(start: ExpandElementTyped<I>, end: ExpandElementTyped<I>, inclusive: bool) -> Self {
-        Range {
+        RangeExpand {
             start,
             end,
             inclusive,
         }
     }
 
-    pub fn __expand_step_by(self, n: impl Into<ExpandElementTyped<u32>>) -> SteppedRange<I> {
-        SteppedRange {
+    pub fn __expand_step_by(self, n: impl Into<ExpandElementTyped<u32>>) -> SteppedRangeExpand<I> {
+        SteppedRangeExpand {
             start: self.start,
             end: self.end,
             step: n.into(),
@@ -45,11 +56,11 @@ impl<I: Int> Range<I> {
     }
 }
 
-impl<I: Int> Iterable<I> for Range<I> {
+impl<I: Int> Iterable<I> for RangeExpand<I> {
     fn expand_unroll(
         self,
         context: &mut CubeContext,
-        mut func: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
+        mut body: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
     ) {
         let start = self
             .start
@@ -67,12 +78,12 @@ impl<I: Int> Iterable<I> for Range<I> {
         if self.inclusive {
             for i in start..=end {
                 let var = I::from_int(i);
-                func(context, var.into())
+                body(context, var.into())
             }
         } else {
             for i in start..end {
                 let var = I::from_int(i);
-                func(context, var.into())
+                body(context, var.into())
             }
         }
     }
@@ -80,14 +91,14 @@ impl<I: Int> Iterable<I> for Range<I> {
     fn expand(
         self,
         context: &mut CubeContext,
-        mut func: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
+        mut body: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
     ) {
         let mut child = context.child();
         let index_ty = Item::new(I::as_elem());
         let i = child.scope.borrow_mut().create_local_undeclared(index_ty);
         let i = ExpandElement::Plain(i);
 
-        func(&mut child, i.clone().into());
+        body(&mut child, i.clone().into());
 
         context.register(Branch::RangeLoop(RangeLoop {
             i: *i,
@@ -100,25 +111,25 @@ impl<I: Int> Iterable<I> for Range<I> {
     }
 }
 
-pub struct SteppedRange<I: Int> {
+pub struct SteppedRangeExpand<I: Int> {
     start: ExpandElementTyped<I>,
     end: ExpandElementTyped<I>,
     step: ExpandElementTyped<u32>,
     inclusive: bool,
 }
 
-impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRange<I> {
+impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
     fn expand(
         self,
         context: &mut CubeContext,
-        mut func: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
+        mut body: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
     ) {
         let mut child = context.child();
         let index_ty = Item::new(I::as_elem());
         let i = child.scope.borrow_mut().create_local_undeclared(index_ty);
         let i = ExpandElement::Plain(i);
 
-        func(&mut child, i.clone().into());
+        body(&mut child, i.clone().into());
 
         context.register(Branch::RangeLoop(RangeLoop {
             i: *i,
@@ -133,7 +144,7 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRange<I> {
     fn expand_unroll(
         self,
         context: &mut CubeContext,
-        mut func: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
+        mut body: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
     ) {
         let start = self
             .start
@@ -157,12 +168,12 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRange<I> {
         if self.inclusive {
             for i in (start..=end).step_by(step) {
                 let var = I::from_int(i);
-                func(context, var.into())
+                body(context, var.into())
             }
         } else {
             for i in (start..end).step_by(step) {
                 let var = I::from_int(i);
-                func(context, var.into())
+                body(context, var.into())
             }
         }
     }
@@ -186,7 +197,7 @@ pub fn range<T: Int>(start: T, end: T) -> impl Iterator<Item = T> {
 /// ```
 pub fn range_stepped<I: Int>(start: I, end: I, step: I) -> impl Iterator<Item = I>
 where
-    Range<I>: Iterator,
+    RangeExpand<I>: Iterator,
 {
     let start = start.to_i64().unwrap();
     let end = end.to_i64().unwrap();
@@ -201,12 +212,12 @@ pub fn for_expand<I: Numeric>(
     context: &mut CubeContext,
     range: impl Iterable<I>,
     unroll: bool,
-    func: impl FnMut(&mut CubeContext, ExpandElementTyped<I>),
+    body: impl FnMut(&mut CubeContext, ExpandElementTyped<I>),
 ) {
     if unroll {
-        range.expand_unroll(context, func);
+        range.expand_unroll(context, body);
     } else {
-        range.expand(context, func);
+        range.expand(context, body);
     }
 }
 

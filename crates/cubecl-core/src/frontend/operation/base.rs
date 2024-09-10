@@ -195,21 +195,17 @@ where
 }
 
 fn find_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
-    if lhs == rhs {
-        return lhs;
-    }
     match (lhs, rhs) {
         (None, None) => None,
         (None, Some(rhs)) => Some(rhs),
         (Some(lhs), None) => Some(lhs),
-        (Some(_), Some(_)) => {
-            panic!("Auto-matching fixed vectorization currently unsupported");
-            // let min = lhs.get().min(rhs.get());
-            // let common = (0..=min)
-            //     .rev()
-            //     .find(|i| lhs.get() % i == 0 && rhs.get() % i == 0)
-            //     .unwrap_or(1);
-            // NonZero::new(common)
+        (Some(lhs), Some(rhs)) if lhs == rhs => Some(lhs),
+        (Some(lhs), Some(rhs)) => {
+            panic!(
+                "Left and right have different vectorizations.
+                Left: {lhs}, right: {rhs}.
+                Auto-matching fixed vectorization currently unsupported."
+            );
         }
     }
 }

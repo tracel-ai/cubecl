@@ -204,7 +204,6 @@ pub(crate) fn load_transposed<F: Float, L: BlockLoader<F>>(
     #[comptime] config: CubeTiling2dConfig,
 ) {
     let coordinates = load_info.coordinates;
-    //let config = load_info.config;
 
     let sm_dim_vertical = config.block_size_k;
 

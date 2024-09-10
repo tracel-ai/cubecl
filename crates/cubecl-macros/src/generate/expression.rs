@@ -312,7 +312,7 @@ impl Expression {
                     .as_const(context)
                     .unwrap_or_else(|| start.to_tokens(context));
                 if let Some(end) = end {
-                    let range = frontend_type("Range");
+                    let range = frontend_type("RangeExpand");
                     let end = end
                         .as_const(context)
                         .unwrap_or_else(|| end.to_tokens(context));
