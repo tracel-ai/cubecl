@@ -56,6 +56,7 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 
 darling = "0.20.10"
 ident_case = "1"
+paste = "1.0.15"
 proc-macro2 = "1.0.86"
 quote = "1.0.36"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
