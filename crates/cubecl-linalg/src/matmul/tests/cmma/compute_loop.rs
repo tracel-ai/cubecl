@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::{
-    base::{make_accumulators, Ids, IdsExpand, SharedMemories, SharedMemoriesExpand},
+    base::{make_cmma_matrices, Ids, IdsExpand, SharedMemories, SharedMemoriesExpand},
     compute_loop::compute_loop,
     config::{CmmaConfig, ComptimeCmmaInfo, WriteOutStrategy},
 };
@@ -33,11 +33,11 @@ fn compute_loop_test<F: Float, FC: Float>(
     }
 
     let shared_memories = SharedMemories { lhs, rhs };
-    let mut accumulators = make_accumulators::<F>(comptime_info);
+    let mut matrices = make_cmma_matrices::<F, FC>(comptime_info);
 
     compute_loop(
         shared_memories,
-        &mut accumulators,
+        &mut matrices,
         Ids {
             coop: UNIT_POS_Y,
             lane: UNIT_POS_X,
@@ -50,6 +50,7 @@ fn compute_loop_test<F: Float, FC: Float>(
     let slice_offset = Comptime::runtime(tile_size * tile_size);
     let offset = UNIT_POS_Y * slice_offset * Comptime::runtime(num_accumulators);
 
+    let accumulators = matrices.accumulators;
     for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
         let slice =
             accumulate_array.slice_mut(offset + n * slice_offset, offset + (n + 1) * slice_offset);
