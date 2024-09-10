@@ -17,8 +17,8 @@ pub(crate) fn assert_equals_approx<R: Runtime>(
             (a - e).abs() < epsilon || (a.is_nan() && e.is_nan()),
             "Values differ more than epsilon: actual={}, expected={}, difference={}, epsilon={}
 index: {}
-lhs: {:?}
-rhs: {:?}",
+actual: {:?}
+expected: {:?}",
             a,
             e,
             (a - e).abs(),
@@ -31,8 +31,24 @@ rhs: {:?}",
 }
 
 macro_rules! test_unary_impl {
-    ($test_name:ident, $unary_func:ident, [$($input:expr, $input_vectorization:expr => $expected:expr, $output_vectorization:expr);*]) => {
+    (
+        $test_name:ident,
+        $float_type:ident,
+        $unary_func:expr,
+        [$({
+            input_vectorization: $input_vectorization:expr,
+            out_vectorization: $out_vectorization:expr,
+            input: $input:expr,
+            expected: $expected:expr
+        }),*]) => {
         pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+            #[cube(launch_unchecked)]
+            fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
+                if ABSOLUTE_POS < input.len() {
+                    output[ABSOLUTE_POS] = $unary_func(input[ABSOLUTE_POS]);
+                }
+            }
+
             $(
             {
                 let input = &$input;
@@ -40,12 +56,12 @@ macro_rules! test_unary_impl {
                 let input_handle = client.create(f32::as_bytes(input));
 
                 unsafe {
-                    $unary_func::launch_unchecked::<F32, R>(
+                    test_function::launch_unchecked::<f32, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts(&output_handle, input.len(), $output_vectorization),
+                        ArrayArg::from_raw_parts(&output_handle, input.len(), $out_vectorization),
                     )
                 };
 
@@ -56,18 +72,41 @@ macro_rules! test_unary_impl {
     };
 }
 
-#[cube(launch_unchecked)]
-fn normalize<F: Float>(input: &Array<F>, output: &mut Array<F>) {
-    if ABSOLUTE_POS < input.len() {
-        output[ABSOLUTE_POS] = F::normalize(input[ABSOLUTE_POS]);
-    }
-}
 test_unary_impl!(
     test_normalize,
-    normalize,
+    F,
+    F::normalize,
     [
-        [-1., 0., 1., 5.],4 => [-0.192, 0.0, 0.192, 0.9623],4;
-        [0., 0., 0., 0.],4 => [f32::NAN, f32::NAN, f32::NAN, f32::NAN],4
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            input: [-1., 0., 1., 5.],
+            expected: [-1., f32::NAN, 1., 1.]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            input: [-1., 0., 1., 5.],
+            expected: [-1.0, 0.0, 0.196, 0.981]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            input: [-1., 0., 1., 5.],
+            expected: [-0.192, 0.0, 0.192, 0.962]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            input: [0., 0., 0., 0.],
+            expected: [f32::NAN, f32::NAN, f32::NAN, f32::NAN]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            input: [0., 0., 1., 0.],
+            expected: [f32::NAN, f32::NAN, 1., 0.]
+        }
     ]
 );
 

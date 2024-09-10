@@ -689,7 +689,21 @@ for (var {i}: u32 = {start}; {i} {cmp} {end}; {increment}) {{
             )),
             Instruction::Negate { input, out } => f.write_fmt(format_args!("{out} = -{input};\n")),
             Instruction::Normalize { input, out } => {
-                f.write_fmt(format_args!("{out} = normalize({input});\n"))
+                if input.item().vectorization_factor() == 1 {
+                    // We need a check for vectorization factor 1 here, for compatibility with cuda.
+                    // You can almost use sign here, however that does not correctly handle the case for x == 0.0.
+                    // Therefore we use normalize with vec2, as there is no way to use a NaN literal in wgsl.
+                    let vec2_type = Item::Vec2(out.elem());
+                    f.write_fmt(format_args!(
+                        "{{
+    var {out}_2 = {vec2_type}({input}, 0.0);
+    {out}_2 = normalize({out}_2);
+    {out} = {out}_2.x;
+}}\n"
+                    ))
+                } else {
+                    f.write_fmt(format_args!("{out} = normalize({input});\n"))
+                }
             }
         }
     }
