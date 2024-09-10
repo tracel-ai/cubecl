@@ -69,9 +69,9 @@ fn compute_tile<F: Float, FC: Float>(
             .rhs
             .slice(shared_rhs_pos, shared_rhs_pos + smem_stride);
 
-        cmma::load::<FC>(&lhs, lhs_slice, 16);
-        cmma::load::<FC>(&rhs, rhs_slice, 16);
+        cmma::load::<FC>(lhs, lhs_slice, 16);
+        cmma::load::<FC>(rhs, rhs_slice, 16);
 
-        cmma::execute::<FC, FC, F, F>(&lhs, &rhs, &accumulator, &accumulator);
+        cmma::execute::<FC, FC, F, F>(lhs, rhs, accumulator, accumulator);
     }
 }
