@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    base::{RuntimeCmmaInfo, SharedMemories},
+    base::{CmmaMatrices, RuntimeCmmaInfo, SharedMemories},
     compute_loop::compute_loop,
     config::ComptimeCmmaInfo,
     load_shared_memory::load_to_shared_memories,
@@ -15,7 +15,7 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
     shared_memories: SharedMemories<FC>,
-    mut accumulators: Sequence<cmma::Matrix<F>>,
+    mut cmma_matrices: CmmaMatrices<F, FC>,
     runtime_info: RuntimeCmmaInfo,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
@@ -42,7 +42,7 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
 
         compute_loop::<F, FC>(
             shared_memories,
-            &mut accumulators,
+            &mut cmma_matrices,
             runtime_info.ids,
             comptime_info,
         );
@@ -51,8 +51,18 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     }
 
     if write_out_reuse_smem {
-        ReuseSmemWriter::write_to_output(out, accumulators, runtime_info, comptime_info);
+        ReuseSmemWriter::write_to_output(
+            out,
+            cmma_matrices.accumulators,
+            runtime_info,
+            comptime_info,
+        );
     } else {
-        LargeSmemWriter::write_to_output(out, accumulators, runtime_info, comptime_info);
+        LargeSmemWriter::write_to_output(
+            out,
+            cmma_matrices.accumulators,
+            runtime_info,
+            comptime_info,
+        );
     }
 }

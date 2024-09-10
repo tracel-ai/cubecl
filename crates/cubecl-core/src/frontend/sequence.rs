@@ -1,4 +1,7 @@
-use super::{branch::Iterable, indexation::Index, CubeContext, CubeType, ExpandElementTyped, Init};
+use super::{
+    branch::Iterable, indexation::Index, CubeContext, CubeType, ExpandElementTyped, Init,
+    IntoRuntime,
+};
 use crate::unexpanded;
 use std::{cell::RefCell, rc::Rc};
 
@@ -145,5 +148,11 @@ impl<T: CubeType> SequenceExpand<T> {
             .expect("Only constant are supported")
             .as_usize();
         self.values.borrow()[index].clone()
+    }
+}
+
+impl<T: CubeType> IntoRuntime for Sequence<T> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> SequenceExpand<T> {
+        unimplemented!("Sequence doesn't exist at compile time");
     }
 }
