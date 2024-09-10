@@ -1,8 +1,10 @@
 use std::{rc::Rc, sync::atomic::AtomicUsize};
 
 use proc_macro2::{Span, TokenStream};
-use quote::quote;
-use syn::{AngleBracketedGenericArguments, Ident, Lit, Member, Pat, Path, PathSegment, Type};
+use quote::{quote, ToTokens};
+use syn::{
+    AngleBracketedGenericArguments, Ident, Lit, Member, Pat, Path, PathArguments, PathSegment, Type,
+};
 
 use crate::{operator::Operator, scope::Context, statement::Statement};
 
@@ -53,7 +55,7 @@ pub enum Expression {
         args: Vec<Expression>,
         associated_type: Option<(Path, PathSegment)>,
     },
-    ConstFunction {
+    CompilerIntrinsic {
         func: Path,
         args: Vec<Expression>,
     },
@@ -181,7 +183,7 @@ impl Expression {
             Expression::StructInit { .. } => None,
             Expression::Closure { .. } => None,
             Expression::Keyword { .. } => None,
-            Expression::ConstFunction { .. } => None,
+            Expression::CompilerIntrinsic { .. } => None,
         }
     }
 
@@ -196,7 +198,7 @@ impl Expression {
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::Tuple { elements, .. } => elements.iter().all(|it| it.is_const()),
-            Expression::ConstFunction { .. } => true,
+            Expression::CompilerIntrinsic { .. } => true,
             Expression::MethodCall {
                 receiver, method, ..
             } => receiver.is_const() && method != "runtime",
@@ -252,4 +254,20 @@ impl Expression {
             _ => true,
         }
     }
+}
+
+pub fn is_intrinsic(path: &Path) -> bool {
+    // Add both possible import paths
+    let intrinsic_paths = [
+        "::cubecl::prelude::vectorization_of",
+        "::cubecl::frontend::vectorization_of",
+    ];
+
+    let mut path = path.clone();
+    // Strip function generics
+    path.segments.last_mut().unwrap().arguments = PathArguments::None;
+    let func_path = path.to_token_stream().to_string();
+    intrinsic_paths
+        .iter()
+        .any(|path| path.ends_with(&func_path))
 }

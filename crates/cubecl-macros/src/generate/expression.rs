@@ -163,7 +163,7 @@ impl Expression {
                     }
                 }
             }
-            Expression::ConstFunction { func, args } => {
+            Expression::CompilerIntrinsic { func, args } => {
                 let (args, arg_names) = map_args(args, context);
                 let mut path = func.clone();
                 let generics = core::mem::replace(

@@ -3,7 +3,7 @@ use quote::{format_ident, quote, quote_spanned};
 use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment, RangeLimits, Type};
 
 use crate::{
-    expression::{Block, Expression},
+    expression::{is_intrinsic, Block, Expression},
     operator::Operator,
     scope::{Context, ManagedVar},
 };
@@ -108,8 +108,8 @@ impl Expression {
                     .map(|arg| Expression::from_expr(arg, context))
                     .collect::<Result<Vec<_>, _>>()?;
                 match *func {
-                    Expression::Path { path } if path.is_ident("vectorization_of") => {
-                        Expression::ConstFunction { func: path, args }
+                    Expression::Path { path } if is_intrinsic(&path) => {
+                        Expression::CompilerIntrinsic { func: path, args }
                     }
                     func => {
                         let associated_type = fn_associated_type(&func);
