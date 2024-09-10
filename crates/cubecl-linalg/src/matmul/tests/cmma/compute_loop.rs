@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::matmul::cmma::{
-    base::{make_cmma_matrices, Ids, SharedMemories },
+    base::{make_cmma_matrices, Ids, SharedMemories},
     compute_loop::compute_loop,
     config::{CmmaConfig, ComptimeCmmaInfo, WriteOutStrategy},
 };
