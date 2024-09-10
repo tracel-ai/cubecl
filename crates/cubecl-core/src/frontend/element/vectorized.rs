@@ -86,3 +86,20 @@ impl Vectorized for &ExpandElement {
         todo!()
     }
 }
+
+/// Cubecl intrinsic. Gets the vectorization factor of an element at compile time.
+pub fn vectorization_of<C: CubeType>(_element: &C) -> u32 {
+    1
+}
+
+pub mod vectorization_of {
+    use crate::prelude::*;
+
+    pub fn expand<C: CubeType>(_context: &mut CubeContext, element: ExpandElementTyped<C>) -> u32 {
+        let elem: ExpandElement = element.into();
+        elem.item()
+            .vectorization
+            .map(|it| it.get() as u32)
+            .unwrap_or(1)
+    }
+}

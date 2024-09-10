@@ -227,7 +227,7 @@ pub struct CubeDim {
 }
 
 impl CubeDim {
-    pub(crate) fn num_elems(&self) -> u32 {
+    pub fn num_elems(&self) -> u32 {
         self.x * self.y * self.z
     }
 }

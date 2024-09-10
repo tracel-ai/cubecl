@@ -1,76 +1,65 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::base::{Accumulators, SharedMemories};
-use super::config::CmmaConfig;
+use super::base::{Ids, SharedMemories};
+use super::config::ComptimeCmmaInfo;
 
 #[cube]
 #[allow(unused_mut)]
 pub(crate) fn compute_loop<F: Float, FC: Float>(
     shared_memories: SharedMemories<FC>,
-    mut accumulators: Accumulators<F>,
-    #[comptime] config: CmmaConfig,
+    accumulators: &mut Sequence<cmma::Matrix<F>>,
+    ids: Ids,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    // Other values not supported
-    let n_tiles = 2;
+    let block_size_n = comptime_info.block_size_n;
+    let tile_size = comptime_info.tile_size;
+    let num_accumulators = comptime_info.num_accumulators;
+    let num_coop_per_row = (block_size_n / tile_size) / num_accumulators;
 
-    let block_size_n = config.block_size_n;
-    let tile_size = config.tile_size;
-    let num_coop_per_row = block_size_n / tile_size / n_tiles;
+    let tile_row = ids.coop / num_coop_per_row;
+    let tile_col_base = (ids.coop % num_coop_per_row) * num_accumulators;
 
-    let coop_id = UNIT_POS_Y;
-    let tile_row = coop_id / num_coop_per_row;
-    let tile_col_base = (coop_id % num_coop_per_row) * n_tiles;
-
-    compute_tile::<F, FC>(
-        0,
-        tile_row,
-        tile_col_base,
-        shared_memories,
-        accumulators.first,
-        config,
-    );
-    compute_tile::<F, FC>(
-        1,
-        tile_row,
-        tile_col_base,
-        shared_memories,
-        accumulators.second,
-        config,
-    );
+    #[unroll]
+    for n in 0..num_accumulators {
+        compute_tile::<F, FC>(
+            tile_row,
+            tile_col_base + n,
+            shared_memories,
+            *accumulators.index(n),
+            comptime_info,
+        );
+    }
 }
 
 #[cube]
 fn compute_tile<F: Float, FC: Float>(
-    n_iter: u32,
     tile_row: u32,
-    tile_col_base: u32,
+    tile_col: u32,
     shared_memories: SharedMemories<FC>,
     accumulator: cmma::Matrix<F>,
-    #[comptime] config: CmmaConfig,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    let block_size_k = config.block_size_k;
-    let tile_size = config.tile_size;
-    let unroll = config.unroll;
+    let block_size_k = comptime_info.block_size_k;
+    let tile_size = comptime_info.tile_size;
+    let unroll = comptime_info.unroll;
 
-    let num_tile_elems = tile_size * tile_size;
-    let k_tiles = block_size_k / tile_size;
-
-    let tile_col = tile_col_base + n_iter;
+    let smem_stride = tile_size * tile_size;
+    let num_tiles_in_k = block_size_k / tile_size;
 
     #[unroll(unroll)]
-    for k_iter in 0..k_tiles {
-        let shared_lhs_tile = tile_row * k_tiles + k_iter;
-        let shared_rhs_tile = tile_col * k_tiles + k_iter;
-        let shared_lhs_pos = shared_lhs_tile * num_tile_elems;
-        let shared_rhs_pos = shared_rhs_tile * num_tile_elems;
+    for k_iter in 0..num_tiles_in_k {
+        let shared_lhs_tile = tile_row * num_tiles_in_k + k_iter;
+        let shared_rhs_tile = tile_col * num_tiles_in_k + k_iter;
+        let shared_lhs_pos = shared_lhs_tile * smem_stride;
+        let shared_rhs_pos = shared_rhs_tile * smem_stride;
 
         let lhs_slice = shared_memories
             .lhs
-            .slice(shared_lhs_pos, shared_lhs_pos + num_tile_elems);
+            .slice(shared_lhs_pos, shared_lhs_pos + smem_stride);
         let rhs_slice = shared_memories
             .rhs
-            .slice(shared_rhs_pos, shared_rhs_pos + num_tile_elems);
+            .slice(shared_rhs_pos, shared_rhs_pos + smem_stride);
 
         let a = cmma::Matrix::<FC>::new(
             cmma::MatrixIdent::A,

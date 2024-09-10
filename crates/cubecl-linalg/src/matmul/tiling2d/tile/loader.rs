@@ -152,7 +152,7 @@ pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
 ) {
     let coordinates = load_info.coordinates;
 
-    let vectorization = tensor.vectorization_factor();
+    let vectorization = vectorization_of(tensor);
     let tile_size = config.tile_size;
     let sm_dim_vertical = config.block_size_k;
 

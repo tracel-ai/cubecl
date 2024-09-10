@@ -24,7 +24,7 @@ impl<F: Float> BlockLoader<F> for WholeCheckBlockIO {
         check_bounds: CheckBounds,
     ) {
         let tile_size = config.tile_size;
-        let vectorization = tensor.vectorization_factor();
+        let vectorization = vectorization_of(tensor);
 
         let col = check_bounds.skip_col + info.read_col;
         if check_bounds.dim_horizontal > col {

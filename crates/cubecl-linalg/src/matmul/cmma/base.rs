@@ -1,7 +1,8 @@
+use cubecl_core::cube;
+use cubecl_core::{self as cubecl, prelude::*};
+
 use super::block_loop::block_loop;
-use super::config::CmmaConfig;
-use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, CubeType};
+use super::config::ComptimeCmmaInfo;
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -9,21 +10,23 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
-    #[comptime] config: CmmaConfig,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
+    let ids = get_ids();
     let dims = get_dims::<F>(lhs, rhs);
-    let offsets = calculate_offsets::<F>(lhs, rhs, out, config);
-    let shared_memories = make_shared_memories::<FC>(config);
-    let accumulate = make_accumulators::<F>();
+    let offsets = calculate_offsets::<F>(lhs, rhs, out, comptime_info);
+    let runtime_info = RuntimeCmmaInfo { ids, dims, offsets };
+
+    let shared_memories = make_shared_memories::<FC>(comptime_info);
+    let accumulate = make_accumulators::<F>(comptime_info);
     block_loop::<F, FC>(
         lhs,
         rhs,
         out,
-        offsets,
         shared_memories,
         accumulate,
-        config,
-        dims,
+        runtime_info,
+        comptime_info,
     );
 }
 
@@ -35,15 +38,22 @@ pub(crate) struct Dimensions {
 }
 
 #[derive(CubeType, Copy, Clone)]
-pub(crate) struct SharedMemories<FC: Float> {
-    pub lhs: SharedMemory<FC>,
-    pub rhs: SharedMemory<FC>,
+pub(crate) struct Ids {
+    pub coop: u32,
+    pub lane: u32,
 }
 
 #[derive(CubeType, Copy, Clone)]
-pub(crate) struct Accumulators<F: Float> {
-    pub first: cmma::Matrix<F>,
-    pub second: cmma::Matrix<F>,
+pub(crate) struct RuntimeCmmaInfo {
+    pub ids: Ids,
+    pub dims: Dimensions,
+    pub offsets: Offsets,
+}
+
+#[derive(CubeType, Copy, Clone)]
+pub(crate) struct SharedMemories<FC: Float> {
+    pub lhs: SharedMemory<FC>,
+    pub rhs: SharedMemory<FC>,
 }
 
 #[derive(CubeType, Copy, Clone)]
@@ -56,7 +66,6 @@ pub(crate) struct Offsets {
     pub batch_out: u32,
     pub cube_row: u32,
     pub cube_col: u32,
-    pub k: u32,
 }
 
 #[cube]
@@ -76,7 +85,7 @@ fn calculate_offsets<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &Tensor<F>,
-    #[comptime] config: CmmaConfig,
+    #[comptime] config: ComptimeCmmaInfo,
 ) -> Offsets {
     let block_size_m = config.block_size_m;
     let block_size_n = config.block_size_m;
@@ -108,12 +117,11 @@ fn calculate_offsets<F: Float>(
         batch_out,
         cube_row,
         cube_col,
-        k: 0, // Changes during kernel
     }
 }
 
 #[cube]
-fn make_shared_memories<FC: Float>(#[comptime] config: CmmaConfig) -> SharedMemories<FC> {
+fn make_shared_memories<FC: Float>(#[comptime] config: ComptimeCmmaInfo) -> SharedMemories<FC> {
     let block_size_m = config.block_size_m;
     let block_size_k = config.block_size_k;
     let block_size_n = config.block_size_n;
@@ -121,35 +129,38 @@ fn make_shared_memories<FC: Float>(#[comptime] config: CmmaConfig) -> SharedMemo
     let lhs = SharedMemory::<FC>::new(block_size_k * block_size_m);
     let rhs = SharedMemory::<FC>::new(block_size_k * block_size_n);
 
-    // This is a workaround, only necessary for expressions that seem "static" without type info but
-    // are actually runtime expressions. E.g. `SharedMemory::new`, which actually executes at
-    // runtime but has no runtime params.
     SharedMemories::<FC> { lhs, rhs }
 }
 
 #[cube]
-pub(crate) fn make_accumulators<F: Float>() -> Accumulators<F> {
-    // Assumes two per warp. TODO generalize
-    let acc0 = cmma::Matrix::<F>::new(
-        cmma::MatrixIdent::Accumulator,
-        16,
-        16,
-        16,
-        cmma::MatrixLayout::Undefined,
-    );
-    let acc1 = cmma::Matrix::<F>::new(
-        cmma::MatrixIdent::Accumulator,
-        16,
-        16,
-        16,
-        cmma::MatrixLayout::Undefined,
-    );
+pub(crate) fn make_accumulators<F: Float>(
+    #[comptime] config: ComptimeCmmaInfo,
+) -> Sequence<cmma::Matrix<F>> {
+    let num_accumulators = config.num_accumulators;
+    let mut accumulators = Sequence::<cmma::Matrix<F>>::new();
 
-    cmma::fill::<F>(&acc0, F::new(0.0));
-    cmma::fill::<F>(&acc1, F::new(0.0));
+    #[unroll]
+    for _ in 0..num_accumulators {
+        let acc = cmma::Matrix::<F>::new(
+            cmma::MatrixIdent::Accumulator,
+            16,
+            16,
+            16,
+            cmma::MatrixLayout::Undefined,
+        );
 
-    Accumulators::<F> {
-        first: acc0,
-        second: acc1,
+        cmma::fill::<F>(&acc, F::new(0.0));
+
+        accumulators.push(acc);
+    }
+
+    accumulators
+}
+
+#[cube]
+fn get_ids() -> Ids {
+    Ids {
+        coop: UNIT_POS_Y,
+        lane: UNIT_POS_X,
     }
 }

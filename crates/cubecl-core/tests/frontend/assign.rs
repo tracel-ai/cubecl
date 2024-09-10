@@ -25,7 +25,7 @@ pub fn assign_mut_input(mut y: u32) -> u32 {
 
 #[cube]
 pub fn assign_vectorized(y: u32) -> u32 {
-    let x = u32::vectorized(1, y.vectorization_factor());
+    let x = u32::vectorized(1, vectorization_of(&y));
     x + y
 }
 

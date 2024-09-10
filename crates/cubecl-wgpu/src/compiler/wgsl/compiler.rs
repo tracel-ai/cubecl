@@ -45,7 +45,7 @@ impl cubecl_core::Compiler for WgslCompiler {
     }
 
     fn max_shared_memory_size() -> usize {
-        8192
+        32768
     }
 }
 

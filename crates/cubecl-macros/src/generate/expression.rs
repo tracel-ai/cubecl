@@ -163,6 +163,20 @@ impl Expression {
                     }
                 }
             }
+            Expression::ConstFunction { func, args } => {
+                let (args, arg_names) = map_args(args, context);
+                let mut path = func.clone();
+                let generics = core::mem::replace(
+                    &mut path.segments.last_mut().unwrap().arguments,
+                    PathArguments::None,
+                );
+                quote! {
+                    {
+                        #(#args)*
+                        #path::expand #generics(context, #(#arg_names),*)
+                    }
+                }
+            }
             Expression::FunctionCall {
                 args,
                 associated_type: Some((ty_path, func)),

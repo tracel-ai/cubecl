@@ -12,7 +12,7 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
     dim_end: u32,
     #[comptime] unroll: bool,
 ) -> u32 {
-    let vectorization = tensor.vectorization_factor();
+    let vectorization = vectorization_of(tensor);
 
     let offset_ref = offset_layout * vectorization;
     let mut offset = 0;

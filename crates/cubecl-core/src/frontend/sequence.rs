@@ -9,6 +9,7 @@ use std::{cell::RefCell, rc::Rc};
 /// All methods [push](Sequence::push), [index](Sequence::index) and
 /// [into_iter](Sequence::into_iter) are executed _during_ compilation and don't add any overhead
 /// on the generated kernel.
+#[derive(Debug, Clone)]
 pub struct Sequence<T: CubeType> {
     values: Vec<T>,
 }

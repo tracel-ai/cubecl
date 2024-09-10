@@ -46,8 +46,7 @@ impl Compiler for CudaCompiler {
     }
 
     fn max_shared_memory_size() -> usize {
-        // TODO: Find out this value.
-        usize::MAX
+        49152
     }
 }
 

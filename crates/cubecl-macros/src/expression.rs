@@ -53,6 +53,10 @@ pub enum Expression {
         args: Vec<Expression>,
         associated_type: Option<(Path, PathSegment)>,
     },
+    ConstFunction {
+        func: Path,
+        args: Vec<Expression>,
+    },
     MethodCall {
         receiver: Box<Expression>,
         method: Ident,
@@ -176,6 +180,7 @@ impl Expression {
             Expression::StructInit { .. } => None,
             Expression::Closure { .. } => None,
             Expression::Keyword { .. } => None,
+            Expression::ConstFunction { .. } => None,
         }
     }
 
@@ -190,12 +195,10 @@ impl Expression {
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::Tuple { elements, .. } => elements.iter().all(|it| it.is_const()),
+            Expression::ConstFunction { .. } => true,
             Expression::MethodCall {
-                method,
-                args,
-                receiver,
-                ..
-            } => method == "vectorization_factor" && args.is_empty() || receiver.is_const(),
+                receiver, method, ..
+            } => receiver.is_const() && method != "runtime",
             _ => false,
         }
     }

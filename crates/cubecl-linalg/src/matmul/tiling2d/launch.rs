@@ -34,7 +34,7 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
     config: Tiling2dConfig,
 ) {
     assert!(
-        config.block_size_k * max(config.block_size_m, config.block_size_n)
+        F::as_elem().size() * config.block_size_k * max(config.block_size_m, config.block_size_n)
             <= <R::Compiler as Compiler>::max_shared_memory_size(),
         "Shared memory limit will be busted. "
     );

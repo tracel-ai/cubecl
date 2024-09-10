@@ -107,11 +107,18 @@ impl Expression {
                     .into_iter()
                     .map(|arg| Expression::from_expr(arg, context))
                     .collect::<Result<Vec<_>, _>>()?;
-                let associated_type = fn_associated_type(&func);
-                Expression::FunctionCall {
-                    func,
-                    args,
-                    associated_type,
+                match *func {
+                    Expression::Path { path } if path.is_ident("vectorization_of") => {
+                        Expression::ConstFunction { func: path, args }
+                    }
+                    func => {
+                        let associated_type = fn_associated_type(&func);
+                        Expression::FunctionCall {
+                            func: Box::new(func),
+                            args,
+                            associated_type,
+                        }
+                    }
                 }
             }
             Expr::MethodCall(method) => {
