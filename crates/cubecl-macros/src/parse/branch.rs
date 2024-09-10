@@ -39,7 +39,6 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
         var_name: var.ident,
         var_ty: var.ty,
         block,
-        span,
     })
 }
 
@@ -76,21 +75,18 @@ pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::R
         input: Box::new(condition),
         operator: Operator::Not,
         ty: None,
-        span,
     };
 
     let block = context.with_scope(|ctx| Block::from_block(while_loop.body, ctx))?;
     Ok(Expression::WhileLoop {
         condition: Box::new(inverted),
         block,
-        span,
     })
 }
 
 pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Expression> {
-    let span = loop_expr.span();
     let block = context.with_scope(|ctx| Block::from_block(loop_expr.body, ctx))?;
-    Ok(Expression::Loop { block, span })
+    Ok(Expression::Loop(block))
 }
 
 pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expression> {
@@ -108,14 +104,11 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
         condition: Box::new(condition),
         then_block,
         else_branch: else_branch.map(Box::new),
-        span,
     })
 }
 
 impl Block {
     pub fn from_block(block: syn::Block, context: &mut Context) -> syn::Result<Self> {
-        let span = block.span();
-
         let mut statements = block
             .stmts
             .into_iter()
@@ -139,7 +132,6 @@ impl Block {
             inner: statements,
             ret,
             ty,
-            span,
         })
     }
 }

@@ -3,12 +3,7 @@ use std::cell::LazyCell;
 use syn::Path;
 
 #[allow(clippy::declare_interior_mutable_const)]
-const CORE_PATH: LazyCell<Path> = LazyCell::new(|| {
-    //let span = Span::call_site();
-    Path::from(format_ident!("cubecl"))
-    //path.leading_colon = Some(Token![::](span));
-    //path
-});
+const CORE_PATH: LazyCell<Path> = LazyCell::new(|| Path::from(format_ident!("cubecl")));
 #[allow(clippy::declare_interior_mutable_const)]
 const FRONTEND_PATH: LazyCell<Path> = LazyCell::new(|| {
     let mut path = core_path();

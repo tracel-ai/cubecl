@@ -22,7 +22,6 @@ impl Expression {
                 left,
                 operator,
                 right,
-                span,
                 ..
             } if operator.is_assign() && matches!(**left, Expression::Index { .. }) => {
                 let elem = frontend_type("ExpandElementTyped");
@@ -38,13 +37,12 @@ impl Expression {
                     .map(|as_const| quote![#elem::from_lit(#as_const)])
                     .unwrap_or_else(|| right.to_tokens(context));
                 let op = format_ident!("{}", operator.array_op_name());
-                let expand = quote_spanned![*span=> #frontend_path::#op::expand];
                 quote! {
                     {
                         let _array = #array;
                         let _index = #index;
                         let _value = #right;
-                        #expand(context, _array, _index, _value)
+                        #frontend_path::#op::expand(context, _array, _index, _value)
                     }
                 }
             }
@@ -52,19 +50,17 @@ impl Expression {
                 left,
                 operator,
                 right,
-                span,
                 ..
             } => {
                 let frontend_path = frontend_path();
                 let op = format_ident!("{}", operator.op_name());
                 let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
-                let expand = quote_spanned![*span=> #frontend_path::#op::expand];
                 quote! {
                     {
                         let _lhs = #left;
                         let _rhs = #right;
-                        #expand(context, _lhs, _rhs)
+                        #frontend_path::#op::expand(context, _lhs, _rhs)
                     }
                 }
             }
@@ -74,19 +70,15 @@ impl Expression {
                 ..
             } => input.to_tokens(context),
             Expression::Unary {
-                input,
-                operator,
-                span,
-                ..
+                input, operator, ..
             } => {
                 let frontend_path = frontend_path();
                 let input = input.to_tokens(context);
                 let op = format_ident!("{}", operator.op_name());
-                let expand = quote_spanned![*span=> #frontend_path::#op::expand];
                 quote! {
                     {
                         let _inner = #input;
-                        #expand(context, _inner)
+                        #frontend_path::#op::expand(context, _inner)
                     }
                 }
             }
@@ -115,49 +107,44 @@ impl Expression {
                 let expand_elem = frontend_type("ExpandElementTyped");
                 quote![#expand_elem::from_lit(#name)]
             }
-            Expression::Assigment {
-                left, right, span, ..
-            } if matches!(**left, Expression::Index { .. }) => {
+            Expression::Assigment { left, right, .. }
+                if matches!(**left, Expression::Index { .. }) =>
+            {
                 let (array, index) = left.as_index().unwrap();
                 let array = array.to_tokens(context);
                 let index = index.to_tokens(context);
                 let right = right.to_tokens(context);
                 let frontend_path = frontend_path();
-                let expand = quote_spanned![*span=> #frontend_path::index_assign::expand];
                 quote! {
                     {
                         let _array = #array;
                         let _index = #index;
                         let _value = #right;
-                        #expand(context, _array, _index, _value)
+                        #frontend_path::index_assign::expand(context, _array, _index, _value)
                     }
                 }
             }
-            Expression::Assigment {
-                left, right, span, ..
-            } => {
+            Expression::Assigment { left, right, .. } => {
                 let frontend_path = frontend_path();
                 let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
-                let expand = quote_spanned![*span=> #frontend_path::assign::expand];
                 quote! {
                     {
                         let _var = #left;
                         let _value = #right;
-                        #expand(context, _value, _var)
+                        #frontend_path::assign::expand(context, _value, _var)
                     }
                 }
             }
-            Expression::Index { expr, index, span } => {
+            Expression::Index { expr, index } => {
                 let expr = expr.to_tokens(context);
                 let index = index.to_tokens(context);
                 let index_fn = frontend_type("index");
-                let expand = quote_spanned![*span=> #index_fn::expand];
                 quote! {
                     {
                         let _array = #expr;
                         let _index = #index;
-                        #expand(context, _array, _index)
+                        #index_fn::expand(context, _array, _index)
                     }
                 }
             }
@@ -210,24 +197,23 @@ impl Expression {
                     }
                 }
             }
-            Expression::Break { span } => {
+            Expression::Break => {
                 let path = frontend_path();
-                quote_spanned![*span=> #path::branch::break_expand(context);]
+                quote![#path::branch::break_expand(context);]
             }
-            Expression::Continue { span } => error!(*span, "Continue not supported yet"),
+            Expression::Continue(span) => error!(*span, "Continue not supported yet"),
             Expression::Return { expr, span, .. } => {
                 if expr.is_some() {
                     error!(*span, "Only void return is supported.")
                 } else {
-                    quote_spanned![*span=> cubecl::frontend::branch::return_expand(context);]
+                    quote![cubecl::frontend::branch::return_expand(context);]
                 }
             }
-            Expression::Cast { from, to, span } => {
+            Expression::Cast { from, to } => {
                 let cast = prelude_type("Cast");
                 let from = from.to_tokens(context);
                 let to = quote_spanned![to.span()=> <#to as #cast>];
-                let cast = quote_spanned![*span=> __expand_cast_from];
-                quote![#to::#cast(context, #from)]
+                quote![#to::__expand_cast_from(context, #from)]
             }
             Expression::ForLoop {
                 range,
@@ -235,7 +221,6 @@ impl Expression {
                 var_name,
                 var_ty,
                 block,
-                span,
             } => {
                 let for_ty = frontend_type("branch");
 
@@ -246,34 +231,27 @@ impl Expression {
                     .unwrap_or(quote![false]);
                 let block = context.with_restored_closure_scope(|ctx| block.to_tokens(ctx));
                 let var_ty = var_ty.as_ref().map(|it| quote![: #it]);
-                let expand = quote_spanned![*span=> #for_ty::for_expand];
 
                 quote! {
                     {
                         let _range = #range;
                         let _unroll = #unroll;
-                        #expand(context, _range, _unroll, |context, #var_name #var_ty| #block);
+                        #for_ty::for_expand(context, _range, _unroll, |context, #var_name #var_ty| #block);
                     }
                 }
             }
-            Expression::WhileLoop {
-                condition,
-                block,
-                span,
-            } => {
+            Expression::WhileLoop { condition, block } => {
                 let while_ty = frontend_type("branch");
                 let condition = condition.to_tokens(context);
                 let block = context.with_restored_closure_scope(|ctx| block.to_tokens(ctx));
-                let expand = quote_spanned![*span=> #while_ty::while_loop_expand];
 
-                quote![#expand(context, |context| #condition, |context| #block);]
+                quote![#while_ty::while_loop_expand(context, |context| #condition, |context| #block);]
             }
-            Expression::Loop { block, span } => {
+            Expression::Loop(block) => {
                 let loop_ty = frontend_type("branch");
                 let block = context.with_restored_closure_scope(|ctx| block.to_tokens(ctx));
-                let expand = quote_spanned![*span=> #loop_ty::loop_expand];
 
-                quote![#expand(context, |context| #block);]
+                quote![#loop_ty::loop_expand(context, |context| #block);]
             }
             Expression::If {
                 condition,
@@ -293,7 +271,6 @@ impl Expression {
                 condition,
                 then_block,
                 else_branch: Some(else_branch),
-                span,
             } => {
                 let path = frontend_path();
                 let condition = condition.to_tokens(context);
@@ -301,29 +278,26 @@ impl Expression {
                     context.with_restored_closure_scope(|ctx| then_block.to_tokens(ctx));
                 let else_branch =
                     context.with_restored_closure_scope(|ctx| else_branch.to_tokens(ctx));
-                let if_expand = quote_spanned![*span=> #path::branch::if_else_expand];
                 quote! {
                     {
                         let _cond = #condition;
-                        #if_expand(context, _cond.into(), |context| #then_block, |context| #else_branch);
+                        #path::branch::if_else_expand(context, _cond.into(), |context| #then_block, |context| #else_branch);
                     }
                 }
             }
             Expression::If {
                 condition,
                 then_block,
-                span,
                 ..
             } => {
                 let path = frontend_path();
                 let condition = condition.to_tokens(context);
                 let then_block =
                     context.with_restored_closure_scope(|ctx| then_block.to_tokens(ctx));
-                let if_expand = quote_spanned![*span=> #path::branch::if_expand];
                 quote! {
                     {
                         let _cond = #condition;
-                        #if_expand(context, _cond.into(), |context| #then_block);
+                        #path::branch::if_expand(context, _cond.into(), |context| #then_block);
                     }
                 }
             }
@@ -342,13 +316,11 @@ impl Expression {
                     let end = end
                         .as_const(context)
                         .unwrap_or_else(|| end.to_tokens(context));
-                    let new =
-                        quote_spanned![*span=> #range::new(_start.into(), _end.into(), #inclusive)];
                     quote! {
                         {
                             let _start = #start;
                             let _end = #end;
-                            #new
+                            #range::new(_start.into(), _end.into(), #inclusive)
                         }
                     }
                 } else {
@@ -360,8 +332,7 @@ impl Expression {
                 if let Some(constant) = self.as_const(context) {
                     constant
                 } else {
-                    syn::Error::new(*span, "Array expressions can't be used at runtime")
-                        .to_compile_error()
+                    error!(*span, "Array expressions can't be used at runtime")
                 }
             }
             Expression::Tuple { elements, .. } => {
@@ -376,13 +347,12 @@ impl Expression {
             Expression::Slice { .. } => {
                 unimplemented!("Slice expressions not yet implemented")
             }
-            Expression::ArrayInit { init, len, span } => {
+            Expression::ArrayInit { init, len } => {
                 let init_ty = frontend_type("ArrayInit");
                 let init = init.to_tokens(context);
                 let len = len.to_tokens(context);
-                let new = quote_spanned![*span=> #init_ty::new];
 
-                quote![#new(#len, #init)]
+                quote![#init_ty::new(#len, #init)]
             }
             Expression::VerbatimTerminated { tokens } => tokens.clone(),
             Expression::Reference { inner } => {

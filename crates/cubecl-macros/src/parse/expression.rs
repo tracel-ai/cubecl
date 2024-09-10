@@ -17,17 +17,14 @@ impl Expression {
     pub fn from_expr(expr: Expr, context: &mut Context) -> syn::Result<Self> {
         let result = match expr.clone() {
             Expr::Assign(assign) => {
-                let span = assign.span();
                 let right = Self::from_expr(*assign.right, context)?;
                 Expression::Assigment {
-                    span,
                     ty: right.ty(),
                     left: Box::new(Self::from_expr(*assign.left, context)?),
                     right: Box::new(right),
                 }
             }
             Expr::Binary(binary) => {
-                let span = binary.span();
                 let left = Self::from_expr(*binary.left, context)?;
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
@@ -37,7 +34,6 @@ impl Expression {
                 } else {
                     let ty = left.ty().or(right.ty());
                     Expression::Binary {
-                        span,
                         left: Box::new(left),
                         operator: parse_binop(&binary.op)?,
                         right: Box::new(right),
@@ -91,11 +87,9 @@ impl Expression {
                 }
             }
             Expr::Unary(unary) => {
-                let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
                 let ty = input.ty();
                 Expression::Unary {
-                    span,
                     input: Box::new(input),
                     operator: parse_unop(&unary.op)?,
                     ty,
@@ -105,9 +99,8 @@ impl Expression {
                 let block = context.with_scope(|ctx| Block::from_block(block.block, ctx))?;
                 Expression::Block(block)
             }
-            Expr::Break(br) => Expression::Break { span: br.span() },
+            Expr::Break(_) => Expression::Break,
             Expr::Call(call) => {
-                let span = call.span();
                 let func = Box::new(Expression::from_expr(*call.func, context)?);
                 let args = call
                     .args
@@ -118,12 +111,10 @@ impl Expression {
                 Expression::FunctionCall {
                     func,
                     args,
-                    span,
                     associated_type,
                 }
             }
             Expr::MethodCall(method) => {
-                let span = method.span();
                 let receiver = Expression::from_expr(*method.receiver.clone(), context)?;
                 let args = method
                     .args
@@ -146,12 +137,10 @@ impl Expression {
                         method: method.method,
                         generics: method.turbofish,
                         args,
-                        span,
                     }
                 }
             }
             Expr::Cast(cast) => {
-                let span = cast.span();
                 let mut from_expr = *cast.expr;
                 // Flatten multicasts because they shouldn't exist on the GPU
                 while matches!(from_expr, Expr::Cast(_)) {
@@ -167,14 +156,13 @@ impl Expression {
                     Expression::Cast {
                         from: Box::new(from),
                         to: *cast.ty,
-                        span,
                     }
                 }
             }
             Expr::Const(block) => Expression::Verbatim {
                 tokens: quote![#block],
             },
-            Expr::Continue(cont) => Expression::Continue { span: cont.span() },
+            Expr::Continue(cont) => Expression::Continue(cont.span()),
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
             Expr::While(while_loop) => expand_while_loop(while_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
@@ -200,30 +188,31 @@ impl Expression {
                 Expression::Range {
                     start: Box::new(start),
                     end,
-                    inclusive: matches!(range.limits, RangeLimits::Closed(..)),
                     span,
+                    inclusive: matches!(range.limits, RangeLimits::Closed(..)),
                 }
             }
             Expr::Field(field) => {
-                let span = field.span();
                 let base = Expression::from_expr(*field.base.clone(), context)?;
                 Expression::FieldAccess {
                     base: Box::new(base),
                     field: field.member,
-                    span,
                 }
             }
             Expr::Group(group) => Expression::from_expr(*group.expr, context)?,
             Expr::Paren(paren) => Expression::from_expr(*paren.expr, context)?,
-            Expr::Return(ret) => Expression::Return {
-                span: ret.span(),
-                expr: ret
-                    .expr
-                    .map(|expr| Expression::from_expr(*expr, context))
-                    .transpose()?
-                    .map(Box::new),
-                _ty: context.return_type.clone(),
-            },
+            Expr::Return(ret) => {
+                let span = ret.expr.span();
+                Expression::Return {
+                    expr: ret
+                        .expr
+                        .map(|expr| Expression::from_expr(*expr, context))
+                        .transpose()?
+                        .map(Box::new),
+                    span,
+                    _ty: context.return_type.clone(),
+                }
+            }
             Expr::Array(array) => {
                 let span = array.span();
                 let elements = array
@@ -234,16 +223,14 @@ impl Expression {
                 Expression::Array { elements, span }
             }
             Expr::Tuple(tuple) => {
-                let span = tuple.span();
                 let elements = tuple
                     .elems
                     .into_iter()
                     .map(|elem| Expression::from_expr(elem, context))
                     .collect::<Result<_, _>>()?;
-                Expression::Tuple { elements, span }
+                Expression::Tuple { elements }
             }
             Expr::Index(index) => {
-                let span = index.span();
                 let expr = Expression::from_expr(*index.expr, context)?;
                 let index = Expression::from_expr(*index.index, context)?;
                 if is_slice(&index) {
@@ -255,7 +242,6 @@ impl Expression {
                     Expression::Slice {
                         expr: Box::new(expr),
                         _ranges: ranges,
-                        span,
                     }
                 } else {
                     let index = match index {
@@ -267,7 +253,6 @@ impl Expression {
                     Expression::Index {
                         expr: Box::new(expr),
                         index: Box::new(index),
-                        span,
                     }
                 }
             }
@@ -283,7 +268,6 @@ impl Expression {
                 Expression::ArrayInit {
                     init: Box::new(Expression::from_expr(*repeat.expr, context)?),
                     len: Box::new(len),
-                    span,
                 }
             }
             Expr::Let(expr) => {
@@ -342,11 +326,10 @@ impl Expression {
                 inner: Box::new(Expression::from_expr(*reference.expr, context)?),
             },
             Expr::Closure(expr) => {
-                let span = expr.span();
                 let body = context.with_scope(|ctx| Expression::from_expr(*expr.body, ctx))?;
                 let body = Box::new(body);
                 let params = expr.inputs.into_iter().collect();
-                Expression::Closure { params, body, span }
+                Expression::Closure { params, body }
             }
             Expr::Try(expr) => {
                 let span = expr.span();
@@ -410,7 +393,6 @@ fn generate_strided_index(
                 value: i,
                 ty: index_ty.clone(),
             }],
-            span,
             generics: None,
         };
         Expression::Binary {
@@ -418,7 +400,6 @@ fn generate_strided_index(
             operator: Operator::Mul,
             right: Box::new(stride),
             ty: None,
-            span,
         }
     });
     let sum = strided_indices
@@ -427,7 +408,6 @@ fn generate_strided_index(
             operator: Operator::Add,
             right: Box::new(b),
             ty: None,
-            span,
         })
         .unwrap();
     Ok(sum)

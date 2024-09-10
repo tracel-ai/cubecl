@@ -2,10 +2,7 @@ use std::{rc::Rc, sync::atomic::AtomicUsize};
 
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{
-    spanned::Spanned, AngleBracketedGenericArguments, Ident, Lit, Member, Pat, Path, PathSegment,
-    Type,
-};
+use syn::{AngleBracketedGenericArguments, Ident, Lit, Member, Pat, Path, PathSegment, Type};
 
 use crate::{operator::Operator, scope::Context, statement::Statement};
 
@@ -16,13 +13,11 @@ pub enum Expression {
         operator: Operator,
         right: Box<Expression>,
         ty: Option<Type>,
-        span: Span,
     },
     Unary {
         input: Box<Expression>,
         operator: Operator,
         ty: Option<Type>,
-        span: Span,
     },
     Variable {
         name: Ident,
@@ -39,7 +34,6 @@ pub enum Expression {
     FieldAccess {
         base: Box<Expression>,
         field: Member,
-        span: Span,
     },
     Path {
         path: Path,
@@ -52,35 +46,28 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
         ty: Option<Type>,
-        span: Span,
     },
     Block(Block),
     FunctionCall {
         func: Box<Expression>,
         args: Vec<Expression>,
         associated_type: Option<(Path, PathSegment)>,
-        span: Span,
     },
     MethodCall {
         receiver: Box<Expression>,
         method: Ident,
         generics: Option<AngleBracketedGenericArguments>,
         args: Vec<Expression>,
-        span: Span,
     },
     Closure {
         params: Vec<Pat>,
         body: Box<Expression>,
-        span: Span,
     },
     Cast {
         from: Box<Expression>,
         to: Type,
-        span: Span,
     },
-    Break {
-        span: Span,
-    },
+    Break,
     /// Tokens not relevant to parsing
     Verbatim {
         tokens: TokenStream,
@@ -88,42 +75,34 @@ pub enum Expression {
     VerbatimTerminated {
         tokens: TokenStream,
     },
-    Continue {
-        span: Span,
-    },
+    Continue(Span),
     ForLoop {
         range: Box<Expression>,
         unroll: Option<Box<Expression>>,
         var_name: syn::Ident,
         var_ty: Option<syn::Type>,
         block: Block,
-        span: Span,
     },
     WhileLoop {
         condition: Box<Expression>,
         block: Block,
-        span: Span,
     },
-    Loop {
-        block: Block,
-        span: Span,
-    },
+    Loop(Block),
     If {
         condition: Box<Expression>,
         then_block: Block,
         else_branch: Option<Box<Expression>>,
-        span: Span,
     },
     Return {
         expr: Option<Box<Expression>>,
-        _ty: Type,
         span: Span,
+        _ty: Type,
     },
     Range {
         start: Box<Expression>,
         end: Option<Box<Expression>>,
-        inclusive: bool,
         span: Span,
+        inclusive: bool,
     },
     Array {
         elements: Vec<Expression>,
@@ -131,22 +110,18 @@ pub enum Expression {
     },
     Tuple {
         elements: Vec<Expression>,
-        span: Span,
     },
     Index {
         expr: Box<Expression>,
         index: Box<Expression>,
-        span: Span,
     },
     Slice {
         expr: Box<Expression>,
         _ranges: Vec<Expression>,
-        span: Span,
     },
     ArrayInit {
         init: Box<Expression>,
         len: Box<Expression>,
-        span: Span,
     },
     Reference {
         inner: Box<Expression>,
@@ -165,7 +140,6 @@ pub struct Block {
     pub inner: Vec<Statement>,
     pub ret: Option<Box<Expression>>,
     pub ty: Option<Type>,
-    pub span: Span,
 }
 
 impl Expression {
@@ -272,42 +246,6 @@ impl Expression {
             Expression::Loop { .. } => false,
             Expression::VerbatimTerminated { .. } => false,
             _ => true,
-        }
-    }
-
-    pub fn span(&self) -> Span {
-        match self {
-            Expression::Binary { span, .. } => *span,
-            Expression::Unary { span, .. } => *span,
-            Expression::Variable { name, .. } => name.span(),
-            Expression::ConstVariable { name, .. } => name.span(),
-            Expression::FieldAccess { span, .. } => *span,
-            Expression::Path { path } => path.span(),
-            Expression::Literal { value, .. } => value.span(),
-            Expression::Assigment { span, .. } => *span,
-            Expression::Block(b) => b.span,
-            Expression::FunctionCall { span, .. } => *span,
-            Expression::MethodCall { span, .. } => *span,
-            Expression::Cast { span, .. } => *span,
-            Expression::Break { span } => *span,
-            Expression::Verbatim { tokens } => tokens.span(),
-            Expression::VerbatimTerminated { tokens } => tokens.span(),
-            Expression::Continue { span } => *span,
-            Expression::ForLoop { span, .. } => *span,
-            Expression::WhileLoop { span, .. } => *span,
-            Expression::Loop { span, .. } => *span,
-            Expression::If { span, .. } => *span,
-            Expression::Return { span, .. } => *span,
-            Expression::Range { span, .. } => *span,
-            Expression::Array { span, .. } => *span,
-            Expression::Tuple { span, .. } => *span,
-            Expression::Index { span, .. } => *span,
-            Expression::Slice { span, .. } => *span,
-            Expression::ArrayInit { span, .. } => *span,
-            Expression::Reference { inner } => inner.span(),
-            Expression::StructInit { path, .. } => path.span(),
-            Expression::Closure { span, .. } => *span,
-            Expression::Keyword { name } => name.span(),
         }
     }
 }

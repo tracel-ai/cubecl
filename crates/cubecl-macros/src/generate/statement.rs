@@ -20,7 +20,6 @@ impl Statement {
                 };
                 let is_mut = *mutable || init.as_deref().map(is_mut_owned).unwrap_or(false);
                 let mutable = mutable.then(|| quote![mut]);
-                let init_span = init.as_ref().map(|it| it.span());
                 let init = if is_mut {
                     if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context)) {
                         let expand = frontend_type("ExpandElementTyped");
@@ -41,8 +40,7 @@ impl Statement {
                 let init = match (is_mut, init) {
                     (true, Some(init)) => {
                         let init_ty = frontend_type("Init");
-                        let init_ty =
-                            quote_spanned![init_span.unwrap()=> #init_ty::init(_init, context)];
+                        let init_ty = quote_spanned![init.span()=> #init_ty::init(_init, context)];
                         Some(quote! {
                             {
                                 let _init = #init;

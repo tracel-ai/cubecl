@@ -144,11 +144,9 @@ fn desugar_struct_local(
         .fields
         .into_iter()
         .map(|field| {
-            let span = field.span();
             let access = Expression::FieldAccess {
                 base: Box::new(init.clone()),
                 field: field.member,
-                span,
             };
             let Pattern {
                 ident,
@@ -192,11 +190,9 @@ fn desugar_tuple_local(
         .into_iter()
         .enumerate()
         .map(|(i, pat)| {
-            let span = pat.span();
             let access = Expression::FieldAccess {
                 base: Box::new(init.clone()),
                 field: Member::Unnamed(Index::from(i)),
-                span,
             };
             let Pattern {
                 ident,
