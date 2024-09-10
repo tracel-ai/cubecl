@@ -18,7 +18,7 @@ impl Expression {
         let result = match expr.clone() {
             Expr::Assign(assign) => {
                 let right = Self::from_expr(*assign.right, context)?;
-                Expression::Assigment {
+                Expression::Assignment {
                     ty: right.ty(),
                     left: Box::new(Self::from_expr(*assign.left, context)?),
                     right: Box::new(right),

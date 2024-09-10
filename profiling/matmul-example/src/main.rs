@@ -72,19 +72,19 @@ mod cube_wgpu {
         let client = WgpuRuntime::client(&device);
 
         let num_of_batch = 12;
-        let heigth = 1024;
+        let height = 1024;
         let width = 1024;
 
-        let tensor_values: Vec<f32> = (0..num_of_batch * heigth * width)
+        let tensor_values: Vec<f32> = (0..num_of_batch * height * width)
             .map(|x| x as f32)
             .collect();
         let tensor_a_handle = client.create(f32::as_bytes(&tensor_values));
         let tensor_b_handle = client.create(f32::as_bytes(&tensor_values));
         let tensor_c_handle = client.empty(12 * 1024 * 1024 * core::mem::size_of::<f32>());
 
-        let tensor_a_shape = vec![num_of_batch, heigth, width];
-        let tensor_b_shape = vec![num_of_batch, heigth, width];
-        let tensor_c_shape = vec![num_of_batch, heigth, width];
+        let tensor_a_shape = vec![num_of_batch, height, width];
+        let tensor_b_shape = vec![num_of_batch, height, width];
+        let tensor_c_shape = vec![num_of_batch, height, width];
 
         let tensor_a: TensorHandle<WgpuRuntime, F32> =
             TensorHandle::new_contiguous(tensor_a_shape, tensor_a_handle);

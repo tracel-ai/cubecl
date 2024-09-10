@@ -19,7 +19,7 @@ use crate::tune::{AutotuneOperation, AutotuneOperationSet, TuneBenchmark, TuneCa
 
 use super::AutotuneKey;
 
-/// An error that occured during benchmarking. If other benches succeeded, ignore this bench and
+/// An error that occurred during benchmarking. If other benches succeeded, ignore this bench and
 /// continue gracefully. If all benches fail, panic.
 /// This error cannot be acted on in any way, because it's an opaque unwind object, and must be
 /// `ManuallyDrop` because dropping it can cause unwinding to proceed. It can only

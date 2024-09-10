@@ -44,7 +44,7 @@ pub enum Expression {
         value: Lit,
         ty: Type,
     },
-    Assigment {
+    Assignment {
         left: Box<Expression>,
         right: Box<Expression>,
         ty: Option<Type>,
@@ -157,7 +157,7 @@ impl Expression {
             Expression::Variable { ty, .. } => ty.clone(),
             Expression::ConstVariable { ty, .. } => ty.clone(),
             Expression::Literal { ty, .. } => Some(ty.clone()),
-            Expression::Assigment { ty, .. } => ty.clone(),
+            Expression::Assignment { ty, .. } => ty.clone(),
             Expression::Verbatim { .. } => None,
             Expression::Block(block) => block.ty.clone(),
             Expression::FunctionCall { .. } => None,

@@ -107,7 +107,7 @@ impl Expression {
                 let expand_elem = frontend_type("ExpandElementTyped");
                 quote![#expand_elem::from_lit(#name)]
             }
-            Expression::Assigment { left, right, .. }
+            Expression::Assignment { left, right, .. }
                 if matches!(**left, Expression::Index { .. }) =>
             {
                 let (array, index) = left.as_index().unwrap();
@@ -124,7 +124,7 @@ impl Expression {
                     }
                 }
             }
-            Expression::Assigment { left, right, .. } => {
+            Expression::Assignment { left, right, .. } => {
                 let frontend_path = frontend_path();
                 let left = left.to_tokens(context);
                 let right = right.to_tokens(context);

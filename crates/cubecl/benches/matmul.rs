@@ -66,10 +66,10 @@ enum MatmulKind {
 #[allow(dead_code)]
 fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
     let bench = MatmulBench::<R, E> {
-        b: 32,
-        m: 1024,
-        k: 1024,
-        n: 1024,
+        b: 8,
+        m: 2048,
+        k: 2048,
+        n: 2048,
         client: R::client(&device),
         device,
         kind,
@@ -81,14 +81,14 @@ fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
 
 fn main() {
     #[cfg(feature = "wgpu")]
-    run::<cubecl::wgpu::WgpuRuntime, F32>(Default::default(), MatmulKind::Tiling2d);
+    run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), MatmulKind::Tiling2d);
 
     #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F32>(Default::default(), MatmulKind::Tiling2d);
+    run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), MatmulKind::Tiling2d);
     #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F16>(Default::default(), MatmulKind::Tiling2d);
+    run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), MatmulKind::Tiling2d);
     #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F32>(Default::default(), MatmulKind::Cmma);
+    run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), MatmulKind::Cmma);
     #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, F16>(Default::default(), MatmulKind::Cmma);
+    run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), MatmulKind::Cmma);
 }

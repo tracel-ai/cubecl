@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-/// An operator used in the intermediate representaion
+/// An operator used in the intermediate representation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operator {
     // Arithmetic
@@ -20,7 +20,7 @@ pub enum Operator {
     AddAssign,
     /// Sub assign (-=) operator
     SubAssign,
-    /// Mul assing (*=) operator
+    /// Mul assign (*=) operator
     MulAssign,
     /// Div assign (/=) operator
     DivAssign,
