@@ -238,6 +238,7 @@ impl Expression {
                 Expression::Tuple { elements }
             }
             Expr::Index(index) => {
+                let span = index.span();
                 let expr = Expression::from_expr(*index.expr, context)?;
                 let index = Expression::from_expr(*index.index, context)?;
                 if is_slice(&index) {
@@ -248,6 +249,7 @@ impl Expression {
                     };
                     Expression::Slice {
                         expr: Box::new(expr),
+                        span,
                         _ranges: ranges,
                     }
                 } else {

@@ -121,6 +121,7 @@ pub enum Expression {
     },
     Slice {
         expr: Box<Expression>,
+        span: Span,
         _ranges: Vec<Expression>,
     },
     ArrayInit {

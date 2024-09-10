@@ -358,8 +358,8 @@ impl Expression {
                 }
             }
 
-            Expression::Slice { .. } => {
-                unimplemented!("Slice expressions not yet implemented")
+            Expression::Slice { span, .. } => {
+                error!(*span, "Slice expressions not yet implemented")
             }
             Expression::ArrayInit { init, len } => {
                 let init_ty = frontend_type("ArrayInit");
@@ -388,7 +388,12 @@ impl Expression {
                         let params = params.args.iter();
                         Some(quote![<#(#params),*>])
                     }
-                    _ => panic!("Fn generics not supported when constructing runtime structs"),
+                    args => {
+                        return error!(
+                            args.span(),
+                            "Fn generics not supported when constructing runtime structs"
+                        )
+                    }
                 };
 
                 quote! {
