@@ -14,7 +14,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let input_handle = client.create(f32::as_bytes(input));
 
     unsafe {
-        norm_test::launch_unchecked::<F32, R>(
+        norm_test::launch_unchecked::<f32, R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(input.len() as u32, 1, 1),

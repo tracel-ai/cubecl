@@ -122,7 +122,7 @@ pub fn greater_equal_op<T: Numeric>(a: T, b: T) -> bool {
 }
 
 #[cube]
-pub fn modulo_op(a: UInt, b: UInt) -> UInt {
+pub fn modulo_op(a: u32, b: u32) -> u32 {
     a % b
 }
 
@@ -157,27 +157,27 @@ pub fn not_op(a: bool) -> bool {
 }
 
 #[cube]
-pub fn bitand_op(a: UInt, b: UInt) -> UInt {
+pub fn bitand_op(a: u32, b: u32) -> u32 {
     a & b
 }
 
 #[cube]
-pub fn bitor_op(a: UInt, b: UInt) -> UInt {
+pub fn bitor_op(a: u32, b: u32) -> u32 {
     a | b
 }
 
 #[cube]
-pub fn bitxor_op(a: UInt, b: UInt) -> UInt {
+pub fn bitxor_op(a: u32, b: u32) -> u32 {
     a ^ b
 }
 
 #[cube]
-pub fn shl_op(a: UInt, b: UInt) -> UInt {
+pub fn shl_op(a: u32, b: u32) -> u32 {
     a << b
 }
 
 #[cube]
-pub fn shr_op(a: UInt, b: UInt) -> UInt {
+pub fn shr_op(a: u32, b: u32) -> u32 {
     a >> b
 }
 
@@ -201,9 +201,40 @@ pub fn div_assign_op<T: Numeric>(mut a: T, b: T) {
     a /= b;
 }
 
+#[cube]
+pub fn rem_assign_op<T: Int>(mut a: T, b: T) {
+    a %= b;
+}
+
+#[cube]
+pub fn bitor_assign_op<T: Int>(mut a: T, b: T) {
+    a |= b;
+}
+
+#[cube]
+pub fn bitand_assign_op<T: Int>(mut a: T, b: T) {
+    a &= b;
+}
+
+#[cube]
+pub fn bitxor_assign_op<T: Int>(mut a: T, b: T) {
+    a ^= b;
+}
+
+#[cube]
+pub fn shl_assign_op<T: Int>(mut a: T, b: u32) {
+    a <<= b;
+}
+
+#[cube]
+pub fn shr_assign_op<T: Int>(mut a: T, b: u32) {
+    a >>= b;
+}
+
 mod tests {
     use super::*;
     use cubecl_core::ir::{Elem, FloatKind, Item};
+    use pretty_assertions::assert_eq;
 
     macro_rules! binary_test {
         ($test_name:ident, $op_expand:expr, $op_name:expr, $func:ident) => {
@@ -258,7 +289,7 @@ mod tests {
         };
     }
 
-    macro_rules! binary_uint_test {
+    macro_rules! binary_u32_test {
         ($test_name:ident, $op_expand:expr, $op_name:expr) => {
             #[test]
             fn $test_name() {
@@ -270,98 +301,134 @@ mod tests {
 
                 assert_eq!(
                     format!("{:?}", context.into_scope().operations),
-                    ref_ops_binary_uint($op_name)
+                    ref_ops_binary_u32($op_name)
                 );
             }
         };
     }
 
-    binary_test!(cube_can_add, add_op::__expand::<F32>, "Add", ref_ops_binary);
-    binary_test!(cube_can_sub, sub_op::__expand::<F32>, "Sub", ref_ops_binary);
-    binary_test!(cube_can_mul, mul_op::__expand::<F32>, "Mul", ref_ops_binary);
-    binary_test!(cube_can_div, div_op::__expand::<F32>, "Div", ref_ops_binary);
-    unary_test!(cube_can_abs, abs_op::__expand::<F32>, "Abs");
-    unary_test!(cube_can_exp, exp_op::__expand::<F32>, "Exp");
-    unary_test!(cube_can_log, log_op::__expand::<F32>, "Log");
-    unary_test!(cube_can_log1p, log1p_op::__expand::<F32>, "Log1p");
-    unary_test!(cube_can_cos, cos_op::__expand::<F32>, "Cos");
-    unary_test!(cube_can_sin, sin_op::__expand::<F32>, "Sin");
-    unary_test!(cube_can_tanh, tanh_op::__expand::<F32>, "Tanh");
+    binary_test!(cube_can_add, add_op::expand::<f32>, "Add", ref_ops_binary);
+    binary_test!(cube_can_sub, sub_op::expand::<f32>, "Sub", ref_ops_binary);
+    binary_test!(cube_can_mul, mul_op::expand::<f32>, "Mul", ref_ops_binary);
+    binary_test!(cube_can_div, div_op::expand::<f32>, "Div", ref_ops_binary);
+    unary_test!(cube_can_abs, abs_op::expand::<f32>, "Abs");
+    unary_test!(cube_can_exp, exp_op::expand::<f32>, "Exp");
+    unary_test!(cube_can_log, log_op::expand::<f32>, "Log");
+    unary_test!(cube_can_log1p, log1p_op::expand::<f32>, "Log1p");
+    unary_test!(cube_can_cos, cos_op::expand::<f32>, "Cos");
+    unary_test!(cube_can_sin, sin_op::expand::<f32>, "Sin");
+    unary_test!(cube_can_tanh, tanh_op::expand::<f32>, "Tanh");
     binary_test!(
         cube_can_powf,
-        powf_op::__expand::<F32>,
+        powf_op::expand::<f32>,
         "Powf",
         ref_ops_binary
     );
-    unary_test!(cube_can_sqrt, sqrt_op::__expand::<F32>, "Sqrt");
-    unary_test!(cube_can_erf, erf_op::__expand::<F32>, "Erf");
-    unary_test!(cube_can_recip, recip_op::__expand::<F32>, "Recip");
-    unary_test!(cube_can_round, round_op::__expand::<F32>, "Round");
-    unary_test!(cube_can_floor, floor_op::__expand::<F32>, "Floor");
-    unary_test!(cube_can_ceil, ceil_op::__expand::<F32>, "Ceil");
-    binary_test!(cube_can_eq, equal_op::__expand::<F32>, "Equal", ref_ops_cmp);
+    unary_test!(cube_can_sqrt, sqrt_op::expand::<f32>, "Sqrt");
+    unary_test!(cube_can_erf, erf_op::expand::<f32>, "Erf");
+    unary_test!(cube_can_recip, recip_op::expand::<f32>, "Recip");
+    unary_test!(cube_can_round, round_op::expand::<f32>, "Round");
+    unary_test!(cube_can_floor, floor_op::expand::<f32>, "Floor");
+    unary_test!(cube_can_ceil, ceil_op::expand::<f32>, "Ceil");
+    binary_test!(cube_can_eq, equal_op::expand::<f32>, "Equal", ref_ops_cmp);
     binary_test!(
         cube_can_ne,
-        not_equal_op::__expand::<F32>,
+        not_equal_op::expand::<f32>,
         "NotEqual",
         ref_ops_cmp
     );
-    binary_test!(cube_can_lt, lower_op::__expand::<F32>, "Lower", ref_ops_cmp);
+    binary_test!(cube_can_lt, lower_op::expand::<f32>, "Lower", ref_ops_cmp);
     binary_test!(
         cube_can_le,
-        lower_equal_op::__expand::<F32>,
+        lower_equal_op::expand::<f32>,
         "LowerEqual",
         ref_ops_cmp
     );
     binary_test!(
         cube_can_ge,
-        greater_equal_op::__expand::<F32>,
+        greater_equal_op::expand::<f32>,
         "GreaterEqual",
         ref_ops_cmp
     );
     binary_test!(
         cube_can_gt,
-        greater_op::__expand::<F32>,
+        greater_op::expand::<f32>,
         "Greater",
         ref_ops_cmp
     );
-    binary_test!(cube_can_max, max_op::__expand::<F32>, "Max", ref_ops_binary);
-    binary_test!(cube_can_min, min_op::__expand::<F32>, "Min", ref_ops_binary);
+    binary_test!(cube_can_max, max_op::expand::<f32>, "Max", ref_ops_binary);
+    binary_test!(cube_can_min, min_op::expand::<f32>, "Min", ref_ops_binary);
     binary_test!(
         cube_can_add_assign,
-        add_assign_op::__expand::<F32>,
+        add_assign_op::expand::<f32>,
         "Add",
         ref_ops_binary
     );
     binary_test!(
         cube_can_sub_assign,
-        sub_assign_op::__expand::<F32>,
+        sub_assign_op::expand::<f32>,
         "Sub",
         ref_ops_binary
     );
     binary_test!(
         cube_can_mul_assign,
-        mul_assign_op::__expand::<F32>,
+        mul_assign_op::expand::<f32>,
         "Mul",
         ref_ops_binary
     );
     binary_test!(
         cube_can_div_assign,
-        div_assign_op::__expand::<F32>,
+        div_assign_op::expand::<f32>,
         "Div",
         ref_ops_binary
     );
-    binary_boolean_test!(cube_can_and, and_op::__expand, "And");
-    binary_boolean_test!(cube_can_or, or_op::__expand, "Or");
-    binary_uint_test!(cube_can_bitand, bitand_op::__expand, "BitwiseAnd");
-    binary_uint_test!(cube_can_bitor, bitor_op::__expand, "BitwiseOr");
-    binary_uint_test!(cube_can_bitxor, bitxor_op::__expand, "BitwiseXor");
-    binary_uint_test!(cube_can_shl, shl_op::__expand, "ShiftLeft");
-    binary_uint_test!(cube_can_shr, shr_op::__expand, "ShiftRight");
-    binary_uint_test!(cube_can_mod, modulo_op::__expand, "Modulo");
+    binary_test!(
+        cube_can_rem_assign,
+        rem_assign_op::expand::<i32>,
+        "Modulo",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_bitor_assign,
+        bitor_assign_op::expand::<i32>,
+        "BitwiseOr",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_bitand_assign,
+        bitand_assign_op::expand::<i32>,
+        "BitwiseAnd",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_bitxor_assign,
+        bitxor_assign_op::expand::<i32>,
+        "BitwiseXor",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_shl_assign,
+        shl_assign_op::expand::<i32>,
+        "ShiftLeft",
+        ref_ops_binary
+    );
+    binary_test!(
+        cube_can_shr_assign,
+        shr_assign_op::expand::<i32>,
+        "ShiftRight",
+        ref_ops_binary
+    );
+    binary_boolean_test!(cube_can_and, and_op::expand, "And");
+    binary_boolean_test!(cube_can_or, or_op::expand, "Or");
+    binary_u32_test!(cube_can_bitand, bitand_op::expand, "BitwiseAnd");
+    binary_u32_test!(cube_can_bitor, bitor_op::expand, "BitwiseOr");
+    binary_u32_test!(cube_can_bitxor, bitxor_op::expand, "BitwiseXor");
+    binary_u32_test!(cube_can_shl, shl_op::expand, "ShiftLeft");
+    binary_u32_test!(cube_can_shr, shr_op::expand, "ShiftRight");
+    binary_u32_test!(cube_can_mod, modulo_op::expand, "Modulo");
     binary_test!(
         cube_can_rem,
-        remainder_op::__expand::<F32>,
+        remainder_op::expand::<f32>,
         "Remainder",
         ref_ops_binary
     );
@@ -371,7 +438,7 @@ mod tests {
         let mut context = CubeContext::root();
         let x = context.create_local(Item::new(Elem::Bool));
 
-        not_op::__expand(&mut context, x.into());
+        not_op::expand(&mut context, x.into());
 
         assert_eq!(
             format!("{:?}", context.into_scope().operations),
@@ -399,7 +466,7 @@ mod tests {
         ref_ops_template(ops_name, "Bool", "Bool", true)
     }
 
-    fn ref_ops_binary_uint(ops_name: &str) -> String {
+    fn ref_ops_binary_u32(ops_name: &str) -> String {
         ref_ops_template(ops_name, "UInt", "UInt", true)
     }
 
@@ -410,15 +477,15 @@ mod tests {
                 "[Operator({ops_name}(BinaryOperator {{ \
                 lhs: Local {{ id: 0, item: Item {{ \
                     elem: {in_type}, \
-                    vectorization: 1 \
+                    vectorization: None \
                 }}, depth: 0 }}, \
                 rhs: Local {{ id: 1, item: Item {{ \
                     elem: {in_type}, \
-                    vectorization: 1 \
+                    vectorization: None \
                 }}, depth: 0 }}, \
                 out: Local {{ id: {out_number}, item: Item {{ \
                     elem: {out_type}, \
-                    vectorization: 1 \
+                    vectorization: None \
                 }}, depth: 0 }} \
             }}))]"
             )
@@ -427,11 +494,11 @@ mod tests {
                 "[Operator({ops_name}(UnaryOperator {{ \
                 input: Local {{ id: 0, item: Item {{ \
                     elem: {in_type}, \
-                    vectorization: 1 \
+                    vectorization: None \
                 }}, depth: 0 }}, \
                 out: Local {{ id: 0, item: Item {{ \
                     elem: {out_type}, \
-                    vectorization: 1 \
+                    vectorization: None \
                 }}, depth: 0 }} \
             }}))]"
             )

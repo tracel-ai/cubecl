@@ -56,17 +56,17 @@ impl CmmaConfig {
         let num_coops = self.b_mn * self.b_k / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
 
         ComptimeCmmaInfo {
-            block_size_m: self.b_mn.into(),
-            block_size_k: self.b_k.into(),
-            block_size_n: self.b_mn.into(),
-            tile_size: CMMA_TILE_SIZE.into(),
+            block_size_m: self.b_mn as u32,
+            block_size_k: self.b_k as u32,
+            block_size_n: self.b_mn as u32,
+            tile_size: CMMA_TILE_SIZE as u32,
             unroll: self.unroll,
             check_m_bounds: m % self.b_mn != 0,
             check_k_bounds: k % self.b_k != 0,
             check_n_bounds: n % self.b_mn != 0,
-            coop_dim: CMMA_COOP_DIM.into(),
-            num_coops: UInt::new(num_coops as u32),
-            num_accumulators: UInt::new(self.alpha as u32),
+            coop_dim: CMMA_COOP_DIM as u32,
+            num_coops: num_coops as u32,
+            num_accumulators: self.alpha as u32,
             write_out_reuse_smem: self.write_out_strategy == WriteOutStrategy::ReuseSmem,
         }
     }
@@ -117,13 +117,13 @@ impl Init for ComptimeCmmaInfo {
 /// Tiling 2D parameters
 pub struct ComptimeCmmaInfo {
     /// Block size along dimension of lhs
-    pub block_size_m: UInt,
+    pub block_size_m: u32,
     /// Block size along common dimension
-    pub block_size_k: UInt,
+    pub block_size_k: u32,
     /// Block size along dimension of rhs
-    pub block_size_n: UInt,
+    pub block_size_n: u32,
     /// Tile size (dimension of one side). Should correspond to cmma supported tile size
-    pub tile_size: UInt,
+    pub tile_size: u32,
     /// Bounds must be checked on lhs dimension
     pub check_m_bounds: bool,
     /// Bounds must be checked on common dimension
@@ -133,11 +133,11 @@ pub struct ComptimeCmmaInfo {
     /// Unroll
     pub unroll: bool,
     /// The number of units that can collaborate
-    pub coop_dim: UInt,
+    pub coop_dim: u32,
     /// The number of collaboration groups
-    pub num_coops: UInt,
+    pub num_coops: u32,
     /// Number of cmma per subcube performed in one pass
-    pub num_accumulators: UInt,
+    pub num_accumulators: u32,
     /// Write out strategy: false = large, true = reuse
     pub write_out_reuse_smem: bool,
 }

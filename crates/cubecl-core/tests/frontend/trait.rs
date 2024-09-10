@@ -64,7 +64,7 @@ impl MethodTypedStrategy for AddStrategy {
         input_1: <T as CubeType>::ExpandType,
         input_2: <T as CubeType>::ExpandType,
     ) -> <T as CubeType>::ExpandType {
-        add_strategy_operation::__expand::<T>(context, input_1, input_2)
+        add_strategy_operation::expand::<T>(context, input_1, input_2)
     }
 }
 
@@ -80,7 +80,7 @@ mod tests {
         ir::{Item, Variable},
     };
 
-    type ElemType = F32;
+    type ElemType = f32;
     #[test]
     fn cube_strategy_trait_add_test() {
         let mut context = CubeContext::root();
@@ -88,7 +88,7 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        with_strategy_trait::__expand::<AddStrategy, ElemType>(&mut context, x.into(), y.into());
+        with_strategy_trait::expand::<AddStrategy, ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -104,7 +104,7 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        with_strategy_trait::__expand::<SubStrategy, ElemType>(&mut context, x.into(), y.into());
+        with_strategy_trait::expand::<SubStrategy, ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -120,7 +120,7 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        two_strategy_traits::__expand::<SubStrategy, AddStrategy, ElemType>(
+        two_strategy_traits::expand::<SubStrategy, AddStrategy, ElemType>(
             &mut context,
             x.into(),
             y.into(),
@@ -137,7 +137,7 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        with_trait_generic_method::__expand::<AddStrategy, ElemType>(
+        with_trait_generic_method::expand::<AddStrategy, ElemType>(
             &mut context,
             x.into(),
             y.into(),

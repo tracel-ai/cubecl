@@ -24,5 +24,4 @@ pub use numeric::*;
 pub use shared_memory::*;
 pub use slice::*;
 pub use tensor::*;
-pub use uint::*;
 pub use vectorized::*;

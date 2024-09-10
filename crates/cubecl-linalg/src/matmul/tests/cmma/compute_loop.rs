@@ -1,38 +1,39 @@
+use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::{
-    base::{make_cmma_matrices, Ids, IdsExpand, SharedMemories, SharedMemoriesExpand},
+    base::{make_cmma_matrices, Ids, SharedMemories },
     compute_loop::compute_loop,
     config::{CmmaConfig, ComptimeCmmaInfo, WriteOutStrategy},
 };
 use crate::matmul::tests::test_utils::{
     assert_equals, cmma_available, create_empty, range_tensor_f16,
 };
+use half::f16;
 
 #[cube(launch_unchecked)]
 fn compute_loop_test<F: Float, FC: Float>(
     lhs_tensor: &Tensor<FC>,
     rhs_tensor: &Tensor<FC>,
     accumulate_array: &mut Array<F>,
-    b_mn: Comptime<UInt>,
-    b_k: Comptime<UInt>,
-    comptime_info: Comptime<ComptimeCmmaInfo>,
+    #[comptime] b_mn: u32,
+    #[comptime] b_k: u32,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    let mut lhs = SharedMemory::<FC>::new(Comptime::get(b_mn * b_k));
-    let mut rhs = SharedMemory::<FC>::new(Comptime::get(b_k * b_mn));
+    let mut lhs = SharedMemory::<FC>::new(b_mn * b_k);
+    let mut rhs = SharedMemory::<FC>::new(b_k * b_mn);
 
-    for i in range(0u32, Comptime::get(b_mn * b_k), Comptime::new(false)) {
+    for i in 0..b_mn * b_k {
         lhs[i] = lhs_tensor[i];
     }
-    for i in range(0u32, Comptime::get(b_k * b_mn), Comptime::new(false)) {
+    for i in 0..b_k * b_mn {
         rhs[i] = rhs_tensor[i];
     }
-    for i in range(0u32, Comptime::get(b_mn * b_mn), Comptime::new(false)) {
+    for i in 0..b_mn * b_mn {
         accumulate_array[i] = F::new(0.);
     }
 
-    let shared_memories = SharedMemories { lhs, rhs };
+    let shared_memories = SharedMemories::<FC> { lhs, rhs };
     let mut matrices = make_cmma_matrices::<F, FC>(comptime_info);
 
     compute_loop(
@@ -45,19 +46,20 @@ fn compute_loop_test<F: Float, FC: Float>(
         comptime_info,
     );
 
-    let num_accumulators = Comptime::map(comptime_info, |c| c.num_accumulators);
-    let tile_size = Comptime::map(comptime_info, |c| c.tile_size);
-    let slice_offset = Comptime::runtime(tile_size * tile_size);
-    let offset = UNIT_POS_Y * slice_offset * Comptime::runtime(num_accumulators);
+    let num_accumulators = comptime_info.num_accumulators;
+    let tile_size = comptime_info.tile_size;
+    let slice_offset = tile_size * tile_size;
+    let offset = UNIT_POS_Y * slice_offset * num_accumulators;
 
     let accumulators = matrices.accumulators;
-    for n in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
+    #[unroll]
+    for n in 0..num_accumulators {
         let slice =
             accumulate_array.slice_mut(offset + n * slice_offset, offset + (n + 1) * slice_offset);
         cmma::store::<F>(
             slice,
-            &accumulators.index(n),
-            UInt::new(16),
+            accumulators.index(n),
+            16,
             cmma::MatrixLayout::RowMajor,
         );
     }
@@ -84,15 +86,15 @@ fn compute_loop_test_case<R: Runtime>(
         block_config.comptime_info(block_config.b_mn, block_config.b_k, block_config.b_mn);
 
     unsafe {
-        compute_loop_test::launch_unchecked::<F32, F16, R>(
+        compute_loop_test::launch_unchecked::<f32, f16, R>(
             &R::client(device),
             cube_count,
             cube_dim,
             TensorArg::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, 1),
             TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, 1),
             ArrayArg::from_raw_parts(&results, block_config.b_mn * block_config.b_mn, 1),
-            UInt::new(block_config.b_mn as u32),
-            UInt::new(block_config.b_k as u32),
+            block_config.b_mn as u32,
+            block_config.b_k as u32,
             comptime_info,
         );
     };

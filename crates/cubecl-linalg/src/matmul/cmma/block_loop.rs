@@ -17,16 +17,16 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     shared_memories: SharedMemories<FC>,
     mut cmma_matrices: CmmaMatrices<F, FC>,
     runtime_info: RuntimeCmmaInfo,
-    comptime_info: Comptime<ComptimeCmmaInfo>,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    let block_size_k = Comptime::runtime(Comptime::map(comptime_info, |c| c.block_size_k));
-    let write_out_reuse_smem = Comptime::map(comptime_info, |c| c.write_out_reuse_smem);
+    let block_size_k = comptime_info.block_size_k;
+    let write_out_reuse_smem = comptime_info.write_out_reuse_smem;
 
     // Equals ceil(dims.k / block_size_k)
     let dims = runtime_info.dims;
     let num_loops = (dims.k + block_size_k - 1) / block_size_k;
 
-    for block in range(0u32, num_loops, Comptime::new(false)) {
+    for block in 0..num_loops {
         let k_offset = block * block_size_k;
 
         load_to_shared_memories::<F, FC>(
@@ -50,7 +50,7 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
         sync_units();
     }
 
-    if Comptime::get(write_out_reuse_smem) {
+    if write_out_reuse_smem {
         ReuseSmemWriter::write_to_output(
             out,
             cmma_matrices.accumulators,

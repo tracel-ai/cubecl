@@ -1,5 +1,8 @@
+use std::num::NonZero;
+
+use num_traits::NumCast;
+
 use crate::compute::KernelLauncher;
-use crate::frontend::{CubeContext, CubePrimitive, CubeType};
 use crate::ir::{Item, Variable};
 use crate::prelude::Clamp;
 use crate::Runtime;
@@ -7,10 +10,14 @@ use crate::{
     frontend::{index_assign, Abs, Max, Min, Remainder},
     unexpanded,
 };
+use crate::{
+    frontend::{CubeContext, CubePrimitive, CubeType},
+    prelude::CubeIndexMut,
+};
 
 use super::{
     ArgSettings, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg,
-    LaunchArgExpand, UInt, I64,
+    LaunchArgExpand, Vectorized,
 };
 
 /// Type that encompasses both (unsigned or signed) integers and floats
@@ -22,9 +29,15 @@ pub trait Numeric:
     + Min
     + Clamp
     + Remainder
-    + ExpandElementBaseInit
+    + Vectorized
     + CubePrimitive
     + LaunchArgExpand
+    + ScalarArgSettings
+    + ExpandElementBaseInit
+    + Into<ExpandElementTyped<Self>>
+    + CubeIndexMut<u32, Output = Self>
+    + CubeIndexMut<ExpandElementTyped<u32>, Output = Self>
+    + num_traits::NumCast
     + std::ops::AddAssign
     + std::ops::SubAssign
     + std::ops::MulAssign
@@ -34,24 +47,8 @@ pub trait Numeric:
     + std::ops::Mul<Output = Self>
     + std::ops::Div<Output = Self>
     + std::cmp::PartialOrd
-    + core::ops::Index<UInt, Output = Self>
-    + core::ops::IndexMut<UInt, Output = Self>
-    + core::ops::Index<u32, Output = Self>
-    + core::ops::IndexMut<u32, Output = Self>
-    + From<u32>
-    + std::ops::Add<u32, Output = Self>
-    + std::ops::Sub<u32, Output = Self>
-    + std::ops::Mul<u32, Output = Self>
-    + std::ops::Div<u32, Output = Self>
-    + std::ops::AddAssign<u32>
-    + std::ops::SubAssign<u32>
-    + std::ops::MulAssign<u32>
-    + std::ops::DivAssign<u32>
-    + std::cmp::PartialOrd<u32>
-    + std::cmp::PartialEq<u32>
+    + std::cmp::PartialEq
 {
-    type Primitive: ScalarArgSettings;
-
     /// Create a new constant numeric.
     ///
     /// Note: since this must work for both integer and float
@@ -60,8 +57,8 @@ pub trait Numeric:
     ///
     /// This method panics when unexpanded. For creating an element
     /// with a val, use the new method of the sub type.
-    fn from_int(_val: u32) -> Self {
-        unexpanded!()
+    fn from_int(val: i64) -> Self {
+        <Self as NumCast>::from(val).unwrap()
     }
 
     fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {
@@ -70,7 +67,7 @@ pub trait Numeric:
 
     fn __expand_from_int(
         _context: &mut CubeContext,
-        val: ExpandElementTyped<I64>,
+        val: ExpandElementTyped<i64>,
     ) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_elem();
         let var: Variable = elem.constant_from_i64(val.constant().unwrap().as_i64());
@@ -80,16 +77,19 @@ pub trait Numeric:
 
     fn __expand_from_vec<const D: usize>(
         context: &mut CubeContext,
-        vec: [ExpandElementTyped<UInt>; D],
+        vec: [u32; D],
     ) -> <Self as CubeType>::ExpandType {
-        let new_var = context.create_local(Item::vectorized(Self::as_elem(), vec.len() as u8));
+        let new_var = context.create_local(Item::vectorized(
+            Self::as_elem(),
+            NonZero::new(vec.len() as u8),
+        ));
         let elem = Self::as_elem();
 
         for (i, element) in vec.iter().enumerate() {
-            let var: Variable = elem.constant_from_i64(element.constant().unwrap().as_i64());
+            let var: Variable = elem.constant_from_i64(*element as i64);
             let expand = ExpandElement::Plain(var);
 
-            index_assign::expand::<UInt>(
+            index_assign::expand::<u32>(
                 context,
                 new_var.clone().into(),
                 ExpandElementTyped::from_lit(i),
@@ -110,7 +110,7 @@ pub trait ScalarArgSettings: Send + Sync {
 
 #[derive(new)]
 pub struct ScalarArg<T: Numeric> {
-    elem: T::Primitive,
+    elem: T,
 }
 
 impl<T: Numeric, R: Runtime> ArgSettings<R> for ScalarArg<T> {

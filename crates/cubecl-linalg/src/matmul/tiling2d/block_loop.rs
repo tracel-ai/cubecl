@@ -18,14 +18,14 @@ pub(crate) fn block_loop<F: Float>(
     coordinates: Coordinates,
     offsets: BatchOffsets,
     shared: SharedMemories<F>,
-    config: Comptime<CubeTiling2dConfig>,
+    #[comptime] config: CubeTiling2dConfig,
     dims: Dimensions,
 ) {
     let mut results = init_results::<F>(config);
-    let block_size_k = Comptime::runtime(Comptime::map(config, |c| c.block_size_k));
+    let block_size_k = config.block_size_k;
     let n_loops = (dims.k + block_size_k - 1) / block_size_k;
 
-    for k in range(0u32, n_loops, Comptime::new(false)) {
+    for k in 0..n_loops {
         let k = k * block_size_k;
 
         load_to_shared_memories::<F, TileLoader<F>>(
@@ -50,12 +50,13 @@ pub(crate) fn block_loop<F: Float>(
 }
 
 #[cube]
-fn init_results<F: Float>(config: Comptime<CubeTiling2dConfig>) -> Array<F> {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let unroll = Comptime::map(config, |c| c.unroll_tile);
+fn init_results<F: Float>(#[comptime] config: CubeTiling2dConfig) -> Array<F> {
+    let tile_size = config.tile_size;
+    let unroll = config.unroll_tile;
 
-    let mut results = Array::<F>::new(Comptime::get(tile_size * tile_size));
-    for i in range(0u32, Comptime::get(tile_size * tile_size), unroll) {
+    let mut results = Array::<F>::new(tile_size * tile_size);
+    #[unroll(unroll)]
+    for i in 0..tile_size * tile_size {
         results[i] = F::new(0.);
     }
 

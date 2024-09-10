@@ -1,5 +1,5 @@
 error: Only void return is supported.
- --> tests/error/return_value.rs:7:9
+ --> tests/error/return_value.rs:7:16
   |
 7 |         return x;
-  |         ^^^^^^^^
+  |                ^

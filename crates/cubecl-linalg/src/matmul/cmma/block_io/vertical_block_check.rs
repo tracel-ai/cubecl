@@ -1,7 +1,6 @@
+use crate::matmul::cmma::base::Dimensions;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::cmma::base::Dimensions;
 
 use super::base::{BlockLoader, BlockWriter};
 
@@ -12,30 +11,31 @@ impl<F: Float, FC: Float> BlockLoader<F, FC> for VerticalCheckBlockIO {
     fn load_tile(
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<FC>,
-        batch_offset: UInt,
-        read_row: UInt,
-        read_col: UInt,
-        write_pos: UInt,
-        dim_vertical: UInt,
-        dim_horizontal: UInt,
+        batch_offset: u32,
+        read_row: u32,
+        read_col: u32,
+        write_pos: u32,
+        dim_vertical: u32,
+        dim_horizontal: u32,
     ) {
-        let tensor_vec = Comptime::vectorization(tensor);
-        let tensor_vec_r = Comptime::runtime(tensor_vec);
-        let is_scalar = Comptime::map(tensor_vec, |v| v.val == 1);
+        let tensor_vec = vectorization_of(tensor);
+        let is_scalar = tensor_vec == 1;
 
         if read_row < dim_vertical {
-            let read_pos = (batch_offset + read_row * dim_horizontal + read_col) / tensor_vec_r;
+            let read_pos = (batch_offset + read_row * dim_horizontal + read_col) / tensor_vec;
             let value = tensor[read_pos];
 
-            if Comptime::get(is_scalar) {
+            if is_scalar {
                 shared_memory[write_pos] = FC::cast_from(value);
             } else {
-                for i in range(0u32, Comptime::get(tensor_vec), Comptime::new(true)) {
+                #[unroll]
+                for i in 0..tensor_vec {
                     shared_memory[write_pos + i] = FC::cast_from(value[i]);
                 }
             }
         } else {
-            for i in range(0u32, Comptime::get(tensor_vec), Comptime::new(true)) {
+            #[unroll]
+            for i in 0..tensor_vec {
                 shared_memory[write_pos + i] = FC::new(0.);
             }
         }
@@ -47,30 +47,30 @@ impl<F: Float> BlockWriter<F> for VerticalCheckBlockIO {
     fn write_output(
         out: &mut Tensor<F>,
         accumulator_sm: SharedMemory<F>,
-        batch_offset: UInt,
-        read_position: UInt,
-        write_row: UInt,
-        write_col: UInt,
+        batch_offset: u32,
+        read_position: u32,
+        write_row: u32,
+        write_col: u32,
         dims: Dimensions,
     ) {
-        let out_vec = Comptime::vectorization(out);
-        let out_vec_r = Comptime::runtime(out_vec);
-        let is_scalar = Comptime::map(out_vec, |v| v.val == 1);
+        let out_vec = vectorization_of(out);
+        let is_scalar = out_vec == 1;
 
         if write_row < dims.m {
             let write_position = batch_offset + write_row * dims.n + write_col;
 
-            if Comptime::get(is_scalar) {
+            if is_scalar {
                 let val = accumulator_sm[read_position];
-                out[write_position / out_vec_r] = val;
+                out[write_position / out_vec] = val;
             } else {
-                let mut value = F::vectorized_empty(Comptime::get(out_vec));
+                let mut value = F::vectorized_empty(out_vec);
 
-                for i in range(0u32, Comptime::get(out_vec), Comptime::new(true)) {
+                #[unroll]
+                for i in 0..out_vec {
                     value[i] = accumulator_sm[read_position + i];
                 }
 
-                out[write_position / out_vec_r] = value;
+                out[write_position / out_vec] = value;
             }
         }
     }

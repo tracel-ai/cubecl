@@ -28,18 +28,18 @@ mod tests {
     use super::*;
     use cubecl_core::ir::Item;
 
-    type ElemType = F32;
+    type ElemType = f32;
 
     #[test]
     fn cube_call_equivalent_to_no_call_no_arg_test() {
         let mut caller_context = CubeContext::root();
         let x = caller_context.create_local(Item::new(ElemType::as_elem()));
-        here::caller::__expand::<ElemType>(&mut caller_context, x.into());
+        here::caller::expand::<ElemType>(&mut caller_context, x.into());
         let caller_scope = caller_context.into_scope();
 
         let mut no_call_context = CubeContext::root();
         let x = no_call_context.create_local(Item::new(ElemType::as_elem()));
-        here::no_call_ref::__expand::<ElemType>(&mut no_call_context, x.into());
+        here::no_call_ref::expand::<ElemType>(&mut no_call_context, x.into());
         let no_call_scope = no_call_context.into_scope();
 
         assert_eq!(

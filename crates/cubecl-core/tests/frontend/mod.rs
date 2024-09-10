@@ -8,6 +8,7 @@ mod for_loop;
 mod function_call;
 mod generic_kernel;
 mod r#if;
+mod intrinsics;
 mod literal;
 mod r#loop;
 mod module_import;
@@ -20,6 +21,5 @@ mod r#struct;
 mod tensor;
 mod topology;
 mod r#trait;
-
 mod tuple;
 mod vectorization;

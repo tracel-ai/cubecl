@@ -9,9 +9,9 @@ use crate::matmul::tiling2d::tile::loader::TileLoader;
 use crate::matmul::{
     tests::test_utils::{assert_equals, create_empty, range_tensor},
     tiling2d::{
-        base::{Coordinates, CoordinatesExpand, Dimensions, DimensionsExpand, TILE_SIZE},
+        base::{Coordinates, Dimensions, TILE_SIZE},
         config::CubeTiling2dConfig,
-        load_shared_memory::{LoadInfo, LoadInfoExpand},
+        load_shared_memory::LoadInfo,
     },
 };
 
@@ -19,68 +19,65 @@ use crate::matmul::{
 fn load_tensor_test<F: Float>(
     tensor: &Tensor<F>,
     sm_out: &mut Array<F>,
-    unit_row: UInt,
-    unit_col: UInt,
-    k: UInt,
-    config: Comptime<CubeTiling2dConfig>,
-    is_lhs: Comptime<bool>,
+    unit_row: u32,
+    unit_col: u32,
+    k: u32,
+    #[comptime] config: CubeTiling2dConfig,
+    #[comptime] is_lhs: bool,
 ) {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
+    let tile_size = config.tile_size;
+    let block_size_k = config.block_size_k;
+    let block_size_m = config.block_size_m;
     let sm_size = block_size_k * block_size_m / tile_size;
-    let mut shared_memory =
-        SharedMemory::<F>::vectorized(Comptime::get(sm_size), Comptime::get(tile_size));
+    let mut shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
 
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
-        sm_out[i] = F::vectorized(0., Comptime::get(tile_size));
-        shared_memory[i] = F::vectorized(0., Comptime::get(tile_size));
+    for i in 0..sm_size {
+        sm_out[i] = F::vectorized(0., tile_size);
+        shared_memory[i] = F::vectorized(0., tile_size);
     }
 
-    let batch_offset = UInt::new(0);
+    let batch_offset = 0;
 
     let coordinates = Coordinates {
         unit_row,
         unit_col,
-        skip_row: UInt::new(0),
-        skip_col: UInt::new(0),
+        skip_row: 0,
+        skip_col: 0,
     };
 
-    if Comptime::get(is_lhs) {
+    if is_lhs {
         let dims = Dimensions {
-            m: tensor.shape(tensor.rank() - UInt::new(2)),
-            k: tensor.shape(tensor.rank() - UInt::new(1)),
-            n: UInt::new(0),
+            m: tensor.shape(tensor.rank() - 2),
+            k: tensor.shape(tensor.rank() - 1),
+            n: 0,
         };
-        let info = LoadInfo {
+        let info = LoadInfo::<F> {
             coordinates,
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
         load_lhs_transposed::<F, TileLoader<F>>(tensor, info, config);
     } else {
         let dims = Dimensions {
-            m: UInt::new(0),
-            k: tensor.shape(tensor.rank() - UInt::new(2)),
-            n: tensor.shape(tensor.rank() - UInt::new(1)),
+            m: 0,
+            k: tensor.shape(tensor.rank() - 2),
+            n: tensor.shape(tensor.rank() - 1),
         };
-        let info = LoadInfo {
+        let info = LoadInfo::<F> {
             coordinates,
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
         load_rhs_plain::<F, TileLoader<F>>(tensor, info, config);
     }
 
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+    for i in 0..sm_size {
         sm_out[i] = shared_memory[i];
     }
 }
@@ -89,46 +86,44 @@ fn load_tensor_test<F: Float>(
 fn load_tensor_permuted_test<F: Float>(
     tensor: &Tensor<F>,
     sm_out: &mut Array<F>,
-    unit_row: UInt,
-    unit_col: UInt,
-    k: UInt,
-    config: Comptime<CubeTiling2dConfig>,
-    is_lhs: Comptime<bool>,
+    unit_row: u32,
+    unit_col: u32,
+    k: u32,
+    #[comptime] config: CubeTiling2dConfig,
+    #[comptime] is_lhs: bool,
 ) {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
+    let tile_size = config.tile_size;
+    let block_size_k = config.block_size_k;
+    let block_size_m = config.block_size_m;
     let sm_size = block_size_k * block_size_m / tile_size;
-    let mut shared_memory =
-        SharedMemory::<F>::vectorized(Comptime::get(sm_size), Comptime::get(tile_size));
+    let mut shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
 
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
-        sm_out[i] = F::vectorized(0., Comptime::get(tile_size));
-        shared_memory[i] = F::vectorized(0., Comptime::get(tile_size));
+    for i in 0..sm_size {
+        sm_out[i] = F::vectorized(0., tile_size);
+        shared_memory[i] = F::vectorized(0., tile_size);
     }
 
-    let batch_offset = UInt::new(0);
+    let batch_offset = 0;
 
     let coordinates = Coordinates {
         unit_row,
         unit_col,
-        skip_row: UInt::new(0),
-        skip_col: UInt::new(0),
+        skip_row: 0,
+        skip_col: 0,
     };
 
-    if Comptime::get(is_lhs) {
+    if is_lhs {
         // Permuted
         let dims = Dimensions {
-            m: tensor.shape(tensor.rank() - UInt::new(1)),
-            k: tensor.shape(tensor.rank() - UInt::new(2)),
-            n: UInt::new(0),
+            m: tensor.shape(tensor.rank() - 1),
+            k: tensor.shape(tensor.rank() - 2),
+            n: 0,
         };
-        let info = LoadInfo {
+        let info = LoadInfo::<F> {
             coordinates,
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
@@ -136,23 +131,22 @@ fn load_tensor_permuted_test<F: Float>(
     } else {
         // Permuted
         let dims = Dimensions {
-            m: UInt::new(0),
-            k: tensor.shape(tensor.rank() - UInt::new(1)),
-            n: tensor.shape(tensor.rank() - UInt::new(2)),
+            m: 0,
+            k: tensor.shape(tensor.rank() - 1),
+            n: tensor.shape(tensor.rank() - 2),
         };
-        let info = LoadInfo {
+        let info = LoadInfo::<F> {
             coordinates,
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
         load_rhs_transposed::<F, TileLoader<F>>(tensor, info, config);
     }
 
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+    for i in 0..sm_size {
         sm_out[i] = shared_memory[i];
     }
 }
@@ -161,68 +155,65 @@ fn load_tensor_permuted_test<F: Float>(
 fn load_tensor_multiple_tiles_test<F: Float>(
     tensor: &Tensor<F>,
     sm_out: &mut Array<F>,
-    k: UInt,
-    config: Comptime<CubeTiling2dConfig>,
-    is_lhs: Comptime<bool>,
+    k: u32,
+    #[comptime] config: CubeTiling2dConfig,
+    #[comptime] is_lhs: bool,
 ) {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
+    let tile_size = config.tile_size;
+    let block_size_k = config.block_size_k;
+    let block_size_m = config.block_size_m;
     let sm_size = block_size_k * block_size_m / tile_size;
-    let mut shared_memory =
-        SharedMemory::<F>::vectorized(Comptime::get(sm_size), Comptime::get(tile_size));
+    let mut shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
 
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
-        sm_out[i] = F::vectorized(0., Comptime::get(tile_size));
-        shared_memory[i] = F::vectorized(0., Comptime::get(tile_size));
+    for i in 0..sm_size {
+        sm_out[i] = F::vectorized(0., tile_size);
+        shared_memory[i] = F::vectorized(0., tile_size);
     }
 
-    let unit_row = UInt::new(4) * UNIT_POS_X;
-    let unit_col = UInt::new(4) * UNIT_POS_Y;
-    let batch_offset = UInt::new(0);
+    let unit_row = 4 * UNIT_POS_X;
+    let unit_col = 4 * UNIT_POS_Y;
+    let batch_offset = 0;
 
     let coordinates = Coordinates {
         unit_row,
         unit_col,
-        skip_row: UInt::new(0),
-        skip_col: UInt::new(0),
+        skip_row: 0,
+        skip_col: 0,
     };
 
-    if Comptime::get(is_lhs) {
+    if is_lhs {
         let dims = Dimensions {
-            m: tensor.shape(tensor.rank() - UInt::new(2)),
-            k: tensor.shape(tensor.rank() - UInt::new(1)),
-            n: UInt::new(0),
+            m: tensor.shape(tensor.rank() - 2),
+            k: tensor.shape(tensor.rank() - 1),
+            n: 0,
         };
-        let info = LoadInfo {
+        let info = LoadInfo::<F> {
             coordinates,
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
         load_lhs_transposed::<F, TileLoader<F>>(tensor, info, config);
     } else {
         let dims = Dimensions {
-            m: UInt::new(0),
-            k: tensor.shape(tensor.rank() - UInt::new(2)),
-            n: tensor.shape(tensor.rank() - UInt::new(1)),
+            m: 0,
+            k: tensor.shape(tensor.rank() - 2),
+            n: tensor.shape(tensor.rank() - 1),
         };
-        let info = LoadInfo {
+        let info = LoadInfo::<F> {
             coordinates,
             k,
             batch_offset,
             shared_memory,
-            config,
             dims,
         };
 
         load_rhs_plain::<F, TileLoader<F>>(tensor, info, config);
     }
 
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+    for i in 0..sm_size {
         sm_out[i] = shared_memory[i];
     }
 }
@@ -238,7 +229,7 @@ pub fn load_lhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(16, 16, 8);
 
     unsafe {
-        load_tensor_test::launch_unchecked::<F32, R>(
+        load_tensor_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -273,7 +264,7 @@ pub fn load_lhs_transposed_out_of_bounds_cube_test<R: Runtime>(device: &R::Devic
     let config = make_tiling2d_config(5, 1, 1);
 
     unsafe {
-        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+        load_tensor_multiple_tiles_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -310,7 +301,7 @@ pub fn load_lhs_transposed_cube_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 8, 8);
 
     unsafe {
-        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+        load_tensor_multiple_tiles_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -343,7 +334,7 @@ pub fn load_lhs_transposed_offset_cube_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 8, 16);
 
     unsafe {
-        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+        load_tensor_multiple_tiles_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -376,7 +367,7 @@ pub fn load_rhs_plain_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 16, 16);
 
     unsafe {
-        load_tensor_test::launch_unchecked::<F32, R>(
+        load_tensor_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -410,7 +401,7 @@ pub fn load_rhs_plain_cube_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 8, 8);
 
     unsafe {
-        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+        load_tensor_multiple_tiles_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -443,7 +434,7 @@ pub fn load_rhs_plain_cube_offset_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(16, 16, 8);
 
     unsafe {
-        load_tensor_multiple_tiles_test::launch_unchecked::<F32, R>(
+        load_tensor_multiple_tiles_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -476,7 +467,7 @@ pub fn load_lhs_plain_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(16, 16, 8);
 
     unsafe {
-        load_tensor_permuted_test::launch_unchecked::<F32, R>(
+        load_tensor_permuted_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -511,7 +502,7 @@ pub fn load_lhs_plain_out_of_bounds_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(m, k, 8);
 
     unsafe {
-        load_tensor_permuted_test::launch_unchecked::<F32, R>(
+        load_tensor_permuted_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -545,7 +536,7 @@ pub fn load_rhs_transposed_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(16, 16, 8);
 
     unsafe {
-        load_tensor_permuted_test::launch_unchecked::<F32, R>(
+        load_tensor_permuted_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -580,7 +571,7 @@ pub fn load_rhs_transposed_out_of_bounds_unit_test<R: Runtime>(device: &R::Devic
     let config = make_tiling2d_config(8, k, n);
 
     unsafe {
-        load_tensor_permuted_test::launch_unchecked::<F32, R>(
+        load_tensor_permuted_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,

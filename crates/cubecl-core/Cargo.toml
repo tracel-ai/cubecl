@@ -15,21 +15,23 @@ version.workspace = true
 
 [features]
 default = ["cubecl-runtime/default"]
+export_tests = []
 std = ["cubecl-runtime/std"]
 template = []
-export_tests = []
 
 [dependencies]
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false }
 
 bytemuck = { workspace = true }
-half = { workspace = true, features = ["bytemuck"] }
-serde = { workspace = true }
+cubecl-common = { path = "../cubecl-common", version = "0.2.0" }
 cubecl-macros = { path = "../cubecl-macros", version = "0.2.0" }
 derive-new = { workspace = true }
+half = { workspace = true, features = ["bytemuck"] }
 num-traits = { workspace = true }
+serde = { workspace = true }
 
 log = { workspace = true }
 
 [dev-dependencies]
+pretty_assertions = { workspace = true }
 trybuild = "1"

@@ -3,10 +3,7 @@ use std::ops::Range;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::base::{
-    Dimensions, DimensionsExpand, Ids, IdsExpand, Offsets, OffsetsExpand, RuntimeCmmaInfo,
-    RuntimeCmmaInfoExpand,
-};
+use crate::matmul::cmma::base::{Dimensions, Ids, Offsets, RuntimeCmmaInfo};
 use crate::matmul::cmma::config::{CmmaConfig, ComptimeCmmaInfo, WriteOutStrategy};
 use crate::matmul::cmma::write_output::base::shared_memory_to_output;
 use crate::matmul::tests::test_utils::{
@@ -19,31 +16,31 @@ use super::base::DimsTestCase;
 fn write_output_test<F: Float>(
     out: &mut Tensor<F>,
     acc_sm_arr: &mut Array<F>,
-    m: UInt,
-    k: UInt,
-    n: UInt,
-    config: Comptime<ComptimeCmmaInfo>,
+    m: u32,
+    k: u32,
+    n: u32,
+    #[comptime] config: ComptimeCmmaInfo,
 ) {
-    let num_accumulators = Comptime::map(config, |c| c.num_accumulators);
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let num_coops = Comptime::map(config, |c| c.num_coops);
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
-    let block_size_n = Comptime::map(config, |c| c.block_size_n);
+    let num_accumulators = config.num_accumulators;
+    let tile_size = config.tile_size;
+    let num_coops = config.num_coops;
+    let block_size_m = config.block_size_m;
+    let block_size_n = config.block_size_n;
 
     let sm_stride = tile_size * tile_size;
     let sm_size = num_accumulators * num_coops * sm_stride;
 
-    let mut accumulate = SharedMemory::<F>::new(Comptime::get(sm_size));
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+    let mut accumulate = SharedMemory::<F>::new(sm_size);
+    for i in 0..sm_size {
         accumulate[i] = acc_sm_arr[i];
     }
 
     let offsets = Offsets {
-        batch_lhs: UInt::new(0),
-        batch_rhs: UInt::new(0),
-        batch_out: UInt::new(0),
-        cube_row: CUBE_POS_X * Comptime::runtime(block_size_m),
-        cube_col: CUBE_POS_Y * Comptime::runtime(block_size_n),
+        batch_lhs: 0,
+        batch_rhs: 0,
+        batch_out: 0,
+        cube_row: CUBE_POS_X * block_size_m,
+        cube_col: CUBE_POS_Y * block_size_n,
     };
     let dims = Dimensions { m, k, n };
     let ids = Ids {
@@ -52,8 +49,9 @@ fn write_output_test<F: Float>(
     };
     let runtime_info = RuntimeCmmaInfo { offsets, dims, ids };
 
-    let smem_position_base = Comptime::runtime(num_accumulators) * ids.coop;
-    for n_iter in range(0u32, Comptime::get(num_accumulators), Comptime::new(true)) {
+    let smem_position_base = num_accumulators * ids.coop;
+    #[unroll]
+    for n_iter in 0..num_accumulators {
         shared_memory_to_output(
             out,
             smem_position_base + n_iter,
@@ -80,7 +78,7 @@ fn write_output_test_case<R: Runtime>(
         let acc_sm = range_tensor::<R>(&client, config.b_mn, config.b_mn);
 
         unsafe {
-            write_output_test::launch_unchecked::<F32, R>(
+            write_output_test::launch_unchecked::<f32, R>(
                 &client,
                 config.cube_count::<R>(&[dims.m, dims.n]),
                 config.cube_dim(),

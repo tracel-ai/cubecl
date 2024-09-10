@@ -1,11 +1,12 @@
-use super::{Bool, CubePrimitive, Numeric, UInt, Vectorized, F32, F64, I32, I64};
+use super::{CubePrimitive, Numeric, Vectorized};
 use crate::{
-    ir::{ConstantScalarValue, Elem, Item, Operator, Variable, Vectorization},
-    prelude::{index_assign, init_expand, CubeContext, KernelBuilder, KernelLauncher},
+    ir::{ConstantScalarValue, Elem, FloatKind, Item, Operator, Variable, Vectorization},
+    prelude::{index_assign, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher},
     KernelSettings, Runtime,
 };
 use alloc::rc::Rc;
-use std::marker::PhantomData;
+use half::{bf16, f16};
+use std::{marker::PhantomData, num::NonZero};
 
 /// Types used in a cube function must implement this trait
 ///
@@ -26,6 +27,14 @@ pub trait CubeType {
     fn init(context: &mut CubeContext, expand: Self::ExpandType) -> Self::ExpandType {
         expand.init(context)
     }
+}
+
+pub trait IntoRuntime: CubeType + Sized {
+    fn runtime(self) -> Self {
+        self
+    }
+
+    fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType;
 }
 
 /// Trait to be implemented by [cube types](CubeType) implementations.
@@ -123,8 +132,8 @@ pub struct ExpandElementTyped<T: CubeType> {
 }
 
 macro_rules! from_const {
-    ($lit:ty, $ty:ty) => {
-        impl From<$lit> for ExpandElementTyped<$ty> {
+    ($lit:ty) => {
+        impl From<$lit> for ExpandElementTyped<$lit> {
             fn from(value: $lit) -> Self {
                 let variable: Variable = value.into();
 
@@ -132,26 +141,30 @@ macro_rules! from_const {
             }
         }
     };
-    (val $($lit:ty),*) => {
-        $(
-            impl From<$lit> for ExpandElementTyped<UInt> {
-                fn from(value: $lit) -> Self {
-                    let variable: Variable = value.val.into();
-
-                    ExpandElement::Plain(variable).into()
-                }
-            }
-        )*
-    };
 }
 
-from_const!(u32, UInt);
-from_const!(i64, I64);
-from_const!(i32, I32);
-from_const!(f64, F64);
-from_const!(f32, F32);
-from_const!(bool, Bool);
-from_const!(val UInt, I32, I64, F32, F64);
+from_const!(u32);
+from_const!(i64);
+from_const!(i32);
+from_const!(f64);
+from_const!(f32);
+from_const!(bool);
+
+impl From<f16> for ExpandElementTyped<f16> {
+    fn from(value: f16) -> Self {
+        let variable =
+            Variable::ConstantScalar(ConstantScalarValue::Float(value.to_f64(), FloatKind::F16));
+        ExpandElement::Plain(variable).into()
+    }
+}
+
+impl From<bf16> for ExpandElementTyped<bf16> {
+    fn from(value: bf16) -> Self {
+        let variable =
+            Variable::ConstantScalar(ConstantScalarValue::Float(value.to_f64(), FloatKind::BF16));
+        ExpandElement::Plain(variable).into()
+    }
+}
 
 macro_rules! tuple_cube_type {
     ($($P:ident),*) => {
@@ -173,6 +186,19 @@ macro_rules! tuple_init {
         }
     }
 }
+macro_rules! tuple_runtime {
+    ($($P:ident),*) => {
+        impl<$($P: IntoRuntime),*> IntoRuntime for ($($P,)*) {
+            #[allow(non_snake_case)]
+            fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType {
+                let ($($P,)*) = self;
+                ($(
+                    $P.__expand_runtime_method(context),
+                )*)
+            }
+        }
+    }
+}
 
 tuple_cube_type!(P1);
 tuple_cube_type!(P1, P2);
@@ -188,6 +214,13 @@ tuple_init!(P1, P2, P3, P4);
 tuple_init!(P1, P2, P3, P4, P5);
 tuple_init!(P1, P2, P3, P4, P5, P6);
 
+tuple_runtime!(P1);
+tuple_runtime!(P1, P2);
+tuple_runtime!(P1, P2, P3);
+tuple_runtime!(P1, P2, P3, P4);
+tuple_runtime!(P1, P2, P3, P4, P5);
+tuple_runtime!(P1, P2, P3, P4, P5, P6);
+
 pub trait ExpandElementBaseInit: CubeType {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement;
 }
@@ -199,11 +232,29 @@ impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> Vectorized for ExpandElementTyped<T> {
-    fn vectorization_factor(&self) -> UInt {
+    fn vectorization_factor(&self) -> u32 {
         self.expand.vectorization_factor()
     }
 
-    fn vectorize(self, factor: UInt) -> Self {
+    fn vectorize(self, factor: u32) -> Self {
+        Self {
+            expand: self.expand.vectorize(factor),
+            _type: PhantomData,
+        }
+    }
+}
+
+impl<T: CubeType> ExpandElementTyped<T> {
+    // Expanded version of rank.
+    pub fn __expand_vectorization_factor_method(self, _context: &mut CubeContext) -> u32 {
+        self.expand
+            .item()
+            .vectorization
+            .map(|it| it.get())
+            .unwrap_or(1) as u32
+    }
+
+    pub fn __expand_vectorize_method(self, _context: &mut CubeContext, factor: u32) -> Self {
         Self {
             expand: self.expand.vectorize(factor),
             _type: PhantomData,
@@ -347,22 +398,6 @@ impl Init for ExpandElement {
     }
 }
 
-macro_rules! impl_init_for {
-    ($($t:ty),*) => {
-        $(
-            impl Init for $t {
-                fn init(self, _context: &mut CubeContext) -> Self {
-                    panic!("Shouln't be called, only for comptime.")
-                }
-            }
-
-        )*
-    };
-}
-
-// Add all types used within comptime
-impl_init_for!(u32, bool, UInt);
-
 impl<T: Init> Init for Option<T> {
     fn init(self, context: &mut CubeContext) -> Self {
         self.map(|o| Init::init(o, context))
@@ -384,37 +419,40 @@ impl<T: Init> Init for Vec<T> {
 }
 
 /// Create a constant element of the correct type during expansion.
-pub(crate) fn __expand_new<C: Numeric>(
+pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
     _context: &mut CubeContext,
-    val: ExpandElementTyped<C>,
-    elem: Elem,
-) -> ExpandElementTyped<C> {
-    ExpandElement::Plain(elem.from_constant(*val.expand)).into()
+    val: C,
+) -> ExpandElementTyped<Out> {
+    let val = Out::from(val).unwrap();
+    val.into()
 }
 
 /// Create a vectorized constant element of the correct type during expansion.
-pub(crate) fn __expand_vectorized<C: Numeric>(
+pub(crate) fn __expand_vectorized<C: Numeric + CubeIndex<u32>, Out: Numeric>(
     context: &mut CubeContext,
-    val: ExpandElementTyped<C>,
-    vectorization: UInt,
+    val: C,
+    vectorization: u32,
     elem: Elem,
-) -> ExpandElementTyped<C> {
-    if vectorization.val == 1 {
-        __expand_new(context, val, elem)
-    } else {
-        let new_var = context.create_local(Item::vectorized(elem, vectorization.val as u8));
+) -> ExpandElementTyped<Out> {
+    let new_var = context.create_local(Item::vectorized(elem, NonZero::new(vectorization as u8)));
+    let val = Out::from(val).unwrap();
+    let val: ExpandElementTyped<Out> = val.into();
 
-        for (i, element) in vec![val; vectorization.val as usize].iter().enumerate() {
-            let element = elem.from_constant(*element.expand);
-
-            index_assign::expand::<C>(
-                context,
-                new_var.clone().into(),
-                ExpandElementTyped::from_lit(i),
-                ExpandElement::Plain(element).into(),
-            );
-        }
-
-        new_var.into()
+    // Allow setting explicit vectorization of 1 without trying to index assign it
+    if vectorization == 1 {
+        return val;
     }
+
+    for (i, element) in vec![val; vectorization as usize].iter().enumerate() {
+        let element = elem.from_constant(*element.expand);
+
+        index_assign::expand::<C>(
+            context,
+            new_var.clone().into(),
+            ExpandElementTyped::from_lit(i),
+            ExpandElement::Plain(element).into(),
+        );
+    }
+
+    new_var.into()
 }

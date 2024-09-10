@@ -2,12 +2,11 @@
 //! the expand function, so that a user implicitly imports the expand function when importing the constant.
 
 use super::ExpandElementTyped;
-use crate::frontend::UInt;
 
 macro_rules! constant {
     ($ident:ident, $var:expr, $doc:expr) => {
         #[doc = $doc]
-        pub const $ident: UInt = UInt::new(0u32);
+        pub const $ident: u32 = 1;
 
         #[allow(non_snake_case)]
         #[doc = $doc]
@@ -16,7 +15,7 @@ macro_rules! constant {
             use crate::frontend::{CubeContext, ExpandElement};
 
             /// Expansion of the constant variable.
-            pub fn expand(_context: &mut CubeContext) -> ExpandElementTyped<UInt> {
+            pub fn expand(_context: &mut CubeContext) -> ExpandElementTyped<u32> {
                 ExpandElementTyped::new(ExpandElement::Plain($var))
             }
         }

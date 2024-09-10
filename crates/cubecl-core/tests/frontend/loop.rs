@@ -35,7 +35,7 @@ mod tests {
         ir::{Branch, Elem, Item, Variable},
     };
 
-    type ElemType = I32;
+    type ElemType = i32;
 
     #[test]
     fn cube_while_test() {
@@ -43,7 +43,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        while_not::__expand::<ElemType>(&mut context, lhs.into());
+        while_not::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_while());
@@ -55,7 +55,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        manual_loop_break::__expand::<ElemType>(&mut context, lhs.into());
+        manual_loop_break::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -70,7 +70,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        loop_with_return::__expand::<ElemType>(&mut context, lhs.into());
+        loop_with_return::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(

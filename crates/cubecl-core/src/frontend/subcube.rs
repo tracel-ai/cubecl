@@ -1,12 +1,12 @@
-use super::{CubeContext, CubePrimitive, ExpandElement, UInt};
-use crate::prelude::{Bool, ExpandElementTyped};
+use super::{CubeContext, CubePrimitive, ExpandElement};
+use crate::prelude::ExpandElementTyped;
 use crate::{
     ir::{Elem, InitOperator, Item, Operation, Subcube, UnaryOperator},
     unexpanded,
 };
 
 /// Returns true if the cube unit has the lowest subcube_unit_id among active unit in the subcube
-pub fn subcube_elect() -> Bool {
+pub fn subcube_elect() -> bool {
     unexpanded!()
 }
 
@@ -16,7 +16,7 @@ pub mod subcube_elect {
     use super::*;
 
     /// Expand method of [subcube_elect()].
-    pub fn __expand(context: &mut CubeContext) -> ExpandElementTyped<Bool> {
+    pub fn expand(context: &mut CubeContext) -> ExpandElementTyped<bool> {
         let output = context.create_local(Item::new(Elem::Bool));
         let out = *output;
 
@@ -29,7 +29,7 @@ pub mod subcube_elect {
 /// Broadcasts the value from the specified subcube unit at the given index
 /// to all active units within that subcube.
 #[allow(unused_variables)]
-pub fn subcube_broadcast<E: CubePrimitive>(value: E, index: UInt) -> E {
+pub fn subcube_broadcast<E: CubePrimitive>(value: E, index: u32) -> E {
     unexpanded!()
 }
 
@@ -39,10 +39,10 @@ pub mod subcube_broadcast {
     use super::*;
 
     /// Expand method of [subcube_broadcast()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         value: ExpandElementTyped<E>,
-        id: ExpandElementTyped<UInt>,
+        id: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<E> {
         let output = context.create_local(value.expand.item());
         let out = *output;
@@ -68,7 +68,7 @@ pub mod subcube_sum {
     use super::*;
 
     /// Expand method of [subcube_sum()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
@@ -97,7 +97,7 @@ pub mod subcube_prod {
     use super::*;
 
     /// Expand method of [subcube_prod()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
@@ -126,7 +126,7 @@ pub mod subcube_max {
     use super::*;
 
     /// Expand method of [subcube_max()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
@@ -155,7 +155,7 @@ pub mod subcube_min {
     use super::*;
 
     /// Expand method of [subcube_min()].
-    pub fn __expand<E: CubePrimitive>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut CubeContext,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
@@ -175,7 +175,7 @@ pub mod subcube_min {
 }
 
 /// Perform a reduce all operation across all units in a subcube.
-pub fn subcube_all(_elem: Bool) -> Bool {
+pub fn subcube_all(_elem: bool) -> bool {
     unexpanded!()
 }
 
@@ -185,10 +185,10 @@ pub mod subcube_all {
     use super::*;
 
     /// Expand method of [subcube_all()].
-    pub fn __expand(
+    pub fn expand(
         context: &mut CubeContext,
-        elem: ExpandElementTyped<Bool>,
-    ) -> ExpandElementTyped<Bool> {
+        elem: ExpandElementTyped<bool>,
+    ) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item());
 
@@ -205,7 +205,7 @@ pub mod subcube_all {
 }
 
 /// Perform a reduce any operation across all units in a subcube.
-pub fn subcube_any(_elem: Bool) -> Bool {
+pub fn subcube_any(_elem: bool) -> bool {
     unexpanded!()
 }
 
@@ -215,10 +215,10 @@ pub mod subcube_any {
     use super::*;
 
     /// Expand method of [subcube_any()].
-    pub fn __expand(
+    pub fn expand(
         context: &mut CubeContext,
-        elem: ExpandElementTyped<Bool>,
-    ) -> ExpandElementTyped<Bool> {
+        elem: ExpandElementTyped<bool>,
+    ) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item());
 

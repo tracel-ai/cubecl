@@ -1,5 +1,5 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, comptime};
 
 #[derive(Clone)]
 pub struct State {
@@ -14,8 +14,8 @@ impl Init for State {
 }
 
 #[cube]
-pub fn comptime_if_else<T: Numeric>(lhs: T, cond: Comptime<bool>) {
-    if Comptime::get(cond) {
+pub fn comptime_if_else<T: Numeric>(lhs: T, #[comptime] cond: bool) {
+    if cond {
         let _ = lhs + T::from_int(4);
     } else {
         let _ = lhs - T::from_int(5);
@@ -24,11 +24,11 @@ pub fn comptime_if_else<T: Numeric>(lhs: T, cond: Comptime<bool>) {
 
 #[cube]
 #[allow(clippy::collapsible_else_if)]
-pub fn comptime_else_then_if<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: Comptime<bool>) {
-    if Comptime::get(cond1) {
+pub fn comptime_else_then_if<T: Numeric>(lhs: T, #[comptime] cond1: bool, #[comptime] cond2: bool) {
+    if cond1 {
         let _ = lhs + T::from_int(4);
     } else {
-        if Comptime::get(cond2) {
+        if cond2 {
             let _ = lhs + T::from_int(5);
         } else {
             let _ = lhs - T::from_int(6);
@@ -38,15 +38,15 @@ pub fn comptime_else_then_if<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: C
 
 #[cube]
 pub fn comptime_float() {
-    let comptime_float = Comptime::new(F32::new(0.0));
-    let _runtime_float = Comptime::runtime(comptime_float);
+    let comptime_float = 0.0f32;
+    let _runtime_float = comptime_float.runtime();
 }
 
 #[cube]
-pub fn comptime_elsif<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: Comptime<bool>) {
-    if Comptime::get(cond1) {
+pub fn comptime_elsif<T: Numeric>(lhs: T, #[comptime] cond1: bool, #[comptime] cond2: bool) {
+    if cond1 {
         let _ = lhs + T::from_int(4);
-    } else if Comptime::get(cond2) {
+    } else if cond2 {
         let _ = lhs + T::from_int(5);
     } else {
         let _ = lhs - T::from_int(6);
@@ -54,9 +54,9 @@ pub fn comptime_elsif<T: Numeric>(lhs: T, cond1: Comptime<bool>, cond2: Comptime
 }
 
 #[cube]
-pub fn comptime_elsif_with_runtime1<T: Numeric>(lhs: T, comptime_cond: Comptime<bool>) {
+pub fn comptime_elsif_with_runtime1<T: Numeric>(lhs: T, #[comptime] comptime_cond: bool) {
     let runtime_cond = lhs >= T::from_int(2);
-    if Comptime::get(comptime_cond) {
+    if comptime_cond {
         let _ = lhs + T::from_int(4);
     } else if runtime_cond {
         let _ = lhs + T::from_int(5);
@@ -66,11 +66,11 @@ pub fn comptime_elsif_with_runtime1<T: Numeric>(lhs: T, comptime_cond: Comptime<
 }
 
 #[cube]
-pub fn comptime_elsif_with_runtime2<T: Numeric>(lhs: T, comptime_cond: Comptime<bool>) {
+pub fn comptime_elsif_with_runtime2<T: Numeric>(lhs: T, #[comptime] comptime_cond: bool) {
     let runtime_cond = lhs >= T::from_int(2);
     if runtime_cond {
         let _ = lhs + T::from_int(4);
-    } else if Comptime::get(comptime_cond) {
+    } else if comptime_cond {
         let _ = lhs + T::from_int(5);
     } else {
         let _ = lhs - T::from_int(6);
@@ -78,7 +78,7 @@ pub fn comptime_elsif_with_runtime2<T: Numeric>(lhs: T, comptime_cond: Comptime<
 }
 
 #[cube]
-pub fn comptime_if_expr<T: Numeric>(lhs: T, x: Comptime<UInt>, y: Comptime<UInt>) {
+pub fn comptime_if_expr<T: Numeric>(lhs: T, #[comptime] x: u32, #[comptime] y: u32) {
     let y2 = x + y;
 
     if x < y2 {
@@ -89,11 +89,11 @@ pub fn comptime_if_expr<T: Numeric>(lhs: T, x: Comptime<UInt>, y: Comptime<UInt>
 }
 
 #[cube]
-pub fn comptime_with_map_bool<T: Numeric>(state: Comptime<State>) -> T {
-    let cond = Comptime::map(state, |s: State| s.cond);
+pub fn comptime_with_map_bool<T: Numeric>(#[comptime] state: State) -> T {
+    let cond = state.cond;
 
     let mut x = T::from_int(3);
-    if Comptime::get(cond) {
+    if cond {
         x += T::from_int(4);
     } else {
         x -= T::from_int(4);
@@ -102,26 +102,39 @@ pub fn comptime_with_map_bool<T: Numeric>(state: Comptime<State>) -> T {
 }
 
 #[cube]
-pub fn comptime_with_map_uint<T: Numeric>(state: Comptime<State>) -> T {
-    let bound = Comptime::map(state, |s: State| s.bound);
+pub fn comptime_with_map_uint<T: Numeric>(#[comptime] state: State) -> T {
+    let bound = state.bound;
 
     let mut x = T::from_int(3);
-    for _ in range(0u32, Comptime::get(bound), Comptime::new(true)) {
+    #[unroll]
+    for _ in 0..bound {
         x += T::from_int(4);
     }
 
     x
 }
 
+fn rust_function(input: u32) -> u32 {
+    input + 2
+}
+
+#[cube]
+pub fn comptime_block<T: Numeric>(a: T) -> T {
+    let comptime_val = comptime! { rust_function(2) as i64 };
+
+    a + T::from_int(comptime_val)
+}
+
 mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        frontend::{CubeContext, CubePrimitive, F32},
+        frontend::{CubeContext, CubePrimitive},
         ir::{Elem, Item, Variable},
     };
+    use pretty_assertions::assert_eq;
 
-    type ElemType = F32;
+    type ElemType = f32;
 
     #[test]
     fn cube_comptime_if_test() {
@@ -129,7 +142,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        comptime_if_else::__expand::<ElemType>(&mut context, lhs.into(), true);
+        comptime_if_else::expand::<ElemType>(&mut context, lhs.into(), true);
         let scope = context.into_scope();
 
         assert_eq!(
@@ -144,12 +157,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        comptime_if_expr::__expand::<ElemType>(
-            &mut context,
-            lhs.into(),
-            UInt::new(4),
-            UInt::new(5),
-        );
+        comptime_if_expr::expand::<ElemType>(&mut context, lhs.into(), 4, 5);
         let scope = context.into_scope();
 
         assert_eq!(
@@ -164,12 +172,12 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        comptime_if_else::__expand::<ElemType>(&mut context, lhs.into(), false);
+        comptime_if_else::expand::<ElemType>(&mut context, lhs.into(), false);
         let scope = context.into_scope();
 
         assert_eq!(
             format!("{:?}", scope.operations),
-            inline_macro_ref_comptime(false)
+            inline_macro_ref_comptime2(false)
         );
     }
 
@@ -179,17 +187,12 @@ mod tests {
             for cond2 in [false, true] {
                 let mut context1 = CubeContext::root();
                 let lhs = context1.create_local(Item::new(ElemType::as_elem()));
-                comptime_else_then_if::__expand::<ElemType>(
-                    &mut context1,
-                    lhs.into(),
-                    cond1,
-                    cond2,
-                );
+                comptime_else_then_if::expand::<ElemType>(&mut context1, lhs.into(), cond1, cond2);
                 let scope1 = context1.into_scope();
 
                 let mut context2 = CubeContext::root();
                 let lhs = context2.create_local(Item::new(ElemType::as_elem()));
-                comptime_elsif::__expand::<ElemType>(&mut context2, lhs.into(), cond1, cond2);
+                comptime_elsif::expand::<ElemType>(&mut context2, lhs.into(), cond1, cond2);
                 let scope2 = context2.into_scope();
 
                 assert_eq!(
@@ -205,7 +208,7 @@ mod tests {
         for cond in [false, true] {
             let mut context = CubeContext::root();
             let lhs = context.create_local(Item::new(ElemType::as_elem()));
-            comptime_elsif_with_runtime1::__expand::<ElemType>(&mut context, lhs.into(), cond);
+            comptime_elsif_with_runtime1::expand::<ElemType>(&mut context, lhs.into(), cond);
             let scope = context.into_scope();
 
             assert_eq!(
@@ -221,7 +224,7 @@ mod tests {
             let mut context = CubeContext::root();
             let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-            comptime_elsif_with_runtime2::__expand::<ElemType>(&mut context, lhs.into(), cond);
+            comptime_elsif_with_runtime2::expand::<ElemType>(&mut context, lhs.into(), cond);
             let scope = context.into_scope();
 
             assert_eq!(
@@ -245,8 +248,8 @@ mod tests {
             bound: 4,
         };
 
-        comptime_with_map_bool::__expand::<ElemType>(&mut context1, comptime_state_true);
-        comptime_with_map_bool::__expand::<ElemType>(&mut context2, comptime_state_false);
+        comptime_with_map_bool::expand::<ElemType>(&mut context1, comptime_state_true);
+        comptime_with_map_bool::expand::<ElemType>(&mut context2, comptime_state_false);
 
         let scope1 = context1.into_scope();
         let scope2 = context2.into_scope();
@@ -266,11 +269,27 @@ mod tests {
             bound: 4,
         };
 
-        comptime_with_map_uint::__expand::<ElemType>(&mut context, comptime_state);
+        comptime_with_map_uint::expand::<ElemType>(&mut context, comptime_state);
 
         let scope = context.into_scope();
 
         assert!(!format!("{:?}", scope.operations).contains("RangeLoop"));
+    }
+
+    #[test]
+    fn cube_comptime_block_test() {
+        let mut context = CubeContext::root();
+
+        let a = context.create_local(Item::new(ElemType::as_elem()));
+
+        comptime_block::expand::<ElemType>(&mut context, a.into());
+
+        let scope = context.into_scope();
+
+        assert_eq!(
+            format!("{:?}", scope.operations),
+            inline_macro_ref_comptime_block()
+        );
     }
 
     fn inline_macro_ref_comptime(cond: bool) -> String {
@@ -286,6 +305,23 @@ mod tests {
             cpa!(scope, y = x + 4.0f32);
         } else {
             cpa!(scope, y = x - 5.0f32);
+        };
+
+        format!("{:?}", scope.operations)
+    }
+
+    fn inline_macro_ref_comptime2(cond: bool) -> String {
+        let mut context = CubeContext::root();
+        let item = Item::new(ElemType::as_elem());
+        let x = context.create_local(item);
+
+        let mut scope = context.into_scope();
+        let x: Variable = x.into();
+
+        if cond {
+            cpa!(scope, x = x + 4.0f32);
+        } else {
+            cpa!(scope, x = x - 5.0f32);
         };
 
         format!("{:?}", scope.operations)
@@ -335,6 +371,19 @@ mod tests {
                 cpa!(scope, y = x - 6.0f32);
             }
         }));
+
+        format!("{:?}", scope.operations)
+    }
+
+    fn inline_macro_ref_comptime_block() -> String {
+        let mut context = CubeContext::root();
+        let item = Item::new(ElemType::as_elem());
+        let a = context.create_local(item);
+        let comptime_var: Variable = ElemType::from_int(4).into();
+
+        let mut scope = context.into_scope();
+        let x: Variable = a.into();
+        cpa!(scope, x = x + comptime_var);
 
         format!("{:?}", scope.operations)
     }
