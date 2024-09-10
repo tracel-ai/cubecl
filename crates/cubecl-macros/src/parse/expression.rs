@@ -1,5 +1,5 @@
 use proc_macro2::Span;
-use quote::{format_ident, quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment, RangeLimits, Type};
 
 use crate::{
@@ -307,6 +307,12 @@ impl Expression {
                     ))?
                 }
             }
+            Expr::Macro(mac) if is_comptime_macro(&mac.mac.path) => {
+                let tokens = mac.mac.tokens;
+                Expression::Verbatim {
+                    tokens: quote![{ #tokens }],
+                }
+            }
             Expr::Macro(mac) => Expression::Verbatim {
                 tokens: quote![#mac],
             },
@@ -340,6 +346,7 @@ impl Expression {
                 let params = expr.inputs.into_iter().collect();
                 Expression::Closure { params, body }
             }
+
             Expr::Try(expr) => {
                 let span = expr.span();
                 let expr = Expression::from_expr(*expr.expr, context)?
@@ -455,4 +462,9 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
         }
         _ => None,
     }
+}
+
+fn is_comptime_macro(path: &Path) -> bool {
+    let path = path.to_token_stream().to_string();
+    "::cubecl::comptime".ends_with(&path)
 }

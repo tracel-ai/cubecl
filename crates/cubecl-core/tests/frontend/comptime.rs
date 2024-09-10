@@ -1,5 +1,5 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, comptime};
 
 #[derive(Clone)]
 pub struct State {
@@ -114,6 +114,17 @@ pub fn comptime_with_map_uint<T: Numeric>(#[comptime] state: State) -> T {
     x
 }
 
+fn rust_function(input: u32) -> u32 {
+    input + 2
+}
+
+#[cube]
+pub fn comptime_block<T: Numeric>(a: T) -> T {
+    let comptime_val = comptime! { rust_function(2) as i64 };
+
+    a + T::from_int(comptime_val)
+}
+
 mod tests {
     use super::*;
     use cubecl_core::{
@@ -156,7 +167,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Seemingly fine optimization fails the test, needs more checking"]
     fn cube_comptime_else_test() {
         let mut context = CubeContext::root();
 
@@ -167,7 +177,7 @@ mod tests {
 
         assert_eq!(
             format!("{:?}", scope.operations),
-            inline_macro_ref_comptime(false)
+            inline_macro_ref_comptime2(false)
         );
     }
 
@@ -266,6 +276,22 @@ mod tests {
         assert!(!format!("{:?}", scope.operations).contains("RangeLoop"));
     }
 
+    #[test]
+    fn cube_comptime_block_test() {
+        let mut context = CubeContext::root();
+
+        let a = context.create_local(Item::new(ElemType::as_elem()));
+
+        comptime_block::expand::<ElemType>(&mut context, a.into());
+
+        let scope = context.into_scope();
+
+        assert_eq!(
+            format!("{:?}", scope.operations),
+            inline_macro_ref_comptime_block()
+        );
+    }
+
     fn inline_macro_ref_comptime(cond: bool) -> String {
         let mut context = CubeContext::root();
         let item = Item::new(ElemType::as_elem());
@@ -279,6 +305,23 @@ mod tests {
             cpa!(scope, y = x + 4.0f32);
         } else {
             cpa!(scope, y = x - 5.0f32);
+        };
+
+        format!("{:?}", scope.operations)
+    }
+
+    fn inline_macro_ref_comptime2(cond: bool) -> String {
+        let mut context = CubeContext::root();
+        let item = Item::new(ElemType::as_elem());
+        let x = context.create_local(item);
+
+        let mut scope = context.into_scope();
+        let x: Variable = x.into();
+
+        if cond {
+            cpa!(scope, x = x + 4.0f32);
+        } else {
+            cpa!(scope, x = x - 5.0f32);
         };
 
         format!("{:?}", scope.operations)
@@ -328,6 +371,19 @@ mod tests {
                 cpa!(scope, y = x - 6.0f32);
             }
         }));
+
+        format!("{:?}", scope.operations)
+    }
+
+    fn inline_macro_ref_comptime_block() -> String {
+        let mut context = CubeContext::root();
+        let item = Item::new(ElemType::as_elem());
+        let a = context.create_local(item);
+        let comptime_var: Variable = ElemType::from_int(4).into();
+
+        let mut scope = context.into_scope();
+        let x: Variable = a.into();
+        cpa!(scope, x = x + comptime_var);
 
         format!("{:?}", scope.operations)
     }

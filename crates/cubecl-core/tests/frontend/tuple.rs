@@ -24,7 +24,6 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
-    #[ignore = "Empty body because of constant collapsing"]
     fn cube_tuple_const_test() {
         let mut context = CubeContext::root();
 
