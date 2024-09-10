@@ -1,108 +1,91 @@
-use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::frontend::{
-    ComptimeType, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
-    ExpandElementTyped, Numeric,
+    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
+    Numeric,
 };
-use crate::ir::{ConstantScalarValue, Elem, IntKind, Variable, Vectorization};
+use crate::ir::{Elem, IntKind, Vectorization};
 use crate::Runtime;
+use crate::{
+    compute::{KernelBuilder, KernelLauncher},
+    unexpanded,
+};
 
 use super::{
-    init_expand_element, LaunchArgExpand, ScalarArgSettings, UInt, Vectorized, __expand_new,
-    __expand_vectorized,
+    init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, Vectorized,
+    __expand_new, __expand_vectorized,
 };
 
-/// Signed integer. Used as input in int kernels
+/// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
     Numeric
     + std::ops::Rem<Output = Self>
-    + From<i32>
-    + core::ops::Add<i32, Output = Self>
-    + core::ops::Sub<i32, Output = Self>
-    + core::ops::Mul<i32, Output = Self>
-    + core::ops::Div<i32, Output = Self>
-    + std::ops::AddAssign<i32>
-    + std::ops::SubAssign<i32>
-    + std::ops::MulAssign<i32>
-    + std::ops::DivAssign<i32>
-    + std::cmp::PartialOrd<i32>
-    + std::cmp::PartialEq<i32>
+    + core::ops::Add<Output = Self>
+    + core::ops::Sub<Output = Self>
+    + core::ops::Mul<Output = Self>
+    + core::ops::Div<Output = Self>
+    + core::ops::BitOr<Output = Self>
+    + core::ops::BitAnd<Output = Self>
+    + core::ops::BitXor<Output = Self>
+    + core::ops::Shl<Output = Self>
+    + core::ops::Shr<Output = Self>
+    + std::ops::RemAssign
+    + std::ops::AddAssign
+    + std::ops::SubAssign
+    + std::ops::MulAssign
+    + std::ops::DivAssign
+    + std::ops::BitOrAssign
+    + std::ops::BitAndAssign
+    + std::ops::BitXorAssign
+    + std::ops::ShlAssign<u32>
+    + std::ops::ShrAssign<u32>
+    + std::cmp::PartialOrd
+    + std::cmp::PartialEq
 {
     fn new(val: i64) -> Self;
-    fn vectorized(val: i64, vectorization: UInt) -> Self;
-    fn __expand_new(
-        context: &mut CubeContext,
-        val: Self::ExpandType,
-    ) -> <Self as CubeType>::ExpandType {
-        __expand_new(context, val, Self::as_elem())
+    fn vectorized(val: i64, vectorization: u32) -> Self;
+    fn __expand_new(context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType {
+        __expand_new(context, val)
     }
     fn __expand_vectorized(
         context: &mut CubeContext,
-        val: Self::ExpandType,
-        vectorization: UInt,
+        val: i64,
+        vectorization: u32,
     ) -> <Self as CubeType>::ExpandType {
         __expand_vectorized(context, val, vectorization, Self::as_elem())
     }
 }
 
 macro_rules! impl_int {
-    ($type:ident, $primitive:ty) => {
-        #[allow(clippy::derived_hash_with_manual_eq)]
-        #[derive(Clone, Copy, Hash)]
-        pub struct $type {
-            pub val: $primitive,
-            pub vectorization: u8,
-        }
-
+    ($type:ident, $kind:ident) => {
         impl CubeType for $type {
             type ExpandType = ExpandElementTyped<Self>;
         }
 
         impl CubePrimitive for $type {
             fn as_elem() -> Elem {
-                Elem::Int(IntKind::$type)
+                Elem::Int(IntKind::$kind)
             }
         }
 
-        impl From<u32> for $type {
-            fn from(val: u32) -> Self {
-                Self {
-                    val: val as $primitive,
-                    vectorization: 1,
-                }
+        impl IntoRuntime for $type {
+            fn __expand_runtime_method(
+                self,
+                context: &mut CubeContext,
+            ) -> ExpandElementTyped<Self> {
+                let expand: ExpandElementTyped<Self> = self.into();
+                Init::init(expand, context)
             }
         }
 
-        impl From<i32> for $type {
-            fn from(val: i32) -> Self {
-                Self {
-                    val: val as $primitive,
-                    vectorization: 1,
-                }
+        impl Numeric for $type {}
+
+        impl Vectorized for $type {
+            fn vectorization_factor(&self) -> u32 {
+                1
             }
-        }
 
-        impl ComptimeType for $type {
-            fn into_expand(self) -> Self::ExpandType {
-                let elem = Self::as_elem();
-                let value = match elem {
-                    Elem::Int(kind) => ConstantScalarValue::Int(self.val as i64, kind),
-                    Elem::UInt => ConstantScalarValue::UInt(self.val as u64),
-                    _ => panic!("Wrong elem type"),
-                };
-
-                ExpandElementTyped::new(ExpandElement::Plain(Variable::ConstantScalar(value)))
+            fn vectorize(self, _factor: u32) -> Self {
+                unexpanded!()
             }
-        }
-
-        impl From<$type> for ExpandElement {
-            fn from(value: $type) -> Self {
-                let constant = $type::as_elem().from_constant(value.val.into());
-                ExpandElement::Plain(constant)
-            }
-        }
-
-        impl Numeric for $type {
-            type Primitive = $primitive;
         }
 
         impl ExpandElementBaseInit for $type {
@@ -113,21 +96,11 @@ macro_rules! impl_int {
 
         impl Int for $type {
             fn new(val: i64) -> Self {
-                Self {
-                    val: val as $primitive,
-                    vectorization: 1,
-                }
+                val as $type
             }
 
-            fn vectorized(val: i64, vectorization: UInt) -> Self {
-                if vectorization.val == 1 {
-                    Self::new(val)
-                } else {
-                    Self {
-                        val: val as $primitive,
-                        vectorization: vectorization.val as u8,
-                    }
-                }
+            fn vectorized(val: i64, _vectorization: u32) -> Self {
+                Self::new(val)
             }
         }
 
@@ -136,36 +109,33 @@ macro_rules! impl_int {
                 builder: &mut KernelBuilder,
                 vectorization: Vectorization,
             ) -> ExpandElementTyped<Self> {
-                assert_eq!(vectorization, 1, "Attempted to vectorize a scalar");
+                assert_eq!(vectorization, None, "Attempted to vectorize a scalar");
                 builder.scalar($type::as_elem()).into()
-            }
-        }
-
-        impl Vectorized for $type {
-            fn vectorization_factor(&self) -> UInt {
-                UInt {
-                    val: self.vectorization as u32,
-                    vectorization: 1,
-                }
-            }
-
-            fn vectorize(mut self, factor: UInt) -> Self {
-                self.vectorization = factor.vectorization;
-                self
             }
         }
     };
 }
 
-impl_int!(I32, i32);
-impl_int!(I64, i64);
+impl_int!(i32, I32);
+impl_int!(i64, I64);
 
-impl From<i64> for I64 {
-    fn from(value: i64) -> Self {
-        Self {
-            val: value,
-            vectorization: 1,
-        }
+impl Int for u32 {
+    fn new(val: i64) -> Self {
+        val as u32
+    }
+
+    fn vectorized(val: i64, _vectorization: u32) -> Self {
+        Self::new(val)
+    }
+}
+
+impl Vectorized for u32 {
+    fn vectorization_factor(&self) -> u32 {
+        1
+    }
+
+    fn vectorize(self, _factor: u32) -> Self {
+        unexpanded!()
     }
 }
 

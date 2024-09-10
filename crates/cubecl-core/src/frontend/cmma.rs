@@ -32,15 +32,15 @@
 //!         cmma::MatrixLayout::Undefined,
 //!     );
 //!     cmma::fill::<F32>(&c, F32::new(0.0));
-//!     cmma::load::<F16>(&a, lhs.as_slice(), UInt::new(16));
-//!     cmma::load::<F16>(&b, rhs.as_slice(), UInt::new(16));
+//!     cmma::load::<F16>(&a, lhs.as_slice(), u32::new(16));
+//!     cmma::load::<F16>(&b, rhs.as_slice(), u32::new(16));
 //!
 //!     cmma::execute::<F16, F16, F32, F32>(&a, &b, &c, &c);
 //!
 //!     cmma::store::<F32>(
 //!         out.as_slice_mut(),
 //!         &c,
-//!         UInt::new(16),
+//!         u32::new(16),
 //!         cmma::MatrixLayout::RowMajor,
 //!     );
 //! }
@@ -54,8 +54,8 @@ use crate::{
 };
 
 use super::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, Slice, SliceMut,
-    UInt,
+    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, IntoRuntime,
+    Slice, SliceMut,
 };
 
 pub use ir::{MatrixIdent, MatrixLayout};
@@ -77,6 +77,12 @@ pub struct MatrixExpand {
 
 impl<C: CubeType> CubeType for Matrix<C> {
     type ExpandType = MatrixExpand;
+}
+
+impl<C: CubeType> IntoRuntime for Matrix<C> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> MatrixExpand {
+        unimplemented!("Matrices can't exist at compile time")
+    }
 }
 
 impl Init for MatrixExpand {
@@ -107,9 +113,9 @@ impl<C: CubePrimitive> Matrix<C> {
     pub fn __expand_new(
         context: &mut CubeContext,
         ident: MatrixIdent,
-        m: ExpandElementTyped<UInt>,
-        n: ExpandElementTyped<UInt>,
-        k: ExpandElementTyped<UInt>,
+        m: ExpandElementTyped<u32>,
+        n: ExpandElementTyped<u32>,
+        k: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) -> MatrixExpand {
         let elem = context.create_matrix(ir::Matrix {
@@ -135,7 +141,7 @@ pub mod fill {
     use super::*;
 
     /// Expand method of [fill()].
-    pub fn __expand<C: CubeType>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
         mat: MatrixExpand,
         value: ExpandElementTyped<C>,
@@ -150,7 +156,7 @@ pub mod fill {
 
 /// Load the matrix with the provided array using the stride.
 #[allow(unused_variables)]
-pub fn load<C: CubeType>(mat: &Matrix<C>, value: &Slice<'_, C>, stride: UInt) {
+pub fn load<C: CubeType>(mat: &Matrix<C>, value: &Slice<'_, C>, stride: u32) {
     unexpanded!()
 }
 
@@ -160,11 +166,11 @@ pub mod load {
 
     /// Expand method of [load()].
     #[allow(unused_variables)]
-    pub fn __expand<C: CubeType>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
         mat: MatrixExpand,
         value: ExpandElementTyped<Slice<'static, C>>,
-        stride: ExpandElementTyped<UInt>,
+        stride: ExpandElementTyped<u32>,
     ) {
         let stride: ExpandElement = stride.into();
 
@@ -181,7 +187,7 @@ pub mod load {
 pub fn store<C: CubePrimitive>(
     output: &mut SliceMut<'_, C>,
     mat: &Matrix<C>,
-    stride: UInt,
+    stride: u32,
     layout: MatrixLayout,
 ) {
     unexpanded!()
@@ -193,11 +199,11 @@ pub mod store {
 
     /// Expand method of [store()].
     #[allow(unused_variables)]
-    pub fn __expand<C: CubePrimitive>(
+    pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
         output: ExpandElementTyped<SliceMut<'static, C>>,
         mat: MatrixExpand,
-        stride: ExpandElementTyped<UInt>,
+        stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) {
         let stride: ExpandElement = stride.into();
@@ -227,7 +233,7 @@ pub mod execute {
     use super::*;
 
     /// Expand method of [execute()].
-    pub fn __expand<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrimitive>(
+    pub fn expand<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrimitive>(
         context: &mut CubeContext,
         mat_a: MatrixExpand,
         mat_b: MatrixExpand,

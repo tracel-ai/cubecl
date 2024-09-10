@@ -5,10 +5,7 @@ use crate::matmul::tiling2d::{
     config::CubeTiling2dConfig,
     tile::{
         loader::{CheckBounds, ReadTileInfo},
-        memory_access::{
-            ContiguousAccess, StridedAccess, UnmatchingVectorization, WritePositions,
-            WritePositionsExpand,
-        },
+        memory_access::{ContiguousAccess, StridedAccess, UnmatchingVectorization, WritePositions},
     },
     write_output::WriteTileInfo,
 };
@@ -23,28 +20,23 @@ impl<F: Float> BlockLoader<F> for WholeCheckBlockIO {
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<F>,
         info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
-        let vectorization = Comptime::vectorization(&tensor);
+        let tile_size = config.tile_size;
+        let vectorization = vectorization_of(tensor);
 
         let col = check_bounds.skip_col + info.read_col;
         if check_bounds.dim_horizontal > col {
-            let mut num_reads_vertical = UInt::new(0);
+            let mut num_reads_vertical = 0;
             let row = check_bounds.skip_row + info.read_row;
             if check_bounds.dim_vertical > row {
-                num_reads_vertical = UInt::min(
-                    check_bounds.dim_vertical - row,
-                    Comptime::runtime(tile_size),
-                );
+                num_reads_vertical = Min::min(check_bounds.dim_vertical - row, tile_size);
             }
 
-            for i in range(0u32, num_reads_vertical, Comptime::new(false)) {
-                let gm_position =
-                    (info.gm_position_base + i * info.gm_stride) / Comptime::runtime(vectorization);
-                let sm_position =
-                    (info.sm_position_base + i * info.sm_stride) / Comptime::runtime(tile_size);
+            for i in 0..num_reads_vertical {
+                let gm_position = (info.gm_position_base + i * info.gm_stride) / vectorization;
+                let sm_position = (info.sm_position_base + i * info.sm_stride) / tile_size;
 
                 shared_memory[sm_position] =
                     A::read_contiguous_checked(tensor, gm_position, check_bounds, info, config);
@@ -65,22 +57,21 @@ impl<F: Float> BlockLoader<F> for WholeCheckBlockIO {
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<F>,
         info: ReadTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
+        let tile_size = config.tile_size;
 
-        let mut num_reads_horizontal = UInt::new(0);
+        let mut num_reads_horizontal = 0;
         let col = check_bounds.skip_col + info.read_col;
         let dim_horizontal = check_bounds.dim_horizontal;
         if dim_horizontal > col {
-            num_reads_horizontal = UInt::min(dim_horizontal - col, Comptime::runtime(tile_size));
+            num_reads_horizontal = Min::min(dim_horizontal - col, tile_size);
         }
 
-        for i in range(0u32, num_reads_horizontal, Comptime::new(false)) {
+        for i in 0..num_reads_horizontal {
             let gm_position = info.gm_position_base + i;
-            let sm_position =
-                (info.sm_position_base + i * info.sm_stride) / Comptime::runtime(tile_size);
+            let sm_position = (info.sm_position_base + i * info.sm_stride) / tile_size;
 
             shared_memory[sm_position] = UnmatchingVectorization::read_strided_checked(
                 tensor,
@@ -108,30 +99,27 @@ impl<F: Float> BlockWriter<F> for WholeCheckBlockIO {
         out: &mut Tensor<F>,
         results: &Array<F>,
         info: WriteTileInfo,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
     ) {
-        let tile_size = Comptime::map(config, |c| c.tile_size);
+        let tile_size = config.tile_size;
         let coordinates = info.coordinates;
 
         let col = coordinates.skip_col + coordinates.unit_col;
 
         if check_bounds.dim_horizontal > col {
-            let mut num_writes_vertical = UInt::new(0);
+            let mut num_writes_vertical = 0;
             let row = coordinates.skip_row + coordinates.unit_row;
 
             if check_bounds.dim_vertical > row {
-                num_writes_vertical = UInt::min(
-                    check_bounds.dim_vertical - row,
-                    Comptime::runtime(tile_size),
-                );
+                num_writes_vertical = Min::min(check_bounds.dim_vertical - row, tile_size);
             }
 
             let out_position_base = row * info.out_stride + col + info.offset_output;
 
-            for result_index in range(0u32, num_writes_vertical, Comptime::new(false)) {
+            for result_index in 0..num_writes_vertical {
                 let positions = WritePositions {
-                    result: result_index * Comptime::runtime(tile_size),
+                    result: result_index * tile_size,
                     out: out_position_base + result_index * info.out_stride,
                 };
 

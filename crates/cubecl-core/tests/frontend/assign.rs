@@ -1,40 +1,44 @@
+#![allow(unused)]
+
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
 pub fn mut_assign() {
-    let mut x = UInt::new(0);
-    x += UInt::new(1);
+    let mut x: u32 = 0;
+    x += 1;
 }
 
 #[cube]
-pub fn mut_assign_input(y: UInt) -> UInt {
+pub fn mut_assign_input(y: u32) -> u32 {
     let mut x = y;
-    x += UInt::new(1);
-    y + UInt::new(2)
+    x += 1;
+    y + 2
 }
 
 #[cube]
-pub fn assign_mut_input(mut y: UInt) -> UInt {
+pub fn assign_mut_input(mut y: u32) -> u32 {
     let x = y;
-    y += UInt::new(1);
-    x + UInt::new(2)
+    y += 1;
+    x + 2
 }
 
 #[cube]
-pub fn assign_vectorized(y: UInt) -> UInt {
-    let vectorization_factor = Comptime::vectorization(&y);
-    let x = UInt::vectorized(1, Comptime::get(vectorization_factor));
+pub fn assign_vectorized(y: u32) -> u32 {
+    let x = u32::vectorized(1, vectorization_of(&y));
     x + y
 }
 
 #[cube]
-pub fn assign_deref(y: &mut UInt) -> UInt {
-    *y = UInt::new(1);
+pub fn assign_deref(y: &mut u32) -> u32 {
+    *y = 1;
     *y
 }
 
 mod tests {
+    use pretty_assertions::assert_eq;
+    use std::num::NonZero;
+
     use super::*;
     use cubecl_core::{
         cpa,
@@ -45,7 +49,7 @@ mod tests {
     fn cube_mut_assign_test() {
         let mut context = CubeContext::root();
 
-        mut_assign::__expand(&mut context);
+        mut_assign::expand(&mut context);
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_ref_mut_assign());
@@ -55,9 +59,9 @@ mod tests {
     fn cube_mut_assign_input_test() {
         let mut context = CubeContext::root();
 
-        let y = context.create_local(Item::new(UInt::as_elem()));
+        let y = context.create_local(Item::new(u32::as_elem()));
 
-        mut_assign_input::__expand(&mut context, y.into());
+        mut_assign_input::expand(&mut context, y.into());
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_ref_mut_assign_input());
@@ -67,9 +71,9 @@ mod tests {
     fn cube_assign_mut_input_test() {
         let mut context = CubeContext::root();
 
-        let y = context.create_local(Item::new(UInt::as_elem()));
+        let y = context.create_local(Item::new(u32::as_elem()));
 
-        assign_mut_input::__expand(&mut context, y.into());
+        assign_mut_input::expand(&mut context, y.into());
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_ref_assign_mut_input());
@@ -79,9 +83,9 @@ mod tests {
     fn cube_assign_vectorized_test() {
         let mut context = CubeContext::root();
 
-        let y = context.create_local(Item::vectorized(UInt::as_elem(), 4));
+        let y = context.create_local(Item::vectorized(u32::as_elem(), NonZero::new(4)));
 
-        assign_vectorized::__expand(&mut context, y.into());
+        assign_vectorized::expand(&mut context, y.into());
         let scope = context.into_scope();
 
         assert_eq!(scope.operations, inline_macro_ref_assign_vectorized());
@@ -91,8 +95,8 @@ mod tests {
     fn cube_assign_deref_test() {
         let mut context = CubeContext::root();
 
-        let y = context.create_local(Item::new(UInt::as_elem()));
-        assign_deref::__expand(&mut context, y.into());
+        let y = context.create_local(Item::new(u32::as_elem()));
+        assign_deref::expand(&mut context, y.into());
 
         let scope = context.into_scope();
 
@@ -154,7 +158,7 @@ mod tests {
 
     fn inline_macro_ref_assign_vectorized() -> Vec<Operation> {
         let mut context = CubeContext::root();
-        let item = Item::vectorized(Elem::UInt, 4);
+        let item = Item::vectorized(Elem::UInt, NonZero::new(4));
         let y = context.create_local(item);
 
         let mut scope = context.into_scope();

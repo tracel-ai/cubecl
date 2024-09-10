@@ -3,41 +3,44 @@ authors = ["nathanielsimard <nathaniel.simard.42@gmail.com>"]
 categories = ["science", "mathematics", "algorithms"]
 description = "Multi-platform high-performance compute language extension for Rust."
 edition.workspace = true
-keywords = [
-    "gpu",
-    "cuda",
-    "wgpu",
-    "gpgpu",
-    "tensor",
-]
+keywords = ["gpu", "cuda", "wgpu", "gpgpu", "tensor"]
 license.workspace = true
 name = "cubecl"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl"
-version.workspace = true
 rust-version = "1.79"
+version.workspace = true
 
 [features]
-default = ["std", "linalg", "cubecl-core/default", "cubecl-wgpu?/default", "cubecl-cuda?/default"]
-std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
-template = ["cubecl-core/template"]
+default = [
+    "std",
+    "linalg",
+    "cubecl-core/default",
+    "cubecl-wgpu?/default",
+    "cubecl-cuda?/default",
+]
 linalg = ["dep:cubecl-linalg"]
 simple-memory-management = ["cubecl-wgpu?/simple-memory-management"]
+std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
+template = ["cubecl-core/template"]
 
 # Runtimes
-wgpu = ["cubecl-wgpu"]
 cuda = ["cubecl-cuda"]
+wgpu = ["cubecl-wgpu"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
-cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0", default-features = false, optional = true }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.2.0", default-features = false, optional = true }
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", default-features = false, optional = true }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0", default-features = false, optional = true }
+
+[dev-dependencies]
+half = { workspace = true }
 
 [[bench]]
+harness = false
 name = "matmul"
-harness = false
 
 [[bench]]
-name = "unary"
 harness = false
+name = "unary"

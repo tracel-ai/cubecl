@@ -1,9 +1,11 @@
+use std::num::NonZero;
+
 use super::{
     BinaryOperator, ClampOperator, CompareAndSwapOperator, FmaOperator, InitOperator, Item,
     Operation, Operator, SliceOperator, Subcube, UnaryOperator, Variable,
 };
 
-pub type Vectorization = u8;
+pub type Vectorization = Option<NonZero<u8>>;
 
 impl Operation {
     pub(crate) fn vectorize(&self, vectorization: Vectorization) -> Self {
@@ -78,6 +80,7 @@ impl Operator {
             Operator::Or(op) => Operator::Or(op.vectorize(vectorization)),
             Operator::Not(op) => Operator::Not(op.vectorize(vectorization)),
             Operator::BitwiseOr(op) => Operator::BitwiseOr(op.vectorize(vectorization)),
+            Operator::Neg(op) => Operator::Neg(op.vectorize(vectorization)),
             Operator::BitwiseAnd(op) => Operator::BitwiseAnd(op.vectorize(vectorization)),
             Operator::BitwiseXor(op) => Operator::BitwiseXor(op.vectorize(vectorization)),
             Operator::ShiftLeft(op) => Operator::ShiftLeft(op.vectorize(vectorization)),
@@ -275,6 +278,7 @@ impl Item {
     }
 
     pub(crate) fn vectorized_size(&self, vectorize: Vectorization, size: u32) -> u32 {
-        size / (vectorize as u32)
+        let vec = vectorize.map(|it| it.get()).unwrap_or(1);
+        size / (vec as u32)
     }
 }

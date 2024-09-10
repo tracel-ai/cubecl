@@ -1,4 +1,4 @@
-use cubecl_core::{frontend::F32, CubeElement, Runtime};
+use cubecl_core::{CubeElement, Runtime};
 use half::f16;
 
 use crate::{
@@ -202,7 +202,7 @@ impl MatmulTestCase {
             f32::from_bytes(&R::client(device).read(tensor_2.handle.clone().binding())),
         );
 
-        let out = tiling2d::launch::<R, F32>(&client, tensor_1, tensor_2, out, Default::default());
+        let out = tiling2d::launch::<R, f32>(&client, tensor_1, tensor_2, out, Default::default());
 
         assert_equals_approx::<R>(&client, out.handle, &expected, self.epsilon);
     }
@@ -228,7 +228,7 @@ impl MatmulTestCase {
             f32::from_bytes(&client.read(tensor_2.handle.clone().binding())),
         );
 
-        let out = launch::<R, F32>(&client, tensor_1, tensor_2, out, config);
+        let out = launch::<R, f32>(&client, tensor_1, tensor_2, out, config);
 
         assert_equals_approx::<R>(&client, out.handle, &expected, self.epsilon);
     }

@@ -1,19 +1,18 @@
+use crate::matmul::cmma::base::Dimensions;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::base::Dimensions;
-
 #[cube]
-pub(crate) trait BlockLoader<F: Float, FC: Float>: Send + Sync + 'static {
+pub(crate) trait BlockLoader<F: Float, FC: Float> {
     fn load_tile(
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<FC>,
-        batch_offset: UInt,
-        read_row: UInt,
-        read_col: UInt,
-        write_pos: UInt,
-        dim_vertical: UInt,
-        dim_horizontal: UInt,
+        batch_offset: u32,
+        read_row: u32,
+        read_col: u32,
+        write_pos: u32,
+        dim_vertical: u32,
+        dim_horizontal: u32,
     );
 }
 
@@ -23,10 +22,10 @@ pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
     fn write_output(
         out: &mut Tensor<F>,
         accumulator_sm: SharedMemory<F>,
-        batch_offset: UInt,
-        read_position: UInt,
-        write_row: UInt,
-        write_col: UInt,
+        batch_offset: u32,
+        read_position: u32,
+        write_row: u32,
+        write_col: u32,
         dims: Dimensions,
     );
 }

@@ -39,13 +39,13 @@ pub fn elsif<F: Float>(lhs: F) {
 mod tests {
     use cubecl_core::{
         cpa,
-        frontend::{CubeContext, CubePrimitive, F32},
+        frontend::{CubeContext, CubePrimitive},
         ir::{Elem, Item, Variable},
     };
 
     use super::*;
 
-    type ElemType = F32;
+    type ElemType = f32;
 
     #[test]
     fn cube_if_test() {
@@ -53,7 +53,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        if_greater::__expand::<ElemType>(&mut context, lhs.into());
+        if_greater::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_if());
@@ -65,7 +65,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        if_then_else::__expand::<ElemType>(&mut context, lhs.into());
+        if_then_else::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -80,7 +80,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        elsif::__expand::<ElemType>(&mut context, lhs.into());
+        elsif::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_elsif());

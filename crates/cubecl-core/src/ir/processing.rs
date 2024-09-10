@@ -159,6 +159,7 @@ impl ScopeProcessing {
                 Operator::Not(op) => {
                     sanitize_constant_scalar_ref_elem(&mut op.input, Elem::Bool);
                 }
+                Operator::Neg(op) => sanitize_constant_scalar_ref_var(&mut op.input, &op.out),
                 Operator::Max(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
@@ -248,6 +249,9 @@ impl ScopeProcessing {
                 Branch::RangeLoop(op) => {
                     sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt);
                     sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt);
+                    if let Some(step) = &mut op.step {
+                        sanitize_constant_scalar_ref_elem(step, Elem::UInt);
+                    }
                 }
                 _ => {
                     // Nothing to do.

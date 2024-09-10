@@ -182,6 +182,7 @@ pub enum Instruction {
         start: Variable,
         end: Variable,
         step: Option<Variable>,
+        inclusive: bool,
         instructions: Vec<Instruction>,
     },
     And {
@@ -308,6 +309,10 @@ pub enum Instruction {
         out: Variable,
     },
     Subgroup(Subgroup),
+    Negate {
+        input: Variable,
+        out: Variable,
+    },
     Normalize {
         input: Variable,
         out: Variable,
@@ -394,9 +399,18 @@ impl Display for Instruction {
             Instruction::Modulo { lhs, rhs, out } => {
                 f.write_fmt(format_args!("{out} = {lhs} % {rhs};\n"))
             }
-            Instruction::Remainder { lhs, rhs, out } => f.write_fmt(format_args!(
-                "{out} = {lhs} - {rhs} * floor({lhs} / {rhs});\n"
-            )),
+            Instruction::Remainder { lhs, rhs, out } => {
+                let f_type = match lhs.item() {
+                    Item::Vec4(_) => Item::Vec4(Elem::F32),
+                    Item::Vec3(_) => Item::Vec3(Elem::F32),
+                    Item::Vec2(_) => Item::Vec2(Elem::F32),
+                    Item::Scalar(_) => Item::Scalar(Elem::F32),
+                };
+                let ty = lhs.item();
+                f.write_fmt(format_args!(
+                    "{out} = {lhs} - {rhs} * {ty}(floor({f_type}({lhs}) / {f_type}({rhs})));\n"
+                ))
+            }
             Instruction::Sub { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular sub on atomic");
@@ -531,16 +545,18 @@ impl Display for Instruction {
                 start,
                 end,
                 step,
+                inclusive,
                 instructions,
             } => {
                 let increment = step
                     .as_ref()
                     .map(|step| format!("{i} += {step}"))
                     .unwrap_or_else(|| format!("{i}++"));
+                let cmp = if *inclusive { "<=" } else { "<" };
 
                 f.write_fmt(format_args!(
                     "
-for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
+for (var {i}: u32 = {start}; {i} {cmp} {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {
@@ -671,6 +687,7 @@ for (var {i}: u32 = {start}; {i} < {end}; {increment}) {{
                 // For compatibility with cuda, only return old_value
                 "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;\n"
             )),
+            Instruction::Negate { input, out } => f.write_fmt(format_args!("{out} = -{input};\n")),
             Instruction::Normalize { input, out } => {
                 f.write_fmt(format_args!("{out} = normalize({input});\n"))
             }

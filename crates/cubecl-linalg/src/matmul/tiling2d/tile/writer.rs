@@ -11,9 +11,10 @@ use crate::matmul::tiling2d::{
 
 use super::{
     block_io::base::BlockWriter,
-    loader::{CheckBounds, CheckBoundsExpand},
+    loader::CheckBounds,
     memory_access::{MatchingVectorization, UnmatchingVectorization},
 };
+
 pub(crate) struct TileWriter<F: Float> {
     _f: PhantomData<F>,
 }
@@ -25,10 +26,10 @@ impl<F: Float> OutputWriter<F> for TileWriter<F> {
         results: &Array<F>,
         write_info: WriteTileInfo,
         dims: Dimensions,
-        config: Comptime<CubeTiling2dConfig>,
+        #[comptime] config: CubeTiling2dConfig,
     ) {
-        let vectorization = Comptime::vectorization(out);
-        let tile_size = Comptime::map(config, |c| c.tile_size);
+        let vectorization = vectorization_of(out);
+        let tile_size = config.tile_size;
         let coordinates = write_info.coordinates;
 
         let check_bounds = CheckBounds {

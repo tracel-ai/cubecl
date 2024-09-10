@@ -1,40 +1,26 @@
-use crate::frontend::{Array, CubeContext, ExpandElement, SharedMemory, Tensor, UInt};
-use crate::frontend::{BF16, F16, F32, F64, I32, I64};
-use crate::{ir, unexpanded};
+use half::{bf16, f16};
 
-macro_rules! impl_op_assign {
-    (($tr:ident|$func:ident) => { $($type:ty| $($rhs:ty);*),* }) => {
-        $(
-            $(
-                impl $tr<$rhs> for $type {
-                    fn $func(&mut self, _rhs: $rhs) {
-                        unexpanded!()
-                    }
-                }
-            )*
-
-            impl $tr for $type {
-                fn $func(&mut self, _rhs: Self) {
-                    unexpanded!()
-                }
-            }
-        )*
-    };
-}
+use crate::{
+    frontend::{Array, CubeContext, ExpandElement, SharedMemory, Tensor},
+    prelude::{CubeIndex, CubeIndexMut, CubeType},
+};
+use crate::{ir, prelude::Index};
 
 pub mod assign {
+    use crate::prelude::ExpandElementTyped;
+
     use self::ir::{Operator, UnaryOperator};
 
     use super::*;
 
-    pub fn expand<I: Into<ExpandElement>, O: Into<ExpandElement>>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
-        input: I,
-        output: O,
+        input: ExpandElementTyped<C>,
+        output: ExpandElementTyped<C>,
     ) {
         context.register(Operator::Assign(UnaryOperator {
-            input: *input.into(),
-            out: *output.into(),
+            input: *input.expand,
+            out: *output.expand,
         }));
     }
 }
@@ -43,17 +29,16 @@ pub mod index_assign {
     use crate::{
         frontend::CubeType,
         prelude::{ExpandElementTyped, SliceMut},
-        unexpanded,
     };
 
     use self::ir::{BinaryOperator, Operator, Variable};
 
     use super::*;
 
-    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
         context: &mut CubeContext,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<UInt>,
+        index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -74,27 +59,13 @@ pub mod index_assign {
 
     macro_rules! impl_index {
         ($type:ident) => {
-            impl<E: CubeType, I: Into<UInt>> core::ops::IndexMut<I> for $type<E> {
-                fn index_mut(&mut self, _index: I) -> &mut Self::Output {
-                    unexpanded!()
-                }
-            }
+            impl<E: CubeType, I: Index> CubeIndexMut<I> for $type<E> {}
         };
     }
     macro_rules! impl_index_vec {
         ($($type:ident),*) => {
             $(
-                impl core::ops::IndexMut<UInt> for $type {
-                    fn index_mut(&mut self, _index: UInt) -> &mut Self::Output {
-                        unexpanded!()
-                    }
-                }
-                impl core::ops::IndexMut<u32> for $type {
-                    fn index_mut(&mut self, _index: u32) -> &mut Self::Output {
-                        unexpanded!()
-                    }
-                }
-
+                impl<I: Index> CubeIndexMut<I> for $type {}
             )*
         };
     }
@@ -102,13 +73,9 @@ pub mod index_assign {
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index_vec!(I64, I32, F16, BF16, F32, F64, UInt);
+    impl_index_vec!(i64, i32, f16, bf16, f32, f64, u32);
 
-    impl<'a, E: CubeType, I: Into<UInt>> core::ops::IndexMut<I> for SliceMut<'a, E> {
-        fn index_mut(&mut self, _index: I) -> &mut Self::Output {
-            unexpanded!()
-        }
-    }
+    impl<'a, E: CubeType, I: Index> CubeIndexMut<I> for SliceMut<'a, E> {}
 }
 
 pub mod index {
@@ -118,17 +85,16 @@ pub mod index {
             CubeType,
         },
         prelude::{ExpandElementTyped, Slice, SliceMut},
-        unexpanded,
     };
 
     use self::ir::{Operator, Variable};
 
     use super::*;
 
-    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
         context: &mut CubeContext,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<UInt>,
+        index: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<A::Output>
     where
         A::Output: CubeType + Sized,
@@ -153,33 +119,16 @@ pub mod index {
 
     macro_rules! impl_index {
         ($type:ident) => {
-            impl<E: CubeType, I: Into<UInt>> core::ops::Index<I> for $type<E> {
+            impl<E: CubeType, I: Index> CubeIndex<I> for $type<E> {
                 type Output = E;
-
-                fn index(&self, _index: I) -> &Self::Output {
-                    unexpanded!()
-                }
             }
         };
     }
-
     macro_rules! impl_index_vec {
         ($($type:ident),*) => {
             $(
-                impl core::ops::Index<UInt> for $type {
+                impl<I: Index> CubeIndex<I> for $type {
                     type Output = Self;
-
-                    fn index(&self, _index: UInt) -> &Self::Output {
-                        unexpanded!()
-                    }
-                }
-
-                impl core::ops::Index<u32> for $type {
-                    type Output = Self;
-
-                    fn index(&self, _index: u32) -> &Self::Output {
-                        unexpanded!()
-                    }
                 }
             )*
         };
@@ -188,21 +137,14 @@ pub mod index {
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
+    impl_index_vec!(i64, i32, f16, bf16, f32, f64, u32);
 
-    impl_index_vec!(I64, I32, F16, BF16, F32, F64, UInt);
-
-    impl<'a, E: CubeType, I: Into<UInt>> core::ops::Index<I> for SliceMut<'a, E> {
+    impl<'a, E: CubeType, I: Index> CubeIndex<I> for Slice<'a, E> {
         type Output = E;
-        fn index(&self, _index: I) -> &Self::Output {
-            unexpanded!()
-        }
     }
 
-    impl<'a, E: CubeType, I: Into<UInt>> core::ops::Index<I> for Slice<'a, E> {
+    impl<'a, E: CubeType, I: Index> CubeIndex<I> for SliceMut<'a, E> {
         type Output = E;
-        fn index(&self, _index: I) -> &Self::Output {
-            unexpanded!()
-        }
     }
 }
 
@@ -211,10 +153,10 @@ pub mod add_assign_array_op {
     use super::*;
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
-    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
         context: &mut CubeContext,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<UInt>,
+        index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -228,10 +170,10 @@ pub mod sub_assign_array_op {
     use super::*;
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
-    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
         context: &mut CubeContext,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<UInt>,
+        index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -245,10 +187,10 @@ pub mod mul_assign_array_op {
     use super::*;
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
-    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
         context: &mut CubeContext,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<UInt>,
+        index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -262,10 +204,10 @@ pub mod div_assign_array_op {
     use super::*;
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
-    pub fn expand<A: CubeType + core::ops::Index<UInt>>(
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
         context: &mut CubeContext,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<UInt>,
+        index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -274,112 +216,250 @@ pub mod div_assign_array_op {
     }
 }
 
+pub mod rem_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::Modulo);
+    }
+}
+
+pub mod bitor_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::BitwiseOr);
+    }
+}
+
+pub mod bitand_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::BitwiseAnd);
+    }
+}
+
+pub mod bitxor_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<A::Output>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::BitwiseXor);
+    }
+}
+
+pub mod shl_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<u32>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::ShiftLeft);
+    }
+}
+
+pub mod shr_assign_array_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+
+    pub fn expand<A: CubeType + CubeIndex<u32>>(
+        context: &mut CubeContext,
+        array: ExpandElementTyped<A>,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<u32>,
+    ) where
+        A::Output: CubeType + Sized,
+    {
+        array_assign_binary_op_expand(context, array, index, value, Operator::ShiftRight);
+    }
+}
+
 pub mod add_assign_op {
-    use crate::frontend::{operation::base::assign_op_expand, BF16, F16, F32, F64, I32, I64};
-    use core::ops::AddAssign;
+    use std::ops::AddAssign;
 
     use self::ir::Operator;
+    use crate::{
+        frontend::operation::base::assign_op_expand,
+        prelude::{CubeType, ExpandElementTyped},
+    };
 
     use super::*;
 
-    pub fn expand<L: Into<ExpandElement>, R: Into<ExpandElement>>(
+    pub fn expand<C: CubeType + AddAssign>(
         context: &mut CubeContext,
-        lhs: L,
-        rhs: R,
-    ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Operator::Add)
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElementTyped<C> {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::Add).into()
     }
-
-    impl_op_assign!(
-        (AddAssign|add_assign) => {
-            F16 | f32;u32,
-            F32 | f32;u32,
-            BF16 | f32;u32,
-            F64 | f32;u32,
-            I32 | i32;u32,
-            I64 | i32;u32,
-            UInt | u32
-        }
-    );
 }
 
 pub mod sub_assign_op {
     use self::ir::Operator;
     use super::*;
-    use crate::frontend::{operation::base::assign_op_expand, BF16, F16, F32, F64, I32, I64};
-    use core::ops::SubAssign;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
-    pub fn expand<L: Into<ExpandElement>, R: Into<ExpandElement>>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
-        lhs: L,
-        rhs: R,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
         assign_op_expand(context, lhs.into(), rhs.into(), Operator::Sub)
     }
-
-    impl_op_assign!(
-        (SubAssign|sub_assign) => {
-            F16 | f32;u32,
-            F32 | f32;u32,
-            BF16 | f32;u32,
-            F64 | f32;u32,
-            I32 | i32;u32,
-            I64 | i32;u32,
-            UInt | u32
-        }
-    );
 }
 
 pub mod mul_assign_op {
     use self::ir::Operator;
     use super::*;
-    use crate::frontend::{operation::base::assign_op_expand, BF16, F16, F32, F64, I32, I64};
-    use core::ops::MulAssign;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
-    pub fn expand<L: Into<ExpandElement>, R: Into<ExpandElement>>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
-        lhs: L,
-        rhs: R,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
         assign_op_expand(context, lhs.into(), rhs.into(), Operator::Mul)
     }
-
-    impl_op_assign!(
-        (MulAssign|mul_assign) => {
-            F16 | f32;u32,
-            F32 | f32;u32,
-            BF16 | f32;u32,
-            F64 | f32;u32,
-            I32 | i32;u32,
-            I64 | i32;u32,
-            UInt | u32
-        }
-    );
 }
 
 pub mod div_assign_op {
     use self::ir::Operator;
     use super::*;
-    use crate::frontend::{operation::base::assign_op_expand, BF16, F16, F32, F64, I32, I64};
-    use core::ops::DivAssign;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
-    pub fn expand<L: Into<ExpandElement>, R: Into<ExpandElement>>(
+    pub fn expand<C: CubeType>(
         context: &mut CubeContext,
-        lhs: L,
-        rhs: R,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
         assign_op_expand(context, lhs.into(), rhs.into(), Operator::Div)
     }
+}
 
-    impl_op_assign!(
-        (DivAssign|div_assign) => {
-            F16 | f32;u32,
-            F32 | f32;u32,
-            BF16 | f32;u32,
-            F64 | f32;u32,
-            I32 | i32;u32,
-            I64 | i32;u32,
-            UInt | u32
-        }
-    );
+pub mod rem_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::Modulo)
+    }
+}
+
+pub mod bitor_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::BitwiseOr)
+    }
+}
+
+pub mod bitand_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::BitwiseAnd)
+    }
+}
+
+pub mod bitxor_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::BitwiseXor)
+    }
+}
+
+pub mod shl_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<u32>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::ShiftLeft)
+    }
+}
+
+pub mod shr_assign_op {
+    use self::ir::Operator;
+    use super::*;
+    use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<u32>,
+    ) -> ExpandElement {
+        assign_op_expand(context, lhs.into(), rhs.into(), Operator::ShiftRight)
+    }
 }

@@ -1,15 +1,13 @@
-use crate::frontend::UInt;
 use crate::frontend::{CubeType, ExpandElement};
 use crate::ir::{Elem, Variable};
 
-use super::{ExpandElementTyped, Vectorized};
+use super::{ExpandElementTyped, IntoRuntime};
 
 /// Form of CubeType that encapsulates all primitive types:
 /// Numeric, UInt, Bool
 pub trait CubePrimitive:
     CubeType<ExpandType = ExpandElementTyped<Self>>
-    + Vectorized
-    + core::cmp::Eq
+    + IntoRuntime
     + core::cmp::PartialEq
     + Send
     + Sync
@@ -41,12 +39,3 @@ impl_into_expand_element!(bool);
 impl_into_expand_element!(f32);
 impl_into_expand_element!(i32);
 impl_into_expand_element!(i64);
-
-/// Useful for Comptime
-impl From<UInt> for ExpandElement {
-    fn from(value: UInt) -> Self {
-        ExpandElement::Plain(crate::ir::Variable::ConstantScalar(
-            crate::ir::ConstantScalarValue::UInt(value.val as u64),
-        ))
-    }
-}
