@@ -26,7 +26,7 @@ pub fn slice_assign() {
         tensor(&input),
         tensor(&output),
     );
-    let expected = include_str!("slice_assign.cu");
+    let expected = include_str!("slice_assign.cu").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
 
@@ -50,7 +50,7 @@ pub fn subcube_sum() {
         CubeDim::new(4, 1, 1),
         tensor(&output),
     );
-    let expected = include_str!("subcube_sum.cu");
+    let expected = include_str!("subcube_sum.cu").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
 
@@ -79,7 +79,7 @@ pub fn sequence_for_loop() {
         CubeDim::default(),
         array(&output),
     );
-    let expected = include_str!("sequence_for_loop.cu");
+    let expected = include_str!("sequence_for_loop.cu").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
 
@@ -110,6 +110,6 @@ pub fn unary_bench() {
         tensor_vec(&rhs, 4),
         tensor_vec(&out, 4),
     );
-    let expected = include_str!("unary_bench.cu");
+    let expected = include_str!("unary_bench.cu").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
