@@ -1,9 +1,9 @@
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand, Numeric,
-    Vectorized, I32, I64,
+    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime, LaunchArgExpand,
+    Numeric,
 };
 use crate::{
-    frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, UInt},
+    frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement},
     ir::{
         BinaryOperator, CompareAndSwapOperator, Elem, IntKind, Item, Operator, UnaryOperator,
         Vectorization,
@@ -278,11 +278,19 @@ macro_rules! impl_atomic_int {
         #[derive(Clone, Copy, Hash, PartialEq, Eq)]
         pub struct $type {
             pub val: $primitive,
-            pub vectorization: u8,
         }
 
         impl CubeType for $type {
             type ExpandType = ExpandElementTyped<Self>;
+        }
+
+        impl IntoRuntime for $type {
+            fn __expand_runtime_method(
+                self,
+                _context: &mut CubeContext,
+            ) -> ExpandElementTyped<Self> {
+                unimplemented!("Atomics don't exist at compile time")
+            }
         }
 
         impl CubePrimitive for $type {
@@ -302,22 +310,8 @@ macro_rules! impl_atomic_int {
                 builder: &mut KernelBuilder,
                 vectorization: Vectorization,
             ) -> ExpandElementTyped<Self> {
-                assert_eq!(vectorization, 1, "Attempted to vectorize a scalar");
+                assert_eq!(vectorization, None, "Attempted to vectorize a scalar");
                 builder.scalar(Elem::AtomicInt(IntKind::$inner_type)).into()
-            }
-        }
-
-        impl Vectorized for $type {
-            fn vectorization_factor(&self) -> UInt {
-                UInt {
-                    val: self.vectorization as u32,
-                    vectorization: 1,
-                }
-            }
-
-            fn vectorize(mut self, factor: UInt) -> Self {
-                self.vectorization = factor.vectorization;
-                self
             }
         }
     };
@@ -326,71 +320,58 @@ macro_rules! impl_atomic_int {
 impl_atomic_int!(AtomicI32, I32, i32);
 impl_atomic_int!(AtomicI64, I64, i64);
 
-/// An atomic version of `UInt`. Can only be acted on atomically.
+/// An atomic version of `u32`. Can only be acted on atomically.
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 /// An atomic unsigned int.
-pub struct AtomicUInt {
+pub struct AtomicU32 {
     pub val: u32,
-    pub vectorization: u8,
 }
 
-impl core::fmt::Debug for AtomicUInt {
+impl core::fmt::Debug for AtomicU32 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.vectorization == 1 {
-            f.write_fmt(format_args!("{}", self.val))
-        } else {
-            f.write_fmt(format_args!("{}-{}", self.val, self.vectorization))
-        }
+        f.write_fmt(format_args!("{}", self.val))
     }
 }
 
-impl CubeType for AtomicUInt {
+impl CubeType for AtomicU32 {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl CubePrimitive for AtomicUInt {
+impl CubePrimitive for AtomicU32 {
     fn as_elem() -> Elem {
         Elem::AtomicUInt
     }
 }
 
-impl ExpandElementBaseInit for AtomicUInt {
+impl IntoRuntime for AtomicU32 {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> ExpandElementTyped<Self> {
+        unimplemented!("Atomics don't exist at compile time")
+    }
+}
+
+impl ExpandElementBaseInit for AtomicU32 {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
     }
 }
 
-impl LaunchArgExpand for AtomicUInt {
+impl LaunchArgExpand for AtomicU32 {
     fn expand(
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> ExpandElementTyped<Self> {
-        assert_eq!(vectorization, 1, "Attempted to vectorize a scalar");
+        assert_eq!(vectorization, None, "Attempted to vectorize a scalar");
         builder.scalar(Elem::AtomicUInt).into()
     }
 }
 
 impl Atomic for AtomicI32 {
-    type Primitive = I32;
+    type Primitive = i32;
 }
 impl Atomic for AtomicI64 {
-    type Primitive = I64;
+    type Primitive = i64;
 }
-impl Atomic for AtomicUInt {
-    type Primitive = UInt;
-}
-
-impl Vectorized for AtomicUInt {
-    fn vectorization_factor(&self) -> UInt {
-        UInt {
-            val: self.vectorization as u32,
-            vectorization: 1,
-        }
-    }
-
-    fn vectorize(mut self, factor: UInt) -> Self {
-        self.vectorization = factor.vectorization;
-        self
-    }
+impl Atomic for AtomicU32 {
+    type Primitive = u32;
 }

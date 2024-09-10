@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use super::Compiler;
 use crate::{
     ir::{
@@ -95,18 +97,22 @@ impl core::fmt::Display for KernelSettings {
         }
 
         match self.vectorization_global {
-            Some(vectorization) => f.write_fmt(format_args!("vg{}", vectorization))?,
+            Some(vectorization) => f.write_fmt(format_args!(
+                "vg{}",
+                vectorization.map(NonZero::get).unwrap_or(1)
+            ))?,
             None => f.write_str("vn")?,
         };
 
         for vectorization in self.vectorization_partial.iter() {
             match vectorization {
-                VectorizationPartial::Input { pos, vectorization } => {
-                    f.write_fmt(format_args!("v{vectorization}i{pos}"))?
-                }
-                VectorizationPartial::Output { pos, vectorization } => {
-                    f.write_fmt(format_args!("v{vectorization}o{pos}"))?
-                }
+                VectorizationPartial::Input { pos, vectorization } => f.write_fmt(format_args!(
+                    "v{}i{pos}",
+                    vectorization.map(NonZero::get).unwrap_or(1)
+                ))?,
+                VectorizationPartial::Output { pos, vectorization } => f.write_fmt(
+                    format_args!("v{}o{pos}", vectorization.map(NonZero::get).unwrap_or(1)),
+                )?,
             };
         }
 
@@ -130,7 +136,7 @@ impl KernelSettings {
     pub fn vectorize_input(mut self, position: usize, vectorization: Vectorization) -> Self {
         // Not setting the vectorization factor when it's the default value reduces the kernel id
         // size.
-        if vectorization == 1 {
+        if vectorization.is_none() {
             return self;
         }
 
@@ -147,7 +153,7 @@ impl KernelSettings {
     pub fn vectorize_output(mut self, position: usize, vectorization: Vectorization) -> Self {
         // Not setting the vectorization factor when it's the default value reduces the kernel id
         // size.
-        if vectorization == 1 {
+        if vectorization.is_none() {
             return self;
         }
 
@@ -173,7 +179,7 @@ impl KernelSettings {
             }
         }
 
-        1
+        None
     }
 
     /// Fetch the vectorization for the provided output position.
@@ -190,7 +196,7 @@ impl KernelSettings {
             }
         }
 
-        1
+        None
     }
 
     /// Compile the shader with inplace enabled by the given [mapping](InplaceMapping).

@@ -173,6 +173,18 @@ impl ConstantScalarValue {
         self.try_as_i64()
             .expect("Only Int and UInt kind can be made into i64.")
     }
+
+    pub fn try_as_bool(&self) -> Option<bool> {
+        match self {
+            ConstantScalarValue::Bool(val) => Some(*val),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> bool {
+        self.try_as_bool()
+            .expect("Only bool can be made into a bool")
+    }
 }
 
 impl Variable {
@@ -248,6 +260,13 @@ impl Variable {
             Variable::CubeCount => Item::new(Elem::UInt),
             Variable::CubeDim => Item::new(Elem::UInt),
             Variable::SubcubeDim => Item::new(Elem::UInt),
+        }
+    }
+
+    pub fn as_const(&self) -> Option<ConstantScalarValue> {
+        match self {
+            Variable::ConstantScalar(constant) => Some(*constant),
+            _ => None,
         }
     }
 }

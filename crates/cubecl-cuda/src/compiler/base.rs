@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, num::NonZero};
 
 use cubecl_core::{
     ir::{self as gpu, ConstantScalarValue},
@@ -294,6 +294,7 @@ impl CudaCompiler {
                 start: self.compile_variable(range_loop.start),
                 end: self.compile_variable(range_loop.end),
                 step: range_loop.step.map(|it| self.compile_variable(it)),
+                inclusive: range_loop.inclusive,
                 instructions: self.compile_scope(&mut range_loop.scope),
             }),
             gpu::Branch::Loop(mut op) => instructions.push(Instruction::Loop {
@@ -544,6 +545,9 @@ impl CudaCompiler {
                 val: self.compile_variable(op.val),
                 out: self.compile_variable(op.out),
             }),
+            gpu::Operator::Neg(op) => {
+                instructions.push(Instruction::Negate(self.compile_unary(op)))
+            }
             gpu::Operator::Normalize(op) => {
                 instructions.push(Instruction::Normalize(self.compile_unary(op)))
             }
@@ -717,7 +721,10 @@ impl CudaCompiler {
     }
 
     fn compile_item(&mut self, item: gpu::Item) -> super::Item {
-        let item = super::Item::new(self.compile_elem(item.elem), item.vectorization.into());
+        let item = super::Item::new(
+            self.compile_elem(item.elem),
+            item.vectorization.map(NonZero::get).unwrap_or(1).into(),
+        );
         self.items.insert(item);
         self.items.insert(item.optimized());
         item

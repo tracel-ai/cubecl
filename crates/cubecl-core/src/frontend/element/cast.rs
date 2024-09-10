@@ -5,24 +5,21 @@ use crate::{
     ir::Operator,
 };
 
+use super::ExpandElementTyped;
+
 /// Enable elegant casting from any to any CubeElem
 pub trait Cast: CubePrimitive {
     fn cast_from<From: CubePrimitive>(value: From) -> Self;
 
-    fn __expand_cast_from<From>(
+    fn __expand_cast_from<From: CubePrimitive>(
         context: &mut CubeContext,
-        value: From,
-    ) -> <Self as CubeType>::ExpandType
-    where
-        From: Into<ExpandElement>,
-    {
-        let value: ExpandElement = value.into();
-        let var: Variable = *value;
+        value: ExpandElementTyped<From>,
+    ) -> <Self as CubeType>::ExpandType {
         let new_var = context.create_local(Item::vectorized(
             <Self as CubePrimitive>::as_elem(),
-            var.item().vectorization,
+            value.expand.item().vectorization,
         ));
-        assign::expand(context, value, new_var.clone());
+        assign::expand(context, value, new_var.clone().into());
         new_var.into()
     }
 }

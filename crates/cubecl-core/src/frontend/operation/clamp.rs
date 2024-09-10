@@ -1,6 +1,8 @@
+use half::{bf16, f16};
+
 use crate::{
     ir::{ClampOperator, Operator},
-    prelude::{CubeContext, CubePrimitive, ExpandElement, UInt, BF16, F16, F32, F64, I32, I64},
+    prelude::{CubeContext, CubePrimitive, ExpandElement},
     unexpanded,
 };
 
@@ -34,10 +36,10 @@ pub trait Clamp: CubePrimitive + Sized {
     }
 }
 
-impl Clamp for F16 {}
-impl Clamp for BF16 {}
-impl Clamp for F32 {}
-impl Clamp for F64 {}
-impl Clamp for I32 {}
-impl Clamp for I64 {}
-impl Clamp for UInt {}
+impl Clamp for f16 {}
+impl Clamp for bf16 {}
+impl Clamp for f32 {}
+impl Clamp for f64 {}
+impl Clamp for i32 {}
+impl Clamp for i64 {}
+impl Clamp for u32 {}

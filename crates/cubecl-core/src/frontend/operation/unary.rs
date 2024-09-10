@@ -1,5 +1,7 @@
+use half::{bf16, f16};
+
 use crate::{
-    frontend::{CubeContext, UInt, BF16, F16, F32, F64, I32, I64},
+    frontend::CubeContext,
     ir::Operator,
     prelude::{CubePrimitive, ExpandElementTyped},
     unexpanded,
@@ -15,6 +17,19 @@ pub mod not {
         x: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
         unary_expand(context, x.into(), Operator::Not).into()
+    }
+}
+
+pub mod neg {
+    use crate::prelude::Numeric;
+
+    use super::*;
+
+    pub fn expand<N: Numeric>(
+        context: &mut CubeContext,
+        x: ExpandElementTyped<N>,
+    ) -> ExpandElementTyped<N> {
+        unary_expand(context, x.into(), Operator::Neg).into()
     }
 }
 
@@ -40,96 +55,96 @@ impl_unary_func!(
     abs,
     __expand_abs,
     Operator::Abs,
-    F16,
-    BF16,
-    F32,
-    F64,
-    I32,
-    I64,
-    UInt
+    f16,
+    bf16,
+    f32,
+    f64,
+    i32,
+    i64,
+    u32
 );
-impl_unary_func!(Exp, exp, __expand_exp, Operator::Exp, F16, BF16, F32, F64);
-impl_unary_func!(Log, log, __expand_log, Operator::Log, F16, BF16, F32, F64);
+impl_unary_func!(Exp, exp, __expand_exp, Operator::Exp, f16, bf16, f32, f64);
+impl_unary_func!(Log, log, __expand_log, Operator::Log, f16, bf16, f32, f64);
 impl_unary_func!(
     Log1p,
     log1p,
     __expand_log1p,
     Operator::Log1p,
-    F16,
-    BF16,
-    F32,
-    F64
+    f16,
+    bf16,
+    f32,
+    f64
 );
-impl_unary_func!(Cos, cos, __expand_cos, Operator::Cos, F16, BF16, F32, F64);
-impl_unary_func!(Sin, sin, __expand_sin, Operator::Sin, F16, BF16, F32, F64);
+impl_unary_func!(Cos, cos, __expand_cos, Operator::Cos, f16, bf16, f32, f64);
+impl_unary_func!(Sin, sin, __expand_sin, Operator::Sin, f16, bf16, f32, f64);
 impl_unary_func!(
     Tanh,
     tanh,
     __expand_tanh,
     Operator::Tanh,
-    F16,
-    BF16,
-    F32,
-    F64
+    f16,
+    bf16,
+    f32,
+    f64
 );
 impl_unary_func!(
     Sqrt,
     sqrt,
     __expand_sqrt,
     Operator::Sqrt,
-    F16,
-    BF16,
-    F32,
-    F64
+    f16,
+    bf16,
+    f32,
+    f64
 );
 impl_unary_func!(
     Round,
     round,
     __expand_round,
     Operator::Round,
-    F16,
-    BF16,
-    F32,
-    F64
+    f16,
+    bf16,
+    f32,
+    f64
 );
 impl_unary_func!(
     Floor,
     floor,
     __expand_floor,
     Operator::Floor,
-    F16,
-    BF16,
-    F32,
-    F64
+    f16,
+    bf16,
+    f32,
+    f64
 );
 impl_unary_func!(
     Ceil,
     ceil,
     __expand_ceil,
     Operator::Ceil,
-    F16,
-    BF16,
-    F32,
-    F64
+    f16,
+    bf16,
+    f32,
+    f64
 );
-impl_unary_func!(Erf, erf, __expand_erf, Operator::Erf, F16, BF16, F32, F64);
+impl_unary_func!(Erf, erf, __expand_erf, Operator::Erf, f16, bf16, f32, f64);
 impl_unary_func!(
     Recip,
     recip,
     __expand_recip,
     Operator::Recip,
-    F16,
-    BF16,
-    F32,
-    F64
+    f16,
+    bf16,
+    f32,
+    f64
 );
 impl_unary_func!(
     Normalize,
     normalize,
     __expand_normalize,
     Operator::Normalize,
-    F16,
-    BF16,
-    F32,
-    F64
+    f16,
+    bf16,
+    f32,
+    f64
 );

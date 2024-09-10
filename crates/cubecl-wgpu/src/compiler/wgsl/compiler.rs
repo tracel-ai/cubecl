@@ -102,7 +102,7 @@ impl WgslCompiler {
 
     fn compile_item(item: cube::Item) -> Item {
         let elem = Self::compile_elem(item.elem);
-        match item.vectorization {
+        match item.vectorization.map(|it| it.get()).unwrap_or(1) {
             1 => wgsl::Item::Scalar(elem),
             2 => wgsl::Item::Vec2(elem),
             3 => wgsl::Item::Vec3(elem),
@@ -133,7 +133,7 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
+    pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
         match value {
             cube::Variable::GlobalInputArray { id, item } => {
                 wgsl::Variable::GlobalInputArray(id, Self::compile_item(item))
@@ -374,6 +374,7 @@ impl WgslCompiler {
                     start: self.compile_variable(range_loop.start),
                     end: self.compile_variable(range_loop.end),
                     step: range_loop.step.map(|it| self.compile_variable(it)),
+                    inclusive: range_loop.inclusive,
                     instructions: self.compile_scope(&mut range_loop.scope),
                 })
             }
@@ -747,6 +748,10 @@ impl WgslCompiler {
             cube::Operator::AtomicXor(op) => wgsl::Instruction::AtomicXor {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(op.out),
+            },
+            cube::Operator::Neg(op) => wgsl::Instruction::Negate {
+                input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),
             },
             cube::Operator::Normalize(op) => wgsl::Instruction::Normalize {

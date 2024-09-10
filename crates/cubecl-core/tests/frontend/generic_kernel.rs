@@ -9,7 +9,7 @@ pub fn generic_kernel<T: Numeric>(lhs: T) {
 mod tests {
     use cubecl_core::{
         cpa,
-        frontend::{CubeContext, CubePrimitive, F32, I32},
+        frontend::{CubeContext, CubePrimitive},
         ir::{Item, Variable},
     };
 
@@ -19,9 +19,9 @@ mod tests {
     fn cube_generic_float_test() {
         let mut context = CubeContext::root();
 
-        let lhs = context.create_local(Item::new(F32::as_elem()));
+        let lhs = context.create_local(Item::new(f32::as_elem()));
 
-        generic_kernel::__expand::<F32>(&mut context, lhs.into());
+        generic_kernel::expand::<f32>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_float());
@@ -31,9 +31,9 @@ mod tests {
     fn cube_generic_int_test() {
         let mut context = CubeContext::root();
 
-        let lhs = context.create_local(Item::new(I32::as_elem()));
+        let lhs = context.create_local(Item::new(i32::as_elem()));
 
-        generic_kernel::__expand::<I32>(&mut context, lhs.into());
+        generic_kernel::expand::<i32>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_int());
@@ -41,7 +41,7 @@ mod tests {
 
     fn inline_macro_ref_float() -> String {
         let mut context = CubeContext::root();
-        let item = Item::new(F32::as_elem());
+        let item = Item::new(f32::as_elem());
         let var = context.create_local(item);
 
         let mut scope = context.into_scope();
@@ -53,7 +53,7 @@ mod tests {
 
     fn inline_macro_ref_int() -> String {
         let mut context = CubeContext::root();
-        let item = Item::new(I32::as_elem());
+        let item = Item::new(i32::as_elem());
         let var = context.create_local(item);
 
         let mut scope = context.into_scope();

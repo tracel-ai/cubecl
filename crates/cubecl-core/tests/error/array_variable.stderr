@@ -1,4 +1,4 @@
-error: Only arrays of literals are supported
+error: Array expressions can't be used at runtime
  --> tests/error/array_variable.rs:6:18
   |
 6 |     let _array = [x, y];

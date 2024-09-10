@@ -40,7 +40,7 @@ mod tests {
         ir::{Item, Variable},
     };
 
-    type ElemType = F32;
+    type ElemType = f32;
 
     #[test]
     fn cube_new_struct_test() {
@@ -49,7 +49,7 @@ mod tests {
         let x = context.create_local(Item::new(ElemType::as_elem()));
         let y = context.create_local(Item::new(ElemType::as_elem()));
 
-        creator::__expand::<ElemType>(&mut context, x.into(), y.into());
+        creator::expand::<ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -69,7 +69,7 @@ mod tests {
             first: x.into(),
             second: y.into(),
         };
-        state_receiver_with_reuse::__expand::<ElemType>(&mut context, expanded_state);
+        state_receiver_with_reuse::expand::<ElemType>(&mut context, expanded_state);
         let scope = context.into_scope();
 
         assert_eq!(
@@ -89,7 +89,7 @@ mod tests {
             first: x.into(),
             second: y.into(),
         };
-        attribute_modifier_reuse_field::__expand::<ElemType>(&mut context, expanded_state);
+        attribute_modifier_reuse_field::expand::<ElemType>(&mut context, expanded_state);
         let scope = context.into_scope();
 
         assert_eq!(
@@ -109,7 +109,7 @@ mod tests {
             first: x.into(),
             second: y.into(),
         };
-        attribute_modifier_reuse_struct::__expand::<ElemType>(&mut context, expanded_state);
+        attribute_modifier_reuse_struct::expand::<ElemType>(&mut context, expanded_state);
         let scope = context.into_scope();
 
         assert_eq!(

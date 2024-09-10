@@ -7,7 +7,7 @@ use crate::matmul::{
         assert_equals, create_empty, make_tiling2d_config, range_tensor, range_tensor_transposed,
     },
     tiling2d::{
-        base::{Coordinates, CoordinatesExpand, TILE_SIZE},
+        base::{Coordinates, TILE_SIZE},
         compute_loop::compute_loop,
         config::CubeTiling2dConfig,
     },
@@ -19,19 +19,15 @@ fn tile_outer_product_test<F: Float>(
     register_m: Array<F>,
     register_n: Array<F>,
     results: &mut Array<F>,
-    config: Comptime<CubeTiling2dConfig>,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
     // We launch with array then convert to vectorized float,
     // because direct launch of vectorized float is not supported
-    let tile_size = Comptime::map(config, |c| c.tile_size);
+    let tile_size = config.tile_size;
     let register_m = register_m.to_vectorized(tile_size);
     let register_n = register_n.to_vectorized(tile_size);
 
-    for i in range(
-        0u32,
-        Comptime::get(tile_size * tile_size),
-        Comptime::new(false),
-    ) {
+    for i in 0..tile_size * tile_size {
         results[i] = F::new(0.);
     }
     tile_outer_product::<F>(register_m, register_n, results, config)
@@ -51,7 +47,7 @@ pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device)
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
     unsafe {
-        tile_outer_product_test::launch_unchecked::<F32, R>(
+        tile_outer_product_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -73,42 +69,42 @@ pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device)
 fn compute_loop_test<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
-    unit_row: UInt,
-    unit_col: UInt,
+    unit_row: u32,
+    unit_col: u32,
     results: &mut Array<F>,
-    lhs_len: Comptime<UInt>,
-    rhs_len: Comptime<UInt>,
-    config: Comptime<CubeTiling2dConfig>,
+    #[comptime] lhs_len: u32,
+    #[comptime] rhs_len: u32,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
-    let tile_size = Comptime::map(config, |c| c.tile_size);
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
-    let block_size_k = Comptime::map(config, |c| c.block_size_m);
-    let block_size_n = Comptime::map(config, |c| c.block_size_m);
+    let tile_size = config.tile_size;
+    let block_size_m = config.block_size_m;
+    let block_size_k = config.block_size_m;
+    let block_size_n = config.block_size_m;
     let sm_size_lhs = block_size_m * block_size_k / tile_size;
     let sm_size_rhs = block_size_n * block_size_k / tile_size;
 
     // Shared memories are not launchable, so we launch with tensor and convert to shared memory
-    let mut shared_lhs =
-        SharedMemory::<F>::vectorized(Comptime::get(sm_size_lhs), Comptime::get(tile_size));
-    for i in range(0u32, Comptime::get(lhs_len), Comptime::new(true)) {
+    let mut shared_lhs = SharedMemory::<F>::vectorized(sm_size_lhs, tile_size);
+    #[unroll]
+    for i in 0..lhs_len {
         shared_lhs[i] = lhs[i];
     }
 
-    let mut shared_rhs =
-        SharedMemory::<F>::vectorized(Comptime::get(sm_size_rhs), Comptime::get(tile_size));
-    for i in range(0u32, Comptime::get(rhs_len), Comptime::new(true)) {
+    let mut shared_rhs = SharedMemory::<F>::vectorized(sm_size_rhs, tile_size);
+    #[unroll]
+    for i in 0..rhs_len {
         shared_rhs[i] = rhs[i];
     }
 
-    for i in range(0u32, 16u32, Comptime::new(false)) {
+    for i in 0..16 {
         results[i] = F::new(0.);
     }
 
     let coordinates = Coordinates {
         unit_row,
         unit_col,
-        skip_row: UInt::new(0),
-        skip_col: UInt::new(0),
+        skip_row: 0,
+        skip_col: 0,
     };
 
     compute_loop(coordinates, shared_lhs, shared_rhs, results, config)
@@ -127,7 +123,7 @@ pub fn tile_outer_product_vectorized_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
     unsafe {
-        tile_outer_product_test::launch_unchecked::<F32, R>(
+        tile_outer_product_test::launch_unchecked::<f32, R>(
             &client,
             cube_count,
             cube_dim,
@@ -157,7 +153,7 @@ pub fn compute_loop_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
     unsafe {
-        compute_loop_test::launch_unchecked::<F32, R>(
+        compute_loop_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -166,8 +162,8 @@ pub fn compute_loop_unit_test<R: Runtime>(device: &R::Device) {
             ScalarArg::new(0),
             ScalarArg::new(0),
             ArrayArg::from_raw_parts(&results, 16, 1),
-            UInt::new(16),
-            UInt::new(16),
+            16,
+            16,
             config,
         );
     };
@@ -191,7 +187,7 @@ pub fn compute_loop_unit_offset_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(4, 8, 4);
 
     unsafe {
-        compute_loop_test::launch_unchecked::<F32, R>(
+        compute_loop_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -200,8 +196,8 @@ pub fn compute_loop_unit_offset_test<R: Runtime>(device: &R::Device) {
             ScalarArg::new(4),
             ScalarArg::new(4),
             ArrayArg::from_raw_parts(&results, 16, 1),
-            UInt::new(8),
-            UInt::new(8),
+            8,
+            8,
             config,
         );
     };

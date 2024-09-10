@@ -21,18 +21,19 @@ pub fn redeclare_same_scope_other_type<I: Int, F: Float>(mut x: I) -> F {
 pub fn redeclare_different_scope<I: Int>(mut x: I) {
     let y = I::new(1);
     x += y;
-    for _ in range(0u32, 2u32, Comptime::new(false)) {
+    for _ in 0..2u32 {
         let y = I::new(2);
         x += y;
     }
 }
 
 #[cube]
-pub fn redeclare_two_for_loops(mut x: UInt) {
-    for i in range(0u32, 2u32, Comptime::new(false)) {
+#[allow(unused)]
+pub fn redeclare_two_for_loops(mut x: u32) {
+    for i in 0..2 {
         x += i;
     }
-    for i in range(0u32, 2u32, Comptime::new(false)) {
+    for i in 0..2 {
         x += i;
         x += i;
     }
@@ -43,10 +44,11 @@ mod tests {
         cpa,
         ir::{Item, Variable},
     };
+    use pretty_assertions::assert_eq;
 
     use super::*;
 
-    type ElemType = I32;
+    type ElemType = i32;
 
     #[test]
     fn cube_redeclare_same_scope_test() {
@@ -54,11 +56,11 @@ mod tests {
 
         let x = context.create_local(Item::new(ElemType::as_elem()));
 
-        redeclare_same_scope::__expand::<ElemType>(&mut context, x.into());
+        redeclare_same_scope::expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(
-            format!("{:?}", scope.operations),
+            format!("{:#?}", scope.operations),
             inline_macro_ref_same_scope()
         );
     }
@@ -69,7 +71,7 @@ mod tests {
 
         let x = context.create_local(Item::new(ElemType::as_elem()));
 
-        redeclare_same_scope_other_type::__expand::<ElemType, F32>(&mut context, x.into());
+        redeclare_same_scope_other_type::expand::<ElemType, f32>(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -84,11 +86,11 @@ mod tests {
 
         let x = context.create_local(Item::new(ElemType::as_elem()));
 
-        redeclare_different_scope::__expand::<ElemType>(&mut context, x.into());
+        redeclare_different_scope::expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(
-            format!("{:?}", scope.operations),
+            format!("{:#?}", scope.operations),
             inline_macro_ref_different()
         );
     }
@@ -97,9 +99,9 @@ mod tests {
     fn cube_redeclare_two_for_loops_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(UInt::as_elem()));
+        let x = context.create_local(Item::new(u32::as_elem()));
 
-        redeclare_two_for_loops::__expand(&mut context, x.into());
+        redeclare_two_for_loops::expand(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(
@@ -116,16 +118,17 @@ mod tests {
         let mut scope = context.into_scope();
         let x: Variable = x.into();
 
-        let i = scope.create_with_value(1, item);
-        cpa!(scope, x += i);
-
-        let value: ExpandElement = ElemType::from(2).into_expand().into();
+        let value: ExpandElement = ElemType::from(1).into();
         let value: Variable = *value;
 
-        cpa!(scope, i = value);
-        cpa!(scope, x += i);
+        cpa!(scope, x += value);
 
-        format!("{:?}", scope.operations)
+        let value: ExpandElement = ElemType::from(2).into();
+        let value: Variable = *value;
+
+        cpa!(scope, x += value);
+
+        format!("{:#?}", scope.operations)
     }
 
     fn inline_macro_ref_same_scope_other_type() -> String {
@@ -136,10 +139,12 @@ mod tests {
         let mut scope = context.into_scope();
         let x: Variable = x.into();
 
-        let i = scope.create_with_value(1, item);
+        let i: ExpandElement = ElemType::new(1).into();
+        let i = *i;
         cpa!(scope, x += i);
-        let i = scope.create_with_value(2, Item::new(F32::as_elem()));
-        let y = scope.create_local(Item::new(F32::as_elem()));
+        let i: ExpandElement = 2f32.into();
+        let i = *i;
+        let y = scope.create_local(Item::new(f32::as_elem()));
         cpa!(scope, y = i + i);
 
         format!("{:?}", scope.operations)
@@ -154,26 +159,26 @@ mod tests {
         let mut scope = context.into_scope();
         let x: Variable = x.into();
 
-        let y = scope.create_with_value(1, item);
+        let y: ExpandElement = ElemType::new(1).into();
+        let y = *y;
         cpa!(scope, x += y);
 
         cpa!(
             &mut scope,
             range(0u32, end, false).for_each(|_, scope| {
-                let value: ExpandElement = ElemType::from(2).into_expand().into();
+                let value: ExpandElement = ElemType::new(2).into();
                 let value: Variable = *value;
 
-                cpa!(scope, y = value);
-                cpa!(scope, x += y);
+                cpa!(scope, x += value);
             })
         );
 
-        format!("{:?}", scope.operations)
+        format!("{:#?}", scope.operations)
     }
 
     fn inline_macro_ref_two_for_loops() -> String {
         let mut context = CubeContext::root();
-        let item = Item::new(UInt::as_elem());
+        let item = Item::new(u32::as_elem());
 
         let x = context.create_local(item);
         let end = 2u32;

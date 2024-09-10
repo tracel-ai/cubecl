@@ -18,7 +18,7 @@ mod tests {
         ir::{Item, Variable},
     };
 
-    type ElemType = F32;
+    type ElemType = f32;
 
     #[test]
     fn cube_literal_test() {
@@ -26,7 +26,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        literal::__expand::<ElemType>(&mut context, lhs.into());
+        literal::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref());
@@ -38,7 +38,7 @@ mod tests {
 
         let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
-        literal_float_no_decimals::__expand::<ElemType>(&mut context, lhs.into());
+        literal_float_no_decimals::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref());

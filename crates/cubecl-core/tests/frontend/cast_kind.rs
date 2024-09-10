@@ -36,18 +36,18 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        frontend::{CubeContext, CubePrimitive, F32, F64, I32, I64},
+        frontend::{CubeContext, CubePrimitive},
         ir::{Item, Variable},
     };
 
     #[test]
     fn cube_cast_float_kind_test() {
         let mut context = CubeContext::root();
-        let item = Item::new(F64::as_elem());
+        let item = Item::new(f64::as_elem());
 
         let input = context.create_local(item);
 
-        cast_float_kind::__expand::<F64, F32>(&mut context, input.into());
+        cast_float_kind::expand::<f64, f32>(&mut context, input.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_float());
@@ -56,11 +56,11 @@ mod tests {
     #[test]
     fn cube_cast_int_kind_test() {
         let mut context = CubeContext::root();
-        let item = Item::new(I32::as_elem());
+        let item = Item::new(i32::as_elem());
 
         let input = context.create_local(item);
 
-        cast_int_kind::__expand::<I32, I64>(&mut context, input.into());
+        cast_int_kind::expand::<i32, i64>(&mut context, input.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_int());
@@ -69,11 +69,11 @@ mod tests {
     #[test]
     fn cube_cast_numeric_kind_test() {
         let mut context = CubeContext::root();
-        let item = Item::new(I32::as_elem());
+        let item = Item::new(i32::as_elem());
 
         let input = context.create_local(item);
 
-        cast_numeric_to_kind::__expand::<I32, I64>(&mut context, input.into());
+        cast_numeric_to_kind::expand::<i32, i64>(&mut context, input.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_int());
@@ -82,11 +82,11 @@ mod tests {
     #[test]
     fn cube_cast_kind_numeric_test() {
         let mut context = CubeContext::root();
-        let item = Item::new(I32::as_elem());
+        let item = Item::new(i32::as_elem());
 
         let input = context.create_local(item);
 
-        cast_int_to_numeric::__expand::<I32, I64>(&mut context, input.into());
+        cast_int_to_numeric::expand::<i32, i64>(&mut context, input.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_int());
@@ -94,8 +94,8 @@ mod tests {
 
     fn inline_macro_ref_float() -> String {
         let mut context = CubeContext::root();
-        let float_64 = Item::new(F64::as_elem());
-        let float_32 = Item::new(F32::as_elem());
+        let float_64 = Item::new(f64::as_elem());
+        let float_32 = Item::new(f32::as_elem());
         let input = context.create_local(float_64);
 
         let mut scope = context.into_scope();
@@ -111,8 +111,8 @@ mod tests {
 
     fn inline_macro_ref_int() -> String {
         let mut context = CubeContext::root();
-        let int_32 = Item::new(I32::as_elem());
-        let int_64 = Item::new(I64::as_elem());
+        let int_32 = Item::new(i32::as_elem());
+        let int_64 = Item::new(i64::as_elem());
         let input = context.create_local(int_32);
 
         let mut scope = context.into_scope();

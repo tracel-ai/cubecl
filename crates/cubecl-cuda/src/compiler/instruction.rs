@@ -50,6 +50,7 @@ pub enum Instruction {
         start: Variable,
         end: Variable,
         step: Option<Variable>,
+        inclusive: bool,
         instructions: Vec<Self>,
     },
     Loop {
@@ -138,6 +139,7 @@ pub enum Instruction {
         val: Variable,
         out: Variable,
     },
+    Negate(UnaryInstruction),
     Normalize(UnaryInstruction),
 }
 
@@ -188,15 +190,17 @@ impl Display for Instruction {
                 start,
                 end,
                 step,
+                inclusive,
                 instructions,
             } => {
                 let increment = step
                     .map(|step| format!("{i} += {step}"))
                     .unwrap_or_else(|| format!("++{i}"));
+                let cmp = if *inclusive { "<=" } else { "<" };
 
                 f.write_fmt(format_args!(
                     "
-for (uint {i} = {start}; {i} < {end}; {increment}) {{
+for (uint {i} = {start}; {i} {cmp} {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {
@@ -381,6 +385,9 @@ for (uint {i} = {start}; {i} < {end}; {increment}) {{
                 f.write_fmt(format_args!("atomicExch({out}, {input});\n"))
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::Negate(UnaryInstruction { input, out }) => {
+                f.write_fmt(format_args!("{out} = !{input};\n"))
+            }
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
         }
     }

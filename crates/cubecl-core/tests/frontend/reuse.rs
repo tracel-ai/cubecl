@@ -26,14 +26,14 @@ mod tests {
         ir::{Branch, Elem, Item, Variable},
     };
 
-    type ElemType = I32;
+    type ElemType = i32;
     #[test]
     fn cube_reuse_assign_test() {
         let mut context = CubeContext::root();
 
         let x = context.create_local(Item::new(ElemType::as_elem()));
 
-        reuse::__expand::<ElemType>(&mut context, x.into());
+        reuse::expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_assign());
@@ -45,7 +45,7 @@ mod tests {
 
         let x = context.create_local(Item::new(ElemType::as_elem()));
 
-        reuse_incr::__expand::<ElemType>(&mut context, x.into());
+        reuse_incr::expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
 
         assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_incr());

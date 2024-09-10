@@ -9,7 +9,7 @@ use crate::matmul::tiling2d::write_output::write_to_output;
 use crate::matmul::{
     tests::test_utils::{assert_equals, range_tensor},
     tiling2d::{
-        base::{Coordinates, CoordinatesExpand, Dimensions, DimensionsExpand, TILE_SIZE},
+        base::{Coordinates, Dimensions, TILE_SIZE},
         config::CubeTiling2dConfig,
     },
 };
@@ -18,42 +18,42 @@ use crate::matmul::{
 fn write_to_output_test<F: Float>(
     out: &mut Tensor<F>,
     results: &mut Array<F>,
-    config: Comptime<CubeTiling2dConfig>,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
     let coordinates = Coordinates {
-        unit_row: UInt::new(4),
-        unit_col: UInt::new(4),
-        skip_row: UInt::new(0),
-        skip_col: UInt::new(0),
+        unit_row: 4,
+        unit_col: 4,
+        skip_row: 0,
+        skip_col: 0,
     };
     let dims = Dimensions {
-        m: out.shape(out.rank() - UInt::new(2)),
-        k: UInt::new(0),
-        n: out.shape(out.rank() - UInt::new(1)),
+        m: out.shape(out.rank() - 2),
+        k: 0,
+        n: out.shape(out.rank() - 1),
     };
 
-    write_to_output::<F, TileWriter<F>>(out, results, coordinates, UInt::new(0), dims, config);
+    write_to_output::<F, TileWriter<F>>(out, results, coordinates, 0, dims, config);
 }
 
 #[cube(launch_unchecked)]
 fn write_results_to_output_out_of_bounds_test<F: Float>(
     out: &mut Tensor<F>,
     results: &mut Array<F>,
-    config: Comptime<CubeTiling2dConfig>,
+    #[comptime] config: CubeTiling2dConfig,
 ) {
     let coordinates = Coordinates {
-        unit_row: UNIT_POS_X * UInt::new(4),
-        unit_col: UNIT_POS_Y * UInt::new(4),
-        skip_row: UInt::new(0),
-        skip_col: UInt::new(0),
+        unit_row: UNIT_POS_X * 4,
+        unit_col: UNIT_POS_Y * 4,
+        skip_row: 0,
+        skip_col: 0,
     };
     let dims = Dimensions {
-        m: out.shape(out.rank() - UInt::new(2)),
-        k: UInt::new(0),
-        n: out.shape(out.rank() - UInt::new(1)),
+        m: out.shape(out.rank() - 2),
+        k: 0,
+        n: out.shape(out.rank() - 1),
     };
 
-    write_to_output::<F, TileWriter<F>>(out, results, coordinates, UInt::new(0), dims, config);
+    write_to_output::<F, TileWriter<F>>(out, results, coordinates, 0, dims, config);
 }
 
 /// Exported test
@@ -67,7 +67,7 @@ pub fn write_to_output_over_height_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(6, 8, 8);
 
     unsafe {
-        write_to_output_test::launch_unchecked::<F32, R>(
+        write_to_output_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -96,7 +96,7 @@ pub fn write_to_output_over_width_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 8, 4);
 
     unsafe {
-        write_to_output_test::launch_unchecked::<F32, R>(
+        write_to_output_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -125,7 +125,7 @@ pub fn write_to_output_vectorized_less_than_tile_unit_test<R: Runtime>(device: &
     let config = make_tiling2d_config(8, 8, 8);
 
     unsafe {
-        write_to_output_test::launch_unchecked::<F32, R>(
+        write_to_output_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -156,7 +156,7 @@ pub fn write_to_output_scalar_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(8, 8, 8);
 
     unsafe {
-        write_to_output_test::launch_unchecked::<F32, R>(
+        write_to_output_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -187,7 +187,7 @@ pub fn write_to_output_scalar_out_of_bounds_cube_test<R: Runtime>(device: &R::De
     let config = make_tiling2d_config(5, 8, 1);
 
     unsafe {
-        write_results_to_output_out_of_bounds_test::launch_unchecked::<F32, R>(
+        write_results_to_output_out_of_bounds_test::launch_unchecked::<f32, R>(
             &R::client(device),
             cube_count,
             cube_dim,

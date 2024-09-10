@@ -3,10 +3,7 @@ use std::ops::Range;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::base::{
-    Dimensions, DimensionsExpand, Ids, IdsExpand, Offsets, OffsetsExpand, RuntimeCmmaInfo,
-    RuntimeCmmaInfoExpand,
-};
+use crate::matmul::cmma::base::{Dimensions, Ids, Offsets, RuntimeCmmaInfo};
 use crate::matmul::cmma::config::{CmmaConfig, WriteOutStrategy};
 use crate::matmul::tests::test_utils::{assert_equals_range, create_empty};
 use crate::matmul::{
@@ -20,27 +17,27 @@ use super::base::{DimsTestCase, B_K, B_MN};
 fn load_lhs_test<F: Float>(
     lhs_tensor: &Tensor<F>,
     lhs_sm_arr: &mut Array<F>,
-    k_offset: UInt,
-    m: UInt,
-    k: UInt,
-    n: UInt,
-    config: Comptime<ComptimeCmmaInfo>,
+    k_offset: u32,
+    m: u32,
+    k: u32,
+    n: u32,
+    #[comptime] config: ComptimeCmmaInfo,
 ) {
-    let block_size_m = Comptime::map(config, |c| c.block_size_m);
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
+    let block_size_m = config.block_size_m;
+    let block_size_k = config.block_size_k;
     let sm_size = block_size_k * block_size_m;
 
-    let mut lhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+    let mut lhs_sm = SharedMemory::<F>::new(sm_size);
+    for i in 0..sm_size {
         lhs_sm[i] = F::new(0.);
     }
 
     let offsets = Offsets {
-        batch_lhs: UInt::new(0),
-        batch_rhs: UInt::new(0),
-        batch_out: UInt::new(0),
-        cube_row: UInt::new(0),
-        cube_col: UInt::new(0),
+        batch_lhs: 0,
+        batch_rhs: 0,
+        batch_out: 0,
+        cube_row: 0,
+        cube_col: 0,
     };
     let dims = Dimensions { m, k, n };
     let ids = Ids {
@@ -49,16 +46,9 @@ fn load_lhs_test<F: Float>(
     };
     let runtime_info = RuntimeCmmaInfo { offsets, dims, ids };
 
-    load_lhs(
-        lhs_tensor,
-        &mut lhs_sm,
-        UInt::new(2),
-        k_offset,
-        runtime_info,
-        config,
-    );
+    load_lhs(lhs_tensor, &mut lhs_sm, 2, k_offset, runtime_info, config);
 
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+    for i in 0..sm_size {
         lhs_sm_arr[i] = lhs_sm[i];
     }
 }
@@ -67,27 +57,27 @@ fn load_lhs_test<F: Float>(
 fn load_rhs_test<F: Float>(
     rhs_tensor: &Tensor<F>,
     rhs_sm_arr: &mut Array<F>,
-    k_offset: UInt,
-    m: UInt,
-    k: UInt,
-    n: UInt,
-    config: Comptime<ComptimeCmmaInfo>,
+    k_offset: u32,
+    m: u32,
+    k: u32,
+    n: u32,
+    #[comptime] config: ComptimeCmmaInfo,
 ) {
-    let block_size_k = Comptime::map(config, |c| c.block_size_k);
-    let block_size_n = Comptime::map(config, |c| c.block_size_n);
+    let block_size_k = config.block_size_k;
+    let block_size_n = config.block_size_n;
     let sm_size = block_size_k * block_size_n;
-    let mut rhs_sm = SharedMemory::<F>::new(Comptime::get(sm_size));
+    let mut rhs_sm = SharedMemory::<F>::new(sm_size);
 
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+    for i in 0..sm_size {
         rhs_sm[i] = F::new(0.);
     }
 
     let offsets = Offsets {
-        batch_lhs: UInt::new(0),
-        batch_rhs: UInt::new(0),
-        batch_out: UInt::new(0),
-        cube_row: UInt::new(0),
-        cube_col: UInt::new(0),
+        batch_lhs: 0,
+        batch_rhs: 0,
+        batch_out: 0,
+        cube_row: 0,
+        cube_col: 0,
     };
     let dims = Dimensions { m, k, n };
     let ids = Ids {
@@ -96,16 +86,9 @@ fn load_rhs_test<F: Float>(
     };
     let runtime_info = RuntimeCmmaInfo { offsets, dims, ids };
 
-    load_rhs(
-        rhs_tensor,
-        &mut rhs_sm,
-        UInt::new(2),
-        k_offset,
-        runtime_info,
-        config,
-    );
+    load_rhs(rhs_tensor, &mut rhs_sm, 2, k_offset, runtime_info, config);
 
-    for i in range(0u32, Comptime::get(sm_size), Comptime::new(false)) {
+    for i in 0..sm_size {
         rhs_sm_arr[i] = rhs_sm[i];
     }
 }
@@ -141,7 +124,7 @@ fn load_shared_memory_test_case<R: Runtime>(
         };
 
         unsafe {
-            load_lhs_test::launch_unchecked::<F32, R>(
+            load_lhs_test::launch_unchecked::<f32, R>(
                 &R::client(device),
                 config.cube_count::<R>(&[dims.m, dims.n]),
                 config.cube_dim(),

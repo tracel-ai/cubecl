@@ -196,7 +196,7 @@ impl Item {
     pub fn new(elem: Elem) -> Self {
         Self {
             elem,
-            vectorization: 1,
+            vectorization: None,
         }
     }
 
