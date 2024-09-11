@@ -293,19 +293,3 @@ pub fn loop_expand(context: &mut CubeContext, block: impl FnOnce(&mut CubeContex
         scope: inside_loop.into_scope(),
     }));
 }
-
-pub fn while_loop_expand(
-    context: &mut CubeContext,
-    cond_fn: impl FnOnce(&mut CubeContext) -> ExpandElementTyped<bool>,
-    block: impl FnOnce(&mut CubeContext),
-) {
-    let mut inside_loop = context.child();
-
-    let cond: ExpandElement = cond_fn(&mut inside_loop).into();
-    if_expand(&mut inside_loop, cond, break_expand);
-
-    block(&mut inside_loop);
-    context.register(Branch::Loop(Loop {
-        scope: inside_loop.into_scope(),
-    }));
-}

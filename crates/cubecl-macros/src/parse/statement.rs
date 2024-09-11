@@ -1,8 +1,5 @@
 use quote::format_ident;
-use syn::{
-    spanned::Spanned, Ident, Index, Member, Pat, PatStruct, PatTuple, PatTupleStruct, Stmt, Type,
-    TypeReference,
-};
+use syn::{Pat, Stmt, Type, TypeReference};
 
 use crate::{
     expression::Expression,
@@ -24,16 +21,7 @@ impl Statement {
                     ty,
                     is_ref,
                     is_mut,
-                } = match local.pat {
-                    Pat::Struct(pat) => {
-                        return desugar_struct_local(pat, *init.unwrap(), context);
-                    }
-                    Pat::Tuple(PatTuple { elems, .. })
-                    | Pat::TupleStruct(PatTupleStruct { elems, .. }) => {
-                        return desugar_tuple_local(elems, *init.unwrap(), context)
-                    }
-                    pat => parse_pat(pat)?,
-                };
+                } = parse_pat(local.pat)?;
                 let is_const = init.as_ref().map(|init| init.is_const()).unwrap_or(false);
 
                 let variable =
@@ -41,11 +29,9 @@ impl Statement {
                 Self::Local { variable, init }
             }
             Stmt::Expr(expr, semi) => {
-                let span = expr.span();
                 let expression = Box::new(Expression::from_expr(expr, context)?);
                 Statement::Expression {
                     terminated: semi.is_some() || !expression.needs_terminator(),
-                    span,
                     expression,
                 }
             }
@@ -94,71 +80,4 @@ pub fn parse_pat(pat: Pat) -> syn::Result<Pattern> {
         ))?,
     };
     Ok(res)
-}
-
-fn desugar_struct_local(
-    pat: PatStruct,
-    init: Expression,
-    context: &mut Context,
-) -> syn::Result<Statement> {
-    let temp_name = format_ident!("__struct_destructure_init");
-    let temp = create_local(temp_name.clone(), init, context);
-    let mut fields = pat
-        .fields
-        .into_iter()
-        .map(|field| desugar_field(field.member, *field.pat, &temp_name, context))
-        .collect::<syn::Result<Vec<_>>>()?;
-    fields.insert(0, temp);
-
-    Ok(Statement::Group { statements: fields })
-}
-
-fn desugar_tuple_local(
-    elems: impl IntoIterator<Item = Pat>,
-    init: Expression,
-    context: &mut Context,
-) -> syn::Result<Statement> {
-    let temp_name = format_ident!("__tuple_destructure_init");
-    let temp = create_local(temp_name.clone(), init, context);
-    let mut fields = elems
-        .into_iter()
-        .enumerate()
-        .map(|(i, pat)| {
-            let member = Member::Unnamed(Index::from(i));
-            desugar_field(member, pat, &temp_name, context)
-        })
-        .collect::<syn::Result<Vec<_>>>()?;
-    fields.insert(0, temp);
-
-    Ok(Statement::Group { statements: fields })
-}
-
-fn desugar_field(
-    member: Member,
-    var_pat: Pat,
-    temp_name: &Ident,
-    context: &mut Context,
-) -> syn::Result<Statement> {
-    let temp_var = Expression::Variable(context.variable(temp_name).unwrap());
-    let is_const = temp_var.is_const();
-    let init = Some(Box::new(Expression::FieldAccess {
-        base: Box::new(temp_var),
-        field: member,
-    }));
-    let Pattern {
-        ident,
-        ty,
-        is_ref,
-        is_mut,
-    } = parse_pat(var_pat.clone())?;
-    let variable = context.push_variable(ident, ty, is_const, is_ref, is_mut);
-    let statement = Statement::Local { variable, init };
-    Ok(statement)
-}
-
-fn create_local(name: Ident, init: Expression, context: &mut Context) -> Statement {
-    let variable = context.push_variable(name, init.ty(), init.is_const(), false, false);
-    let init = Some(Box::new(init));
-
-    Statement::Local { variable, init }
 }

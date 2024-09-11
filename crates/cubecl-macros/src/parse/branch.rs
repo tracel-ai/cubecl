@@ -1,9 +1,8 @@
 use quote::quote;
-use syn::{spanned::Spanned, ExprForLoop, ExprIf, ExprLoop, ExprWhile, Ident};
+use syn::{spanned::Spanned, ExprForLoop, ExprIf, ExprLoop, Ident};
 
 use crate::{
     expression::{Block, Expression},
-    operator::Operator,
     scope::Context,
     statement::Statement,
 };
@@ -22,7 +21,7 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
         return expand_for_in_loop(var.ident, right, for_loop.body, context);
     }
 
-    let (block, scope) = context.with_scope(|context| {
+    let (block, scope) = context.in_scope(|context| {
         context.push_variable(
             var.ident.clone(),
             var.ty.clone(),
@@ -67,27 +66,8 @@ fn expand_for_in_loop(
     Ok(for_loop)
 }
 
-pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::Result<Expression> {
-    let span = while_loop.span();
-
-    let condition = Expression::from_expr(*while_loop.cond, context)
-        .map_err(|_| syn::Error::new(span, "Unsupported while condition"))?;
-    let inverted = Expression::Unary {
-        input: Box::new(condition),
-        operator: Operator::Not,
-        ty: None,
-    };
-
-    let (block, scope) = context.with_scope(|ctx| Block::from_block(while_loop.body, ctx))?;
-    Ok(Expression::WhileLoop {
-        condition: Box::new(inverted),
-        block,
-        scope,
-    })
-}
-
 pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Expression> {
-    let (block, _) = context.with_scope(|ctx| Block::from_block(loop_expr.body, ctx))?;
+    let (block, _) = context.in_scope(|ctx| Block::from_block(loop_expr.body, ctx))?;
     Ok(Expression::Loop(block))
 }
 
@@ -97,9 +77,9 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
         .map_err(|_| syn::Error::new(span, "Unsupported while condition"))?;
 
     let (then_block, scope) =
-        context.with_scope(|ctx| Block::from_block(if_expr.then_branch, ctx))?;
+        context.in_scope(|ctx| Block::from_block(if_expr.then_branch, ctx))?;
     let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
-        let (expr, _) = context.with_scope(|ctx| Expression::from_expr(*else_branch, ctx))?;
+        let (expr, _) = context.in_scope(|ctx| Expression::from_expr(*else_branch, ctx))?;
         Some(Box::new(expr))
     } else {
         None

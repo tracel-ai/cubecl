@@ -104,7 +104,7 @@ impl Context {
         self.level -= 1;
     }
 
-    pub fn with_scope<T>(
+    pub fn in_scope<T>(
         &mut self,
         with: impl FnOnce(&mut Self) -> syn::Result<T>,
     ) -> syn::Result<(T, usize)> {

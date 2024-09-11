@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    branch::{expand_for_loop, expand_if, expand_loop, expand_while_loop},
+    branch::{expand_for_loop, expand_if, expand_loop},
     operator::{parse_binop, parse_unop},
 };
 
@@ -72,7 +72,7 @@ impl Expression {
                 }
             }
             Expr::Block(block) => {
-                let (block, _) = context.with_scope(|ctx| Block::from_block(block.block, ctx))?;
+                let (block, _) = context.in_scope(|ctx| Block::from_block(block.block, ctx))?;
                 Expression::Block(block)
             }
             Expr::Break(_) => Expression::Break,
@@ -147,7 +147,6 @@ impl Expression {
             },
             Expr::Continue(cont) => Expression::Continue(cont.span()),
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
-            Expr::While(while_loop) => expand_while_loop(while_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
             Expr::If(if_expr) => expand_if(if_expr, context)?,
             Expr::Range(range) => {
@@ -310,7 +309,7 @@ impl Expression {
             }
             Expr::Unsafe(unsafe_expr) => {
                 let (block, _) =
-                    context.with_scope(|ctx| Block::from_block(unsafe_expr.block, ctx))?;
+                    context.in_scope(|ctx| Block::from_block(unsafe_expr.block, ctx))?;
                 Expression::Block(block)
             }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
@@ -320,7 +319,7 @@ impl Expression {
             },
             Expr::Closure(expr) => {
                 let (body, scope) =
-                    context.with_scope(|ctx| Expression::from_expr(*expr.body, ctx))?;
+                    context.in_scope(|ctx| Expression::from_expr(*expr.body, ctx))?;
                 let body = Box::new(body);
                 let params = expr.inputs.into_iter().collect();
                 Expression::Closure {

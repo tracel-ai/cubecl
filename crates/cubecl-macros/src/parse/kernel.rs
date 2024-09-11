@@ -3,11 +3,11 @@ use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::TokenStream;
 use std::iter;
 use syn::{
-    parse_quote, punctuated::Punctuated, FnArg, Generics, Ident, ItemFn, Signature, TraitItemFn,
-    Type, Visibility,
+    parse_quote, punctuated::Punctuated, visit_mut::VisitMut, FnArg, Generics, Ident, ItemFn,
+    Signature, TraitItemFn, Type, Visibility,
 };
 
-use super::{helpers::is_comptime_attr, statement::parse_pat};
+use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
 
 #[derive(Default, FromMeta)]
 pub(crate) struct KernelArgs {
@@ -141,12 +141,13 @@ impl KernelSignature {
 }
 
 impl KernelFn {
-    pub fn from_sig_and_block(sig: Signature, block: syn::Block) -> syn::Result<Self> {
+    pub fn from_sig_and_block(sig: Signature, mut block: syn::Block) -> syn::Result<Self> {
         let sig = KernelSignature::from_signature(sig)?;
+        Desugar.visit_block_mut(&mut block);
 
         let mut context = Context::new(sig.returns.clone());
         context.extend(sig.parameters.clone());
-        let (block, _) = context.with_scope(|ctx| Block::from_block(block, ctx))?;
+        let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
 
         Ok(KernelFn {
             sig,

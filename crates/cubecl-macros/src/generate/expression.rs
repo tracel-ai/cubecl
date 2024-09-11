@@ -258,17 +258,6 @@ impl Expression {
                     }
                 }
             }
-            Expression::WhileLoop {
-                condition,
-                block,
-                scope,
-            } => {
-                let while_ty = frontend_type("branch");
-                let condition = context.in_fn_mut(scope, |ctx| condition.to_tokens(ctx));
-                let block = context.in_fn_mut(scope, |ctx| block.to_tokens(ctx));
-
-                quote![#while_ty::while_loop_expand(context, |context| #condition, |context| #block);]
-            }
             Expression::Loop(block) => {
                 let loop_ty = frontend_type("branch");
                 let block = block.to_tokens(context);

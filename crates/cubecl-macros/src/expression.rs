@@ -82,11 +82,6 @@ pub enum Expression {
         block: Block,
         scope: Scope,
     },
-    WhileLoop {
-        condition: Box<Expression>,
-        block: Block,
-        scope: Scope,
-    },
     Loop(Block),
     If {
         condition: Box<Expression>,
@@ -137,7 +132,7 @@ pub enum Expression {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Block {
     pub inner: Vec<Statement>,
     pub ret: Option<Box<Expression>>,
@@ -163,7 +158,6 @@ impl Expression {
             Expression::MethodCall { .. } => None,
             Expression::Path { .. } => None,
             Expression::Range { start, .. } => start.ty(),
-            Expression::WhileLoop { .. } => None,
             Expression::Loop { .. } => None,
             Expression::If { then_block, .. } => then_block.ty.clone(),
             Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
@@ -246,7 +240,6 @@ impl Expression {
             Expression::If { then_block, .. } => then_block.ret.is_some(),
             Expression::Block(block) => block.ret.is_some(),
             Expression::ForLoop { .. } => false,
-            Expression::WhileLoop { .. } => false,
             Expression::Loop { .. } => false,
             Expression::VerbatimTerminated { .. } => false,
             _ => true,

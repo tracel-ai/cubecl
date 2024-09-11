@@ -88,7 +88,6 @@ mod tests {
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
         let lhs: Variable = lhs.into();
-        let rhs = scope.create_local(item);
 
         cpa!(
             &mut scope,
@@ -99,7 +98,7 @@ mod tests {
                         scope.register(Branch::Break)
                 }));
 
-                cpa!(scope, rhs = lhs % 1i32);
+                cpa!(scope, lhs = lhs % 1i32);
             })
         );
 

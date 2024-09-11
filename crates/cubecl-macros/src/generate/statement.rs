@@ -1,4 +1,4 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::{spanned::Spanned, Token};
 
@@ -51,18 +51,11 @@ impl Statement {
                     quote![let #mutable #name #ty;]
                 }
             }
-            Statement::Group { statements } => {
-                let statements = statements.iter().map(|it| it.to_tokens(context));
-                quote! {
-                    #(#statements)*
-                }
-            }
             Statement::Expression {
                 expression,
-                span,
                 terminated,
             } => {
-                let terminator = terminated.then(|| Token![;](*span));
+                let terminator = terminated.then(|| Token![;](Span::call_site()));
                 if let Some(as_const) = expression.as_const(context) {
                     quote![#as_const #terminator]
                 } else {
