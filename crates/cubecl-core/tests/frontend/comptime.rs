@@ -344,7 +344,7 @@ mod tests {
             cpa!(&mut scope, if(runtime_cond).then(|scope| {
                 cpa!(scope, y = x + 5.0f32);
             }).else(|scope| {
-                cpa!(scope, y = x - 6.0f32);
+                cpa!(scope, x = x - 6.0f32);
             }));
         };
 
@@ -368,7 +368,7 @@ mod tests {
             if comptime_cond {
                 cpa!(scope, y = x + 5.0f32);
             } else {
-                cpa!(scope, y = x - 6.0f32);
+                cpa!(scope, x = x - 6.0f32);
             }
         }));
 
