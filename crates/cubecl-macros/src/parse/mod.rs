@@ -3,10 +3,12 @@ use syn::{visit_mut::VisitMut, GenericParam, TypeParam};
 pub mod branch;
 pub mod cube_trait;
 pub mod cube_type;
+pub mod desugar;
 pub mod expression;
 pub mod helpers;
 pub mod kernel;
 pub mod operator;
+pub mod statement;
 
 pub struct StripDefault;
 impl VisitMut for StripDefault {
