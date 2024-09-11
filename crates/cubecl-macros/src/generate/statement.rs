@@ -7,19 +7,11 @@ use crate::{expression::Expression, paths::frontend_type, scope::Context, statem
 impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
-            Statement::Local {
-                left,
-                init,
-                mutable,
-                ty,
-            } => {
+            Statement::Local { variable, init } => {
                 let cube_type = frontend_type("CubeType");
-                let name = match &**left {
-                    Expression::Variable { name, .. } => name,
-                    _ => panic!("Local is always variable or init"),
-                };
-                let is_mut = *mutable || init.as_deref().map(is_mut_owned).unwrap_or(false);
-                let mutable = mutable.then(|| quote![mut]);
+                let name = &variable.name;
+                let is_mut = variable.is_mut || init.as_deref().map(is_mut_owned).unwrap_or(false);
+                let mutable = variable.is_mut.then(|| quote![mut]);
                 let init = if is_mut {
                     if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context)) {
                         let expand = frontend_type("ExpandElementTyped");
@@ -33,9 +25,11 @@ impl Statement {
                             .unwrap_or_else(|| init.to_tokens(context))
                     })
                 };
-                let ty = ty
-                    .as_ref()
-                    .map(|ty| quote_spanned![ty.span()=> :<#ty as #cube_type>::ExpandType]);
+                let ty = variable.ty.as_ref().map(|ty| {
+                    quote_spanned! {
+                        ty.span()=> :<#ty as #cube_type>::ExpandType
+                    }
+                });
 
                 let init = match (is_mut, init) {
                     (true, Some(init)) => {
@@ -83,7 +77,7 @@ impl Statement {
 
 fn is_mut_owned(init: &Expression) -> bool {
     match init {
-        Expression::Variable { is_ref, is_mut, .. } => *is_mut && !is_ref,
+        Expression::Variable(var) => var.is_mut && !var.is_ref,
         Expression::FieldAccess { base, .. } => is_mut_owned(base),
         _ => false,
     }

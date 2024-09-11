@@ -13,9 +13,7 @@ impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
         let sig = &self.sig;
-        let block = self
-            .context
-            .with_restored_scope(&self.scope, |ctx| self.block.to_tokens(ctx));
+        let block = self.block.to_tokens(&mut self.context);
 
         let out = quote! {
             #sig {

@@ -5,7 +5,7 @@ use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment, R
 use crate::{
     expression::{is_intrinsic, Block, Expression},
     operator::Operator,
-    scope::{Context, ManagedVar},
+    scope::Context,
 };
 
 use super::{
@@ -49,36 +49,12 @@ impl Expression {
                 }
             }
             Expr::Path(path) => {
-                let variable = path
-                    .path
-                    .get_ident()
-                    .and_then(|ident| context.variable(ident));
-                if let Some(ManagedVar {
-                    name,
-                    ty,
-                    is_const,
-                    is_keyword,
-                    use_count,
-                    is_ref,
-                    is_mut,
-                }) = variable
-                {
-                    if is_const {
-                        Expression::ConstVariable {
-                            name,
-                            ty,
-                            use_count,
-                        }
-                    } else if is_keyword {
-                        Expression::Keyword { name }
+                let name = path.path.get_ident();
+                if let Some(var) = name.and_then(|ident| context.variable(ident)) {
+                    if var.is_keyword {
+                        Expression::Keyword { name: var.name }
                     } else {
-                        Expression::Variable {
-                            name,
-                            ty,
-                            is_ref,
-                            is_mut,
-                            use_count,
-                        }
+                        Expression::Variable(var)
                     }
                 } else {
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
@@ -96,11 +72,8 @@ impl Expression {
                 }
             }
             Expr::Block(block) => {
-                let (block, scope) = context.with_scope(|ctx| Block::from_block(block.block, ctx));
-                Expression::Block {
-                    block: block?,
-                    scope,
-                }
+                let (block, _) = context.with_scope(|ctx| Block::from_block(block.block, ctx))?;
+                Expression::Block(block)
             }
             Expr::Break(_) => Expression::Break,
             Expr::Call(call) => {
@@ -336,12 +309,9 @@ impl Expression {
                 }
             }
             Expr::Unsafe(unsafe_expr) => {
-                let (block, scope) =
-                    context.with_scope(|ctx| Block::from_block(unsafe_expr.block, ctx));
-                Expression::Block {
-                    block: block?,
-                    scope,
-                }
+                let (block, _) =
+                    context.with_scope(|ctx| Block::from_block(unsafe_expr.block, ctx))?;
+                Expression::Block(block)
             }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
@@ -350,8 +320,8 @@ impl Expression {
             },
             Expr::Closure(expr) => {
                 let (body, scope) =
-                    context.with_scope(|ctx| Expression::from_expr(*expr.body, ctx));
-                let body = Box::new(body?);
+                    context.with_scope(|ctx| Expression::from_expr(*expr.body, ctx))?;
+                let body = Box::new(body);
                 let params = expr.inputs.into_iter().collect();
                 Expression::Closure {
                     params,

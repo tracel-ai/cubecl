@@ -285,10 +285,7 @@ pub fn return_expand(context: &mut CubeContext) {
     context.register(Branch::Return);
 }
 
-pub fn loop_expand<FB>(context: &mut CubeContext, mut block: FB)
-where
-    FB: FnMut(&mut CubeContext),
-{
+pub fn loop_expand(context: &mut CubeContext, block: impl FnOnce(&mut CubeContext)) {
     let mut inside_loop = context.child();
 
     block(&mut inside_loop);
@@ -299,7 +296,7 @@ where
 
 pub fn while_loop_expand(
     context: &mut CubeContext,
-    mut cond_fn: impl FnMut(&mut CubeContext) -> ExpandElementTyped<bool>,
+    cond_fn: impl FnOnce(&mut CubeContext) -> ExpandElementTyped<bool>,
     block: impl FnOnce(&mut CubeContext),
 ) {
     let mut inside_loop = context.child();

@@ -1,9 +1,4 @@
-use crate::{
-    expression::Block,
-    paths::prelude_type,
-    scope::{Context, Scope},
-    statement::{parse_pat, Pattern},
-};
+use crate::{expression::Block, paths::prelude_type, scope::Context, statement::Pattern};
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::TokenStream;
 use std::iter;
@@ -12,7 +7,7 @@ use syn::{
     Type, Visibility,
 };
 
-use super::helpers::is_comptime_attr;
+use super::{helpers::is_comptime_attr, statement::parse_pat};
 
 #[derive(Default, FromMeta)]
 pub(crate) struct KernelArgs {
@@ -45,7 +40,6 @@ pub struct Launch {
 pub struct KernelFn {
     pub sig: KernelSignature,
     pub block: Block,
-    pub scope: Scope,
     pub context: Context,
 }
 
@@ -152,12 +146,11 @@ impl KernelFn {
 
         let mut context = Context::new(sig.returns.clone());
         context.extend(sig.parameters.clone());
-        let (block, scope) = context.with_scope(|ctx| Block::from_block(block, ctx));
+        let (block, _) = context.with_scope(|ctx| Block::from_block(block, ctx))?;
 
         Ok(KernelFn {
             sig,
-            block: block?,
-            scope,
+            block,
             context,
         })
     }

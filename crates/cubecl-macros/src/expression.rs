@@ -1,5 +1,3 @@
-use std::{rc::Rc, sync::atomic::AtomicUsize};
-
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::{
@@ -8,7 +6,7 @@ use syn::{
 
 use crate::{
     operator::Operator,
-    scope::{Context, Scope},
+    scope::{Context, ManagedVar, Scope},
     statement::Statement,
 };
 
@@ -25,18 +23,7 @@ pub enum Expression {
         operator: Operator,
         ty: Option<Type>,
     },
-    Variable {
-        name: Ident,
-        is_ref: bool,
-        is_mut: bool,
-        use_count: Rc<AtomicUsize>,
-        ty: Option<Type>,
-    },
-    ConstVariable {
-        name: Ident,
-        use_count: Rc<AtomicUsize>,
-        ty: Option<Type>,
-    },
+    Variable(ManagedVar),
     FieldAccess {
         base: Box<Expression>,
         field: Member,
@@ -53,10 +40,7 @@ pub enum Expression {
         right: Box<Expression>,
         ty: Option<Type>,
     },
-    Block {
-        block: Block,
-        scope: Scope,
-    },
+    Block(Block),
     FunctionCall {
         func: Box<Expression>,
         args: Vec<Expression>,
@@ -103,14 +87,12 @@ pub enum Expression {
         block: Block,
         scope: Scope,
     },
-    Loop {
-        block: Block,
-        scope: Scope,
-    },
+    Loop(Block),
     If {
         condition: Box<Expression>,
-        then_block: (Block, Scope),
-        else_branch: Option<(Box<Expression>, Scope)>,
+        then_block: Block,
+        else_branch: Option<Box<Expression>>,
+        scope: Scope,
     },
     Return {
         expr: Option<Box<Expression>>,
@@ -167,12 +149,11 @@ impl Expression {
         match self {
             Expression::Binary { ty, .. } => ty.clone(),
             Expression::Unary { ty, .. } => ty.clone(),
-            Expression::Variable { ty, .. } => ty.clone(),
-            Expression::ConstVariable { ty, .. } => ty.clone(),
+            Expression::Variable(var) => var.ty.clone(),
             Expression::Literal { ty, .. } => Some(ty.clone()),
             Expression::Assignment { ty, .. } => ty.clone(),
             Expression::Verbatim { .. } => None,
-            Expression::Block { block, .. } => block.ty.clone(),
+            Expression::Block(block) => block.ty.clone(),
             Expression::FunctionCall { .. } => None,
             Expression::Break { .. } => None,
             Expression::Cast { to, .. } => Some(to.clone()),
@@ -184,7 +165,7 @@ impl Expression {
             Expression::Range { start, .. } => start.ty(),
             Expression::WhileLoop { .. } => None,
             Expression::Loop { .. } => None,
-            Expression::If { then_block, .. } => then_block.0.ty.clone(),
+            Expression::If { then_block, .. } => then_block.ty.clone(),
             Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
             Expression::Array { .. } => None,
             Expression::Index { .. } => None,
@@ -206,7 +187,7 @@ impl Expression {
             Expression::Path { .. } => true,
             Expression::Verbatim { .. } => true,
             Expression::VerbatimTerminated { .. } => true,
-            Expression::ConstVariable { .. } => true,
+            Expression::Variable(var) => var.is_const,
             Expression::FieldAccess { base, .. } => base.is_const(),
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
@@ -224,7 +205,11 @@ impl Expression {
             Expression::Literal { value, .. } => Some(quote![#value]),
             Expression::Verbatim { tokens, .. } => Some(tokens.clone()),
             Expression::VerbatimTerminated { tokens, .. } => Some(tokens.clone()),
-            Expression::ConstVariable { name, .. } => Some(quote![#name.clone()]),
+            Expression::Variable(ManagedVar {
+                name,
+                is_const: true,
+                ..
+            }) => Some(quote![#name.clone()]),
             Expression::Path { path, .. } => Some(quote![#path]),
             Expression::Array { elements, .. } => {
                 let elements = elements
@@ -258,8 +243,8 @@ impl Expression {
 
     pub fn needs_terminator(&self) -> bool {
         match self {
-            Expression::If { then_block, .. } => then_block.0.ret.is_some(),
-            Expression::Block { block, .. } => block.ret.is_some(),
+            Expression::If { then_block, .. } => then_block.ret.is_some(),
+            Expression::Block(block) => block.ret.is_some(),
             Expression::ForLoop { .. } => false,
             Expression::WhileLoop { .. } => false,
             Expression::Loop { .. } => false,

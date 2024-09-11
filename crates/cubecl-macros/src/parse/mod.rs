@@ -7,6 +7,7 @@ pub mod expression;
 pub mod helpers;
 pub mod kernel;
 pub mod operator;
+pub mod statement;
 
 pub struct StripDefault;
 impl VisitMut for StripDefault {

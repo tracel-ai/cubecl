@@ -34,6 +34,7 @@ mod tests {
         cpa,
         ir::{Branch, Elem, Item, Variable},
     };
+    use pretty_assertions::assert_eq;
 
     type ElemType = i32;
 
@@ -113,7 +114,6 @@ mod tests {
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
         let lhs: Variable = lhs.into();
-        let rhs = scope.create_local(item);
 
         cpa!(
             &mut scope,
@@ -126,7 +126,7 @@ mod tests {
                     }
                 }));
 
-                cpa!(scope, rhs = lhs % 1i32);
+                cpa!(scope, lhs = lhs % 1i32);
             })
         );
 

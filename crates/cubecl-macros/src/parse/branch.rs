@@ -5,10 +5,10 @@ use crate::{
     expression::{Block, Expression},
     operator::Operator,
     scope::Context,
-    statement::{parse_pat, Statement},
+    statement::Statement,
 };
 
-use super::helpers::Unroll;
+use super::{helpers::Unroll, statement::parse_pat};
 
 pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Result<Expression> {
     let span = for_loop.span();
@@ -31,14 +31,14 @@ pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Res
             var.is_mut,
         );
         Block::from_block(for_loop.body, context)
-    });
+    })?;
 
     Ok(Expression::ForLoop {
         range: Box::new(right),
         unroll: unroll.map(Box::new),
         var_name: var.ident,
         var_ty: var.ty,
-        block: block?,
+        block,
         scope,
     })
 }
@@ -78,20 +78,17 @@ pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::R
         ty: None,
     };
 
-    let (block, scope) = context.with_scope(|ctx| Block::from_block(while_loop.body, ctx));
+    let (block, scope) = context.with_scope(|ctx| Block::from_block(while_loop.body, ctx))?;
     Ok(Expression::WhileLoop {
         condition: Box::new(inverted),
-        block: block?,
+        block,
         scope,
     })
 }
 
 pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Expression> {
-    let (block, scope) = context.with_scope(|ctx| Block::from_block(loop_expr.body, ctx));
-    Ok(Expression::Loop {
-        block: block?,
-        scope,
-    })
+    let (block, _) = context.with_scope(|ctx| Block::from_block(loop_expr.body, ctx))?;
+    Ok(Expression::Loop(block))
 }
 
 pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expression> {
@@ -99,17 +96,19 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
     let condition = Expression::from_expr(*if_expr.cond, context)
         .map_err(|_| syn::Error::new(span, "Unsupported while condition"))?;
 
-    let (then_block, scope) = context.with_scope(|ctx| Block::from_block(if_expr.then_branch, ctx));
+    let (then_block, scope) =
+        context.with_scope(|ctx| Block::from_block(if_expr.then_branch, ctx))?;
     let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
-        let (expr, scope) = context.with_scope(|ctx| Expression::from_expr(*else_branch, ctx));
-        Some((Box::new(expr?), scope))
+        let (expr, _) = context.with_scope(|ctx| Expression::from_expr(*else_branch, ctx))?;
+        Some(Box::new(expr))
     } else {
         None
     };
     Ok(Expression::If {
         condition: Box::new(condition),
-        then_block: (then_block?, scope),
+        then_block,
         else_branch,
+        scope,
     })
 }
 
