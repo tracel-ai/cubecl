@@ -3,7 +3,8 @@ use std::{marker::PhantomData, num::NonZero};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     frontend::CubeType,
-    ir::{Item, Vectorization},
+    ir::{Branch, Item, RangeLoop, Vectorization},
+    prelude::{CubeIndex, Iterable},
     unexpanded, KernelSettings, Runtime,
 };
 use crate::{
@@ -251,5 +252,58 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
             strides: &[1],
             shape,
         }
+    }
+}
+
+pub trait SizedContainer:
+    CubeIndex<ExpandElementTyped<u32>, Output = Self::Item> + CubeType
+{
+    type Item: CubeType<ExpandType = ExpandElementTyped<Self::Item>>;
+}
+
+impl<T: CubeType<ExpandType = ExpandElementTyped<T>>> SizedContainer for Array<T> {
+    type Item = T;
+}
+
+impl<T: CubeType> Iterator for &Array<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unexpanded!()
+    }
+}
+
+impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
+    fn expand(
+        self,
+        context: &mut CubeContext,
+        mut body: impl FnMut(&mut CubeContext, <T::Item as CubeType>::ExpandType),
+    ) {
+        let index_ty = Item::new(u32::as_elem());
+        let len: ExpandElement = self.clone().__expand_len_method(context).into();
+
+        let mut child = context.child();
+        let i = child.scope.borrow_mut().create_local_undeclared(index_ty);
+        let i = ExpandElement::Plain(i);
+
+        let item = index::expand(&mut child, self, i.clone().into());
+        body(&mut child, item);
+
+        context.register(Branch::RangeLoop(RangeLoop {
+            i: *i,
+            start: 0u32.into(),
+            end: *len,
+            step: None,
+            inclusive: false,
+            scope: child.into_scope(),
+        }));
+    }
+
+    fn expand_unroll(
+        self,
+        _context: &mut CubeContext,
+        _body: impl FnMut(&mut CubeContext, <T::Item as CubeType>::ExpandType),
+    ) {
+        unimplemented!("Can't unroll array iterator")
     }
 }

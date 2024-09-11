@@ -17,9 +17,23 @@ pub fn for_loop<F: Float>(mut lhs: Array<F>, rhs: F, end: u32, #[comptime] unrol
     }
 }
 
+#[cube]
+pub fn for_in_loop<F: Float>(input: &Array<F>) -> F {
+    let mut sum = F::new(0.0);
+
+    for item in input {
+        sum += item;
+    }
+    sum
+}
+
 mod tests {
     use cubecl::frontend::ExpandElement;
-    use cubecl_core::{cpa, ir::Item};
+    use cubecl_core::{
+        cpa,
+        ir::{Item, Variable},
+    };
+    use pretty_assertions::assert_eq;
 
     use super::*;
 
@@ -35,7 +49,7 @@ mod tests {
         for_loop::expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
         let scope = context.into_scope();
 
-        assert_eq!(format!("{:?}", scope.operations), inline_macro_ref(unroll));
+        assert_eq!(format!("{:#?}", scope.operations), inline_macro_ref(unroll));
     }
 
     #[test]
@@ -50,7 +64,22 @@ mod tests {
         for_loop::expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
         let scope = context.into_scope();
 
-        assert_eq!(format!("{:?}", scope.operations), inline_macro_ref(unroll));
+        assert_eq!(format!("{:#?}", scope.operations), inline_macro_ref(unroll));
+    }
+
+    #[test]
+    fn test_for_in_loop() {
+        let mut context = CubeContext::root();
+
+        let input = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
+
+        for_in_loop::expand::<ElemType>(&mut context, input.into());
+        let scope = context.into_scope();
+
+        assert_eq!(
+            format!("{:#?}", scope.operations),
+            inline_macro_ref_for_in()
+        );
     }
 
     fn inline_macro_ref(unroll: bool) -> String {
@@ -76,6 +105,32 @@ mod tests {
             })
         );
 
-        format!("{:?}", scope.operations)
+        format!("{:#?}", scope.operations)
+    }
+
+    fn inline_macro_ref_for_in() -> String {
+        let context = CubeContext::root();
+        let item = Item::new(ElemType::as_elem());
+
+        let mut scope = context.into_scope();
+        let input = scope.create_local_array(item, 4u32);
+        let sum = scope.create_local(item);
+        let end = scope.create_local(Item::new(u32::as_elem()));
+        let zero: Variable = ElemType::new(0.0).into();
+
+        // Kernel
+        let tmp1 = scope.create_local(item);
+        cpa!(scope, sum = zero);
+        cpa!(scope, end = len(input));
+
+        cpa!(
+            &mut scope,
+            range(0u32, end).for_each(|i, scope| {
+                cpa!(scope, tmp1 = input[i]);
+                cpa!(scope, sum = sum + tmp1);
+            })
+        );
+
+        format!("{:#?}", scope.operations)
     }
 }
