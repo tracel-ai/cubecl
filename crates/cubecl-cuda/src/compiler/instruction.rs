@@ -140,6 +140,7 @@ pub enum Instruction {
         out: Variable,
     },
     Negate(UnaryInstruction),
+    Magnitude(UnaryInstruction),
     Normalize(UnaryInstruction),
 }
 
@@ -389,6 +390,7 @@ for (uint {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 f.write_fmt(format_args!("{out} = !{input};\n"))
             }
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
+            Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
         }
     }
 }
@@ -474,6 +476,28 @@ impl Remainder {
         }
 
         Ok(())
+    }
+}
+
+struct Magnitude;
+
+impl Magnitude {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable,
+        out: &Variable,
+    ) -> core::fmt::Result {
+        let num = input.item().vectorization;
+        let elem = input.elem();
+
+        f.write_fmt(format_args!("{out} = 0.0;\n"))?;
+
+        for i in 0..num {
+            let input_i = input.index(i);
+            f.write_fmt(format_args!("{out} += {input_i} * {input_i};\n"))?;
+        }
+
+        Sqrt::format_unary(f, out, out, elem)
     }
 }
 

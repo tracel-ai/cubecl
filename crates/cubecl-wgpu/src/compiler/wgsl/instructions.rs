@@ -313,6 +313,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Magnitude {
+        input: Variable,
+        out: Variable,
+    },
     Normalize {
         input: Variable,
         out: Variable,
@@ -688,6 +692,9 @@ for (var {i}: u32 = {start}; {i} {cmp} {end}; {increment}) {{
                 "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;\n"
             )),
             Instruction::Negate { input, out } => f.write_fmt(format_args!("{out} = -{input};\n")),
+            Instruction::Magnitude { input, out } => {
+                f.write_fmt(format_args!("{out} = length({input});\n"))
+            }
             Instruction::Normalize { input, out } => {
                 f.write_fmt(format_args!("{out} = normalize({input});\n"))
             }
