@@ -282,16 +282,11 @@ impl CudaCompiler {
                 cond: self.compile_variable(op.cond),
                 instructions: self.compile_scope(&mut op.scope),
             }),
-            gpu::Branch::IfElse(mut op) => {
-                // Else is the latter branch and consumes variables, so compile that first to free
-                // variables for the then block. Rust doesn't guarantee struct init execution order.
-                let instructions_else = self.compile_scope(&mut op.scope_else);
-                instructions.push(Instruction::IfElse {
-                    cond: self.compile_variable(op.cond),
-                    instructions_if: self.compile_scope(&mut op.scope_if),
-                    instructions_else,
-                });
-            }
+            gpu::Branch::IfElse(mut op) => instructions.push(Instruction::IfElse {
+                cond: self.compile_variable(op.cond),
+                instructions_if: self.compile_scope(&mut op.scope_if),
+                instructions_else: self.compile_scope(&mut op.scope_else),
+            }),
             gpu::Branch::Return => instructions.push(Instruction::Return),
             gpu::Branch::Break => instructions.push(Instruction::Break),
             gpu::Branch::RangeLoop(mut range_loop) => instructions.push(Instruction::RangeLoop {
