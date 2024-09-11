@@ -1,7 +1,7 @@
 use crate::{
     expression::Block,
     paths::prelude_type,
-    scope::Context,
+    scope::{Context, Scope},
     statement::{parse_pat, Pattern},
 };
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
@@ -45,6 +45,7 @@ pub struct Launch {
 pub struct KernelFn {
     pub sig: KernelSignature,
     pub block: Block,
+    pub scope: Scope,
     pub context: Context,
 }
 
@@ -151,11 +152,12 @@ impl KernelFn {
 
         let mut context = Context::new(sig.returns.clone());
         context.extend(sig.parameters.clone());
-        let block = context.with_scope(|ctx| Block::from_block(block, ctx))?;
+        let (block, scope) = context.with_scope(|ctx| Block::from_block(block, ctx));
 
         Ok(KernelFn {
             sig,
-            block,
+            block: block?,
+            scope,
             context,
         })
     }

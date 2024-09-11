@@ -15,7 +15,7 @@ impl KernelFn {
         let sig = &self.sig;
         let block = self
             .context
-            .with_restored_scope(|ctx| self.block.to_tokens(ctx));
+            .with_restored_scope(&self.scope, |ctx| self.block.to_tokens(ctx));
 
         let out = quote! {
             #sig {

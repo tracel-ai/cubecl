@@ -96,8 +96,11 @@ impl Expression {
                 }
             }
             Expr::Block(block) => {
-                let block = context.with_scope(|ctx| Block::from_block(block.block, ctx))?;
-                Expression::Block(block)
+                let (block, scope) = context.with_scope(|ctx| Block::from_block(block.block, ctx));
+                Expression::Block {
+                    block: block?,
+                    scope,
+                }
             }
             Expr::Break(_) => Expression::Break,
             Expr::Call(call) => {
@@ -332,19 +335,29 @@ impl Expression {
                     fields,
                 }
             }
-            Expr::Unsafe(unsafe_expr) => Expression::Block(
-                context.with_scope(|ctx| Block::from_block(unsafe_expr.block, ctx))?,
-            ),
+            Expr::Unsafe(unsafe_expr) => {
+                let (block, scope) =
+                    context.with_scope(|ctx| Block::from_block(unsafe_expr.block, ctx));
+                Expression::Block {
+                    block: block?,
+                    scope,
+                }
+            }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
             Expr::Reference(reference) => Expression::Reference {
                 inner: Box::new(Expression::from_expr(*reference.expr, context)?),
             },
             Expr::Closure(expr) => {
-                let body = context.with_scope(|ctx| Expression::from_expr(*expr.body, ctx))?;
-                let body = Box::new(body);
+                let (body, scope) =
+                    context.with_scope(|ctx| Expression::from_expr(*expr.body, ctx));
+                let body = Box::new(body?);
                 let params = expr.inputs.into_iter().collect();
-                Expression::Closure { params, body }
+                Expression::Closure {
+                    params,
+                    body,
+                    scope,
+                }
             }
 
             Expr::Try(expr) => {

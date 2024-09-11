@@ -6,7 +6,11 @@ use syn::{
     AngleBracketedGenericArguments, Ident, Lit, Member, Pat, Path, PathArguments, PathSegment, Type,
 };
 
-use crate::{operator::Operator, scope::Context, statement::Statement};
+use crate::{
+    operator::Operator,
+    scope::{Context, Scope},
+    statement::Statement,
+};
 
 #[derive(Clone, Debug)]
 pub enum Expression {
@@ -49,7 +53,10 @@ pub enum Expression {
         right: Box<Expression>,
         ty: Option<Type>,
     },
-    Block(Block),
+    Block {
+        block: Block,
+        scope: Scope,
+    },
     FunctionCall {
         func: Box<Expression>,
         args: Vec<Expression>,
@@ -68,6 +75,7 @@ pub enum Expression {
     Closure {
         params: Vec<Pat>,
         body: Box<Expression>,
+        scope: Scope,
     },
     Cast {
         from: Box<Expression>,
@@ -88,16 +96,21 @@ pub enum Expression {
         var_name: syn::Ident,
         var_ty: Option<syn::Type>,
         block: Block,
+        scope: Scope,
     },
     WhileLoop {
         condition: Box<Expression>,
         block: Block,
+        scope: Scope,
     },
-    Loop(Block),
+    Loop {
+        block: Block,
+        scope: Scope,
+    },
     If {
         condition: Box<Expression>,
-        then_block: Block,
-        else_branch: Option<Box<Expression>>,
+        then_block: (Block, Scope),
+        else_branch: Option<(Box<Expression>, Scope)>,
     },
     Return {
         expr: Option<Box<Expression>>,
@@ -159,7 +172,7 @@ impl Expression {
             Expression::Literal { ty, .. } => Some(ty.clone()),
             Expression::Assignment { ty, .. } => ty.clone(),
             Expression::Verbatim { .. } => None,
-            Expression::Block(block) => block.ty.clone(),
+            Expression::Block { block, .. } => block.ty.clone(),
             Expression::FunctionCall { .. } => None,
             Expression::Break { .. } => None,
             Expression::Cast { to, .. } => Some(to.clone()),
@@ -171,7 +184,7 @@ impl Expression {
             Expression::Range { start, .. } => start.ty(),
             Expression::WhileLoop { .. } => None,
             Expression::Loop { .. } => None,
-            Expression::If { then_block, .. } => then_block.ty.clone(),
+            Expression::If { then_block, .. } => then_block.0.ty.clone(),
             Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
             Expression::Array { .. } => None,
             Expression::Index { .. } => None,
@@ -245,8 +258,8 @@ impl Expression {
 
     pub fn needs_terminator(&self) -> bool {
         match self {
-            Expression::If { then_block, .. } => then_block.ret.is_some(),
-            Expression::Block(block) => block.ret.is_some(),
+            Expression::If { then_block, .. } => then_block.0.ret.is_some(),
+            Expression::Block { block, .. } => block.ret.is_some(),
             Expression::ForLoop { .. } => false,
             Expression::WhileLoop { .. } => false,
             Expression::Loop { .. } => false,

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    mem::replace,
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -37,8 +37,7 @@ pub const KEYWORDS: [&str; 21] = [
 pub struct Context {
     pub return_type: Type,
     scopes: Vec<Scope>,
-    // Allows for global variable analysis
-    scope_history: HashMap<usize, VecDeque<Scope>>,
+    mut_scope_idx: usize,
 }
 
 impl Context {
@@ -60,7 +59,7 @@ impl Context {
         Self {
             return_type,
             scopes: vec![root_scope],
-            scope_history: Default::default(),
+            mut_scope_idx: 0,
         }
     }
 
@@ -91,58 +90,39 @@ impl Context {
         self.scopes.push(Scope::default())
     }
 
-    fn pop_scope(&mut self) {
-        let scope = self.scopes.pop().expect("Can't pop root scope");
-        self.scope_history
-            .entry(self.scopes.len())
-            .or_default()
-            .push_back(scope);
+    fn pop_scope(&mut self) -> Scope {
+        self.scopes.pop().expect("Can't pop root scope")
     }
 
-    fn delete_scope(&mut self) {
-        self.scopes.pop();
-    }
-
-    pub fn with_scope<T>(&mut self, with: impl FnOnce(&mut Self) -> T) -> T {
+    pub fn with_scope<T>(&mut self, with: impl FnOnce(&mut Self) -> T) -> (T, Scope) {
         self.push_scope();
+        let res = with(self);
+        let scope = self.pop_scope();
+        (res, scope)
+    }
+
+    pub fn with_restored_scope<T>(
+        &mut self,
+        scope: &Scope,
+        with: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.scopes.push(scope.deep_clone());
         let res = with(self);
         self.pop_scope();
         res
     }
 
-    fn restore_scope(&mut self) {
-        let scope = self
-            .scope_history
-            .get_mut(&(self.scopes.len()))
-            .and_then(|it| it.pop_front());
-        if let Some(scope) = scope {
-            self.scopes.push(scope);
-        }
-    }
-
-    fn restore_mut_scope(&mut self) {
-        let scope = self
-            .scope_history
-            .get_mut(&(self.scopes.len()))
-            .and_then(|it| it.pop_front());
-        if let Some(mut scope) = scope {
-            scope.is_mut = true;
-            self.scopes.push(scope);
-        }
-    }
-
-    pub fn with_restored_scope<T>(&mut self, with: impl FnOnce(&mut Self) -> T) -> T {
-        self.restore_scope();
-        let res = with(self);
-        self.delete_scope();
-        res
-    }
-
     /// Mutable closures (for loops) have different behaviour because outer vars must be cloned
-    pub fn with_restored_closure_scope<T>(&mut self, with: impl FnOnce(&mut Self) -> T) -> T {
-        self.restore_mut_scope();
+    pub fn with_restored_closure_scope<T>(
+        &mut self,
+        scope: &Scope,
+        with: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let old_mut_idx = replace(&mut self.mut_scope_idx, self.scopes.len());
+        self.scopes.push(scope.deep_clone());
         let res = with(self);
-        self.delete_scope();
+        self.pop_scope();
+        self.mut_scope_idx = old_mut_idx;
         res
     }
 
@@ -160,14 +140,6 @@ impl Context {
     }
 
     pub fn try_consume(&self, name: &Ident) -> bool {
-        // Find innermost closure scope if it exists
-        let mut_scope_idx = self
-            .scopes
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, scope)| scope.is_mut)
-            .map(|(i, _)| i);
         let (level, var) = self
             .scopes
             .iter()
@@ -176,23 +148,12 @@ impl Context {
             .find(|(_, var)| &var.name == name && var.use_count.load(Ordering::Acquire) > 0)
             .unwrap_or_else(|| {
                 panic!(
-                    "Trying to get use count of variable {name} that never existed.\nScopes: {:#?}\nHistory:{:#?}",
+                    "Trying to get use count of variable {name} that never existed.\nScopes: {:#?}\n",
                     self.scopes,
-                    self.scope_history
                 );
             });
         let count = var.use_count.fetch_sub(1, Ordering::AcqRel);
-        /* if level == 0 {
-            // Always clone outer vars since we can't see whether they're still used outside the
-            // function
-            false
-        } else */
-        if let Some(mut_scope_idx) = mut_scope_idx {
-            // Always clone vars from outside closure, otherwise proceed as normal
-            level >= mut_scope_idx && count <= 1
-        } else {
-            count <= 1
-        }
+        level >= self.mut_scope_idx && count <= 1
     }
 
     pub fn extend(&mut self, vars: impl IntoIterator<Item = KernelParam>) {
@@ -207,8 +168,21 @@ impl Context {
 #[derive(Default, Clone, Debug)]
 pub struct Scope {
     variables: Vec<ManagedVar>,
-    /// Must clone outer vars
-    is_mut: bool,
+}
+
+impl Scope {
+    pub fn deep_clone(&self) -> Self {
+        Scope {
+            variables: self
+                .variables
+                .iter()
+                .map(|var| ManagedVar {
+                    use_count: AtomicUsize::new(var.use_count.load(Ordering::Acquire)).into(),
+                    ..var.clone()
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
