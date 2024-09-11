@@ -361,11 +361,16 @@ impl WgslCompiler {
                 cond: self.compile_variable(op.cond),
                 instructions: self.compile_scope(&mut op.scope),
             }),
-            cube::Branch::IfElse(mut op) => instructions.push(wgsl::Instruction::IfElse {
-                cond: self.compile_variable(op.cond),
-                instructions_if: self.compile_scope(&mut op.scope_if),
-                instructions_else: self.compile_scope(&mut op.scope_else),
-            }),
+            cube::Branch::IfElse(mut op) => {
+                // Else is the latter branch and consumes variables, so compile that first to free
+                // variables for the then block. Rust doesn't guarantee struct init execution order.
+                let instructions_else = self.compile_scope(&mut op.scope_else);
+                instructions.push(wgsl::Instruction::IfElse {
+                    cond: self.compile_variable(op.cond),
+                    instructions_if: self.compile_scope(&mut op.scope_if),
+                    instructions_else,
+                });
+            }
             cube::Branch::Return => instructions.push(wgsl::Instruction::Return),
             cube::Branch::Break => instructions.push(wgsl::Instruction::Break),
             cube::Branch::RangeLoop(mut range_loop) => {

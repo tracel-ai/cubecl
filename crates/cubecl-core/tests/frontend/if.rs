@@ -118,7 +118,7 @@ mod tests {
         cpa!(&mut scope, if(cond).then(|scope| {
             cpa!(scope, y = lhs + 4.0f32);
         }).else(|scope|{
-            cpa!(scope, y = lhs - 5.0f32);
+            cpa!(scope, lhs = lhs - 5.0f32);
         }));
 
         format!("{:?}", scope.operations)
@@ -143,7 +143,7 @@ mod tests {
             cpa!(&mut scope, if(cond2).then(|scope| {
                 cpa!(scope, y = lhs + 1.0f32);
             }).else(|scope|{
-                cpa!(scope, y = lhs + 0.0f32);
+                cpa!(scope, lhs = lhs + 0.0f32);
             }));
         }));
 

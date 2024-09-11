@@ -246,33 +246,57 @@ pub fn if_expand(
     }
 }
 
+pub enum IfElseExpand {
+    ComptimeThen,
+    ComptimeElse,
+    Runtime {
+        runtime_cond: ExpandElement,
+        then_child: CubeContext,
+    },
+}
+
+impl IfElseExpand {
+    pub fn or_else(self, context: &mut CubeContext, else_block: impl FnOnce(&mut CubeContext)) {
+        match self {
+            Self::Runtime {
+                runtime_cond,
+                then_child,
+            } => {
+                let mut else_child = context.child();
+                else_block(&mut else_child);
+
+                context.register(Branch::IfElse(IfElse {
+                    cond: *runtime_cond,
+                    scope_if: then_child.into_scope(),
+                    scope_else: else_child.into_scope(),
+                }));
+            }
+            Self::ComptimeElse => else_block(context),
+            Self::ComptimeThen => (),
+        }
+    }
+}
+
 pub fn if_else_expand(
     context: &mut CubeContext,
     runtime_cond: ExpandElement,
     then_block: impl FnOnce(&mut CubeContext),
-    else_block: impl FnOnce(&mut CubeContext),
-) {
+) -> IfElseExpand {
     let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
     match comptime_cond {
-        Some(cond) => {
-            if cond {
-                then_block(context);
-            } else {
-                else_block(context);
-            }
+        Some(true) => {
+            then_block(context);
+            IfElseExpand::ComptimeThen
         }
+        Some(false) => IfElseExpand::ComptimeElse,
         None => {
             let mut then_child = context.child();
             then_block(&mut then_child);
 
-            let mut else_child = context.child();
-            else_block(&mut else_child);
-
-            context.register(Branch::IfElse(IfElse {
-                cond: *runtime_cond,
-                scope_if: then_child.into_scope(),
-                scope_else: else_child.into_scope(),
-            }));
+            IfElseExpand::Runtime {
+                runtime_cond,
+                then_child,
+            }
         }
     }
 }

@@ -282,16 +282,15 @@ impl Expression {
                 condition,
                 then_block,
                 else_branch: Some(else_branch),
-                scope,
             } => {
                 let path = frontend_path();
                 let condition = condition.to_tokens(context);
-                let then_block = context.in_fn_mut(scope, |ctx| then_block.to_tokens(ctx));
-                let else_branch = context.in_fn_mut(scope, |ctx| else_branch.to_tokens(ctx));
+                let then_block = then_block.to_tokens(context);
+                let else_branch = else_branch.to_tokens(context);
                 quote! {
                     {
                         let _cond = #condition;
-                        #path::branch::if_else_expand(context, _cond.into(), |context| #then_block, |context| #else_branch);
+                        #path::branch::if_else_expand(context, _cond.into(), |context| #then_block).or_else(context, |context| #else_branch);
                     }
                 }
             }

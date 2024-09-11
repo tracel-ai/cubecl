@@ -76,8 +76,7 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
     let condition = Expression::from_expr(*if_expr.cond, context)
         .map_err(|_| syn::Error::new(span, "Unsupported while condition"))?;
 
-    let (then_block, scope) =
-        context.in_scope(|ctx| Block::from_block(if_expr.then_branch, ctx))?;
+    let (then_block, _) = context.in_scope(|ctx| Block::from_block(if_expr.then_branch, ctx))?;
     let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
         let (expr, _) = context.in_scope(|ctx| Expression::from_expr(*else_branch, ctx))?;
         Some(Box::new(expr))
@@ -88,7 +87,6 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
         condition: Box::new(condition),
         then_block,
         else_branch,
-        scope,
     })
 }
 

@@ -87,7 +87,6 @@ pub enum Expression {
         condition: Box<Expression>,
         then_block: Block,
         else_branch: Option<Box<Expression>>,
-        scope: Scope,
     },
     Return {
         expr: Option<Box<Expression>>,
