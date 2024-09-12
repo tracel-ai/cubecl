@@ -553,10 +553,11 @@ impl Display for Instruction {
                     .map(|step| format!("{i} += {step}"))
                     .unwrap_or_else(|| format!("{i}++"));
                 let cmp = if *inclusive { "<=" } else { "<" };
+                let i_ty = i.item();
 
                 f.write_fmt(format_args!(
                     "
-for (var {i}: u32 = {start}; {i} {cmp} {end}; {increment}) {{
+for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {
