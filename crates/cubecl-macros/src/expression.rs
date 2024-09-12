@@ -186,9 +186,6 @@ impl Expression {
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::Tuple { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::CompilerIntrinsic { .. } => true,
-            Expression::MethodCall {
-                receiver, method, ..
-            } => receiver.is_const() && method != "runtime",
             _ => false,
         }
     }

@@ -3,7 +3,7 @@ use num_traits::NumCast;
 use crate::frontend::{CubeContext, ExpandElement};
 use crate::ir::{Branch, If, IfElse, Item, Loop, RangeLoop};
 
-use super::{CubeType, ExpandElementTyped, Int, Numeric};
+use super::{assign, CubePrimitive, CubeType, ExpandElementTyped, Int, Numeric};
 
 /// Something that can be iterated on by a for loop. Currently only includes `Range`, `StepBy` and
 /// `Sequence`.
@@ -46,7 +46,10 @@ impl<I: Int> RangeExpand<I> {
         }
     }
 
-    pub fn __expand_step_by(self, n: impl Into<ExpandElementTyped<u32>>) -> SteppedRangeExpand<I> {
+    pub fn __expand_step_by_method(
+        self,
+        n: impl Into<ExpandElementTyped<u32>>,
+    ) -> SteppedRangeExpand<I> {
         SteppedRangeExpand {
             start: self.start,
             end: self.end,
@@ -182,7 +185,7 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
 /// integer range. Equivalent to:
 ///
 /// ```ignore
-/// for i in start..end { ... }
+/// start..end
 /// ```
 pub fn range<T: Int>(start: T, end: T) -> impl Iterator<Item = T> {
     let start: i64 = start.to_i64().unwrap();
@@ -190,15 +193,32 @@ pub fn range<T: Int>(start: T, end: T) -> impl Iterator<Item = T> {
     (start..end).map(<T as NumCast>::from).map(Option::unwrap)
 }
 
+pub mod range {
+    use crate::prelude::{CubeContext, ExpandElementTyped, Int};
+
+    use super::RangeExpand;
+
+    pub fn expand<I: Int>(
+        _context: &mut CubeContext,
+        start: ExpandElementTyped<I>,
+        end: ExpandElementTyped<I>,
+    ) -> RangeExpand<I> {
+        RangeExpand {
+            start,
+            end,
+            inclusive: false,
+        }
+    }
+}
+
 /// Stepped range. Equivalent to:
 ///
 /// ```ignore
-/// for i in (start..end).step_by(step) { ... }
+/// (start..end).step_by(step)
 /// ```
-pub fn range_stepped<I: Int>(start: I, end: I, step: I) -> impl Iterator<Item = I>
-where
-    RangeExpand<I>: Iterator,
-{
+///
+/// Allows using any integer for the step, instead of just usize
+pub fn range_stepped<I: Int>(start: I, end: I, step: impl Int) -> impl Iterator<Item = I> {
     let start = start.to_i64().unwrap();
     let end = end.to_i64().unwrap();
     let step = step.to_usize().unwrap();
@@ -206,6 +226,26 @@ where
         .step_by(step)
         .map(<I as NumCast>::from)
         .map(Option::unwrap)
+}
+
+pub mod range_stepped {
+    use crate::prelude::{CubeContext, ExpandElementTyped, Int};
+
+    use super::SteppedRangeExpand;
+
+    pub fn expand<I: Int>(
+        _context: &mut CubeContext,
+        start: ExpandElementTyped<I>,
+        end: ExpandElementTyped<I>,
+        step: ExpandElementTyped<u32>,
+    ) -> SteppedRangeExpand<I> {
+        SteppedRangeExpand {
+            start,
+            end,
+            step,
+            inclusive: false,
+        }
+    }
 }
 
 pub fn for_expand<I: Numeric>(
@@ -295,6 +335,72 @@ pub fn if_else_expand(
 
             IfElseExpand::Runtime {
                 runtime_cond,
+                then_child,
+            }
+        }
+    }
+}
+
+pub enum IfElseExprExpand<C: CubeType> {
+    ComptimeThen(ExpandElementTyped<C>),
+    ComptimeElse,
+    Runtime {
+        runtime_cond: ExpandElement,
+        out: ExpandElementTyped<C>,
+        then_child: CubeContext,
+    },
+}
+
+impl<C: CubePrimitive> IfElseExprExpand<C> {
+    pub fn or_else(
+        self,
+        context: &mut CubeContext,
+        else_block: impl FnOnce(&mut CubeContext) -> ExpandElementTyped<C>,
+    ) -> ExpandElementTyped<C> {
+        match self {
+            Self::Runtime {
+                runtime_cond,
+                out,
+                then_child,
+            } => {
+                let mut else_child = context.child();
+                let ret = else_block(&mut else_child);
+                assign::expand(&mut else_child, ret, out.clone());
+
+                context.register(Branch::IfElse(IfElse {
+                    cond: *runtime_cond,
+                    scope_if: then_child.into_scope(),
+                    scope_else: else_child.into_scope(),
+                }));
+                out
+            }
+            Self::ComptimeElse => else_block(context),
+            Self::ComptimeThen(ret) => ret,
+        }
+    }
+}
+
+pub fn if_else_expr_expand<C: CubePrimitive>(
+    context: &mut CubeContext,
+    runtime_cond: ExpandElement,
+    then_block: impl FnOnce(&mut CubeContext) -> ExpandElementTyped<C>,
+) -> IfElseExprExpand<C> {
+    let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
+    match comptime_cond {
+        Some(true) => {
+            let ret = then_block(context);
+            IfElseExprExpand::ComptimeThen(ret)
+        }
+        Some(false) => IfElseExprExpand::ComptimeElse,
+        None => {
+            let mut then_child = context.child();
+            let ret = then_block(&mut then_child);
+            let out: ExpandElementTyped<C> = context.create_local(ret.expand.item()).into();
+            assign::expand(&mut then_child, ret, out.clone());
+
+            IfElseExprExpand::Runtime {
+                runtime_cond,
+                out,
                 then_child,
             }
         }
