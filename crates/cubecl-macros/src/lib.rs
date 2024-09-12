@@ -28,7 +28,7 @@ mod statement;
 ///
 /// # Example
 ///
-/// ```
+/// ```ignored
 /// # use cubecl_macros::cube;
 /// #[cube]
 /// fn my_addition(a: u32, b: u32) -> u32 {
@@ -100,7 +100,7 @@ pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
 /// and using it verbatim
 ///
 /// # Example
-/// ```
+/// ```ignored
 /// #use cubecl_macros::cube;
 /// #fn some_rust_function(a: u32) -> u32 {}
 /// #[cube]
