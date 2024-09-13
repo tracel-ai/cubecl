@@ -1,6 +1,9 @@
 use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment, RangeLimits, Type};
+use syn::{
+    parse_quote, spanned::Spanned, Expr, ExprUnary, Lit, LitInt, Path, PathSegment, RangeLimits,
+    Type, UnOp,
+};
 
 use crate::{
     expression::{is_intrinsic, Block, Expression},
@@ -48,6 +51,13 @@ impl Expression {
                     ty,
                 }
             }
+            Expr::Unary(ExprUnary {
+                op: UnOp::Neg(_),
+                expr,
+                ..
+            }) if matches!(*expr, Expr::Lit(_)) => Expression::Verbatim {
+                tokens: quote![-{#expr}],
+            },
             Expr::Path(path) => {
                 let name = path.path.get_ident();
                 if let Some(var) = name.and_then(|ident| context.variable(ident)) {

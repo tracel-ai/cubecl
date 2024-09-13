@@ -19,27 +19,30 @@ impl VisitMut for Desugar {
     }
 
     fn visit_block_mut(&mut self, i: &mut syn::Block) {
-        let mut stmts = Vec::with_capacity(i.stmts.len());
-        for stmt in take(&mut i.stmts) {
-            match stmt {
-                Stmt::Local(Local {
-                    pat: Pat::Struct(pat),
-                    init: Some(init),
-                    ..
-                }) => stmts.extend(desugar_struct_destructure(pat, init)),
-                Stmt::Local(Local {
-                    pat:
-                        Pat::Tuple(PatTuple { elems, .. })
-                        | Pat::TupleStruct(PatTupleStruct { elems, .. }),
-                    init: Some(init),
-                    ..
-                }) => stmts.extend(desugar_tuple_destructure(elems, init)),
-                stmt => stmts.push(stmt),
-            }
-        }
+        let stmts = desugar_pats(take(&mut i.stmts));
+
         i.stmts = stmts;
         visit_mut::visit_block_mut(self, i)
     }
+}
+
+fn desugar_pats(stmts: Vec<Stmt>) -> Vec<Stmt> {
+    stmts.into_iter().flat_map(|stmt| {
+        match stmt {
+            Stmt::Local(Local {
+                pat: Pat::Struct(pat),
+                init: Some(init),
+                ..
+            }) => desugar_struct_destructure(pat, init),
+            Stmt::Local(Local {
+                pat:
+                    Pat::Tuple(PatTuple { elems, .. }) | Pat::TupleStruct(PatTupleStruct { elems, .. }),
+                init: Some(init),
+                ..
+            }) => desugar_tuple_destructure(elems, init),
+            stmt => vec![stmt],
+        }
+    }).collect()
 }
 
 fn desugar_while(inner: &ExprWhile) -> ExprLoop {

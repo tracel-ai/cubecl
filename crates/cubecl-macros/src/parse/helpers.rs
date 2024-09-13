@@ -2,7 +2,7 @@ use darling::FromMeta;
 use syn::{
     parse_quote,
     visit_mut::{self, VisitMut},
-    Attribute, Expr,
+    Attribute, Expr, ExprReference,
 };
 
 use crate::{expression::Expression, paths::prelude_path, scope::Context};
@@ -116,12 +116,20 @@ impl VisitMut for ReplaceIndices {
             }
             _ => {}
         }
-        visit_mut::visit_expr_binary_mut(self, i)
+        visit_mut::visit_expr_binary_mut(self, i);
     }
 
     fn visit_expr_mut(&mut self, i: &mut syn::Expr) {
-        if matches!(i, Expr::Index(_)) {
-            ReplaceIndex.visit_expr_mut(i)
+        match i {
+            Expr::Reference(ExprReference {
+                mutability: Some(_),
+                expr,
+                ..
+            }) => {
+                ReplaceIndexMut.visit_expr_mut(expr);
+            }
+            Expr::Index(_) => ReplaceIndex.visit_expr_mut(i),
+            _ => {}
         }
         visit_mut::visit_expr_mut(self, i);
     }
@@ -152,10 +160,20 @@ impl VisitMut for ReplaceIndices {
 
 impl VisitMut for ReplaceIndex {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
-        if let Expr::Index(index) = i {
-            let inner = &index.expr;
-            let index = &index.index;
-            *i = parse_quote![*#inner.cube_idx(#index)]
+        match i {
+            Expr::Reference(ExprReference {
+                mutability: Some(_),
+                expr,
+                ..
+            }) => {
+                ReplaceIndexMut.visit_expr_mut(expr);
+            }
+            Expr::Index(index) => {
+                let inner = &index.expr;
+                let index = &index.index;
+                *i = parse_quote![*#inner.cube_idx(#index)]
+            }
+            _ => {}
         }
         visit_mut::visit_expr_mut(self, i);
     }

@@ -12,7 +12,7 @@ mod sequence;
 mod subcube;
 mod topology;
 
-pub use branch::{RangeExpand, SteppedRangeExpand};
+pub use branch::{range, range_stepped, RangeExpand, SteppedRangeExpand};
 pub use const_expand::*;
 pub use context::*;
 pub use element::*;

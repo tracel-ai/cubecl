@@ -247,8 +247,8 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
                 }
                 Branch::RangeLoop(op) => {
-                    sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt);
-                    sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt);
+                    sanitize_constant_scalar_ref_var(&mut op.end, &op.start);
+                    sanitize_constant_scalar_ref_var(&mut op.i, &op.start);
                     if let Some(step) = &mut op.step {
                         sanitize_constant_scalar_ref_elem(step, Elem::UInt);
                     }

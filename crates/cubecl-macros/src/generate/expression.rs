@@ -230,7 +230,10 @@ impl Expression {
                 let cast = prelude_type("Cast");
                 let from = from.to_tokens(context);
                 let to = quote_spanned![to.span()=> <#to as #cast>];
-                quote![#to::__expand_cast_from(context, #from)]
+                quote! {{
+                    let __from = #from;
+                    #to::__expand_cast_from(context, __from)
+                }}
             }
             Expression::ForLoop {
                 range,
@@ -268,7 +271,6 @@ impl Expression {
                 condition,
                 then_block,
                 else_branch,
-                ..
             } if condition.is_const() => {
                 let as_const = condition.as_const(context).unwrap();
                 let then_block = then_block.to_tokens(context);
@@ -277,6 +279,22 @@ impl Expression {
                     .map(|it| it.to_tokens(context))
                     .map(|it| quote![else #it]);
                 quote![if #as_const #then_block #else_branch]
+            }
+            Expression::If {
+                condition,
+                then_block,
+                else_branch: Some(else_branch),
+            } if then_block.ret.is_some() && else_branch.needs_terminator() => {
+                let path = frontend_path();
+                let condition = condition.to_tokens(context);
+                let then_block = then_block.to_tokens(context);
+                let else_branch = else_branch.to_tokens(context);
+                quote! {
+                    {
+                        let _cond = #condition;
+                        #path::branch::if_else_expr_expand(context, _cond.into(), |context| #then_block).or_else(context, |context| #else_branch)
+                    }
+                }
             }
             Expression::If {
                 condition,

@@ -197,10 +197,11 @@ impl Display for Instruction {
                     .map(|step| format!("{i} += {step}"))
                     .unwrap_or_else(|| format!("++{i}"));
                 let cmp = if *inclusive { "<=" } else { "<" };
+                let i_ty = i.item();
 
                 f.write_fmt(format_args!(
                     "
-for (uint {i} = {start}; {i} {cmp} {end}; {increment}) {{
+for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {
