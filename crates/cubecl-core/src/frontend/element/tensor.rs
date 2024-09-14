@@ -1,4 +1,4 @@
-use super::{ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand};
+use super::{ExpandElementBaseInit, ExpandElementTyped, LaunchArgExpand, SizedContainer};
 use crate::{
     frontend::{
         indexation::Index, ArgSettings, CubeContext, CubePrimitive, CubeType, ExpandElement,
@@ -241,5 +241,17 @@ impl<T: CubeType> ExpandElementTyped<T> {
     // Expanded version of rank.
     pub fn __expand_rank_method(self, _context: &mut CubeContext) -> ExpandElementTyped<u32> {
         ExpandElement::Plain(Variable::Rank).into()
+    }
+}
+
+impl<T: CubeType<ExpandType = ExpandElementTyped<T>>> SizedContainer for Tensor<T> {
+    type Item = T;
+}
+
+impl<T: CubeType> Iterator for &Tensor<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unexpanded!()
     }
 }
