@@ -28,6 +28,7 @@ cubecl-macros = { path = "../cubecl-macros", version = "0.2.0" }
 derive-new = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 num-traits = { workspace = true }
+paste = { workspace = true }
 serde = { workspace = true }
 
 log = { workspace = true }

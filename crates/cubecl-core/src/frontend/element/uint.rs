@@ -47,4 +47,7 @@ impl ScalarArgSettings for u32 {
     }
 }
 
-impl Numeric for u32 {}
+impl Numeric for u32 {
+    const MAX: Self = u32::MAX;
+    const MIN: Self = u32::MIN;
+}
