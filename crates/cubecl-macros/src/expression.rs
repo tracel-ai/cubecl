@@ -82,7 +82,10 @@ pub enum Expression {
         block: Block,
         scope: Scope,
     },
-    Loop(Block),
+    Loop {
+        block: Block,
+        scope: Scope,
+    },
     If {
         condition: Box<Expression>,
         then_block: Block,

@@ -261,9 +261,9 @@ impl Expression {
                     }
                 }
             }
-            Expression::Loop(block) => {
+            Expression::Loop { block, scope } => {
                 let loop_ty = frontend_type("branch");
-                let block = block.to_tokens(context);
+                let block = context.in_fn_mut(scope, |ctx| block.to_tokens(ctx));
 
                 quote![#loop_ty::loop_expand(context, |context| #block);]
             }
