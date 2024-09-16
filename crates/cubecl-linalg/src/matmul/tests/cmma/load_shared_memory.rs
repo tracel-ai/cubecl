@@ -32,6 +32,8 @@ fn load_lhs_test<F: Float>(
         lhs_sm[i] = F::new(0.);
     }
 
+    sync_units();
+
     let offsets = Offsets {
         batch_lhs: 0,
         batch_rhs: 0,
@@ -47,6 +49,8 @@ fn load_lhs_test<F: Float>(
     let runtime_info = RuntimeCmmaInfo { offsets, dims, ids };
 
     load_lhs(lhs_tensor, &mut lhs_sm, 2, k_offset, runtime_info, config);
+
+    sync_units();
 
     for i in 0..sm_size {
         lhs_sm_arr[i] = lhs_sm[i];
@@ -72,6 +76,8 @@ fn load_rhs_test<F: Float>(
         rhs_sm[i] = F::new(0.);
     }
 
+    sync_units();
+
     let offsets = Offsets {
         batch_lhs: 0,
         batch_rhs: 0,
@@ -87,6 +93,8 @@ fn load_rhs_test<F: Float>(
     let runtime_info = RuntimeCmmaInfo { offsets, dims, ids };
 
     load_rhs(rhs_tensor, &mut rhs_sm, 2, k_offset, runtime_info, config);
+
+    sync_units();
 
     for i in 0..sm_size {
         rhs_sm_arr[i] = rhs_sm[i];
