@@ -3,7 +3,9 @@ use cubecl_core::{self as cubecl, prelude::*};
 
 use super::block_loop::block_loop;
 use super::config::ComptimeCmmaInfo;
-use super::cube_dispatch::base::{ColMajorCubeDispatch, CubeDispatch, RowMajorCubeDispatch};
+use super::cube_dispatch::base::{
+    ColMajorCubeDispatch, CubeDispatch, RowMajorCubeDispatch, SwizzleCubeDispatch,
+};
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -96,7 +98,7 @@ fn calculate_offsets<F: Float>(
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> Offsets {
     // Cube offset
-    let (cube_row, cube_col) = RowMajorCubeDispatch::get_row_col(comptime_info);
+    let (cube_row, cube_col) = SwizzleCubeDispatch::get_row_col(comptime_info);
     // let (cube_row, cube_col) = ColMajorCubeDispatch::get_row_col(comptime_info);
 
     let rank = out.rank();
