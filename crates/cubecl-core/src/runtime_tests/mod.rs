@@ -1,5 +1,6 @@
 pub mod assign;
 pub mod cmma;
+pub mod different_rank;
 pub mod launch;
 pub mod sequence;
 pub mod slice;
@@ -21,5 +22,6 @@ macro_rules! testgen_all {
         cubecl_core::testgen_topology!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_unary!();
+        cubecl_core::testgen_different_rank!();
     };
 }
