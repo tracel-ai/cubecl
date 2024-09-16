@@ -170,6 +170,8 @@ fn load_tensor_multiple_tiles_test<F: Float>(
         shared_memory[i] = F::vectorized(0., tile_size);
     }
 
+    sync_units();
+
     let unit_row = 4 * UNIT_POS_X;
     let unit_col = 4 * UNIT_POS_Y;
     let batch_offset = 0;
@@ -212,6 +214,8 @@ fn load_tensor_multiple_tiles_test<F: Float>(
 
         load_rhs_plain::<F, TileLoader<F>>(tensor, info, config);
     }
+
+    sync_units();
 
     for i in 0..sm_size {
         sm_out[i] = shared_memory[i];
