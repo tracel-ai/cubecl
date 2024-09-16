@@ -2,6 +2,7 @@ use cubecl_core::prelude::*;
 
 // It is assumed that CMMA uses 32 units to compute 16x16x16 tiles
 // TODO put it in config and split tile size into three different parameters
+// TODO add number of smem banks
 pub(crate) const CMMA_COOP_DIM: usize = 32;
 pub(crate) const CMMA_TILE_SIZE: usize = 16;
 
@@ -12,6 +13,17 @@ pub enum WriteOutStrategy {
     LargeSmem,
     /// Accumulators for one warp are put sequentially in a shared memory with only one reusable spot
     ReuseSmem,
+}
+
+/// How cubes are dispatched in the hypercube
+/// Should impact L2 cache reuse
+pub enum CubeDispatchStrategy {
+    /// Cubes are dispatched row major
+    RowMajor,
+    /// Cubes are dispatched col major
+    ColMajor,
+    /// Cubes follow swizzle pattern, see https://bruce-lee-ly.medium.com/nvidia-tensor-core-cuda-hgemm-advanced-optimization-5a17eb77dd85
+    Swizzle,
 }
 
 pub struct CmmaConfig {
