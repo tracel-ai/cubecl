@@ -4,7 +4,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::base::{Dimensions, Ids, Offsets, RuntimeCmmaInfo};
-use crate::matmul::cmma::config::{CmmaConfig, WriteOutStrategy};
+use crate::matmul::cmma::config::CmmaConfig;
 use crate::matmul::tests::test_utils::{assert_equals_range, create_empty};
 use crate::matmul::{
     cmma::{config::ComptimeCmmaInfo, load_shared_memory::*},
@@ -184,7 +184,11 @@ pub fn load_shared_memory_lhs_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0,
@@ -223,7 +227,11 @@ pub fn load_shared_memory_rhs_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0,
@@ -262,7 +270,11 @@ pub fn load_shared_memory_lhs_vertical_out_of_bound_warp_test<R: Runtime>(device
             n: 64,
         },
         0,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0,
@@ -300,7 +312,11 @@ pub fn load_shared_memory_lhs_horizontal_out_of_bound_warp_test<R: Runtime>(devi
             n: 64,
         },
         0,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 0.0, 0.0, 0.0, 0.0, 12.0,
             13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 0.0, 0.0, 0.0, 0.0,
@@ -337,7 +353,11 @@ pub fn load_shared_memory_lhs_whole_out_of_bound_warp_test<R: Runtime>(device: &
             n: 64,
         },
         0,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 0.0, 0.0, 0.0, 0.0, 12.0,
             13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 0.0, 0.0, 0.0, 0.0,
@@ -373,7 +393,11 @@ pub fn load_shared_memory_lhs_second_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             16., 17., 18., 19., 20., 21., 22., 23., 24., 25., 26., 27., 28., 29., 30., 31., 80.,
             81., 82., 83., 84., 85., 86., 87., 88., 89., 90., 91., 92., 93., 94., 95., 144., 145.,
@@ -409,7 +433,11 @@ pub fn load_shared_memory_rhs_second_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             1024., 1025., 1026., 1027., 1028., 1029., 1030., 1031., 1032., 1033., 1034., 1035.,
             1036., 1037., 1038., 1039., 1088., 1089., 1090., 1091., 1092., 1093., 1094., 1095.,
@@ -449,7 +477,11 @@ pub fn load_shared_memory_lhs_third_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0,
             30.0, 31.0, 80.0, 81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0, 91.0,
@@ -488,7 +520,11 @@ pub fn load_shared_memory_rhs_third_warp_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         0,
-        CmmaConfig::new(64, 32, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: 64,
+            b_k: 32,
+            ..Default::default()
+        },
         &[
             16., 17., 18., 19., 20., 21., 22., 23., 24., 25., 26., 27., 28., 29., 30., 31., 80.,
             81., 82., 83., 84., 85., 86., 87., 88., 89., 90., 91., 92., 93., 94., 95., 144., 145.,
@@ -524,7 +560,11 @@ pub fn load_shared_memory_lhs_k_offset_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         32,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0,
             46.0, 47.0, 96.0, 97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0,
@@ -564,7 +604,11 @@ pub fn load_shared_memory_rhs_k_offset_test<R: Runtime>(device: &R::Device) {
             n: 64,
         },
         32,
-        CmmaConfig::new(B_MN, B_K, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: B_MN,
+            b_k: B_K,
+            ..Default::default()
+        },
         &[
             2048., 2049., 2050., 2051., 2052., 2053., 2054., 2055., 2056., 2057., 2058., 2059.,
             2060., 2061., 2062., 2063., 2112., 2113., 2114., 2115., 2116., 2117., 2118., 2119.,
@@ -604,7 +648,11 @@ pub fn load_shared_memory_rhs_larger_block_test<R: Runtime>(device: &R::Device) 
             n: 32,
         },
         0,
-        CmmaConfig::new(32, 32, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: 32,
+            b_k: 32,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0,

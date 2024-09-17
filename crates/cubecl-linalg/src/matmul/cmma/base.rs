@@ -3,6 +3,9 @@ use cubecl_core::{self as cubecl, prelude::*};
 
 use super::block_loop::block_loop;
 use super::config::ComptimeCmmaInfo;
+use super::cube_dispatch::base::{
+    ColMajorCubeDispatch, CubeDispatch, RowMajorCubeDispatch, SwizzleCubeDispatch,
+};
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -92,14 +95,9 @@ fn calculate_offsets<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &Tensor<F>,
-    #[comptime] config: ComptimeCmmaInfo,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> Offsets {
-    let block_size_m = config.block_size_m;
-    let block_size_n = config.block_size_m;
-
-    // Cube offset
-    let cube_row = CUBE_POS_X * block_size_m;
-    let cube_col = CUBE_POS_Y * block_size_n;
+    let (cube_row, cube_col) = get_row_col(comptime_info);
 
     let rank = out.rank();
 
@@ -124,6 +122,17 @@ fn calculate_offsets<F: Float>(
         batch_out,
         cube_row,
         cube_col,
+    }
+}
+
+#[cube]
+pub(crate) fn get_row_col(#[comptime] comptime_info: ComptimeCmmaInfo) -> (u32, u32) {
+    if comptime_info.cube_dispatch == 0 {
+        RowMajorCubeDispatch::get_row_col(comptime_info)
+    } else if comptime_info.cube_dispatch == 1 {
+        ColMajorCubeDispatch::get_row_col(comptime_info)
+    } else {
+        SwizzleCubeDispatch::get_row_col(comptime_info)
     }
 }
 

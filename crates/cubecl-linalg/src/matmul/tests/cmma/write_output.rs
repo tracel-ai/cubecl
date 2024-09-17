@@ -3,8 +3,10 @@ use std::ops::Range;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::base::{Dimensions, Ids, Offsets, RuntimeCmmaInfo};
-use crate::matmul::cmma::config::{CmmaConfig, ComptimeCmmaInfo, WriteOutStrategy};
+use crate::matmul::cmma::base::{get_row_col, Dimensions, Ids, Offsets, RuntimeCmmaInfo};
+use crate::matmul::cmma::config::{
+    CmmaConfig, ComptimeCmmaInfo, CubeDispatchStrategy, WriteOutStrategy,
+};
 use crate::matmul::cmma::write_output::base::shared_memory_to_output;
 use crate::matmul::tests::test_utils::{
     assert_equals, assert_equals_range, range_tensor, zeros_tensor,
@@ -19,13 +21,11 @@ fn write_output_test<F: Float>(
     m: u32,
     k: u32,
     n: u32,
-    #[comptime] config: ComptimeCmmaInfo,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    let num_accumulators = config.num_accumulators;
-    let tile_size = config.tile_size;
-    let num_coops = config.num_coops;
-    let block_size_m = config.block_size_m;
-    let block_size_n = config.block_size_n;
+    let num_accumulators = comptime_info.num_accumulators;
+    let tile_size = comptime_info.tile_size;
+    let num_coops = comptime_info.num_coops;
 
     let sm_stride = tile_size * tile_size;
     let sm_size = num_accumulators * num_coops * sm_stride;
@@ -35,12 +35,14 @@ fn write_output_test<F: Float>(
         accumulate[i] = acc_sm_arr[i];
     }
 
+    let (cube_row, cube_col) = get_row_col(comptime_info);
+
     let offsets = Offsets {
         batch_lhs: 0,
         batch_rhs: 0,
         batch_out: 0,
-        cube_row: CUBE_POS_X * block_size_m,
-        cube_col: CUBE_POS_Y * block_size_n,
+        cube_row,
+        cube_col,
     };
     let dims = Dimensions { m, k, n };
     let ids = Ids {
@@ -50,6 +52,7 @@ fn write_output_test<F: Float>(
     let runtime_info = RuntimeCmmaInfo { offsets, dims, ids };
 
     let smem_position_base = num_accumulators * ids.coop;
+
     #[unroll]
     for n_iter in 0..num_accumulators {
         shared_memory_to_output(
@@ -58,7 +61,7 @@ fn write_output_test<F: Float>(
             accumulate,
             n_iter,
             runtime_info,
-            config,
+            comptime_info,
         );
     }
 }
@@ -108,7 +111,13 @@ pub fn cmma_write_output_warp_test<R: Runtime>(device: &R::Device) {
             k: 16,
             n: 32,
         },
-        CmmaConfig::new(32, 16, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: 32,
+            b_k: 16,
+            write_out_strategy: WriteOutStrategy::LargeSmem,
+            cube_dispatch: CubeDispatchStrategy::ColMajor,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -166,7 +175,13 @@ pub fn cmma_write_output_warp_horizontal_out_of_bounds_test<R: Runtime>(device: 
             k: 16,
             n: 28,
         },
-        CmmaConfig::new(32, 16, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: 32,
+            b_k: 16,
+            write_out_strategy: WriteOutStrategy::LargeSmem,
+            cube_dispatch: CubeDispatchStrategy::ColMajor,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -218,7 +233,13 @@ pub fn cmma_write_output_warp_vertical_out_of_bounds_test<R: Runtime>(device: &R
             k: 16,
             n: 32,
         },
-        CmmaConfig::new(32, 16, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: 32,
+            b_k: 16,
+            write_out_strategy: WriteOutStrategy::LargeSmem,
+            cube_dispatch: CubeDispatchStrategy::ColMajor,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -270,7 +291,13 @@ pub fn cmma_write_output_warp_whole_out_of_bounds_test<R: Runtime>(device: &R::D
             k: 16,
             n: 28,
         },
-        CmmaConfig::new(32, 16, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: 32,
+            b_k: 16,
+            write_out_strategy: WriteOutStrategy::LargeSmem,
+            cube_dispatch: CubeDispatchStrategy::ColMajor,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -318,7 +345,13 @@ pub fn cmma_write_output_second_warp_test<R: Runtime>(device: &R::Device) {
             k: 16,
             n: 64,
         },
-        CmmaConfig::new(32, 16, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: 32,
+            b_k: 16,
+            write_out_strategy: WriteOutStrategy::LargeSmem,
+            cube_dispatch: CubeDispatchStrategy::ColMajor,
+            ..Default::default()
+        },
         &[
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0,
@@ -417,7 +450,13 @@ pub fn cmma_write_output_third_fourth_warps_test<R: Runtime>(device: &R::Device)
             k: 16,
             n: 64,
         },
-        CmmaConfig::new(32, 16, false, WriteOutStrategy::LargeSmem),
+        CmmaConfig {
+            b_mn: 32,
+            b_k: 16,
+            write_out_strategy: WriteOutStrategy::LargeSmem,
+            cube_dispatch: CubeDispatchStrategy::ColMajor,
+            ..Default::default()
+        },
         &[
             512.0, 513.0, 514.0, 515.0, 516.0, 517.0, 518.0, 519.0, 520.0, 521.0, 522.0, 523.0,
             524.0, 525.0, 526.0, 527.0, 768.0, 769.0, 770.0, 771.0, 772.0, 773.0, 774.0, 775.0,
