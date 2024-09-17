@@ -111,7 +111,10 @@ where
                     layout: None,
                     module: &module,
                     entry_point: "main",
-                    compilation_options: Default::default(),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        zero_initialize_workgroup_memory: false,
+                        ..Default::default()
+                    },
                     cache: None,
                 }),
         )
