@@ -3,10 +3,7 @@ use half::f16;
 
 use crate::{
     matmul::{
-        cmma::{
-            config::{CmmaConfig, WriteOutStrategy},
-            launch,
-        },
+        cmma::{config::CmmaConfig, launch},
         tiling2d,
     },
     tensor::TensorHandle,
@@ -42,7 +39,11 @@ macro_rules! alternate_block_sizes {
                 compute_f16: true,
             }
             .test_cmma::<R>(
-                CmmaConfig::new($b_mn, $b_k, false, WriteOutStrategy::ReuseSmem),
+                CmmaConfig {
+                    b_mn: $b_mn,
+                    b_k: $b_k,
+                    ..Default::default()
+                },
                 device,
             );
         }

@@ -98,9 +98,13 @@ fn calculate_offsets<F: Float>(
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> Offsets {
     // Cube offset
-    // let (cube_row, cube_col) = SwizzleCubeDispatch::get_row_col(comptime_info);
-    // let (cube_row, cube_col) = RowMajorCubeDispatch::get_row_col(comptime_info);
-     let (cube_row, cube_col) = ColMajorCubeDispatch::get_row_col(comptime_info);
+    let x = comptime_info.cube_dispatch;
+    let (cube_row, cube_col) = match x {
+        0 => RowMajorCubeDispatch::get_row_col(comptime_info),
+        1 => ColMajorCubeDispatch::get_row_col(comptime_info),
+        2 => SwizzleCubeDispatch::get_row_col(comptime_info),
+        _ => panic!(),
+    };
 
     let rank = out.rank();
 

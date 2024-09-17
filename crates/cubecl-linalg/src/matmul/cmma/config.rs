@@ -17,6 +17,7 @@ pub enum WriteOutStrategy {
 
 /// How cubes are dispatched in the hypercube
 /// Should impact L2 cache reuse
+#[derive(Clone, Copy)]
 pub enum CubeDispatchStrategy {
     /// Cubes are dispatched row major
     RowMajor,
@@ -24,6 +25,16 @@ pub enum CubeDispatchStrategy {
     ColMajor,
     /// Cubes follow swizzle pattern, see https://bruce-lee-ly.medium.com/nvidia-tensor-core-cuda-hgemm-advanced-optimization-5a17eb77dd85
     Swizzle,
+}
+
+impl Into<u32> for CubeDispatchStrategy {
+    fn into(self) -> u32 {
+        match self {
+            CubeDispatchStrategy::RowMajor => 0,
+            CubeDispatchStrategy::ColMajor => 1,
+            CubeDispatchStrategy::Swizzle => 2,
+        }
+    }
 }
 
 pub struct CmmaConfig {
@@ -35,13 +46,21 @@ pub struct CmmaConfig {
     pub unroll: bool,
     /// Whether to write all accumulators in different spots of a large shared memory or reuse the space
     pub write_out_strategy: WriteOutStrategy,
+    /// Order in which to dispatch cubes
+    pub cube_dispatch: CubeDispatchStrategy,
     /// Corresponds to the number of accumulators per warp. Equals b_mn / b_k
     pub alpha: usize,
 }
 
 impl Default for CmmaConfig {
     fn default() -> Self {
-        Self::new(128, 16, false, WriteOutStrategy::ReuseSmem)
+        Self::new(
+            128,
+            16,
+            false,
+            WriteOutStrategy::ReuseSmem,
+            CubeDispatchStrategy::ColMajor,
+        )
     }
 }
 
@@ -51,6 +70,7 @@ impl CmmaConfig {
         b_k: usize,
         unroll: bool,
         write_out_strategy: WriteOutStrategy,
+        cube_dispatch: CubeDispatchStrategy,
     ) -> CmmaConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
@@ -61,6 +81,7 @@ impl CmmaConfig {
             alpha: b_mn / b_k,
             unroll,
             write_out_strategy,
+            cube_dispatch,
         }
     }
 
@@ -80,6 +101,7 @@ impl CmmaConfig {
             num_coops: num_coops as u32,
             num_accumulators: self.alpha as u32,
             write_out_reuse_smem: self.write_out_strategy == WriteOutStrategy::ReuseSmem,
+            cube_dispatch: self.cube_dispatch.into(),
         }
     }
 
@@ -126,7 +148,6 @@ impl Init for ComptimeCmmaInfo {
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-/// Tiling 2D parameters
 pub struct ComptimeCmmaInfo {
     /// Block size along dimension of lhs
     pub block_size_m: u32,
@@ -152,4 +173,6 @@ pub struct ComptimeCmmaInfo {
     pub num_accumulators: u32,
     /// Write out strategy: false = large, true = reuse
     pub write_out_reuse_smem: bool,
+    /// 0 = RowMajor, 1 = ColMajor, 2 = Swizzle
+    pub cube_dispatch: u32,
 }
