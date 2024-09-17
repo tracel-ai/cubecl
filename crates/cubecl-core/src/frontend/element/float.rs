@@ -39,6 +39,19 @@ pub trait Float:
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
 {
+    const DIGITS: u32;
+    const EPSILON: Self;
+    const INFINITY: Self;
+    const MANTISSA_DIGITS: u32;
+    const MAX_10_EXP: i32;
+    const MAX_EXP: i32;
+    const MIN_10_EXP: i32;
+    const MIN_EXP: i32;
+    const MIN_POSITIVE: Self;
+    const NAN: Self;
+    const NEG_INFINITY: Self;
+    const RADIX: u32;
+
     fn new(val: f32) -> Self;
     fn vectorized(val: f32, vectorization: u32) -> Self;
     fn vectorized_empty(vectorization: u32) -> Self;
@@ -88,7 +101,10 @@ macro_rules! impl_float {
             }
         }
 
-        impl Numeric for $primitive {}
+        impl Numeric for $primitive {
+            const MAX: Self = $primitive::MAX;
+            const MIN: Self = $primitive::MIN;
+        }
 
         impl Vectorized for $primitive {
             fn vectorization_factor(&self) -> u32 {
@@ -107,6 +123,19 @@ macro_rules! impl_float {
         }
 
         impl Float for $primitive {
+            const DIGITS: u32 = $primitive::DIGITS;
+            const EPSILON: Self = $primitive::EPSILON;
+            const INFINITY: Self = $primitive::INFINITY;
+            const MANTISSA_DIGITS: u32 = $primitive::MANTISSA_DIGITS;
+            const MAX_10_EXP: i32 = $primitive::MAX_10_EXP;
+            const MAX_EXP: i32 = $primitive::MAX_EXP;
+            const MIN_10_EXP: i32 = $primitive::MIN_10_EXP;
+            const MIN_EXP: i32 = $primitive::MIN_EXP;
+            const MIN_POSITIVE: Self = $primitive::MIN_POSITIVE;
+            const NAN: Self = $primitive::NAN;
+            const NEG_INFINITY: Self = $primitive::NEG_INFINITY;
+            const RADIX: u32 = $primitive::RADIX;
+
             fn new(val: f32) -> Self {
                 $new(val)
             }

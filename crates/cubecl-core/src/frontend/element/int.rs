@@ -40,6 +40,8 @@ pub trait Int:
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
 {
+    const BITS: u32;
+
     fn new(val: i64) -> Self;
     fn vectorized(val: i64, vectorization: u32) -> Self;
     fn __expand_new(context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType {
@@ -76,7 +78,10 @@ macro_rules! impl_int {
             }
         }
 
-        impl Numeric for $type {}
+        impl Numeric for $type {
+            const MAX: Self = $type::MAX;
+            const MIN: Self = $type::MIN;
+        }
 
         impl Vectorized for $type {
             fn vectorization_factor(&self) -> u32 {
@@ -95,6 +100,8 @@ macro_rules! impl_int {
         }
 
         impl Int for $type {
+            const BITS: u32 = $type::BITS;
+
             fn new(val: i64) -> Self {
                 val as $type
             }
@@ -120,6 +127,8 @@ impl_int!(i32, I32);
 impl_int!(i64, I64);
 
 impl Int for u32 {
+    const BITS: u32 = u32::BITS;
+
     fn new(val: i64) -> Self {
         val as u32
     }

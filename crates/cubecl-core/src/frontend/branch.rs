@@ -415,7 +415,8 @@ pub fn return_expand(context: &mut CubeContext) {
     context.register(Branch::Return);
 }
 
-pub fn loop_expand(context: &mut CubeContext, block: impl FnOnce(&mut CubeContext)) {
+// Don't make this `FnOnce`, it must be executable multiple times
+pub fn loop_expand(context: &mut CubeContext, mut block: impl FnMut(&mut CubeContext)) {
     let mut inside_loop = context.child();
 
     block(&mut inside_loop);

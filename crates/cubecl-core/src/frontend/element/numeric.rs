@@ -49,6 +49,9 @@ pub trait Numeric:
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
 {
+    const MAX: Self;
+    const MIN: Self;
+
     /// Create a new constant numeric.
     ///
     /// Note: since this must work for both integer and float

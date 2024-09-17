@@ -67,8 +67,8 @@ fn expand_for_in_loop(
 }
 
 pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Expression> {
-    let (block, _) = context.in_scope(|ctx| Block::from_block(loop_expr.body, ctx))?;
-    Ok(Expression::Loop(block))
+    let (block, scope) = context.in_scope(|ctx| Block::from_block(loop_expr.body, ctx))?;
+    Ok(Expression::Loop { block, scope })
 }
 
 pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expression> {

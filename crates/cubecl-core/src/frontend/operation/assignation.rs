@@ -91,7 +91,7 @@ pub mod index {
 
     use super::*;
 
-    pub fn expand<A: CubeType + CubeIndex<u32>>(
+    pub fn expand<A: CubeType + CubeIndex<ExpandElementTyped<u32>>>(
         context: &mut CubeContext,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,

@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
 use super::{
-    Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory, Tensor,
+    Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory,
+    SizedContainer, Tensor,
 };
 use crate::{
     frontend::indexation::Index,
@@ -57,6 +58,25 @@ impl<'a, C: CubeType> Init for ExpandElementTyped<SliceMut<'a, C>> {
     fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
         // The type can't be deeply cloned/copied.
         self
+    }
+}
+
+impl<'a, C: CubeType<ExpandType = ExpandElementTyped<C>>> SizedContainer for Slice<'a, C> {
+    type Item = C;
+}
+
+impl<'a, T: CubeType> Iterator for Slice<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unexpanded!()
+    }
+}
+impl<'a, T: CubeType> Iterator for &Slice<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unexpanded!()
     }
 }
 

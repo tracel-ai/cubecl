@@ -87,6 +87,7 @@ mod tests {
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
+        let y = scope.create_local(item);
         let lhs: Variable = lhs.into();
 
         cpa!(
@@ -97,8 +98,8 @@ mod tests {
                 cpa!(scope, if(cond).then(|scope|{
                         scope.register(Branch::Break)
                 }));
-
-                cpa!(scope, lhs = lhs % 1i32);
+                // Must not mutate `lhs` because it is used in every iteration
+                cpa!(scope, y = lhs % 1i32);
             })
         );
 
@@ -112,6 +113,7 @@ mod tests {
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
+        let y = scope.create_local(item);
         let lhs: Variable = lhs.into();
 
         cpa!(
@@ -124,8 +126,8 @@ mod tests {
                         false => scope.register(Branch::Break)
                     }
                 }));
-
-                cpa!(scope, lhs = lhs % 1i32);
+                // Must not mutate `lhs` because it is used in every iteration
+                cpa!(scope, y = lhs % 1i32);
             })
         );
 
