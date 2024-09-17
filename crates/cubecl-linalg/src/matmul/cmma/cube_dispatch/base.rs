@@ -34,12 +34,13 @@ impl CubeDispatch for ColMajorCubeDispatch {
 
 #[cube]
 impl CubeDispatch for SwizzleCubeDispatch {
+    #[allow(clippy::modulo_one)] // it somehow seems assumed that cube count is 1
     fn get_row_col(#[comptime] comptime_info: ComptimeCmmaInfo) -> (u32, u32) {
         let block_size_m = comptime_info.block_size_m;
         let block_size_n = comptime_info.block_size_n;
 
         let num_elem_per_swizzle_col = CUBE_COUNT_Y * 2;
-        let nth_cube = CUBE_POS_X * CUBE_COUNT_Y + CUBE_POS_Y; //col major
+        let nth_cube = CUBE_POS_X * CUBE_COUNT_Y + CUBE_POS_Y;
         let swizzle_id = nth_cube % num_elem_per_swizzle_col;
 
         let swizzle_col = nth_cube / num_elem_per_swizzle_col;

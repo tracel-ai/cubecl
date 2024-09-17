@@ -27,9 +27,9 @@ pub enum CubeDispatchStrategy {
     Swizzle,
 }
 
-impl Into<u32> for CubeDispatchStrategy {
-    fn into(self) -> u32 {
-        match self {
+impl From<CubeDispatchStrategy> for u32 {
+    fn from(value: CubeDispatchStrategy) -> Self {
+        match value {
             CubeDispatchStrategy::RowMajor => 0,
             CubeDispatchStrategy::ColMajor => 1,
             CubeDispatchStrategy::Swizzle => 2,
