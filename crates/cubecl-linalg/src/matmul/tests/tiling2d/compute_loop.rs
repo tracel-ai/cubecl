@@ -196,8 +196,8 @@ pub fn compute_loop_unit_offset_test<R: Runtime>(device: &R::Device) {
             ScalarArg::new(4),
             ScalarArg::new(4),
             ArrayArg::from_raw_parts(&results, 16, 1),
-            8,
-            8,
+            16,
+            16,
             config,
         );
     };
