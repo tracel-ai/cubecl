@@ -48,8 +48,6 @@ pub struct CmmaConfig {
     pub write_out_strategy: WriteOutStrategy,
     /// Order in which to dispatch cubes
     pub cube_dispatch: CubeDispatchStrategy,
-    /// Corresponds to the number of accumulators per warp. Equals b_mn / b_k
-    pub alpha: usize,
 }
 
 impl Default for CmmaConfig {
@@ -78,7 +76,6 @@ impl CmmaConfig {
         CmmaConfig {
             b_mn,
             b_k,
-            alpha: b_mn / b_k,
             unroll,
             write_out_strategy,
             cube_dispatch,
@@ -99,7 +96,7 @@ impl CmmaConfig {
             check_n_bounds: n % self.b_mn != 0,
             coop_dim: CMMA_COOP_DIM as u32,
             num_coops: num_coops as u32,
-            num_accumulators: self.alpha as u32,
+            num_accumulators: (self.b_mn / self.b_k) as u32,
             write_out_reuse_smem: self.write_out_strategy == WriteOutStrategy::ReuseSmem,
             cube_dispatch: self.cube_dispatch.into(),
         }

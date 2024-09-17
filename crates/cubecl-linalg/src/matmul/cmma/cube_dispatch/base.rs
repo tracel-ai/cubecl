@@ -38,7 +38,7 @@ impl CubeDispatch for SwizzleCubeDispatch {
         let block_size_m = comptime_info.block_size_m;
         let block_size_n = comptime_info.block_size_n;
 
-        let num_elem_per_swizzle_col = CUBE_COUNT * 2 / CUBE_COUNT_X;
+        let num_elem_per_swizzle_col = CUBE_COUNT_Y * 2;
         let nth_cube = CUBE_POS_X * CUBE_COUNT_Y + CUBE_POS_Y; //col major
         let swizzle_id = nth_cube % num_elem_per_swizzle_col;
 

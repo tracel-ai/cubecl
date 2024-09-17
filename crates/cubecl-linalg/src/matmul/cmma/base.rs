@@ -97,14 +97,7 @@ fn calculate_offsets<F: Float>(
     out: &Tensor<F>,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> Offsets {
-    // Cube offset
-    let x = comptime_info.cube_dispatch;
-    let (cube_row, cube_col) = match x {
-        0 => RowMajorCubeDispatch::get_row_col(comptime_info),
-        1 => ColMajorCubeDispatch::get_row_col(comptime_info),
-        2 => SwizzleCubeDispatch::get_row_col(comptime_info),
-        _ => panic!(),
-    };
+    let (cube_row, cube_col) = get_row_col(comptime_info);
 
     let rank = out.rank();
 
@@ -129,6 +122,17 @@ fn calculate_offsets<F: Float>(
         batch_out,
         cube_row,
         cube_col,
+    }
+}
+
+#[cube]
+pub(crate) fn get_row_col(#[comptime] comptime_info: ComptimeCmmaInfo) -> (u32, u32) {
+    if comptime_info.cube_dispatch == 0 {
+        RowMajorCubeDispatch::get_row_col(comptime_info)
+    } else if comptime_info.cube_dispatch == 1 {
+        ColMajorCubeDispatch::get_row_col(comptime_info)
+    } else {
+        SwizzleCubeDispatch::get_row_col(comptime_info)
     }
 }
 
