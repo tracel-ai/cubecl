@@ -244,7 +244,7 @@ impl Display for Item {
 fn format_number(num: f64) -> String {
     let formatted = format!("{:.34}", num);
     let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
-    trimmed.to_string()
+    trimmed.to_string() + "f"
 }
 
 impl Display for Variable {
