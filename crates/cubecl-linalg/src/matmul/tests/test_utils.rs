@@ -5,30 +5,11 @@ use cubecl_core::{
     server::Handle,
     CubeElement, Feature, Runtime,
 };
-use half::f16;
-use std::ops::Range;
 
 use crate::{
     matmul::tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig},
     tensor::TensorHandle,
 };
-
-pub(crate) fn range_tensor_f16<R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    x: usize,
-    y: usize,
-) -> TensorHandle<R, f16> {
-    let n_elements = x * y;
-
-    let mut data = Vec::with_capacity(n_elements);
-    for i in 0..n_elements {
-        data.push(half::f16::from_f32(i as f32));
-    }
-
-    let handle = client.create(cast_slice(&data));
-
-    TensorHandle::new_contiguous(vec![x, y], handle)
-}
 
 pub(crate) fn range_tensor<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
@@ -138,18 +119,6 @@ pub(crate) fn assert_equals_approx<R: Runtime>(
             epsilon
         );
     }
-}
-
-pub(crate) fn assert_equals_range<R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    output: Handle<<R as Runtime>::Server>,
-    expected: &[f32],
-    range: Range<usize>,
-) {
-    let actual = client.read(output.binding());
-    let actual = f32::from_bytes(&actual);
-
-    assert_eq!(&actual[range], expected);
 }
 
 pub(crate) fn make_tiling2d_config(m: usize, k: usize, n: usize) -> CubeTiling2dConfig {
