@@ -150,6 +150,13 @@ pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
 /// Crates a tuning set with a specific signature. This should be combined with derive([AutotuneKey])
 /// and [`tune_op`]`.
 ///
+/// # Arguments
+///
+/// * `name` - the name of the generated operations struct (default: `PascalCaseFnName`)
+/// * `key` - the name of the key input parameter (default: `key`)
+/// * `create_key` - path to function that creates the key. If not specified, `new` must be implemented manually.
+/// * `operations` - ordered list of operations returned by this tune set
+///
 /// # Example
 ///
 /// ```ignore
