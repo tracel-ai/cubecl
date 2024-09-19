@@ -205,8 +205,8 @@ impl<R: Runtime> TensorState<R> {
             Self::adjust_rank(metadata, bindings.len() - 1, rank);
         }
 
-        Self::register_strides(tensor.strides, tensor.shape, None, metadata);
-        Self::register_shape(tensor.shape, None, metadata);
+        Self::register_strides(tensor.strides, tensor.shape, metadata);
+        Self::register_shape(tensor.shape, metadata);
 
         if R::require_array_lengths() {
             let len = calculate_num_elems_dyn_rank(tensor.shape);
@@ -227,62 +227,39 @@ impl<R: Runtime> TensorState<R> {
             let strides_old = &metadata[stride_index..stride_index + old_rank];
             let shape_old = &metadata[shape_index..shape_index + old_rank];
 
-            Self::register_strides(
-                strides_old,
-                shape_old,
-                Some(old_rank as u32),
-                &mut updated_metadata,
-            );
-            Self::register_shape(shape_old, Some(old_rank as u32), &mut updated_metadata);
+            Self::register_strides(strides_old, shape_old, &mut updated_metadata);
+            Self::register_shape(shape_old, &mut updated_metadata);
         }
 
         core::mem::swap(&mut updated_metadata, metadata);
     }
 
-    fn register_strides<T: ToPrimitive>(
-        strides: &[T],
-        shape: &[T],
-        old_rank: Option<u32>,
-        output: &mut Vec<u32>,
-    ) {
-        let old_rank = if let Some(old_rank) = old_rank {
-            let rank = output[0];
-            let rank_diff = i32::abs(old_rank as i32 - rank as i32) as usize;
+    fn register_strides<T: ToPrimitive>(strides: &[T], shape: &[T], output: &mut Vec<u32>) {
+        let old_rank = output[0] as usize;
+        let rank_diff = i32::abs(old_rank as i32 - shape.len() as i32) as usize;
 
-            if rank_diff > 0 {
-                let padded_strides = shape.iter().map(|a| a.to_u32().unwrap()).sum::<u32>();
+        if rank_diff > 0 {
+            let padded_strides = shape.iter().map(|a| a.to_u32().unwrap()).sum::<u32>();
 
-                for _ in 0..rank_diff {
-                    output.push(padded_strides);
-                }
+            for _ in 0..rank_diff {
+                output.push(padded_strides);
             }
-
-            old_rank as usize
-        } else {
-            output[0] as usize // same as current.
-        };
+        }
 
         for stride in strides.iter().take(old_rank) {
             output.push(stride.to_u32().unwrap());
         }
     }
 
-    fn register_shape<T: ToPrimitive>(shape: &[T], old_rank: Option<u32>, output: &mut Vec<u32>) {
-        let old_rank = if let Some(old_rank) = old_rank {
-            let rank = output[0];
-            let rank_diff = i32::abs(old_rank as i32 - rank as i32) as usize;
+    fn register_shape<T: ToPrimitive>(shape: &[T], output: &mut Vec<u32>) {
+        let old_rank = output[0] as usize;
+        let rank_diff = i32::abs(old_rank as i32 - shape.len() as i32) as usize;
 
-            if rank_diff > 0 {
-                for _ in 0..rank_diff {
-                    output.push(1);
-                }
+        if rank_diff > 0 {
+            for _ in 0..rank_diff {
+                output.push(1);
             }
-
-            old_rank as usize
-        } else {
-            output[0] as usize // same as current
-        };
-
+        }
         for elem in shape.iter().take(old_rank) {
             output.push(elem.to_u32().unwrap());
         }

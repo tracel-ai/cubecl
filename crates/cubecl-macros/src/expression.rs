@@ -1,12 +1,14 @@
-use std::{rc::Rc, sync::atomic::AtomicUsize};
-
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::{
     AngleBracketedGenericArguments, Ident, Lit, Member, Pat, Path, PathArguments, PathSegment, Type,
 };
 
-use crate::{operator::Operator, scope::Context, statement::Statement};
+use crate::{
+    operator::Operator,
+    scope::{Context, ManagedVar, Scope},
+    statement::Statement,
+};
 
 #[derive(Clone, Debug)]
 pub enum Expression {
@@ -21,18 +23,7 @@ pub enum Expression {
         operator: Operator,
         ty: Option<Type>,
     },
-    Variable {
-        name: Ident,
-        is_ref: bool,
-        is_mut: bool,
-        use_count: Rc<AtomicUsize>,
-        ty: Option<Type>,
-    },
-    ConstVariable {
-        name: Ident,
-        use_count: Rc<AtomicUsize>,
-        ty: Option<Type>,
-    },
+    Variable(ManagedVar),
     FieldAccess {
         base: Box<Expression>,
         field: Member,
@@ -68,6 +59,7 @@ pub enum Expression {
     Closure {
         params: Vec<Pat>,
         body: Box<Expression>,
+        scope: Scope,
     },
     Cast {
         from: Box<Expression>,
@@ -88,12 +80,12 @@ pub enum Expression {
         var_name: syn::Ident,
         var_ty: Option<syn::Type>,
         block: Block,
+        scope: Scope,
     },
-    WhileLoop {
-        condition: Box<Expression>,
+    Loop {
         block: Block,
+        scope: Scope,
     },
-    Loop(Block),
     If {
         condition: Box<Expression>,
         then_block: Block,
@@ -142,7 +134,7 @@ pub enum Expression {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Block {
     pub inner: Vec<Statement>,
     pub ret: Option<Box<Expression>>,
@@ -154,8 +146,7 @@ impl Expression {
         match self {
             Expression::Binary { ty, .. } => ty.clone(),
             Expression::Unary { ty, .. } => ty.clone(),
-            Expression::Variable { ty, .. } => ty.clone(),
-            Expression::ConstVariable { ty, .. } => ty.clone(),
+            Expression::Variable(var) => var.ty.clone(),
             Expression::Literal { ty, .. } => Some(ty.clone()),
             Expression::Assignment { ty, .. } => ty.clone(),
             Expression::Verbatim { .. } => None,
@@ -169,7 +160,6 @@ impl Expression {
             Expression::MethodCall { .. } => None,
             Expression::Path { .. } => None,
             Expression::Range { start, .. } => start.ty(),
-            Expression::WhileLoop { .. } => None,
             Expression::Loop { .. } => None,
             Expression::If { then_block, .. } => then_block.ty.clone(),
             Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
@@ -193,15 +183,12 @@ impl Expression {
             Expression::Path { .. } => true,
             Expression::Verbatim { .. } => true,
             Expression::VerbatimTerminated { .. } => true,
-            Expression::ConstVariable { .. } => true,
+            Expression::Variable(var) => var.is_const,
             Expression::FieldAccess { base, .. } => base.is_const(),
             Expression::Reference { inner } => inner.is_const(),
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::Tuple { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::CompilerIntrinsic { .. } => true,
-            Expression::MethodCall {
-                receiver, method, ..
-            } => receiver.is_const() && method != "runtime",
             _ => false,
         }
     }
@@ -211,7 +198,11 @@ impl Expression {
             Expression::Literal { value, .. } => Some(quote![#value]),
             Expression::Verbatim { tokens, .. } => Some(tokens.clone()),
             Expression::VerbatimTerminated { tokens, .. } => Some(tokens.clone()),
-            Expression::ConstVariable { name, .. } => Some(quote![#name.clone()]),
+            Expression::Variable(ManagedVar {
+                name,
+                is_const: true,
+                ..
+            }) => Some(quote![#name.clone()]),
             Expression::Path { path, .. } => Some(quote![#path]),
             Expression::Array { elements, .. } => {
                 let elements = elements
@@ -248,7 +239,6 @@ impl Expression {
             Expression::If { then_block, .. } => then_block.ret.is_some(),
             Expression::Block(block) => block.ret.is_some(),
             Expression::ForLoop { .. } => false,
-            Expression::WhileLoop { .. } => false,
             Expression::Loop { .. } => false,
             Expression::VerbatimTerminated { .. } => false,
             _ => true,

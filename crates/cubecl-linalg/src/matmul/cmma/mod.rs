@@ -3,6 +3,7 @@ mod block_io;
 mod block_loop;
 pub(crate) mod compute_loop;
 pub(crate) mod config;
+pub(crate) mod cube_dispatch;
 mod launch;
 pub(crate) mod load_shared_memory;
 pub(crate) mod write_output;

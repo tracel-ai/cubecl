@@ -557,10 +557,11 @@ impl Display for Instruction {
                     .map(|step| format!("{i} += {step}"))
                     .unwrap_or_else(|| format!("{i}++"));
                 let cmp = if *inclusive { "<=" } else { "<" };
+                let i_ty = i.item();
 
                 f.write_fmt(format_args!(
                     "
-for (var {i}: u32 = {start}; {i} {cmp} {end}; {increment}) {{
+for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {
@@ -696,7 +697,17 @@ for (var {i}: u32 = {start}; {i} {cmp} {end}; {increment}) {{
                 f.write_fmt(format_args!("{out} = length({input});\n"))
             }
             Instruction::Normalize { input, out } => {
-                f.write_fmt(format_args!("{out} = normalize({input});\n"))
+                if input.item().vectorization_factor() == 1 {
+                    // We need a check for vectorization factor 1 here, for compatibility with cuda.
+                    // You can almost use sign here, however that does not correctly handle the case for x == 0.0.
+                    // Therefore we use normalize with vec2, as there is no way to use a NaN literal in wgsl.
+                    let vec2_type = Item::Vec2(out.elem());
+                    f.write_fmt(format_args!(
+                        "{out} = normalize({vec2_type}({input}, 0.0)).x;\n"
+                    ))
+                } else {
+                    f.write_fmt(format_args!("{out} = normalize({input});\n"))
+                }
             }
         }
     }

@@ -1,15 +1,18 @@
 use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use syn::{parse_quote, spanned::Spanned, Expr, Lit, LitInt, Path, PathSegment, RangeLimits, Type};
+use syn::{
+    parse_quote, spanned::Spanned, Expr, ExprUnary, Lit, LitInt, Path, PathSegment, RangeLimits,
+    Type, UnOp,
+};
 
 use crate::{
     expression::{is_intrinsic, Block, Expression},
     operator::Operator,
-    scope::{Context, ManagedVar},
+    scope::Context,
 };
 
 use super::{
-    branch::{expand_for_loop, expand_if, expand_loop, expand_while_loop},
+    branch::{expand_for_loop, expand_if, expand_loop},
     operator::{parse_binop, parse_unop},
 };
 
@@ -48,37 +51,20 @@ impl Expression {
                     ty,
                 }
             }
+            Expr::Unary(ExprUnary {
+                op: UnOp::Neg(_),
+                expr,
+                ..
+            }) if matches!(*expr, Expr::Lit(_)) => Expression::Verbatim {
+                tokens: quote![-{#expr}],
+            },
             Expr::Path(path) => {
-                let variable = path
-                    .path
-                    .get_ident()
-                    .and_then(|ident| context.variable(ident));
-                if let Some(ManagedVar {
-                    name,
-                    ty,
-                    is_const,
-                    is_keyword,
-                    use_count,
-                    is_ref,
-                    is_mut,
-                }) = variable
-                {
-                    if is_const {
-                        Expression::ConstVariable {
-                            name,
-                            ty,
-                            use_count,
-                        }
-                    } else if is_keyword {
-                        Expression::Keyword { name }
+                let name = path.path.get_ident();
+                if let Some(var) = name.and_then(|ident| context.variable(ident)) {
+                    if var.is_keyword {
+                        Expression::Keyword { name: var.name }
                     } else {
-                        Expression::Variable {
-                            name,
-                            ty,
-                            is_ref,
-                            is_mut,
-                            use_count,
-                        }
+                        Expression::Variable(var)
                     }
                 } else {
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
@@ -96,7 +82,7 @@ impl Expression {
                 }
             }
             Expr::Block(block) => {
-                let block = context.with_scope(|ctx| Block::from_block(block.block, ctx))?;
+                let (block, _) = context.in_scope(|ctx| Block::from_block(block.block, ctx))?;
                 Expression::Block(block)
             }
             Expr::Break(_) => Expression::Break,
@@ -171,7 +157,6 @@ impl Expression {
             },
             Expr::Continue(cont) => Expression::Continue(cont.span()),
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
-            Expr::While(while_loop) => expand_while_loop(while_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
             Expr::If(if_expr) => expand_if(if_expr, context)?,
             Expr::Range(range) => {
@@ -332,19 +317,26 @@ impl Expression {
                     fields,
                 }
             }
-            Expr::Unsafe(unsafe_expr) => Expression::Block(
-                context.with_scope(|ctx| Block::from_block(unsafe_expr.block, ctx))?,
-            ),
+            Expr::Unsafe(unsafe_expr) => {
+                let (block, _) =
+                    context.in_scope(|ctx| Block::from_block(unsafe_expr.block, ctx))?;
+                Expression::Block(block)
+            }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
             Expr::Reference(reference) => Expression::Reference {
                 inner: Box::new(Expression::from_expr(*reference.expr, context)?),
             },
             Expr::Closure(expr) => {
-                let body = context.with_scope(|ctx| Expression::from_expr(*expr.body, ctx))?;
+                let (body, scope) =
+                    context.in_scope(|ctx| Expression::from_expr(*expr.body, ctx))?;
                 let body = Box::new(body);
                 let params = expr.inputs.into_iter().collect();
-                Expression::Closure { params, body }
+                Expression::Closure {
+                    params,
+                    body,
+                    scope,
+                }
             }
 
             Expr::Try(expr) => {

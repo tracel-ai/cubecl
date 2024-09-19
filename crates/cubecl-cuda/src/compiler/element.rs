@@ -14,6 +14,22 @@ pub enum Elem {
     I32,
     U32,
     Bool,
+    Atomic(AtomicKind),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
+pub enum AtomicKind {
+    I32,
+    U32,
+}
+
+impl Display for AtomicKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AtomicKind::I32 => f.write_str("int"),
+            AtomicKind::U32 => f.write_str("uint"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
@@ -33,6 +49,7 @@ impl Display for Elem {
             Elem::I32 => f.write_str("int"),
             Elem::U32 => f.write_str("uint"),
             Elem::Bool => f.write_str("bool"),
+            Elem::Atomic(inner) => inner.fmt(f),
         }
     }
 }
@@ -470,6 +487,8 @@ impl Elem {
             Self::I32 => core::mem::size_of::<i32>(),
             Self::U32 => core::mem::size_of::<u32>(),
             Self::Bool => core::mem::size_of::<bool>(),
+            Self::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
+            Self::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
         }
     }
 }

@@ -1,4 +1,4 @@
-use super::{Component, Variable};
+use super::{Component, Elem, Variable};
 use std::fmt::{Display, Formatter};
 
 pub trait Binary {
@@ -259,6 +259,8 @@ impl Binary for Index {
                 f.write_fmt(format_args!("{out} = {}({lhs}[{rhs}]);\n", item_out.elem))?;
             }
             Ok(())
+        } else if let Elem::Atomic(inner) = item_out.elem {
+            f.write_fmt(format_args!("{inner}* {out} = &{lhs}[{rhs}];\n"))
         } else {
             f.write_fmt(format_args!("{out} = {lhs}[{rhs}];\n"))
         }

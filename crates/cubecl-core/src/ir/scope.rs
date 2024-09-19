@@ -295,8 +295,7 @@ impl Scope {
     pub fn process(&mut self) -> ScopeProcessing {
         self.undeclared += self.locals.len() as u16;
 
-        let mut variables = Vec::new();
-        core::mem::swap(&mut self.locals, &mut variables);
+        let mut variables = core::mem::take(&mut self.locals);
 
         for var in self.matrices.drain(..) {
             variables.push(var);

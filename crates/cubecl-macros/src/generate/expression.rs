@@ -85,14 +85,20 @@ impl Expression {
             Expression::Keyword { name } => {
                 quote![#name::expand(context)]
             }
-            Expression::Variable { name, .. } => {
-                let last_use = context.try_consume(name);
-                if last_use {
+            Expression::Variable(var) if var.is_const => {
+                let name = &var.name;
+                let expand_elem = frontend_type("ExpandElementTyped");
+                quote![#expand_elem::from_lit(#name)]
+            }
+            Expression::Variable(var) => {
+                let name = &var.name;
+                if var.try_consume(context) {
                     quote![#name]
                 } else {
                     quote![#name.clone()]
                 }
             }
+
             Expression::FieldAccess { base, field, .. } => {
                 let base = base
                     .as_const(context)
@@ -103,10 +109,7 @@ impl Expression {
                 let expand_elem = frontend_type("ExpandElementTyped");
                 quote![#expand_elem::from_lit(#value)]
             }
-            Expression::ConstVariable { name, .. } => {
-                let expand_elem = frontend_type("ExpandElementTyped");
-                quote![#expand_elem::from_lit(#name)]
-            }
+
             Expression::Assignment { left, right, .. }
                 if matches!(**left, Expression::Index { .. }) =>
             {
@@ -227,7 +230,10 @@ impl Expression {
                 let cast = prelude_type("Cast");
                 let from = from.to_tokens(context);
                 let to = quote_spanned![to.span()=> <#to as #cast>];
-                quote![#to::__expand_cast_from(context, #from)]
+                quote! {{
+                    let __from = #from;
+                    #to::__expand_cast_from(context, __from)
+                }}
             }
             Expression::ForLoop {
                 range,
@@ -235,6 +241,7 @@ impl Expression {
                 var_name,
                 var_ty,
                 block,
+                scope,
             } => {
                 let for_ty = frontend_type("branch");
 
@@ -243,7 +250,7 @@ impl Expression {
                     .as_ref()
                     .and_then(|it| it.as_const(context))
                     .unwrap_or(quote![false]);
-                let block = context.with_restored_closure_scope(|ctx| block.to_tokens(ctx));
+                let block = context.in_fn_mut(scope, |ctx| block.to_tokens(ctx));
                 let var_ty = var_ty.as_ref().map(|it| quote![: #it]);
 
                 quote! {
@@ -254,16 +261,9 @@ impl Expression {
                     }
                 }
             }
-            Expression::WhileLoop { condition, block } => {
-                let while_ty = frontend_type("branch");
-                let condition = condition.to_tokens(context);
-                let block = context.with_restored_closure_scope(|ctx| block.to_tokens(ctx));
-
-                quote![#while_ty::while_loop_expand(context, |context| #condition, |context| #block);]
-            }
-            Expression::Loop(block) => {
+            Expression::Loop { block, scope } => {
                 let loop_ty = frontend_type("branch");
-                let block = context.with_restored_closure_scope(|ctx| block.to_tokens(ctx));
+                let block = context.in_fn_mut(scope, |ctx| block.to_tokens(ctx));
 
                 quote![#loop_ty::loop_expand(context, |context| #block);]
             }
@@ -271,15 +271,30 @@ impl Expression {
                 condition,
                 then_block,
                 else_branch,
-                ..
             } if condition.is_const() => {
                 let as_const = condition.as_const(context).unwrap();
-                let then_block = context.with_restored_scope(|ctx| then_block.to_tokens(ctx));
+                let then_block = then_block.to_tokens(context);
                 let else_branch = else_branch
                     .as_ref()
-                    .map(|it| context.with_restored_scope(|ctx| it.to_tokens(ctx)))
+                    .map(|it| it.to_tokens(context))
                     .map(|it| quote![else #it]);
                 quote![if #as_const #then_block #else_branch]
+            }
+            Expression::If {
+                condition,
+                then_block,
+                else_branch: Some(else_branch),
+            } if then_block.ret.is_some() && else_branch.needs_terminator() => {
+                let path = frontend_path();
+                let condition = condition.to_tokens(context);
+                let then_block = then_block.to_tokens(context);
+                let else_branch = else_branch.to_tokens(context);
+                quote! {
+                    {
+                        let _cond = #condition;
+                        #path::branch::if_else_expr_expand(context, _cond.into(), |context| #then_block).or_else(context, |context| #else_branch)
+                    }
+                }
             }
             Expression::If {
                 condition,
@@ -288,14 +303,12 @@ impl Expression {
             } => {
                 let path = frontend_path();
                 let condition = condition.to_tokens(context);
-                let then_block =
-                    context.with_restored_closure_scope(|ctx| then_block.to_tokens(ctx));
-                let else_branch =
-                    context.with_restored_closure_scope(|ctx| else_branch.to_tokens(ctx));
+                let then_block = then_block.to_tokens(context);
+                let else_branch = else_branch.to_tokens(context);
                 quote! {
                     {
                         let _cond = #condition;
-                        #path::branch::if_else_expand(context, _cond.into(), |context| #then_block, |context| #else_branch);
+                        #path::branch::if_else_expand(context, _cond.into(), |context| #then_block).or_else(context, |context| #else_branch);
                     }
                 }
             }
@@ -306,8 +319,7 @@ impl Expression {
             } => {
                 let path = frontend_path();
                 let condition = condition.to_tokens(context);
-                let then_block =
-                    context.with_restored_closure_scope(|ctx| then_block.to_tokens(ctx));
+                let then_block = then_block.to_tokens(context);
                 quote! {
                     {
                         let _cond = #condition;
@@ -403,12 +415,17 @@ impl Expression {
                     }
                 }
             }
-            Expression::Closure { params, body, .. } => {
-                let body = context.with_restored_closure_scope(|ctx| body.to_tokens(ctx));
+            Expression::Closure {
+                params,
+                body,
+                scope,
+            } => {
+                // Without knowing the closure type, we need to assume it's `FnMut`
+                let body = context.in_fn_mut(scope, |ctx| body.to_tokens(ctx));
                 quote![|context, #(#params),*| #body]
             }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
-            Expression::Block(block) => context.with_restored_scope(|ctx| block.to_tokens(ctx)),
+            Expression::Block(block) => block.to_tokens(context),
         }
     }
 }

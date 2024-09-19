@@ -370,7 +370,10 @@ impl CudaCompiler {
             }),
             gpu::Operator::Index(op) => {
                 if let ExecutionMode::Checked = self.strategy {
-                    if has_length(&op.lhs) {
+                    // Since atomics must be declared inline (for `wgpu` compatibility), we need to
+                    // disable runtime checks for them. Otherwise the variable would be declared
+                    // inside the `if` scope.
+                    if has_length(&op.lhs) && !op.lhs.item().elem.is_atomic() {
                         self.compile_procedure(
                             instructions,
                             gpu::Procedure::CheckedIndex(gpu::CheckedIndex {
@@ -752,11 +755,11 @@ impl CudaCompiler {
                 gpu::IntKind::I64 => panic!("i64 isn't supported yet"),
             },
             gpu::Elem::AtomicInt(kind) => match kind {
-                gpu::IntKind::I32 => super::Elem::I32,
+                gpu::IntKind::I32 => super::Elem::Atomic(super::AtomicKind::I32),
                 gpu::IntKind::I64 => panic!("atomic<i64> isn't supported yet"),
             },
             gpu::Elem::UInt => super::Elem::U32,
-            gpu::Elem::AtomicUInt => super::Elem::U32,
+            gpu::Elem::AtomicUInt => super::Elem::Atomic(super::AtomicKind::U32),
             gpu::Elem::Bool => super::Elem::Bool,
         }
     }

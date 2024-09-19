@@ -22,11 +22,6 @@ macro_rules! testgen_tiling2d_internal {
         }
 
         #[test]
-        pub fn tiling2d_matmul_compute_loop_unit_offset_test() {
-            tests::tiling2d::compute_loop::compute_loop_unit_offset_test::<TestRuntime>(&Default::default())
-        }
-
-        #[test]
         pub fn load_lhs_transposed_unit_test() {
             tests::tiling2d::load_shared_memory::load_lhs_transposed_unit_test::<TestRuntime>(
                 &Default::default(),
