@@ -35,7 +35,7 @@ impl<F: Float, FC: Float, T: TilingOrder> SmemLoader<F, FC> for TilewiseSmemLoad
         let num_units_per_row = tile_size / tensor_vec;
 
         let smem_tile_width = I::smem_width(comptime_info) / tile_size;
-        let smem_tile_height = I::smem_width(comptime_info) / tile_size;
+        let smem_tile_height = I::smem_height(comptime_info) / tile_size;
         let tile_row = T::tile_row(coop_id, smem_tile_width, smem_tile_height);
         let tile_col = T::tile_col(coop_id, smem_tile_width, smem_tile_height);
 
