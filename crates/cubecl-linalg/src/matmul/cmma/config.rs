@@ -6,13 +6,22 @@ use cubecl_core::prelude::*;
 pub(crate) const CMMA_COOP_DIM: usize = 32;
 pub(crate) const CMMA_TILE_SIZE: usize = 16;
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy)]
 /// Defines how data travels from accumulators to global output
 pub enum WriteOutStrategy {
     /// Accumulators for one warp are put concurrently in a shared memory large enough to contain them all
     LargeSmem,
     /// Accumulators for one warp are put sequentially in a shared memory with only one reusable spot
     ReuseSmem,
+}
+
+impl From<WriteOutStrategy> for u32 {
+    fn from(value: WriteOutStrategy) -> Self {
+        match value {
+            WriteOutStrategy::LargeSmem => 0,
+            WriteOutStrategy::ReuseSmem => 1,
+        }
+    }
 }
 
 /// How cubes are dispatched in the hypercube
@@ -37,6 +46,24 @@ impl From<CubeDispatchStrategy> for u32 {
     }
 }
 
+#[derive(Clone, Copy)]
+/// Defines how data travels from accumulators to global output
+pub enum ComputeLoopOrderStrategy {
+    /// Accumulators for one warp are put concurrently in a shared memory large enough to contain them all
+    BufferInnerComputeLoop,
+    /// Accumulators for one warp are put sequentially in a shared memory with only one reusable spot
+    BufferOuterComputeLoop,
+}
+
+impl From<ComputeLoopOrderStrategy> for u32 {
+    fn from(value: ComputeLoopOrderStrategy) -> Self {
+        match value {
+            ComputeLoopOrderStrategy::BufferInnerComputeLoop => 0,
+            ComputeLoopOrderStrategy::BufferOuterComputeLoop => 1,
+        }
+    }
+}
+
 pub struct CmmaConfig {
     /// Corresponds to the number of tiles in the m and n dimensions for a block
     pub b_mn: usize,
@@ -47,7 +74,9 @@ pub struct CmmaConfig {
     /// Whether to write all accumulators in different spots of a large shared memory or reuse the space
     pub write_out_strategy: WriteOutStrategy,
     /// Order in which to dispatch cubes
-    pub cube_dispatch: CubeDispatchStrategy,
+    pub cube_dispatch_strategy: CubeDispatchStrategy,
+    /// Whether to iterate on buffers or accumulators first
+    pub compute_loop_order_strategy: ComputeLoopOrderStrategy,
 }
 
 impl Default for CmmaConfig {
@@ -58,6 +87,7 @@ impl Default for CmmaConfig {
             false,
             WriteOutStrategy::ReuseSmem,
             CubeDispatchStrategy::ColMajor,
+            ComputeLoopOrderStrategy::BufferOuterComputeLoop,
         )
     }
 }
@@ -68,7 +98,8 @@ impl CmmaConfig {
         b_k: usize,
         unroll: bool,
         write_out_strategy: WriteOutStrategy,
-        cube_dispatch: CubeDispatchStrategy,
+        cube_dispatch_strategy: CubeDispatchStrategy,
+        compute_loop_order_strategy: ComputeLoopOrderStrategy,
     ) -> CmmaConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
@@ -78,7 +109,8 @@ impl CmmaConfig {
             b_k,
             unroll,
             write_out_strategy,
-            cube_dispatch,
+            cube_dispatch_strategy,
+            compute_loop_order_strategy,
         }
     }
 
@@ -97,8 +129,9 @@ impl CmmaConfig {
             coop_dim: CMMA_COOP_DIM as u32,
             num_coops: num_coops as u32,
             num_accumulators: (self.b_mn / self.b_k) as u32,
-            write_out_reuse_smem: self.write_out_strategy == WriteOutStrategy::ReuseSmem,
-            cube_dispatch: self.cube_dispatch.into(),
+            write_out_strategy: self.write_out_strategy.into(),
+            cube_dispatch_strategy: self.cube_dispatch_strategy.into(),
+            compute_loop_order_strategy: self.compute_loop_order_strategy.into(),
         }
     }
 
@@ -168,8 +201,10 @@ pub struct ComptimeCmmaInfo {
     pub num_coops: u32,
     /// Number of cmma per subcube performed in one pass
     pub num_accumulators: u32,
-    /// Write out strategy: false = large, true = reuse
-    pub write_out_reuse_smem: bool,
+    /// 0 = large, 1 = reuse
+    pub write_out_strategy: u32,
     /// 0 = RowMajor, 1 = ColMajor, 2 = Swizzle
-    pub cube_dispatch: u32,
+    pub cube_dispatch_strategy: u32,
+    /// 0 = buffer inner, 1 = buffer outer
+    pub compute_loop_order_strategy: u32,
 }

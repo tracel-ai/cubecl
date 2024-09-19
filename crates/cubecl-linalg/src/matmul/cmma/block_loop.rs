@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use super::{
     base::{Fragments, RuntimeCmmaInfo, SharedMemories},
-    compute_loop::compute_loop,
+    compute_loop::base::compute_loop,
     config::ComptimeCmmaInfo,
     load_shared_memory::load_to_shared_memories,
     write_output::{base::OutputWriter, large_smem::LargeSmemWriter, reuse_smem::ReuseSmemWriter},
@@ -20,7 +20,7 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
     let block_size_k = comptime_info.block_size_k;
-    let write_out_reuse_smem = comptime_info.write_out_reuse_smem;
+    let write_out_reuse_smem = comptime_info.write_out_strategy;
 
     // Equals ceil(dims.k / block_size_k)
     let dims = runtime_info.dims;
@@ -50,9 +50,9 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
         sync_units();
     }
 
-    if write_out_reuse_smem {
-        ReuseSmemWriter::write_to_output(out, fragments.accumulators, runtime_info, comptime_info);
-    } else {
+    if write_out_reuse_smem == 0 {
         LargeSmemWriter::write_to_output(out, fragments.accumulators, runtime_info, comptime_info);
+    } else {
+        ReuseSmemWriter::write_to_output(out, fragments.accumulators, runtime_info, comptime_info);
     }
 }

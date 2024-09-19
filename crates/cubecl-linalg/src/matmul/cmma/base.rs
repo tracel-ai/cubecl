@@ -127,9 +127,9 @@ fn calculate_offsets<F: Float>(
 
 #[cube]
 pub(crate) fn get_row_col(#[comptime] comptime_info: ComptimeCmmaInfo) -> (u32, u32) {
-    if comptime_info.cube_dispatch == 0 {
+    if comptime_info.cube_dispatch_strategy == 0 {
         RowMajorCubeDispatch::get_row_col(comptime_info)
-    } else if comptime_info.cube_dispatch == 1 {
+    } else if comptime_info.cube_dispatch_strategy == 1 {
         ColMajorCubeDispatch::get_row_col(comptime_info)
     } else {
         SwizzleCubeDispatch::get_row_col(comptime_info)
