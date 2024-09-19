@@ -1,18 +1,17 @@
-use crate::matmul::cmma::base::Dimensions;
+use crate::matmul::cmma::base::{Dimensions, RuntimeCmmaInfo};
+use crate::matmul::cmma::load_shared_memory::load_info::LoadInfo;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
 pub(crate) trait BlockLoader<F: Float, FC: Float> {
-    fn load_single(
+    fn load_single<I: LoadInfo>(
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<FC>,
-        batch_offset: u32,
         read_row: u32,
         read_col: u32,
         write_pos: u32,
-        dim_vertical: u32,
-        dim_horizontal: u32,
+        runtime_info: RuntimeCmmaInfo,
     );
 }
 

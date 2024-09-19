@@ -5,7 +5,7 @@ use super::{
     base::{Fragments, RuntimeCmmaInfo, SharedMemories},
     compute_loop::base::compute_loop,
     config::ComptimeCmmaInfo,
-    load_shared_memory::load_to_shared_memories,
+    load_shared_memory::base::load_to_shared_memories,
     write_output::{base::OutputWriter, large_smem::LargeSmemWriter, reuse_smem::ReuseSmemWriter},
 };
 
@@ -32,8 +32,8 @@ pub(crate) fn block_loop<F: Float, FC: Float>(
         load_to_shared_memories::<F, FC>(
             lhs,
             rhs,
-            k_offset,
             shared_memories,
+            k_offset,
             runtime_info,
             comptime_info,
         );

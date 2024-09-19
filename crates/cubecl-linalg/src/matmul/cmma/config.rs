@@ -64,6 +64,25 @@ impl From<ComputeLoopOrderStrategy> for u32 {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum SmemLoaderStrategy {
+    TilewiseRowMajor,
+    TilewiseColMajor,
+    ContinuousRowMajor,
+    ContinuousColMajor,
+}
+
+impl From<SmemLoaderStrategy> for u32 {
+    fn from(value: SmemLoaderStrategy) -> Self {
+        match value {
+            SmemLoaderStrategy::TilewiseRowMajor => 0,
+            SmemLoaderStrategy::TilewiseColMajor => 1,
+            SmemLoaderStrategy::ContinuousRowMajor => 2,
+            SmemLoaderStrategy::ContinuousColMajor => 3,
+        }
+    }
+}
+
 pub struct CmmaConfig {
     /// Corresponds to the number of tiles in the m and n dimensions for a block
     pub b_mn: usize,
@@ -77,6 +96,8 @@ pub struct CmmaConfig {
     pub cube_dispatch_strategy: CubeDispatchStrategy,
     /// Whether to iterate on buffers or accumulators first
     pub compute_loop_order_strategy: ComputeLoopOrderStrategy,
+    pub lhs_smem_loader_strategy: SmemLoaderStrategy,
+    pub rhs_smem_loader_strategy: SmemLoaderStrategy,
 }
 
 impl Default for CmmaConfig {
@@ -88,6 +109,8 @@ impl Default for CmmaConfig {
             WriteOutStrategy::ReuseSmem,
             CubeDispatchStrategy::ColMajor,
             ComputeLoopOrderStrategy::AllBuffersFirst,
+            SmemLoaderStrategy::TilewiseRowMajor,
+            SmemLoaderStrategy::TilewiseColMajor,
         )
     }
 }
@@ -100,6 +123,8 @@ impl CmmaConfig {
         write_out_strategy: WriteOutStrategy,
         cube_dispatch_strategy: CubeDispatchStrategy,
         compute_loop_order_strategy: ComputeLoopOrderStrategy,
+        lhs_smem_loader_strategy: SmemLoaderStrategy,
+        rhs_smem_loader_strategy: SmemLoaderStrategy,
     ) -> CmmaConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
@@ -111,6 +136,8 @@ impl CmmaConfig {
             write_out_strategy,
             cube_dispatch_strategy,
             compute_loop_order_strategy,
+            lhs_smem_loader_strategy,
+            rhs_smem_loader_strategy,
         }
     }
 
@@ -132,6 +159,8 @@ impl CmmaConfig {
             write_out_strategy: self.write_out_strategy.into(),
             cube_dispatch_strategy: self.cube_dispatch_strategy.into(),
             compute_loop_order_strategy: self.compute_loop_order_strategy.into(),
+            lhs_smem_loader_strategy: self.lhs_smem_loader_strategy.into(),
+            rhs_smem_loader_strategy: self.rhs_smem_loader_strategy.into(),
         }
     }
 
@@ -207,4 +236,10 @@ pub struct ComptimeCmmaInfo {
     pub cube_dispatch_strategy: u32,
     /// 0 = buffer inner, 1 = buffer outer
     pub compute_loop_order_strategy: u32,
+    /// 0 = tilewise row major, 1 = tilewise col major
+    /// 2 = continous row major, 3 = continuous col major
+    pub lhs_smem_loader_strategy: u32,
+    /// 0 = tilewise row major, 1 = tilewise col major
+    /// 2 = continous row major, 3 = continuous col major
+    pub rhs_smem_loader_strategy: u32,
 }
