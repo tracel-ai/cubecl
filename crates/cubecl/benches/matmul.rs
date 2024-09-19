@@ -34,7 +34,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     }
 
     fn num_samples(&self) -> usize {
-        100
+        10
     }
 
     fn name(&self) -> String {

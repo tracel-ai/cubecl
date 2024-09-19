@@ -23,8 +23,8 @@ extern "C" __global__ void kernel(float output_0[], uint info[]) {
 
   l_0_1 = l_0_0;
   {
-    for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {
-      l_0_1 += __shfl_down_sync(0xFFFFFFFF, l_0_1, offset);
+    for (int offset = 1; offset < warpSizeChecked; offset *= 2) {
+      l_0_1 += __shfl_xor_sync(-1, l_0_1, offset);
     }
   }
   l_0_2 = threadIdxGlobal == uint(0);

@@ -32,6 +32,22 @@ pub struct DebugInformation {
     pub id: KernelId,
 }
 
+impl Display for KernelId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.info {
+            Some(info) => f.write_str(
+                format_str(
+                    format!("{:?}", info).as_str(),
+                    &[('(', ')'), ('[', ']'), ('{', '}')],
+                    true,
+                )
+                .as_str(),
+            ),
+            None => f.write_str("No info"),
+        }
+    }
+}
+
 impl Display for CompiledKernel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("\n[START_KERNEL_COMPILATION]")?;
@@ -56,7 +72,7 @@ shared_memory: {} bytes",
             f.write_fmt(format_args!(
                 "\ninfo: {}",
                 format_str(
-                    format!("{}", info.id).as_str(),
+                    format!("{:?}", info.id).as_str(),
                     &[('(', ')'), ('[', ']'), ('{', '}')],
                     true
                 )
@@ -161,6 +177,7 @@ pub trait CubeTask: Send + Sync {
     fn id(&self) -> KernelId;
     /// Compile the kernel into source
     fn compile(&self, mode: ExecutionMode) -> CompiledKernel;
+    fn name(&self) -> &'static str;
 }
 
 /// Wraps a [kernel](Kernel) to create a [cube task](CubeTask).
@@ -190,6 +207,10 @@ impl<C: Compiler, K: Kernel> CubeTask for KernelTask<C, K> {
     fn id(&self) -> KernelId {
         self.kernel_definition.id().clone()
     }
+
+    fn name(&self) -> &'static str {
+        core::any::type_name::<K>()
+    }
 }
 
 impl CubeTask for Arc<dyn CubeTask> {
@@ -200,6 +221,9 @@ impl CubeTask for Arc<dyn CubeTask> {
     fn id(&self) -> KernelId {
         self.as_ref().id()
     }
+    fn name(&self) -> &'static str {
+        self.as_ref().name()
+    }
 }
 
 impl CubeTask for Box<dyn CubeTask> {
@@ -209,6 +233,10 @@ impl CubeTask for Box<dyn CubeTask> {
 
     fn id(&self) -> KernelId {
         self.as_ref().id()
+    }
+
+    fn name(&self) -> &'static str {
+        self.as_ref().name()
     }
 }
 

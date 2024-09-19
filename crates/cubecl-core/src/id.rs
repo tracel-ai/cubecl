@@ -1,24 +1,14 @@
 use cubecl_runtime::ExecutionMode;
 use std::any::{Any, TypeId};
-use std::fmt::Display;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 /// Kernel unique identifier.
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub struct KernelId {
-    type_id: core::any::TypeId,
-    info: Option<Info>,
-    mode: Option<ExecutionMode>,
-}
-
-impl Display for KernelId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.info {
-            Some(info) => f.write_fmt(format_args!("{}", info)),
-            None => f.write_str("No info"),
-        }
-    }
+    pub(crate) type_id: core::any::TypeId,
+    pub(crate) info: Option<Info>,
+    pub(crate) mode: Option<ExecutionMode>,
 }
 
 impl KernelId {
@@ -50,12 +40,12 @@ impl KernelId {
 }
 
 /// Extra information
-#[derive(Clone, Debug)]
-struct Info {
+#[derive(Clone)]
+pub(crate) struct Info {
     value: Arc<dyn DynKey>,
 }
 
-impl core::fmt::Display for Info {
+impl core::fmt::Debug for Info {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{:?}", self.value))
     }

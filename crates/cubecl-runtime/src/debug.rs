@@ -1,4 +1,4 @@
-use core::fmt::Display;
+use core::{fmt::Display, time::Duration};
 
 #[cfg(feature = "std")]
 use std::{
@@ -7,15 +7,35 @@ use std::{
     path::PathBuf,
 };
 
+#[derive(Debug)]
+/// The various debugging options available.
+pub enum DebugOptions {
+    /// Debug the compilation.
+    Debug,
+    /// Profile each kernel executed.
+    Profile(ProfileLevel),
+    /// Enable all options.
+    All(ProfileLevel),
+}
+
+#[derive(Debug, Copy, Clone)]
+/// Control the amount of info being display when profiling.
+pub enum ProfileLevel {
+    /// Provide only minimal information about kernels being run.
+    Basic,
+    /// Provide more information about kernels being run.
+    Full,
+}
+
 /// Debugging logger.
 #[derive(Debug)]
 pub enum DebugLogger {
     #[cfg(feature = "std")]
     /// Log debugging information into a file.
-    File(DebugFileLogger),
+    File(DebugFileLogger, DebugOptions),
     #[cfg(feature = "std")]
     /// Log debugging information into standard output.
-    Stdout,
+    Stdout(DebugOptions),
     /// Don't log debugging information.
     None,
 }
@@ -45,10 +65,39 @@ impl DebugLogger {
             Ok(val) => val,
             Err(_) => return Self::None,
         };
+        let level = match std::env::var("CUBECL_DEBUG_OPTION") {
+            Ok(val) => val,
+            Err(_) => "debug|profile".to_string(),
+        };
+
+        let mut debug = false;
+        let mut profile = None;
+        level.as_str().split("|").for_each(|flag| match flag {
+            "debug" => {
+                debug = true;
+            }
+            "profile" => {
+                profile = Some(ProfileLevel::Basic);
+            }
+            "profile-full" => {
+                profile = Some(ProfileLevel::Full);
+            }
+            _ => {}
+        });
+
+        let option = if let Some(level) = profile {
+            if debug {
+                DebugOptions::All(level)
+            } else {
+                DebugOptions::Profile(level)
+            }
+        } else {
+            DebugOptions::Debug
+        };
 
         if let Ok(activated) = str::parse::<u8>(&flag) {
             if activated == 1 {
-                return Self::File(DebugFileLogger::new(None));
+                return Self::File(DebugFileLogger::new(None), option);
             } else {
                 return Self::None;
             }
@@ -56,16 +105,51 @@ impl DebugLogger {
 
         if let Ok(activated) = str::parse::<bool>(&flag) {
             if activated {
-                return Self::File(DebugFileLogger::new(None));
+                return Self::File(DebugFileLogger::new(None), option);
             } else {
                 return Self::None;
             }
         };
 
         if let "stdout" = flag.as_str() {
-            Self::Stdout
+            Self::Stdout(option)
         } else {
-            Self::File(DebugFileLogger::new(Some(&flag)))
+            Self::File(DebugFileLogger::new(Some(&flag)), option)
+        }
+    }
+
+    /// Log the argument to a file when the debug logger is activated.
+    pub fn execute<Name, Func>(&mut self, func: Func)
+    where
+        Name: Display,
+        Func: FnOnce(Option<ProfileLevel>) -> Option<(Name, core::time::Duration)>,
+    {
+        let option = match self {
+            #[cfg(feature = "std")]
+            DebugLogger::File(_, option) => option,
+            #[cfg(feature = "std")]
+            DebugLogger::Stdout(option) => option,
+            DebugLogger::None => {
+                func(None);
+                return;
+            }
+        };
+        let profile = match option {
+            DebugOptions::Debug => None,
+            DebugOptions::Profile(level) => Some(*level),
+            DebugOptions::All(level) => Some(*level),
+        };
+
+        if let Some((name, duration)) = func(profile) {
+            match self {
+                #[cfg(feature = "std")]
+                DebugLogger::File(file, _) => {
+                    file.log(&format!("{name} => {duration:?}"));
+                }
+                #[cfg(feature = "std")]
+                DebugLogger::Stdout(_) => println!("{name} => {duration:?}"),
+                _ => (),
+            }
         }
     }
 
@@ -76,13 +160,23 @@ impl DebugLogger {
     {
         match self {
             #[cfg(feature = "std")]
-            DebugLogger::File(file) => {
-                file.log(&arg);
+            DebugLogger::File(file, option) => {
+                match option {
+                    DebugOptions::Debug | DebugOptions::All(_) => {
+                        file.log(&arg);
+                    }
+                    DebugOptions::Profile(_) => (),
+                };
                 arg
             }
             #[cfg(feature = "std")]
-            DebugLogger::Stdout => {
-                println!("{arg}");
+            DebugLogger::Stdout(option) => {
+                match option {
+                    DebugOptions::Debug | DebugOptions::All(_) => {
+                        println!("{arg}");
+                    }
+                    DebugOptions::Profile(_) => (),
+                };
                 arg
             }
             DebugLogger::None => arg,

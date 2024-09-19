@@ -129,6 +129,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         mode: ExecutionMode,
     ) {
         let mut kernel_id = kernel.id();
+        let name = kernel.name();
         kernel_id.mode(mode);
 
         let count = match count {
@@ -164,7 +165,26 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
             })
             .collect::<Vec<_>>();
 
-        ctx.execute_task(kernel_id, count, resources);
+        logger.execute(|profile| {
+            if let Some(level) = profile {
+                ctx.sync();
+
+                let start = std::time::SystemTime::now();
+                ctx.execute_task(kernel_id.clone(), count, resources);
+                ctx.sync();
+
+                let info = match level {
+                    cubecl_runtime::debug::ProfileLevel::Basic => format!("{name}"),
+                    cubecl_runtime::debug::ProfileLevel::Full => {
+                        format!("{name}: {kernel_id} | CubeCount {count:?}")
+                    }
+                };
+                Some(start.elapsed().unwrap()).map(|duration| (info, duration))
+            } else {
+                ctx.execute_task(kernel_id, count, resources);
+                None
+            }
+        });
     }
 
     fn sync(&mut self, sync_type: SyncType) {
