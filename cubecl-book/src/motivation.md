@@ -11,7 +11,7 @@ risk of suboptimal performance. The need for manual tuning and platform-specific
 results in code that is difficult to maintain and extend.
 
 The simplest way to solve this problem is to provide high level abstractions that can be composed in
-a variety of ways. All of those variation can be autotuned to select the best settings for the
+a variety of ways. All of those variations can be autotuned to select the best settings for the
 current hardware and problem at hand.
 
 ### Lack of Portability

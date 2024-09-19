@@ -1,6 +1,6 @@
 # Trait Support
 
-CubeCL partially supports trait to modularize your kernel code without any overhead. For now most
+CubeCL partially supports traits to modularize your kernel code without any overhead. For now most
 features are supported except stateful functions.
 
 ```rust
@@ -57,7 +57,7 @@ impl SumKind for SumSubcube {
 }
 ```
 
-Associated types are also supported. Let say you want to create a series from a sum.
+Associated types are also supported. Let's say you want to create a series from a sum.
 
 ```rust
 #[cube]
