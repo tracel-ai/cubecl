@@ -87,7 +87,7 @@ impl Default for CmmaConfig {
             false,
             WriteOutStrategy::ReuseSmem,
             CubeDispatchStrategy::ColMajor,
-            ComputeLoopOrderStrategy::BufferOuterComputeLoop,
+            ComputeLoopOrderStrategy::BufferInnerComputeLoop,
         )
     }
 }
