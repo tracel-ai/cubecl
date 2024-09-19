@@ -72,7 +72,7 @@ pub(crate) struct Offsets {
 }
 
 #[derive(CubeType)]
-pub(crate) struct CmmaMatrices<F: Float, FC: Float> {
+pub(crate) struct Fragments<F: Float, FC: Float> {
     pub accumulators: Sequence<cmma::Matrix<F>>,
     pub lhs: cmma::Matrix<FC>,
     pub rhs: cmma::Matrix<FC>,
@@ -127,9 +127,9 @@ fn calculate_offsets<F: Float>(
 
 #[cube]
 pub(crate) fn get_row_col(#[comptime] comptime_info: ComptimeCmmaInfo) -> (u32, u32) {
-    if comptime_info.cube_dispatch == 0 {
+    if comptime_info.cube_dispatch_strategy == 0 {
         RowMajorCubeDispatch::get_row_col(comptime_info)
-    } else if comptime_info.cube_dispatch == 1 {
+    } else if comptime_info.cube_dispatch_strategy == 1 {
         ColMajorCubeDispatch::get_row_col(comptime_info)
     } else {
         SwizzleCubeDispatch::get_row_col(comptime_info)
@@ -151,7 +151,7 @@ fn make_shared_memories<FC: Float>(#[comptime] config: ComptimeCmmaInfo) -> Shar
 #[cube]
 pub(crate) fn make_cmma_matrices<F: Float, FC: Float>(
     #[comptime] config: ComptimeCmmaInfo,
-) -> CmmaMatrices<F, FC> {
+) -> Fragments<F, FC> {
     let num_accumulators = config.num_accumulators;
     let mut accumulators = Sequence::<cmma::Matrix<F>>::new();
 
@@ -186,7 +186,7 @@ pub(crate) fn make_cmma_matrices<F: Float, FC: Float>(
         cmma::MatrixLayout::RowMajor,
     );
 
-    CmmaMatrices::<F, FC> {
+    Fragments::<F, FC> {
         accumulators,
         lhs,
         rhs,
