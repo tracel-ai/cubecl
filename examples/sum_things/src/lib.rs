@@ -109,11 +109,11 @@ fn launch_basic<R: Runtime>(
 ) {
     unsafe {
         sum_basic::launch_unchecked::<f32, R>(
-            &client,
+            client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(len as u32, 1, 1),
-            ArrayArg::from_raw_parts(&input, len, 1),
-            ArrayArg::from_raw_parts(&output, len, 1),
+            ArrayArg::from_raw_parts(input, len, 1),
+            ArrayArg::from_raw_parts(output, len, 1),
             Some(len as u32),
         );
     }
@@ -127,11 +127,11 @@ fn launch_subgroup<R: Runtime>(
 ) {
     unsafe {
         sum_subgroup::launch_unchecked::<f32, R>(
-            &client,
+            client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(len as u32, 1, 1),
-            ArrayArg::from_raw_parts(&input, len, 1),
-            ArrayArg::from_raw_parts(&output, len, 1),
+            ArrayArg::from_raw_parts(input, len, 1),
+            ArrayArg::from_raw_parts(output, len, 1),
             client.features().enabled(cubecl::Feature::Subcube),
             Some(len as u32),
         );
@@ -146,11 +146,11 @@ fn launch_trait<R: Runtime, K: SumKind>(
 ) {
     unsafe {
         sum_trait::launch_unchecked::<f32, K, R>(
-            &client,
+            client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(len as u32, 1, 1),
-            ArrayArg::from_raw_parts(&input, len, 1),
-            ArrayArg::from_raw_parts(&output, len, 1),
+            ArrayArg::from_raw_parts(input, len, 1),
+            ArrayArg::from_raw_parts(output, len, 1),
             Some(len as u32),
         );
     }
@@ -164,11 +164,11 @@ fn launch_series<R: Runtime, S: CreateSeries>(
 ) {
     unsafe {
         series::launch_unchecked::<f32, S, R>(
-            &client,
+            client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(len as u32, 1, 1),
-            ArrayArg::from_raw_parts(&input, len, 1),
-            ArrayArg::from_raw_parts(&output, len, 1),
+            ArrayArg::from_raw_parts(input, len, 1),
+            ArrayArg::from_raw_parts(output, len, 1),
             Some(len as u32),
         );
     }
