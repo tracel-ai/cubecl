@@ -38,3 +38,18 @@ pub(crate) trait ComputeLoop {
         #[comptime] comptime_info: ComptimeCmmaInfo,
     );
 }
+
+#[cube]
+pub(crate) fn load_into_fragment<FC: Float>(
+    tile: u32,
+    smem: SharedMemory<FC>,
+    fragment: &cmma::Matrix<FC>,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
+) {
+    let tile_size = comptime_info.tile_size;
+    let smem_stride = tile_size * tile_size;
+
+    let smem_pos = tile * smem_stride;
+    let slice = smem.slice(smem_pos, smem_pos + smem_stride);
+    cmma::load::<FC>(fragment, slice, 16);
+}
