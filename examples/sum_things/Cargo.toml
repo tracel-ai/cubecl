@@ -1,6 +1,6 @@
 [package]
 authors = []
-name = "loop_unrolling"
+name = "sum_things"
 publish = false
 edition.workspace = true
 license.workspace = true

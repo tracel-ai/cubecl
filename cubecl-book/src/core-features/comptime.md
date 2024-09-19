@@ -53,4 +53,5 @@ fn sum_subgroup<F: Float>(
 ```
 
 Note that no branching will actually occured on the GPU, since three different kernels can be
-generated from the last code snippet.
+generated from the last code snippet. You can also use the
+[trait system](../language-support/trait.md) to achieve a similar behavior.
