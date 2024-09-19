@@ -1,6 +1,6 @@
 use error::error_into_token_stream;
 use generate::{
-    autotune::{generate_autotune_key, generate_autotune_op, generate_autotune_set},
+    autotune::{generate_autotune_key, generate_autotune_set},
     cube_type::generate_cube_type,
 };
 use parse::{
@@ -147,8 +147,7 @@ pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Crates a tuning set with a specific signature. This should be combined with derive([AutotuneKey])
-/// and [`tune_op`]`.
+/// Crates a tuning set with a specific signature. Should return a tuple of benchmark inputs.
 ///
 /// # Arguments
 ///
@@ -161,14 +160,11 @@ pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
 /// # Example
 ///
 /// ```ignore
-/// #[tune_set(create_key = key_from_input, operations(Operation1, Operation2))]
+/// #[tune(create_key = key_from_input, operations(operation_1, operation_2))]
 /// pub fn my_operations(key: MyKey, input: JitTensor<f32, 4>) -> JitTensor<f32, 4> {
 ///     let bench_input = random_tensor_like(input, -1.0, 1.0);
 ///     
-///     vec![
-///         Box::new(Operation1::new(bench_input.clone())),
-///         Box::new(Operation2::new(bench_input)))
-///     ]
+///     (bench_input)
 /// }
 ///
 /// fn key_from_input(input: &JitTensor<f32, 4>) -> MyKey {
@@ -176,7 +172,7 @@ pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn tune_set(args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn tune(args: TokenStream, input: TokenStream) -> TokenStream {
     match autotune_set_impl(args, input.clone()) {
         Ok(tokens) => tokens,
         Err(e) => error_into_token_stream(e, input.into()).into(),
@@ -187,28 +183,4 @@ fn autotune_set_impl(args: TokenStream, input: TokenStream) -> syn::Result<Token
     let item = syn::parse(input)?;
     let args = from_tokens(args.into())?;
     Ok(generate_autotune_set(item, args)?.into())
-}
-
-/// Mark an operation as an autotune op and generate an operation struct for it.
-///
-/// # Example
-///
-/// ```ignore
-/// #[tune_op]
-/// pub fn operation_1(input: JitTensor<f32, 4>) -> JitTensor<f32, 4> {
-///     // Do stuff
-/// }
-/// ```
-#[proc_macro_attribute]
-pub fn tune_op(args: TokenStream, input: TokenStream) -> TokenStream {
-    match autotune_op_impl(args, input.clone()) {
-        Ok(tokens) => tokens,
-        Err(e) => error_into_token_stream(e, input.into()).into(),
-    }
-}
-
-fn autotune_op_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
-    let item = syn::parse(input)?;
-    let args = from_tokens(args.into())?;
-    Ok(generate_autotune_op(item, args)?.into())
 }

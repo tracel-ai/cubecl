@@ -2,12 +2,11 @@ use darling::FromDeriveInput;
 use ident_case::RenameRule;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
-use syn::{DeriveInput, Index, ItemFn, Member};
+use syn::{DeriveInput, Ident, Index, ItemFn, Member, Path};
 
 use crate::{
     parse::autotune::{
-        AutotuneKey, AutotuneKeyField, AutotuneOp, AutotuneOpArgs, AutotuneOperations,
-        AutotuneOperationsArgs,
+        operation_name, AutotuneKey, AutotuneKeyField, AutotuneOperations, AutotuneOperationsArgs,
     },
     paths::tune_type,
 };
@@ -170,9 +169,25 @@ impl AutotuneOperations {
     fn generate_tunables_fn(&self) -> TokenStream {
         let operation = tune_type("AutotuneOperation");
         let output = &self.output;
+        let key = &self.key;
+        let generics = self.generics.split_for_impl();
+        let generics = generics.1.as_turbofish();
         let fields = self.input_fields.iter().map(|field| {
             let name = field.ident.as_ref().unwrap();
             quote![let #name = &self.#name;]
+        });
+        let bench_inputs = self
+            .input_fields
+            .iter()
+            .filter(|it| it.ident.as_ref().unwrap() != key)
+            .map(|field| {
+                let name = field.ident.as_ref().unwrap();
+                quote![#name]
+            })
+            .collect::<Vec<_>>();
+        let bench_ops = self.operations.iter().map(|op| {
+            let op_struct = operation_name(op);
+            quote![Box::new(#op_struct #generics::new(#(#bench_inputs.clone()),*))]
         });
 
         let body = &self.tunables_fn;
@@ -180,7 +195,10 @@ impl AutotuneOperations {
             #[allow(unused)]
             fn autotunables(&self) -> ::std::vec::Vec<Box<dyn #operation<#output>>> {
                 #(#fields)*
-                #body
+                let (#(#bench_inputs),*) = #body;
+                vec![
+                    #(#bench_ops),*
+                ]
             }
         }
     }
@@ -199,11 +217,10 @@ impl AutotuneOperations {
                 quote![self.#name]
             })
             .collect();
-        let ops = self
-            .operations
-            .iter()
-            .enumerate()
-            .map(|(i, op)| quote![#i => Box::new(#op #generics::new(#(#fields),*))]);
+        let ops = self.operations.iter().enumerate().map(|(i, op)| {
+            let op_struct = operation_name(op);
+            quote![#i => Box::new(#op_struct #generics::new(#(#fields),*))]
+        });
 
         quote! {
             fn fastest(
@@ -300,31 +317,34 @@ impl AutotuneOperations {
             TokenStream::new()
         }
     }
-}
 
-pub fn generate_autotune_set(
-    item: ItemFn,
-    args: AutotuneOperationsArgs,
-) -> syn::Result<TokenStream> {
-    let opset = AutotuneOperations::from_item_fn(item, args)?;
-    let struct_ = opset.generate_struct();
-    let impl_ = opset.generate_autotune_impl();
-    let new = opset.generate_new();
+    fn generate_operations(&self) -> TokenStream {
+        let ops = self.operations.iter().map(|func_name| {
+            let name = operation_name(func_name);
+            let struct_ = self.generate_op_struct(&name);
+            let impl_ = self.generate_op_impl(&name, func_name);
+            let new = self.generate_op_new(&name);
 
-    Ok(quote! {
-        #struct_
-        #impl_
-        #new
-    })
-}
+            quote! {
+                #struct_
+                #impl_
+                #new
+            }
+        });
+        quote! {
+            #(#ops)*
+        }
+    }
 
-impl AutotuneOp {
-    fn generate_struct(&self) -> TokenStream {
-        let name = &self.name;
+    fn generate_op_struct(&self, name: &Ident) -> TokenStream {
+        let key = &self.key;
         let generics = &self.generics;
         let where_clause = &generics.where_clause;
         let ty = self.ty.as_ref();
-        let fields = &self.input_fields;
+        let fields = self
+            .input_fields
+            .iter()
+            .filter(|it| it.ident.as_ref().unwrap() != key);
         quote! {
             pub struct #name #generics #where_clause {
                 #ty
@@ -333,27 +353,34 @@ impl AutotuneOp {
         }
     }
 
-    fn generate_autotune_impl(&self) -> TokenStream {
+    fn generate_op_impl(&self, name: &Ident, func_name: &Path) -> TokenStream {
         let operation = tune_type("AutotuneOperation");
 
-        let name = &self.name;
+        let key = &self.key;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let turbofish = generic_names.as_turbofish();
         let output = &self.output;
-        let func_name = &self.operation.sig.ident;
-        let func_args = self.input_fields.iter().map(|field| {
-            let name = field.ident.as_ref().unwrap();
-            quote![self.#name]
-        });
+        let func_args = self
+            .input_fields
+            .iter()
+            .filter(|it| it.ident.as_ref().unwrap() != key)
+            .map(|field| {
+                let name = field.ident.as_ref().unwrap();
+                quote![self.#name]
+            });
         let ty = self.ty.is_some().then(|| {
             quote! {
                 __ty: ::core::marker::PhantomData,
             }
         });
-        let clones = self.input_fields.iter().map(|field| {
-            let name = field.ident.as_ref().unwrap();
-            quote![#name: self.#name.clone()]
-        });
+        let clones = self
+            .input_fields
+            .iter()
+            .filter(|it| it.ident.as_ref().unwrap() != key)
+            .map(|field| {
+                let name = field.ident.as_ref().unwrap();
+                quote![#name: self.#name.clone()]
+            });
 
         quote! {
             impl #generics #operation<#output> for #name #generic_names #where_clause {
@@ -371,22 +398,30 @@ impl AutotuneOp {
         }
     }
 
-    fn generate_new(&self) -> TokenStream {
-        let name = &self.name;
+    fn generate_op_new(&self, name: &Ident) -> TokenStream {
+        let key = &self.key;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let ty = self
             .ty
             .is_some()
             .then(|| quote![__ty: ::core::marker::PhantomData,]);
-        let args = self.input_fields.iter().map(|field| {
-            let name = field.ident.as_ref().unwrap();
-            let ty = &field.ty;
-            quote![#name: #ty]
-        });
-        let field_names = self.input_fields.iter().map(|field| {
-            let name = field.ident.as_ref().unwrap();
-            quote![#name]
-        });
+        let args = self
+            .input_fields
+            .iter()
+            .filter(|it| it.ident.as_ref().unwrap() != key)
+            .map(|field| {
+                let name = field.ident.as_ref().unwrap();
+                let ty = &field.ty;
+                quote![#name: #ty]
+            });
+        let field_names = self
+            .input_fields
+            .iter()
+            .filter(|it| it.ident.as_ref().unwrap() != key)
+            .map(|field| {
+                let name = field.ident.as_ref().unwrap();
+                quote![#name]
+            });
 
         quote! {
             impl #generics #name #generic_names #where_clause {
@@ -401,18 +436,20 @@ impl AutotuneOp {
     }
 }
 
-pub fn generate_autotune_op(item: ItemFn, args: AutotuneOpArgs) -> syn::Result<TokenStream> {
-    let func = item.to_token_stream();
-    let opset = AutotuneOp::from_item_fn(item, args);
+pub fn generate_autotune_set(
+    item: ItemFn,
+    args: AutotuneOperationsArgs,
+) -> syn::Result<TokenStream> {
+    let opset = AutotuneOperations::from_item_fn(item, args)?;
     let struct_ = opset.generate_struct();
     let impl_ = opset.generate_autotune_impl();
     let new = opset.generate_new();
+    let ops = opset.generate_operations();
 
     Ok(quote! {
-        #func
-
         #struct_
         #impl_
         #new
+        #ops
     })
 }

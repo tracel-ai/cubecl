@@ -72,6 +72,12 @@ pub struct AutotuneOperations {
     pub operations: Vec<Path>,
 }
 
+pub fn operation_name(op: &Path) -> Ident {
+    let name = op.segments.last().unwrap();
+    let name = RenameRule::PascalCase.apply_to_field(name.ident.to_string());
+    format_ident!("{name}")
+}
+
 impl AutotuneOperations {
     pub fn from_item_fn(item: ItemFn, args: AutotuneOperationsArgs) -> syn::Result<Self> {
         let name = args.name.unwrap_or_else(|| {
@@ -127,56 +133,5 @@ impl AutotuneOperations {
             output,
             operations,
         })
-    }
-}
-
-#[derive(FromMeta)]
-pub struct AutotuneOpArgs {
-    name: Option<Ident>,
-}
-
-pub struct AutotuneOp {
-    pub name: Ident,
-    pub generics: Generics,
-    pub input_fields: Vec<Field>,
-    pub ty: Option<TokenStream>,
-    pub operation: ItemFn,
-    pub output: Type,
-}
-
-impl AutotuneOp {
-    pub fn from_item_fn(item: ItemFn, args: AutotuneOpArgs) -> Self {
-        let name = args.name.unwrap_or_else(|| {
-            let name = RenameRule::PascalCase.apply_to_field(item.sig.ident.to_string());
-            format_ident!("{name}")
-        });
-        let generics = item.sig.generics.clone();
-        let fields = item.sig.inputs.iter().map(|input| parse_quote!(#input));
-        let ty = (!generics.params.is_empty()).then(|| {
-            let names = generics.params.iter().map(|it| match it {
-                GenericParam::Lifetime(lifetime_param) => {
-                    let mut param = lifetime_param.clone();
-                    param.bounds = Punctuated::new();
-                    param.colon_token = None;
-                    param.to_token_stream()
-                }
-                GenericParam::Type(type_param) => type_param.ident.to_token_stream(),
-                GenericParam::Const(const_param) => const_param.ident.to_token_stream(),
-            });
-            quote![__ty: ::core::marker::PhantomData<(#(#names),*)>,]
-        });
-        let output = match item.sig.output.clone() {
-            ReturnType::Default => parse_quote![()],
-            ReturnType::Type(_, ty) => *ty,
-        };
-
-        Self {
-            name,
-            generics,
-            input_fields: fields.collect(),
-            ty,
-            output,
-            operation: item,
-        }
     }
 }
