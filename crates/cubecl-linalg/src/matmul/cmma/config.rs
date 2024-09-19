@@ -50,16 +50,16 @@ impl From<CubeDispatchStrategy> for u32 {
 /// Defines how data travels from accumulators to global output
 pub enum ComputeLoopOrderStrategy {
     /// Accumulators for one warp are put concurrently in a shared memory large enough to contain them all
-    BufferInnerComputeLoop,
+    AllBuffersFirst,
     /// Accumulators for one warp are put sequentially in a shared memory with only one reusable spot
-    BufferOuterComputeLoop,
+    AllAccumulatorsFirst,
 }
 
 impl From<ComputeLoopOrderStrategy> for u32 {
     fn from(value: ComputeLoopOrderStrategy) -> Self {
         match value {
-            ComputeLoopOrderStrategy::BufferInnerComputeLoop => 0,
-            ComputeLoopOrderStrategy::BufferOuterComputeLoop => 1,
+            ComputeLoopOrderStrategy::AllBuffersFirst => 0,
+            ComputeLoopOrderStrategy::AllAccumulatorsFirst => 1,
         }
     }
 }
@@ -87,7 +87,7 @@ impl Default for CmmaConfig {
             false,
             WriteOutStrategy::ReuseSmem,
             CubeDispatchStrategy::ColMajor,
-            ComputeLoopOrderStrategy::BufferInnerComputeLoop,
+            ComputeLoopOrderStrategy::AllBuffersFirst,
         )
     }
 }
