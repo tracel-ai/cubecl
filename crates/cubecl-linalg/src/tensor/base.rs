@@ -117,15 +117,23 @@ where
     R: Runtime,
     E: Numeric,
 {
-    pub fn zeros(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
+    pub fn empty(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
         let num_elements: usize = shape.iter().product();
         let size = E::as_elem().size();
 
         let handle = client.empty(size * num_elements);
         let strides = Self::contiguous_strides(&shape);
 
+        Self::new(shape, strides, handle)
+    }
+
+    pub fn zeros(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
+        let num_elements: usize = shape.iter().product();
+        let rank = shape.len();
+        let output = Self::empty(client, shape);
+
         let vectorization_factor =
-            tensor_vectorization_factor(&[4, 2], &shape, &strides, shape.len() - 1);
+            tensor_vectorization_factor(&[4, 2], &output.shape, &output.strides, rank - 1);
 
         let cube_dim = CubeDim::default();
         let cube_count = calculate_cube_count_elemwise::<R::Server>(
@@ -138,11 +146,11 @@ where
                 client,
                 cube_count,
                 cube_dim,
-                ArrayArg::from_raw_parts(&handle, num_elements, vectorization_factor),
+                ArrayArg::from_raw_parts(&output.handle, num_elements, vectorization_factor),
             )
         };
 
-        Self::new(shape, strides, handle)
+        output
     }
 }
 

@@ -8,19 +8,21 @@ use cubecl_linalg::matmul;
 use cubecl_linalg::tensor::TensorHandle;
 
 impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
-    type Args = (TensorHandle<R, E>, TensorHandle<R, E>, TensorHandle<R, E>);
+    type Args = (TensorHandle<R, E>, TensorHandle<R, E>);
 
     fn prepare(&self) -> Self::Args {
-        let (b, m, k, n) = (self.b, self.m, self.k, self.n);
         let client = R::client(&self.device);
-        let lhs = TensorHandle::zeros(&client, vec![b, m, k]);
-        let rhs = TensorHandle::zeros(&client, vec![b, k, n]);
-        let out = TensorHandle::zeros(&client, vec![b, m, n]);
 
-        (lhs, rhs, out)
+        let lhs = TensorHandle::zeros(&client, vec![self.b, self.m, self.k]);
+        let rhs = TensorHandle::zeros(&client, vec![self.b, self.k, self.n]);
+
+        (lhs, rhs)
     }
 
-    fn execute(&self, (lhs, rhs, out): Self::Args) {
+    fn execute(&self, (lhs, rhs): Self::Args) {
+        let client = R::client(&self.device);
+        let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
+
         match self.kind {
             MatmulKind::Tiling2d => {
                 matmul::tiling2d::launch(&self.client, lhs, rhs, out, Default::default());
