@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 
 #[cube]
 pub(crate) trait BlockLoader<F: Float, FC: Float> {
-    fn load_tile(
+    fn load_single(
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<FC>,
         batch_offset: u32,
@@ -19,7 +19,7 @@ pub(crate) trait BlockLoader<F: Float, FC: Float> {
 #[cube]
 pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
     #[allow(clippy::too_many_arguments)]
-    fn write_output(
+    fn write_single(
         out: &mut Tensor<F>,
         accumulator_sm: SharedMemory<F>,
         batch_offset: u32,

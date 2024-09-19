@@ -9,7 +9,7 @@ pub(crate) struct UncheckedBlockIO;
 
 #[cube]
 impl<F: Float, FC: Float> BlockLoader<F, FC> for UncheckedBlockIO {
-    fn load_tile(
+    fn load_single(
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<FC>,
         batch_offset: u32,
@@ -38,7 +38,7 @@ impl<F: Float, FC: Float> BlockLoader<F, FC> for UncheckedBlockIO {
 
 #[cube]
 impl<F: Float> BlockWriter<F> for UncheckedBlockIO {
-    fn write_output(
+    fn write_single(
         out: &mut Tensor<F>,
         accumulator_sm: SharedMemory<F>,
         batch_offset: u32,

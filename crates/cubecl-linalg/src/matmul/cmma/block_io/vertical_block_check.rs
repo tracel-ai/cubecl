@@ -8,7 +8,7 @@ pub(crate) struct VerticalCheckBlockIO;
 
 #[cube]
 impl<F: Float, FC: Float> BlockLoader<F, FC> for VerticalCheckBlockIO {
-    fn load_tile(
+    fn load_single(
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<FC>,
         batch_offset: u32,
@@ -44,7 +44,7 @@ impl<F: Float, FC: Float> BlockLoader<F, FC> for VerticalCheckBlockIO {
 
 #[cube]
 impl<F: Float> BlockWriter<F> for VerticalCheckBlockIO {
-    fn write_output(
+    fn write_single(
         out: &mut Tensor<F>,
         accumulator_sm: SharedMemory<F>,
         batch_offset: u32,

@@ -241,7 +241,7 @@ fn load_tile<F: Float, FC: Float, L: BlockLoader<F, FC>>(
         let read_row = read_row_offset + i * lane_row_step;
         let write_pos = write_offset + i * sm_step;
 
-        L::load_tile(
+        L::load_single(
             tensor,
             shared_memory,
             batch_offset,

@@ -119,7 +119,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
         let read_pos = smem_offset + i * sm_step;
         let write_row = row_offset + unit_write_row + i * lane_row_step;
 
-        W::write_output(
+        W::write_single(
             out,
             accumulator_sm,
             offsets.batch_out,
