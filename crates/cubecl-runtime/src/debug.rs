@@ -1,4 +1,4 @@
-use core::{fmt::Display, time::Duration};
+use core::fmt::Display;
 
 #[cfg(feature = "std")]
 use std::{
@@ -118,38 +118,37 @@ impl DebugLogger {
         }
     }
 
-    /// Log the argument to a file when the debug logger is activated.
-    pub fn execute<Name, Func>(&mut self, func: Func)
-    where
-        Name: Display,
-        Func: FnOnce(Option<ProfileLevel>) -> Option<(Name, core::time::Duration)>,
-    {
+    /// Returns the profile level, none if profiling is deactivated.
+    pub fn profile_level(&self) -> Option<ProfileLevel> {
         let option = match self {
             #[cfg(feature = "std")]
             DebugLogger::File(_, option) => option,
             #[cfg(feature = "std")]
             DebugLogger::Stdout(option) => option,
             DebugLogger::None => {
-                func(None);
-                return;
+                return None;
             }
         };
-        let profile = match option {
+        match option {
             DebugOptions::Debug => None,
             DebugOptions::Profile(level) => Some(*level),
             DebugOptions::All(level) => Some(*level),
-        };
+        }
+    }
 
-        if let Some((name, duration)) = func(profile) {
-            match self {
-                #[cfg(feature = "std")]
-                DebugLogger::File(file, _) => {
-                    file.log(&format!("{name} => {duration:?}"));
-                }
-                #[cfg(feature = "std")]
-                DebugLogger::Stdout(_) => println!("{name} => {duration:?}"),
-                _ => (),
+    /// Register a profiled task.
+    pub fn register_profiled<Name>(&mut self, name: Name, duration: core::time::Duration)
+    where
+        Name: Display,
+    {
+        match self {
+            #[cfg(feature = "std")]
+            DebugLogger::File(file, _) => {
+                file.log(&format!("| {duration:<10?} | {name}"));
             }
+            #[cfg(feature = "std")]
+            DebugLogger::Stdout(_) => println!("| {duration:<10?} | {name}"),
+            _ => (),
         }
     }
 

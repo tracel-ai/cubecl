@@ -177,7 +177,9 @@ pub trait CubeTask: Send + Sync {
     fn id(&self) -> KernelId;
     /// Compile the kernel into source
     fn compile(&self, mode: ExecutionMode) -> CompiledKernel;
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
 }
 
 /// Wraps a [kernel](Kernel) to create a [cube task](CubeTask).
