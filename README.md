@@ -42,7 +42,7 @@ fn gelu_array<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 
 #[cube]
 fn gelu_scalar<F: Float>(x: F) -> F {
-    x * (F::erf(x / F::sqrt(2.0.into())) + 1.0) / 2.0
+    x * (F::erf(x / F::sqrt(2.0f32.into())) + F::new(1.0)) / F::new(2.0)
 }
 ```
 
