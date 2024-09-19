@@ -54,6 +54,7 @@ pub struct AutotuneOperationsArgs {
     name: Option<Ident>,
     key: Option<Ident>,
     create_key: Option<Path>,
+    should_run: Option<Path>,
     operations: PathList,
 }
 
@@ -67,6 +68,7 @@ pub struct AutotuneOperations {
     pub ty: Option<TokenStream>,
     pub tunables_fn: Block,
     pub create_key: Option<Path>,
+    pub should_run: Option<Path>,
     pub operations: Vec<Path>,
 }
 
@@ -121,6 +123,7 @@ impl AutotuneOperations {
             tunables_fn: *item.block,
             key,
             create_key: args.create_key,
+            should_run: args.should_run,
             output,
             operations,
         })

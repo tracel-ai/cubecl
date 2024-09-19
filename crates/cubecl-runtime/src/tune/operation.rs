@@ -32,6 +32,12 @@ pub trait AutotuneOperationSet<K, Output = ()>: Send {
     fn compute_checksum(&self) -> String {
         compute_checksum(&self.autotunables())
     }
+
+    /// Enable or disable certain indices from being benchmarked based on the key
+    #[allow(unused)]
+    fn should_run(&self, key: &K, index: usize) -> bool {
+        true
+    }
 }
 
 /// Contains operation to run and inputs on which to run it

@@ -220,7 +220,6 @@ impl AutotuneOperations {
 
     fn generate_autotune_impl(&self) -> TokenStream {
         let opset = tune_type("AutotuneOperationSet");
-        let checksum = tune_type("compute_checksum");
 
         let name = &self.name;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
@@ -229,6 +228,7 @@ impl AutotuneOperations {
         let output = &self.output;
         let tunables = self.generate_tunables_fn();
         let fastest = self.generate_fastest_fn();
+        let should_run = self.generate_should_run();
 
         quote! {
             impl #generics #opset<#key_ty, #output> for #name #generic_names #where_clause {
@@ -236,12 +236,9 @@ impl AutotuneOperations {
                     self.#key.clone()
                 }
 
-                fn compute_checksum(&self) -> String {
-                    #checksum(&self.autotunables())
-                }
-
                 #tunables
                 #fastest
+                #should_run
             }
         }
     }
@@ -283,6 +280,20 @@ impl AutotuneOperations {
                             #(#field_names),*
                         }
                     }
+                }
+            }
+        } else {
+            TokenStream::new()
+        }
+    }
+
+    fn generate_should_run(&self) -> TokenStream {
+        if let Some(should_run) = self.should_run.as_ref() {
+            let key_ty = &self.key_ty;
+
+            quote! {
+                fn should_run(&self, key: &#key_ty, index: usize) -> bool {
+                    #should_run(self, key, index)
                 }
             }
         } else {
