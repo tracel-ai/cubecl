@@ -57,6 +57,8 @@ impl TypeCodegen {
 
         quote! {
             #vis struct #name #generics {
+                _phantom_runtime: core::marker::PhantomData<R>,
+                _phantom_a: core::marker::PhantomData<&'a ()>,
                 #(#fields),*
             }
         }
@@ -77,6 +79,8 @@ impl TypeCodegen {
                 #[allow(clippy::too_many_arguments)]
                 #vis fn new(#(#args),*) -> Self {
                     Self {
+                        _phantom_runtime: core::marker::PhantomData,
+                        _phantom_a: core::marker::PhantomData,
                         #(#fields),*
                     }
                 }
