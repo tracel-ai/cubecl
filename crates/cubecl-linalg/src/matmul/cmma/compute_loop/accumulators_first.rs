@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::cmma::{
     base::{Fragments, Ids, SharedMemories},
     compute_loop::base::{
-        get_smem_position_lhs, get_smem_position_rhs, load_into_fragment, ComputeLoop,
+        get_smem_position_lhs, get_smem_position_rhs, load_tile_into_fragment, ComputeLoop,
     },
     config::ComptimeCmmaInfo,
 };
@@ -36,7 +36,7 @@ impl ComputeLoop for AllAccumulatorsFirstComputeLoop {
         #[unroll(unroll)]
         for buffer_iter in 0..num_buffers {
             if reuse_lhs_fragment {
-                load_into_fragment(
+                load_tile_into_fragment(
                     get_smem_position_lhs::<F, FC>(tile_row, buffer_iter, comptime_info),
                     shared_memories.lhs,
                     &fragments.lhs,
@@ -47,7 +47,7 @@ impl ComputeLoop for AllAccumulatorsFirstComputeLoop {
             #[unroll]
             for accumulator_iter in 0..num_accumulators {
                 if !reuse_lhs_fragment {
-                    load_into_fragment(
+                    load_tile_into_fragment(
                         get_smem_position_lhs::<F, FC>(tile_row, buffer_iter, comptime_info),
                         shared_memories.lhs,
                         &fragments.lhs,
@@ -55,7 +55,7 @@ impl ComputeLoop for AllAccumulatorsFirstComputeLoop {
                     );
                 }
 
-                load_into_fragment(
+                load_tile_into_fragment(
                     get_smem_position_rhs::<F, FC>(
                         buffer_iter,
                         tile_col_base + accumulator_iter,

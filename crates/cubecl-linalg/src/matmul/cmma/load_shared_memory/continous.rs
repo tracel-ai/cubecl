@@ -4,6 +4,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::matmul::cmma::block_io::base::BlockLoader;
+use crate::matmul::cmma::load_shared_memory::base::get_tile_smem_position;
 use crate::matmul::cmma::load_shared_memory::tiled_layout::TiledPosition;
 use crate::matmul::cmma::{base::RuntimeCmmaInfo, config::ComptimeCmmaInfo};
 
@@ -63,14 +64,7 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
         tile_col: u32,
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) -> u32 {
-        let tile_size = comptime_info.tile_size;
-        let smem_stride = tile_size * tile_size;
-
-        let smem_tile_width = I::smem_width(comptime_info) / tile_size;
-        let smem_tile_height = I::smem_height(comptime_info) / tile_size;
-
-        let nth_tile = T::to_nth_tile(tile_row, tile_col, smem_tile_width, smem_tile_height);
-        nth_tile * smem_stride
+        get_tile_smem_position::<I, T>(tile_row, tile_col, comptime_info)
     }
 }
 

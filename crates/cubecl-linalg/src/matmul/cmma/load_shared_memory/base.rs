@@ -9,6 +9,8 @@ use crate::matmul::cmma::block_io::{
 };
 use crate::matmul::cmma::{base::RuntimeCmmaInfo, config::ComptimeCmmaInfo};
 
+use super::load_info::LoadInfo;
+use super::tiled_layout::TilingOrder;
 use super::{
     continous::ContinuousSmemLoader,
     load_info::{LhsLoadInfo, RhsLoadInfo},
@@ -205,4 +207,18 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
             comptime_info,
         );
     }
+}
+
+#[cube]
+pub(crate) fn get_tile_smem_position<I: LoadInfo, T: TilingOrder>(
+    tile_row: u32,
+    tile_col: u32,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
+) -> u32 {
+    let tile_size = comptime_info.tile_size;
+
+    let smem_tile_width = I::smem_width(comptime_info) / tile_size;
+    let smem_tile_height = I::smem_height(comptime_info) / tile_size;
+
+    T::to_nth_tile(tile_row, tile_col, smem_tile_width, smem_tile_height)
 }
