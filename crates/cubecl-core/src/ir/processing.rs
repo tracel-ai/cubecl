@@ -229,6 +229,10 @@ impl ScopeProcessing {
                 Operator::Normalize(op) => {
                     sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
                 }
+                Operator::Dot(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
+                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
+                }
             },
             Operation::Metadata(op) => match op {
                 Metadata::Stride { dim, .. } => {
