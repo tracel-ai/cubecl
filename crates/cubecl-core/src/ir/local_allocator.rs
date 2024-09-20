@@ -91,29 +91,15 @@ impl LocalAllocator for ReusingAllocator {
 
 #[derive(Default)]
 pub struct HybridAllocator {
-    pool: VariablePool,
+    variable_allocator: ReusingAllocator,
     ssa_index: AtomicU16,
 }
 
 impl LocalAllocator for HybridAllocator {
     fn create_local_variable(&self, root: ScopeRef, scope: ScopeRef, item: Item) -> ExpandElement {
         self.ssa_index.fetch_add(1, Ordering::AcqRel);
-        if item.elem.is_atomic() {
-            let new = scope.borrow_mut().create_local_undeclared(item);
-            return ExpandElement::Plain(new);
-        }
-
-        // Reuse an old variable if possible
-        if let Some(var) = self.pool.reuse(item) {
-            return var;
-        }
-
-        // Create a new variable at the root scope
-        // Insert it in the variable pool for potential reuse
-        let new = ExpandElement::Managed(Rc::new(root.borrow_mut().create_local(item)));
-        self.pool.insert(new.clone());
-
-        new
+        self.variable_allocator
+            .create_local_variable(root, scope, item)
     }
 
     fn create_local_binding(&self, _root: ScopeRef, scope: ScopeRef, item: Item) -> ExpandElement {

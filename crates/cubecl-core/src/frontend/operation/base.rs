@@ -148,26 +148,15 @@ pub fn fixed_output_unary_expand<F>(
 where
     F: Fn(UnaryOperator) -> Operator,
 {
-    let input_var: Variable = *input;
+    let input = input.consume();
+    let output = context.create_local_binding(out_item);
+    let out = *output;
 
-    let input_item = input.item();
-
-    let out = if input.can_mut() && out_item == input_item {
-        input
-    } else {
-        context.create_local(out_item)
-    };
-
-    let out_var = *out;
-
-    let op = func(UnaryOperator {
-        input: input_var,
-        out: out_var,
-    });
+    let op = func(UnaryOperator { input, out });
 
     context.register(op);
 
-    out
+    output
 }
 
 pub fn init_expand<F>(context: &mut CubeContext, input: ExpandElement, func: F) -> ExpandElement

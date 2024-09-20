@@ -731,7 +731,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::Magnitude { input, out } => {
                 let out = out.fmt_left();
-                writeln!(f, format_args!("{out} = length({input});"))
+                writeln!(f, "{out} = length({input});")
             }
             Instruction::Normalize { input, out } => {
                 if input.item().vectorization_factor() == 1 {
