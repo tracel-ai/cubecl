@@ -214,7 +214,7 @@ impl Variable {
                 item: item.vectorize(vectorize),
                 depth: *depth,
             },
-            Variable::LocalBinding { id, item, depth } => Variable::Local {
+            Variable::LocalBinding { id, item, depth } => Variable::LocalBinding {
                 id: *id,
                 item: item.vectorize(vectorize),
                 depth: *depth,

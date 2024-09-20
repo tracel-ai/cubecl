@@ -30,7 +30,7 @@ mod tests {
     type ElemType = i32;
     #[test]
     fn cube_reuse_assign_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -45,7 +45,7 @@ mod tests {
 
     #[test]
     fn cube_reuse_incr_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -56,7 +56,7 @@ mod tests {
     }
 
     fn inline_macro_ref_assign() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let x = context.create_local_binding(item);
 
@@ -83,7 +83,7 @@ mod tests {
     }
 
     fn inline_macro_ref_incr() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let x = context.create_local_binding(item);
 

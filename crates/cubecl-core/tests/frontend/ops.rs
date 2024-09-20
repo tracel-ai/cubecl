@@ -240,7 +240,7 @@ mod tests {
         ($test_name:ident, $op_expand:expr, $op_name:expr, $func:ident) => {
             #[test]
             fn $test_name() {
-                let mut context = CubeContext::root();
+                let mut context = CubeContext::default();
                 let x = context.create_local_binding(Item::new(Elem::Float(FloatKind::F32)));
                 let y = context.create_local_binding(Item::new(Elem::Float(FloatKind::F32)));
 
@@ -258,7 +258,7 @@ mod tests {
         ($test_name:ident, $op_expand:expr, $op_name:expr) => {
             #[test]
             fn $test_name() {
-                let mut context = CubeContext::root();
+                let mut context = CubeContext::default();
                 let x = context.create_local_binding(Item::new(Elem::Float(FloatKind::F32)));
 
                 $op_expand(&mut context, x.into());
@@ -275,7 +275,7 @@ mod tests {
         ($test_name:ident, $op_expand:expr, $op_name:expr) => {
             #[test]
             fn $test_name() {
-                let mut context = CubeContext::root();
+                let mut context = CubeContext::default();
                 let x = context.create_local_binding(Item::new(Elem::Bool));
                 let y = context.create_local_binding(Item::new(Elem::Bool));
 
@@ -293,7 +293,7 @@ mod tests {
         ($test_name:ident, $op_expand:expr, $op_name:expr) => {
             #[test]
             fn $test_name() {
-                let mut context = CubeContext::root();
+                let mut context = CubeContext::default();
                 let x = context.create_local_binding(Item::new(Elem::UInt));
                 let y = context.create_local_binding(Item::new(Elem::UInt));
 
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     fn cube_can_not() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let x = context.create_local_binding(Item::new(Elem::Bool));
 
         not_op::expand(&mut context, x.into());

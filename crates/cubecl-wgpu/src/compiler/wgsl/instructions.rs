@@ -1,6 +1,6 @@
 use super::{
     base::{Item, Variable},
-    Elem, IndexedVariable, Subgroup,
+    Elem, Subgroup,
 };
 use std::fmt::Display;
 
@@ -324,14 +324,15 @@ impl Display for Instruction {
         match self {
             Instruction::DeclareVariable { var } => {
                 let item = var.item();
-                f.write_fmt(format_args!("var {var}: {item};\n"))
+                writeln!(f, "var {var}: {item};")
             }
             Instruction::Add { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular addition on atomic");
-                    f.write_fmt(format_args!("atomicAdd({out}, {rhs});\n"))
+                    writeln!(f, "atomicAdd({out}, {rhs});")
                 } else {
-                    f.write_fmt(format_args!("{out} = {lhs} + {rhs};\n"))
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = {lhs} + {rhs};")
                 }
             }
             Instruction::Slice {
@@ -340,46 +341,54 @@ impl Display for Instruction {
                 end,
                 out,
             } => {
-                f.write_fmt(format_args!("let {out}_offset = {start};\n"))?;
-                f.write_fmt(format_args!("let {out}_length = {end} - {start};\n"))?;
-                f.write_fmt(format_args!("let {out}_ptr = &{input};\n"))
+                writeln!(f, "let {out}_offset = {start};")?;
+                writeln!(f, "let {out}_length = {end} - {start};")?;
+                writeln!(f, "let {out}_ptr = &{input};")
             }
             Instruction::Fma { a, b, c, out } => {
-                f.write_fmt(format_args!("{out} = fma({a}, {b}, {c});\n"))
+                let out = out.fmt_left();
+                writeln!(f, "{out} = fma({a}, {b}, {c});")
             }
             Instruction::Min { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular min on atomic");
-                    f.write_fmt(format_args!("atomicMin({out}, {rhs});\n"))
+                    writeln!(f, "atomicMin({out}, {rhs});")
                 } else {
-                    f.write_fmt(format_args!("{out} = min({lhs}, {rhs});\n"))
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = min({lhs}, {rhs});")
                 }
             }
             Instruction::Max { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular max on atomic");
-                    f.write_fmt(format_args!("atomicMax({out}, {rhs});\n"))
+                    writeln!(f, "atomicMax({out}, {rhs});")
                 } else {
-                    f.write_fmt(format_args!("{out} = max({lhs}, {rhs});\n"))
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = max({lhs}, {rhs});")
                 }
             }
             Instruction::And { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular and on atomic");
-                    f.write_fmt(format_args!("atomicAnd({out}, {rhs});\n"))
+                    writeln!(f, "atomicAnd({out}, {rhs});")
                 } else {
-                    f.write_fmt(format_args!("{out} = {lhs} && {rhs};\n"))
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = {lhs} && {rhs};")
                 }
             }
             Instruction::Or { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular or on atomic");
-                    f.write_fmt(format_args!("atomicOr({out}, {rhs});\n"))
+                    write!(f, "atomicOr({out}, {rhs});\n")
                 } else {
-                    f.write_fmt(format_args!("{out} = {lhs} || {rhs};\n"))
+                    let out = out.fmt_left();
+                    write!(f, "{out} = {lhs} || {rhs};\n")
                 }
             }
-            Instruction::Not { input, out } => f.write_fmt(format_args!("{out} = !{input};\n")),
+            Instruction::Not { input, out } => {
+                let out = out.fmt_left();
+                write!(f, "{out} = !{input};\n")
+            }
             Instruction::Index { lhs, rhs, out } => match lhs {
                 Variable::Slice { item, .. } => {
                     let offset = Variable::Named {
@@ -397,7 +406,8 @@ impl Display for Instruction {
                 _ => index(f, lhs, rhs, out, None),
             },
             Instruction::Modulo { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = {lhs} % {rhs};\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = {lhs} % {rhs};\n")
             }
             Instruction::Remainder { lhs, rhs, out } => {
                 let f_type = match lhs.item() {
@@ -407,75 +417,93 @@ impl Display for Instruction {
                     Item::Scalar(_) => Item::Scalar(Elem::F32),
                 };
                 let ty = lhs.item();
-                f.write_fmt(format_args!(
-                    "{out} = {lhs} - {rhs} * {ty}(floor({f_type}({lhs}) / {f_type}({rhs})));\n"
-                ))
+                let lhs = lhs.fmt_cast(f_type);
+                let rhs = rhs.fmt_cast(f_type);
+                let out = out.fmt_left();
+                let floor = f_type.fmt_cast(ty, &format!("floor({lhs} / {rhs})"));
+                write!(f, "{out} = {lhs} - {rhs} * {floor};\n")
             }
             Instruction::Sub { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular sub on atomic");
-                    f.write_fmt(format_args!("atomicSub({out}, {rhs});\n"))
+                    write!(f, "atomicSub({out}, {rhs});\n")
                 } else {
-                    f.write_fmt(format_args!("{out} = {lhs} - {rhs};\n"))
+                    let out = out.fmt_left();
+                    write!(f, "{out} = {lhs} - {rhs};\n")
                 }
             }
             Instruction::Mul { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = {lhs} * {rhs};\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = {lhs} * {rhs};\n")
             }
             Instruction::Div { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = {lhs} / {rhs};\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = {lhs} / {rhs};\n")
             }
-            Instruction::Abs { input, out } => f.write_fmt(format_args!("{out} = abs({input});\n")),
-            Instruction::Exp { input, out } => f.write_fmt(format_args!("{out} = exp({input});\n")),
-            Instruction::Log { input, out } => f.write_fmt(format_args!("{out} = log({input});\n")),
+            Instruction::Abs { input, out } => {
+                let out = out.fmt_left();
+                write!(f, "{out} = abs({input});\n")
+            }
+            Instruction::Exp { input, out } => {
+                let out = out.fmt_left();
+                write!(f, "{out} = exp({input});\n")
+            }
+            Instruction::Log { input, out } => {
+                let out = out.fmt_left();
+                write!(f, "{out} = log({input});\n")
+            }
             Instruction::Clamp {
                 input,
                 min_value,
                 max_value,
                 out,
-            } => unroll(
-                f,
-                out.item().vectorization_factor(),
-                [input, min_value, max_value, out],
-                |f, [input, min, max, out]| {
-                    f.write_fmt(format_args!("{out} = clamp({input}, {min}, {max});\n"))
-                },
-            ),
+            } => {
+                let min = min_value.fmt_cast(out.item());
+                let max = max_value.fmt_cast(out.item());
+                let out = out.fmt_left();
+                write!(f, "{out} = clamp({input}, {min}, {max});\n")
+            }
             Instruction::Powf { lhs, rhs, out } => {
-                let vectorization_factor = out.item().vectorization_factor();
-
                 if rhs.is_always_scalar() {
-                    f.write_fmt(format_args!("{out} = powf_scalar({lhs}, {rhs});\n"))
+                    let out = out.fmt_left();
+                    write!(f, "{out} = powf_scalar({lhs}, {rhs});\n")
                 } else {
-                    unroll(
-                        f,
-                        vectorization_factor,
-                        [lhs, rhs, out],
-                        |f, [lhs, rhs, out]| {
-                            f.write_fmt(format_args!("{out} = powf_primitive({lhs}, {rhs});\n"))
-                        },
-                    )
+                    let out = out.fmt_left();
+                    write!(f, "{out} = powf({lhs}, {rhs});\n")
                 }
             }
             Instruction::Sqrt { input, out } => {
-                f.write_fmt(format_args!("{out} = sqrt({input});\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = sqrt({input});\n")
             }
             Instruction::Log1p { input, out } => {
-                f.write_fmt(format_args!("{out} = log({input} + 1.0);\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = log({input} + 1.0);\n")
             }
-            Instruction::Cos { input, out } => f.write_fmt(format_args!("{out} = cos({input});\n")),
-            Instruction::Sin { input, out } => f.write_fmt(format_args!("{out} = sin({input});\n")),
+            Instruction::Cos { input, out } => {
+                let out = out.fmt_left();
+                write!(f, "{out} = cos({input});\n")
+            }
+            Instruction::Sin { input, out } => {
+                let out = out.fmt_left();
+                write!(f, "{out} = sin({input});\n")
+            }
             Instruction::Tanh { input, out } => {
+                let out = out.fmt_left();
                 #[cfg(target_os = "macos")]
-                let result = f.write_fmt(format_args!("{out} = safe_tanh({input});\n"));
+                let result = write!(f, "{out} = safe_tanh({input});\n");
                 #[cfg(not(target_os = "macos"))]
-                let result = f.write_fmt(format_args!("{out} = tanh({input});\n"));
+                let result = write!(f, "{out} = tanh({input});\n");
 
                 result
             }
-            Instruction::Erf { input, out } => f.write_fmt(format_args!("{out} = erf({input});\n")),
+            Instruction::Erf { input, out } => {
+                let out = out.fmt_left();
+                write!(f, "{out} = erf({input});\n")
+            }
             Instruction::Recip { input, out } => {
-                f.write_fmt(format_args!("{out} = 1.0 / {input};"))
+                let out = out.fmt_left();
+                write!(f, "{out} = 1.0 / {input};")
             }
             Instruction::Equal { lhs, rhs, out } => comparison(lhs, rhs, out, "==", f),
             Instruction::Lower { lhs, rhs, out } => comparison(lhs, rhs, out, "<", f),
@@ -483,63 +511,42 @@ impl Display for Instruction {
             Instruction::LowerEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "<=", f),
             Instruction::GreaterEqual { lhs, rhs, out } => comparison(lhs, rhs, out, ">=", f),
             Instruction::NotEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "!=", f),
-            Instruction::Assign { input, out } => match out.item() {
-                Item::Vec4(elem) => {
-                    let input0 = input.index(0);
-                    let input1 = input.index(1);
-                    let input2 = input.index(2);
-                    let input3 = input.index(3);
-
-                    f.write_fmt(format_args!(
-                        "{out} = vec4(
-    {elem}({input0}),
-    {elem}({input1}),
-    {elem}({input2}),
-    {elem}({input3}),
-);
-"
-                    ))
-                }
-                Item::Vec3(elem) => {
-                    let input0 = input.index(0);
-                    let input1 = input.index(1);
-                    let input2 = input.index(2);
-
-                    f.write_fmt(format_args!(
-                        "{out} = vec3(
-    {elem}({input0}),
-    {elem}({input1}),
-    {elem}({input2}),
-);
-"
-                    ))
-                }
-                Item::Vec2(elem) => {
-                    let input0 = input.index(0);
-                    let input1 = input.index(1);
-
-                    f.write_fmt(format_args!(
-                        "{out} = vec2(
-    {elem}({input0}),
-    {elem}({input1}),
-);
-"
-                    ))
-                }
-                Item::Scalar(elem) => {
-                    if elem.is_atomic() {
-                        f.write_fmt(format_args!("let {out} = &{input};\n"))
+            Instruction::Assign { input, out } => {
+                let vec_left = out.item().vectorization_factor();
+                let vec_right = input.item().vectorization_factor();
+                if out.elem().is_atomic() {
+                    write!(f, "let {out} = &{input};\n")
+                } else if vec_left != vec_right {
+                    if vec_right == 1 {
+                        let input = input.fmt_cast(out.item());
+                        let out = out.fmt_left();
+                        write!(f, "{out} = {input};\n")
                     } else {
-                        f.write_fmt(format_args!("{out} = {elem}({input});\n"))
+                        for i in 0..vec_right {
+                            let out = out.index(i);
+                            let input = input.index(i);
+                            write!(f, "{out} = {input};\n")?;
+                        }
+                        Ok(())
                     }
+                } else {
+                    let input = input.fmt_cast(out.item());
+                    let out = out.fmt_left();
+                    write!(f, "{out} = {input};\n")
                 }
-            },
-            Instruction::Stride { dim, position, out } => f.write_fmt(format_args!(
-                "{out} = info[({position}u * rank_2) + {dim} + 1u];\n"
-            )),
-            Instruction::Shape { dim, position, out } => f.write_fmt(format_args!(
-                "{out} = info[({position}u * rank_2) + rank + {dim} + 1u];\n"
-            )),
+            }
+            Instruction::Stride { dim, position, out } => {
+                let out = out.fmt_left();
+                f.write_fmt(format_args!(
+                    "{out} = info[({position}u * rank_2) + {dim} + 1u];\n"
+                ))
+            }
+            Instruction::Shape { dim, position, out } => {
+                let out = out.fmt_left();
+                f.write_fmt(format_args!(
+                    "{out} = info[({position}u * rank_2) + rank + {dim} + 1u];\n"
+                ))
+            }
             Instruction::RangeLoop {
                 i,
                 start,
@@ -561,7 +568,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 "
                 ))?;
                 for instruction in instructions {
-                    f.write_fmt(format_args!("{instruction}"))?;
+                    write!(f, "{instruction}")?;
                 }
 
                 f.write_str("}\n")
@@ -585,9 +592,9 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
             }
             Instruction::If { cond, instructions } => {
-                f.write_fmt(format_args!("if {cond} {{\n"))?;
+                write!(f, "if {cond} {{\n")?;
                 for i in instructions {
-                    f.write_fmt(format_args!("{i}"))?;
+                    write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
@@ -596,13 +603,13 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 instructions_if,
                 instructions_else,
             } => {
-                f.write_fmt(format_args!("if {cond} {{\n"))?;
+                write!(f, "if {cond} {{\n")?;
                 for i in instructions_if {
-                    f.write_fmt(format_args!("{i}"))?;
+                    write!(f, "{i}")?;
                 }
                 f.write_str("} else {\n")?;
                 for i in instructions_else {
-                    f.write_fmt(format_args!("{i}"))?;
+                    write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
@@ -610,96 +617,126 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Break => f.write_str("break;\n"),
             Instruction::WorkgroupBarrier => f.write_str("workgroupBarrier();\n"),
             Instruction::StorageBarrier => f.write_str("storageBarrier();\n"),
-            Instruction::Length { var, out } => match var {
-                Variable::Slice { .. } => f.write_fmt(format_args!("{out} = {var}_length;\n")),
-                _ => f.write_fmt(format_args!("{out} = arrayLength(&{var});\n")),
-            },
+            Instruction::Length { var, out } => {
+                let out = out.fmt_left();
+                match var {
+                    Variable::Slice { .. } => write!(f, "{out} = {var}_length;\n"),
+                    _ => write!(f, "{out} = arrayLength(&{var});\n"),
+                }
+            }
             Instruction::Loop { instructions } => {
-                f.write_fmt(format_args!("loop {{\n"))?;
+                write!(f, "loop {{\n")?;
                 for i in instructions {
-                    f.write_fmt(format_args!("{i}"))?;
+                    write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
             Instruction::BitwiseOr { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = {lhs} | {rhs};\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = {lhs} | {rhs};\n")
             }
             Instruction::BitwiseAnd { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = {lhs} & {rhs};\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = {lhs} & {rhs};\n")
             }
             Instruction::BitwiseXor { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = {lhs} ^ {rhs};\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = {lhs} ^ {rhs};\n")
             }
             Instruction::ShiftLeft { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = {lhs} << {rhs};\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = {lhs} << {rhs};\n")
             }
             Instruction::ShiftRight { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = {lhs} >> {rhs};\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = {lhs} >> {rhs};\n")
             }
             Instruction::Round { input, out } => {
-                f.write_fmt(format_args!("{out} = round({input});\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = round({input});\n")
             }
             Instruction::Floor { input, out } => {
-                f.write_fmt(format_args!("{out} = floor({input});\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = floor({input});\n")
             }
             Instruction::Ceil { input, out } => {
-                f.write_fmt(format_args!("{out} = ceil({input});\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = ceil({input});\n")
             }
-            Instruction::Subgroup(op) => f.write_fmt(format_args!("{op}")),
+            Instruction::Subgroup(op) => write!(f, "{op}"),
             Instruction::Bitcast { input, out } => {
-                f.write_fmt(format_args!("{out} = bitcast<{}>({input});\n", out.elem()))
+                let elem = out.item();
+                let out = out.fmt_left();
+                write!(f, "{out} = bitcast<{elem}>({input});\n")
             }
             Instruction::AtomicLoad { input, out } => {
-                f.write_fmt(format_args!("{out} = atomicLoad({input});\n"))
+                let out = out.fmt_left();
+                write!(f, "{out} = atomicLoad({input});\n")
             }
             Instruction::AtomicStore { input, out } => {
-                f.write_fmt(format_args!("atomicStore({out},{input});\n"))
+                write!(f, "atomicStore({out},{input});\n")
             }
             Instruction::AtomicSwap { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicExchange({lhs}, {rhs});"))
+                let out = out.fmt_left();
+                write!(f, "{out} = atomicExchange({lhs}, {rhs});")
             }
             Instruction::AtomicAdd { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicAdd({lhs}, {rhs});"))
+                let out = out.fmt_left();
+                write!(f, "{out} = atomicAdd({lhs}, {rhs});")
             }
             Instruction::AtomicSub { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicSub({lhs}, {rhs});"))
+                let out = out.fmt_left();
+                write!(f, "{out} = atomicSub({lhs}, {rhs});")
             }
             Instruction::AtomicMax { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicMax({lhs}, {rhs});"))
+                let out = out.fmt_left();
+                write!(f, "{out} = atomicMax({lhs}, {rhs});")
             }
             Instruction::AtomicMin { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicMin({lhs}, {rhs});"))
+                let out = out.fmt_left();
+                write!(f, "{out} = atomicMin({lhs}, {rhs});")
             }
             Instruction::AtomicAnd { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicAnd({lhs}, {rhs});"))
+                let out = out.fmt_left();
+                write!(f, "{out} = atomicAnd({lhs}, {rhs});")
             }
             Instruction::AtomicOr { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicOr({lhs}, {rhs});"))
+                let out = out.fmt_left();
+                write!(f, "{out} = atomicOr({lhs}, {rhs});")
             }
             Instruction::AtomicXor { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = atomicXor({lhs}, {rhs});"))
+                let out = out.fmt_left();
+                write!(f, "{out} = atomicXor({lhs}, {rhs});")
             }
             Instruction::AtomicCompareExchangeWeak {
                 lhs,
                 cmp,
                 value,
                 out,
-            } => f.write_fmt(format_args!(
-                // For compatibility with cuda, only return old_value
-                "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;\n"
-            )),
-            Instruction::Negate { input, out } => f.write_fmt(format_args!("{out} = -{input};\n")),
+            } => {
+                let out = out.fmt_left();
+                f.write_fmt(format_args!(
+                    // For compatibility with cuda, only return old_value
+                    "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;\n"
+                ))
+            }
+            Instruction::Negate { input, out } => {
+                let out = out.fmt_left();
+                write!(f, "{out} = -{input};\n")
+            }
             Instruction::Normalize { input, out } => {
                 if input.item().vectorization_factor() == 1 {
                     // We need a check for vectorization factor 1 here, for compatibility with cuda.
                     // You can almost use sign here, however that does not correctly handle the case for x == 0.0.
                     // Therefore we use normalize with vec2, as there is no way to use a NaN literal in wgsl.
                     let vec2_type = Item::Vec2(out.elem());
+                    let out = out.fmt_left();
                     f.write_fmt(format_args!(
                         "{out} = normalize({vec2_type}({input}, 0.0)).x;\n"
                     ))
                 } else {
-                    f.write_fmt(format_args!("{out} = normalize({input});\n"))
+                    let out = out.fmt_left();
+                    write!(f, "{out} = normalize({input});\n")
                 }
             }
         }
@@ -723,6 +760,7 @@ fn comparison(
             let rhs1 = rhs.index(1);
             let rhs2 = rhs.index(2);
             let rhs3 = rhs.index(3);
+            let out = out.fmt_left();
 
             f.write_fmt(format_args!(
                 "
@@ -737,6 +775,7 @@ fn comparison(
             let rhs0 = rhs.index(0);
             let rhs1 = rhs.index(1);
             let rhs2 = rhs.index(2);
+            let out = out.fmt_left();
 
             f.write_fmt(format_args!(
                 "
@@ -749,6 +788,7 @@ fn comparison(
             let lhs1 = lhs.index(1);
             let rhs0 = rhs.index(0);
             let rhs1 = rhs.index(1);
+            let out = out.fmt_left();
 
             f.write_fmt(format_args!(
                 "
@@ -757,32 +797,35 @@ fn comparison(
             ))
         }
         Item::Scalar(_) => match rhs.item() {
-            Item::Scalar(_) => f.write_fmt(format_args!("{out} = {lhs} {op} {rhs};\n")),
+            Item::Scalar(_) => {
+                let out = out.fmt_left();
+                write!(f, "{out} = {lhs} {op} {rhs};\n")
+            }
             _ => panic!("Can only compare a scalar when the output is a scalar"),
         },
     }
 }
 
-fn unroll<
-    const N: usize,
-    F: Fn(&mut core::fmt::Formatter<'_>, [IndexedVariable; N]) -> core::fmt::Result,
->(
-    f: &mut core::fmt::Formatter<'_>,
-    vectorization_factor: usize,
-    variables: [&Variable; N],
-    func: F,
-) -> core::fmt::Result {
-    for i in 0..vectorization_factor {
-        let mut tmp = Vec::with_capacity(N);
-        for var in variables.iter().take(N) {
-            tmp.push(var.index(i));
-        }
-        let vars = tmp.try_into().unwrap();
+// fn unroll<
+//     const N: usize,
+//     F: Fn(&mut core::fmt::Formatter<'_>, [IndexedVariable; N]) -> core::fmt::Result,
+// >(
+//     f: &mut core::fmt::Formatter<'_>,
+//     vectorization_factor: usize,
+//     variables: [&Variable; N],
+//     func: F,
+// ) -> core::fmt::Result {
+//     for i in 0..vectorization_factor {
+//         let mut tmp = Vec::with_capacity(N);
+//         for var in variables.iter().take(N) {
+//             tmp.push(var.index(i));
+//         }
+//         let vars = tmp.try_into().unwrap();
 
-        func(f, vars)?;
-    }
-    Ok(())
-}
+//         func(f, vars)?;
+//     }
+//     Ok(())
+// }
 
 struct IndexOffset {
     var: Variable,
@@ -806,9 +849,9 @@ impl Display for IndexOffset {
         match &self.offset {
             Some(offset) => {
                 let offset = offset.index(self.index);
-                f.write_fmt(format_args!("{var} + {offset}"))
+                write!(f, "{var} + {offset}")
             }
-            None => f.write_fmt(format_args!("{var}")),
+            None => write!(f, "{var}"),
         }
     }
 }
@@ -822,19 +865,27 @@ fn index(
 ) -> core::fmt::Result {
     if out.item().elem().is_atomic() {
         match offset {
-            Some(offset) => f.write_fmt(format_args!("let {out} = &{lhs}[{rhs} + {offset}];\n")),
-            None => f.write_fmt(format_args!("let {out} = &{lhs}[{rhs}];\n")),
+            Some(offset) => write!(f, "let {out} = &{lhs}[{rhs} + {offset}];\n"),
+            None => write!(f, "let {out} = &{lhs}[{rhs}];\n"),
         }
     } else if lhs.elem() != out.elem() {
         let item = out.item();
+        let out = out.fmt_left();
         match offset {
-            Some(offset) => f.write_fmt(format_args!("{out} = {item}({lhs}[{rhs} + {offset}]);\n")),
-            None => f.write_fmt(format_args!("{out} = {item}({lhs}[{rhs}]);\n")),
+            Some(offset) => {
+                let value = lhs.item().fmt_cast(item, &format!("{lhs}[{rhs}+{offset}]"));
+                write!(f, "{out} = {value};\n")
+            }
+            None => {
+                let value = lhs.item().fmt_cast(item, &format!("{lhs}[{rhs}]"));
+                write!(f, "{out} = {value};\n")
+            }
         }
     } else {
+        let out = out.fmt_left();
         match offset {
-            Some(offset) => f.write_fmt(format_args!("{out} = {lhs}[{rhs} + {offset}];\n")),
-            None => f.write_fmt(format_args!("{out} = {lhs}[{rhs}];\n")),
+            Some(offset) => write!(f, "{out} = {lhs}[{rhs} + {offset}];\n"),
+            None => write!(f, "{out} = {lhs}[{rhs}];\n"),
         }
     }
 }
@@ -848,43 +899,38 @@ fn index_assign(
 ) -> core::fmt::Result {
     match lhs.item() {
         Item::Vec4(elem) => {
+            let item = Item::Scalar(elem);
             let lhs0 = IndexOffset::new(lhs, &offset, 0);
-            let lhs1 = IndexOffset::new(lhs, &offset, 1);
-            let lhs2 = IndexOffset::new(lhs, &offset, 2);
-            let lhs3 = IndexOffset::new(lhs, &offset, 3);
 
-            let rhs0 = rhs.index(0);
-            let rhs1 = rhs.index(1);
-            let rhs2 = rhs.index(2);
-            let rhs3 = rhs.index(3);
+            let rhs0 = rhs.index(0).fmt_cast(item);
+            let rhs1 = rhs.index(1).fmt_cast(item);
+            let rhs2 = rhs.index(2).fmt_cast(item);
+            let rhs3 = rhs.index(3).fmt_cast(item);
 
-            f.write_fmt(format_args!("{out}[{lhs0}] = {elem}({rhs0});\n"))?;
-            f.write_fmt(format_args!("{out}[{lhs1}] = {elem}({rhs1});\n"))?;
-            f.write_fmt(format_args!("{out}[{lhs2}] = {elem}({rhs2});\n"))?;
-            f.write_fmt(format_args!("{out}[{lhs3}] = {elem}({rhs3});\n"))
+            f.write_fmt(format_args!(
+                "{out}[{lhs0}] = vec4({rhs0}, {rhs1}, {rhs2}, {rhs3})"
+            ))
         }
         Item::Vec3(elem) => {
+            let item = Item::Scalar(elem);
             let lhs0 = IndexOffset::new(lhs, &offset, 0);
-            let lhs1 = IndexOffset::new(lhs, &offset, 1);
-            let lhs2 = IndexOffset::new(lhs, &offset, 2);
 
-            let rhs0 = rhs.index(0);
-            let rhs1 = rhs.index(1);
-            let rhs2 = rhs.index(2);
+            let rhs0 = rhs.index(0).fmt_cast(item);
+            let rhs1 = rhs.index(1).fmt_cast(item);
+            let rhs2 = rhs.index(2).fmt_cast(item);
 
-            f.write_fmt(format_args!("{out}[{lhs0}] = {elem}({rhs0});\n"))?;
-            f.write_fmt(format_args!("{out}[{lhs1}] = {elem}({rhs1});\n"))?;
-            f.write_fmt(format_args!("{out}[{lhs2}] = {elem}({rhs2});\n"))
+            f.write_fmt(format_args!(
+                "{out}[{lhs0}] = vec3({rhs0}, {rhs1}, {rhs2});\n"
+            ))
         }
         Item::Vec2(elem) => {
+            let item = Item::Scalar(elem);
             let lhs0 = IndexOffset::new(lhs, &offset, 0);
-            let lhs1 = IndexOffset::new(lhs, &offset, 1);
 
-            let rhs0 = rhs.index(0);
-            let rhs1 = rhs.index(1);
+            let rhs0 = rhs.index(0).fmt_cast(item);
+            let rhs1 = rhs.index(1).fmt_cast(item);
 
-            f.write_fmt(format_args!("{out}[{lhs0}] = {elem}({rhs0});\n"))?;
-            f.write_fmt(format_args!("{out}[{lhs1}] = {elem}({rhs1});\n"))
+            write!(f, "{out}[{lhs0}] = vec2({rhs0}, {rhs1});\n")
         }
         Item::Scalar(_elem) => {
             let is_array = match out {
@@ -905,7 +951,8 @@ fn index_assign(
                     Item::Vec2(_) => Item::Vec2(elem_out),
                     Item::Scalar(_) => Item::Scalar(elem_out),
                 };
-                f.write_fmt(format_args!("{out}[{lhs}] = {casting_type}({rhs});\n"))
+                let rhs = rhs.fmt_cast(casting_type);
+                write!(f, "{out}[{lhs}] = {rhs};\n")
             } else {
                 let item_rhs = rhs.item();
                 let item_out = out.item();
@@ -913,11 +960,10 @@ fn index_assign(
 
                 let vectorization_factor = item_out.vectorization_factor();
                 if vectorization_factor > item_rhs.vectorization_factor() {
-                    let casting_type = item_out.elem();
-                    f.write_fmt(format_args!("{out}[{lhs}] = vec{vectorization_factor}("))?;
+                    let casting_type = Item::Scalar(*item_out.elem());
+                    write!(f, "{out}[{lhs}] = vec{vectorization_factor}(")?;
                     for i in 0..vectorization_factor {
-                        let value = rhs.index(i);
-                        f.write_fmt(format_args!("{casting_type}({value})"))?;
+                        f.write_str(&rhs.index(i).fmt_cast(casting_type))?;
 
                         if i < vectorization_factor - 1 {
                             f.write_str(",")?;
@@ -925,7 +971,8 @@ fn index_assign(
                     }
                     f.write_str(");\n")
                 } else {
-                    f.write_fmt(format_args!("{out}[{lhs}] = {item_out}({rhs});\n"))
+                    let rhs = rhs.fmt_cast(item_out);
+                    writeln!(f, "{out}[{lhs}] = {rhs};")
                 }
             }
         }

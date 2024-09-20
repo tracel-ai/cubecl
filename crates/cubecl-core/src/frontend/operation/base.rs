@@ -24,7 +24,6 @@ where
 
     let item = Item::vectorized(item_lhs.elem, vectorization);
 
-    // We can only reuse rhs.
     let output = context.create_local_binding(item);
     let out = *output;
 
@@ -197,22 +196,24 @@ pub fn array_assign_binary_op_expand<
     let index: ExpandElement = index.into();
     let value: ExpandElement = value.into();
 
-    let tmp = context.create_local_binding(array.item());
+    let array_value = context.create_local_binding(array.item());
 
     let read = Operator::Index(BinaryOperator {
         lhs: *array,
         rhs: *index,
-        out: *tmp,
+        out: *array_value,
     });
+    let array_value = array_value.consume();
+    let op_out = context.create_local_binding(array.item());
     let calculate = func(BinaryOperator {
-        lhs: *tmp,
+        lhs: array_value,
         rhs: *value,
-        out: *tmp,
+        out: *op_out,
     });
 
     let write = Operator::IndexAssign(BinaryOperator {
         lhs: *index,
-        rhs: *tmp,
+        rhs: op_out.consume(),
         out: *array,
     });
 

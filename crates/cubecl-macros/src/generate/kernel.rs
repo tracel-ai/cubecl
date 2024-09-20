@@ -151,6 +151,8 @@ impl Launch {
 
     fn define_body(&self) -> TokenStream {
         let kernel_builder = prelude_type("KernelBuilder");
+        let runtime = prelude_type("Runtime");
+        let compiler = core_type("Compiler");
         let io_map = self.io_mappings();
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
@@ -158,7 +160,7 @@ impl Launch {
         let generics = generics.as_turbofish();
 
         quote! {
-            let mut builder = #kernel_builder::default();
+            let mut builder = #kernel_builder::with_local_allocator(<<__R as #runtime>::Compiler as #compiler>::local_allocator());
             #io_map
             expand #generics(&mut builder.context, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
             builder.build(self.settings.clone())

@@ -142,7 +142,7 @@ fn main(
         }
 
         // Open body
-        f.write_fmt(format_args!(") {{"))?;
+        write!(f, ") {{")?;
 
         // Local arrays
         for array in self.local_arrays.iter() {
@@ -165,13 +165,13 @@ fn main(
             f.write_str("let num_workgroups_no_axis = num_workgroups.x * num_workgroups.y * num_workgroups.z;\n")?;
         }
 
-        f.write_fmt(format_args!("{}", self.body))?;
+        write!(f, "{}", self.body)?;
 
         // Close body
-        f.write_fmt(format_args!("}}"))?;
+        write!(f, "}}")?;
 
         for extension in self.extensions.iter() {
-            f.write_fmt(format_args!("{extension}\n\n"))?;
+            write!(f, "{extension}\n\n")?;
         }
 
         Ok(())

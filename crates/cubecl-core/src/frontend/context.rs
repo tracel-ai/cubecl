@@ -2,50 +2,6 @@ use crate::ir::{self, Elem, Item, Operation, ReusingAllocator, Scope};
 use crate::{frontend::ExpandElement, ir::LocalAllocator};
 use alloc::rc::Rc;
 use core::cell::RefCell;
-use std::collections::HashMap;
-
-#[derive(Default, Clone)]
-pub struct VariablePool {
-    map: Rc<RefCell<HashMap<Item, Vec<ExpandElement>>>>,
-}
-
-impl VariablePool {
-    /// Returns an old, not used anymore variable, if there exists one.
-    pub fn reuse(&self, item: Item) -> Option<ExpandElement> {
-        let map = self.map.borrow();
-
-        // Filter for candidate variables of the same Item
-        let variables = map.get(&item)?;
-
-        // Among the candidates, take a variable if it's only referenced by the map
-        // Arbitrarily takes the first it finds in reverse order.
-        for variable in variables.iter().rev() {
-            match variable {
-                ExpandElement::Managed(var) => {
-                    if Rc::strong_count(var) == 1 {
-                        return Some(variable.clone());
-                    }
-                }
-                ExpandElement::Plain(_) => (),
-            }
-        }
-
-        // If no candidate was found, a new var will be needed
-        None
-    }
-
-    /// Insert a new variable in the map, which is classified by Item
-    pub fn insert(&self, var: ExpandElement) {
-        let mut map = self.map.borrow_mut();
-        let item = var.item();
-
-        if let Some(variables) = map.get_mut(&item) {
-            variables.push(var.clone());
-        } else {
-            map.insert(var.item(), vec![var.clone()]);
-        }
-    }
-}
 
 pub struct CubeContext {
     pub root: Rc<RefCell<Scope>>,
@@ -53,16 +9,22 @@ pub struct CubeContext {
     pub local_allocator: Rc<dyn LocalAllocator>,
 }
 
+impl Default for CubeContext {
+    fn default() -> Self {
+        Self::root(ReusingAllocator::default())
+    }
+}
+
 impl CubeContext {
     /// Create a new cube context, with a root scope
     /// A root scope is at the root of a compute shader
     /// Therefore there is one cube context per shader
-    pub fn root() -> CubeContext {
+    pub fn root(allocator: impl LocalAllocator + 'static) -> CubeContext {
         let root = Rc::new(RefCell::new(Scope::root()));
         let scope = root.clone();
 
         Self {
-            local_allocator: Rc::new(ReusingAllocator::default()),
+            local_allocator: Rc::new(allocator),
             scope,
             root,
         }

@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn cube_redeclare_same_scope_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn cube_redeclare_same_scope_other_type_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn cube_redeclare_different_scope_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn cube_redeclare_two_for_loops_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(u32::as_elem()));
 
@@ -111,7 +111,7 @@ mod tests {
     }
 
     fn inline_macro_ref_same_scope() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
 
         let x = context.create_local_binding(item);
@@ -132,7 +132,7 @@ mod tests {
     }
 
     fn inline_macro_ref_same_scope_other_type() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
 
         let x = context.create_local_binding(item);
@@ -151,7 +151,7 @@ mod tests {
     }
 
     fn inline_macro_ref_different() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
 
         let x = context.create_local_binding(item);
@@ -177,7 +177,7 @@ mod tests {
     }
 
     fn inline_macro_ref_two_for_loops() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(u32::as_elem());
 
         let x = context.create_local_binding(item);

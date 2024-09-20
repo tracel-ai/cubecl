@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn cube_if_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn cube_if_else_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn cube_elsif_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn cube_elsif_assign_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -114,7 +114,7 @@ mod tests {
     }
 
     fn inline_macro_ref_if() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let lhs = context.create_local_binding(item);
 
@@ -131,7 +131,7 @@ mod tests {
     }
 
     fn inline_macro_ref_if_else() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let lhs = context.create_local_binding(item);
 
@@ -151,7 +151,7 @@ mod tests {
     }
 
     fn inline_macro_ref_elsif() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let lhs = context.create_local_binding(item);
 
@@ -177,7 +177,7 @@ mod tests {
     }
 
     fn inline_macro_ref_elsif_assign() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let lhs = context.create_local_binding(item);
 

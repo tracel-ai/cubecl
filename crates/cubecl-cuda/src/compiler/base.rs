@@ -1,7 +1,7 @@
 use std::{collections::HashSet, num::NonZero};
 
 use cubecl_core::{
-    ir::{self as gpu, ConstantScalarValue},
+    ir::{self as gpu, ConstantScalarValue, ReusingAllocator},
     Compiler,
 };
 use cubecl_runtime::ExecutionMode;
@@ -47,6 +47,10 @@ impl Compiler for CudaCompiler {
 
     fn max_shared_memory_size() -> usize {
         49152
+    }
+
+    fn local_allocator() -> impl gpu::LocalAllocator {
+        ReusingAllocator::default()
     }
 }
 

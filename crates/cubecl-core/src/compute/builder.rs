@@ -1,4 +1,4 @@
-use crate::ir::{Elem, Item, Visibility};
+use crate::ir::{Elem, Item, LocalAllocator, ReusingAllocator, Visibility};
 use crate::prelude::KernelDefinition;
 use crate::KernelSettings;
 use crate::{
@@ -88,17 +88,21 @@ impl KernelBuilder {
         })
         .integrate(settings)
     }
-}
 
-impl Default for KernelBuilder {
-    fn default() -> Self {
+    pub fn with_local_allocator(allocator: impl LocalAllocator + 'static) -> Self {
         Self {
-            context: CubeContext::root(),
+            context: CubeContext::root(allocator),
             inputs: Vec::new(),
             outputs: Vec::new(),
             indices: HashMap::new(),
             num_input: 0,
             num_output: 0,
         }
+    }
+}
+
+impl Default for KernelBuilder {
+    fn default() -> Self {
+        Self::with_local_allocator(ReusingAllocator::default())
     }
 }

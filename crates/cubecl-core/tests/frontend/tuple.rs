@@ -25,7 +25,7 @@ mod tests {
 
     #[test]
     fn cube_tuple_const_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         tuple_const::expand(&mut context);
         let scope = context.into_scope();
@@ -34,7 +34,7 @@ mod tests {
     }
 
     fn inline_macro_ref_tuple_const() -> Vec<Operation> {
-        let context = CubeContext::root();
+        let context = CubeContext::default();
 
         let mut scope = context.into_scope();
         let x = scope.create_local(Item::new(Elem::UInt));
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn cube_tuple_destructuring() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         tuple_destructuring::expand(&mut context);
         let scope = context.into_scope();
@@ -60,7 +60,7 @@ mod tests {
     }
 
     fn inline_macro_ref_tuple_destructuring() -> Vec<Operation> {
-        let context = CubeContext::root();
+        let context = CubeContext::default();
 
         let mut scope = context.into_scope();
         let a = scope.create_local(Item::new(Elem::UInt));

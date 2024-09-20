@@ -22,7 +22,7 @@ mod tests {
 
     #[test]
     fn cube_literal_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -34,7 +34,7 @@ mod tests {
 
     #[test]
     fn cube_literal_float_no_decimal_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
 
@@ -45,7 +45,7 @@ mod tests {
     }
 
     fn inline_macro_ref() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let lhs = context.create_local_binding(item);
 

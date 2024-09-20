@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn cube_cast_float_kind_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(f64::as_elem());
 
         let input = context.create_local_binding(item);
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn cube_cast_int_kind_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
 
         let input = context.create_local_binding(item);
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn cube_cast_numeric_kind_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
 
         let input = context.create_local_binding(item);
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn cube_cast_kind_numeric_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
 
         let input = context.create_local_binding(item);
@@ -93,7 +93,7 @@ mod tests {
     }
 
     fn inline_macro_ref_float() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let float_64 = Item::new(f64::as_elem());
         let float_32 = Item::new(f32::as_elem());
         let input = context.create_local_binding(float_64);
@@ -110,7 +110,7 @@ mod tests {
     }
 
     fn inline_macro_ref_int() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let int_32 = Item::new(i32::as_elem());
         let int_64 = Item::new(i64::as_elem());
         let input = context.create_local_binding(int_32);

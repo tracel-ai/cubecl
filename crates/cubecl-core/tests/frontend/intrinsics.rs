@@ -28,7 +28,7 @@ mod tests {
 
     #[test]
     fn vectorization_of_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let input =
             context.create_local_binding(Item::vectorized(ElemType::as_elem(), NonZero::new(3)));
@@ -40,7 +40,7 @@ mod tests {
     }
 
     fn inline_macro_ref() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let _input = context.create_local_binding(item);
         let out = context.create_local_binding(Item::new(u32::as_elem()));

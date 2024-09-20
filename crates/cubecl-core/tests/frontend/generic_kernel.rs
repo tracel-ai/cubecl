@@ -17,7 +17,7 @@ mod tests {
 
     #[test]
     fn cube_generic_float_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let lhs = context.create_local_binding(Item::new(f32::as_elem()));
 
@@ -29,7 +29,7 @@ mod tests {
 
     #[test]
     fn cube_generic_int_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let lhs = context.create_local_binding(Item::new(i32::as_elem()));
 
@@ -40,7 +40,7 @@ mod tests {
     }
 
     fn inline_macro_ref_float() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(f32::as_elem());
         let var = context.create_local_binding(item);
 
@@ -52,7 +52,7 @@ mod tests {
     }
 
     fn inline_macro_ref_int() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
         let var = context.create_local_binding(item);
 

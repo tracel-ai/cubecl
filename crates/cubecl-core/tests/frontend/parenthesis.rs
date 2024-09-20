@@ -18,7 +18,7 @@ mod tests {
 
     #[test]
     fn cube_parenthesis_priority_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
         let y = context.create_local_binding(Item::new(ElemType::as_elem()));
@@ -31,7 +31,7 @@ mod tests {
     }
 
     fn inline_macro_ref() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let x = context.create_local_binding(item);
         let y = context.create_local_binding(item);

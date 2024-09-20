@@ -39,7 +39,7 @@ mod tests {
 
     #[test]
     fn test_for_loop_with_unroll() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let unroll = true;
 
         let lhs = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn test_for_loop_no_unroll() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let unroll = false;
 
         let lhs = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
@@ -69,7 +69,7 @@ mod tests {
 
     #[test]
     fn test_for_in_loop() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let input = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
 
@@ -83,7 +83,7 @@ mod tests {
     }
 
     fn inline_macro_ref(unroll: bool) -> String {
-        let context = CubeContext::root();
+        let context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
 
         let mut scope = context.into_scope();
@@ -109,7 +109,7 @@ mod tests {
     }
 
     fn inline_macro_ref_for_in() -> String {
-        let context = CubeContext::root();
+        let context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
 
         let mut scope = context.into_scope();

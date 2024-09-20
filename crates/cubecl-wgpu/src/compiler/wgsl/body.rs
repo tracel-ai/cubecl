@@ -30,7 +30,7 @@ impl Display for Body {
         }
 
         for ops in self.instructions.iter() {
-            f.write_fmt(format_args!("{ops}"))?;
+            write!(f, "{ops}")?;
         }
 
         Ok(())

@@ -1,7 +1,7 @@
 use super::{CubePrimitive, Numeric, Vectorized};
 use crate::{
     ir::{ConstantScalarValue, Elem, FloatKind, Item, Operator, Variable, Vectorization},
-    prelude::{index_assign, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher},
+    prelude::{assign, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher},
     KernelSettings, Runtime,
 };
 use alloc::rc::Rc;
@@ -445,21 +445,9 @@ pub(crate) fn __expand_vectorized<C: Numeric + CubeIndex<u32>, Out: Numeric>(
     let val = Out::from(val).unwrap();
     let val: ExpandElementTyped<Out> = val.into();
 
-    // Allow setting explicit vectorization of 1 without trying to index assign it
-    if vectorization == 1 {
-        return val;
-    }
-
-    for (i, element) in vec![val; vectorization as usize].iter().enumerate() {
-        let element = elem.from_constant(*element.expand);
-
-        index_assign::expand::<C>(
-            context,
-            new_var.clone().into(),
-            ExpandElementTyped::from_lit(i),
-            ExpandElement::Plain(element).into(),
-        );
-    }
+    // Explanation for removing all this code: Assignments are already being unrolled and broadcast
+    // in the backend, so this was just duplicating code and it interfered with the SSA allocator
+    assign::expand(context, val, new_var.clone().into());
 
     new_var.into()
 }

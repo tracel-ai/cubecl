@@ -19,7 +19,7 @@ mod tests {
 
     #[test]
     fn cube_support_tensor_metadata() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let input = context.input(0, Item::new(ElemType::as_elem()));
 
         kernel::expand::<ElemType>(&mut context, input.into());
@@ -27,7 +27,7 @@ mod tests {
     }
 
     fn inline_macro_ref() -> Vec<Operation> {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let input = context.input(0, item);
 

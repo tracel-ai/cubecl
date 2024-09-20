@@ -84,7 +84,7 @@ mod tests {
     type ElemType = f32;
     #[test]
     fn cube_strategy_trait_add_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
         let y = context.create_local_binding(Item::new(ElemType::as_elem()));
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn cube_strategy_trait_sub_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
         let y = context.create_local_binding(Item::new(ElemType::as_elem()));
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn cube_two_strategy_traits_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
         let y = context.create_local_binding(Item::new(ElemType::as_elem()));
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn cube_trait_generic_method_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         let x = context.create_local_binding(Item::new(ElemType::as_elem()));
         let y = context.create_local_binding(Item::new(ElemType::as_elem()));
@@ -152,7 +152,7 @@ mod tests {
     }
 
     fn inline_macro_ref_one(is_add_strategy: bool) -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let x = context.create_local_binding(item);
         let y = context.create_local_binding(item);
@@ -170,7 +170,7 @@ mod tests {
     }
 
     fn inline_macro_ref_two() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let x = context.create_local_binding(item);
         let y = context.create_local_binding(item);

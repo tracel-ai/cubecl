@@ -59,7 +59,7 @@ mod tests {
 
     #[test]
     fn test_function_generic() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let lhs = context.create_local_binding(Item::new(f32::as_elem()));
         let rhs = context.create_local_binding(Item::new(f32::as_elem()));
 
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_trait_generic() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let lhs = context.create_local_binding(Item::new(f32::as_elem()));
         let rhs = context.create_local_binding(Item::new(f32::as_elem()));
 
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn test_combined_function_generic() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let lhs = context.create_local_binding(Item::new(f32::as_elem()));
         let rhs = context.create_local_binding(Item::new(f32::as_elem()));
 
@@ -95,7 +95,7 @@ mod tests {
     }
 
     fn simple_scope() -> Scope {
-        let mut context_ref = CubeContext::root();
+        let mut context_ref = CubeContext::default();
         let lhs = context_ref.create_local_binding(Item::new(f32::as_elem()));
         let rhs = context_ref.create_local_binding(Item::new(f32::as_elem()));
 
@@ -104,7 +104,7 @@ mod tests {
     }
 
     fn with_cast_scope() -> Scope {
-        let mut context_ref = CubeContext::root();
+        let mut context_ref = CubeContext::default();
         let lhs = context_ref.create_local_binding(Item::new(f32::as_elem()));
         let rhs = context_ref.create_local_binding(Item::new(f32::as_elem()));
 
