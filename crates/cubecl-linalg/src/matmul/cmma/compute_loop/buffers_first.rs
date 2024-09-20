@@ -37,6 +37,7 @@ impl ComputeLoop for AllBuffersFirstComputeLoop {
             #[unroll(unroll)]
             for buffer_iter in 0..num_buffers {
                 load_into_fragment(
+                    // tile_row * num_buffers + buffer_iter,
                     get_smem_position_lhs::<F, FC>(tile_row, buffer_iter, comptime_info),
                     shared_memories.lhs,
                     &fragments.lhs,
@@ -44,6 +45,7 @@ impl ComputeLoop for AllBuffersFirstComputeLoop {
                 );
 
                 load_into_fragment(
+                    // (tile_col_base + accumulator_iter) * num_buffers + buffer_iter,
                     get_smem_position_rhs::<F, FC>(
                         buffer_iter,
                         tile_col_base + accumulator_iter,
