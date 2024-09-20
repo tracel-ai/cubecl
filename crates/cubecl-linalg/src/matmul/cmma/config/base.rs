@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 
 use super::strategy::{
-    ComputeLoopOrderStrategy, CubeDispatchStrategy, BlockLoopStrategy, SmemLoaderStrategy,
+    BlockLoopStrategy, ComputeLoopOrderStrategy, CubeDispatchStrategy, SmemLoaderStrategy,
     WriteOutStrategy,
 };
 
@@ -26,13 +26,14 @@ pub struct CmmaConfig {
     pub compute_loop_order_strategy: ComputeLoopOrderStrategy,
     pub lhs_smem_loader_strategy: SmemLoaderStrategy,
     pub rhs_smem_loader_strategy: SmemLoaderStrategy,
-    pub role_id_strategy: BlockLoopStrategy,
+    pub block_loop_strategy: BlockLoopStrategy,
 }
 
 impl Default for CmmaConfig {
     fn default() -> Self {
+        let b_mn = 128;
         Self::new(
-            128,
+            b_mn,
             16,
             false,
             WriteOutStrategy::ReuseSmem,
@@ -40,7 +41,7 @@ impl Default for CmmaConfig {
             ComputeLoopOrderStrategy::AllBuffersFirst,
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
-            BlockLoopStrategy::Standard,
+            BlockLoopStrategy::Standard((b_mn / CMMA_TILE_SIZE) as u32),
         )
     }
 }
@@ -56,7 +57,7 @@ impl CmmaConfig {
         compute_loop_order_strategy: ComputeLoopOrderStrategy,
         lhs_smem_loader_strategy: SmemLoaderStrategy,
         rhs_smem_loader_strategy: SmemLoaderStrategy,
-        role_id_strategy: BlockLoopStrategy,
+        block_loop_strategy: BlockLoopStrategy,
     ) -> CmmaConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
@@ -70,14 +71,15 @@ impl CmmaConfig {
             compute_loop_order_strategy,
             lhs_smem_loader_strategy,
             rhs_smem_loader_strategy,
-            role_id_strategy,
+            block_loop_strategy,
         }
     }
 
     pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> ComptimeCmmaInfo {
-        let num_coops = self.b_mn * self.b_k / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
         let (compute_loop_order_strategy, reuse_lhs_fragment) =
             self.compute_loop_order_strategy.into();
+        let (block_loop_strategy, num_compute_coops, num_load_coops) =
+            self.block_loop_strategy.into();
 
         ComptimeCmmaInfo {
             block_size_m: self.b_mn as u32,
@@ -89,8 +91,8 @@ impl CmmaConfig {
             check_k_bounds: k % self.b_k != 0,
             check_n_bounds: n % self.b_mn != 0,
             coop_dim: CMMA_COOP_DIM as u32,
-            num_compute_coops: num_coops as u32,
-            num_load_coops: num_coops as u32,
+            num_compute_coops,
+            num_load_coops,
             num_accumulators: (self.b_mn / self.b_k) as u32,
             write_out_strategy: self.write_out_strategy.into(),
             cube_dispatch_strategy: self.cube_dispatch_strategy.into(),
@@ -98,7 +100,7 @@ impl CmmaConfig {
             reuse_lhs_fragment,
             lhs_smem_loader_strategy: self.lhs_smem_loader_strategy.into(),
             rhs_smem_loader_strategy: self.rhs_smem_loader_strategy.into(),
-            role_id_strategy: self.role_id_strategy.into(),
+            block_loop_strategy,
         }
     }
 
@@ -186,5 +188,5 @@ pub struct ComptimeCmmaInfo {
     /// 2 = continous row major, 3 = continuous col major
     pub rhs_smem_loader_strategy: u32,
     /// 0 same role, 1 = split roles halfway
-    pub role_id_strategy: u32,
+    pub block_loop_strategy: u32,
 }

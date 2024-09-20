@@ -12,7 +12,7 @@ pub fn cmma_launch<F: Float, FC: Float>(
     out: &mut Tensor<F>,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    if comptime_info.role_id_strategy == 0 {
+    if comptime_info.block_loop_strategy == 0 {
         cmma_kernel::<F, FC, StandardBlockLoop>(lhs, rhs, out, comptime_info);
     } else {
         cmma_kernel::<F, FC, SplitBlockLoop>(lhs, rhs, out, comptime_info);

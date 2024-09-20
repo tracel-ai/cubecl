@@ -87,16 +87,16 @@ impl From<SmemLoaderStrategy> for u32 {
 /// Defines if different coops have different roles
 pub enum BlockLoopStrategy {
     /// All coops both load and compute
-    Standard,
-    /// Half coops load, half compute
-    Split,
+    Standard(u32),
+    /// Part compute, part load
+    Split(u32, u32),
 }
 
-impl From<BlockLoopStrategy> for u32 {
+impl From<BlockLoopStrategy> for (u32, u32, u32) {
     fn from(value: BlockLoopStrategy) -> Self {
         match value {
-            BlockLoopStrategy::Standard => 0,
-            BlockLoopStrategy::Split => 1,
+            BlockLoopStrategy::Standard(num_coops) => (0, num_coops, num_coops),
+            BlockLoopStrategy::Split(num_compute, num_load) => (1, num_compute, num_load),
         }
     }
 }
