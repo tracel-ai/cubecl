@@ -8,15 +8,26 @@ pub(crate) struct Ids {
 }
 
 #[cube]
-pub(crate) fn get_ids() -> (Ids, Ids) {
-    (
+pub(crate) trait IdDispatch {
+    fn get_compute_ids() -> Ids;
+    fn get_load_ids() -> Ids;
+}
+
+pub(crate) struct UnitPosIdDispatch {}
+
+#[cube]
+impl IdDispatch for UnitPosIdDispatch {
+    fn get_compute_ids() -> Ids {
         Ids {
             coop: UNIT_POS_Y,
             lane: UNIT_POS_X,
-        },
+        }
+    }
+
+    fn get_load_ids() -> Ids {
         Ids {
             coop: UNIT_POS_Y,
             lane: UNIT_POS_X,
-        },
-    )
+        }
+    }
 }

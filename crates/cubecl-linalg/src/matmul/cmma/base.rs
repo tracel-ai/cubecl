@@ -6,7 +6,7 @@ use super::config::ComptimeCmmaInfo;
 use super::cube_dispatch::base::{
     ColMajorCubeDispatch, CubeDispatch, RowMajorCubeDispatch, SwizzleCubeDispatch,
 };
-use super::ids::{get_ids, Ids};
+use super::ids::{IdDispatch, Ids, UnitPosIdDispatch};
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -16,13 +16,11 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     out: &mut Tensor<F>,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    let (compute_ids, load_ids) = get_ids();
-
     let dims = get_dims::<F>(lhs, rhs);
     let offsets = calculate_offsets::<F>(lhs, rhs, out, comptime_info);
     let runtime_info = RuntimeCmmaInfo {
-        compute_ids,
-        load_ids,
+        compute_ids: UnitPosIdDispatch::get_compute_ids(),
+        load_ids: UnitPosIdDispatch::get_load_ids(),
         dims,
         offsets,
     };
