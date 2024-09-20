@@ -200,7 +200,7 @@ impl TypeCodegen {
 
             impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_generics {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.write_fmt(format_args!("{:?}", (#(#debug,)*)))
+                    f.write_fmt(format_args!("{} {:?}", stringify!(#name), (#(#debug,)*)))
                 }
             }
             impl #type_generics_names core::cmp::Eq for #name #impl_generics #where_generics { }

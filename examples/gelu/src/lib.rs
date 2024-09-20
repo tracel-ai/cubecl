@@ -1,10 +1,15 @@
 use cubecl::prelude::*;
 
+#[derive(CubeLaunch)]
+struct Input<F: Float> {
+    inputs: Sequence<Array<F>>,
+}
+
 #[cube(launch_unchecked)]
-fn gelu_array<F: Float>(inputs: &Sequence<Array<F>>, output: &mut Array<F>) {
+fn gelu_array<F: Float>(inputs: &Input<F>, output: &mut Array<F>) {
     #[unroll]
-    for i in 0..inputs.len() {
-        let array = inputs.index(i);
+    for i in 0..inputs.inputs.len() {
+        let array = inputs.inputs.index(i);
         if ABSOLUTE_POS < array.len() {
             output[ABSOLUTE_POS] = gelu_scalar::<F>(array[ABSOLUTE_POS]);
         }
@@ -35,7 +40,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(input.len() as u32 / vectorization, 1, 1),
-            sequence,
+            InputLaunch::new(sequence),
             ArrayArg::from_raw_parts(&output_handle, input.len(), vectorization as u8),
         )
     };
