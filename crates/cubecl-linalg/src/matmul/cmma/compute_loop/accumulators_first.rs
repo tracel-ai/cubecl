@@ -3,11 +3,11 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::{
     base::{Fragments, Ids, SharedMemories},
-    compute_loop::base::{get_smem_position_rhs, load_into_fragment},
+    compute_loop::base::{
+        get_smem_position_lhs, get_smem_position_rhs, load_into_fragment, ComputeLoop,
+    },
     config::ComptimeCmmaInfo,
 };
-
-use super::base::{get_smem_position_lhs, ComputeLoop};
 
 pub(crate) struct AllAccumulatorsFirstComputeLoop {}
 
