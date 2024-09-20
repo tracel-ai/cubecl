@@ -89,9 +89,7 @@ impl Default for CmmaConfig {
             false,
             WriteOutStrategy::ReuseSmem,
             CubeDispatchStrategy::ColMajor,
-            ComputeLoopOrderStrategy::AllAccumulatorsFirst {
-                reuse_lhs_fragment: true,
-            },
+            ComputeLoopOrderStrategy::AllBuffersFirst,
         )
     }
 }
