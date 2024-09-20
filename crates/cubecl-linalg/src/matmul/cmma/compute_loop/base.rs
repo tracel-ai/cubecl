@@ -2,12 +2,13 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::{
-    base::{Fragments, Ids, SharedMemories},
+    base::{Fragments, SharedMemories},
     compute_loop::{
         accumulators_first::AllAccumulatorsFirstComputeLoop,
         buffers_first::AllBuffersFirstComputeLoop,
     },
     config::ComptimeCmmaInfo,
+    ids::Ids,
     load_shared_memory::{
         base::SmemLoader,
         continous::ContinuousSmemLoader,

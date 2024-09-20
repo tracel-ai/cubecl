@@ -6,6 +6,7 @@ use super::config::ComptimeCmmaInfo;
 use super::cube_dispatch::base::{
     ColMajorCubeDispatch, CubeDispatch, RowMajorCubeDispatch, SwizzleCubeDispatch,
 };
+use super::ids::{get_ids, Ids};
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -15,8 +16,7 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     out: &mut Tensor<F>,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    let compute_ids = get_ids();
-    let load_ids = get_ids();
+    let (compute_ids, load_ids) = get_ids();
 
     let dims = get_dims::<F>(lhs, rhs);
     let offsets = calculate_offsets::<F>(lhs, rhs, out, comptime_info);
@@ -46,12 +46,6 @@ pub(crate) struct Dimensions {
     pub m: u32,
     pub k: u32,
     pub n: u32,
-}
-
-#[derive(CubeType, Copy, Clone)]
-pub(crate) struct Ids {
-    pub coop: u32,
-    pub lane: u32,
 }
 
 #[derive(CubeType, Copy, Clone)]
@@ -199,13 +193,5 @@ pub(crate) fn make_cmma_matrices<F: Float, FC: Float>(
         accumulators,
         lhs,
         rhs,
-    }
-}
-
-#[cube]
-fn get_ids() -> Ids {
-    Ids {
-        coop: UNIT_POS_Y,
-        lane: UNIT_POS_X,
     }
 }
