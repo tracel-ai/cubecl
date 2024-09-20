@@ -253,6 +253,13 @@ where
         bindings: Vec<server::Binding<Self>>,
         mode: ExecutionMode,
     ) {
+        let profile_level = self.logger.profile_level();
+        let profile_info = if profile_level.is_some() {
+            Some((kernel.name(), kernel.id()))
+        } else {
+            None
+        };
+
         let pipeline = self.pipeline(kernel, mode);
         let group_layout = pipeline.get_bind_group_layout(0);
 
@@ -285,6 +292,13 @@ where
                 resource: r.as_binding(),
             })
             .collect::<Vec<_>>();
+
+        let start = if profile_level.is_some() {
+            self.sync(SyncType::Wait);
+            Some(std::time::SystemTime::now())
+        } else {
+            None
+        };
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -326,7 +340,27 @@ where
             }
         }
 
-        if self.tasks_count >= self.tasks_max {
+        if let Some(level) = profile_level {
+            let (name, kernel_id) = profile_info.unwrap();
+
+            // Execute the task.
+            self.sync(SyncType::Wait);
+
+            let info = match level {
+                cubecl_runtime::debug::ProfileLevel::Basic => {
+                    if let Some(val) = name.split("<").next() {
+                        val.split("::").last().unwrap_or(name).to_string()
+                    } else {
+                        name.to_string()
+                    }
+                }
+                cubecl_runtime::debug::ProfileLevel::Full => {
+                    format!("{name}: {kernel_id} CubeCount {count:?}")
+                }
+            };
+            self.logger
+                .register_profiled(info, start.unwrap().elapsed().unwrap());
+        } else if self.tasks_count >= self.tasks_max {
             self.sync(SyncType::Flush);
         }
     }

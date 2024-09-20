@@ -1,7 +1,7 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use super::block_loop::block_loop;
+use super::block_loop::matmul_execute;
 use super::config::ComptimeCmmaInfo;
 use super::cube_dispatch::base::{
     ColMajorCubeDispatch, CubeDispatch, RowMajorCubeDispatch, SwizzleCubeDispatch,
@@ -22,7 +22,8 @@ pub fn cmma_kernel<F: Float, FC: Float>(
 
     let shared_memories = make_shared_memories::<FC>(comptime_info);
     let cmma_matrices = make_cmma_matrices::<F, FC>(comptime_info);
-    block_loop::<F, FC>(
+
+    matmul_execute::<F, FC>(
         lhs,
         rhs,
         out,

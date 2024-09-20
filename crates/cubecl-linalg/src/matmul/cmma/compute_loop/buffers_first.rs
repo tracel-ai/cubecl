@@ -3,11 +3,11 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::{
     base::{Fragments, Ids, SharedMemories},
-    compute_loop::base::load_into_fragment,
+    compute_loop::base::{
+        get_smem_position_lhs, get_smem_position_rhs, load_tile_into_fragment, ComputeLoop,
+    },
     config::ComptimeCmmaInfo,
 };
-
-use super::base::ComputeLoop;
 
 pub(crate) struct AllBuffersFirstComputeLoop {}
 
@@ -36,15 +36,19 @@ impl ComputeLoop for AllBuffersFirstComputeLoop {
         for accumulator_iter in 0..num_accumulators {
             #[unroll(unroll)]
             for buffer_iter in 0..num_buffers {
-                load_into_fragment(
-                    tile_row * num_buffers + buffer_iter,
+                load_tile_into_fragment(
+                    get_smem_position_lhs::<F, FC>(tile_row, buffer_iter, comptime_info),
                     shared_memories.lhs,
                     &fragments.lhs,
                     comptime_info,
                 );
 
-                load_into_fragment(
-                    (tile_col_base + accumulator_iter) * num_buffers + buffer_iter,
+                load_tile_into_fragment(
+                    get_smem_position_rhs::<F, FC>(
+                        buffer_iter,
+                        tile_col_base + accumulator_iter,
+                        comptime_info,
+                    ),
                     shared_memories.rhs,
                     &fragments.rhs,
                     comptime_info,

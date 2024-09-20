@@ -1,4 +1,7 @@
-use crate::matmul::cmma::base::Dimensions;
+use crate::matmul::cmma::{
+    base::{Dimensions, RuntimeCmmaInfo},
+    load_shared_memory::load_info::LoadInfo,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -9,20 +12,20 @@ pub(crate) struct UncheckedBlockIO;
 
 #[cube]
 impl<F: Float, FC: Float> BlockLoader<F, FC> for UncheckedBlockIO {
-    fn load_tile(
+    fn load_single<I: LoadInfo>(
         tensor: &Tensor<F>,
         shared_memory: &mut SharedMemory<FC>,
-        batch_offset: u32,
         read_row: u32,
         read_col: u32,
         write_pos: u32,
-        _dim_vertical: u32,
-        dim_horizontal: u32,
+        runtime_info: RuntimeCmmaInfo,
     ) {
         let tensor_vec = vectorization_of(tensor);
         let is_scalar = tensor_vec == 1;
 
-        let read_pos = (batch_offset + read_row * dim_horizontal + read_col) / tensor_vec;
+        let read_pos =
+            (I::batch_offset(runtime_info) + read_row * I::dim_horizontal(runtime_info) + read_col)
+                / tensor_vec;
         let value = tensor[read_pos];
 
         if is_scalar {
@@ -38,7 +41,7 @@ impl<F: Float, FC: Float> BlockLoader<F, FC> for UncheckedBlockIO {
 
 #[cube]
 impl<F: Float> BlockWriter<F> for UncheckedBlockIO {
-    fn write_output(
+    fn write_single(
         out: &mut Tensor<F>,
         accumulator_sm: SharedMemory<F>,
         batch_offset: u32,
