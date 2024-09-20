@@ -59,6 +59,7 @@ impl From<ComputeLoopOrderStrategy> for (u32, bool) {
 }
 
 #[derive(Clone, Copy)]
+#[allow(clippy::enum_variant_names)]
 pub enum SmemLoaderStrategy {
     TilewiseRowMajor,
     TilewiseColMajor,

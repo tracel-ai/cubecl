@@ -43,6 +43,7 @@ impl Default for CmmaConfig {
 }
 
 impl CmmaConfig {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         b_mn: usize,
         b_k: usize,
