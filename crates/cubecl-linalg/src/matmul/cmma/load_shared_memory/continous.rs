@@ -5,7 +5,6 @@ use cubecl_core::{self as cubecl};
 
 use crate::matmul::cmma::block_io::base::BlockLoader;
 use crate::matmul::cmma::load_shared_memory::base::get_tile_smem_position;
-use crate::matmul::cmma::load_shared_memory::tiled_layout::TiledPosition;
 use crate::matmul::cmma::{base::RuntimeCmmaInfo, config::ComptimeCmmaInfo};
 
 use super::base::SmemLoader;
@@ -45,15 +44,15 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
         #[unroll(unroll)]
         for i in 0..num_iterations {
             let unit_position = unit_position_base + i * jump_length;
-            let write_pos = apply_smem_layout(unit_position);
-            let tiled_position = apply_tiled_layout::<T>(
+            let write_pos = unit_position;
+            let (row, col) = apply_tiled_layout::<T>(
                 unit_position,
                 I::smem_width(comptime_info),
                 I::smem_height(comptime_info),
                 comptime_info,
             );
-            let read_row = tiled_position.row * I::dim_horizontal(runtime_info) + skip_row;
-            let read_col = tiled_position.col + skip_col;
+            let read_row = row + skip_row;
+            let read_col = col + skip_col;
 
             L::load_single::<I>(gmem, smem, read_row, read_col, write_pos, runtime_info)
         }
@@ -69,17 +68,12 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
 }
 
 #[cube]
-fn apply_smem_layout(unit_position: u32) -> u32 {
-    unit_position
-}
-
-#[cube]
 pub(crate) fn apply_tiled_layout<T: TilingOrder>(
     absolute_position: u32,
     smem_width: u32,
     smem_height: u32,
     #[comptime] comptime_info: ComptimeCmmaInfo,
-) -> TiledPosition {
+) -> (u32, u32) {
     let tile_size = comptime_info.tile_size;
     let tile_square = tile_size * tile_size;
     let smem_tile_width = smem_width / tile_size;
@@ -96,5 +90,5 @@ pub(crate) fn apply_tiled_layout<T: TilingOrder>(
     let row = tile_row * tile_size + row_within_tile;
     let col = tile_col * tile_size + col_within_tile;
 
-    TiledPosition { row, col }
+    (row, col)
 }

@@ -1,12 +1,6 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-#[derive(CubeType)]
-pub(crate) struct TiledPosition {
-    pub row: u32,
-    pub col: u32,
-}
-
 #[cube]
 pub(crate) trait TilingOrder {
     fn to_row_col(nth_tile: u32, smem_tile_width: u32, smem_tile_height: u32) -> (u32, u32);
