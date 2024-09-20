@@ -360,10 +360,8 @@ where
             };
             self.logger
                 .register_profiled(info, start.unwrap().elapsed().unwrap());
-        } else {
-            if self.tasks_count >= self.tasks_max {
-                self.sync(SyncType::Flush);
-            }
+        } else if self.tasks_count >= self.tasks_max {
+            self.sync(SyncType::Flush);
         }
     }
 
