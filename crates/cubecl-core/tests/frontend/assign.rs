@@ -171,10 +171,7 @@ mod tests {
         let two: Variable = 2u32.into();
         let three: Variable = 3u32.into();
 
-        cpa!(scope, x[zero] = one);
-        cpa!(scope, x[one] = one);
-        cpa!(scope, x[two] = one);
-        cpa!(scope, x[three] = one);
+        cpa!(scope, x = one);
         cpa!(scope, x = x + y);
 
         scope.operations
