@@ -31,9 +31,8 @@ pub struct CmmaConfig {
 
 impl Default for CmmaConfig {
     fn default() -> Self {
-        let b_mn = 128;
         Self::new(
-            b_mn,
+            128,
             16,
             false,
             WriteOutStrategy::ReuseSmem,
@@ -41,8 +40,7 @@ impl Default for CmmaConfig {
             ComputeLoopOrderStrategy::AllBuffersFirst,
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
-            //BlockLoopStrategy::Standard((b_mn / CMMA_TILE_SIZE) as u32),
-            BlockLoopStrategy::Split(16, 16),
+            BlockLoopStrategy::Standard(8)
         )
     }
 }
