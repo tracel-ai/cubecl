@@ -216,6 +216,7 @@ impl Launch {
                     #phantom_data
                 }
 
+                #[allow(clippy::too_many_arguments)]
                 impl #generics #kernel_name #generic_names #where_clause {
                     pub fn new(settings: #kernel_settings, #(#compilation_args,)* #(#const_params),*) -> Self {
                         Self {

@@ -6,13 +6,9 @@ struct Input<F: Float> {
 }
 
 #[cube(launch_unchecked)]
-fn gelu_array<F: Float>(inputs: &Input<F>, output: &mut Array<F>) {
-    #[unroll]
-    for i in 0..inputs.inputs.len() {
-        let array = inputs.inputs.index(i);
-        if ABSOLUTE_POS < array.len() {
-            output[ABSOLUTE_POS] = gelu_scalar::<F>(array[ABSOLUTE_POS]);
-        }
+fn gelu_array<F: Float>(input: &Array<F>, output: &mut Array<F>) {
+    if ABSOLUTE_POS < input.len() {
+        output[ABSOLUTE_POS] = gelu_scalar::<F>(input[ABSOLUTE_POS]);
     }
 }
 
@@ -28,19 +24,12 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
     let input_handle = client.create(f32::as_bytes(input));
 
-    let mut sequence = SequenceArg::new();
     unsafe {
-        sequence.push(ArrayArg::from_raw_parts(
-            &input_handle,
-            input.len(),
-            vectorization as u8,
-        ));
-
         gelu_array::launch_unchecked::<f32, R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(input.len() as u32 / vectorization, 1, 1),
-            InputLaunch::new(sequence),
+            ArrayArg::from_raw_parts(&input_handle, input.len(), vectorization as u8),
             ArrayArg::from_raw_parts(&output_handle, input.len(), vectorization as u8),
         )
     };

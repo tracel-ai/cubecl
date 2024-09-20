@@ -1,7 +1,7 @@
 use darling::FromDeriveInput;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{spanned::Spanned, Ident, Type, Visibility};
+use syn::{Ident, Type, Visibility};
 
 use crate::{
     parse::cube_type::{TypeCodegen, TypeField},
@@ -134,8 +134,8 @@ impl TypeCodegen {
 
     pub fn compilation_ty_ident(&self) -> Ident {
         Ident::new(
-            format!("{}CompilationArg", self.name_launch.as_ref().unwrap()).as_str(),
-            self.name_launch.span(),
+            format!("{}CompilationArg", self.ident).as_str(),
+            self.ident.span(),
         )
     }
 
@@ -157,6 +157,7 @@ impl TypeCodegen {
     }
 
     pub fn compilation_ty(&self, name: &Ident) -> proc_macro2::TokenStream {
+        let name_debug = &self.ident;
         let fields = self.fields.iter().map(TypeField::compilation_arg_field);
         let generics = &self.generics;
         let (type_generics_names, impl_generics, where_generics) = self.generics.split_for_impl();
@@ -165,13 +166,16 @@ impl TypeCodegen {
         fn gen<F: Fn(&Ident) -> TokenStream>(fields: &[TypeField], func: F) -> Vec<TokenStream> {
             fields
                 .iter()
-                .map(|field| func(&field.ident.as_ref().unwrap()))
+                .map(|field| func(field.ident.as_ref().unwrap()))
                 .collect::<Vec<_>>()
         }
         let clone = gen(&self.fields, |name| quote!(#name: self.#name.clone()));
         let hash = gen(&self.fields, |name| quote!(self.#name.hash(state)));
         let partial_eq = gen(&self.fields, |name| quote!(self.#name.eq(&other.#name)));
-        let debug = gen(&self.fields, |name| quote!(&self.#name));
+        let debug = gen(
+            &self.fields,
+            |name| quote!(f.write_fmt(format_args!("{}: {:?},", stringify!(#name), &self.#name))?;),
+        );
 
         quote! {
             #vis struct #name #generics {
@@ -200,7 +204,12 @@ impl TypeCodegen {
 
             impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_generics {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.write_fmt(format_args!("{} {:?}", stringify!(#name), (#(#debug,)*)))
+                    f.write_str(stringify!(#name_debug))?;
+                    f.write_str("{")?;
+                    #(#debug;)*
+                    f.write_str("}")?;
+
+                    Ok(())
                 }
             }
             impl #type_generics_names core::cmp::Eq for #name #impl_generics #where_generics { }
