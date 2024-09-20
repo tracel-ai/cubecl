@@ -58,13 +58,13 @@ pub trait LaunchArgExpand: CubeType {
 
     /// Register an input variable during compilation that fill the [KernelBuilder].
     fn expand(
-        arg: Self::CompilationArg,
+        arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> <Self as CubeType>::ExpandType;
     /// Register an output variable during compilation that fill the [KernelBuilder].
     fn expand_output(
-        arg: Self::CompilationArg,
+        arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> <Self as CubeType>::ExpandType {
@@ -78,7 +78,7 @@ pub trait LaunchArg: LaunchArgExpand + Send + Sync + 'static {
     type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
 
     fn compilation_arg<'a, R: Runtime>(
-        runtime_arg: &'a Self::RuntimeArg<'a, R>,
+        runtime_arg: &Self::RuntimeArg<'a, R>,
     ) -> Self::CompilationArg;
 }
 
@@ -102,7 +102,7 @@ impl LaunchArgExpand for () {
     type CompilationArg = ();
 
     fn expand(
-        _: Self::CompilationArg,
+        _: &Self::CompilationArg,
         _builder: &mut KernelBuilder,
         _vectorization: Vectorization,
     ) -> <Self as CubeType>::ExpandType {

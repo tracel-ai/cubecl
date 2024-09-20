@@ -169,7 +169,7 @@ impl TypeCodegen {
                 type RuntimeArg #assoc_generics = #name_launch #all_generic_names;
 
                 fn compilation_arg<'a, R: Runtime>(
-                    _runtime_arg: &'a Self::RuntimeArg<'a, R>,
+                    _runtime_arg: &Self::RuntimeArg<'a, R>,
                 ) -> Self::CompilationArg {
                     ()
                 }
@@ -179,7 +179,7 @@ impl TypeCodegen {
                 type CompilationArg = ();
 
                 fn expand(
-                    _: Self::CompilationArg,
+                    _: &Self::CompilationArg,
                     builder: &mut KernelBuilder,
                     vectorization: cubecl::ir::Vectorization,
                 ) -> <Self as CubeType>::ExpandType {
@@ -188,7 +188,7 @@ impl TypeCodegen {
                     }
                 }
                 fn expand_output(
-                    _: Self::CompilationArg,
+                    _: &Self::CompilationArg,
                     builder: &mut KernelBuilder,
                     vectorization: cubecl::ir::Vectorization,
                 ) -> <Self as CubeType>::ExpandType {

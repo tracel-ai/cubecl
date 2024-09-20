@@ -31,7 +31,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
     type CompilationArg = ();
 
     fn expand(
-        _: Self::CompilationArg,
+        _: &Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> ExpandElementTyped<Tensor<C>> {
@@ -40,7 +40,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
             .into()
     }
     fn expand_output(
-        _: Self::CompilationArg,
+        _: &Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> ExpandElementTyped<Tensor<C>> {

@@ -139,7 +139,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
     type CompilationArg = ();
 
     fn expand(
-        _: Self::CompilationArg,
+        _: &Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> ExpandElementTyped<Array<C>> {
@@ -148,7 +148,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
             .into()
     }
     fn expand_output(
-        _: Self::CompilationArg,
+        _: &Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> ExpandElementTyped<Array<C>> {

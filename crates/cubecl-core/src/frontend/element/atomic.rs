@@ -309,7 +309,7 @@ macro_rules! impl_atomic_int {
             type CompilationArg = ();
 
             fn expand(
-                _: Self::CompilationArg,
+                _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
                 vectorization: Vectorization,
             ) -> ExpandElementTyped<Self> {
@@ -363,7 +363,7 @@ impl LaunchArgExpand for AtomicU32 {
     type CompilationArg = ();
 
     fn expand(
-        _: Self::CompilationArg,
+        _: &Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> ExpandElementTyped<Self> {

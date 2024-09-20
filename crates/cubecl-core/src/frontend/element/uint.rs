@@ -35,7 +35,7 @@ impl LaunchArgExpand for u32 {
     type CompilationArg = ();
 
     fn expand(
-        _: Self::CompilationArg,
+        _: &Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> ExpandElementTyped<Self> {

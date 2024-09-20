@@ -166,7 +166,7 @@ macro_rules! impl_float {
             type CompilationArg = ();
 
             fn expand(
-                _: Self::CompilationArg,
+                _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
                 vectorization: Vectorization,
             ) -> ExpandElementTyped<Self> {

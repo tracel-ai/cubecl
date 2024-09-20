@@ -148,7 +148,7 @@ impl Launch {
         let launch_arg_expand = prelude_type("LaunchArgExpand");
         let expand_fn = |i, ident, expand_name, vec_name, ty| {
             quote! {
-                #i => ::std::sync::Arc::new(<#ty as #launch_arg_expand>::#expand_name(self.#ident, builder, settings.#vec_name(#i)))
+                #i => ::std::sync::Arc::new(<#ty as #launch_arg_expand>::#expand_name(&self.#ident, builder, settings.#vec_name(#i)))
             }
         };
         let inputs = self.runtime_inputs().enumerate().map(|(i, input)| {
