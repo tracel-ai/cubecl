@@ -150,10 +150,9 @@ impl WgslCompiler {
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::Variable::LocalBinding { id, item, depth } => wgsl::Variable::LocalBinding {
+            cube::Variable::LocalBinding { id, item, .. } => wgsl::Variable::LocalBinding {
                 id,
                 item: Self::compile_item(item),
-                depth,
             },
             cube::Variable::Slice { id, item, depth } => wgsl::Variable::Slice {
                 id,

@@ -417,10 +417,10 @@ impl Display for Instruction {
                     Item::Scalar(_) => Item::Scalar(Elem::F32),
                 };
                 let ty = lhs.item();
-                let lhs = lhs.fmt_cast(f_type);
-                let rhs = rhs.fmt_cast(f_type);
+                let lhs = lhs.fmt_cast_to(f_type);
+                let rhs = rhs.fmt_cast_to(f_type);
                 let out = out.fmt_left();
-                let floor = f_type.fmt_cast(ty, &format!("floor({lhs} / {rhs})"));
+                let floor = f_type.fmt_cast_to(ty, format!("floor({lhs} / {rhs})"));
                 writeln!(f, "{out} = {lhs} - {rhs} * {floor};")
             }
             Instruction::Sub { lhs, rhs, out } => {
@@ -458,8 +458,8 @@ impl Display for Instruction {
                 max_value,
                 out,
             } => {
-                let min = min_value.fmt_cast(out.item());
-                let max = max_value.fmt_cast(out.item());
+                let min = min_value.fmt_cast_to(out.item());
+                let max = max_value.fmt_cast_to(out.item());
                 let out = out.fmt_left();
                 writeln!(f, "{out} = clamp({input}, {min}, {max});")
             }
@@ -518,7 +518,7 @@ impl Display for Instruction {
                     writeln!(f, "let {out} = &{input};")
                 } else if vec_left != vec_right {
                     if vec_right == 1 {
-                        let input = input.fmt_cast(out.item());
+                        let input = input.fmt_cast_to(out.item());
                         let out = out.fmt_left();
                         writeln!(f, "{out} = {input};")
                     } else {
@@ -530,7 +530,7 @@ impl Display for Instruction {
                         Ok(())
                     }
                 } else {
-                    let input = input.fmt_cast(out.item());
+                    let input = input.fmt_cast_to(out.item());
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {input};")
                 }
@@ -875,11 +875,13 @@ fn index(
         let out = out.fmt_left();
         match offset {
             Some(offset) => {
-                let value = lhs.item().fmt_cast(item, &format!("{lhs}[{rhs}+{offset}]"));
+                let value = lhs
+                    .item()
+                    .fmt_cast_to(item, format!("{lhs}[{rhs}+{offset}]"));
                 writeln!(f, "{out} = {value};")
             }
             None => {
-                let value = lhs.item().fmt_cast(item, &format!("{lhs}[{rhs}]"));
+                let value = lhs.item().fmt_cast_to(item, format!("{lhs}[{rhs}]"));
                 writeln!(f, "{out} = {value};")
             }
         }
@@ -949,7 +951,7 @@ fn index_assign(
                     Item::Vec2(_) => Item::Vec2(elem_out),
                     Item::Scalar(_) => Item::Scalar(elem_out),
                 };
-                let rhs = rhs.fmt_cast(casting_type);
+                let rhs = rhs.fmt_cast_to(casting_type);
                 writeln!(f, "{out}[{lhs}] = {rhs};")
             } else {
                 let item_rhs = rhs.item();
@@ -969,7 +971,7 @@ fn index_assign(
                     }
                     f.write_str(");\n")
                 } else {
-                    let rhs = rhs.fmt_cast(item_out);
+                    let rhs = rhs.fmt_cast_to(item_out);
                     writeln!(f, "{out}[{lhs}] = {rhs};")
                 }
             }

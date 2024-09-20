@@ -16,7 +16,6 @@ pub enum Variable {
     LocalBinding {
         id: u16,
         item: Item,
-        depth: u8,
     },
     Named {
         name: String,
@@ -182,7 +181,7 @@ impl Variable {
         *self.item().elem()
     }
 
-    pub fn fmt_cast(&self, item: Item) -> String {
+    pub fn fmt_cast_to(&self, item: Item) -> String {
         if self.item() != item {
             format!("{item}({self})")
         } else {
@@ -210,11 +209,11 @@ impl Item {
         }
     }
 
-    pub fn fmt_cast(&self, item: Item, text: &str) -> String {
+    pub fn fmt_cast_to(&self, item: Item, text: String) -> String {
         if *self != item {
             format!("{item}({text})")
         } else {
-            format!("{self}")
+            text
         }
     }
 }
@@ -276,11 +275,7 @@ impl Display for Variable {
                 depth: scope_depth,
                 ..
             } => write!(f, "l_{scope_depth}_{index}"),
-            Variable::LocalBinding {
-                id: index,
-                depth: scope_depth,
-                ..
-            } => write!(f, "l_{scope_depth}_{index}_ssa"),
+            Variable::LocalBinding { id: index, .. } => write!(f, "_{index}"),
             Variable::Named { name, .. } => f.write_str(name),
             Variable::Slice {
                 id: index,
@@ -362,8 +357,8 @@ impl Display for IndexedVariable {
 impl Variable {
     pub fn fmt_left(&self) -> String {
         match self {
-            Variable::LocalBinding { id, depth, .. } => {
-                format!("let l_{depth}_{id}_ssa")
+            Variable::LocalBinding { id, .. } => {
+                format!("let _{id}")
             }
             var => format!("{}", var),
         }
