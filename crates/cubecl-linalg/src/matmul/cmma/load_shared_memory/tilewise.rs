@@ -3,6 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::{
     base::RuntimeCmmaInfo, block_io::base::BlockLoader, config::ComptimeCmmaInfo,
+    load_shared_memory::base::get_tile_smem_index,
 };
 
 use super::{base::SmemLoader, load_info::LoadInfo, tiled_layout::TilingOrder};
