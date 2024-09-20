@@ -19,6 +19,7 @@ impl CubeContext {
     /// Create a new cube context, with a root scope
     /// A root scope is at the root of a compute shader
     /// Therefore there is one cube context per shader
+    /// The allocator will define the strategy for creating local intermediates and mutable variables
     pub fn root(allocator: impl LocalAllocator + 'static) -> CubeContext {
         let root = Rc::new(RefCell::new(Scope::root()));
         let scope = root.clone();
@@ -52,15 +53,13 @@ impl CubeContext {
             .into_inner()
     }
 
-    /// When a new variable is required, we check if we can reuse an old one
-    /// Otherwise we create a new one.
+    /// Create a new mutable local variable
     pub fn create_local_variable(&mut self, item: Item) -> ExpandElement {
         self.local_allocator
             .create_local_variable(self.root.clone(), self.scope.clone(), item)
     }
 
-    /// When a new variable is required, we check if we can reuse an old one
-    /// Otherwise we create a new one.
+    /// Create a new immutable local binding
     pub fn create_local_binding(&mut self, item: Item) -> ExpandElement {
         self.local_allocator
             .create_local_binding(self.root.clone(), self.scope.clone(), item)

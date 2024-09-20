@@ -11,8 +11,11 @@ use super::{Item, Scope, Variable};
 
 type ScopeRef = Rc<RefCell<Scope>>;
 
+/// Defines a local variable allocation strategy (i.e. reused mutable variables, SSA)
 pub trait LocalAllocator {
+    /// Creates a local variable that can be (re)assigned
     fn create_local_variable(&self, root: ScopeRef, scope: ScopeRef, item: Item) -> ExpandElement;
+    /// Creates an immutable local binding for intermediates
     fn create_local_binding(&self, root: ScopeRef, scope: ScopeRef, item: Item) -> ExpandElement;
 }
 
@@ -59,7 +62,9 @@ impl VariablePool {
     }
 }
 
-#[derive(Default, Clone)]
+/// Reusing allocator, assigns all intermediates to a set of mutable variables that get continuously
+/// reused.
+#[derive(Default)]
 pub struct ReusingAllocator {
     pool: VariablePool,
 }
@@ -89,6 +94,8 @@ impl LocalAllocator for ReusingAllocator {
     }
 }
 
+/// Hybrid allocator. Creates immutable local bindings for intermediates, and falls back to
+/// [`ReusingAllocator`] for mutable variables.
 #[derive(Default)]
 pub struct HybridAllocator {
     variable_allocator: ReusingAllocator,
