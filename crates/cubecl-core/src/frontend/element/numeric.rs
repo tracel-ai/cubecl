@@ -31,7 +31,7 @@ pub trait Numeric:
     + Remainder
     + Vectorized
     + CubePrimitive
-    + LaunchArgExpand
+    + LaunchArgExpand<CompilationArg = ()>
     + ScalarArgSettings
     + ExpandElementBaseInit
     + Into<ExpandElementTyped<Self>>
@@ -124,4 +124,10 @@ impl<T: Numeric, R: Runtime> ArgSettings<R> for ScalarArg<T> {
 
 impl<T: Numeric> LaunchArg for T {
     type RuntimeArg<'a, R: Runtime> = ScalarArg<T>;
+
+    fn compilation_arg<'a, R: Runtime>(
+        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
+    ) -> Self::CompilationArg {
+        ()
+    }
 }

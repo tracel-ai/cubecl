@@ -53,17 +53,22 @@ pub trait Init: Sized {
 /// should expand the argument as an input while the mutable reference should expand the argument
 /// as an output.
 pub trait LaunchArgExpand: CubeType {
+    /// Compilation argument.
+    type CompilationArg;
+
     /// Register an input variable during compilation that fill the [KernelBuilder].
     fn expand(
+        arg: Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> <Self as CubeType>::ExpandType;
     /// Register an output variable during compilation that fill the [KernelBuilder].
     fn expand_output(
+        arg: Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> <Self as CubeType>::ExpandType {
-        Self::expand(builder, vectorization)
+        Self::expand(arg, builder, vectorization)
     }
 }
 
@@ -71,10 +76,20 @@ pub trait LaunchArgExpand: CubeType {
 pub trait LaunchArg: LaunchArgExpand + Send + Sync + 'static {
     /// The runtime argument for the kernel.
     type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
+
+    fn compilation_arg<'a, R: Runtime>(
+        runtime_arg: &'a Self::RuntimeArg<'a, R>,
+    ) -> Self::CompilationArg;
 }
 
 impl LaunchArg for () {
     type RuntimeArg<'a, R: Runtime> = ();
+
+    fn compilation_arg<'a, R: Runtime>(
+        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
+    ) -> Self::CompilationArg {
+        ()
+    }
 }
 
 impl<R: Runtime> ArgSettings<R> for () {
@@ -84,7 +99,10 @@ impl<R: Runtime> ArgSettings<R> for () {
 }
 
 impl LaunchArgExpand for () {
+    type CompilationArg = ();
+
     fn expand(
+        _: Self::CompilationArg,
         _builder: &mut KernelBuilder,
         _vectorization: Vectorization,
     ) -> <Self as CubeType>::ExpandType {

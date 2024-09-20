@@ -112,7 +112,10 @@ macro_rules! impl_int {
         }
 
         impl LaunchArgExpand for $type {
+            type CompilationArg = ();
+
             fn expand(
+                _: Self::CompilationArg,
                 builder: &mut KernelBuilder,
                 vectorization: Vectorization,
             ) -> ExpandElementTyped<Self> {

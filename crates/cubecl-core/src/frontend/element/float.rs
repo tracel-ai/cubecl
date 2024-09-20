@@ -163,7 +163,10 @@ macro_rules! impl_float {
         }
 
         impl LaunchArgExpand for $primitive {
+            type CompilationArg = ();
+
             fn expand(
+                _: Self::CompilationArg,
                 builder: &mut KernelBuilder,
                 vectorization: Vectorization,
             ) -> ExpandElementTyped<Self> {

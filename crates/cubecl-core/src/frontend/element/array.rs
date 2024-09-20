@@ -127,10 +127,19 @@ impl<E: CubeType> Array<E> {
 
 impl<C: CubePrimitive> LaunchArg for Array<C> {
     type RuntimeArg<'a, R: Runtime> = ArrayArg<'a, R>;
+
+    fn compilation_arg<'a, R: Runtime>(
+        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
+    ) -> Self::CompilationArg {
+        ()
+    }
 }
 
 impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
+    type CompilationArg = ();
+
     fn expand(
+        _: Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> ExpandElementTyped<Array<C>> {
@@ -139,6 +148,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
             .into()
     }
     fn expand_output(
+        _: Self::CompilationArg,
         builder: &mut KernelBuilder,
         vectorization: Vectorization,
     ) -> ExpandElementTyped<Array<C>> {

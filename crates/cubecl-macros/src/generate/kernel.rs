@@ -76,16 +76,85 @@ impl Launch {
             .then(|| quote![__ty: ::core::marker::PhantomData<(#(#lifetimes,)* #(#type_params),*)>])
     }
 
+    pub fn compilation_args_def(&self) -> (Vec<TokenStream>, Vec<TokenStream>) {
+        let mut tokens = Vec::new();
+        let mut args = Vec::new();
+        let launch_arg_expand = prelude_type("LaunchArgExpand");
+
+        self.runtime_inputs().for_each(|input| {
+            let ty = &input.ty_owned();
+            let name = &input.name;
+
+            tokens.push(quote! {
+                #name: <#ty as #launch_arg_expand>::CompilationArg
+            });
+            args.push(quote! { #name });
+        });
+
+        self.runtime_outputs().for_each(|output| {
+            let ty = &output.ty_owned();
+            let name = &output.name;
+
+            tokens.push(quote! {
+                #name: <#ty as #launch_arg_expand>::CompilationArg
+            });
+            args.push(quote! { #name });
+        });
+
+        (tokens, args)
+    }
+
+    pub fn compilation_args(&self) -> (TokenStream, TokenStream) {
+        let launch_arg = prelude_type("LaunchArg");
+        let mut defined = quote! {};
+        let mut args = quote! {};
+
+        self.runtime_inputs()
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, input)| {
+                let ty = &input.ty_owned();
+                let ident = &input.name;
+                let var = Ident::new(format!("input_arg_{i}").as_str(), ident.span());
+
+                args.extend(quote! {#var,});
+                defined.extend(quote! {
+                    let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
+                });
+            });
+        self.runtime_outputs()
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, output)| {
+                let ty = &output.ty_owned();
+                let ident = &output.name;
+                let var = Ident::new(format!("output_arg_{i}").as_str(), ident.span());
+
+                args.extend(quote! {#var,});
+                defined.extend(quote! {
+                    let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
+                });
+            });
+
+        (
+            quote! {
+                #defined
+            },
+            args,
+        )
+    }
+
     pub fn io_mappings(&self) -> TokenStream {
         let launch_arg_expand = prelude_type("LaunchArgExpand");
-        let expand_fn = |i, expand_name, vec_name, ty| {
+        let expand_fn = |i, ident, expand_name, vec_name, ty| {
             quote! {
-                #i => ::std::sync::Arc::new(<#ty as #launch_arg_expand>::#expand_name(builder, settings.#vec_name(#i)))
+                #i => ::std::sync::Arc::new(<#ty as #launch_arg_expand>::#expand_name(self.#ident, builder, settings.#vec_name(#i)))
             }
         };
         let inputs = self.runtime_inputs().enumerate().map(|(i, input)| {
             expand_fn(
                 i,
+                &input.name,
                 format_ident!("expand"),
                 format_ident!("vectorization_input"),
                 input.ty_owned(),
@@ -94,6 +163,7 @@ impl Launch {
         let outputs = self.runtime_outputs().enumerate().map(|(i, output)| {
             expand_fn(
                 i,
+                &output.name,
                 format_ident!("expand_output"),
                 format_ident!("vectorization_output"),
                 output.ty_owned(),
@@ -187,23 +257,35 @@ impl Launch {
             let phantom_data_init = phantom_data
                 .as_ref()
                 .map(|_| quote![__ty: ::core::marker::PhantomData]);
+            let (compilation_args, args) = self.compilation_args_def();
 
             quote! {
                 #[doc = #kernel_doc]
                 pub struct #kernel_name #generics #where_clause {
                     settings: #kernel_settings,
+                    #(#compilation_args,)*
                     #(#const_params,)*
                     #phantom_data
                 }
 
                 impl #generics #kernel_name #generic_names #where_clause {
-                    pub fn new(settings: #kernel_settings, #(#const_params),*) -> Self {
+                    pub fn new(settings: #kernel_settings, #(#compilation_args,)* #(#const_params),*) -> Self {
                         Self {
                             settings,
+                            #(#args,)*
                             #(#param_names,)*
                             #phantom_data_init
                         }
                     }
+
+                    // pub fn new(settings: #kernel_settings, #compilation_args #(#const_params),*) -> Self {
+                    //     Self {
+                    //         settings,
+                    //         compilation_args
+                    //         #(#param_names,)*
+                    //         #phantom_data_init
+                    //     }
+                    // }
                 }
 
                 impl #generics #kernel for #kernel_name #generic_names #where_clause {
