@@ -20,11 +20,11 @@ impl OutputWriter for ReuseSmemWriter {
     ) {
         let num_accumulators = comptime_info.num_accumulators;
         let tile_size = comptime_info.tile_size;
-        let num_coops = comptime_info.num_coops;
+        let num_compute_coops = comptime_info.num_compute_coops;
         let coop_id = runtime_info.compute_ids.coop;
 
         let sm_stride = tile_size * tile_size;
-        let sm_size = num_coops * sm_stride;
+        let sm_size = num_compute_coops * sm_stride;
 
         let acc_sm = SharedMemory::<F>::new(sm_size);
 

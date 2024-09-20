@@ -24,10 +24,10 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
     ) {
         // Comptime information
         let coop_dim = comptime_info.coop_dim;
-        let num_coops = comptime_info.num_coops;
+        let num_load_coops = comptime_info.num_load_coops;
         let num_smem_elements = I::smem_width(comptime_info) * I::smem_height(comptime_info);
         let vectorization = vectorization_of(gmem);
-        let jump_length = num_coops * vectorization * coop_dim;
+        let jump_length = num_load_coops * vectorization * coop_dim;
         let num_iterations = num_smem_elements / jump_length;
         let unroll = comptime_info.unroll;
 

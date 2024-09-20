@@ -13,10 +13,10 @@ pub(crate) trait IdDispatch {
     fn get_load_ids() -> Ids;
 }
 
-pub(crate) struct UnitPosIdDispatch {}
+pub(crate) struct SameRoleIdDispatch {}
 
 #[cube]
-impl IdDispatch for UnitPosIdDispatch {
+impl IdDispatch for SameRoleIdDispatch {
     fn get_compute_ids() -> Ids {
         Ids {
             coop: UNIT_POS_Y,

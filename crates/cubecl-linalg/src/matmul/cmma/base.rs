@@ -6,7 +6,7 @@ use super::config::ComptimeCmmaInfo;
 use super::cube_dispatch::base::{
     ColMajorCubeDispatch, CubeDispatch, RowMajorCubeDispatch, SwizzleCubeDispatch,
 };
-use super::ids::{IdDispatch, Ids, UnitPosIdDispatch};
+use super::ids::{IdDispatch, Ids, SameRoleIdDispatch};
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -19,8 +19,8 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     let dims = get_dims::<F>(lhs, rhs);
     let offsets = calculate_offsets::<F>(lhs, rhs, out, comptime_info);
     let runtime_info = RuntimeCmmaInfo {
-        compute_ids: UnitPosIdDispatch::get_compute_ids(),
-        load_ids: UnitPosIdDispatch::get_load_ids(),
+        compute_ids: SameRoleIdDispatch::get_compute_ids(),
+        load_ids: SameRoleIdDispatch::get_load_ids(),
         dims,
         offsets,
     };

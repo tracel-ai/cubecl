@@ -84,7 +84,8 @@ impl CmmaConfig {
             check_k_bounds: k % self.b_k != 0,
             check_n_bounds: n % self.b_mn != 0,
             coop_dim: CMMA_COOP_DIM as u32,
-            num_coops: num_coops as u32,
+            num_compute_coops: num_coops as u32,
+            num_load_coops: num_coops as u32,
             num_accumulators: (self.b_mn / self.b_k) as u32,
             write_out_strategy: self.write_out_strategy.into(),
             cube_dispatch_strategy: self.cube_dispatch_strategy.into(),
@@ -157,8 +158,10 @@ pub struct ComptimeCmmaInfo {
     pub unroll: bool,
     /// The number of units that can collaborate
     pub coop_dim: u32,
-    /// The number of collaboration groups
-    pub num_coops: u32,
+    /// The number of collaboration groups for compute
+    pub num_compute_coops: u32,
+    /// The number of collaboration groups for loading
+    pub num_load_coops: u32,
     /// Number of cmma per subcube performed in one pass
     pub num_accumulators: u32,
     /// 0 = large, 1 = reuse
