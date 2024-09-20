@@ -1,11 +1,9 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use crate::matmul::cmma::runtime_info::ids::IdDispatch;
-
+use super::super::block_loop::BlockLoop;
 use super::super::config::ComptimeCmmaInfo;
 use super::dims::{get_dims, Dimensions};
-use super::ids::{Ids, SameRoleIdDispatch};
 use super::offsets::{calculate_offsets, Offsets};
 
 #[derive(CubeType, Copy, Clone)]
@@ -16,8 +14,14 @@ pub(crate) struct RuntimeCmmaInfo {
     pub offsets: Offsets,
 }
 
+#[derive(CubeType, Copy, Clone)]
+pub(crate) struct Ids {
+    pub coop: u32,
+    pub lane: u32,
+}
+
 #[cube]
-pub(crate) fn get_runtime_info<F: Float>(
+pub(crate) fn get_runtime_info<F: Float, D: BlockLoop>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,
@@ -27,8 +31,8 @@ pub(crate) fn get_runtime_info<F: Float>(
     let offsets = calculate_offsets::<F>(lhs, rhs, out, comptime_info);
 
     RuntimeCmmaInfo {
-        compute_ids: SameRoleIdDispatch::get_compute_ids(comptime_info),
-        load_ids: SameRoleIdDispatch::get_load_ids(comptime_info),
+        compute_ids: D::get_compute_ids(comptime_info),
+        load_ids: D::get_load_ids(comptime_info),
         dims,
         offsets,
     }

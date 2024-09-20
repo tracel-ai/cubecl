@@ -77,3 +77,18 @@ impl From<SmemLoaderStrategy> for u32 {
         }
     }
 }
+
+#[derive(Clone, Copy)]
+pub enum RoleIdStrategy {
+    Same,
+    SplitHalfway,
+}
+
+impl From<RoleIdStrategy> for u32 {
+    fn from(value: RoleIdStrategy) -> Self {
+        match value {
+            RoleIdStrategy::Same => 0,
+            RoleIdStrategy::SplitHalfway => 1,
+        }
+    }
+}

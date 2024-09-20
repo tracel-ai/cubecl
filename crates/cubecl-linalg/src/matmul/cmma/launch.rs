@@ -7,7 +7,7 @@ use cubecl_core::{
 use half::f16;
 
 use crate::{
-    matmul::cmma::{base::cmma_kernel, config::CmmaConfig},
+    matmul::cmma::{base::cmma_launch, config::CmmaConfig},
     tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle},
 };
 
@@ -122,7 +122,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
         tensor_vectorization_factor(&available_vectorizations, out.shape, out.strides, rank - 1);
 
     unsafe {
-        cmma_kernel::launch_unchecked::<F, f16, R>(
+        cmma_launch::launch_unchecked::<F, f16, R>(
             client,
             cmma_config.cube_count::<R>(out.shape),
             cmma_config.cube_dim(),

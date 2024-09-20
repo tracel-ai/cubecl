@@ -1,7 +1,8 @@
 use cubecl_core::prelude::*;
 
 use super::strategy::{
-    ComputeLoopOrderStrategy, CubeDispatchStrategy, SmemLoaderStrategy, WriteOutStrategy,
+    ComputeLoopOrderStrategy, CubeDispatchStrategy, RoleIdStrategy, SmemLoaderStrategy,
+    WriteOutStrategy,
 };
 
 // It is assumed that CMMA uses 32 units to compute 16x16x16 tiles
@@ -25,6 +26,7 @@ pub struct CmmaConfig {
     pub compute_loop_order_strategy: ComputeLoopOrderStrategy,
     pub lhs_smem_loader_strategy: SmemLoaderStrategy,
     pub rhs_smem_loader_strategy: SmemLoaderStrategy,
+    pub role_id_strategy: RoleIdStrategy,
 }
 
 impl Default for CmmaConfig {
@@ -38,6 +40,7 @@ impl Default for CmmaConfig {
             ComputeLoopOrderStrategy::AllBuffersFirst,
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
+            RoleIdStrategy::Same,
         )
     }
 }
@@ -53,6 +56,7 @@ impl CmmaConfig {
         compute_loop_order_strategy: ComputeLoopOrderStrategy,
         lhs_smem_loader_strategy: SmemLoaderStrategy,
         rhs_smem_loader_strategy: SmemLoaderStrategy,
+        role_id_strategy: RoleIdStrategy,
     ) -> CmmaConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
@@ -66,6 +70,7 @@ impl CmmaConfig {
             compute_loop_order_strategy,
             lhs_smem_loader_strategy,
             rhs_smem_loader_strategy,
+            role_id_strategy,
         }
     }
 
@@ -93,6 +98,7 @@ impl CmmaConfig {
             reuse_lhs_fragment,
             lhs_smem_loader_strategy: self.lhs_smem_loader_strategy.into(),
             rhs_smem_loader_strategy: self.rhs_smem_loader_strategy.into(),
+            role_id_strategy: self.role_id_strategy.into(),
         }
     }
 
@@ -179,4 +185,6 @@ pub struct ComptimeCmmaInfo {
     /// 0 = tilewise row major, 1 = tilewise col major
     /// 2 = continous row major, 3 = continuous col major
     pub rhs_smem_loader_strategy: u32,
+    /// 0 same role, 1 = split roles halfway
+    pub role_id_strategy: u32,
 }
