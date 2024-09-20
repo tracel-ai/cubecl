@@ -19,7 +19,7 @@ use super::{
 };
 
 #[cube]
-pub(crate) trait SmemLoader<F: Float, FC: Float> {
+pub(crate) trait SmemLoader<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> {
     fn load_gmem_to_smem<L: BlockLoader<F, FC>>(
         gmem: &Tensor<F>,
         smem: &mut SharedMemory<FC>,
@@ -28,7 +28,7 @@ pub(crate) trait SmemLoader<F: Float, FC: Float> {
         #[comptime] comptime_info: ComptimeCmmaInfo,
     );
 
-    fn get_tile_smem_position(
+    fn get_tile_smem_index(
         tile_row: u32,
         tile_col: u32,
         #[comptime] comptime_info: ComptimeCmmaInfo,
@@ -36,7 +36,27 @@ pub(crate) trait SmemLoader<F: Float, FC: Float> {
 }
 
 #[cube]
-pub(crate) fn load_lhs<F: Float, FC: Float, S: SmemLoader<F, FC>>(
+pub(crate) fn get_tile_smem_index<I: LoadInfo, T: TilingOrder>(
+    tile_row: u32,
+    tile_col: u32,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
+) -> u32 {
+    let tile_size = comptime_info.tile_size;
+
+    let smem_tile_width = I::smem_width(comptime_info) / tile_size;
+    let smem_tile_height = I::smem_height(comptime_info) / tile_size;
+
+    T::to_nth_tile(tile_row, tile_col, smem_tile_width, smem_tile_height)
+}
+
+#[cube]
+pub(crate) fn load_lhs<
+    F: Float,
+    FC: Float,
+    I: LoadInfo,
+    T: TilingOrder,
+    S: SmemLoader<F, FC, I, T>,
+>(
     lhs: &Tensor<F>,
     shared_lhs: &mut SharedMemory<FC>,
     k_offset: u32,
@@ -84,7 +104,13 @@ pub(crate) fn load_lhs<F: Float, FC: Float, S: SmemLoader<F, FC>>(
 }
 
 #[cube]
-pub(crate) fn load_rhs<F: Float, FC: Float, S: SmemLoader<F, FC>>(
+pub(crate) fn load_rhs<
+    F: Float,
+    FC: Float,
+    I: LoadInfo,
+    T: TilingOrder,
+    S: SmemLoader<F, FC, I, T>,
+>(
     rhs: &Tensor<F>,
     shared_rhs: &mut SharedMemory<FC>,
     k_offset: u32,
@@ -141,7 +167,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
     if comptime_info.lhs_smem_loader_strategy == 0 {
-        load_lhs::<F, FC, TilewiseSmemLoader<LhsLoadInfo, RowMajorTiling>>(
+        load_lhs::<F, FC, LhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
             lhs,
             &mut shared.lhs,
             k_offset,
@@ -149,7 +175,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
             comptime_info,
         );
     } else if comptime_info.lhs_smem_loader_strategy == 1 {
-        load_lhs::<F, FC, TilewiseSmemLoader<LhsLoadInfo, ColMajorTiling>>(
+        load_lhs::<F, FC, LhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
             lhs,
             &mut shared.lhs,
             k_offset,
@@ -157,7 +183,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
             comptime_info,
         );
     } else if comptime_info.lhs_smem_loader_strategy == 2 {
-        load_lhs::<F, FC, ContinuousSmemLoader<LhsLoadInfo, RowMajorTiling>>(
+        load_lhs::<F, FC, LhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
             lhs,
             &mut shared.lhs,
             k_offset,
@@ -165,7 +191,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
             comptime_info,
         );
     } else {
-        load_lhs::<F, FC, ContinuousSmemLoader<LhsLoadInfo, ColMajorTiling>>(
+        load_lhs::<F, FC, LhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
             lhs,
             &mut shared.lhs,
             k_offset,
@@ -175,7 +201,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     }
 
     if comptime_info.rhs_smem_loader_strategy == 0 {
-        load_rhs::<F, FC, TilewiseSmemLoader<RhsLoadInfo, RowMajorTiling>>(
+        load_rhs::<F, FC, RhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
             rhs,
             &mut shared.rhs,
             k_offset,
@@ -183,7 +209,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
             comptime_info,
         );
     } else if comptime_info.rhs_smem_loader_strategy == 1 {
-        load_rhs::<F, FC, TilewiseSmemLoader<RhsLoadInfo, ColMajorTiling>>(
+        load_rhs::<F, FC, RhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
             rhs,
             &mut shared.rhs,
             k_offset,
@@ -191,7 +217,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
             comptime_info,
         );
     } else if comptime_info.rhs_smem_loader_strategy == 2 {
-        load_rhs::<F, FC, ContinuousSmemLoader<RhsLoadInfo, RowMajorTiling>>(
+        load_rhs::<F, FC, RhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
             rhs,
             &mut shared.rhs,
             k_offset,
@@ -199,7 +225,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
             comptime_info,
         );
     } else {
-        load_rhs::<F, FC, ContinuousSmemLoader<RhsLoadInfo, ColMajorTiling>>(
+        load_rhs::<F, FC, RhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
             rhs,
             &mut shared.rhs,
             k_offset,
@@ -207,18 +233,4 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
             comptime_info,
         );
     }
-}
-
-#[cube]
-pub(crate) fn get_tile_smem_position<I: LoadInfo, T: TilingOrder>(
-    tile_row: u32,
-    tile_col: u32,
-    #[comptime] comptime_info: ComptimeCmmaInfo,
-) -> u32 {
-    let tile_size = comptime_info.tile_size;
-
-    let smem_tile_width = I::smem_width(comptime_info) / tile_size;
-    let smem_tile_height = I::smem_height(comptime_info) / tile_size;
-
-    T::to_nth_tile(tile_row, tile_col, smem_tile_width, smem_tile_height)
 }
