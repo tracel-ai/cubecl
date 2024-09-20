@@ -2,10 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    base::{Fragments, RuntimeCmmaInfo, SharedMemories},
     compute_loop::base::compute_loop,
     config::ComptimeCmmaInfo,
     load_shared_memory::base::load_to_shared_memories,
+    runtime_info::{Fragments, RuntimeCmmaInfo, SharedMemories},
     write_output::base::write_to_output,
 };
 

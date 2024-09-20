@@ -4,9 +4,9 @@ mod block_loop;
 pub(crate) mod compute_loop;
 pub(crate) mod config;
 pub(crate) mod cube_dispatch;
-mod ids;
 mod launch;
 pub(crate) mod load_shared_memory;
+mod runtime_info;
 pub(crate) mod write_output;
 
 pub use launch::check_cmma_availability as is_available;

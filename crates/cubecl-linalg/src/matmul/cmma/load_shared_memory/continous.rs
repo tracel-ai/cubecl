@@ -1,9 +1,10 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use super::super::runtime_info::RuntimeCmmaInfo;
 use crate::matmul::cmma::block_io::base::BlockLoader;
+use crate::matmul::cmma::config::ComptimeCmmaInfo;
 use crate::matmul::cmma::load_shared_memory::base::get_tile_smem_index;
-use crate::matmul::cmma::{base::RuntimeCmmaInfo, config::ComptimeCmmaInfo};
 
 use super::base::SmemLoader;
 use super::load_info::LoadInfo;

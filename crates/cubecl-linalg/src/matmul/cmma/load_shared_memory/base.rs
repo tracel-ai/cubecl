@@ -1,13 +1,13 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::matmul::cmma::base::SharedMemories;
+use super::super::runtime_info::{RuntimeCmmaInfo, SharedMemories};
 use crate::matmul::cmma::block_io::base::BlockLoader;
 use crate::matmul::cmma::block_io::{
     horizontal_block_check::HorizontalCheckBlockIO, unchecked_block::UncheckedBlockIO,
     vertical_block_check::VerticalCheckBlockIO, whole_block_check::WholeCheckBlockIO,
 };
-use crate::matmul::cmma::{base::RuntimeCmmaInfo, config::ComptimeCmmaInfo};
+use crate::matmul::cmma::config::ComptimeCmmaInfo;
 
 use super::load_info::LoadInfo;
 use super::tiled_layout::TilingOrder;
