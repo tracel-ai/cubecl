@@ -49,9 +49,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Tensor<C>> {
         match arg.inplace {
-            Some(id) => builder
-                .inplace_output(id, Item::vectorized(C::as_elem(), arg.vectorisation))
-                .into(),
+            Some(id) => builder.inplace_output(id).into(),
             None => builder
                 .output_array(Item::vectorized(C::as_elem(), arg.vectorisation))
                 .into(),

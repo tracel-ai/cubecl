@@ -1,7 +1,6 @@
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
-use std::iter;
 use syn::Ident;
 
 use crate::{
@@ -212,9 +211,7 @@ impl Launch {
                 .as_ref()
                 .map(|_| quote![__ty: ::core::marker::PhantomData]);
             let (compilation_args, args) = self.compilation_args_def();
-            let info = iter::once(format_ident!("settings"))
-                .chain(param_names.clone())
-                .chain(args.clone());
+            let info = param_names.clone().into_iter().chain(args.clone());
 
             quote! {
                 #[doc = #kernel_doc]
@@ -242,7 +239,9 @@ impl Launch {
                     }
 
                     fn id(&self) -> #kernel_id {
-                        #kernel_id::new::<Self>().info((#(self.#info.clone()),*))
+                        // We don't use any other kernel settings with the macro.
+                        let cube_dim = self.settings.cube_dim.clone();
+                        #kernel_id::new::<Self>().info((cube_dim, #(self.#info.clone()),* ))
                     }
                 }
             }
