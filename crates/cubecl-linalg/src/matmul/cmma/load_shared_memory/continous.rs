@@ -11,13 +11,16 @@ use super::base::SmemLoader;
 use super::load_info::LoadInfo;
 use super::tiled_layout::TilingOrder;
 
-pub(crate) struct ContinuousSmemLoader<T: TilingOrder> {
+pub(crate) struct ContinuousSmemLoader<I: LoadInfo, T: TilingOrder> {
+    _load_info: PhantomData<I>,
     _tiling_order: PhantomData<T>,
 }
 
 #[cube]
-impl<F: Float, FC: Float, T: TilingOrder> SmemLoader<F, FC> for ContinuousSmemLoader<T> {
-    fn load_gmem_to_smem<I: LoadInfo, L: BlockLoader<F, FC>>(
+impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
+    for ContinuousSmemLoader<I, T>
+{
+    fn load_gmem_to_smem<L: BlockLoader<F, FC>>(
         gmem: &Tensor<F>,
         smem: &mut SharedMemory<FC>,
         k_offset: u32,
@@ -54,6 +57,21 @@ impl<F: Float, FC: Float, T: TilingOrder> SmemLoader<F, FC> for ContinuousSmemLo
             L::load_single::<I>(gmem, smem, read_row, read_col, write_pos, runtime_info)
         }
     }
+
+    fn get_tile_smem_position(
+        tile_row: u32,
+        tile_col: u32,
+        #[comptime] comptime_info: ComptimeCmmaInfo,
+    ) -> u32 {
+        let tile_size = comptime_info.tile_size;
+        let smem_stride = tile_size * tile_size;
+
+        let smem_tile_width = I::smem_width(comptime_info) / tile_size;
+        let smem_tile_height = I::smem_height(comptime_info) / tile_size;
+
+        let nth_tile = T::to_nth_tile(tile_row, tile_col, smem_tile_width, smem_tile_height);
+        nth_tile * smem_stride
+    }
 }
 
 #[cube]
@@ -75,8 +93,7 @@ pub(crate) fn apply_tiled_layout<T: TilingOrder>(
 
     let nth_tile = absolute_position / tile_square;
 
-    let tile_row = T::tile_row(nth_tile, smem_tile_width, smem_tile_height);
-    let tile_col = T::tile_col(nth_tile, smem_tile_width, smem_tile_height);
+    let (tile_row, tile_col) = T::to_row_col(nth_tile, smem_tile_width, smem_tile_height);
 
     let pos_within_tile = absolute_position % tile_square;
     let row_within_tile = pos_within_tile / tile_size;

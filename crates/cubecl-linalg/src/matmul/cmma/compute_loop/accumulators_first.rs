@@ -3,11 +3,11 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::cmma::{
     base::{Fragments, Ids, SharedMemories},
-    compute_loop::base::load_into_fragment,
+    compute_loop::base::{get_smem_position_rhs, load_into_fragment},
     config::ComptimeCmmaInfo,
 };
 
-use super::base::ComputeLoop;
+use super::base::{get_smem_position_lhs, ComputeLoop};
 
 pub(crate) struct AllAccumulatorsFirstComputeLoop {}
 
@@ -26,7 +26,8 @@ impl ComputeLoop for AllAccumulatorsFirstComputeLoop {
         let unroll = comptime_info.unroll;
         let num_accumulators = comptime_info.num_accumulators;
         let num_buffers = block_size_k / tile_size;
-        let num_coop_per_row = (block_size_n / tile_size) / num_accumulators;
+        let smem_h = block_size_n / tile_size;
+        let num_coop_per_row = smem_h / num_accumulators;
 
         // Runtime values
         let tile_row = ids.coop / num_coop_per_row;
@@ -37,14 +38,18 @@ impl ComputeLoop for AllAccumulatorsFirstComputeLoop {
             #[unroll]
             for accumulator_iter in 0..num_accumulators {
                 load_into_fragment(
-                    tile_row * num_buffers + buffer_iter,
+                    get_smem_position_lhs::<F, FC>(tile_row, buffer_iter, comptime_info),
                     shared_memories.lhs,
                     &fragments.lhs,
                     comptime_info,
                 );
 
                 load_into_fragment(
-                    (tile_col_base + accumulator_iter) * num_buffers + buffer_iter,
+                    get_smem_position_rhs::<F, FC>(
+                        buffer_iter,
+                        tile_col_base + accumulator_iter,
+                        comptime_info,
+                    ),
                     shared_memories.rhs,
                     &fragments.rhs,
                     comptime_info,

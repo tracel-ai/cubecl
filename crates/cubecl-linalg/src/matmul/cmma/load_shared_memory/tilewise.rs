@@ -9,13 +9,16 @@ use crate::matmul::cmma::{
 
 use super::{base::SmemLoader, load_info::LoadInfo, tiled_layout::TilingOrder};
 
-pub(crate) struct TilewiseSmemLoader<T: TilingOrder> {
+pub(crate) struct TilewiseSmemLoader<I: LoadInfo, T: TilingOrder> {
+    _load_info: PhantomData<I>,
     _tiling_order: PhantomData<T>,
 }
 
 #[cube]
-impl<F: Float, FC: Float, T: TilingOrder> SmemLoader<F, FC> for TilewiseSmemLoader<T> {
-    fn load_gmem_to_smem<I: LoadInfo, L: BlockLoader<F, FC>>(
+impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
+    for TilewiseSmemLoader<I, T>
+{
+    fn load_gmem_to_smem<L: BlockLoader<F, FC>>(
         gmem: &Tensor<F>,
         smem: &mut SharedMemory<FC>,
         k_offset: u32,
@@ -35,9 +38,8 @@ impl<F: Float, FC: Float, T: TilingOrder> SmemLoader<F, FC> for TilewiseSmemLoad
         let num_units_per_row = tile_size / tensor_vec;
 
         let smem_tile_width = I::smem_width(comptime_info) / tile_size;
-        let smem_tile_height = I::smem_width(comptime_info) / tile_size;
-        let tile_row = T::tile_row(coop_id, smem_tile_width, smem_tile_height);
-        let tile_col = T::tile_col(coop_id, smem_tile_width, smem_tile_height);
+        let smem_tile_height = I::smem_height(comptime_info) / tile_size;
+        let (tile_row, tile_col) = T::to_row_col(coop_id, smem_tile_width, smem_tile_height);
 
         let lane_row_step = coop_dim * tensor_vec / tile_size;
         let lane_row_offset = ids.lane / num_units_per_row;
@@ -58,5 +60,20 @@ impl<F: Float, FC: Float, T: TilingOrder> SmemLoader<F, FC> for TilewiseSmemLoad
 
             L::load_single::<I>(gmem, smem, read_row, read_col, write_pos, runtime_info);
         }
+    }
+
+    fn get_tile_smem_position(
+        tile_row: u32,
+        tile_col: u32,
+        #[comptime] comptime_info: ComptimeCmmaInfo,
+    ) -> u32 {
+        let tile_size = comptime_info.tile_size;
+        let smem_stride = tile_size * tile_size;
+
+        let smem_tile_width = I::smem_width(comptime_info) / tile_size;
+        let smem_tile_height = I::smem_height(comptime_info) / tile_size;
+
+        let nth_tile = T::to_nth_tile(tile_row, tile_col, smem_tile_width, smem_tile_height);
+        nth_tile * smem_stride
     }
 }

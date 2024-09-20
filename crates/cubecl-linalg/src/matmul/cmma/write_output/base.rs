@@ -11,6 +11,21 @@ use super::super::{
     },
     config::ComptimeCmmaInfo,
 };
+use crate::matmul::cmma::write_output::{large_smem::LargeSmemWriter, reuse_smem::ReuseSmemWriter};
+
+#[cube]
+pub(crate) fn write_to_output<F: Float>(
+    out: &mut Tensor<F>,
+    accumulators: Sequence<cmma::Matrix<F>>,
+    runtime_info: RuntimeCmmaInfo,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
+) {
+    if comptime_info.write_out_strategy == 0 {
+        LargeSmemWriter::write_to_output(out, accumulators, runtime_info, comptime_info);
+    } else {
+        ReuseSmemWriter::write_to_output(out, accumulators, runtime_info, comptime_info);
+    }
+}
 
 #[cube]
 /// Writes accumulators to global memory
