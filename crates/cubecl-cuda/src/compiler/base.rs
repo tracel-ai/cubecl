@@ -558,6 +558,9 @@ impl CudaCompiler {
             gpu::Operator::Normalize(op) => {
                 instructions.push(Instruction::Normalize(self.compile_unary(op)))
             }
+            gpu::Operator::Magnitude(op) => {
+                instructions.push(Instruction::Magnitude(self.compile_unary(op)))
+            }
         };
     }
 

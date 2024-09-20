@@ -3,9 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::tiling2d::outer_product::tile_outer_product;
 use crate::matmul::{
-    tests::test_utils::{
-        assert_equals, create_empty, make_tiling2d_config, range_tensor, range_tensor_transposed,
-    },
+    tests::test_utils::{assert_equals, create_empty, make_tiling2d_config, range_tensor},
     tiling2d::{
         base::{Coordinates, TILE_SIZE},
         compute_loop::compute_loop,
@@ -171,40 +169,6 @@ pub fn compute_loop_unit_test<R: Runtime>(device: &R::Device) {
     let expected = &[
         8960.0, 9184.0, 9408.0, 9632.0, 9184.0, 9416.0, 9648.0, 9880.0, 9408.0, 9648.0, 9888.0,
         10128.0, 9632.0, 9880.0, 10128.0, 10376.0,
-    ];
-    assert_equals::<R>(&client, results, expected);
-}
-
-/// Exported test
-pub fn compute_loop_unit_offset_test<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
-    let lhs = range_tensor_transposed::<R>(&client, 8, 4);
-    let rhs = range_tensor::<R>(&client, 4, 8);
-    let results = create_empty::<R>(&client, TILE_SIZE, TILE_SIZE);
-    let cube_dim = CubeDim::new(1, 1, 1);
-    let cube_count = CubeCount::Static(1, 1, 1);
-
-    let config = make_tiling2d_config(4, 8, 4);
-
-    unsafe {
-        compute_loop_test::launch_unchecked::<f32, R>(
-            &R::client(device),
-            cube_count,
-            cube_dim,
-            TensorArg::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, TILE_SIZE as u8),
-            TensorArg::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, TILE_SIZE as u8),
-            ScalarArg::new(4),
-            ScalarArg::new(4),
-            ArrayArg::from_raw_parts(&results, 16, 1),
-            8,
-            8,
-            config,
-        );
-    };
-
-    let expected = &[
-        1160.0, 1230.0, 1300.0, 1370.0, 1416.0, 1502.0, 1588.0, 1674.0, 1672.0, 1774.0, 1876.0,
-        1978.0, 1928.0, 2046.0, 2164.0, 2282.0,
     ];
     assert_equals::<R>(&client, results, expected);
 }

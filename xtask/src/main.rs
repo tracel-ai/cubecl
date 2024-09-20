@@ -23,6 +23,8 @@ pub enum Command {
     Build(commands::build::CubeCLBuildCmdArgs),
     /// Test Burn.
     Test(commands::test::CubeCLTestCmdArgs),
+    /// Run commands to manage the book.
+    Book(commands::book::BookArgs),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -31,6 +33,7 @@ fn main() -> anyhow::Result<()> {
     match args.command {
         Command::Build(cmd_args) => commands::build::handle_command(cmd_args),
         Command::Test(cmd_args) => commands::test::handle_command(cmd_args),
+        Command::Book(cmd_args) => cmd_args.parse(),
         _ => dispatch_base_commands(args),
     }?;
     let duration = start.elapsed();

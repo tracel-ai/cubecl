@@ -1,18 +1,14 @@
 use cubecl_core::prelude::*;
 
+use super::strategy::{
+    ComputeLoopOrderStrategy, CubeDispatchStrategy, SmemLoaderStrategy, WriteOutStrategy,
+};
+
 // It is assumed that CMMA uses 32 units to compute 16x16x16 tiles
 // TODO put it in config and split tile size into three different parameters
+// TODO add number of smem banks
 pub(crate) const CMMA_COOP_DIM: usize = 32;
 pub(crate) const CMMA_TILE_SIZE: usize = 16;
-
-#[derive(PartialEq, Eq)]
-/// Defines how data travels from accumulators to global output
-pub enum WriteOutStrategy {
-    /// Accumulators for one warp are put concurrently in a shared memory large enough to contain them all
-    LargeSmem,
-    /// Accumulators for one warp are put sequentially in a shared memory with only one reusable spot
-    ReuseSmem,
-}
 
 pub struct CmmaConfig {
     /// Corresponds to the number of tiles in the m and n dimensions for a block
@@ -23,22 +19,40 @@ pub struct CmmaConfig {
     pub unroll: bool,
     /// Whether to write all accumulators in different spots of a large shared memory or reuse the space
     pub write_out_strategy: WriteOutStrategy,
-    /// Corresponds to the number of accumulators per warp. Equals b_mn / b_k
-    pub alpha: usize,
+    /// Order in which to dispatch cubes
+    pub cube_dispatch_strategy: CubeDispatchStrategy,
+    /// Whether to iterate on buffers or accumulators first
+    pub compute_loop_order_strategy: ComputeLoopOrderStrategy,
+    pub lhs_smem_loader_strategy: SmemLoaderStrategy,
+    pub rhs_smem_loader_strategy: SmemLoaderStrategy,
 }
 
 impl Default for CmmaConfig {
     fn default() -> Self {
-        Self::new(128, 16, false, WriteOutStrategy::ReuseSmem)
+        Self::new(
+            128,
+            16,
+            false,
+            WriteOutStrategy::ReuseSmem,
+            CubeDispatchStrategy::ColMajor,
+            ComputeLoopOrderStrategy::AllBuffersFirst,
+            SmemLoaderStrategy::TilewiseRowMajor,
+            SmemLoaderStrategy::TilewiseColMajor,
+        )
     }
 }
 
 impl CmmaConfig {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         b_mn: usize,
         b_k: usize,
         unroll: bool,
         write_out_strategy: WriteOutStrategy,
+        cube_dispatch_strategy: CubeDispatchStrategy,
+        compute_loop_order_strategy: ComputeLoopOrderStrategy,
+        lhs_smem_loader_strategy: SmemLoaderStrategy,
+        rhs_smem_loader_strategy: SmemLoaderStrategy,
     ) -> CmmaConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
@@ -46,14 +60,19 @@ impl CmmaConfig {
         CmmaConfig {
             b_mn,
             b_k,
-            alpha: b_mn / b_k,
             unroll,
             write_out_strategy,
+            cube_dispatch_strategy,
+            compute_loop_order_strategy,
+            lhs_smem_loader_strategy,
+            rhs_smem_loader_strategy,
         }
     }
 
     pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> ComptimeCmmaInfo {
         let num_coops = self.b_mn * self.b_k / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
+        let (compute_loop_order_strategy, reuse_lhs_fragment) =
+            self.compute_loop_order_strategy.into();
 
         ComptimeCmmaInfo {
             block_size_m: self.b_mn as u32,
@@ -66,8 +85,13 @@ impl CmmaConfig {
             check_n_bounds: n % self.b_mn != 0,
             coop_dim: CMMA_COOP_DIM as u32,
             num_coops: num_coops as u32,
-            num_accumulators: self.alpha as u32,
-            write_out_reuse_smem: self.write_out_strategy == WriteOutStrategy::ReuseSmem,
+            num_accumulators: (self.b_mn / self.b_k) as u32,
+            write_out_strategy: self.write_out_strategy.into(),
+            cube_dispatch_strategy: self.cube_dispatch_strategy.into(),
+            compute_loop_order_strategy,
+            reuse_lhs_fragment,
+            lhs_smem_loader_strategy: self.lhs_smem_loader_strategy.into(),
+            rhs_smem_loader_strategy: self.rhs_smem_loader_strategy.into(),
         }
     }
 
@@ -114,7 +138,6 @@ impl Init for ComptimeCmmaInfo {
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-/// Tiling 2D parameters
 pub struct ComptimeCmmaInfo {
     /// Block size along dimension of lhs
     pub block_size_m: u32,
@@ -138,6 +161,19 @@ pub struct ComptimeCmmaInfo {
     pub num_coops: u32,
     /// Number of cmma per subcube performed in one pass
     pub num_accumulators: u32,
-    /// Write out strategy: false = large, true = reuse
-    pub write_out_reuse_smem: bool,
+    /// 0 = large, 1 = reuse
+    pub write_out_strategy: u32,
+    /// 0 = RowMajor, 1 = ColMajor, 2 = Swizzle
+    pub cube_dispatch_strategy: u32,
+    /// 0 = all buffers first, 1 = all accumulators first
+    pub compute_loop_order_strategy: u32,
+    /// Whether to reuse lhs fragment (true) or to reload it (false)
+    /// Available only with all accumulators first compute loop order
+    pub reuse_lhs_fragment: bool,
+    /// 0 = tilewise row major, 1 = tilewise col major
+    /// 2 = continous row major, 3 = continuous col major
+    pub lhs_smem_loader_strategy: u32,
+    /// 0 = tilewise row major, 1 = tilewise col major
+    /// 2 = continous row major, 3 = continuous col major
+    pub rhs_smem_loader_strategy: u32,
 }

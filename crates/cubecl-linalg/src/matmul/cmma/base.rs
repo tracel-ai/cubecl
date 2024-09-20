@@ -1,8 +1,11 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use super::block_loop::block_loop;
+use super::block_loop::matmul_execute;
 use super::config::ComptimeCmmaInfo;
+use super::cube_dispatch::base::{
+    ColMajorCubeDispatch, CubeDispatch, RowMajorCubeDispatch, SwizzleCubeDispatch,
+};
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
@@ -19,7 +22,8 @@ pub fn cmma_kernel<F: Float, FC: Float>(
 
     let shared_memories = make_shared_memories::<FC>(comptime_info);
     let cmma_matrices = make_cmma_matrices::<F, FC>(comptime_info);
-    block_loop::<F, FC>(
+
+    matmul_execute::<F, FC>(
         lhs,
         rhs,
         out,
@@ -69,7 +73,7 @@ pub(crate) struct Offsets {
 }
 
 #[derive(CubeType)]
-pub(crate) struct CmmaMatrices<F: Float, FC: Float> {
+pub(crate) struct Fragments<F: Float, FC: Float> {
     pub accumulators: Sequence<cmma::Matrix<F>>,
     pub lhs: cmma::Matrix<FC>,
     pub rhs: cmma::Matrix<FC>,
@@ -92,14 +96,9 @@ fn calculate_offsets<F: Float>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &Tensor<F>,
-    #[comptime] config: ComptimeCmmaInfo,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> Offsets {
-    let block_size_m = config.block_size_m;
-    let block_size_n = config.block_size_m;
-
-    // Cube offset
-    let cube_row = CUBE_POS_X * block_size_m;
-    let cube_col = CUBE_POS_Y * block_size_n;
+    let (cube_row, cube_col) = get_row_col(comptime_info);
 
     let rank = out.rank();
 
@@ -128,6 +127,17 @@ fn calculate_offsets<F: Float>(
 }
 
 #[cube]
+pub(crate) fn get_row_col(#[comptime] comptime_info: ComptimeCmmaInfo) -> (u32, u32) {
+    if comptime_info.cube_dispatch_strategy == 0 {
+        RowMajorCubeDispatch::get_row_col(comptime_info)
+    } else if comptime_info.cube_dispatch_strategy == 1 {
+        ColMajorCubeDispatch::get_row_col(comptime_info)
+    } else {
+        SwizzleCubeDispatch::get_row_col(comptime_info)
+    }
+}
+
+#[cube]
 fn make_shared_memories<FC: Float>(#[comptime] config: ComptimeCmmaInfo) -> SharedMemories<FC> {
     let block_size_m = config.block_size_m;
     let block_size_k = config.block_size_k;
@@ -142,7 +152,7 @@ fn make_shared_memories<FC: Float>(#[comptime] config: ComptimeCmmaInfo) -> Shar
 #[cube]
 pub(crate) fn make_cmma_matrices<F: Float, FC: Float>(
     #[comptime] config: ComptimeCmmaInfo,
-) -> CmmaMatrices<F, FC> {
+) -> Fragments<F, FC> {
     let num_accumulators = config.num_accumulators;
     let mut accumulators = Sequence::<cmma::Matrix<F>>::new();
 
@@ -177,7 +187,7 @@ pub(crate) fn make_cmma_matrices<F: Float, FC: Float>(
         cmma::MatrixLayout::RowMajor,
     );
 
-    CmmaMatrices::<F, FC> {
+    Fragments::<F, FC> {
         accumulators,
         lhs,
         rhs,

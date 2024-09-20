@@ -313,6 +313,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Magnitude {
+        input: Variable,
+        out: Variable,
+    },
     Normalize {
         input: Variable,
         out: Variable,
@@ -724,6 +728,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Negate { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = -{input};")
+            }
+            Instruction::Magnitude { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, format_args!("{out} = length({input});"))
             }
             Instruction::Normalize { input, out } => {
                 if input.item().vectorization_factor() == 1 {
