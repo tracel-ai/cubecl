@@ -241,6 +241,12 @@ impl Display for Item {
     }
 }
 
+fn format_number(num: f64) -> String {
+    let formatted = format!("{:.34}", num);
+    let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+    trimmed.to_string() + "f"
+}
+
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -283,8 +289,7 @@ impl Display for Variable {
                     FloatKind::BF16 => {
                         todo!("Unsupported")
                     }
-                    FloatKind::F32 => f.write_fmt(format_args!("{}f", *val as f32)),
-                    FloatKind::F64 => f.write_fmt(format_args!("{}f", { *val })),
+                    FloatKind::F32 | FloatKind::F64 => f.write_str(&format_number(*val)),
                 },
                 ConstantScalarValue::UInt(val) => f.write_fmt(format_args!("{}u", *val as u32)),
                 ConstantScalarValue::Bool(val) => f.write_fmt(format_args!("{}", val)),

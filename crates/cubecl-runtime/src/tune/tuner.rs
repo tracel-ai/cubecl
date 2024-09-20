@@ -79,9 +79,14 @@ impl<K: AutotuneKey> Tuner<K> {
 
         let results: Vec<Result<BenchmarkDurations, BenchError>> = autotunables
             .into_iter()
-            .map(|op| {
+            .enumerate()
+            .map(|(i, op)| {
                 names.push(op.name().to_string());
-                self.run_benchmark(op, client)
+                if autotune_operation_set.should_run(&key, i) {
+                    self.run_benchmark(op, client)
+                } else {
+                    Ok(BenchmarkDurations::new(vec![Duration::MAX]))
+                }
             })
             .collect();
 
@@ -90,7 +95,6 @@ impl<K: AutotuneKey> Tuner<K> {
             let first_error = results.into_iter().next().unwrap().err().unwrap();
             resume_unwind(ManuallyDrop::into_inner(first_error));
         }
-        let results = results.into_iter().filter_map(Result::ok).collect();
 
         // Finds the fastest operation, stores it and returns it
         let fastest_index = self.find_fastest(results);
@@ -135,11 +139,15 @@ impl<K: AutotuneKey> Tuner<K> {
         Ok(TuneBenchmark::new(operation, client.clone()).run())
     }
 
-    fn find_fastest(&self, results: Vec<BenchmarkDurations>) -> usize {
+    fn find_fastest(&self, results: Vec<Result<BenchmarkDurations, BenchError>>) -> usize {
         let mut smallest_duration = Duration::MAX;
         let mut fastest_tunable = None;
 
         for (i, result) in results.into_iter().enumerate() {
+            let result = match result {
+                Ok(result) => result,
+                Err(_) => continue,
+            };
             let computed = BenchmarkComputations::new(&result);
 
             if computed.median < smallest_duration {

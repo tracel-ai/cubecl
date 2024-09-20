@@ -7,7 +7,7 @@ use syn::{parse_quote, punctuated::Punctuated, Generics, Ident, Type, Visibility
 use crate::paths::prelude_type;
 
 #[derive(FromDeriveInput)]
-#[darling(supports(struct_named), attributes(expand), map = unwrap_fields)]
+#[darling(supports(struct_named, struct_unit), attributes(expand), map = unwrap_fields)]
 pub struct TypeCodegen {
     pub ident: Ident,
     pub name_launch: Option<Ident>,

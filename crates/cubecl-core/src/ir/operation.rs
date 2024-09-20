@@ -82,6 +82,7 @@ pub enum Operator {
     AtomicOr(BinaryOperator),
     AtomicXor(BinaryOperator),
     AtomicCompareAndSwap(CompareAndSwapOperator),
+    Magnitude(UnaryOperator),
     Normalize(UnaryOperator),
 }
 

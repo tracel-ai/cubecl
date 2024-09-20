@@ -44,14 +44,16 @@ pub enum ComputeLoopOrderStrategy {
     /// Accumulators for one warp are put concurrently in a shared memory large enough to contain them all
     AllBuffersFirst,
     /// Accumulators for one warp are put sequentially in a shared memory with only one reusable spot
-    AllAccumulatorsFirst,
+    AllAccumulatorsFirst { reuse_lhs_fragment: bool },
 }
 
-impl From<ComputeLoopOrderStrategy> for u32 {
+impl From<ComputeLoopOrderStrategy> for (u32, bool) {
     fn from(value: ComputeLoopOrderStrategy) -> Self {
         match value {
-            ComputeLoopOrderStrategy::AllBuffersFirst => 0,
-            ComputeLoopOrderStrategy::AllAccumulatorsFirst => 1,
+            ComputeLoopOrderStrategy::AllBuffersFirst => (0, false),
+            ComputeLoopOrderStrategy::AllAccumulatorsFirst { reuse_lhs_fragment } => {
+                (1, reuse_lhs_fragment)
+            }
         }
     }
 }

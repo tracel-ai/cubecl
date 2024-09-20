@@ -70,6 +70,8 @@ impl CmmaConfig {
 
     pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> ComptimeCmmaInfo {
         let num_coops = self.b_mn * self.b_k / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
+        let (compute_loop_order_strategy, reuse_lhs_fragment) =
+            self.compute_loop_order_strategy.into();
 
         ComptimeCmmaInfo {
             block_size_m: self.b_mn as u32,
@@ -85,7 +87,8 @@ impl CmmaConfig {
             num_accumulators: (self.b_mn / self.b_k) as u32,
             write_out_strategy: self.write_out_strategy.into(),
             cube_dispatch_strategy: self.cube_dispatch_strategy.into(),
-            compute_loop_order_strategy: self.compute_loop_order_strategy.into(),
+            compute_loop_order_strategy,
+            reuse_lhs_fragment,
             lhs_smem_loader_strategy: self.lhs_smem_loader_strategy.into(),
             rhs_smem_loader_strategy: self.rhs_smem_loader_strategy.into(),
         }
@@ -161,8 +164,11 @@ pub struct ComptimeCmmaInfo {
     pub write_out_strategy: u32,
     /// 0 = RowMajor, 1 = ColMajor, 2 = Swizzle
     pub cube_dispatch_strategy: u32,
-    /// 0 = buffer inner, 1 = buffer outer
+    /// 0 = all buffers first, 1 = all accumulators first
     pub compute_loop_order_strategy: u32,
+    /// Whether to reuse lhs fragment (true) or to reload it (false)
+    /// Available only with all accumulators first compute loop order
+    pub reuse_lhs_fragment: bool,
     /// 0 = tilewise row major, 1 = tilewise col major
     /// 2 = continous row major, 3 = continuous col major
     pub lhs_smem_loader_strategy: u32,

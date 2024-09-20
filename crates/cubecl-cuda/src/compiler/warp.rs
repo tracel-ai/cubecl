@@ -105,8 +105,8 @@ fn reduce_operator(
         "
     {out} = {input};
 {{
-    for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
-        {out} {op} __shfl_down_sync(0xFFFFFFFF, {out}, offset);
+    for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{
+       {out} {op} __shfl_xor_sync(-1, {out}, offset);
     }}
 }}
 "

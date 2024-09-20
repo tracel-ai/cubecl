@@ -313,6 +313,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Magnitude {
+        input: Variable,
+        out: Variable,
+    },
     Normalize {
         input: Variable,
         out: Variable,
@@ -689,6 +693,9 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;\n"
             )),
             Instruction::Negate { input, out } => f.write_fmt(format_args!("{out} = -{input};\n")),
+            Instruction::Magnitude { input, out } => {
+                f.write_fmt(format_args!("{out} = length({input});\n"))
+            }
             Instruction::Normalize { input, out } => {
                 if input.item().vectorization_factor() == 1 {
                     // We need a check for vectorization factor 1 here, for compatibility with cuda.
