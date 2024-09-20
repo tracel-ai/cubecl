@@ -21,21 +21,21 @@ use crate::matmul::cmma::{
 pub(crate) fn compute_loop<F: Float, FC: Float>(
     shared_memories: SharedMemories<FC>,
     fragments: &mut Fragments<F, FC>,
-    ids: Ids,
+    compute_ids: Ids,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
     if comptime_info.compute_loop_order_strategy == 0 {
         AllBuffersFirstComputeLoop::compute_loop::<F, FC>(
             shared_memories,
             fragments,
-            ids,
+            compute_ids,
             comptime_info,
         );
     } else {
         AllAccumulatorsFirstComputeLoop::compute_loop::<F, FC>(
             shared_memories,
             fragments,
-            ids,
+            compute_ids,
             comptime_info,
         );
     }

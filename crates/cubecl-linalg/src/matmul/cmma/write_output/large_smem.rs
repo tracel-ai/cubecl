@@ -21,15 +21,15 @@ impl OutputWriter for LargeSmemWriter {
         let num_accumulators = comptime_info.num_accumulators;
         let tile_size = comptime_info.tile_size;
         let num_coops = comptime_info.num_coops;
-        let ids = runtime_info.ids;
+        let coop_id = runtime_info.compute_ids.coop;
 
         let smem_stride = tile_size * tile_size;
         let smem_size = num_accumulators * num_coops * smem_stride;
 
         let mut acc_sm = SharedMemory::<F>::new(smem_size);
 
-        let slice_offset = ids.coop * num_accumulators * smem_stride;
-        let smem_position_base = num_accumulators * ids.coop;
+        let slice_offset = coop_id * num_accumulators * smem_stride;
+        let smem_position_base = num_accumulators * coop_id;
 
         #[unroll]
         for n in 0..num_accumulators {

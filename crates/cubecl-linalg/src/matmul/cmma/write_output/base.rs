@@ -110,21 +110,22 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let sm_stride = tile_size * tile_size;
     let coop_dim = comptime_info.coop_dim;
 
-    let dims = runtime_info.dims;
-    let ids = runtime_info.ids;
+    let coop_id = runtime_info.compute_ids.coop;
+    let lane_id = runtime_info.compute_ids.lane;
+
     let offsets = runtime_info.offsets;
 
-    let tile_row = ids.coop / num_accum_groups_in_block_row;
-    let tile_col = (ids.coop % num_accum_groups_in_block_row) * num_accumulators;
+    let tile_row = coop_id / num_accum_groups_in_block_row;
+    let tile_col = (coop_id % num_accum_groups_in_block_row) * num_accumulators;
 
     let num_unit_writes = tile_size * tile_size / (out_vec * coop_dim);
 
-    let smem_offset = smem_position * sm_stride + ids.lane * out_vec;
+    let smem_offset = smem_position * sm_stride + lane_id * out_vec;
     let sm_step = coop_dim * out_vec;
 
     let lane_row_step = coop_dim * out_vec / tile_size;
-    let unit_write_row = ids.lane / n_units_per_tile_row;
-    let unit_write_col = ids.lane % n_units_per_tile_row * out_vec;
+    let unit_write_row = lane_id / n_units_per_tile_row;
+    let unit_write_col = lane_id % n_units_per_tile_row * out_vec;
 
     let row_offset = offsets.cube_row + tile_row * tile_size;
     let write_col = offsets.cube_col + tile_col * tile_size + unit_write_col + n_iter * tile_size;
@@ -141,7 +142,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
             read_pos,
             write_row,
             write_col,
-            dims,
+            runtime_info.dims,
         );
     }
 }

@@ -30,8 +30,8 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
         let coop_step = coop_dim * tensor_vec;
         let lane_row_step = coop_dim * tensor_vec / tile_size;
 
-        let nth_tile = runtime_info.ids.coop;
-        let lane_id = runtime_info.ids.lane;
+        let nth_tile = runtime_info.load_ids.coop;
+        let lane_id = runtime_info.load_ids.lane;
 
         let smem_tile_width = I::smem_width(comptime_info) / tile_size;
         let smem_tile_height = I::smem_height(comptime_info) / tile_size;

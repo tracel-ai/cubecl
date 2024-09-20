@@ -39,7 +39,7 @@ pub(crate) fn matmul_execute<F: Float, FC: Float>(
         compute_loop::<F, FC>(
             shared_memories,
             &mut fragments,
-            runtime_info.ids,
+            runtime_info.compute_ids,
             comptime_info,
         );
 

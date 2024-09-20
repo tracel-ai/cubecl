@@ -31,8 +31,8 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
         let num_iterations = num_smem_elements / jump_length;
         let unroll = comptime_info.unroll;
 
-        let lane_id = runtime_info.ids.lane;
-        let coop_id = runtime_info.ids.coop;
+        let lane_id = runtime_info.load_ids.lane;
+        let coop_id = runtime_info.load_ids.coop;
         let unit_position_base = (coop_id * coop_dim + lane_id) * vectorization;
         let (skip_row, skip_col) = I::skips(k_offset, runtime_info);
 

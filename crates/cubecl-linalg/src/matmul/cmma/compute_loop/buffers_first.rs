@@ -16,7 +16,7 @@ impl ComputeLoop for AllBuffersFirstComputeLoop {
     fn compute_loop<F: Float, FC: Float>(
         shared_memories: SharedMemories<FC>,
         fragments: &mut Fragments<F, FC>,
-        ids: Ids,
+        compute_ids: Ids,
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
         // Comptime values
@@ -29,8 +29,8 @@ impl ComputeLoop for AllBuffersFirstComputeLoop {
         let num_coop_per_row = (block_size_n / tile_size) / num_accumulators;
 
         // Runtime values
-        let tile_row = ids.coop / num_coop_per_row;
-        let tile_col_base = (ids.coop % num_coop_per_row) * num_accumulators;
+        let tile_row = compute_ids.coop / num_coop_per_row;
+        let tile_col_base = (compute_ids.coop % num_coop_per_row) * num_accumulators;
 
         #[unroll]
         for accumulator_iter in 0..num_accumulators {

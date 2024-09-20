@@ -15,10 +15,17 @@ pub fn cmma_kernel<F: Float, FC: Float>(
     out: &mut Tensor<F>,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    let ids = get_ids();
+    let compute_ids = get_ids();
+    let load_ids = get_ids();
+
     let dims = get_dims::<F>(lhs, rhs);
     let offsets = calculate_offsets::<F>(lhs, rhs, out, comptime_info);
-    let runtime_info = RuntimeCmmaInfo { ids, dims, offsets };
+    let runtime_info = RuntimeCmmaInfo {
+        compute_ids,
+        load_ids,
+        dims,
+        offsets,
+    };
 
     let shared_memories = make_shared_memories::<FC>(comptime_info);
     let cmma_matrices = make_cmma_matrices::<F, FC>(comptime_info);
@@ -49,7 +56,8 @@ pub(crate) struct Ids {
 
 #[derive(CubeType, Copy, Clone)]
 pub(crate) struct RuntimeCmmaInfo {
-    pub ids: Ids,
+    pub compute_ids: Ids,
+    pub load_ids: Ids,
     pub dims: Dimensions,
     pub offsets: Offsets,
 }
