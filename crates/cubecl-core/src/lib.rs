@@ -23,7 +23,7 @@ pub use codegen::*;
 pub use pod::*;
 pub use runtime::*;
 
-pub use cubecl_macros::{comptime, cube, CubeLaunch, CubeType};
+pub use cubecl_macros::*;
 pub use cubecl_runtime::benchmark;
 
 /// An approximation of the subcube dimension.

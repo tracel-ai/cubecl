@@ -1,5 +1,8 @@
 use error::error_into_token_stream;
-use generate::cube_type::generate_cube_type;
+use generate::{
+    autotune::{generate_autotune_key, generate_autotune_set},
+    cube_type::generate_cube_type,
+};
 use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
     helpers::{RemoveHelpers, ReplaceIndices},
@@ -113,4 +116,71 @@ pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
 pub fn comptime(input: TokenStream) -> TokenStream {
     let tokens: proc_macro2::TokenStream = input.into();
     quote![{ #tokens }].into()
+}
+
+/// Implements display and initialization for autotune keys.
+///
+/// # Helper
+///
+/// Use the `#[autotune]` helper attribute to anchor fields to the next power of two, or rename
+/// the fields for the display implementation.
+///
+/// # Example
+/// ```ignore
+/// #[derive(AutotuneKey, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// pub struct OperationKey {
+///     #[autotune(name = "Batch Size")]
+///     batch_size: usize,
+///     channels: usize,
+///     #[autotune(anchor(max = 1024))]
+///     height: usize,
+///     #[autotune(anchor)]
+///     width: usize,
+/// }
+/// ```
+#[proc_macro_derive(AutotuneKey, attributes(autotune))]
+pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
+    let input = syn::parse(input).unwrap();
+    match generate_autotune_key(input) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+/// Crates a tuning set with a specific signature. Should return a tuple of benchmark inputs.
+///
+/// # Arguments
+///
+/// * `name` - the name of the generated operations struct (default: `PascalCaseFnName`)
+/// * `key` - the name of the key input parameter (default: `key`)
+/// * `create_key` - path to function that creates the key. If not specified, `new` must be implemented manually.
+/// * `should_run` - path to override function for the `should_run` function of the set.
+/// * `operations` - ordered list of operations returned by this tune set
+///
+/// # Example
+///
+/// ```ignore
+/// #[tune(create_key = key_from_input, operations(operation_1, operation_2))]
+/// pub fn my_operations(key: MyKey, input: JitTensor<f32, 4>) -> JitTensor<f32, 4> {
+///     let bench_input = random_tensor_like(input, -1.0, 1.0);
+///     
+///     (bench_input)
+/// }
+///
+/// fn key_from_input(input: &JitTensor<f32, 4>) -> MyKey {
+///     MyKey::new(input.shape.dims)
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn tune(args: TokenStream, input: TokenStream) -> TokenStream {
+    match autotune_set_impl(args, input.clone()) {
+        Ok(tokens) => tokens,
+        Err(e) => error_into_token_stream(e, input.into()).into(),
+    }
+}
+
+fn autotune_set_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let item = syn::parse(input)?;
+    let args = from_tokens(args.into())?;
+    Ok(generate_autotune_set(item, args)?.into())
 }
