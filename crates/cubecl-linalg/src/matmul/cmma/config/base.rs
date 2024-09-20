@@ -41,7 +41,8 @@ impl Default for CmmaConfig {
             ComputeLoopOrderStrategy::AllBuffersFirst,
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
-            BlockLoopStrategy::Standard((b_mn / CMMA_TILE_SIZE) as u32),
+            //BlockLoopStrategy::Standard((b_mn / CMMA_TILE_SIZE) as u32),
+            BlockLoopStrategy::Split(16, 16),
         )
     }
 }
@@ -126,7 +127,7 @@ impl CmmaConfig {
     pub(crate) fn cube_dim(&self) -> CubeDim {
         CubeDim {
             x: CMMA_COOP_DIM as u32,
-            y: ((self.b_mn * self.b_k) / (CMMA_TILE_SIZE * CMMA_TILE_SIZE)) as u32,
+            y: match self.block_loop_strategy {},
             z: 1,
         }
     }
