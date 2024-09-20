@@ -214,6 +214,11 @@ impl Variable {
                 item: item.vectorize(vectorize),
                 depth: *depth,
             },
+            Variable::LocalBinding { id, item, depth } => Variable::Local {
+                id: *id,
+                item: item.vectorize(vectorize),
+                depth: *depth,
+            },
             Variable::Slice { id, item, depth } => Variable::Slice {
                 id: *id,
                 item: item.vectorize(vectorize),

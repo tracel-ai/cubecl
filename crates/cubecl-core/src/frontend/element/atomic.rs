@@ -102,7 +102,7 @@ where
         pointer: <Self as CubeType>::ExpandType,
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let pointer: ExpandElement = pointer.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicLoad(UnaryOperator {
             input: *pointer,
             out: *new_var,
@@ -130,7 +130,7 @@ where
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicSwap(BinaryOperator {
             lhs: *ptr,
             rhs: *value,
@@ -148,7 +148,7 @@ where
         let pointer: ExpandElement = pointer.into();
         let cmp: ExpandElement = cmp.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicCompareAndSwap(CompareAndSwapOperator {
             out: *new_var,
             input: *pointer,
@@ -165,7 +165,7 @@ where
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicAdd(BinaryOperator {
             lhs: *ptr,
             rhs: *value,
@@ -181,7 +181,7 @@ where
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicSub(BinaryOperator {
             lhs: *ptr,
             rhs: *value,
@@ -197,7 +197,7 @@ where
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicMax(BinaryOperator {
             lhs: *ptr,
             rhs: *value,
@@ -213,7 +213,7 @@ where
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicMin(BinaryOperator {
             lhs: *ptr,
             rhs: *value,
@@ -229,7 +229,7 @@ where
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicAnd(BinaryOperator {
             lhs: *ptr,
             rhs: *value,
@@ -245,7 +245,7 @@ where
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicOr(BinaryOperator {
             lhs: *ptr,
             rhs: *value,
@@ -261,7 +261,7 @@ where
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Self::Primitive::as_elem()));
+        let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
         context.register(Operator::AtomicXor(BinaryOperator {
             lhs: *ptr,
             rhs: *value,

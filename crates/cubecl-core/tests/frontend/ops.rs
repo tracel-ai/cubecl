@@ -241,8 +241,8 @@ mod tests {
             #[test]
             fn $test_name() {
                 let mut context = CubeContext::root();
-                let x = context.create_local(Item::new(Elem::Float(FloatKind::F32)));
-                let y = context.create_local(Item::new(Elem::Float(FloatKind::F32)));
+                let x = context.create_local_binding(Item::new(Elem::Float(FloatKind::F32)));
+                let y = context.create_local_binding(Item::new(Elem::Float(FloatKind::F32)));
 
                 $op_expand(&mut context, x.into(), y.into());
 
@@ -259,7 +259,7 @@ mod tests {
             #[test]
             fn $test_name() {
                 let mut context = CubeContext::root();
-                let x = context.create_local(Item::new(Elem::Float(FloatKind::F32)));
+                let x = context.create_local_binding(Item::new(Elem::Float(FloatKind::F32)));
 
                 $op_expand(&mut context, x.into());
 
@@ -276,8 +276,8 @@ mod tests {
             #[test]
             fn $test_name() {
                 let mut context = CubeContext::root();
-                let x = context.create_local(Item::new(Elem::Bool));
-                let y = context.create_local(Item::new(Elem::Bool));
+                let x = context.create_local_binding(Item::new(Elem::Bool));
+                let y = context.create_local_binding(Item::new(Elem::Bool));
 
                 $op_expand(&mut context, x.into(), y.into());
 
@@ -294,8 +294,8 @@ mod tests {
             #[test]
             fn $test_name() {
                 let mut context = CubeContext::root();
-                let x = context.create_local(Item::new(Elem::UInt));
-                let y = context.create_local(Item::new(Elem::UInt));
+                let x = context.create_local_binding(Item::new(Elem::UInt));
+                let y = context.create_local_binding(Item::new(Elem::UInt));
 
                 $op_expand(&mut context, x.into(), y.into());
 
@@ -362,61 +362,61 @@ mod tests {
         cube_can_add_assign,
         add_assign_op::expand::<f32>,
         "Add",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_test!(
         cube_can_sub_assign,
         sub_assign_op::expand::<f32>,
         "Sub",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_test!(
         cube_can_mul_assign,
         mul_assign_op::expand::<f32>,
         "Mul",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_test!(
         cube_can_div_assign,
         div_assign_op::expand::<f32>,
         "Div",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_test!(
         cube_can_rem_assign,
         rem_assign_op::expand::<i32>,
         "Modulo",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_test!(
         cube_can_bitor_assign,
         bitor_assign_op::expand::<i32>,
         "BitwiseOr",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_test!(
         cube_can_bitand_assign,
         bitand_assign_op::expand::<i32>,
         "BitwiseAnd",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_test!(
         cube_can_bitxor_assign,
         bitxor_assign_op::expand::<i32>,
         "BitwiseXor",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_test!(
         cube_can_shl_assign,
         shl_assign_op::expand::<i32>,
         "ShiftLeft",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_test!(
         cube_can_shr_assign,
         shr_assign_op::expand::<i32>,
         "ShiftRight",
-        ref_ops_binary
+        ref_ops_binary_assign
     );
     binary_boolean_test!(cube_can_and, and_op::expand, "And");
     binary_boolean_test!(cube_can_or, or_op::expand, "Or");
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn cube_can_not() {
         let mut context = CubeContext::root();
-        let x = context.create_local(Item::new(Elem::Bool));
+        let x = context.create_local_binding(Item::new(Elem::Bool));
 
         not_op::expand(&mut context, x.into());
 
@@ -446,33 +446,47 @@ mod tests {
         );
     }
 
+    fn ref_ops_binary_assign(ops_name: &str) -> String {
+        ref_ops_template(ops_name, "Float(F32)", "Float(F32)", true, true)
+    }
+
     fn ref_ops_binary(ops_name: &str) -> String {
-        ref_ops_template(ops_name, "Float(F32)", "Float(F32)", true)
+        ref_ops_template(ops_name, "Float(F32)", "Float(F32)", true, false)
     }
 
     fn ref_ops_unary(ops_name: &str) -> String {
-        ref_ops_template(ops_name, "Float(F32)", "Float(F32)", false)
+        ref_ops_template(ops_name, "Float(F32)", "Float(F32)", false, false)
     }
 
     fn ref_ops_cmp(ops_name: &str) -> String {
-        ref_ops_template(ops_name, "Float(F32)", "Bool", true)
+        ref_ops_template(ops_name, "Float(F32)", "Bool", true, false)
     }
 
     fn ref_ops_unary_boolean(ops_name: &str) -> String {
-        ref_ops_template(ops_name, "Bool", "Bool", false)
+        ref_ops_template(ops_name, "Bool", "Bool", false, false)
     }
 
     fn ref_ops_binary_boolean(ops_name: &str) -> String {
-        ref_ops_template(ops_name, "Bool", "Bool", true)
+        ref_ops_template(ops_name, "Bool", "Bool", true, false)
     }
 
     fn ref_ops_binary_u32(ops_name: &str) -> String {
-        ref_ops_template(ops_name, "UInt", "UInt", true)
+        ref_ops_template(ops_name, "UInt", "UInt", true, false)
     }
 
-    fn ref_ops_template(ops_name: &str, in_type: &str, out_type: &str, binary: bool) -> String {
+    fn ref_ops_template(
+        ops_name: &str,
+        in_type: &str,
+        out_type: &str,
+        binary: bool,
+        is_assign: bool,
+    ) -> String {
         if binary {
-            let out_number = if in_type == out_type { 0 } else { 2 };
+            let out_number = match (in_type == out_type, is_assign) {
+                (true, true) => 0,
+                (true, false) => binary as i32,
+                _ => 2,
+            };
             format!(
                 "[Operator({ops_name}(BinaryOperator {{ \
                 lhs: Local {{ id: 0, item: Item {{ \

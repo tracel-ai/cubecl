@@ -79,20 +79,21 @@ mod tests {
         cpa,
         ir::{Item, Variable},
     };
+    use pretty_assertions::assert_eq;
 
     type ElemType = f32;
     #[test]
     fn cube_strategy_trait_add_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
-        let y = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         with_strategy_trait::expand::<AddStrategy, ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
 
         assert_eq!(
-            format!("{:?}", scope.operations),
+            format!("{:#?}", scope.operations),
             inline_macro_ref_one(true)
         );
     }
@@ -101,14 +102,14 @@ mod tests {
     fn cube_strategy_trait_sub_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
-        let y = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         with_strategy_trait::expand::<SubStrategy, ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
 
         assert_eq!(
-            format!("{:?}", scope.operations),
+            format!("{:#?}", scope.operations),
             inline_macro_ref_one(false)
         );
     }
@@ -117,8 +118,8 @@ mod tests {
     fn cube_two_strategy_traits_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
-        let y = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         two_strategy_traits::expand::<SubStrategy, AddStrategy, ElemType>(
             &mut context,
@@ -127,15 +128,15 @@ mod tests {
         );
         let scope = context.into_scope();
 
-        assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_two());
+        assert_eq!(format!("{:#?}", scope.operations), inline_macro_ref_two());
     }
 
     #[test]
     fn cube_trait_generic_method_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
-        let y = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         with_trait_generic_method::expand::<AddStrategy, ElemType>(
             &mut context,
@@ -145,7 +146,7 @@ mod tests {
         let scope = context.into_scope();
 
         assert_eq!(
-            format!("{:?}", scope.operations),
+            format!("{:#?}", scope.operations),
             inline_macro_ref_one(true)
         );
     }
@@ -153,34 +154,34 @@ mod tests {
     fn inline_macro_ref_one(is_add_strategy: bool) -> String {
         let mut context = CubeContext::root();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_local(item);
-        let y = context.create_local(item);
+        let x = context.create_local_binding(item);
+        let y = context.create_local_binding(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();
         let y: Variable = y.into();
 
         match is_add_strategy {
-            true => cpa!(scope, x = x + y),
-            false => cpa!(scope, x = x - y),
+            true => cpa!(scope, y = x + y),
+            false => cpa!(scope, y = x - y),
         }
 
-        format!("{:?}", scope.operations)
+        format!("{:#?}", scope.operations)
     }
 
     fn inline_macro_ref_two() -> String {
         let mut context = CubeContext::root();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_local(item);
-        let y = context.create_local(item);
+        let x = context.create_local_binding(item);
+        let y = context.create_local_binding(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();
         let y: Variable = y.into();
 
         cpa!(scope, x = x - y);
-        cpa!(scope, x = x + y);
+        cpa!(scope, y = x + y);
 
-        format!("{:?}", scope.operations)
+        format!("{:#?}", scope.operations)
     }
 }

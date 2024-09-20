@@ -318,6 +318,11 @@ impl ExpandElement {
             ExpandElement::Plain(_) => false,
         }
     }
+
+    /// Explicitly consume the element, freeing it for reuse if no other copies exist.
+    pub fn consume(self) -> Variable {
+        *self
+    }
 }
 
 impl core::ops::Deref for ExpandElement {
@@ -358,6 +363,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         Variable::LocalScalar { .. } => init(elem),
         Variable::ConstantScalar { .. } => init(elem),
         Variable::Local { .. } => init(elem),
+        Variable::LocalBinding { .. } => init(elem),
         // Constant should be initialized since the new variable can be mutated afterward.
         // And it is assumed those values are cloned.
         Variable::Rank
@@ -434,7 +440,8 @@ pub(crate) fn __expand_vectorized<C: Numeric + CubeIndex<u32>, Out: Numeric>(
     vectorization: u32,
     elem: Elem,
 ) -> ExpandElementTyped<Out> {
-    let new_var = context.create_local(Item::vectorized(elem, NonZero::new(vectorization as u8)));
+    let new_var =
+        context.create_local_binding(Item::vectorized(elem, NonZero::new(vectorization as u8)));
     let val = Out::from(val).unwrap();
     let val: ExpandElementTyped<Out> = val.into();
 

@@ -203,7 +203,7 @@ impl<T: CubeType> ExpandElementTyped<T> {
         dim: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
         let dim: ExpandElement = dim.into();
-        let out = context.create_local(Item::new(Elem::UInt));
+        let out = context.create_local_binding(Item::new(Elem::UInt));
         context.register(Metadata::Stride {
             dim: *dim,
             var: self.expand.into(),
@@ -219,7 +219,7 @@ impl<T: CubeType> ExpandElementTyped<T> {
         dim: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
         let dim: ExpandElement = dim.into();
-        let out = context.create_local(Item::new(Elem::UInt));
+        let out = context.create_local_binding(Item::new(Elem::UInt));
         context.register(Metadata::Shape {
             dim: *dim,
             var: self.expand.into(),
@@ -230,7 +230,7 @@ impl<T: CubeType> ExpandElementTyped<T> {
 
     // Expanded version of len
     pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-        let out = context.create_local(Item::new(Elem::UInt));
+        let out = context.create_local_binding(Item::new(Elem::UInt));
         context.register(Metadata::Length {
             var: self.expand.into(),
             out: out.clone().into(),

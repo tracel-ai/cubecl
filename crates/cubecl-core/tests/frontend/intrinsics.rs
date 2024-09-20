@@ -30,7 +30,8 @@ mod tests {
     fn vectorization_of_test() {
         let mut context = CubeContext::root();
 
-        let input = context.create_local(Item::vectorized(ElemType::as_elem(), NonZero::new(3)));
+        let input =
+            context.create_local_binding(Item::vectorized(ElemType::as_elem(), NonZero::new(3)));
 
         vectorization_of_intrinsic::expand::<ElemType>(&mut context, input.into());
         let scope = context.into_scope();
@@ -41,8 +42,8 @@ mod tests {
     fn inline_macro_ref() -> String {
         let mut context = CubeContext::root();
         let item = Item::new(ElemType::as_elem());
-        let _input = context.create_local(item);
-        let out = context.create_local(Item::new(u32::as_elem()));
+        let _input = context.create_local_binding(item);
+        let out = context.create_local_binding(Item::new(u32::as_elem()));
 
         let mut scope = context.into_scope();
         let out: Variable = out.into();

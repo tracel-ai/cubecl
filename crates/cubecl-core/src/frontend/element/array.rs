@@ -82,7 +82,7 @@ impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
             .expect("Vectorization must be comptime")
             .as_u32();
         let var = self.expand.clone();
-        let new_var = context.create_local(Item::vectorized(
+        let new_var = context.create_local_binding(Item::vectorized(
             var.item().elem(),
             NonZero::new(factor as u8),
         ));

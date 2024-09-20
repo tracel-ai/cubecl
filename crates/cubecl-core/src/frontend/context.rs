@@ -1,5 +1,5 @@
-use crate::frontend::ExpandElement;
-use crate::ir::{self, Elem, Item, Operation, Scope};
+use crate::ir::{self, Elem, Item, Operation, ReusingAllocator, Scope};
+use crate::{frontend::ExpandElement, ir::LocalAllocator};
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use std::collections::HashMap;
@@ -35,7 +35,7 @@ impl VariablePool {
     }
 
     /// Insert a new variable in the map, which is classified by Item
-    pub fn insert(&mut self, var: ExpandElement) {
+    pub fn insert(&self, var: ExpandElement) {
         let mut map = self.map.borrow_mut();
         let item = var.item();
 
@@ -50,7 +50,7 @@ impl VariablePool {
 pub struct CubeContext {
     pub root: Rc<RefCell<Scope>>,
     pub scope: Rc<RefCell<Scope>>,
-    pub pool: VariablePool,
+    pub local_allocator: Rc<dyn LocalAllocator>,
 }
 
 impl CubeContext {
@@ -62,7 +62,7 @@ impl CubeContext {
         let scope = root.clone();
 
         Self {
-            pool: Default::default(),
+            local_allocator: Rc::new(ReusingAllocator::default()),
             scope,
             root,
         }
@@ -78,7 +78,7 @@ impl CubeContext {
         Self {
             scope: Rc::new(RefCell::new(scope)),
             root: self.root.clone(),
-            pool: self.pool.clone(),
+            local_allocator: self.local_allocator.clone(),
         }
     }
 
@@ -92,23 +92,16 @@ impl CubeContext {
 
     /// When a new variable is required, we check if we can reuse an old one
     /// Otherwise we create a new one.
-    pub fn create_local(&mut self, item: Item) -> ExpandElement {
-        if item.elem.is_atomic() {
-            let new = self.scope.borrow_mut().create_local_undeclared(item);
-            return ExpandElement::Plain(new);
-        }
+    pub fn create_local_variable(&mut self, item: Item) -> ExpandElement {
+        self.local_allocator
+            .create_local_variable(self.root.clone(), self.scope.clone(), item)
+    }
 
-        // Reuse an old variable if possible
-        if let Some(var) = self.pool.reuse(item) {
-            return var;
-        }
-
-        // Create a new variable at the root scope
-        // Insert it in the variable pool for potential reuse
-        let new = ExpandElement::Managed(Rc::new(self.root.borrow_mut().create_local(item)));
-        self.pool.insert(new.clone());
-
-        new
+    /// When a new variable is required, we check if we can reuse an old one
+    /// Otherwise we create a new one.
+    pub fn create_local_binding(&mut self, item: Item) -> ExpandElement {
+        self.local_allocator
+            .create_local_binding(self.root.clone(), self.scope.clone(), item)
     }
 
     /// Create a new matrix element.

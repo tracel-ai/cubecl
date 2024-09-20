@@ -25,36 +25,40 @@ mod tests {
         cpa,
         ir::{Branch, Elem, Item, Variable},
     };
+    use pretty_assertions::assert_eq;
 
     type ElemType = i32;
     #[test]
     fn cube_reuse_assign_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         reuse::expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
 
-        assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_assign());
+        assert_eq!(
+            format!("{:#?}", scope.operations),
+            inline_macro_ref_assign()
+        );
     }
 
     #[test]
     fn cube_reuse_incr_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         reuse_incr::expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
 
-        assert_eq!(format!("{:?}", scope.operations), inline_macro_ref_incr());
+        assert_eq!(format!("{:#?}", scope.operations), inline_macro_ref_incr());
     }
 
     fn inline_macro_ref_assign() -> String {
         let mut context = CubeContext::root();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_local(item);
+        let x = context.create_local_binding(item);
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
@@ -75,13 +79,13 @@ mod tests {
             })
         );
 
-        format!("{:?}", scope.operations)
+        format!("{:#?}", scope.operations)
     }
 
     fn inline_macro_ref_incr() -> String {
         let mut context = CubeContext::root();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_local(item);
+        let x = context.create_local_binding(item);
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
@@ -100,6 +104,6 @@ mod tests {
             })
         );
 
-        format!("{:?}", scope.operations)
+        format!("{:#?}", scope.operations)
     }
 }

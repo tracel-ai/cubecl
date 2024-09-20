@@ -82,7 +82,7 @@ pub trait Numeric:
         context: &mut CubeContext,
         vec: [u32; D],
     ) -> <Self as CubeType>::ExpandType {
-        let new_var = context.create_local(Item::vectorized(
+        let new_var = context.create_local_binding(Item::vectorized(
             Self::as_elem(),
             NonZero::new(vec.len() as u8),
         ));

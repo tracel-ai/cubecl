@@ -46,8 +46,8 @@ mod tests {
     fn cube_new_struct_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
-        let y = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         creator::expand::<ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
@@ -62,8 +62,8 @@ mod tests {
     fn cube_struct_as_arg_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
-        let y = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         let expanded_state = StateExpand {
             first: x.into(),
@@ -82,8 +82,8 @@ mod tests {
     fn cube_struct_assign_to_field_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
-        let y = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         let expanded_state = StateExpand {
             first: x.into(),
@@ -102,8 +102,8 @@ mod tests {
     fn cube_struct_assign_to_field_reuse_struct_test() {
         let mut context = CubeContext::root();
 
-        let x = context.create_local(Item::new(ElemType::as_elem()));
-        let y = context.create_local(Item::new(ElemType::as_elem()));
+        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
 
         let expanded_state = StateExpand {
             first: x.into(),
@@ -143,8 +143,8 @@ mod tests {
     fn receive_state_with_reuse_inline_macro_ref() -> String {
         let mut context = CubeContext::root();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_local(item);
-        let y = context.create_local(item);
+        let x = context.create_local_binding(item);
+        let y = context.create_local_binding(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();
