@@ -38,19 +38,14 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
 
         let lane_id = runtime_info.ids.lane;
         let coop_id = runtime_info.ids.coop;
-        let unit_position_base = lane_id * vectorization + coop_id * coop_dim;
+        let unit_position_base = (coop_id * coop_dim + lane_id) * vectorization;
         let (skip_row, skip_col) = I::skips(k_offset, runtime_info);
 
         #[unroll(unroll)]
         for i in 0..num_iterations {
             let unit_position = unit_position_base + i * jump_length;
             let write_pos = unit_position;
-            let (row, col) = apply_tiled_layout::<T>(
-                unit_position,
-                I::smem_width(comptime_info),
-                I::smem_height(comptime_info),
-                comptime_info,
-            );
+            let (row, col) = apply_tiled_layout::<I, T>(unit_position, comptime_info);
             let read_row = row + skip_row;
             let read_col = col + skip_col;
 
@@ -68,22 +63,20 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
 }
 
 #[cube]
-pub(crate) fn apply_tiled_layout<T: TilingOrder>(
-    absolute_position: u32,
-    smem_width: u32,
-    smem_height: u32,
+pub(crate) fn apply_tiled_layout<I: LoadInfo, T: TilingOrder>(
+    unit_position: u32,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> (u32, u32) {
     let tile_size = comptime_info.tile_size;
     let tile_square = tile_size * tile_size;
-    let smem_tile_width = smem_width / tile_size;
-    let smem_tile_height = smem_height / tile_size;
+    let smem_tile_width = I::smem_width(comptime_info) / tile_size;
+    let smem_tile_height = I::smem_height(comptime_info) / tile_size;
 
-    let nth_tile = absolute_position / tile_square;
+    let nth_tile = unit_position / tile_square;
 
     let (tile_row, tile_col) = T::to_row_col(nth_tile, smem_tile_width, smem_tile_height);
 
-    let pos_within_tile = absolute_position % tile_square;
+    let pos_within_tile = unit_position % tile_square;
     let row_within_tile = pos_within_tile / tile_size;
     let col_within_tile = pos_within_tile % tile_size;
 
