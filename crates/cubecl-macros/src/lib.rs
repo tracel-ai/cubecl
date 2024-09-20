@@ -88,7 +88,10 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
 pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
 
-    generate_cube_type(&input, true).into()
+    let gen = generate_cube_type(&input, true).into();
+    // panic!("{gen}");
+
+    gen
 }
 
 /// Derive macro to define a cube type that is not launched

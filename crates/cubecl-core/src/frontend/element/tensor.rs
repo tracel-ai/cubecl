@@ -60,9 +60,7 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
 impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     type RuntimeArg<'a, R: Runtime> = TensorArg<'a, R>;
 
-    fn compilation_arg<'a, R: Runtime>(
-        runtime_arg: &Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
             TensorArg::Handle {
                 handle: _,

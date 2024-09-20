@@ -108,32 +108,26 @@ impl Launch {
         let mut defined = quote! {};
         let mut args = quote! {};
 
-        self.runtime_inputs()
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, input)| {
-                let ty = &input.ty_owned();
-                let ident = &input.name;
-                let var = Ident::new(format!("input_arg_{i}").as_str(), ident.span());
+        self.runtime_inputs().enumerate().for_each(|(i, input)| {
+            let ty = &input.ty_owned();
+            let ident = &input.name;
+            let var = Ident::new(format!("input_arg_{i}").as_str(), ident.span());
 
-                args.extend(quote! {#var,});
-                defined.extend(quote! {
-                    let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
-                });
+            args.extend(quote! {#var,});
+            defined.extend(quote! {
+                let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
             });
-        self.runtime_outputs()
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, output)| {
-                let ty = &output.ty_owned();
-                let ident = &output.name;
-                let var = Ident::new(format!("output_arg_{i}").as_str(), ident.span());
+        });
+        self.runtime_outputs().enumerate().for_each(|(i, output)| {
+            let ty = &output.ty_owned();
+            let ident = &output.name;
+            let var = Ident::new(format!("output_arg_{i}").as_str(), ident.span());
 
-                args.extend(quote! {#var,});
-                defined.extend(quote! {
-                    let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
-                });
+            args.extend(quote! {#var,});
+            defined.extend(quote! {
+                let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
             });
+        });
 
         (
             quote! {

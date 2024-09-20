@@ -14,12 +14,18 @@ use crate::{
 
 use super::{
     ArgSettings, CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
-    LaunchArg, LaunchArgExpand, TensorHandleRef,
+    IntoRuntime, LaunchArg, LaunchArgExpand, TensorHandleRef,
 };
 
 /// A contiguous array of elements.
 pub struct Array<E> {
     _val: PhantomData<E>,
+}
+
+impl<E: CubePrimitive> IntoRuntime for Array<E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Array can't exist at compile time")
+    }
 }
 
 impl<C: CubeType> CubeType for Array<C> {
@@ -128,9 +134,7 @@ impl<E: CubeType> Array<E> {
 impl<C: CubePrimitive> LaunchArg for Array<C> {
     type RuntimeArg<'a, R: Runtime> = ArrayArg<'a, R>;
 
-    fn compilation_arg<'a, R: Runtime>(
-        runtime_arg: &Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
             ArrayArg::Handle {
                 handle: _,

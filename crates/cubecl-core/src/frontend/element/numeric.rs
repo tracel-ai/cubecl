@@ -128,6 +128,5 @@ impl<T: Numeric> LaunchArg for T {
     fn compilation_arg<'a, R: Runtime>(
         _runtime_arg: &'a Self::RuntimeArg<'a, R>,
     ) -> Self::CompilationArg {
-        ()
     }
 }

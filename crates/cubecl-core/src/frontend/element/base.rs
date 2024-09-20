@@ -82,9 +82,7 @@ pub trait LaunchArg: LaunchArgExpand + Send + Sync + 'static {
     /// The runtime argument for the kernel.
     type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
 
-    fn compilation_arg<'a, R: Runtime>(
-        runtime_arg: &Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg;
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg;
 }
 
 impl LaunchArg for () {
@@ -93,7 +91,6 @@ impl LaunchArg for () {
     fn compilation_arg<'a, R: Runtime>(
         _runtime_arg: &'a Self::RuntimeArg<'a, R>,
     ) -> Self::CompilationArg {
-        ()
     }
 }
 

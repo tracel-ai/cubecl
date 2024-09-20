@@ -12,6 +12,12 @@ pub struct SequenceArg<'a, R: Runtime, T: LaunchArg> {
     values: Vec<T::RuntimeArg<'a, R>>,
 }
 
+impl<'a, R: Runtime, T: LaunchArg> Default for SequenceArg<'a, R, T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, R: Runtime, T: LaunchArg> SequenceArg<'a, R, T> {
     pub fn new() -> Self {
         Self { values: Vec::new() }
@@ -55,9 +61,7 @@ impl<C: LaunchArg> core::cmp::Eq for SequenceCompilationArg<C> {}
 impl<C: LaunchArg> LaunchArg for Sequence<C> {
     type RuntimeArg<'a, R: Runtime> = SequenceArg<'a, R, C>;
 
-    fn compilation_arg<'a, R: Runtime>(
-        runtime_arg: &Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         SequenceCompilationArg {
             values: runtime_arg
                 .values
