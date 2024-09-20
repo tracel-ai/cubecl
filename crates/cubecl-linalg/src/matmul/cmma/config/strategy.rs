@@ -60,10 +60,15 @@ impl From<ComputeLoopOrderStrategy> for (u32, bool) {
 
 #[derive(Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
+/// Defines how data is loaded from global to shared memory
 pub enum SmemLoaderStrategy {
+    /// One coop fills one tile, tile order is row major
     TilewiseRowMajor,
+    /// One coop fills one tile, tile order is col major
     TilewiseColMajor,
+    /// Coops can work in any tile, tile order is row major
     ContinuousRowMajor,
+    /// Coops can work in any tile, tile order is col major
     ContinuousColMajor,
 }
 
@@ -79,16 +84,19 @@ impl From<SmemLoaderStrategy> for u32 {
 }
 
 #[derive(Clone, Copy)]
-pub enum RoleIdStrategy {
-    Same,
-    SplitHalfway,
+/// Defines if different coops have different roles
+pub enum BlockLoopStrategy {
+    /// All coops both load and compute
+    Standard,
+    /// Half coops load, half compute
+    Split,
 }
 
-impl From<RoleIdStrategy> for u32 {
-    fn from(value: RoleIdStrategy) -> Self {
+impl From<BlockLoopStrategy> for u32 {
+    fn from(value: BlockLoopStrategy) -> Self {
         match value {
-            RoleIdStrategy::Same => 0,
-            RoleIdStrategy::SplitHalfway => 1,
+            BlockLoopStrategy::Standard => 0,
+            BlockLoopStrategy::Split => 1,
         }
     }
 }

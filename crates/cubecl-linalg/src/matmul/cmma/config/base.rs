@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 
 use super::strategy::{
-    ComputeLoopOrderStrategy, CubeDispatchStrategy, RoleIdStrategy, SmemLoaderStrategy,
+    ComputeLoopOrderStrategy, CubeDispatchStrategy, BlockLoopStrategy, SmemLoaderStrategy,
     WriteOutStrategy,
 };
 
@@ -26,7 +26,7 @@ pub struct CmmaConfig {
     pub compute_loop_order_strategy: ComputeLoopOrderStrategy,
     pub lhs_smem_loader_strategy: SmemLoaderStrategy,
     pub rhs_smem_loader_strategy: SmemLoaderStrategy,
-    pub role_id_strategy: RoleIdStrategy,
+    pub role_id_strategy: BlockLoopStrategy,
 }
 
 impl Default for CmmaConfig {
@@ -40,7 +40,7 @@ impl Default for CmmaConfig {
             ComputeLoopOrderStrategy::AllBuffersFirst,
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
-            RoleIdStrategy::Same,
+            BlockLoopStrategy::Standard,
         )
     }
 }
@@ -56,7 +56,7 @@ impl CmmaConfig {
         compute_loop_order_strategy: ComputeLoopOrderStrategy,
         lhs_smem_loader_strategy: SmemLoaderStrategy,
         rhs_smem_loader_strategy: SmemLoaderStrategy,
-        role_id_strategy: RoleIdStrategy,
+        role_id_strategy: BlockLoopStrategy,
     ) -> CmmaConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
