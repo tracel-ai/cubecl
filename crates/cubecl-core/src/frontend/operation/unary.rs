@@ -3,11 +3,11 @@ use half::{bf16, f16};
 use crate::{
     frontend::CubeContext,
     ir::Operator,
-    prelude::{CubePrimitive, ExpandElementTyped},
+    prelude::{CubePrimitive, ExpandElement, ExpandElementTyped},
     unexpanded,
 };
 
-use super::base::unary_expand;
+use super::base::{fixed_output_unary_expand, unary_expand};
 
 pub mod not {
     use super::*;
@@ -43,6 +43,26 @@ macro_rules! impl_unary_func {
 
             fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<Self> {
                 unary_expand(context, x.into(), $operator).into()
+            }
+        }
+
+        $(impl $trait_name for $type {})*
+    }
+}
+
+macro_rules! impl_fixed_out_vectorization_unary_func {
+    ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
+        pub trait $trait_name: CubePrimitive + Sized {
+            #[allow(unused_variables)]
+            fn $method_name(x: Self) -> Self {
+                unexpanded!()
+            }
+
+            fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<Self> {
+                let expand_element: ExpandElement = x.into();
+                let mut item = expand_element.item();
+                item.vectorization = $out_vectorization;
+                fixed_output_unary_expand(context, expand_element, item, $operator).into()
             }
         }
 
@@ -133,6 +153,17 @@ impl_unary_func!(
     recip,
     __expand_recip,
     Operator::Recip,
+    f16,
+    bf16,
+    f32,
+    f64
+);
+impl_fixed_out_vectorization_unary_func!(
+    Magnitude,
+    magnitude,
+    __expand_magnitude,
+    Operator::Magnitude,
+    None,
     f16,
     bf16,
     f32,

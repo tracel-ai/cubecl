@@ -61,7 +61,7 @@ macro_rules! test_unary_impl {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts(&output_handle, input.len(), $out_vectorization),
+                        ArrayArg::from_raw_parts(&output_handle, $expected.len(), $out_vectorization),
                     )
                 };
 
@@ -71,6 +71,38 @@ macro_rules! test_unary_impl {
         }
     };
 }
+
+test_unary_impl!(
+    test_magnitude,
+    F,
+    F::magnitude,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            input: [-1., 23.1, -1.4, 5.1],
+            expected: [1., 23.1, 1.4, 5.1]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 1,
+            input: [-1., 0., 1., 5.],
+            expected: [1.0, 5.099]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 1,
+            input: [-1., 0., 1., 5.],
+            expected: [5.196]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 1,
+            input: [0., 0., 0., 0.],
+            expected: [0.]
+        }
+    ]
+);
 
 test_unary_impl!(
     test_normalize,
@@ -128,6 +160,7 @@ macro_rules! testgen_unary {
             }
 
             add_test!(test_normalize);
+            add_test!(test_magnitude);
         }
     };
 }

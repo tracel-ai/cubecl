@@ -26,6 +26,7 @@ pub trait Float:
     + Ceil
     + Erf
     + Recip
+    + Magnitude
     + Normalize
     + Into<Self::ExpandType>
     + core::ops::Add<Output = Self>
