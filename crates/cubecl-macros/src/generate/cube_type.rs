@@ -146,7 +146,7 @@ impl TypeCodegen {
             let ty = &field.ty;
 
             quote! {
-               #name: <#ty as #launch_arg>::compilation_arg(&runtime_arg.#name)
+               #name: <#ty as #launch_arg>::compilation_arg::<R>(&runtime_arg.#name)
             }
         });
         quote! {
