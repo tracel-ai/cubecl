@@ -147,21 +147,9 @@ impl Launch {
 
     fn configure_settings(&self) -> TokenStream {
         let kernel_settings = prelude_type("KernelSettings");
-        let arg_settings = prelude_type("ArgSettings");
-
-        let input_configs = self.runtime_inputs().enumerate().map(|(i, arg)| {
-            let name = &arg.name;
-            quote![__settings = #arg_settings::<__R>::configure_input(&#name, #i, __settings);]
-        });
-        let output_configs = self.runtime_outputs().enumerate().map(|(i, arg)| {
-            let name = &arg.name;
-            quote![__settings = #arg_settings::<__R>::configure_output(&#name, #i, __settings);]
-        });
 
         quote! {
             let mut __settings = #kernel_settings::default().cube_dim(__cube_dim);
-            #(#input_configs)*
-            #(#output_configs)*
         }
     }
 

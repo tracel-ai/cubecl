@@ -13,7 +13,7 @@ fn gelu_array<F: Float>(inputs: &Sequence<Array<F>>, output: &mut Array<F>) {
 
 #[cube]
 fn gelu_scalar<F: Float>(x: F) -> F {
-    x * F::erf(x / F::new(2.0f32.sqrt()) + F::new(1.0)) / F::new(2.0)
+    x * (F::erf(x / F::new(2.0f32.sqrt())) + F::new(1.0)) / F::new(2.0)
 }
 
 pub fn launch<R: Runtime>(device: &R::Device) {
@@ -31,11 +31,12 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(input.len() as u32, 1, 1),
             sequence,
-            ArrayArg::from_raw_parts(&output_handle, input.len(), 1),
+            // ArrayArg::from_raw_parts(&output_handle, input.len(), 1),
+            ArrayArg::Alias { input_pos: 0 },
         )
     };
 
-    let bytes = client.read(output_handle.binding());
+    let bytes = client.read(input_handle.binding());
     let output = f32::from_bytes(&bytes);
 
     // Should be [-0.1587,  0.0000,  0.8413,  5.0000]

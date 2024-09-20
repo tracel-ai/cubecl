@@ -2,7 +2,7 @@ use crate::frontend::{
     CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
     Numeric,
 };
-use crate::ir::{Elem, IntKind, Vectorization};
+use crate::ir::{Elem, IntKind};
 use crate::Runtime;
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
@@ -117,9 +117,7 @@ macro_rules! impl_int {
             fn expand(
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
-                vectorization: Vectorization,
             ) -> ExpandElementTyped<Self> {
-                assert_eq!(vectorization, None, "Attempted to vectorize a scalar");
                 builder.scalar($type::as_elem()).into()
             }
         }

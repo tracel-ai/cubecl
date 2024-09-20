@@ -68,6 +68,22 @@ impl KernelBuilder {
         variable
     }
 
+    /// todo.
+    pub fn inplace_output(&mut self, position: u16, item: Item) -> ExpandElement {
+        let input = self
+            .inputs
+            .get_mut(position as usize)
+            .expect("Position valid");
+
+        if let InputInfo::Array { visibility, .. } = input {
+            *visibility = Visibility::ReadWrite
+        }
+
+        let variable = self.context.input(position, item);
+
+        variable
+    }
+
     /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.
     pub fn input_array(&mut self, item: Item) -> ExpandElement {
         self.inputs.push(InputInfo::Array {

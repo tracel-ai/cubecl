@@ -5,7 +5,7 @@ use crate::{
     frontend::CubeType,
     ir::{Branch, Item, RangeLoop, Vectorization},
     prelude::{CubeIndex, Iterable},
-    unexpanded, KernelSettings, Runtime,
+    unexpanded, Runtime,
 };
 use crate::{
     frontend::{indexation::Index, CubeContext},
@@ -129,32 +129,53 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
     type RuntimeArg<'a, R: Runtime> = ArrayArg<'a, R>;
 
     fn compilation_arg<'a, R: Runtime>(
-        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
+        runtime_arg: &Self::RuntimeArg<'a, R>,
     ) -> Self::CompilationArg {
-        ()
+        match runtime_arg {
+            ArrayArg::Handle {
+                handle: _,
+                vectorization_factor,
+            } => ArrayCompilationArg {
+                inplace: None,
+                vectorisation: Vectorization::Some(NonZero::new(*vectorization_factor).unwrap()),
+            },
+            ArrayArg::Alias { input_pos } => ArrayCompilationArg {
+                inplace: Some(*input_pos as u16),
+                vectorisation: Vectorization::None,
+            },
+        }
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct ArrayCompilationArg {
+    inplace: Option<u16>,
+    vectorisation: Vectorization,
+}
+
 impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
-    type CompilationArg = ();
+    type CompilationArg = ArrayCompilationArg;
 
     fn expand(
-        _: &Self::CompilationArg,
+        arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-        vectorization: Vectorization,
     ) -> ExpandElementTyped<Array<C>> {
         builder
-            .input_array(Item::vectorized(C::as_elem(), vectorization))
+            .input_array(Item::vectorized(C::as_elem(), arg.vectorisation))
             .into()
     }
     fn expand_output(
-        _: &Self::CompilationArg,
+        arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-        vectorization: Vectorization,
     ) -> ExpandElementTyped<Array<C>> {
-        builder
-            .output_array(Item::vectorized(C::as_elem(), vectorization))
-            .into()
+        match arg.inplace {
+            Some(id) => builder
+                .inplace_output(id, Item::vectorized(C::as_elem(), arg.vectorisation))
+                .into(),
+            None => builder
+                .output_array(Item::vectorized(C::as_elem(), arg.vectorisation))
+                .into(),
+        }
     }
 }
 
@@ -187,34 +208,6 @@ impl<'a, R: Runtime> ArgSettings<R> for ArrayArg<'a, R> {
         } = self
         {
             launcher.register_array(handle)
-        }
-    }
-
-    fn configure_input(&self, position: usize, settings: KernelSettings) -> KernelSettings {
-        match self {
-            Self::Handle {
-                handle: _,
-                vectorization_factor,
-            } => settings.vectorize_input(position, NonZero::new(*vectorization_factor)),
-            Self::Alias { input_pos: _ } => {
-                panic!("Not yet supported, only output can be aliased for now.");
-            }
-        }
-    }
-
-    fn configure_output(&self, position: usize, mut settings: KernelSettings) -> KernelSettings {
-        match self {
-            Self::Handle {
-                handle: _,
-                vectorization_factor,
-            } => settings.vectorize_output(position, NonZero::new(*vectorization_factor)),
-            Self::Alias { input_pos } => {
-                settings.mappings.push(crate::InplaceMapping {
-                    pos_input: *input_pos,
-                    pos_output: position,
-                });
-                settings
-            }
         }
     }
 }

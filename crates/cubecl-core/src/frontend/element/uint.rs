@@ -1,5 +1,5 @@
 use crate::frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric};
-use crate::ir::{Elem, Vectorization};
+use crate::ir::Elem;
 use crate::prelude::{KernelBuilder, KernelLauncher};
 use crate::Runtime;
 
@@ -34,12 +34,7 @@ impl IntoRuntime for u32 {
 impl LaunchArgExpand for u32 {
     type CompilationArg = ();
 
-    fn expand(
-        _: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-        vectorization: Vectorization,
-    ) -> ExpandElementTyped<Self> {
-        assert_eq!(vectorization, None, "Attempted to vectorize a scalar");
+    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder.scalar(u32::as_elem()).into()
     }
 }

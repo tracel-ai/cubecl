@@ -2,7 +2,6 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     compute::KernelBuilder,
-    ir::Vectorization,
     prelude::{ArgSettings, LaunchArg, LaunchArgExpand},
     Runtime,
 };
@@ -26,6 +25,33 @@ pub struct SequenceCompilationArg<C: LaunchArg> {
     values: Vec<C::CompilationArg>,
 }
 
+impl<C: LaunchArg> Clone for SequenceCompilationArg<C> {
+    fn clone(&self) -> Self {
+        Self {
+            values: self.values.clone(),
+        }
+    }
+}
+
+impl<C: LaunchArg> core::hash::Hash for SequenceCompilationArg<C> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.values.hash(state)
+    }
+}
+
+impl<C: LaunchArg> core::cmp::PartialEq for SequenceCompilationArg<C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.values.eq(&other.values)
+    }
+}
+
+impl<C: LaunchArg> core::fmt::Debug for SequenceCompilationArg<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("SequenceCompilationArg {:?}", self.values))
+    }
+}
+impl<C: LaunchArg> core::cmp::Eq for SequenceCompilationArg<C> {}
+
 impl<C: LaunchArg> LaunchArg for Sequence<C> {
     type RuntimeArg<'a, R: Runtime> = SequenceArg<'a, R, C>;
 
@@ -46,43 +72,16 @@ impl<'a, R: Runtime, T: LaunchArg> ArgSettings<R> for SequenceArg<'a, R, T> {
     fn register(&self, launcher: &mut crate::prelude::KernelLauncher<R>) {
         self.values.iter().for_each(|arg| arg.register(launcher));
     }
-
-    fn configure_input(
-        &self,
-        position: usize,
-        mut settings: crate::KernelSettings,
-    ) -> crate::KernelSettings {
-        for arg in self.values.iter() {
-            settings = arg.configure_input(position, settings);
-        }
-
-        settings
-    }
-    fn configure_output(
-        &self,
-        position: usize,
-        mut settings: crate::KernelSettings,
-    ) -> crate::KernelSettings {
-        for arg in self.values.iter() {
-            settings = arg.configure_output(position, settings);
-        }
-
-        settings
-    }
 }
 
 impl<C: LaunchArg> LaunchArgExpand for Sequence<C> {
     type CompilationArg = SequenceCompilationArg<C>;
 
-    fn expand(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-        vectorization: Vectorization,
-    ) -> SequenceExpand<C> {
+    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SequenceExpand<C> {
         let values = arg
             .values
             .iter()
-            .map(|value| C::expand(value, builder, vectorization))
+            .map(|value| C::expand(value, builder))
             .collect::<Vec<_>>();
 
         SequenceExpand {
@@ -90,15 +89,11 @@ impl<C: LaunchArg> LaunchArgExpand for Sequence<C> {
         }
     }
 
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-        vectorization: Vectorization,
-    ) -> SequenceExpand<C> {
+    fn expand_output(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SequenceExpand<C> {
         let values = arg
             .values
             .iter()
-            .map(|value| C::expand_output(value, builder, vectorization))
+            .map(|value| C::expand_output(value, builder))
             .collect::<Vec<_>>();
 
         SequenceExpand {

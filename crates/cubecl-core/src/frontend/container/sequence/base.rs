@@ -149,7 +149,6 @@ impl<T: CubeType> SequenceExpand<T> {
         _context: &mut CubeContext,
         index: ExpandElementTyped<u32>,
     ) -> T::ExpandType {
-        println!("{:?}", index.expand);
         let index = index
             .constant()
             .expect("Only constant are supported")

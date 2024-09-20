@@ -4,10 +4,7 @@ use super::{
 };
 use crate::{
     frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement},
-    ir::{
-        BinaryOperator, CompareAndSwapOperator, Elem, IntKind, Item, Operator, UnaryOperator,
-        Vectorization,
-    },
+    ir::{BinaryOperator, CompareAndSwapOperator, Elem, IntKind, Item, Operator, UnaryOperator},
     prelude::KernelBuilder,
     unexpanded,
 };
@@ -311,9 +308,7 @@ macro_rules! impl_atomic_int {
             fn expand(
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
-                vectorization: Vectorization,
             ) -> ExpandElementTyped<Self> {
-                assert_eq!(vectorization, None, "Attempted to vectorize a scalar");
                 builder.scalar(Elem::AtomicInt(IntKind::$inner_type)).into()
             }
         }
@@ -362,12 +357,7 @@ impl ExpandElementBaseInit for AtomicU32 {
 impl LaunchArgExpand for AtomicU32 {
     type CompilationArg = ();
 
-    fn expand(
-        _: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-        vectorization: Vectorization,
-    ) -> ExpandElementTyped<Self> {
-        assert_eq!(vectorization, None, "Attempted to vectorize a scalar");
+    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder.scalar(Elem::AtomicUInt).into()
     }
 }

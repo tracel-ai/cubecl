@@ -5,7 +5,7 @@ use crate::{
     },
     ir::{Elem, Item, Metadata, Variable, Vectorization},
     prelude::{KernelBuilder, KernelLauncher},
-    unexpanded, KernelSettings, LaunchArg, Runtime,
+    unexpanded, LaunchArg, Runtime,
 };
 use std::{marker::PhantomData, num::NonZero};
 
@@ -27,26 +27,35 @@ impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct TensorCompilationArg {
+    inplace: Option<u16>,
+    vectorisation: Vectorization,
+}
+
 impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
-    type CompilationArg = ();
+    type CompilationArg = TensorCompilationArg;
 
     fn expand(
-        _: &Self::CompilationArg,
+        arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-        vectorization: Vectorization,
     ) -> ExpandElementTyped<Tensor<C>> {
         builder
-            .input_array(Item::vectorized(C::as_elem(), vectorization))
+            .input_array(Item::vectorized(C::as_elem(), arg.vectorisation))
             .into()
     }
     fn expand_output(
-        _: &Self::CompilationArg,
+        arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-        vectorization: Vectorization,
     ) -> ExpandElementTyped<Tensor<C>> {
-        builder
-            .output_array(Item::vectorized(C::as_elem(), vectorization))
-            .into()
+        match arg.inplace {
+            Some(id) => builder
+                .inplace_output(id, Item::vectorized(C::as_elem(), arg.vectorisation))
+                .into(),
+            None => builder
+                .output_array(Item::vectorized(C::as_elem(), arg.vectorisation))
+                .into(),
+        }
     }
 }
 
@@ -54,9 +63,21 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     type RuntimeArg<'a, R: Runtime> = TensorArg<'a, R>;
 
     fn compilation_arg<'a, R: Runtime>(
-        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
+        runtime_arg: &Self::RuntimeArg<'a, R>,
     ) -> Self::CompilationArg {
-        ()
+        match runtime_arg {
+            TensorArg::Handle {
+                handle: _,
+                vectorization_factor,
+            } => TensorCompilationArg {
+                inplace: None,
+                vectorisation: Vectorization::Some(NonZero::new(*vectorization_factor).unwrap()),
+            },
+            TensorArg::Alias { input_pos } => TensorCompilationArg {
+                inplace: Some(*input_pos as u16),
+                vectorisation: Vectorization::None,
+            },
+        }
     }
 }
 
@@ -145,34 +166,6 @@ impl<'a, R: Runtime> ArgSettings<R> for TensorArg<'a, R> {
         } = self
         {
             launcher.register_tensor(handle)
-        }
-    }
-
-    fn configure_input(&self, position: usize, settings: KernelSettings) -> KernelSettings {
-        match self {
-            TensorArg::Handle {
-                handle: _,
-                vectorization_factor,
-            } => settings.vectorize_input(position, NonZero::new(*vectorization_factor)),
-            TensorArg::Alias { input_pos: _ } => {
-                panic!("Not yet supported, only output can be aliased for now.");
-            }
-        }
-    }
-
-    fn configure_output(&self, position: usize, mut settings: KernelSettings) -> KernelSettings {
-        match self {
-            TensorArg::Handle {
-                handle: _,
-                vectorization_factor,
-            } => settings.vectorize_output(position, NonZero::new(*vectorization_factor)),
-            TensorArg::Alias { input_pos } => {
-                settings.mappings.push(crate::InplaceMapping {
-                    pos_input: *input_pos,
-                    pos_output: position,
-                });
-                settings
-            }
         }
     }
 }
