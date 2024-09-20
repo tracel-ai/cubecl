@@ -1,6 +1,18 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+#[derive(CubeLaunch)]
+pub struct EmptyLaunch {}
+
+#[derive(CubeType)]
+pub struct EmptyType {}
+
+#[derive(CubeLaunch)]
+pub struct UnitLaunch;
+
+#[derive(CubeType)]
+pub struct UnitType;
+
 #[derive(CubeType)]
 pub struct State<T: Numeric> {
     first: T,
