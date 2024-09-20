@@ -100,3 +100,12 @@ impl From<BlockLoopStrategy> for (u32, u32, u32) {
         }
     }
 }
+
+impl BlockLoopStrategy {
+    pub(crate) fn num_coops(&self) -> u32 {
+        match self {
+            BlockLoopStrategy::Standard(num_coops) => *num_coops,
+            BlockLoopStrategy::Split(num_compute, num_load) => num_compute + num_load,
+        }
+    }
+}

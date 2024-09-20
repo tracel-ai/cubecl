@@ -127,7 +127,7 @@ impl CmmaConfig {
     pub(crate) fn cube_dim(&self) -> CubeDim {
         CubeDim {
             x: CMMA_COOP_DIM as u32,
-            y: match self.block_loop_strategy {},
+            y: self.block_loop_strategy.num_coops(),
             z: 1,
         }
     }
