@@ -128,13 +128,18 @@ impl Launch {
         let kernel_generics = self.kernel_generics.split_for_impl();
         let kernel_generics = kernel_generics.1.as_turbofish();
         let comptime_args = self.comptime_params().map(|it| &it.name);
+        let (compilation_args, args) = self.compilation_args();
 
         quote! {
             use #core_path::frontend::ArgSettings as _;
 
             #settings
-            let kernel = #kernel_name #kernel_generics::new(__settings, #(#comptime_args),*);
+            #compilation_args
+
+            let kernel = #kernel_name #kernel_generics::new(__settings, #args #(#comptime_args),*);
+
             let mut launcher = #kernel_launcher::<__R>::default();
+
             #(#registers_in)*
             #(#registers_out)*
         }
@@ -142,21 +147,9 @@ impl Launch {
 
     fn configure_settings(&self) -> TokenStream {
         let kernel_settings = prelude_type("KernelSettings");
-        let arg_settings = prelude_type("ArgSettings");
-
-        let input_configs = self.runtime_inputs().enumerate().map(|(i, arg)| {
-            let name = &arg.name;
-            quote![__settings = #arg_settings::<__R>::configure_input(&#name, #i, __settings);]
-        });
-        let output_configs = self.runtime_outputs().enumerate().map(|(i, arg)| {
-            let name = &arg.name;
-            quote![__settings = #arg_settings::<__R>::configure_output(&#name, #i, __settings);]
-        });
 
         quote! {
             let mut __settings = #kernel_settings::default().cube_dim(__cube_dim);
-            #(#input_configs)*
-            #(#output_configs)*
         }
     }
 
@@ -177,6 +170,7 @@ impl Launch {
             let core_path = core_path();
             let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);
+            let (compilation_args, args) = self.compilation_args();
 
             quote! {
                 #[allow(clippy::too_many_arguments)]
@@ -189,7 +183,9 @@ impl Launch {
                     use #core_path::frontend::ArgSettings as _;
 
                     #settings
-                    #kernel_name::new(__settings, #(#comptime_names),*)
+                    #compilation_args
+
+                    #kernel_name::new(__settings, #args #(#comptime_names),*)
                 }
             }
         } else {

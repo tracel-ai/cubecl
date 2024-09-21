@@ -10,6 +10,18 @@ pub struct EmptyType {}
 #[derive(CubeLaunch)]
 pub struct UnitLaunch;
 
+#[derive(CubeLaunch)]
+pub struct WithField {
+    lhs: Array<f32>,
+    rhs: Array<f32>,
+}
+
+#[derive(CubeLaunch)]
+pub struct WithFieldGeneric<F: Float> {
+    lhs: Array<F>,
+    rhs: Array<F>,
+}
+
 #[derive(CubeType)]
 pub struct UnitType;
 

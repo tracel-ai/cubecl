@@ -1,7 +1,6 @@
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
-use std::iter;
 use syn::Ident;
 
 use crate::{
@@ -76,76 +75,95 @@ impl Launch {
             .then(|| quote![__ty: ::core::marker::PhantomData<(#(#lifetimes,)* #(#type_params),*)>])
     }
 
+    pub fn compilation_args_def(&self) -> (Vec<TokenStream>, Vec<Ident>) {
+        let mut tokens = Vec::new();
+        let mut args = Vec::new();
+        let launch_arg_expand = prelude_type("LaunchArgExpand");
+
+        self.runtime_inputs().for_each(|input| {
+            let ty = &input.ty_owned();
+            let name = &input.name;
+
+            tokens.push(quote! {
+                #name: <#ty as #launch_arg_expand>::CompilationArg
+            });
+            args.push(name.clone());
+        });
+
+        self.runtime_outputs().for_each(|output| {
+            let ty = &output.ty_owned();
+            let name = &output.name;
+
+            tokens.push(quote! {
+                #name: <#ty as #launch_arg_expand>::CompilationArg
+            });
+            args.push(name.clone());
+        });
+
+        (tokens, args)
+    }
+
+    pub fn compilation_args(&self) -> (TokenStream, TokenStream) {
+        let launch_arg = prelude_type("LaunchArg");
+        let mut defined = quote! {};
+        let mut args = quote! {};
+
+        self.runtime_inputs().enumerate().for_each(|(i, input)| {
+            let ty = &input.ty_owned();
+            let ident = &input.name;
+            let var = Ident::new(format!("input_arg_{i}").as_str(), ident.span());
+
+            args.extend(quote! {#var,});
+            defined.extend(quote! {
+                let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
+            });
+        });
+        self.runtime_outputs().enumerate().for_each(|(i, output)| {
+            let ty = &output.ty_owned();
+            let ident = &output.name;
+            let var = Ident::new(format!("output_arg_{i}").as_str(), ident.span());
+
+            args.extend(quote! {#var,});
+            defined.extend(quote! {
+                let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
+            });
+        });
+
+        (
+            quote! {
+                #defined
+            },
+            args,
+        )
+    }
+
     pub fn io_mappings(&self) -> TokenStream {
         let launch_arg_expand = prelude_type("LaunchArgExpand");
-        let expand_fn = |i, expand_name, vec_name, ty| {
+        let mut define = quote! {};
+
+        let expand_fn = |ident, expand_name, ty| {
             quote! {
-                #i => ::std::sync::Arc::new(<#ty as #launch_arg_expand>::#expand_name(builder, settings.#vec_name(#i)))
+                let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident, &mut builder);
             }
         };
-        let inputs = self.runtime_inputs().enumerate().map(|(i, input)| {
-            expand_fn(
-                i,
+        for input in self.runtime_inputs() {
+            define.extend(expand_fn(
+                &input.name,
                 format_ident!("expand"),
-                format_ident!("vectorization_input"),
                 input.ty_owned(),
-            )
-        });
-        let outputs = self.runtime_outputs().enumerate().map(|(i, output)| {
-            expand_fn(
-                i,
+            ));
+        }
+
+        for output in self.runtime_outputs() {
+            define.extend(expand_fn(
+                &output.name,
                 format_ident!("expand_output"),
-                format_ident!("vectorization_output"),
                 output.ty_owned(),
-            )
-        });
-        let map = quote![::std::collections::BTreeMap<usize, std::sync::Arc<dyn core::any::Any>> = std::collections::BTreeMap::new()];
-        let inputs_len = self.runtime_inputs().count();
-        let outputs_len = self.runtime_outputs().count();
-        let register_input = register_fn("register_input", inputs);
-        let register_output = register_fn("register_output", outputs);
-
-        let insert_inputs = (inputs_len > 0).then(|| {
-            quote! {
-                for i in 0..#inputs_len {
-                    inputs.insert(i, register_input(&mut builder, &self.settings, i));
-                }
-            }
-        });
-        let insert_outputs = (outputs_len > 0).then(|| {
-            quote! {
-                for i in 0..#outputs_len {
-                    if !outputs.contains_key(&i) {
-                        outputs.insert(i, register_output(&mut builder, &self.settings, i));
-                    }
-                }
-            }
-        });
-
-        let in_params = self
-            .runtime_inputs()
-            .enumerate()
-            .map(runtime_param("inputs"));
-        let out_params = self
-            .runtime_outputs()
-            .enumerate()
-            .map(runtime_param("outputs"));
+            ));
+        }
 
         quote! {
-            let mut inputs: #map;
-            let mut outputs: #map;
-
-            #register_input
-            #register_output
-
-            #insert_inputs
-            for mapping in &self.settings.mappings {
-                let input = inputs.get(&mapping.pos_input).unwrap();
-                outputs.insert(mapping.pos_output, input.clone());
-            }
-            #insert_outputs
-            #(#in_params)*
-            #(#out_params)*
+            #define
         }
     }
 
@@ -183,23 +201,27 @@ impl Launch {
                 .map(|param| param.name.clone())
                 .collect::<Vec<_>>();
             let phantom_data = self.kernel_phantom_data();
-            let info = iter::once(format_ident!("settings")).chain(param_names.clone());
             let phantom_data_init = phantom_data
                 .as_ref()
                 .map(|_| quote![__ty: ::core::marker::PhantomData]);
+            let (compilation_args, args) = self.compilation_args_def();
+            let info = param_names.clone().into_iter().chain(args.clone());
 
             quote! {
                 #[doc = #kernel_doc]
                 pub struct #kernel_name #generics #where_clause {
                     settings: #kernel_settings,
+                    #(#compilation_args,)*
                     #(#const_params,)*
                     #phantom_data
                 }
 
+                #[allow(clippy::too_many_arguments)]
                 impl #generics #kernel_name #generic_names #where_clause {
-                    pub fn new(settings: #kernel_settings, #(#const_params),*) -> Self {
+                    pub fn new(settings: #kernel_settings, #(#compilation_args,)* #(#const_params),*) -> Self {
                         Self {
                             settings,
+                            #(#args,)*
                             #(#param_names,)*
                             #phantom_data_init
                         }
@@ -212,47 +234,14 @@ impl Launch {
                     }
 
                     fn id(&self) -> #kernel_id {
-                        #kernel_id::new::<Self>().info((#(self.#info.clone()),*))
+                        // We don't use any other kernel settings with the macro.
+                        let cube_dim = self.settings.cube_dim.clone();
+                        #kernel_id::new::<Self>().info((cube_dim, #(self.#info.clone()),* ))
                     }
                 }
             }
         } else {
             TokenStream::new()
-        }
-    }
-}
-
-fn register_fn(name: &str, values: impl Iterator<Item = TokenStream>) -> TokenStream {
-    let kernel_settings = prelude_type("KernelSettings");
-    let kernel_builder = prelude_type("KernelBuilder");
-
-    let name = format_ident!("{name}");
-    quote! {
-        #[allow(unused)]
-        let #name = |
-            builder: &mut #kernel_builder,
-            settings: &#kernel_settings,
-            position: usize,
-        | -> ::std::sync::Arc<dyn ::core::any::Any> {
-            match position {
-                #(#values,)*
-                _ => {
-                    panic!("Input {position} is invalid");
-                }
-            }
-        };
-    }
-}
-
-fn runtime_param(io_map: &str) -> impl FnMut((usize, &KernelParam)) -> TokenStream {
-    let cube_type = prelude_type("CubeType");
-    let io_map = format_ident!("{io_map}");
-    move |(i, input)| {
-        let name: &Ident = &input.name;
-        let ty = input.ty_owned();
-        quote! {
-            let #name: &<#ty as #cube_type>::ExpandType = #io_map.get(&#i).unwrap().downcast_ref()
-                .expect("Output type should be correct. It could be caused by an invalid kernel input/output alias.");
         }
     }
 }
