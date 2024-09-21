@@ -68,7 +68,7 @@ impl KernelBuilder {
         variable
     }
 
-    /// todo.
+    /// Register an output that uses the same resource as the input as the given position.
     pub fn inplace_output(&mut self, position: u16) -> ExpandElement {
         let input = self
             .inputs
