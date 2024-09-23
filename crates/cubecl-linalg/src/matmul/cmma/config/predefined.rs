@@ -7,6 +7,7 @@ use super::{
 };
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub enum PredefinedCmmaConfig {
     M128K16,
     M64K32,
