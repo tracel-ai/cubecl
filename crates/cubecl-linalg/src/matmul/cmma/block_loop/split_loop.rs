@@ -12,7 +12,7 @@ use super::super::{
 };
 use super::base::BlockLoop;
 
-/// Assumes CUBE_DIM_Y = comptime_info.num_compute_coops + comptime_info.num_load_coops
+/// Assumes CUBE_DIM_Y / 2 = comptime_info.num_compute_coops = comptime_info.num_load_coops
 pub(crate) struct SplitBlockLoop {}
 
 #[cube]

@@ -27,6 +27,20 @@ pub enum CubeDispatchStrategy {
     /// Cubes follow swizzle pattern, see https://bruce-lee-ly.medium.com/nvidia-tensor-core-cuda-hgemm-advanced-optimization-5a17eb77dd85
     Swizzle,
 }
+impl CubeDispatchStrategy {
+    pub(crate) fn get_cube_dim(&self, num_rows: usize, num_cols: usize, b_mn: usize) -> (u32, u32) {
+        match self {
+            CubeDispatchStrategy::RowMajor | CubeDispatchStrategy::Swizzle => (
+                f32::ceil(num_cols as f32 / b_mn as f32) as u32,
+                f32::ceil(num_rows as f32 / b_mn as f32) as u32,
+            ),
+            CubeDispatchStrategy::ColMajor => (
+                f32::ceil(num_rows as f32 / b_mn as f32) as u32,
+                f32::ceil(num_cols as f32 / b_mn as f32) as u32,
+            ),
+        }
+    }
+}
 
 impl From<CubeDispatchStrategy> for u32 {
     fn from(value: CubeDispatchStrategy) -> Self {
