@@ -114,7 +114,7 @@ pub fn test_cmma_all<R: Runtime>(device: &R::Device) {
     let mut all_ok = true;
 
     for (test_case, config, name) in all_combinations() {
-        println!("Running test {}", name);
+        println!("Running test {}...", name);
 
         match test_cmma::<R>(test_case.into(), config.into(), device) {
             Ok(_) => println!("Ok"),
@@ -123,7 +123,7 @@ pub fn test_cmma_all<R: Runtime>(device: &R::Device) {
                 println!("Failure: {}", e)
             }
         }
-
-        assert!(all_ok)
     }
+
+    assert!(all_ok)
 }
