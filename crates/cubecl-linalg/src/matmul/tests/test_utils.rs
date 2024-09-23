@@ -28,25 +28,6 @@ pub(crate) fn range_tensor<R: Runtime>(
     TensorHandle::new_contiguous(vec![x, y], handle)
 }
 
-pub(crate) fn range_tensor_with_factor<R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    batch: usize,
-    x: usize,
-    y: usize,
-    factor: f32,
-) -> TensorHandle<R, f32> {
-    let n_elements = batch * x * y;
-
-    let mut data: Vec<f32> = Vec::with_capacity(n_elements);
-    for i in 0..n_elements {
-        data.push(i as f32 / factor);
-    }
-
-    let handle = client.create(cast_slice(&data));
-
-    TensorHandle::new_contiguous(vec![batch, x, y], handle)
-}
-
 pub(crate) fn range_tensor_transposed<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     x: usize,
@@ -140,4 +121,28 @@ pub(crate) fn cmma_available<R: Runtime>(device: &R::Device) -> bool {
         k: 16,
         n: 16,
     })
+}
+
+pub(crate) fn random_tensor<R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    shape: Vec<usize>,
+) -> TensorHandle<R, f32> {
+    let data = generate_random_data(shape.iter().product());
+    let handle = client.create(cast_slice(&data));
+    TensorHandle::new_contiguous(shape, handle)
+}
+
+pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
+    fn lcg(seed: &mut u64) -> f32 {
+        const A: u64 = 1664525;
+        const C: u64 = 1013904223;
+        const M: f64 = 2u64.pow(32) as f64;
+
+        *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % (1u64 << 32);
+        (*seed as f64 / M * 2.0 - 1.0) as f32
+    }
+
+    let mut seed = 12345;
+
+    (0..num_elements).map(|_| lcg(&mut seed)).collect()
 }

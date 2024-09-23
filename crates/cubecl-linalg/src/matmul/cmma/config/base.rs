@@ -24,25 +24,26 @@ pub struct CmmaConfig {
     pub cube_dispatch_strategy: CubeDispatchStrategy,
     /// Whether to iterate on buffers or accumulators first
     pub compute_loop_order_strategy: ComputeLoopOrderStrategy,
+    /// How to load and read from LHS shared memory
     pub lhs_smem_loader_strategy: SmemLoaderStrategy,
+    /// How to load and read from RHS shared memory
     pub rhs_smem_loader_strategy: SmemLoaderStrategy,
+    /// How to parallelize the outer loop among different warps
     pub block_loop_strategy: BlockLoopStrategy,
 }
 
 impl Default for CmmaConfig {
     fn default() -> Self {
-        let b_mn = 128;
         Self::new(
-            b_mn,
-            16,
+            64,
+            32,
             false,
             WriteOutStrategy::ReuseSmem,
             CubeDispatchStrategy::ColMajor,
             ComputeLoopOrderStrategy::AllBuffersFirst,
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
-            //BlockLoopStrategy::Standard((b_mn / CMMA_TILE_SIZE) as u32),
-            BlockLoopStrategy::Split(16, 16),
+            BlockLoopStrategy::Standard(4),
         )
     }
 }
