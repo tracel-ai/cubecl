@@ -67,7 +67,7 @@ impl Into<CmmaConfig> for PredefinedCmmaConfig {
             PredefinedCmmaConfig::SplitM128k16 => CmmaConfig {
                 b_mn: 128,
                 b_k: 16,
-                block_loop_strategy: BlockLoopStrategy::Split(8, 4),
+                block_loop_strategy: BlockLoopStrategy::Split(8, 8),
                 ..Default::default()
             },
             PredefinedCmmaConfig::TilewiseInverted => CmmaConfig {
