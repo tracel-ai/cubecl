@@ -17,7 +17,7 @@ pub mod subcube_elect {
 
     /// Expand method of [subcube_elect()].
     pub fn expand(context: &mut CubeContext) -> ExpandElementTyped<bool> {
-        let output = context.create_local(Item::new(Elem::Bool));
+        let output = context.create_local_binding(Item::new(Elem::Bool));
         let out = *output;
 
         context.register(Operation::Subcube(Subcube::Elect(InitOperator { out })));
@@ -44,7 +44,7 @@ pub mod subcube_broadcast {
         value: ExpandElementTyped<E>,
         id: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<E> {
-        let output = context.create_local(value.expand.item());
+        let output = context.create_local_binding(value.expand.item());
         let out = *output;
         let lhs = *value.expand;
         let rhs = *id.expand;
@@ -73,7 +73,7 @@ pub mod subcube_sum {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item());
+        let output = context.create_local_binding(elem.item());
 
         let out = *output;
         let input = *elem;
@@ -102,7 +102,7 @@ pub mod subcube_prod {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item());
+        let output = context.create_local_binding(elem.item());
 
         let out = *output;
         let input = *elem;
@@ -131,7 +131,7 @@ pub mod subcube_max {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item());
+        let output = context.create_local_binding(elem.item());
 
         let out = *output;
         let input = *elem;
@@ -160,7 +160,7 @@ pub mod subcube_min {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item());
+        let output = context.create_local_binding(elem.item());
 
         let out = *output;
         let input = *elem;
@@ -190,7 +190,7 @@ pub mod subcube_all {
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item());
+        let output = context.create_local_binding(elem.item());
 
         let out = *output;
         let input = *elem;
@@ -220,7 +220,7 @@ pub mod subcube_any {
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item());
+        let output = context.create_local_binding(elem.item());
 
         let out = *output;
         let input = *elem;

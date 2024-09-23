@@ -14,8 +14,8 @@ pub(crate) fn binary_expand<F>(
 where
     F: Fn(BinaryOperator) -> Operator,
 {
-    let lhs_var: Variable = *lhs;
-    let rhs_var: Variable = *rhs;
+    let lhs = lhs.consume();
+    let rhs = rhs.consume();
 
     let item_lhs = lhs.item();
     let item_rhs = rhs.item();
@@ -24,26 +24,14 @@ where
 
     let item = Item::vectorized(item_lhs.elem, vectorization);
 
-    // We can only reuse rhs.
-    let out = if lhs.can_mut() && item_lhs == item {
-        lhs
-    } else if rhs.can_mut() && item_rhs == item {
-        rhs
-    } else {
-        context.create_local(item)
-    };
+    let output = context.create_local_binding(item);
+    let out = *output;
 
-    let out_var = *out;
-
-    let op = func(BinaryOperator {
-        lhs: lhs_var,
-        rhs: rhs_var,
-        out: out_var,
-    });
+    let op = func(BinaryOperator { lhs, rhs, out });
 
     context.register(op);
 
-    out
+    output
 }
 
 pub(crate) fn binary_expand_fixed_output<F>(
@@ -95,34 +83,21 @@ pub(crate) fn binary_expand_no_vec<F>(
 where
     F: Fn(BinaryOperator) -> Operator,
 {
-    let lhs_var: Variable = *lhs;
-    let rhs_var: Variable = *rhs;
+    let lhs = lhs.consume();
+    let rhs = rhs.consume();
 
     let item_lhs = lhs.item();
-    let item_rhs = rhs.item();
 
     let item = Item::new(item_lhs.elem);
 
-    // We can only reuse rhs.
-    let out = if lhs.can_mut() && item_lhs == item {
-        lhs
-    } else if rhs.can_mut() && item_rhs == item {
-        rhs
-    } else {
-        context.create_local(item)
-    };
+    let output = context.create_local_binding(item);
+    let out = *output;
 
-    let out_var = *out;
-
-    let op = func(BinaryOperator {
-        lhs: lhs_var,
-        rhs: rhs_var,
-        out: out_var,
-    });
+    let op = func(BinaryOperator { lhs, rhs, out });
 
     context.register(op);
 
-    out
+    output
 }
 
 pub(crate) fn cmp_expand<F>(
@@ -145,7 +120,7 @@ where
         vectorization: item.vectorization,
     };
 
-    let out = context.create_local(out_item);
+    let out = context.create_local_binding(out_item);
     let out_var = *out;
 
     let op = func(BinaryOperator {
@@ -188,20 +163,14 @@ pub fn unary_expand<F>(context: &mut CubeContext, input: ExpandElement, func: F)
 where
     F: Fn(UnaryOperator) -> Operator,
 {
-    let input_var: Variable = *input;
-
+    let input = input.consume();
     let item = input.item();
 
-    let out = if input.can_mut() {
-        input
-    } else {
-        context.create_local(item)
-    };
-
+    let out = context.create_local_binding(item);
     let out_var = *out;
 
     let op = func(UnaryOperator {
-        input: input_var,
+        input,
         out: out_var,
     });
 
@@ -219,26 +188,15 @@ pub fn unary_expand_fixed_output<F>(
 where
     F: Fn(UnaryOperator) -> Operator,
 {
-    let input_var: Variable = *input;
+    let input = input.consume();
+    let output = context.create_local_binding(out_item);
+    let out = *output;
 
-    let input_item = input.item();
-
-    let out = if input.can_mut() && out_item == input_item {
-        input
-    } else {
-        context.create_local(out_item)
-    };
-
-    let out_var = *out;
-
-    let op = func(UnaryOperator {
-        input: input_var,
-        out: out_var,
-    });
+    let op = func(UnaryOperator { input, out });
 
     context.register(op);
 
-    out
+    output
 }
 
 pub fn init_expand<F>(context: &mut CubeContext, input: ExpandElement, func: F) -> ExpandElement
@@ -252,7 +210,7 @@ where
     let input_var: Variable = *input;
     let item = input.item();
 
-    let out = context.create_local(item);
+    let out = context.create_local_variable(item);
     let out_var = *out;
 
     let op = func(UnaryOperator {
@@ -298,22 +256,24 @@ pub fn array_assign_binary_op_expand<
     let index: ExpandElement = index.into();
     let value: ExpandElement = value.into();
 
-    let tmp = context.create_local(array.item());
+    let array_value = context.create_local_binding(array.item());
 
     let read = Operator::Index(BinaryOperator {
         lhs: *array,
         rhs: *index,
-        out: *tmp,
+        out: *array_value,
     });
+    let array_value = array_value.consume();
+    let op_out = context.create_local_binding(array.item());
     let calculate = func(BinaryOperator {
-        lhs: *tmp,
+        lhs: array_value,
         rhs: *value,
-        out: *tmp,
+        out: *op_out,
     });
 
     let write = Operator::IndexAssign(BinaryOperator {
         lhs: *index,
-        rhs: *tmp,
+        rhs: op_out.consume(),
         out: *array,
     });
 

@@ -1,6 +1,7 @@
 mod branch;
 mod cmma;
 mod kernel;
+mod local_allocator;
 mod macros;
 mod operation;
 mod procedure;
@@ -14,6 +15,7 @@ mod vectorization;
 pub use branch::*;
 pub use cmma::*;
 pub use kernel::*;
+pub use local_allocator::*;
 pub use operation::*;
 pub use procedure::*;
 pub use scope::*;

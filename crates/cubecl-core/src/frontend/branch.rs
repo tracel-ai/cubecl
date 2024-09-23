@@ -395,7 +395,8 @@ pub fn if_else_expr_expand<C: CubePrimitive>(
         None => {
             let mut then_child = context.child();
             let ret = then_block(&mut then_child);
-            let out: ExpandElementTyped<C> = context.create_local(ret.expand.item()).into();
+            let out: ExpandElementTyped<C> =
+                context.create_local_variable(ret.expand.item()).into();
             assign::expand(&mut then_child, ret, out.clone());
 
             IfElseExprExpand::Runtime {

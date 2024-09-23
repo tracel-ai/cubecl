@@ -1,7 +1,7 @@
 use super::{CubePrimitive, Numeric, Vectorized};
 use crate::{
     ir::{ConstantScalarValue, Elem, FloatKind, Item, Operator, Variable},
-    prelude::{index_assign, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher},
+    prelude::{assign, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher},
     Runtime,
 };
 use alloc::rc::Rc;
@@ -329,6 +329,11 @@ impl ExpandElement {
             ExpandElement::Plain(_) => false,
         }
     }
+
+    /// Explicitly consume the element, freeing it for reuse if no other copies exist.
+    pub fn consume(self) -> Variable {
+        *self
+    }
 }
 
 impl core::ops::Deref for ExpandElement {
@@ -369,6 +374,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         Variable::LocalScalar { .. } => init(elem),
         Variable::ConstantScalar { .. } => init(elem),
         Variable::Local { .. } => init(elem),
+        Variable::LocalBinding { .. } => init(elem),
         // Constant should be initialized since the new variable can be mutated afterward.
         // And it is assumed those values are cloned.
         Variable::Rank
@@ -445,25 +451,14 @@ pub(crate) fn __expand_vectorized<C: Numeric + CubeIndex<u32>, Out: Numeric>(
     vectorization: u32,
     elem: Elem,
 ) -> ExpandElementTyped<Out> {
-    let new_var = context.create_local(Item::vectorized(elem, NonZero::new(vectorization as u8)));
+    let new_var =
+        context.create_local_binding(Item::vectorized(elem, NonZero::new(vectorization as u8)));
     let val = Out::from(val).unwrap();
     let val: ExpandElementTyped<Out> = val.into();
 
-    // Allow setting explicit vectorization of 1 without trying to index assign it
-    if vectorization == 1 {
-        return val;
-    }
-
-    for (i, element) in vec![val; vectorization as usize].iter().enumerate() {
-        let element = elem.from_constant(*element.expand);
-
-        index_assign::expand::<C>(
-            context,
-            new_var.clone().into(),
-            ExpandElementTyped::from_lit(i),
-            ExpandElement::Plain(element).into(),
-        );
-    }
+    // Explanation for removing all this code: Assignments are already being unrolled and broadcast
+    // in the backend, so this was just duplicating code and it interfered with the SSA allocator
+    assign::expand(context, val, new_var.clone().into());
 
     new_var.into()
 }

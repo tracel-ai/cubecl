@@ -155,7 +155,7 @@ macro_rules! impl_float {
                 vectorization: u32,
             ) -> <Self as CubeType>::ExpandType {
                 context
-                    .create_local(Item::vectorized(
+                    .create_local_variable(Item::vectorized(
                         Self::as_elem(),
                         NonZero::new(vectorization as u8),
                     ))
