@@ -1,15 +1,13 @@
 use cubecl_core::Runtime;
 
 use crate::matmul::{
-    cmma::{
-        config::{CmmaConfig, PredefinedCmmaConfig},
-        launch,
-    },
+    cmma::{self, config::CmmaConfig},
     tests::matmul_test_case::MatmulTestCase,
 };
 
 use super::super::test_utils::{assert_equals_approx, cmma_available};
 
+#[derive(Copy, Clone)]
 pub enum MatmulTest {
     SmallRound,
     MediumMultibatch,
@@ -76,18 +74,14 @@ impl Into<MatmulTestCase> for MatmulTest {
     }
 }
 
-pub fn test_temp<R: Runtime>(device: &R::Device) {
-    test_cmma::<R>(
-        MatmulTest::LargeRound.into(),
-        PredefinedCmmaConfig::AccumulatorsFirstNoReuse.into(),
-        device,
-    );
-}
-
-fn test_cmma<R: Runtime>(case: MatmulTestCase, config: CmmaConfig, device: &R::Device) {
+pub(crate) fn test_cmma<R: Runtime>(
+    case: MatmulTestCase,
+    config: CmmaConfig,
+    device: &R::Device,
+) -> Result<(), String> {
     if !cmma_available::<R>(device) {
         // We can't execute the test, skip.
-        return;
+        return Ok(());
     }
 
     let client = R::client(device);
@@ -96,7 +90,7 @@ fn test_cmma<R: Runtime>(case: MatmulTestCase, config: CmmaConfig, device: &R::D
 
     let expected = case.matmul_cpu(&lhs, &rhs, &client);
 
-    let out = launch::<R, f32>(&client, lhs, rhs, case.empty_out(&client), config);
+    let out = cmma::launch::<R, f32>(&client, lhs, rhs, case.empty_out(&client), config);
 
-    assert_equals_approx::<R>(&client, out.handle, &expected, 10e-3);
+    assert_equals_approx::<R>(&client, out.handle, &expected, 10e-3)
 }

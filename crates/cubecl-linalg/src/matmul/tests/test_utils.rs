@@ -85,21 +85,24 @@ pub(crate) fn assert_equals_approx<R: Runtime>(
     output: Handle<<R as Runtime>::Server>,
     expected: &[f32],
     epsilon: f32,
-) {
+) -> Result<(), String> {
     let actual = client.read(output.binding());
     let actual = f32::from_bytes(&actual);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
-        assert!(
-            (a - e).abs() < epsilon,
+        if (a - e).abs() >= epsilon {
+            return Err(format!(
             "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
             i,
             a,
             e,
             (a - e).abs(),
             epsilon
-        );
+            ));
+        }
     }
+
+    Ok(())
 }
 
 pub(crate) fn make_tiling2d_config(m: usize, k: usize, n: usize) -> CubeTiling2dConfig {
