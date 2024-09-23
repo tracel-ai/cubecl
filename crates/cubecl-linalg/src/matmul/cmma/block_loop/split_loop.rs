@@ -79,5 +79,5 @@ impl BlockLoop for SplitBlockLoop {
 
 #[cube]
 fn is_compute_coop(#[comptime] comptime_info: ComptimeCmmaInfo) -> bool {
-    UNIT_POS_Y < comptime_info.num_compute_coops
+    UNIT_POS_Y % 2 == 0
 }
