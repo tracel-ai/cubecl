@@ -118,11 +118,8 @@ impl Expression {
                     && args.iter().all(|arg| arg.is_const())
                     && method.method != "runtime"
                 {
-                    let receiver = receiver.as_const(context).unwrap();
-                    let method = &method.method;
-                    let args = args.iter().map(|it| it.to_tokens(context));
                     Expression::Verbatim {
-                        tokens: quote![#receiver.#method(#(#args),*)],
+                        tokens: quote![#method],
                     }
                 } else {
                     Expression::MethodCall {
