@@ -1,5 +1,5 @@
-use std::io::{self,Write};
 use cubecl_core::Runtime;
+use std::io::{self, Write};
 
 use crate::matmul::cmma::config::PredefinedCmmaConfig;
 
@@ -35,8 +35,14 @@ impl Iterator for CmmaConfigIterator {
             2 => Some((PredefinedCmmaConfig::M64K16, "m64_k16".to_string())),
             3 => Some((PredefinedCmmaConfig::M32K16, "m32_k16".to_string())),
             4 => Some((PredefinedCmmaConfig::M32K32, "m32_k32".to_string())),
-            5 => Some((PredefinedCmmaConfig::SplitM32k32, "split_m32_k32".to_string())),
-            6 => Some((PredefinedCmmaConfig::SplitM64k16, "split_m64_k16".to_string())),
+            5 => Some((
+                PredefinedCmmaConfig::SplitM32k32,
+                "split_m32_k32".to_string(),
+            )),
+            6 => Some((
+                PredefinedCmmaConfig::SplitM64k16,
+                "split_m64_k16".to_string(),
+            )),
             7 => Some((
                 PredefinedCmmaConfig::TilewiseInverted,
                 "tilewise_inverted".to_string(),
@@ -116,7 +122,7 @@ fn all_combinations() -> Vec<(MatmulTest, PredefinedCmmaConfig, String)> {
 pub fn test_cmma_all<R: Runtime>(device: &R::Device) {
     let filter = std::env::var("TEST_FILTER").unwrap_or_default();
     let mut all_ok = true;
-    let mut n_tests_run= 0;
+    let mut n_tests_run = 0;
 
     for (test_case, config, name) in all_combinations() {
         if filter.is_empty() || name.contains(&filter) {
@@ -136,6 +142,9 @@ pub fn test_cmma_all<R: Runtime>(device: &R::Device) {
         }
     }
 
-    assert!(n_tests_run > 0, "No sub tests run, is env variable TEST_FILTER a valid filter?");
+    assert!(
+        n_tests_run > 0,
+        "No sub tests run, is env variable TEST_FILTER a valid filter?"
+    );
     assert!(all_ok, "Some tests failed");
 }

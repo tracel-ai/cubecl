@@ -22,4 +22,3 @@ pub(crate) trait BlockLoop {
     fn get_compute_ids(#[comptime] comptime_info: ComptimeCmmaInfo) -> Ids;
     fn get_load_ids(#[comptime] comptime_info: ComptimeCmmaInfo) -> Ids;
 }
-
