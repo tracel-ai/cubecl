@@ -8,7 +8,7 @@ use syn::Ident;
 
 impl CubeTypeEnum {
     pub fn generate(&self, with_launch: bool) -> TokenStream {
-        assert!(with_launch == false, "Can't create launchable enum yet.");
+        assert!(!with_launch, "Can't create launchable enum yet.");
 
         let expand_ty = self.expand_ty();
         let cube_type_impl = self.cube_type_impl();
@@ -69,7 +69,7 @@ impl CubeTypeEnum {
             quote! {self},
             self.variants
                 .iter()
-                .map(|v| v.into_runtime_body(name, name_expand))
+                .map(|v| v.runtime_body(name, name_expand))
                 .collect(),
         );
 
@@ -124,7 +124,7 @@ impl CubeTypeVariant {
         }
     }
 
-    fn into_runtime_body(&self, ident_ty: &Ident, ident_ty_expand: &Ident) -> TokenStream {
+    fn runtime_body(&self, ident_ty: &Ident, ident_ty_expand: &Ident) -> TokenStream {
         let name = &self.ident;
         let into_runtime = prelude_type("IntoRuntime");
         let body = self.field_names.iter().map(|name| {
