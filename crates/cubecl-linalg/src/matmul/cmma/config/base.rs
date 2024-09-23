@@ -114,8 +114,20 @@ impl CmmaConfig {
         let num_rows = *output_shape.get(rank - 2).unwrap();
         let num_cols = *output_shape.get(rank - 1).unwrap();
 
-        let cubes_x = f32::ceil(num_rows as f32 / self.b_mn as f32) as u32;
-        let cubes_y = f32::ceil(num_cols as f32 / self.b_mn as f32) as u32;
+        let (cubes_x, cubes_y) = match self.cube_dispatch_strategy {
+            CubeDispatchStrategy::RowMajor => (
+                f32::ceil(num_cols as f32 / self.b_mn as f32) as u32,
+                f32::ceil(num_rows as f32 / self.b_mn as f32) as u32,
+            ),
+            CubeDispatchStrategy::ColMajor => (
+                f32::ceil(num_rows as f32 / self.b_mn as f32) as u32,
+                f32::ceil(num_cols as f32 / self.b_mn as f32) as u32,
+            ),
+            CubeDispatchStrategy::Swizzle => (
+                f32::ceil(num_cols as f32 / self.b_mn as f32) as u32,
+                f32::ceil(num_rows as f32 / self.b_mn as f32) as u32,
+            ),
+        };
 
         let mut num_iter = 1;
         for shape in output_shape.iter().take(rank - 2) {
