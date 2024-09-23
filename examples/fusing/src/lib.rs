@@ -1,8 +1,14 @@
 use cubecl::{comptime, prelude::*};
 
-#[derive(CubeLaunch, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(CubeType, Clone, Debug, Hash, PartialEq, Eq)]
+enum OperationKind {
+    Exp,
+    Log,
+}
+
+#[derive(CubeType, Clone, Debug, Hash, PartialEq, Eq)]
 struct Operation {
-    kind: u32,
+    kind: OperationKind,
     input_index: u32,
     output_index: u32,
 }
@@ -19,10 +25,9 @@ fn fusing<F: Float>(
         let input = inputs.index(op.input_index);
         let output = outputs.index_mut(op.output_index);
 
-        if op.kind == 0 {
-            output[ABSOLUTE_POS] = F::exp(input[ABSOLUTE_POS]);
-        } else if op.kind == 1 {
-            output[ABSOLUTE_POS] = F::log(input[ABSOLUTE_POS]);
+        match op.kind {
+            OperationKind::Exp => output[ABSOLUTE_POS] = F::exp(input[ABSOLUTE_POS]),
+            OperationKind::Log => output[ABSOLUTE_POS] = F::log(input[ABSOLUTE_POS]),
         }
     }
 }
@@ -57,12 +62,12 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         ));
 
         ops.push(Operation {
-            kind: 0,
+            kind: OperationKind::Exp,
             input_index: 0,
             output_index: 0,
         });
         ops.push(Operation {
-            kind: 1,
+            kind: OperationKind::Log,
             input_index: 0,
             output_index: 1,
         });

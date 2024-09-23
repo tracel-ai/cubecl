@@ -44,8 +44,8 @@ pub(crate) fn binary_expand_fixed_output<F>(
 where
     F: Fn(BinaryOperator) -> Operator,
 {
-    let lhs_var= lhs.consume();
-    let rhs_var= rhs.consume();
+    let lhs_var = lhs.consume();
+    let rhs_var = rhs.consume();
 
     let out = context.create_local_variable(out_item);
 

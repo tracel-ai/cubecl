@@ -29,7 +29,9 @@ pub trait CubeType {
     }
 }
 
+/// Trait useful for cube types that are also used with comptime.
 pub trait IntoRuntime: CubeType + Sized {
+    /// Make sure a type is actually expanded into its runtime [expand type](CubeType::ExpandType).
     fn runtime(self) -> Self {
         self
     }
