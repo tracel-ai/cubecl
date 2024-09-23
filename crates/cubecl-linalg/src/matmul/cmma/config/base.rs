@@ -43,7 +43,7 @@ impl Default for CmmaConfig {
             ComputeLoopOrderStrategy::AllBuffersFirst,
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
-            BlockLoopStrategy::Standard(4),
+            BlockLoopStrategy::Standard(8),
         )
     }
 }

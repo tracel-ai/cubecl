@@ -78,8 +78,8 @@ impl Into<MatmulTestCase> for MatmulTest {
 
 pub fn test_temp<R: Runtime>(device: &R::Device) {
     test_cmma::<R>(
-        MatmulTest::LargeRound.into(),
-        PredefinedCmmaConfig::AccumulatorsFirstNoReuse.into(),
+        MatmulTest::SmallRound.into(),
+        PredefinedCmmaConfig::M128K16.into(),
         device,
     );
 }
