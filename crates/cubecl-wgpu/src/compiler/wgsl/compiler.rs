@@ -372,7 +372,9 @@ impl WgslCompiler {
                 cases: op
                     .cases
                     .into_iter()
-                    .map(|(val, mut scope)| (val, self.compile_scope(&mut scope)))
+                    .map(|(val, mut scope)| {
+                        (self.compile_variable(val), self.compile_scope(&mut scope))
+                    })
                     .collect(),
             }),
             cube::Branch::Return => instructions.push(wgsl::Instruction::Return),

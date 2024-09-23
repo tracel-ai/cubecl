@@ -44,7 +44,7 @@ pub enum Instruction {
     Switch {
         value: Variable,
         instructions_default: Vec<Instruction>,
-        cases: Vec<(i32, Vec<Instruction>)>,
+        cases: Vec<(Variable, Vec<Instruction>)>,
     },
     Return,
     Break,

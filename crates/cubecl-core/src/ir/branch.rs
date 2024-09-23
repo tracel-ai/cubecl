@@ -40,7 +40,7 @@ pub struct IfElse {
 pub struct Switch {
     pub value: Variable,
     pub scope_default: Scope,
-    pub cases: Vec<(i32, Scope)>,
+    pub cases: Vec<(Variable, Scope)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

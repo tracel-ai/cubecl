@@ -26,7 +26,7 @@ pub fn slice_assign() {
         tensor(&input),
         tensor(&output),
     );
-    let expected = include_str!("slice_assign.cu").replace("\r\n", "");
+    let expected = include_str!("slice_assign.cu").replace("\r\n", "\n");
     let expected = expected.trim();
     assert_eq!(compile(kernel), expected);
 }

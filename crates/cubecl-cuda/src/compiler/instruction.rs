@@ -68,7 +68,7 @@ pub enum Instruction {
     Switch {
         value: Variable,
         instructions_default: Vec<Self>,
-        instructions_cases: Vec<(i32, Vec<Self>)>,
+        instructions_cases: Vec<(Variable, Vec<Self>)>,
     },
     Slice {
         input: Variable,
@@ -253,17 +253,17 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             } => {
                 f.write_fmt(format_args!("switch({value}) {{\n"))?;
                 for (value, block) in instructions_cases {
-                    f.write_fmt(format_args!("case {value}:\n"))?;
+                    f.write_fmt(format_args!("case {value}:\n{{\n"))?;
                     for i in block {
                         i.fmt(f)?;
                     }
-                    f.write_str("break;\n")?;
+                    f.write_str("break;\n}\n")?;
                 }
-                f.write_str("default:\n")?;
+                f.write_str("default:\n{")?;
                 for i in instructions_default {
                     i.fmt(f)?;
                 }
-                f.write_str("}\n")
+                f.write_str("}\n}\n")
             }
             Instruction::Stride { dim, position, out } => f.write_fmt(format_args!(
                 "{out} = info[({position} * rank_2) + {dim} + 1];\n"

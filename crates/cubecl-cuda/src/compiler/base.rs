@@ -293,7 +293,9 @@ impl CudaCompiler {
                 instructions_cases: op
                     .cases
                     .into_iter()
-                    .map(|(val, mut block)| (val, self.compile_scope(&mut block)))
+                    .map(|(val, mut block)| {
+                        (self.compile_variable(val), self.compile_scope(&mut block))
+                    })
                     .collect(),
             }),
             gpu::Branch::Return => instructions.push(Instruction::Return),

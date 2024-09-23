@@ -1,8 +1,8 @@
 use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{
-    parse_quote, spanned::Spanned, Expr, ExprMatch, ExprUnary, Lit, LitInt, Pat, Path, PathSegment,
-    RangeLimits, Type, UnOp,
+    parse_quote, spanned::Spanned, Expr, ExprUnary, Lit, LitInt, Path, PathSegment, RangeLimits,
+    Type, UnOp,
 };
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    branch::{expand_for_loop, expand_if, expand_loop},
+    branch::{expand_for_loop, expand_if, expand_loop, numeric_match},
     operator::{parse_binop, parse_unop},
 };
 
@@ -461,68 +461,4 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
 fn is_comptime_macro(path: &Path) -> bool {
     let path = path.to_token_stream().to_string();
     "::cubecl::comptime".ends_with(&path)
-}
-
-fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression> {
-    fn parse_pat(pat: Pat) -> Option<Vec<Lit>> {
-        match pat {
-            Pat::Lit(lit) => Some(vec![lit.lit]),
-            Pat::Or(or) => {
-                let pats = or
-                    .cases
-                    .into_iter()
-                    .map(parse_pat)
-                    .collect::<Option<Vec<_>>>()?;
-                Some(pats.into_iter().flatten().collect())
-            }
-            Pat::Wild(_) => Some(vec![]),
-            _ => None,
-        }
-    }
-
-    fn parse_body(expr: Expr, context: &mut Context) -> Option<Block> {
-        match expr {
-            Expr::Block(block) => Block::from_block(block.block, context).ok(),
-            expr => {
-                let expr = Expression::from_expr(expr, context).ok()?;
-                Some(Block {
-                    ret: Some(Box::new(expr)),
-                    inner: vec![],
-                    ty: None,
-                })
-            }
-        }
-    }
-
-    let value = Box::new(Expression::from_expr(*mat.expr, context).ok()?);
-
-    let arms = mat
-        .arms
-        .into_iter()
-        .map(|arm| arm.guard.is_none().then_some(arm))
-        .collect::<Option<Vec<_>>>()?;
-
-    let mut switch_arms = Vec::new();
-    let mut default = None;
-
-    for arm in arms {
-        let pat = parse_pat(arm.pat)?;
-        if pat.is_empty() {
-            default = Some(arm.body)
-        } else {
-            switch_arms.extend(pat.into_iter().map(|lit| (lit, arm.body.clone())));
-        }
-    }
-
-    let cases = switch_arms
-        .into_iter()
-        .map(|(lit, body)| Some((lit, parse_body(*body, context)?)))
-        .collect::<Option<Vec<_>>>()?;
-    let default = parse_body(*default?, context)?;
-
-    Some(Expression::Switch {
-        value,
-        cases,
-        default,
-    })
 }

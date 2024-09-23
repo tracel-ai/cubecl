@@ -410,24 +410,74 @@ pub fn if_else_expr_expand<C: CubePrimitive>(
     }
 }
 
-pub struct SwitchExpand<C: CubeType> {
-    value: ExpandElementTyped<C>,
-    out: ExpandElementTyped<C>,
+pub struct SwitchExpand<I: Int> {
+    value: ExpandElementTyped<I>,
     default: CubeContext,
-    cases: Vec<(i32, CubeContext)>,
+    cases: Vec<(ExpandElementTyped<I>, CubeContext)>,
 }
 
-impl<C: CubePrimitive> SwitchExpand<C> {
+impl<I: Int> SwitchExpand<I> {
+    pub fn case(
+        mut self,
+        context: &mut CubeContext,
+        value: impl Int,
+        block: impl FnOnce(&mut CubeContext),
+    ) -> Self {
+        let value = I::from(value).unwrap();
+        let mut case_child = context.child();
+        block(&mut case_child);
+        self.cases.push((value.into(), case_child));
+        self
+    }
+
+    pub fn finish(self, context: &mut CubeContext) {
+        let value_var = *self.value.expand;
+        context.register(Branch::Switch(Switch {
+            value: value_var,
+            scope_default: self.default.into_scope(),
+            cases: self
+                .cases
+                .into_iter()
+                .map(|it| (*it.0.expand, it.1.into_scope()))
+                .collect(),
+        }));
+    }
+}
+
+pub fn switch_expand<I: Int>(
+    context: &mut CubeContext,
+    value: ExpandElementTyped<I>,
+    default_block: impl FnOnce(&mut CubeContext),
+) -> SwitchExpand<I> {
+    let mut default_child = context.child();
+    default_block(&mut default_child);
+
+    SwitchExpand {
+        value,
+        default: default_child,
+        cases: Vec::new(),
+    }
+}
+
+pub struct SwitchExpandExpr<I: Int, C: CubePrimitive> {
+    value: ExpandElementTyped<I>,
+    out: ExpandElementTyped<C>,
+    default: CubeContext,
+    cases: Vec<(ExpandElementTyped<I>, CubeContext)>,
+}
+
+impl<I: Int, C: CubePrimitive> SwitchExpandExpr<I, C> {
     pub fn case(
         mut self,
         context: &mut CubeContext,
         value: impl Int,
         block: impl FnOnce(&mut CubeContext) -> ExpandElementTyped<C>,
     ) -> Self {
+        let value = I::from(value).unwrap();
         let mut case_child = context.child();
         let ret = block(&mut case_child);
         assign::expand(&mut case_child, ret, self.out.clone());
-        self.cases.push((NumCast::from(value).unwrap(), case_child));
+        self.cases.push((value.into(), case_child));
         self
     }
 
@@ -439,24 +489,24 @@ impl<C: CubePrimitive> SwitchExpand<C> {
             cases: self
                 .cases
                 .into_iter()
-                .map(|it| (it.0, it.1.into_scope()))
+                .map(|it| (*it.0.expand, it.1.into_scope()))
                 .collect(),
         }));
         self.out
     }
 }
 
-pub fn switch_expand<C: CubePrimitive>(
+pub fn switch_expand_expr<I: Int, C: CubePrimitive>(
     context: &mut CubeContext,
-    value: ExpandElementTyped<C>,
+    value: ExpandElementTyped<I>,
     default_block: impl FnOnce(&mut CubeContext) -> ExpandElementTyped<C>,
-) -> SwitchExpand<C> {
+) -> SwitchExpandExpr<I, C> {
     let mut default_child = context.child();
     let default = default_block(&mut default_child);
     let out: ExpandElementTyped<C> = context.create_local(default.expand.item()).into();
     assign::expand(&mut default_child, default, out.clone());
 
-    SwitchExpand {
+    SwitchExpandExpr {
         value,
         out,
         default: default_child,

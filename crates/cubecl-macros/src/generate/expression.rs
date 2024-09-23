@@ -333,7 +333,12 @@ impl Expression {
                 default,
             } => {
                 let branch = frontend_type("branch");
+                let switch = match default.ret.is_some() {
+                    true => quote![switch_expand_expr],
+                    false => quote![switch_expand],
+                };
                 let value = value.to_tokens(context);
+                let default = default.to_tokens(context);
                 let blocks = cases
                     .iter()
                     .map(|(val, block)| {
@@ -341,11 +346,10 @@ impl Expression {
                         quote![.case(context, #val, |context| #block)]
                     })
                     .collect::<Vec<_>>();
-                let default = default.to_tokens(context);
                 quote! {
                     {
                         let _val = #value;
-                        #branch::switch_expand(context, _val.into(), |context| #default)
+                        #branch::#switch(context, _val.into(), |context| #default)
                             #(#blocks)*
                             .finish(context)
                     }
