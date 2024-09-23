@@ -91,6 +91,11 @@ pub enum Expression {
         then_block: Block,
         else_branch: Option<Box<Expression>>,
     },
+    Switch {
+        value: Box<Expression>,
+        cases: Vec<(Lit, Block)>,
+        default: Block,
+    },
     Return {
         expr: Option<Box<Expression>>,
         span: Span,
@@ -162,6 +167,7 @@ impl Expression {
             Expression::Range { start, .. } => start.ty(),
             Expression::Loop { .. } => None,
             Expression::If { then_block, .. } => then_block.ty.clone(),
+            Expression::Switch { default, .. } => default.ty.clone(),
             Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
             Expression::Array { .. } => None,
             Expression::Index { .. } => None,

@@ -1,7 +1,10 @@
 use num_traits::NumCast;
 
-use crate::frontend::{CubeContext, ExpandElement};
 use crate::ir::{Branch, If, IfElse, Item, Loop, RangeLoop};
+use crate::{
+    frontend::{CubeContext, ExpandElement},
+    ir::Switch,
+};
 
 use super::{assign, CubePrimitive, CubeType, ExpandElementTyped, Int, Numeric};
 
@@ -404,6 +407,60 @@ pub fn if_else_expr_expand<C: CubePrimitive>(
                 then_child,
             }
         }
+    }
+}
+
+pub struct SwitchExpand<C: CubeType> {
+    value: ExpandElementTyped<C>,
+    out: ExpandElementTyped<C>,
+    default: CubeContext,
+    cases: Vec<(i32, CubeContext)>,
+}
+
+impl<C: CubePrimitive> SwitchExpand<C> {
+    pub fn case(
+        mut self,
+        context: &mut CubeContext,
+        value: impl Int,
+        block: impl FnOnce(&mut CubeContext) -> ExpandElementTyped<C>,
+    ) -> Self {
+        let mut case_child = context.child();
+        let ret = block(&mut case_child);
+        assign::expand(&mut case_child, ret, self.out.clone());
+        self.cases.push((NumCast::from(value).unwrap(), case_child));
+        self
+    }
+
+    pub fn finish(self, context: &mut CubeContext) -> ExpandElementTyped<C> {
+        let value_var = *self.value.expand;
+        context.register(Branch::Switch(Switch {
+            value: value_var,
+            scope_default: self.default.into_scope(),
+            cases: self
+                .cases
+                .into_iter()
+                .map(|it| (it.0, it.1.into_scope()))
+                .collect(),
+        }));
+        self.out
+    }
+}
+
+pub fn switch_expand<C: CubePrimitive>(
+    context: &mut CubeContext,
+    value: ExpandElementTyped<C>,
+    default_block: impl FnOnce(&mut CubeContext) -> ExpandElementTyped<C>,
+) -> SwitchExpand<C> {
+    let mut default_child = context.child();
+    let default = default_block(&mut default_child);
+    let out: ExpandElementTyped<C> = context.create_local(default.expand.item()).into();
+    assign::expand(&mut default_child, default, out.clone());
+
+    SwitchExpand {
+        value,
+        out,
+        default: default_child,
+        cases: Vec::new(),
     }
 }
 

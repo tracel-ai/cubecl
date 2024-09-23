@@ -327,6 +327,30 @@ impl Expression {
                     }
                 }
             }
+            Expression::Switch {
+                value,
+                cases,
+                default,
+            } => {
+                let branch = frontend_type("branch");
+                let value = value.to_tokens(context);
+                let blocks = cases
+                    .iter()
+                    .map(|(val, block)| {
+                        let block = block.to_tokens(context);
+                        quote![.case(context, #val, |context| #block)]
+                    })
+                    .collect::<Vec<_>>();
+                let default = default.to_tokens(context);
+                quote! {
+                    {
+                        let _val = #value;
+                        #branch::switch_expand(context, _val.into(), |context| #default)
+                            #(#blocks)*
+                            .finish(context)
+                    }
+                }
+            }
             Expression::Path { path, .. } => quote![#path],
             Expression::Range {
                 start,
