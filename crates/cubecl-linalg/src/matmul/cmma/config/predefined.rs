@@ -26,9 +26,9 @@ pub enum PredefinedCmmaConfig {
     AccumulatorsFirstWithReuse,
 }
 
-impl Into<CmmaConfig> for PredefinedCmmaConfig {
-    fn into(self) -> CmmaConfig {
-        match self {
+impl From<PredefinedCmmaConfig> for CmmaConfig {
+    fn from(val: PredefinedCmmaConfig) -> Self {
+        match val {
             PredefinedCmmaConfig::M64K32 => CmmaConfig {
                 b_mn: 64,
                 b_k: 32,
