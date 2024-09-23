@@ -1,5 +1,5 @@
 use crate::{
-    parse::cube_type::{CubeTypeEnum, CubeTypeVariant},
+    parse::cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
     paths::prelude_type,
 };
 use proc_macro2::TokenStream;
@@ -106,36 +106,29 @@ impl CubeTypeVariant {
     fn expand_variant(&self) -> TokenStream {
         let name = &self.ident;
         let cube_type = prelude_type("CubeType");
-        let mut named = false;
 
-        let fields = self
-            .fields
-            .iter()
-            .map(|field| {
-                let ty = &field.ty;
-                match &field.ident {
-                    Some(name) => {
-                        named = true;
-                        quote! {#name: <#ty as #cube_type>::ExpandType}
-                    }
-                    None => quote! {<#ty as #cube_type>::ExpandType},
+        let fields = self.fields.iter().map(|field| {
+            let ty = &field.ty;
+            match &field.ident {
+                Some(name) => {
+                    quote! {#name: <#ty as #cube_type>::ExpandType}
                 }
-            })
-            .collect::<Vec<_>>();
+                None => quote! {<#ty as #cube_type>::ExpandType},
+            }
+        });
 
-        if named {
-            quote![#name { #(#fields),* } ]
-        } else {
-            quote![#name ( #(#fields),* ) ]
+        match self.kind {
+            VariantKind::Named => quote![#name { #(#fields),* } ],
+            VariantKind::Unnamed => quote![#name ( #(#fields),* ) ],
+            VariantKind::Empty => quote!( #name ),
         }
     }
 
     fn into_runtime_body(&self, ident_ty: &Ident, ident_ty_expand: &Ident) -> TokenStream {
         let name = &self.ident;
         let into_runtime = prelude_type("IntoRuntime");
-        let (named, names) = self.fields_names();
-        let body = names.iter().map(|name| {
-            if named {
+        let body = self.field_names.iter().map(|name| {
+            if let VariantKind::Named = self.kind {
                 quote! {
                     #name: #into_runtime::__expand_runtime_method(#name, context)
                 }
@@ -146,21 +139,20 @@ impl CubeTypeVariant {
             }
         });
 
-        let body = if named {
-            quote![#ident_ty_expand::#name { #(#body),*} ]
-        } else {
-            quote![#ident_ty_expand::#name ( #(#body),* ) ]
+        let body = match self.kind {
+            VariantKind::Named => quote![#ident_ty_expand::#name { #(#body),*} ],
+            VariantKind::Unnamed => quote![#ident_ty_expand::#name ( #(#body),* ) ],
+            VariantKind::Empty => quote![#ident_ty_expand::#name],
         };
 
-        self.run_on_variants(named, ident_ty, &names, body)
+        self.run_on_variants(ident_ty, body)
     }
 
     fn init_body(&self, ident_ty_expand: &Ident) -> TokenStream {
         let name = &self.ident;
         let init = prelude_type("Init");
-        let (named, names) = self.fields_names();
-        let body = names.iter().map(|name| {
-            if named {
+        let body = self.field_names.iter().map(|name| {
+            if let VariantKind::Named = self.kind {
                 quote! {
                     #name: #init::init(#name, context)
                 }
@@ -171,55 +163,33 @@ impl CubeTypeVariant {
             }
         });
 
-        let body = if named {
-            quote![#ident_ty_expand::#name { #(#body),*} ]
-        } else {
-            quote![#ident_ty_expand::#name ( #(#body),* ) ]
+        let body = match self.kind {
+            VariantKind::Named => quote![#ident_ty_expand::#name { #(#body),*} ],
+            VariantKind::Unnamed => quote![#ident_ty_expand::#name ( #(#body),* ) ],
+            VariantKind::Empty => quote![#ident_ty_expand::#name],
         };
 
-        self.run_on_variants(named, ident_ty_expand, &names, body)
+        self.run_on_variants(ident_ty_expand, body)
     }
 
-    fn fields_names(&self) -> (bool, Vec<Ident>) {
-        let mut named = false;
-
-        let names = self
-            .fields
-            .iter()
-            .enumerate()
-            .map(|(i, field)| match &field.ident {
-                Some(name) => {
-                    named = true;
-                    name.clone()
-                }
-                None => Ident::new(format!("arg_{i}").as_str(), self.ident.span()),
-            })
-            .collect::<Vec<_>>();
-
-        (named, names)
-    }
-
-    fn run_on_variants(
-        &self,
-        named: bool,
-        parent_ty: &Ident,
-        decl: &[Ident],
-        body: TokenStream,
-    ) -> TokenStream {
+    fn run_on_variants(&self, parent_ty: &Ident, body: TokenStream) -> TokenStream {
         let ident = &self.ident;
+        let decl = &self.field_names;
 
-        if named {
-            quote! {
+        match self.kind {
+            VariantKind::Named => quote! {
                 #parent_ty::#ident {
                     #(#decl),*
                 } => #body
-            }
-        } else {
-            quote! (
+            },
+            VariantKind::Unnamed => quote! (
                 #parent_ty::#ident (
                     #(#decl),*
                 ) => #body
-            )
+            ),
+            VariantKind::Empty => quote! {
+                #parent_ty::#ident => #body
+            },
         }
     }
 }

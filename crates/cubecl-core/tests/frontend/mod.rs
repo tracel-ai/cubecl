@@ -5,6 +5,7 @@ mod cast_kind;
 mod comptime;
 mod constants;
 mod cube_trait;
+mod enum_type;
 mod for_loop;
 mod function_call;
 mod generic_kernel;

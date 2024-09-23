@@ -1,4 +1,5 @@
 use darling::FromDeriveInput;
+use proc_macro2::Span;
 use syn::{spanned::Spanned, Ident};
 
 #[derive(Debug)]
@@ -14,6 +15,15 @@ pub struct CubeTypeEnum {
 pub struct CubeTypeVariant {
     pub ident: Ident,
     pub fields: syn::Fields,
+    pub field_names: Vec<Ident>,
+    pub kind: VariantKind,
+}
+
+#[derive(Debug)]
+pub enum VariantKind {
+    Named,
+    Unnamed,
+    Empty,
 }
 
 impl FromDeriveInput for CubeTypeEnum {
@@ -27,9 +37,35 @@ impl FromDeriveInput for CubeTypeEnum {
                 variants: data
                     .variants
                     .iter()
-                    .map(|a| CubeTypeVariant {
-                        ident: a.ident.clone(),
-                        fields: a.fields.clone(),
+                    .map(|a| {
+                        let mut kind = if a.fields.is_empty() {
+                            VariantKind::Empty
+                        } else {
+                            VariantKind::Unnamed
+                        };
+
+                        for field in a.fields.iter() {
+                            if field.ident.is_some() {
+                                kind = VariantKind::Named;
+                            }
+                        }
+
+                        CubeTypeVariant {
+                            kind,
+                            ident: a.ident.clone(),
+                            field_names: a
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .map(|(i, field)| match &field.ident {
+                                    Some(name) => name.clone(),
+                                    None => {
+                                        Ident::new(format!("arg_{i}").as_str(), Span::call_site())
+                                    }
+                                })
+                                .collect(),
+                            fields: a.fields.clone(),
+                        }
                     })
                     .collect(),
             }),

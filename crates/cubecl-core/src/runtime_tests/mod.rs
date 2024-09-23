@@ -26,5 +26,6 @@ macro_rules! testgen_all {
         cubecl_core::testgen_unary!();
         cubecl_core::testgen_binary!();
         cubecl_core::testgen_different_rank!();
+        cubecl_core::testgen_const_match!();
     };
 }

@@ -3,7 +3,7 @@ use quote::{format_ident, quote, quote_spanned};
 use syn::{spanned::Spanned, Member, PathArguments};
 
 use crate::{
-    expression::{Block, Expression},
+    expression::{Block, ConstMatchArm, Expression},
     operator::Operator,
     paths::{frontend_path, frontend_type, prelude_type},
     scope::Context,
@@ -426,6 +426,26 @@ impl Expression {
             }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
             Expression::Block(block) => block.to_tokens(context),
+            Expression::ConstMatch { const_expr, arms } => {
+                let arms = arms.iter().map(|arm| arm.to_tokens(context));
+
+                quote! {
+                    match #const_expr {
+                        #(#arms,)*
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl ConstMatchArm {
+    pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
+        let path = &self.pat;
+        let expr = self.expr.to_tokens(context);
+
+        quote! {
+            #path => #expr
         }
     }
 }
