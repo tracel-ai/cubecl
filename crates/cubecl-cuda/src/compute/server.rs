@@ -131,6 +131,13 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
+        let profile_level = self.logger.profile_level();
+        let profile_info = if profile_level.is_some() {
+            Some((kernel.name(), kernel_id.clone()))
+        } else {
+            None
+        };
+
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
             // TODO: CUDA doesn't have an exact equivalen of dynamic dispatch. Instead, kernels are free to launch other kernels.
@@ -164,7 +171,31 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
             })
             .collect::<Vec<_>>();
 
-        ctx.execute_task(kernel_id, count, resources);
+        if let Some(level) = profile_level {
+            ctx.sync();
+            let start = std::time::SystemTime::now();
+            ctx.execute_task(kernel_id, count, resources);
+            ctx.sync();
+
+            let (name, kernel_id) = profile_info.unwrap();
+            let info = match level {
+                cubecl_runtime::debug::ProfileLevel::Basic => {
+                    if let Some(val) = name.split("<").next() {
+                        val.split("::").last().unwrap_or(name).to_string()
+                    } else {
+                        name.to_string()
+                    }
+                }
+                cubecl_runtime::debug::ProfileLevel::Full => {
+                    format!("{name}: {kernel_id} CubeCount {count:?}")
+                }
+            };
+
+            self.logger
+                .register_profiled(info, start.elapsed().unwrap());
+        } else {
+            ctx.execute_task(kernel_id, count, resources);
+        }
     }
 
     fn sync(&mut self, sync_type: SyncType) {

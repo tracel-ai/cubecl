@@ -53,7 +53,7 @@ pub struct KernelSettings {
     pub mappings: Vec<InplaceMapping>,
     vectorization_global: Option<Vectorization>,
     vectorization_partial: Vec<VectorizationPartial>,
-    cube_dim: CubeDim,
+    pub cube_dim: CubeDim,
     pub reading_strategy: Vec<(u16, ReadingStrategy)>,
 }
 

@@ -762,6 +762,11 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(op.out),
             },
+            cube::Operator::Dot(op) => wgsl::Instruction::Dot {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(op.out),
+            },
         }
     }
 

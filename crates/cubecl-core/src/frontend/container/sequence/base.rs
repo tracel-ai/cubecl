@@ -1,8 +1,8 @@
-use super::{
+use crate::frontend::{
     branch::Iterable, indexation::Index, CubeContext, CubeType, ExpandElementTyped, Init,
     IntoRuntime,
 };
-use crate::unexpanded;
+use crate::prelude::ExpandElement;
 use std::{cell::RefCell, rc::Rc};
 
 /// A sequence of [cube types](CubeType) that is inlined during compilation.
@@ -12,7 +12,7 @@ use std::{cell::RefCell, rc::Rc};
 /// All methods [push](Sequence::push), [index](Sequence::index) and
 /// [into_iter](Sequence::into_iter) are executed _during_ compilation and don't add any overhead
 /// on the generated kernel.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Sequence<T: CubeType> {
     values: Vec<T>,
 }
@@ -34,10 +34,34 @@ impl<T: CubeType> Sequence<T> {
         self.values.push(value);
     }
 
+    /// Obtain the sequence length.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u32 {
+        self.values.len() as u32
+    }
+
     /// Get the variable at the given position in the sequence.
     #[allow(unused_variables, clippy::should_implement_trait)]
     pub fn index<I: Index>(&self, index: I) -> &T {
-        unexpanded!();
+        let index: ExpandElementTyped<u32> = ExpandElement::Plain(index.value()).into();
+        let index = index
+            .constant()
+            .expect("Only constant are supported")
+            .as_usize();
+
+        self.values.get(index).unwrap()
+    }
+
+    /// Get the variable at the given position in the sequence.
+    #[allow(unused_variables, clippy::should_implement_trait)]
+    pub fn index_mut<I: Index>(&mut self, index: I) -> &mut T {
+        let index: ExpandElementTyped<u32> = ExpandElement::Plain(index.value()).into();
+        let index = index
+            .constant()
+            .expect("Only constant are supported")
+            .as_usize();
+
+        self.values.get_mut(index).unwrap()
     }
 
     /// Expand function of [new](Self::new).
@@ -64,13 +88,22 @@ impl<T: CubeType> Sequence<T> {
     ) -> T::ExpandType {
         expand.__expand_index_method(context, index)
     }
+
+    /// Expand function of [index_mut](Self::index_mut).
+    pub fn __expand_index_mut(
+        context: &mut CubeContext,
+        expand: SequenceExpand<T>,
+        index: ExpandElementTyped<u32>,
+    ) -> T::ExpandType {
+        expand.__expand_index_mut_method(context, index)
+    }
 }
 
 /// Expand type of [Sequence].
 pub struct SequenceExpand<T: CubeType> {
     // We clone the expand type during the compilation phase, but for register reuse, not for
     // copying data. To achieve the intended behavior, we have to share the same underlying values.
-    values: Rc<RefCell<Vec<T::ExpandType>>>,
+    pub(super) values: Rc<RefCell<Vec<T::ExpandType>>>,
 }
 
 impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
@@ -148,6 +181,24 @@ impl<T: CubeType> SequenceExpand<T> {
             .expect("Only constant are supported")
             .as_usize();
         self.values.borrow()[index].clone()
+    }
+
+    /// Expand method of [index_mut](Sequence::index_mut).
+    pub fn __expand_index_mut_method(
+        &self,
+        _context: &mut CubeContext,
+        index: ExpandElementTyped<u32>,
+    ) -> T::ExpandType {
+        let index = index
+            .constant()
+            .expect("Only constant are supported")
+            .as_usize();
+        self.values.borrow()[index].clone()
+    }
+
+    pub fn __expand_len_method(&self, _context: &mut CubeContext) -> u32 {
+        let values = self.values.borrow();
+        values.len() as u32
     }
 }
 

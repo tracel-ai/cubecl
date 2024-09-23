@@ -1,7 +1,10 @@
 use crate::frontend::CubeType;
-use crate::frontend::{CubeContext, CubePrimitive, ExpandElementTyped};
+use crate::frontend::{CubeContext, CubePrimitive, ExpandElement, ExpandElementTyped};
 use crate::ir::Operator;
-use crate::{frontend::operation::base::binary_expand, unexpanded};
+use crate::{
+    frontend::operation::base::{binary_expand, binary_expand_fixed_output},
+    unexpanded,
+};
 use half::{bf16, f16};
 
 pub mod add {
@@ -210,6 +213,37 @@ macro_rules! impl_binary_func {
     }
 }
 
+macro_rules! impl_binary_func_fixed_output_vectorization {
+    ($trait_name:ident, $method_name:ident, $func_name_expand:ident, $method_name_expand:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
+        pub trait $trait_name: CubeType + Sized {
+            fn $method_name(self, _rhs: Self) -> Self {
+                unexpanded!()
+            }
+
+            fn $func_name_expand(
+                context: &mut CubeContext,
+                lhs: ExpandElementTyped<Self>,
+                rhs: ExpandElementTyped<Self>,
+            ) -> ExpandElementTyped<Self> {
+                let lhs: ExpandElement = lhs.into();
+                let mut item = lhs.item();
+                item.vectorization = $out_vectorization;
+                binary_expand_fixed_output(context, lhs, rhs.into(), item, $operator).into()
+            }
+        }
+
+        $(impl $trait_name for $type {})*
+        $(impl ExpandElementTyped<$type> {
+            pub fn $method_name_expand(self, context: &mut CubeContext, rhs: ExpandElementTyped<$type>) -> ExpandElementTyped<$type> {
+                let lhs: ExpandElement = self.into();
+                let mut item = lhs.item();
+                item.vectorization = $out_vectorization;
+                binary_expand_fixed_output(context, lhs, rhs.into(), item, $operator).into()
+            }
+        })*
+    }
+}
+
 impl_binary_func!(
     Powf,
     powf,
@@ -255,6 +289,21 @@ impl_binary_func!(
     __expand_rem,
     __expand_rem_method,
     Operator::Remainder,
+    f16,
+    bf16,
+    f32,
+    f64,
+    i32,
+    i64,
+    u32
+);
+impl_binary_func_fixed_output_vectorization!(
+    Dot,
+    dot,
+    __expand_dot,
+    __expand_dot_method,
+    Operator::Dot,
+    None,
     f16,
     bf16,
     f32,

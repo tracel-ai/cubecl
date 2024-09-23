@@ -1,8 +1,8 @@
 use super::{CubePrimitive, Numeric, Vectorized};
 use crate::{
-    ir::{ConstantScalarValue, Elem, FloatKind, Item, Operator, Variable, Vectorization},
+    ir::{ConstantScalarValue, Elem, FloatKind, Item, Operator, Variable},
     prelude::{index_assign, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher},
-    KernelSettings, Runtime,
+    Runtime,
 };
 use alloc::rc::Rc;
 use half::{bf16, f16};
@@ -53,17 +53,27 @@ pub trait Init: Sized {
 /// should expand the argument as an input while the mutable reference should expand the argument
 /// as an output.
 pub trait LaunchArgExpand: CubeType {
+    /// Compilation argument.
+    type CompilationArg: Clone
+        + PartialEq
+        + Eq
+        + core::hash::Hash
+        + core::fmt::Debug
+        + Send
+        + Sync
+        + 'static;
+
     /// Register an input variable during compilation that fill the [KernelBuilder].
     fn expand(
+        arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-        vectorization: Vectorization,
     ) -> <Self as CubeType>::ExpandType;
     /// Register an output variable during compilation that fill the [KernelBuilder].
     fn expand_output(
+        arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-        vectorization: Vectorization,
     ) -> <Self as CubeType>::ExpandType {
-        Self::expand(builder, vectorization)
+        Self::expand(arg, builder)
     }
 }
 
@@ -71,10 +81,17 @@ pub trait LaunchArgExpand: CubeType {
 pub trait LaunchArg: LaunchArgExpand + Send + Sync + 'static {
     /// The runtime argument for the kernel.
     type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
+
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg;
 }
 
 impl LaunchArg for () {
     type RuntimeArg<'a, R: Runtime> = ();
+
+    fn compilation_arg<'a, R: Runtime>(
+        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
+    ) -> Self::CompilationArg {
+    }
 }
 
 impl<R: Runtime> ArgSettings<R> for () {
@@ -84,9 +101,11 @@ impl<R: Runtime> ArgSettings<R> for () {
 }
 
 impl LaunchArgExpand for () {
+    type CompilationArg = ();
+
     fn expand(
+        _: &Self::CompilationArg,
         _builder: &mut KernelBuilder,
-        _vectorization: Vectorization,
     ) -> <Self as CubeType>::ExpandType {
     }
 }
@@ -105,14 +124,6 @@ impl Init for () {
 pub trait ArgSettings<R: Runtime>: Send + Sync {
     /// Register the information to the [KernelLauncher].
     fn register(&self, launcher: &mut KernelLauncher<R>);
-    /// Configure an input argument at the given position.
-    fn configure_input(&self, _position: usize, settings: KernelSettings) -> KernelSettings {
-        settings
-    }
-    /// Configure an output argument at the given position.
-    fn configure_output(&self, _position: usize, settings: KernelSettings) -> KernelSettings {
-        settings
-    }
 }
 
 /// Reference to a JIT variable

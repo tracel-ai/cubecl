@@ -85,7 +85,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 if autotune_operation_set.should_run(&key, i) {
                     self.run_benchmark(op, client)
                 } else {
-                    Ok(BenchmarkDurations::new(vec![Duration::MAX]))
+                    Ok(BenchmarkDurations::new(Vec::from([Duration::MAX])))
                 }
             })
             .collect();
