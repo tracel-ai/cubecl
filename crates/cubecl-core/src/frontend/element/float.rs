@@ -3,7 +3,7 @@ use std::num::NonZero;
 use half::{bf16, f16};
 
 use crate::{
-    ir::{Elem, FloatKind, Item, Vectorization},
+    ir::{Elem, FloatKind, Item},
     prelude::*,
     unexpanded,
 };
@@ -163,11 +163,12 @@ macro_rules! impl_float {
         }
 
         impl LaunchArgExpand for $primitive {
+            type CompilationArg = ();
+
             fn expand(
+                _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
-                vectorization: Vectorization,
             ) -> ExpandElementTyped<Self> {
-                assert_eq!(vectorization, None, "Attempted to vectorize a scalar");
                 builder.scalar($primitive::as_elem()).into()
             }
         }

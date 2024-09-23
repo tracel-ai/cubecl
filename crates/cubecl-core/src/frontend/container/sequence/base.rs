@@ -1,4 +1,4 @@
-use super::{
+use crate::frontend::{
     branch::Iterable, indexation::Index, CubeContext, CubeType, ExpandElementTyped, Init,
     IntoRuntime,
 };
@@ -32,6 +32,12 @@ impl<T: CubeType> Sequence<T> {
     /// Push a new value into the sequence.
     pub fn push(&mut self, value: T) {
         self.values.push(value);
+    }
+
+    /// Obtain the sequence length.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u32 {
+        unexpanded!()
     }
 
     /// Get the variable at the given position in the sequence.
@@ -70,7 +76,7 @@ impl<T: CubeType> Sequence<T> {
 pub struct SequenceExpand<T: CubeType> {
     // We clone the expand type during the compilation phase, but for register reuse, not for
     // copying data. To achieve the intended behavior, we have to share the same underlying values.
-    values: Rc<RefCell<Vec<T::ExpandType>>>,
+    pub(super) values: Rc<RefCell<Vec<T::ExpandType>>>,
 }
 
 impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
@@ -148,6 +154,11 @@ impl<T: CubeType> SequenceExpand<T> {
             .expect("Only constant are supported")
             .as_usize();
         self.values.borrow()[index].clone()
+    }
+
+    pub fn __expand_len_method(&self, _context: &mut CubeContext) -> u32 {
+        let values = self.values.borrow();
+        values.len() as u32
     }
 }
 
