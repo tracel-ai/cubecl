@@ -80,6 +80,9 @@ impl Display for ComputeKernel {
             f.write_str("#include <cuda_fp16.h>\n")?;
         }
 
+        f.write_str("#include <device_functions.h>\n")?;
+        f.write_str("#include <cuda_runtime.h>\n")?;
+
         if self.wmma_activated {
             f.write_str("using namespace nvcuda;\n")?;
         }

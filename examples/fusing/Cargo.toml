@@ -1,0 +1,16 @@
+[package]
+authors = []
+name = "fusing"
+publish = false
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+default = []
+wgpu = ["cubecl/wgpu"]
+cuda = ["cubecl/cuda"]
+
+[dependencies]
+cubecl = { path = "../../crates/cubecl", version = "0.2.0", default-features = false }
+half = { workspace = true }
