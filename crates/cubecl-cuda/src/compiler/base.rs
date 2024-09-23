@@ -557,6 +557,7 @@ impl CudaCompiler {
             gpu::Operator::Magnitude(op) => {
                 instructions.push(Instruction::Magnitude(self.compile_unary(op)))
             }
+            gpu::Operator::Dot(op) => instructions.push(Instruction::Dot(self.compile_binary(op))),
         };
     }
 

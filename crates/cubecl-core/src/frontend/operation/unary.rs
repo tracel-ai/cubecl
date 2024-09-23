@@ -7,7 +7,7 @@ use crate::{
     unexpanded,
 };
 
-use super::base::{fixed_output_unary_expand, unary_expand};
+use super::base::{unary_expand, unary_expand_fixed_output};
 
 pub mod not {
     use super::*;
@@ -50,7 +50,7 @@ macro_rules! impl_unary_func {
     }
 }
 
-macro_rules! impl_fixed_out_vectorization_unary_func {
+macro_rules! impl_unary_func_fixed_out_vectorization {
     ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
         pub trait $trait_name: CubePrimitive + Sized {
             #[allow(unused_variables)]
@@ -62,7 +62,7 @@ macro_rules! impl_fixed_out_vectorization_unary_func {
                 let expand_element: ExpandElement = x.into();
                 let mut item = expand_element.item();
                 item.vectorization = $out_vectorization;
-                fixed_output_unary_expand(context, expand_element, item, $operator).into()
+                unary_expand_fixed_output(context, expand_element, item, $operator).into()
             }
         }
 
@@ -158,7 +158,7 @@ impl_unary_func!(
     f32,
     f64
 );
-impl_fixed_out_vectorization_unary_func!(
+impl_unary_func_fixed_out_vectorization!(
     Magnitude,
     magnitude,
     __expand_magnitude,

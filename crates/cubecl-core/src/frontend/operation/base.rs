@@ -46,6 +46,46 @@ where
     out
 }
 
+pub(crate) fn binary_expand_fixed_output<F>(
+    context: &mut CubeContext,
+    lhs: ExpandElement,
+    rhs: ExpandElement,
+    out_item: Item,
+    func: F,
+) -> ExpandElement
+where
+    F: Fn(BinaryOperator) -> Operator,
+{
+    let lhs_var: Variable = *lhs;
+    let rhs_var: Variable = *rhs;
+
+    let item_lhs = lhs.item();
+    let item_rhs = rhs.item();
+
+    let _ = find_vectorization(item_lhs.vectorization, item_rhs.vectorization);
+
+    // We can only reuse rhs.
+    let out = if lhs.can_mut() && item_lhs == out_item {
+        lhs
+    } else if rhs.can_mut() && item_rhs == out_item {
+        rhs
+    } else {
+        context.create_local(out_item)
+    };
+
+    let out_var = *out;
+
+    let op = func(BinaryOperator {
+        lhs: lhs_var,
+        rhs: rhs_var,
+        out: out_var,
+    });
+
+    context.register(op);
+
+    out
+}
+
 pub(crate) fn binary_expand_no_vec<F>(
     context: &mut CubeContext,
     lhs: ExpandElement,
@@ -170,7 +210,7 @@ where
     out
 }
 
-pub fn fixed_output_unary_expand<F>(
+pub fn unary_expand_fixed_output<F>(
     context: &mut CubeContext,
     input: ExpandElement,
     out_item: Item,

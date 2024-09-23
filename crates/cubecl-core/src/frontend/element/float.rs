@@ -28,6 +28,7 @@ pub trait Float:
     + Recip
     + Magnitude
     + Normalize
+    + Dot
     + Into<Self::ExpandType>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>

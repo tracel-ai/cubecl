@@ -321,6 +321,11 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Dot {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
 }
 
 impl Display for Instruction {
@@ -707,6 +712,13 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     ))
                 } else {
                     f.write_fmt(format_args!("{out} = normalize({input});\n"))
+                }
+            }
+            Instruction::Dot { lhs, rhs, out } => {
+                if lhs.item().vectorization_factor() == 1 {
+                    f.write_fmt(format_args!("{out} = {lhs} * {rhs};\n"))
+                } else {
+                    f.write_fmt(format_args!("{out} = dot({lhs}, {rhs});\n"))
                 }
             }
         }
