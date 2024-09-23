@@ -6,9 +6,9 @@ use syn::{parse_quote, punctuated::Punctuated, Generics, Ident, Type, Visibility
 
 use crate::paths::prelude_type;
 
-#[derive(FromDeriveInput)]
+#[derive(FromDeriveInput, Debug)]
 #[darling(supports(struct_named, struct_unit), attributes(expand), map = unwrap_fields)]
-pub struct TypeCodegen {
+pub struct CubeTypeStruct {
     pub ident: Ident,
     pub name_launch: Option<Ident>,
     pub name_expand: Option<Ident>,
@@ -19,7 +19,7 @@ pub struct TypeCodegen {
     pub vis: Visibility,
 }
 
-#[derive(FromField, Clone)]
+#[derive(FromField, Clone, Debug)]
 #[darling(attributes(expand))]
 pub struct TypeField {
     pub vis: Visibility,
@@ -28,7 +28,7 @@ pub struct TypeField {
     pub comptime: Flag,
 }
 
-fn unwrap_fields(mut ty: TypeCodegen) -> TypeCodegen {
+fn unwrap_fields(mut ty: CubeTypeStruct) -> CubeTypeStruct {
     // This will be supported inline with the next darling release
     let fields = ty.data.as_ref().take_struct().unwrap().fields;
     ty.fields = fields.into_iter().cloned().collect();
@@ -42,7 +42,7 @@ fn unwrap_fields(mut ty: TypeCodegen) -> TypeCodegen {
     ty
 }
 
-impl TypeCodegen {
+impl CubeTypeStruct {
     pub fn expanded_generics(&self) -> Generics {
         let runtime = prelude_type("Runtime");
         let mut generics = self.generics.clone();

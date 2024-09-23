@@ -29,6 +29,7 @@ pub trait CubeType {
     }
 }
 
+/// Take the comptime version of the type and put it into runtime.
 pub trait IntoRuntime: CubeType + Sized {
     fn runtime(self) -> Self {
         self

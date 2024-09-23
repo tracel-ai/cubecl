@@ -4,8 +4,8 @@ use cubecl::prelude::*;
 
 #[derive(CubeType)]
 pub enum Operation {
-    Add(usize),
-    Sub(usize),
+    Add(u32),
+    Min { val: u32 },
 }
 
 #[cube(launch)]

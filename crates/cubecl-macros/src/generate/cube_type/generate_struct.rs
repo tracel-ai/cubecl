@@ -1,49 +1,43 @@
-use darling::{FromDeriveInput, FromMeta, FromVariant};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Ident, Type, Visibility};
 
 use crate::{
-    parse::cube_type::{TypeCodegen, TypeField},
+    parse::cube_type::{CubeTypeStruct, TypeField},
     paths::prelude_type,
 };
 
-impl TypeField {
-    pub fn expand_field(&self) -> TokenStream {
-        let cube_type = prelude_type("CubeType");
-        let vis = &self.vis;
-        let name = self.ident.as_ref().unwrap();
-        let ty = &self.ty;
-        if self.comptime.is_present() {
-            quote![#vis #name: #ty]
+impl CubeTypeStruct {
+    pub fn generate(&self, with_launch: bool) -> TokenStream {
+        let expand_ty = self.expand_ty();
+        let launch_ty = self.launch_ty();
+        let launch_new = self.launch_new();
+
+        let cube_type_impl = self.cube_type_impl();
+        let arg_settings_impl = self.arg_settings_impl();
+        let launch_arg_impl = self.launch_arg_impl();
+        let expand_type_impl = self.expand_type_impl();
+
+        if with_launch {
+            quote! {
+                #expand_ty
+                #launch_ty
+                #launch_new
+
+                #cube_type_impl
+                #arg_settings_impl
+                #launch_arg_impl
+                #expand_type_impl
+            }
         } else {
-            quote![#vis #name: <#ty as #cube_type>::ExpandType]
+            quote! {
+                #expand_ty
+                #cube_type_impl
+                #expand_type_impl
+            }
         }
     }
-
-    pub fn launch_field(&self) -> TokenStream {
-        let launch_arg = prelude_type("LaunchArg");
-        let vis = &self.vis;
-        let name = self.ident.as_ref().unwrap();
-        let ty = &self.ty;
-        quote![#vis #name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
-    }
-
-    pub fn compilation_arg_field(&self) -> TokenStream {
-        let launch_arg = prelude_type("LaunchArgExpand");
-        let vis = &self.vis;
-        let name = self.ident.as_ref().unwrap();
-        let ty = &self.ty;
-        quote![#vis #name: <#ty as #launch_arg>::CompilationArg]
-    }
-
-    pub fn split(&self) -> (&Visibility, &Ident, &Type) {
-        (&self.vis, self.ident.as_ref().unwrap(), &self.ty)
-    }
-}
-
-impl TypeCodegen {
-    pub fn expand_ty(&self) -> proc_macro2::TokenStream {
+    fn expand_ty(&self) -> proc_macro2::TokenStream {
         let fields = self.fields.iter().map(TypeField::expand_field);
         let name = &self.name_expand;
         let generics = &self.generics;
@@ -57,7 +51,7 @@ impl TypeCodegen {
         }
     }
 
-    pub fn launch_ty(&self) -> proc_macro2::TokenStream {
+    fn launch_ty(&self) -> proc_macro2::TokenStream {
         let name = &self.name_launch;
         let fields = self.fields.iter().map(TypeField::launch_field);
         let generics = self.expanded_generics();
@@ -72,7 +66,7 @@ impl TypeCodegen {
         }
     }
 
-    pub fn launch_new(&self) -> proc_macro2::TokenStream {
+    fn launch_new(&self) -> proc_macro2::TokenStream {
         let args = self.fields.iter().map(TypeField::launch_field);
         let fields = self.fields.iter().map(|field| &field.ident);
         let name = &self.name_launch;
@@ -96,7 +90,7 @@ impl TypeCodegen {
         }
     }
 
-    pub fn arg_settings_impl(&self) -> proc_macro2::TokenStream {
+    fn arg_settings_impl(&self) -> proc_macro2::TokenStream {
         let arg_settings = prelude_type("ArgSettings");
         let kernel_launcher = prelude_type("KernelLauncher");
         let name = &self.name_launch;
@@ -118,7 +112,7 @@ impl TypeCodegen {
         }
     }
 
-    pub fn cube_type_impl(&self) -> proc_macro2::TokenStream {
+    fn cube_type_impl(&self) -> proc_macro2::TokenStream {
         let cube_type = prelude_type("CubeType");
         let name = &self.ident;
         let name_expand = &self.name_expand;
@@ -132,14 +126,14 @@ impl TypeCodegen {
         }
     }
 
-    pub fn compilation_ty_ident(&self) -> Ident {
+    fn compilation_ty_ident(&self) -> Ident {
         Ident::new(
             format!("{}CompilationArg", self.ident).as_str(),
             self.ident.span(),
         )
     }
 
-    pub fn compilation_arg_impl(&self, name: &Ident) -> TokenStream {
+    fn compilation_arg_impl(&self, name: &Ident) -> TokenStream {
         let launch_arg = prelude_type("LaunchArg");
         let fields = self.fields.iter().map(|field| {
             let name = &field.ident;
@@ -156,7 +150,7 @@ impl TypeCodegen {
         }
     }
 
-    pub fn compilation_ty(&self, name: &Ident) -> proc_macro2::TokenStream {
+    fn compilation_ty(&self, name: &Ident) -> proc_macro2::TokenStream {
         let name_debug = &self.ident;
         let fields = self.fields.iter().map(TypeField::compilation_arg_field);
         let generics = &self.generics;
@@ -216,7 +210,7 @@ impl TypeCodegen {
         }
     }
 
-    pub fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
+    fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
         let launch_arg_expand = prelude_type("LaunchArgExpand");
         let body_input = self.fields.iter().map(TypeField::split).map(|(vis, name, ty)| {
             quote![#vis #name: <#ty as #launch_arg_expand>::expand(&arg.#name, builder)]
@@ -276,7 +270,7 @@ impl TypeCodegen {
         }
     }
 
-    pub fn expand_type_impl(&self) -> proc_macro2::TokenStream {
+    fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let init = prelude_type("Init");
         let into_runtime = prelude_type("IntoRuntime");
         let context = prelude_type("CubeContext");
@@ -315,49 +309,36 @@ impl TypeCodegen {
     }
 }
 
-pub(crate) fn generate_cube_type(ast: &syn::DeriveInput, with_launch: bool) -> TokenStream {
-    match &ast.data {
-        syn::Data::Enum(data) => generate_cube_type_enum(data, with_launch),
-        _ => generate_cube_type_struct(ast, with_launch),
+impl TypeField {
+    pub fn expand_field(&self) -> TokenStream {
+        let cube_type = prelude_type("CubeType");
+        let vis = &self.vis;
+        let name = self.ident.as_ref().unwrap();
+        let ty = &self.ty;
+        if self.comptime.is_present() {
+            quote![#vis #name: #ty]
+        } else {
+            quote![#vis #name: <#ty as #cube_type>::ExpandType]
+        }
     }
-}
 
-fn generate_cube_type_enum(data: &syn::DataEnum, with_launch: bool) -> TokenStream {
+    pub fn launch_field(&self) -> TokenStream {
+        let launch_arg = prelude_type("LaunchArg");
+        let vis = &self.vis;
+        let name = self.ident.as_ref().unwrap();
+        let ty = &self.ty;
+        quote![#vis #name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
+    }
 
-    todo!();
-}
+    pub fn compilation_arg_field(&self) -> TokenStream {
+        let launch_arg = prelude_type("LaunchArgExpand");
+        let vis = &self.vis;
+        let name = self.ident.as_ref().unwrap();
+        let ty = &self.ty;
+        quote![#vis #name: <#ty as #launch_arg>::CompilationArg]
+    }
 
-fn generate_cube_type_struct(ast: &syn::DeriveInput, with_launch: bool) -> TokenStream {
-    let codegen = match TypeCodegen::from_derive_input(ast) {
-        Ok(codegen) => codegen,
-        Err(e) => return e.write_errors(),
-    };
-
-    let expand_ty = codegen.expand_ty();
-    let launch_ty = codegen.launch_ty();
-    let launch_new = codegen.launch_new();
-
-    let cube_type_impl = codegen.cube_type_impl();
-    let arg_settings_impl = codegen.arg_settings_impl();
-    let launch_arg_impl = codegen.launch_arg_impl();
-    let expand_type_impl = codegen.expand_type_impl();
-
-    if with_launch {
-        quote! {
-            #expand_ty
-            #launch_ty
-            #launch_new
-
-            #cube_type_impl
-            #arg_settings_impl
-            #launch_arg_impl
-            #expand_type_impl
-        }
-    } else {
-        quote! {
-            #expand_ty
-            #cube_type_impl
-            #expand_type_impl
-        }
+    pub fn split(&self) -> (&Visibility, &Ident, &Type) {
+        (&self.vis, self.ident.as_ref().unwrap(), &self.ty)
     }
 }
