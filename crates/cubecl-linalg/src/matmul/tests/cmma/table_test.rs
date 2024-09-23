@@ -36,7 +36,7 @@ impl Iterator for CmmaConfigIterator {
             3 => Some((PredefinedCmmaConfig::M32K16, "m32_k16".to_string())),
             4 => Some((PredefinedCmmaConfig::M32K32, "m32_k32".to_string())),
             5 => Some((PredefinedCmmaConfig::SplitM32k32, "split_m32_k32".to_string())),
-            6 => Some((PredefinedCmmaConfig::SplitM128k16, "split_m128_k16".to_string())),
+            6 => Some((PredefinedCmmaConfig::SplitM64k16, "split_m64_k16".to_string())),
             7 => Some((
                 PredefinedCmmaConfig::TilewiseInverted,
                 "tilewise_inverted".to_string(),
@@ -102,7 +102,7 @@ fn all_combinations() -> Vec<(MatmulTest, PredefinedCmmaConfig, String)> {
     for (case, case_name) in test_cases {
         let test_configs = CmmaConfigIterator::new();
         for (config, config_name) in test_configs {
-            let test_name = format!("test_{}_with_{}", case_name, config_name);
+            let test_name = format!("test_{}_{}", case_name, config_name);
             combinations.push((case, config, test_name));
         }
     }
@@ -110,22 +110,32 @@ fn all_combinations() -> Vec<(MatmulTest, PredefinedCmmaConfig, String)> {
     combinations
 }
 
+/// This is a special test that encapsulates many sub tests
+/// To filter among them you can specify the TEST_FILTER environment variable
+/// It should be run with --nocapture
 pub fn test_cmma_all<R: Runtime>(device: &R::Device) {
+    let filter = std::env::var("TEST_FILTER").unwrap_or_default();
     let mut all_ok = true;
+    let mut n_tests_run= 0;
 
     for (test_case, config, name) in all_combinations() {
-        print!("Running test {}...", name);
-        io::stdout().flush().unwrap();
+        if filter.is_empty() || name.contains(&filter) {
+            print!("Running test {}...", name);
+            io::stdout().flush().unwrap();
 
-        match test_cmma::<R>(test_case.into(), config.into(), device) {
-            Ok(_) => println!("Ok"),
-            Err(e) => {
-                all_ok = false;
-                println!("Failure: {}", e)
+            match test_cmma::<R>(test_case.into(), config.into(), device) {
+                Ok(_) => println!("Ok"),
+                Err(e) => {
+                    all_ok = false;
+                    println!("Failure: {}", e)
+                }
             }
+            io::stdout().flush().unwrap();
+
+            n_tests_run += 1;
         }
-        io::stdout().flush().unwrap();
     }
 
-    assert!(all_ok)
+    assert!(n_tests_run > 0, "No sub tests run, is env variable TEST_FILTER a valid filter?");
+    assert!(all_ok, "Some tests failed");
 }

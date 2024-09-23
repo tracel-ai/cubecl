@@ -14,7 +14,7 @@ pub enum PredefinedCmmaConfig {
     M32K16,
     M32K32,
     SplitM32k32,
-    SplitM128k16,
+    SplitM64k16,
     TilewiseInverted,
     Continuous,
     ContinuousInverted,
@@ -64,10 +64,10 @@ impl Into<CmmaConfig> for PredefinedCmmaConfig {
                 block_loop_strategy: BlockLoopStrategy::Split(4, 4),
                 ..Default::default()
             },
-            PredefinedCmmaConfig::SplitM128k16 => CmmaConfig {
-                b_mn: 128,
+            PredefinedCmmaConfig::SplitM64k16 => CmmaConfig {
+                b_mn: 64,
                 b_k: 16,
-                block_loop_strategy: BlockLoopStrategy::Split(8, 8),
+                block_loop_strategy: BlockLoopStrategy::Split(4, 4),
                 ..Default::default()
             },
             PredefinedCmmaConfig::TilewiseInverted => CmmaConfig {
