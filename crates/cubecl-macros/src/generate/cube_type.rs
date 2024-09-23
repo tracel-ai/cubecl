@@ -1,4 +1,4 @@
-use darling::FromDeriveInput;
+use darling::{FromDeriveInput, FromMeta, FromVariant};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Ident, Type, Visibility};
@@ -316,6 +316,18 @@ impl TypeCodegen {
 }
 
 pub(crate) fn generate_cube_type(ast: &syn::DeriveInput, with_launch: bool) -> TokenStream {
+    match &ast.data {
+        syn::Data::Enum(data) => generate_cube_type_enum(data, with_launch),
+        _ => generate_cube_type_struct(ast, with_launch),
+    }
+}
+
+fn generate_cube_type_enum(data: &syn::DataEnum, with_launch: bool) -> TokenStream {
+
+    todo!();
+}
+
+fn generate_cube_type_struct(ast: &syn::DeriveInput, with_launch: bool) -> TokenStream {
     let codegen = match TypeCodegen::from_derive_input(ast) {
         Ok(codegen) => codegen,
         Err(e) => return e.write_errors(),

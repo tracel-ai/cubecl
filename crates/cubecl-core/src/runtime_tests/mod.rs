@@ -1,6 +1,7 @@
 pub mod assign;
 pub mod binary;
 pub mod cmma;
+pub mod const_match;
 pub mod different_rank;
 pub mod launch;
 pub mod sequence;
