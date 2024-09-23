@@ -8,7 +8,6 @@ use super::{
 
 #[derive(Clone, Copy)]
 pub enum PredefinedCmmaConfig {
-    M128K32,
     M128K16,
     M64K32,
     M64K16,
@@ -32,13 +31,7 @@ impl Into<CmmaConfig> for PredefinedCmmaConfig {
             PredefinedCmmaConfig::M64K32 => CmmaConfig {
                 b_mn: 64,
                 b_k: 32,
-                block_loop_strategy: BlockLoopStrategy::Standard(16),
-                ..Default::default()
-            },
-            PredefinedCmmaConfig::M128K32 => CmmaConfig {
-                b_mn: 128,
-                b_k: 32,
-                block_loop_strategy: BlockLoopStrategy::Standard(16),
+                block_loop_strategy: BlockLoopStrategy::Standard(8),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M128K16 => CmmaConfig {
