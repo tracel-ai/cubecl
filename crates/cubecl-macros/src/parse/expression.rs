@@ -290,7 +290,7 @@ impl Expression {
                 } else {
                     Err(syn::Error::new(
                         span,
-                        "Only numeric match expressions is supported at runtime",
+                        "Only numeric match expression is supported at runtime",
                     ))?
                 }
             }
