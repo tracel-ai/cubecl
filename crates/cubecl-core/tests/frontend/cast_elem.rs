@@ -126,9 +126,9 @@ mod tests {
         ($name:ident, $module:expr, $from:expr, $to:expr) => {
             #[test]
             fn $name() {
-                let mut context = CubeContext::root();
+                let mut context = CubeContext::default();
 
-                let x = context.create_local($from);
+                let x = context.create_local_binding($from);
 
                 $module(&mut context, x.into());
                 let scope = context.into_scope();
@@ -254,8 +254,8 @@ mod tests {
     );
 
     fn inline_macro_ref_cast(from_item: Item, to_item: Item) -> String {
-        let mut context = CubeContext::root();
-        let x = context.create_local(from_item);
+        let mut context = CubeContext::default();
+        let x = context.create_local_variable(from_item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();

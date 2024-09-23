@@ -1,7 +1,7 @@
 use super::{shader::ComputeShader, Item, SharedMemory};
 use super::{LocalArray, Subgroup};
 use crate::compiler::wgsl;
-use cubecl_core::ir as cube;
+use cubecl_core::ir::{self as cube, HybridAllocator};
 use cubecl_runtime::ExecutionMode;
 
 /// Wgsl Compiler.
@@ -46,6 +46,10 @@ impl cubecl_core::Compiler for WgslCompiler {
 
     fn max_shared_memory_size() -> usize {
         32768
+    }
+
+    fn local_allocator() -> impl cube::LocalAllocator {
+        HybridAllocator::default()
     }
 }
 
@@ -145,6 +149,10 @@ impl WgslCompiler {
                 id,
                 item: Self::compile_item(item),
                 depth,
+            },
+            cube::Variable::LocalBinding { id, item, .. } => wgsl::Variable::LocalBinding {
+                id,
+                item: Self::compile_item(item),
             },
             cube::Variable::Slice { id, item, depth } => wgsl::Variable::Slice {
                 id,

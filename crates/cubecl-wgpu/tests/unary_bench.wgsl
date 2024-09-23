@@ -25,34 +25,29 @@ fn main(
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {let id = (global_id.z * num_workgroups.x * WORKGROUP_SIZE_X * num_workgroups.y * WORKGROUP_SIZE_Y) + (global_id.y * num_workgroups.x * WORKGROUP_SIZE_X) + global_id.x;
 let rank: u32 = info[0];
-var l_0_0: u32;
-var l_0_1: bool;
-var l_0_2: bool;
-var l_0_3: vec4<f32>;
-var l_0_4: vec4<f32>;
-l_0_0 = arrayLength(&output_0_global);
-l_0_1 = id < l_0_0;
-if l_0_1 {
+let _0 = arrayLength(&output_0_global);
+let _1 = id < _0;
+if _1 {
 
 for (var l_2_0: u32 = 0u; l_2_0 < 256u; l_2_0++) {
-l_0_0 = l_2_0 % 2u;
-l_0_2 = l_0_0 == 0u;
-if l_0_2 {
-l_0_3 = input_0_global[id];
-l_0_4 = input_1_global[id];
-l_0_3 = l_0_3 * l_0_4;
-l_0_3 = cos(l_0_3);
-l_0_4 = output_0_global[id];
-l_0_4 = l_0_4 - l_0_3;
-output_0_global[id] = vec4<f32>(l_0_4);
+let _2 = l_2_0 % 2u;
+let _3 = _2 == 0u;
+if _3 {
+let _4 = input_0_global[id];
+let _5 = input_1_global[id];
+let _6 = _4 * _5;
+let _7 = cos(_6);
+let _8 = output_0_global[id];
+let _9 = _8 - _7;
+output_0_global[id] = _9;
 } else {
-l_0_4 = input_0_global[id];
-l_0_3 = input_1_global[id];
-l_0_4 = l_0_4 * l_0_3;
-l_0_4 = cos(l_0_4);
-l_0_3 = output_0_global[id];
-l_0_3 = l_0_3 + l_0_4;
-output_0_global[id] = vec4<f32>(l_0_3);
+let _10 = input_0_global[id];
+let _11 = input_1_global[id];
+let _12 = _10 * _11;
+let _13 = cos(_12);
+let _14 = output_0_global[id];
+let _15 = _14 + _13;
+output_0_global[id] = _15;
 }
 }
 }

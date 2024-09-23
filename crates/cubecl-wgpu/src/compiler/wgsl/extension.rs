@@ -27,7 +27,8 @@ impl Display for Extension {
 
 fn format_powf_scalar(f: &mut core::fmt::Formatter<'_>, item: &Item) -> core::fmt::Result {
     match item {
-        Item::Vec4(elem) => f.write_fmt(format_args!(
+        Item::Vec4(elem) => write!(
+            f,
             "
 fn powf_scalar(lhs: {item}, rhs: {elem}) -> {item} {{
     return vec4(
@@ -38,8 +39,9 @@ fn powf_scalar(lhs: {item}, rhs: {elem}) -> {item} {{
     );
 }}
 "
-        )),
-        Item::Vec3(elem) => f.write_fmt(format_args!(
+        ),
+        Item::Vec3(elem) => write!(
+            f,
             "
 fn powf_scalar(lhs: {item}, rhs: {elem}) -> {item} {{
     return vec3(
@@ -49,8 +51,9 @@ fn powf_scalar(lhs: {item}, rhs: {elem}) -> {item} {{
     );
 }}
 "
-        )),
-        Item::Vec2(elem) => f.write_fmt(format_args!(
+        ),
+        Item::Vec2(elem) => write!(
+            f,
             "
 fn powf_scalar(lhs: {item}, rhs: {elem}) -> {item} {{
     return vec2(
@@ -59,14 +62,15 @@ fn powf_scalar(lhs: {item}, rhs: {elem}) -> {item} {{
     );
 }}
 "
-        )),
-        Item::Scalar(elem) => f.write_fmt(format_args!(
+        ),
+        Item::Scalar(elem) => write!(
+            f,
             "
 fn powf_scalar(lhs: {elem}, rhs: {elem}) -> {elem} {{
     return powf_primitive(lhs, rhs);
 }}
 "
-        )),
+        ),
     }
 }
 
@@ -75,7 +79,8 @@ fn format_powf_primitive(
     item: &Item,
 ) -> Result<(), std::fmt::Error> {
     let elem = item.elem();
-    f.write_fmt(format_args!(
+    write!(
+        f,
         "
 fn powf_primitive(lhs: {elem}, rhs: {elem}) -> {elem} {{
     let modulo = rhs % 2.0;
@@ -94,13 +99,14 @@ fn powf_primitive(lhs: {elem}, rhs: {elem}) -> {elem} {{
     }}
 }}
 "
-    ))?;
+    )?;
     Ok(())
 }
 
 fn format_powf(f: &mut core::fmt::Formatter<'_>, item: &Item) -> core::fmt::Result {
     match item {
-        Item::Vec4(_) => f.write_fmt(format_args!(
+        Item::Vec4(_) => write!(
+            f,
             "
 fn powf(lhs: {item}, rhs: {item}) -> {item} {{
     return vec4(
@@ -111,8 +117,9 @@ fn powf(lhs: {item}, rhs: {item}) -> {item} {{
     );
 }}
 "
-        )),
-        Item::Vec3(_) => f.write_fmt(format_args!(
+        ),
+        Item::Vec3(_) => write!(
+            f,
             "
 fn powf(lhs: {item}, rhs: {item}) -> {item} {{
     return vec3(
@@ -122,8 +129,9 @@ fn powf(lhs: {item}, rhs: {item}) -> {item} {{
     );
 }}
 "
-        )),
-        Item::Vec2(_) => f.write_fmt(format_args!(
+        ),
+        Item::Vec2(_) => write!(
+            f,
             "
 fn powf(lhs: {item}, rhs: {item}) -> {item} {{
     return vec2(
@@ -132,20 +140,21 @@ fn powf(lhs: {item}, rhs: {item}) -> {item} {{
     );
 }}
 "
-        )),
-        Item::Scalar(elem) => f.write_fmt(format_args!(
+        ),
+        Item::Scalar(elem) => write!(
+            f,
             "
 fn powf(lhs: {elem}, rhs: {elem}) -> {elem} {{
     return powf_primitive(lhs, rhs);
 }}
 "
-        )),
+        ),
     }
 }
 
 fn format_erf(f: &mut core::fmt::Formatter<'_>, ty: &Item) -> core::fmt::Result {
     let elem = ty.elem();
-    f.write_fmt(format_args!(
+    write!(f,
         "
 /// An approximation of the error function: https://en.wikipedia.org/wiki/Error_function#Numerical_approximations
 ///
@@ -173,10 +182,11 @@ fn erf_scalar(x: {elem}) -> {elem} {{
     return erf_positive_scalar(x);
 }}
 "
-    ))?;
+    )?;
 
     match ty {
-        Item::Vec4(_) => f.write_fmt(format_args!(
+        Item::Vec4(_) => write!(
+            f,
             "
 fn erf(x: {ty}) -> {ty} {{
     return vec4(
@@ -187,8 +197,9 @@ fn erf(x: {ty}) -> {ty} {{
     );
 }}
                 "
-        )),
-        Item::Vec3(_) => f.write_fmt(format_args!(
+        ),
+        Item::Vec3(_) => write!(
+            f,
             "
 fn erf(x: {ty}) -> {ty} {{
     return vec3(
@@ -198,8 +209,9 @@ fn erf(x: {ty}) -> {ty} {{
     );
 }}
                 "
-        )),
-        Item::Vec2(_) => f.write_fmt(format_args!(
+        ),
+        Item::Vec2(_) => write!(
+            f,
             "
 fn erf(x: {ty}) -> {ty} {{
     return vec2(
@@ -208,14 +220,15 @@ fn erf(x: {ty}) -> {ty} {{
     );
 }}
                 "
-        )),
-        Item::Scalar(_) => f.write_fmt(format_args!(
+        ),
+        Item::Scalar(_) => write!(
+            f,
             "
 fn erf(x: {ty}) -> {ty} {{
    return erf_scalar(x);
 }}
                 "
-        )),
+        ),
     }
 }
 
@@ -223,7 +236,8 @@ fn erf(x: {ty}) -> {ty} {{
 fn format_safe_tanh(f: &mut core::fmt::Formatter<'_>, item: &Item) -> core::fmt::Result {
     let elem = item.elem();
 
-    f.write_fmt(format_args!(
+    write!(
+        f,
         "
 /// Metal has a weird numerical behaviour with tanh for inputs over 43.0
 fn safe_tanh_scalar(x: {elem}) -> {elem} {{
@@ -234,10 +248,11 @@ fn safe_tanh_scalar(x: {elem}) -> {elem} {{
     }}
 }}
 "
-    ))?;
+    )?;
 
     match item {
-        Item::Vec4(_) => f.write_fmt(format_args!(
+        Item::Vec4(_) => write!(
+            f,
             "
 fn safe_tanh(x: {item}) -> {item} {{
     return vec4(
@@ -248,8 +263,9 @@ fn safe_tanh(x: {item}) -> {item} {{
     );
 }}
 "
-        )),
-        Item::Vec3(_) => f.write_fmt(format_args!(
+        ),
+        Item::Vec3(_) => write!(
+            f,
             "
 fn safe_tanh(x: {item}) -> {item} {{
     return vec3(
@@ -259,8 +275,9 @@ fn safe_tanh(x: {item}) -> {item} {{
     );
 }}
 "
-        )),
-        Item::Vec2(_) => f.write_fmt(format_args!(
+        ),
+        Item::Vec2(_) => write!(
+            f,
             "
 fn safe_tanh(x: {item}) -> {item} {{
     return vec2(
@@ -269,13 +286,14 @@ fn safe_tanh(x: {item}) -> {item} {{
     );
 }}
 "
-        )),
-        Item::Scalar(_) => f.write_fmt(format_args!(
+        ),
+        Item::Scalar(_) => write!(
+            f,
             "
 fn safe_tanh(x: {item}) -> {item} {{
     return safe_tanh_scalar(x);
 }}
 "
-        )),
+        ),
     }
 }
