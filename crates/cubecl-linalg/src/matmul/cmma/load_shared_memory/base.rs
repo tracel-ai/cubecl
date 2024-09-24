@@ -233,7 +233,7 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
         },
         SmemLoaderStrategy::Continuous(tiling_order) => match tiling_order {
             TilingOrderStrategy::RowMajor => {
-                load_lhs::<F, FC, RhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
+                load_rhs::<F, FC, RhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
                     lhs,
                     &mut shared.lhs,
                     k_offset,
