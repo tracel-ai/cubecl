@@ -504,7 +504,7 @@ pub fn switch_expand_expr<I: Int, C: CubePrimitive>(
 ) -> SwitchExpandExpr<I, C> {
     let mut default_child = context.child();
     let default = default_block(&mut default_child);
-    let out: ExpandElementTyped<C> = context.create_local(default.expand.item()).into();
+    let out: ExpandElementTyped<C> = context.create_local_variable(default.expand.item()).into();
     assign::expand(&mut default_child, default, out.clone());
 
     SwitchExpandExpr {

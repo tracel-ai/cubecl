@@ -632,9 +632,9 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 instructions_default,
                 cases,
             } => {
-                write!(f, "switch({value}) {{\n")?;
+                writeln!(f, "switch({value}) {{")?;
                 for (val, block) in cases {
-                    write!(f, "case {val}: {{\n")?;
+                    writeln!(f, "case {val}: {{")?;
                     for i in block {
                         i.fmt(f)?;
                     }
