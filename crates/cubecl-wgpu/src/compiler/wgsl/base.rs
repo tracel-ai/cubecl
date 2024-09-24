@@ -319,7 +319,7 @@ impl Display for Variable {
             Variable::SharedMemory(number, _, _) => {
                 write!(f, "shared_memory_{number}")
             }
-            Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
+            Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
             Variable::LocalArray(number, _, scope_depth, _) => {
                 write!(f, "a_{scope_depth}_{number}")
             }

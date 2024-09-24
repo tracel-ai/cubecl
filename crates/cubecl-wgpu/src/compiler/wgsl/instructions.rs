@@ -753,9 +753,9 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::Dot { lhs, rhs, out } => {
                 if lhs.item().vectorization_factor() == 1 {
-                    f.write_fmt(format_args!("{out} = {lhs} * {rhs};\n"))
+                    writeln!(f, "{out} = {lhs} * {rhs};")
                 } else {
-                    f.write_fmt(format_args!("{out} = dot({lhs}, {rhs});\n"))
+                    writeln!(f, "{out} = dot({lhs}, {rhs});")
                 }
             }
         }
