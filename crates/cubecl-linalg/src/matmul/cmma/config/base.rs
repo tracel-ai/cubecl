@@ -35,12 +35,12 @@ pub struct CmmaConfig {
 impl Default for CmmaConfig {
     fn default() -> Self {
         Self::new(
-            64,
-            32,
+            128,
+            16,
             false,
             WriteOutStrategy::ReuseSmem,
-            CubeDispatchStrategy::ColMajor,
-            ComputeLoopOrderStrategy::AllBuffersFirst,
+            CubeDispatchStrategy::Swizzle,
+            ComputeLoopOrderStrategy::AllAccumulatorsFirst(true),
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
             BlockLoopStrategy::Standard(8),

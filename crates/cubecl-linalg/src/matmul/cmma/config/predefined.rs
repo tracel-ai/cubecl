@@ -29,15 +29,21 @@ pub enum PredefinedCmmaConfig {
 impl From<PredefinedCmmaConfig> for CmmaConfig {
     fn from(val: PredefinedCmmaConfig) -> Self {
         match val {
-            PredefinedCmmaConfig::M64K32 => CmmaConfig {
-                b_mn: 64,
-                b_k: 32,
-                block_loop_strategy: BlockLoopStrategy::Standard(8),
-                ..Default::default()
-            },
+            // Probably the fastest.
             PredefinedCmmaConfig::M128K16 => CmmaConfig {
                 b_mn: 128,
                 b_k: 16,
+                unroll: false,
+                write_out_strategy: WriteOutStrategy::ReuseSmem,
+                cube_dispatch_strategy: CubeDispatchStrategy::Swizzle,
+                compute_loop_order_strategy: ComputeLoopOrderStrategy::AllAccumulatorsFirst(true),
+                block_loop_strategy: BlockLoopStrategy::Standard(8),
+                lhs_smem_loader_strategy: SmemLoaderStrategy::TilewiseRowMajor,
+                rhs_smem_loader_strategy: SmemLoaderStrategy::TilewiseColMajor,
+            },
+            PredefinedCmmaConfig::M64K32 => CmmaConfig {
+                b_mn: 64,
+                b_k: 32,
                 block_loop_strategy: BlockLoopStrategy::Standard(8),
                 ..Default::default()
             },
