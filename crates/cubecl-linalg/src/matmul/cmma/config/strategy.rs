@@ -28,16 +28,21 @@ pub enum CubeDispatchStrategy {
     Swizzle,
 }
 impl CubeDispatchStrategy {
-    pub(crate) fn get_cube_dim(&self, num_rows: usize, num_cols: usize, b_mn: usize) -> (u32, u32) {
+    pub(crate) fn get_cube_dim(
+        &self,
+        num_rows: usize,
+        num_cols: usize,
+        b_m: usize,
+        b_n: usize,
+    ) -> (u32, u32) {
+        let cubes_for_rows = f32::ceil(num_rows as f32 / b_m as f32) as u32;
+        let cubes_for_cols = f32::ceil(num_cols as f32 / b_n as f32) as u32;
+
         match self {
-            CubeDispatchStrategy::RowMajor | CubeDispatchStrategy::Swizzle => (
-                f32::ceil(num_cols as f32 / b_mn as f32) as u32,
-                f32::ceil(num_rows as f32 / b_mn as f32) as u32,
-            ),
-            CubeDispatchStrategy::ColMajor => (
-                f32::ceil(num_rows as f32 / b_mn as f32) as u32,
-                f32::ceil(num_cols as f32 / b_mn as f32) as u32,
-            ),
+            CubeDispatchStrategy::RowMajor | CubeDispatchStrategy::Swizzle => {
+                (cubes_for_cols, cubes_for_rows)
+            }
+            CubeDispatchStrategy::ColMajor => (cubes_for_rows, cubes_for_cols),
         }
     }
 }

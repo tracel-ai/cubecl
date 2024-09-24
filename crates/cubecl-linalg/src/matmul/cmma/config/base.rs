@@ -12,10 +12,12 @@ pub(crate) const CMMA_COOP_DIM: usize = 32;
 pub(crate) const CMMA_TILE_SIZE: usize = 16;
 
 pub struct CmmaConfig {
-    /// Corresponds to the number of tiles in the m and n dimensions for a block
-    pub b_mn: usize,
+    /// Corresponds to the number of tiles in the m dimension for a block
+    pub b_m: usize,
     /// Corresponds to the number of tiles in the k dimension for a block
     pub b_k: usize,
+    /// Corresponds to the number of tiles in the n dimension for a block
+    pub b_n: usize,
     /// Whether to unroll loop over k within the shared memory
     pub unroll: bool,
     /// Whether to write all accumulators in different spots of a large shared memory or reuse the space
@@ -35,8 +37,9 @@ pub struct CmmaConfig {
 impl Default for CmmaConfig {
     fn default() -> Self {
         Self::new(
-            128,
-            16,
+            64,
+            32,
+            64,
             false,
             WriteOutStrategy::ReuseSmem,
             CubeDispatchStrategy::Swizzle,
@@ -51,8 +54,9 @@ impl Default for CmmaConfig {
 impl CmmaConfig {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        b_mn: usize,
+        b_m: usize,
         b_k: usize,
+        b_n: usize,
         unroll: bool,
         write_out_strategy: WriteOutStrategy,
         cube_dispatch_strategy: CubeDispatchStrategy,
@@ -61,12 +65,14 @@ impl CmmaConfig {
         rhs_smem_loader_strategy: SmemLoaderStrategy,
         block_loop_strategy: BlockLoopStrategy,
     ) -> CmmaConfig {
-        assert!(b_mn % CMMA_TILE_SIZE == 0);
+        assert!(b_m % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
-        assert!(b_mn % b_k == 0);
+        assert!(b_n % CMMA_TILE_SIZE == 0);
+
         CmmaConfig {
-            b_mn,
+            b_m,
             b_k,
+            b_n,
             unroll,
             write_out_strategy,
             cube_dispatch_strategy,
@@ -84,18 +90,19 @@ impl CmmaConfig {
             self.block_loop_strategy.into();
 
         ComptimeCmmaInfo {
-            block_size_m: self.b_mn as u32,
+            block_size_m: self.b_m as u32,
             block_size_k: self.b_k as u32,
-            block_size_n: self.b_mn as u32,
+            block_size_n: self.b_n as u32,
             tile_size: CMMA_TILE_SIZE as u32,
             unroll: self.unroll,
-            check_m_bounds: m % self.b_mn != 0,
+            check_m_bounds: m % self.b_m != 0,
             check_k_bounds: k % self.b_k != 0,
-            check_n_bounds: n % self.b_mn != 0,
+            check_n_bounds: n % self.b_n != 0,
             coop_dim: CMMA_COOP_DIM as u32,
             num_compute_coops,
             num_load_coops,
-            num_accumulators: (self.b_mn / self.b_k) as u32,
+            num_accumulators: (self.b_m * self.b_n / (CMMA_TILE_SIZE * CMMA_TILE_SIZE)) as u32
+                / num_compute_coops,
             write_out_strategy: self.write_out_strategy.into(),
             cube_dispatch_strategy: self.cube_dispatch_strategy.into(),
             compute_loop_order_strategy,
@@ -116,7 +123,7 @@ impl CmmaConfig {
 
         let (cubes_x, cubes_y) = self
             .cube_dispatch_strategy
-            .get_cube_dim(num_rows, num_cols, self.b_mn);
+            .get_cube_dim(num_rows, num_cols, self.b_m, self.b_n);
 
         let mut num_iter = 1;
         for shape in output_shape.iter().take(rank - 2) {
