@@ -137,6 +137,16 @@ pub enum Expression {
     Keyword {
         name: syn::Ident,
     },
+    ConstMatch {
+        const_expr: syn::Expr,
+        arms: Vec<ConstMatchArm>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct ConstMatchArm {
+    pub pat: syn::Pat,
+    pub expr: Box<Expression>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -180,6 +190,7 @@ impl Expression {
             Expression::Closure { .. } => None,
             Expression::Keyword { .. } => None,
             Expression::CompilerIntrinsic { .. } => None,
+            Expression::ConstMatch { .. } => None,
         }
     }
 

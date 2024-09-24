@@ -147,6 +147,7 @@ pub enum Instruction {
     Negate(UnaryInstruction),
     Magnitude(UnaryInstruction),
     Normalize(UnaryInstruction),
+    Dot(BinaryInstruction),
 }
 
 impl Display for Instruction {
@@ -416,6 +417,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
             Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
+            Instruction::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
         }
     }
 }
@@ -556,5 +558,27 @@ impl Normalize {
         }
 
         f.write_fmt(format_args!("}}\n"))
+    }
+}
+
+struct Dot;
+
+impl Dot {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        lhs: &Variable,
+        rhs: &Variable,
+        out: &Variable,
+    ) -> core::fmt::Result {
+        let num = lhs.item().vectorization;
+
+        f.write_fmt(format_args!("{out} = 0.0;\n"))?;
+
+        for i in 0..num {
+            let lhs_i = lhs.index(i);
+            let rhs_i = rhs.index(i);
+            f.write_fmt(format_args!("{out} += {lhs_i} * {rhs_i};\n"))?;
+        }
+        Ok(())
     }
 }

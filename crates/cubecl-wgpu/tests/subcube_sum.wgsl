@@ -15,13 +15,10 @@ const WORKGROUP_SIZE_Z = 1u;
 fn main(
     @builtin(local_invocation_index) local_idx: u32,
 ) {let rank: u32 = info[0];
-var l_0_0: f32;
-var l_0_1: f32;
-var l_0_2: bool;
-l_0_0 = output_0_global[local_idx];
-l_0_1 = subgroupAdd(l_0_0);
-l_0_2 = local_idx == 0u;
-if l_0_2 {
-output_0_global[0u] = f32(l_0_1);
+let _0 = output_0_global[local_idx];
+let _1 = subgroupAdd(_0);
+let _2 = local_idx == 0u;
+if _2 {
+output_0_global[0u] = _1;
 }
 }

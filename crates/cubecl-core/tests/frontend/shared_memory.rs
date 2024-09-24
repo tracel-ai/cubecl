@@ -19,7 +19,7 @@ mod tests {
 
     #[test]
     fn cube_support_shared_memory() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
         shared_memory_read_write::expand::<ElemType>(&mut context, 512);
         assert_eq!(
@@ -29,7 +29,7 @@ mod tests {
     }
 
     fn inline_macro_ref() -> String {
-        let context = CubeContext::root();
+        let context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
 
         let mut scope = context.into_scope();

@@ -18,7 +18,7 @@ mod tests {
 
     #[test]
     fn cube_support_topology() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let input = context.input(0, Item::new(ElemType::as_elem()));
 
         topology_kernel::expand::<ElemType>(&mut context, input.into());
@@ -29,7 +29,7 @@ mod tests {
     }
 
     fn inline_macro_ref() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let input = context.input(0, item);
 

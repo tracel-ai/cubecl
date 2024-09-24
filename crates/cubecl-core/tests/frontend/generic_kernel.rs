@@ -17,9 +17,9 @@ mod tests {
 
     #[test]
     fn cube_generic_float_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
-        let lhs = context.create_local(Item::new(f32::as_elem()));
+        let lhs = context.create_local_binding(Item::new(f32::as_elem()));
 
         generic_kernel::expand::<f32>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -29,9 +29,9 @@ mod tests {
 
     #[test]
     fn cube_generic_int_test() {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
 
-        let lhs = context.create_local(Item::new(i32::as_elem()));
+        let lhs = context.create_local_binding(Item::new(i32::as_elem()));
 
         generic_kernel::expand::<i32>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -40,9 +40,9 @@ mod tests {
     }
 
     fn inline_macro_ref_float() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(f32::as_elem());
-        let var = context.create_local(item);
+        let var = context.create_local_binding(item);
 
         let mut scope = context.into_scope();
         let var: Variable = var.into();
@@ -52,9 +52,9 @@ mod tests {
     }
 
     fn inline_macro_ref_int() -> String {
-        let mut context = CubeContext::root();
+        let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
-        let var = context.create_local(item);
+        let var = context.create_local_binding(item);
 
         let mut scope = context.into_scope();
         let var: Variable = var.into();

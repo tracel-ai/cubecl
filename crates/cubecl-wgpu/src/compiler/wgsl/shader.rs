@@ -96,27 +96,30 @@ impl Display for ComputeShader {
         }
 
         for array in self.shared_memories.iter() {
-            f.write_fmt(format_args!(
+            write!(
+                f,
                 "var<{}> shared_memory_{}: array<{}, {}>;\n\n",
                 array.location, array.index, array.item, array.size
-            ))?;
+            )?;
         }
 
-        f.write_fmt(format_args!(
+        write!(
+            f,
             "const WORKGROUP_SIZE_X = {}u;
 const WORKGROUP_SIZE_Y = {}u;
 const WORKGROUP_SIZE_Z = {}u;\n",
             self.workgroup_size.x, self.workgroup_size.y, self.workgroup_size.z
-        ))?;
+        )?;
 
-        f.write_fmt(format_args!(
+        write!(
+            f,
             "
 @compute
 @workgroup_size({}, {}, {})
 fn main(
 ",
             self.workgroup_size.x, self.workgroup_size.y, self.workgroup_size.z
-        ))?;
+        )?;
 
         if self.global_invocation_id {
             f.write_str("    @builtin(global_invocation_id) global_id: vec3<u32>,\n")?;
@@ -142,14 +145,15 @@ fn main(
         }
 
         // Open body
-        f.write_fmt(format_args!(") {{"))?;
+        write!(f, ") {{")?;
 
         // Local arrays
         for array in self.local_arrays.iter() {
-            f.write_fmt(format_args!(
+            write!(
+                f,
                 "var a_{}_{}: array<{}, {}>;\n\n",
                 array.name, array.index, array.item, array.size
-            ))?;
+            )?;
         }
 
         // Body
@@ -165,13 +169,13 @@ fn main(
             f.write_str("let num_workgroups_no_axis = num_workgroups.x * num_workgroups.y * num_workgroups.z;\n")?;
         }
 
-        f.write_fmt(format_args!("{}", self.body))?;
+        write!(f, "{}", self.body)?;
 
         // Close body
-        f.write_fmt(format_args!("}}"))?;
+        write!(f, "}}")?;
 
         for extension in self.extensions.iter() {
-            f.write_fmt(format_args!("{extension}\n\n"))?;
+            write!(f, "{extension}\n\n")?;
         }
 
         Ok(())
@@ -208,13 +212,14 @@ impl ComputeShader {
             None => format!("array<{}>", binding.item),
         };
 
-        f.write_fmt(format_args!(
+        write!(
+            f,
             "@group(0)
 @binding({})
 var<{}, {}> {}: {};
 \n",
             num_entry, binding.location, binding.visibility, name, ty
-        ))?;
+        )?;
 
         Ok(())
     }

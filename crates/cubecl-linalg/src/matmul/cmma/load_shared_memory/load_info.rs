@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::matmul::cmma::base::RuntimeCmmaInfo;
+use super::super::runtime_info::RuntimeCmmaInfo;
 use crate::matmul::cmma::config::ComptimeCmmaInfo;
 
 #[cube]

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 pub struct Scope {
     pub depth: u8,
     pub operations: Vec<Operation>,
-    locals: Vec<Variable>,
+    pub locals: Vec<Variable>,
     matrices: Vec<Variable>,
     slices: Vec<Variable>,
     shared_memories: Vec<Variable>,
@@ -29,7 +29,7 @@ pub struct Scope {
     writes_global: Vec<(Variable, Variable, Variable)>,
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
-    undeclared: u16,
+    pub undeclared: u16,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Hash, Eq)]
@@ -130,7 +130,7 @@ impl Scope {
         local
     }
 
-    /// Create a new local variable, but doesn't perform the declaration.
+    /// Create a new undeclared local binding, but doesn't perform the declaration.
     ///
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
     pub fn create_local_undeclared(&mut self, item: Item) -> Variable {
@@ -382,7 +382,7 @@ impl Scope {
         .optimize()
     }
 
-    fn new_local_index(&self) -> u16 {
+    pub fn new_local_index(&self) -> u16 {
         self.locals.len() as u16 + self.undeclared
     }
 
