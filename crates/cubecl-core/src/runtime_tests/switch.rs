@@ -43,7 +43,7 @@ pub fn kernel_switch_or_arm(output: &mut Array<f32>, case: u32) {
     }
 }
 
-pub fn test_switch_simple<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn test_switch_statement<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
 
     let vectorization = 2;
@@ -62,7 +62,7 @@ pub fn test_switch_simple<R: Runtime>(client: ComputeClient<R::Server, R::Channe
     assert_eq!(actual[0], 1.0);
 }
 
-pub fn test_switch_value_expr<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn test_switch_used_as_value<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
 
     let vectorization = 2;
@@ -126,15 +126,15 @@ macro_rules! testgen_switch {
         use super::*;
 
         #[test]
-        fn test_switch_simple() {
+        fn test_switch_statement() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::switch::test_switch_simple::<TestRuntime>(client);
+            cubecl_core::runtime_tests::switch::test_switch_statement::<TestRuntime>(client);
         }
 
         #[test]
-        fn test_switch_value_expr() {
+        fn test_switch_used_as_value() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::switch::test_switch_value_expr::<TestRuntime>(client);
+            cubecl_core::runtime_tests::switch::test_switch_used_as_value::<TestRuntime>(client);
         }
 
         #[test]
