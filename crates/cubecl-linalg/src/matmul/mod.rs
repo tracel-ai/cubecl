@@ -1,3 +1,4 @@
+use cmma::config::PredefinedCmmaConfig;
 use cubecl_core::prelude::*;
 
 /// Contains algorithms for cooperative matrix multiplication.
@@ -18,7 +19,7 @@ pub fn launch_ref<R: Runtime, F: Float>(
     out: TensorHandleRef<'_, R>,
 ) {
     if cmma::is_available::<R, F>(client).is_ok() {
-        cmma::launch_ref::<R, F>(client, lhs, rhs, out, Default::default());
+        cmma::launch_ref::<R, F>(client, lhs, rhs, out, PredefinedCmmaConfig::M128K16.into());
     } else {
         tiling2d::launch_ref::<R, F>(client, lhs, rhs, out, Default::default());
     }

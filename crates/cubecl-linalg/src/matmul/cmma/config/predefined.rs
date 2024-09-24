@@ -34,13 +34,7 @@ pub enum PredefinedCmmaConfig {
 impl From<PredefinedCmmaConfig> for CmmaConfig {
     fn from(val: PredefinedCmmaConfig) -> Self {
         match val {
-            PredefinedCmmaConfig::M64K32 => CmmaConfig {
-                b_m: 64,
-                b_k: 32,
-                b_n: 64,
-                block_loop_strategy: BlockLoopStrategy::Standard(8),
-                ..Default::default()
-            },
+            // Probably the fastest
             PredefinedCmmaConfig::M128K16 => CmmaConfig {
                 b_m: 128,
                 b_k: 16,
@@ -48,6 +42,14 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 block_loop_strategy: BlockLoopStrategy::Standard(8),
                 ..Default::default()
             },
+            PredefinedCmmaConfig::M64K32 => CmmaConfig {
+                b_m: 64,
+                b_k: 32,
+                b_n: 64,
+                block_loop_strategy: BlockLoopStrategy::Standard(8),
+                ..Default::default()
+            },
+
             PredefinedCmmaConfig::M64K16 => CmmaConfig {
                 b_m: 64,
                 b_k: 16,
