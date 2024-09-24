@@ -1,4 +1,4 @@
-use crate::ir::{self, Elem, Item, Operation, ReusingAllocator, Scope};
+use crate::ir::{self, Elem, Item, Operation, ReusingAllocator, Scope, Variable};
 use crate::{frontend::ExpandElement, ir::LocalAllocator};
 use alloc::rc::Rc;
 use core::cell::RefCell;

@@ -117,3 +117,28 @@ pub fn unary_bench() {
     let expected = expected.trim();
     assert_eq!(compile(kernel), expected);
 }
+
+#[cube(launch, create_dummy_kernel)]
+fn constant_array_kernel<F: Float>(out: &mut Tensor<F>, #[comptime] data: Vec<u32>) {
+    let array = Array::<F>::from_data(data);
+
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = array[ABSOLUTE_POS];
+    }
+}
+
+#[test]
+pub fn constant_array() {
+    let client = client();
+    let out = handle(&client);
+    let data: Vec<u32> = vec![3, 5, 1];
+
+    let kernel = constant_array_kernel::create_dummy_kernel::<f32, CudaRuntime>(
+        CubeCount::Static(1, 1, 1),
+        CubeDim::default(),
+        tensor_vec(&out, 1),
+        data,
+    );
+    let expected = include_str!("constant_array.cu").replace("\r\n", "\n");
+    assert_eq!(compile(kernel), expected);
+}

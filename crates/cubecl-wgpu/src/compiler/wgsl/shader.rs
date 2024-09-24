@@ -113,23 +113,14 @@ impl Display for ComputeShader {
         }
 
         for array in self.constant_arrays.iter() {
-            f.write_fmt(format_args!(
+            write!(
+                f,
                 "const arrays_{}: array<{}, {}> = array(",
                 array.index, array.item, array.size
-            ))?;
+            )?;
             for value in array.values.iter() {
-                f.write_fmt(format_args!("{value},"))?;
-            }
-            f.write_str(");\n\n")?;
-        }
-
-        for array in self.constant_arrays.iter() {
-            f.write_fmt(format_args!(
-                "const arrays_{}: array<{}, {}> = array(",
-                array.index, array.item, array.size
-            ))?;
-            for value in array.values.iter() {
-                f.write_fmt(format_args!("{value},"))?;
+                let value = value.fmt_cast_to(array.item);
+                write!(f, "{value},")?;
             }
             f.write_str(");\n\n")?;
         }

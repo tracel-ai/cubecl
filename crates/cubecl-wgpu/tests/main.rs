@@ -124,7 +124,7 @@ fn constant_array_kernel<F: Float>(out: &mut Tensor<F>, #[comptime] data: Vec<u3
 }
 
 #[test]
-pub fn cosntant_array() {
+pub fn constant_array() {
     let client = client();
     let out = handle(&client);
     let data: Vec<u32> = vec![3, 5, 1];
