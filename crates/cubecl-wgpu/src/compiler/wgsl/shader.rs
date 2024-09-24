@@ -1,4 +1,4 @@
-use super::{Body, Extension, Item};
+use super::{Body, Extension, Item, Variable};
 use cubecl_core::{ir::CubeDim, CompilerRepresentation};
 use std::fmt::Display;
 
@@ -41,6 +41,14 @@ impl SharedMemory {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct ConstantArray {
+    pub index: u16,
+    pub item: Item,
+    pub size: u32,
+    pub values: Vec<Variable>,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LocalArray {
     pub index: u16,
@@ -66,6 +74,7 @@ pub struct ComputeShader {
     pub outputs: Vec<Binding>,
     pub named: Vec<(String, Binding)>,
     pub shared_memories: Vec<SharedMemory>,
+    pub constant_arrays: Vec<ConstantArray>,
     pub local_arrays: Vec<LocalArray>,
     pub workgroup_size: CubeDim,
     pub global_invocation_id: bool,
@@ -100,6 +109,17 @@ impl Display for ComputeShader {
                 "var<{}> shared_memory_{}: array<{}, {}>;\n\n",
                 array.location, array.index, array.item, array.size
             ))?;
+        }
+
+        for array in self.constant_arrays.iter() {
+            f.write_fmt(format_args!(
+                "const arrays_{}: array<{}, {}> = array(",
+                array.index, array.item, array.size
+            ))?;
+            for value in array.values.iter() {
+                f.write_fmt(format_args!("{value},"))?;
+            }
+            f.write_str(");\n\n")?;
         }
 
         f.write_fmt(format_args!(

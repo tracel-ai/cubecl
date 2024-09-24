@@ -398,6 +398,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         | Variable::GlobalInputArray { .. }
         | Variable::GlobalOutputArray { .. }
         | Variable::LocalArray { .. }
+        | Variable::ConstantArray { .. }
         | Variable::Slice { .. }
         | Variable::Matrix { .. } => elem,
     }

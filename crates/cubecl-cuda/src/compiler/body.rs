@@ -6,6 +6,7 @@ use std::fmt::Display;
 pub struct Body {
     pub instructions: Vec<Instruction>,
     pub shared_memories: Vec<super::SharedMemory>,
+    pub const_arrays: Vec<super::ConstArray>,
     pub local_arrays: Vec<super::LocalArray>,
     pub stride: bool,
     pub shape: bool,
@@ -103,6 +104,17 @@ impl Display for Body {
                 "__shared__ {} shared_memory_{}[{}];\n",
                 shared.item, shared.index, shared.size
             ))?;
+        }
+
+        for const_array in self.const_arrays.iter() {
+            f.write_fmt(format_args!(
+                "const {} arrays_{}[{}] = {{",
+                const_array.item, const_array.index, const_array.size
+            ))?;
+            for value in const_array.values.iter() {
+                f.write_fmt(format_args!("{value},"))?;
+            }
+            f.write_str("};\n")?;
         }
 
         // Local arrays

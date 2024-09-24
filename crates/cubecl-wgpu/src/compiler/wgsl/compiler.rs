@@ -1,4 +1,4 @@
-use super::{shader::ComputeShader, Item, SharedMemory};
+use super::{shader::ComputeShader, ConstantArray, Item, SharedMemory};
 use super::{LocalArray, Subgroup};
 use crate::compiler::wgsl;
 use cubecl_core::ir as cube;
@@ -23,6 +23,7 @@ pub struct WgslCompiler {
     workgroup_size_no_axis: bool,
     num_workgroup_no_axis: bool,
     shared_memories: Vec<SharedMemory>,
+    const_arrays: Vec<ConstantArray>,
     local_arrays: Vec<LocalArray>,
 }
 
@@ -81,6 +82,7 @@ impl WgslCompiler {
                 .map(|(name, binding)| (name, Self::compile_binding(binding)))
                 .collect(),
             shared_memories: self.shared_memories.clone(),
+            constant_arrays: self.const_arrays.clone(),
             local_arrays: self.local_arrays.clone(),
             workgroup_size: value.cube_dim,
             global_invocation_id: self.global_invocation_id || self.id,
@@ -169,6 +171,10 @@ impl WgslCompiler {
                         .push(SharedMemory::new(id, item, length));
                 }
                 wgsl::Variable::SharedMemory(id, item, length)
+            }
+            cube::Variable::ConstantArray { id, item, length } => {
+                let item = Self::compile_item(item);
+                wgsl::Variable::ConstantArray(id, item, length)
             }
             cube::Variable::LocalArray {
                 id,
@@ -270,6 +276,22 @@ impl WgslCompiler {
 
     fn compile_scope(&mut self, value: &mut cube::Scope) -> Vec<wgsl::Instruction> {
         let mut instructions = Vec::new();
+
+        let const_arrays = value
+            .const_arrays
+            .drain(..)
+            .map(|(var, values)| ConstantArray {
+                index: var.index().unwrap(),
+                item: Self::compile_item(var.item()),
+                size: values.len() as u32,
+                values: values
+                    .into_iter()
+                    .map(|val| self.compile_variable(val))
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        self.const_arrays.extend(const_arrays);
+
         let processing = value.process();
 
         for var in processing.variables {

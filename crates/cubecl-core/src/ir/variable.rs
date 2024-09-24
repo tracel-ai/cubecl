@@ -28,6 +28,11 @@ pub enum Variable {
         depth: u8,
     },
     ConstantScalar(ConstantScalarValue),
+    ConstantArray {
+        id: u16,
+        item: Item,
+        length: u32,
+    },
     SharedMemory {
         id: u16,
         item: Item,
@@ -197,6 +202,7 @@ impl Variable {
             Variable::LocalScalar { id, .. } => Some(*id),
             Variable::GlobalOutputArray { id, .. } => Some(*id),
             Variable::ConstantScalar { .. } => None,
+            Variable::ConstantArray { id, .. } => Some(*id),
             Variable::SharedMemory { id, .. } => Some(*id),
             Variable::LocalArray { id, .. } => Some(*id),
             Variable::Matrix { id, .. } => Some(*id),
@@ -234,6 +240,7 @@ impl Variable {
             Variable::Local { item, .. } => *item,
             Variable::LocalScalar { elem, .. } => Item::new(*elem),
             Variable::ConstantScalar(value) => Item::new(value.elem()),
+            Variable::ConstantArray { item, .. } => *item,
             Variable::SharedMemory { item, .. } => *item,
             Variable::LocalArray { item, .. } => *item,
             Variable::Slice { item, .. } => *item,

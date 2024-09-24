@@ -240,6 +240,11 @@ impl Variable {
                 depth: *depth,
                 length: item.vectorized_size(vectorize, *length),
             },
+            Variable::ConstantArray { id, item, length } => Variable::ConstantArray {
+                id: *id,
+                item: item.vectorize(vectorize),
+                length: item.vectorized_size(vectorize, *length),
+            },
             Variable::ConstantScalar { .. } => *self,
             Variable::GlobalScalar { .. } => *self,
             Variable::AbsolutePos => *self,
