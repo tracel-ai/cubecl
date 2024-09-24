@@ -136,21 +136,23 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 b_m: 64,
                 b_k: 16,
                 b_n: 32,
-                block_loop_strategy: BlockLoopStrategy::Standard(8),
+                block_loop_strategy: BlockLoopStrategy::Standard(4),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M32K16N64 => CmmaConfig {
                 b_m: 32,
                 b_k: 16,
                 b_n: 64,
-                block_loop_strategy: BlockLoopStrategy::Standard(8),
+                rhs_smem_loader_strategy: SmemLoaderStrategy::ContinuousColMajor,
+                block_loop_strategy: BlockLoopStrategy::Standard(2),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M16K32N64 => CmmaConfig {
                 b_m: 16,
                 b_k: 32,
                 b_n: 64,
-                block_loop_strategy: BlockLoopStrategy::Standard(8),
+                rhs_smem_loader_strategy: SmemLoaderStrategy::ContinuousColMajor,
+                block_loop_strategy: BlockLoopStrategy::Standard(2),
                 ..Default::default()
             },
         }
