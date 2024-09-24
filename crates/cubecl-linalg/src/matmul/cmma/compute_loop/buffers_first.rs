@@ -9,10 +9,10 @@ use crate::matmul::cmma::{
     config::ComptimeCmmaInfo,
 };
 
-pub(crate) struct AllBuffersFirstComputeLoop {}
+pub(crate) struct BuffersFirstComputeLoop {}
 
 #[cube]
-impl ComputeLoop for AllBuffersFirstComputeLoop {
+impl ComputeLoop for BuffersFirstComputeLoop {
     fn compute_loop<F: Float, FC: Float>(
         shared_memories: SharedMemories<FC>,
         fragments: &mut Fragments<F, FC>,

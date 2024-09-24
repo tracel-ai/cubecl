@@ -4,10 +4,6 @@ use cubecl_core::prelude::*;
 use super::super::prologue::{Fragments, Ids, SharedMemories};
 use crate::matmul::cmma::config::{SmemLoaderStrategy, TilingOrderStrategy};
 use crate::matmul::cmma::{
-    compute_loop::{
-        accumulators_first::AllAccumulatorsFirstComputeLoop,
-        buffers_first::AllBuffersFirstComputeLoop,
-    },
     config::ComptimeCmmaInfo,
     load_shared_memory::{
         base::SmemLoader,
@@ -17,30 +13,6 @@ use crate::matmul::cmma::{
         tilewise::TilewiseSmemLoader,
     },
 };
-
-#[cube]
-pub(crate) fn compute_loop<F: Float, FC: Float>(
-    shared_memories: SharedMemories<FC>,
-    fragments: &mut Fragments<F, FC>,
-    compute_ids: Ids,
-    #[comptime] comptime_info: ComptimeCmmaInfo,
-) {
-    if comptime_info.compute_loop_order_strategy == 0 {
-        AllBuffersFirstComputeLoop::compute_loop::<F, FC>(
-            shared_memories,
-            fragments,
-            compute_ids,
-            comptime_info,
-        );
-    } else {
-        AllAccumulatorsFirstComputeLoop::compute_loop::<F, FC>(
-            shared_memories,
-            fragments,
-            compute_ids,
-            comptime_info,
-        );
-    }
-}
 
 #[cube]
 pub(crate) trait ComputeLoop {

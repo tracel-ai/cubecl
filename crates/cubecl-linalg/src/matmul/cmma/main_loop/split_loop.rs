@@ -1,23 +1,32 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use crate::matmul::cmma::prologue::Ids;
+use crate::matmul::cmma::compute_loop::base::ComputeLoop;
+use crate::matmul::cmma::prologue::{prologue, Ids};
 
 use super::super::{
-    compute_loop::base::compute_loop,
     config::ComptimeCmmaInfo,
     epilogue::base::write_to_output,
     load_shared_memory::base::load_to_shared_memories,
     prologue::{Fragments, RuntimeCmmaInfo, SharedMemories},
 };
-use super::base::MainLoop;
+use super::base::CmmaMain;
 
 /// Assumes CUBE_DIM_Y / 2 = comptime_info.num_compute_coops = comptime_info.num_load_coops
 pub(crate) struct SplitMainLoop {}
 
 #[cube]
-impl MainLoop for SplitMainLoop {
-    fn main_loop<F: Float, FC: Float>(
+impl CmmaMain for SplitMainLoop {
+    fn prologue<F: Float, FC: Float>(
+        lhs: &Tensor<F>,
+        rhs: &Tensor<F>,
+        out: &mut Tensor<F>,
+        #[comptime] comptime_info: ComptimeCmmaInfo,
+    ) -> (RuntimeCmmaInfo, Fragments<F, FC>, SharedMemories<FC>) {
+        prologue::<SplitMainLoop, F, FC>(lhs, rhs, out, comptime_info)
+    }
+
+    fn main_loop<C: ComputeLoop, F: Float, FC: Float>(
         lhs: &Tensor<F>,
         rhs: &Tensor<F>,
         shared_memories: SharedMemories<FC>,
@@ -45,7 +54,7 @@ impl MainLoop for SplitMainLoop {
             sync_units();
 
             if is_compute_coop(comptime_info) {
-                compute_loop::<F, FC>(
+                C::compute_loop::<F, FC>(
                     shared_memories,
                     fragments,
                     runtime_info.compute_ids,

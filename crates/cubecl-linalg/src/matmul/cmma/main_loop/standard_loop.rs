@@ -1,22 +1,31 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use crate::matmul::cmma::prologue::Ids;
+use crate::matmul::cmma::compute_loop::base::ComputeLoop;
+use crate::matmul::cmma::prologue::{prologue, Ids};
 
 use super::super::{
-    compute_loop::base::compute_loop,
     config::ComptimeCmmaInfo,
     epilogue::base::write_to_output,
     load_shared_memory::base::load_to_shared_memories,
     prologue::{Fragments, RuntimeCmmaInfo, SharedMemories},
 };
-use super::base::MainLoop;
+use super::base::CmmaMain;
 
 pub(crate) struct StandardMainLoop {}
 
 #[cube]
-impl MainLoop for StandardMainLoop {
-    fn main_loop<F: Float, FC: Float>(
+impl CmmaMain for StandardMainLoop {
+    fn prologue<F: Float, FC: Float>(
+        lhs: &Tensor<F>,
+        rhs: &Tensor<F>,
+        out: &mut Tensor<F>,
+        #[comptime] comptime_info: ComptimeCmmaInfo,
+    ) -> (RuntimeCmmaInfo, Fragments<F, FC>, SharedMemories<FC>) {
+        prologue::<StandardMainLoop, F, FC>(lhs, rhs, out, comptime_info)
+    }
+
+    fn main_loop<C: ComputeLoop, F: Float, FC: Float>(
         lhs: &Tensor<F>,
         rhs: &Tensor<F>,
         shared_memories: SharedMemories<FC>,
@@ -41,7 +50,7 @@ impl MainLoop for StandardMainLoop {
 
             sync_units();
 
-            compute_loop::<F, FC>(
+            C::compute_loop::<F, FC>(
                 shared_memories,
                 fragments,
                 runtime_info.compute_ids,

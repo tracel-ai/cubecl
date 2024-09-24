@@ -48,16 +48,16 @@ pub enum ComputeLoopOrderStrategy {
     AllAccumulatorsFirst(bool),
 }
 
-impl From<ComputeLoopOrderStrategy> for (u32, bool) {
-    fn from(value: ComputeLoopOrderStrategy) -> Self {
-        match value {
-            ComputeLoopOrderStrategy::AllBuffersFirst => (0, false),
-            ComputeLoopOrderStrategy::AllAccumulatorsFirst(reuse_lhs_fragment) => {
-                (1, reuse_lhs_fragment)
-            }
-        }
-    }
-}
+// impl From<ComputeLoopOrderStrategy> for (u32, bool) {
+//     fn from(value: ComputeLoopOrderStrategy) -> Self {
+//         match value {
+//             ComputeLoopOrderStrategy::AllBuffersFirst => (0, false),
+//             ComputeLoopOrderStrategy::AllAccumulatorsFirst(reuse_lhs_fragment) => {
+//                 (1, reuse_lhs_fragment)
+//             }
+//         }
+//     }
+// }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub enum TilingOrderStrategy {
@@ -66,7 +66,6 @@ pub enum TilingOrderStrategy {
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-#[allow(clippy::enum_variant_names)]
 /// Defines how data is loaded from global to shared memory
 pub enum SmemLoaderStrategy {
     /// One coop fills one tile
@@ -84,20 +83,11 @@ pub enum MainLoopStrategy {
     Split(u32, u32),
 }
 
-impl From<MainLoopStrategy> for (u32, u32, u32) {
-    fn from(value: MainLoopStrategy) -> Self {
-        match value {
-            MainLoopStrategy::Standard(num_coops) => (0, num_coops, num_coops),
-            MainLoopStrategy::Split(num_compute, num_load) => (1, num_compute, num_load),
-        }
-    }
-}
-
 impl MainLoopStrategy {
-    pub(crate) fn num_coops(&self) -> u32 {
+    pub(crate) fn get_num_planes(&self) -> (u32, u32) {
         match self {
-            MainLoopStrategy::Standard(num_coops) => *num_coops,
-            MainLoopStrategy::Split(num_compute, num_load) => num_compute + num_load,
+            MainLoopStrategy::Standard(num_coops) => (*num_coops, *num_coops),
+            MainLoopStrategy::Split(num_compute, num_load) => (*num_compute, *num_load),
         }
     }
 }
