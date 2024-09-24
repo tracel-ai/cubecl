@@ -41,27 +41,34 @@ pub enum Subgroup {
 impl Display for Subgroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Subgroup::Elect { out } => f.write_fmt(format_args!("{out} = subgroupElect();\n")),
+            Subgroup::Elect { out } => writeln!(f, "{out} = subgroupElect();"),
             Subgroup::All { input, out } => {
-                f.write_fmt(format_args!("{out} = subgroupAll({input});\n"))
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupAll({input});")
             }
             Subgroup::Any { input, out } => {
-                f.write_fmt(format_args!("{out} = subgroupAny({input});\n"))
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupAny({input});")
             }
             Subgroup::Broadcast { lhs, rhs, out } => {
-                f.write_fmt(format_args!("{out} = subgroupBroadcast({lhs}, {rhs});\n"))
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupBroadcast({lhs}, {rhs});")
             }
             Subgroup::Sum { input, out } => {
-                f.write_fmt(format_args!("{out} = subgroupAdd({input});\n"))
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupAdd({input});")
             }
             Subgroup::Prod { input, out } => {
-                f.write_fmt(format_args!("{out} = subgroupMul({input});\n"))
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupMul({input});")
             }
             Subgroup::Min { input, out } => {
-                f.write_fmt(format_args!("{out} = subgroupMin({input});\n"))
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupMin({input});")
             }
             Subgroup::Max { input, out } => {
-                f.write_fmt(format_args!("{out} = subgroupMax({input});\n"))
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupMax({input});")
             }
         }
     }

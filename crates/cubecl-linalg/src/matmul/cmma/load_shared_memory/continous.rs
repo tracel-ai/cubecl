@@ -1,24 +1,20 @@
-use std::marker::PhantomData;
-
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use super::super::runtime_info::RuntimeCmmaInfo;
 use crate::matmul::cmma::block_io::base::BlockLoader;
-use crate::matmul::cmma::load_shared_memory::base::get_tile_smem_position;
-use crate::matmul::cmma::{base::RuntimeCmmaInfo, config::ComptimeCmmaInfo};
+use crate::matmul::cmma::config::ComptimeCmmaInfo;
+use crate::matmul::cmma::load_shared_memory::base::get_tile_smem_index;
 
 use super::base::SmemLoader;
 use super::load_info::LoadInfo;
 use super::tiled_layout::TilingOrder;
 
-pub(crate) struct ContinuousSmemLoader<I: LoadInfo, T: TilingOrder> {
-    _load_info: PhantomData<I>,
-    _tiling_order: PhantomData<T>,
-}
+pub(crate) struct ContinuousSmemLoader {}
 
 #[cube]
-impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
-    for ContinuousSmemLoader<I, T>
+impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
+    for ContinuousSmemLoader
 {
     fn load_gmem_to_smem<L: BlockLoader<F, FC>>(
         gmem: &Tensor<F>,
@@ -29,15 +25,15 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
     ) {
         // Comptime information
         let coop_dim = comptime_info.coop_dim;
-        let num_coops = comptime_info.num_coops;
+        let num_load_coops = comptime_info.num_load_coops;
         let num_smem_elements = I::smem_width(comptime_info) * I::smem_height(comptime_info);
         let vectorization = vectorization_of(gmem);
-        let jump_length = num_coops * vectorization * coop_dim;
+        let jump_length = num_load_coops * vectorization * coop_dim;
         let num_iterations = num_smem_elements / jump_length;
         let unroll = comptime_info.unroll;
 
-        let lane_id = runtime_info.ids.lane;
-        let coop_id = runtime_info.ids.coop;
+        let lane_id = runtime_info.load_ids.lane;
+        let coop_id = runtime_info.load_ids.coop;
         let unit_position_base = (coop_id * coop_dim + lane_id) * vectorization;
         let (skip_row, skip_col) = I::skips(k_offset, runtime_info);
 
@@ -53,12 +49,12 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
         }
     }
 
-    fn get_tile_smem_position(
+    fn get_tile_smem_index(
         tile_row: u32,
         tile_col: u32,
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) -> u32 {
-        get_tile_smem_position::<I, T>(tile_row, tile_col, comptime_info)
+        get_tile_smem_index::<I, T>(tile_row, tile_col, comptime_info)
     }
 }
 

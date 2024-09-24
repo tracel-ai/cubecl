@@ -6,7 +6,7 @@ use syn::{
 };
 
 use crate::{
-    expression::{is_intrinsic, Block, Expression},
+    expression::{is_intrinsic, Block, ConstMatchArm, Expression},
     operator::Operator,
     scope::Context,
 };
@@ -118,11 +118,8 @@ impl Expression {
                     && args.iter().all(|arg| arg.is_const())
                     && method.method != "runtime"
                 {
-                    let receiver = receiver.as_const(context).unwrap();
-                    let method = &method.method;
-                    let args = args.iter().map(|it| it.to_tokens(context));
                     Expression::Verbatim {
-                        tokens: quote![#receiver.#method(#(#args),*)],
+                        tokens: quote![#method],
                     }
                 } else {
                     Expression::MethodCall {
@@ -281,9 +278,20 @@ impl Expression {
             Expr::Match(mat) => {
                 let span = mat.span();
                 let elem = Expression::from_expr(*mat.expr.clone(), context)?;
+
                 if elem.is_const() {
-                    Expression::Verbatim {
-                        tokens: quote![#mat],
+                    let mut arms = Vec::new();
+
+                    for arm in mat.arms.iter() {
+                        arms.push(ConstMatchArm {
+                            pat: arm.pat.clone(),
+                            expr: Box::new(Self::from_expr(arm.body.as_ref().clone(), context)?),
+                        });
+                    }
+
+                    Expression::ConstMatch {
+                        const_expr: mat.expr.as_ref().clone(),
+                        arms,
                     }
                 } else {
                     Err(syn::Error::new(

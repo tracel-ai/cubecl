@@ -1,7 +1,8 @@
 use cubecl_core::prelude::*;
 
 use super::strategy::{
-    ComputeLoopOrderStrategy, CubeDispatchStrategy, SmemLoaderStrategy, WriteOutStrategy,
+    BlockLoopStrategy, ComputeLoopOrderStrategy, CubeDispatchStrategy, SmemLoaderStrategy,
+    WriteOutStrategy,
 };
 
 // It is assumed that CMMA uses 32 units to compute 16x16x16 tiles
@@ -23,21 +24,26 @@ pub struct CmmaConfig {
     pub cube_dispatch_strategy: CubeDispatchStrategy,
     /// Whether to iterate on buffers or accumulators first
     pub compute_loop_order_strategy: ComputeLoopOrderStrategy,
+    /// How to load and read from LHS shared memory
     pub lhs_smem_loader_strategy: SmemLoaderStrategy,
+    /// How to load and read from RHS shared memory
     pub rhs_smem_loader_strategy: SmemLoaderStrategy,
+    /// How to parallelize the outer loop among different warps
+    pub block_loop_strategy: BlockLoopStrategy,
 }
 
 impl Default for CmmaConfig {
     fn default() -> Self {
         Self::new(
-            128,
-            16,
+            64,
+            32,
             false,
             WriteOutStrategy::ReuseSmem,
             CubeDispatchStrategy::ColMajor,
             ComputeLoopOrderStrategy::AllBuffersFirst,
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
+            BlockLoopStrategy::Standard(8),
         )
     }
 }
@@ -53,6 +59,7 @@ impl CmmaConfig {
         compute_loop_order_strategy: ComputeLoopOrderStrategy,
         lhs_smem_loader_strategy: SmemLoaderStrategy,
         rhs_smem_loader_strategy: SmemLoaderStrategy,
+        block_loop_strategy: BlockLoopStrategy,
     ) -> CmmaConfig {
         assert!(b_mn % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
@@ -66,13 +73,15 @@ impl CmmaConfig {
             compute_loop_order_strategy,
             lhs_smem_loader_strategy,
             rhs_smem_loader_strategy,
+            block_loop_strategy,
         }
     }
 
     pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> ComptimeCmmaInfo {
-        let num_coops = self.b_mn * self.b_k / (CMMA_TILE_SIZE * CMMA_TILE_SIZE);
         let (compute_loop_order_strategy, reuse_lhs_fragment) =
             self.compute_loop_order_strategy.into();
+        let (block_loop_strategy, num_compute_coops, num_load_coops) =
+            self.block_loop_strategy.into();
 
         ComptimeCmmaInfo {
             block_size_m: self.b_mn as u32,
@@ -84,7 +93,8 @@ impl CmmaConfig {
             check_k_bounds: k % self.b_k != 0,
             check_n_bounds: n % self.b_mn != 0,
             coop_dim: CMMA_COOP_DIM as u32,
-            num_coops: num_coops as u32,
+            num_compute_coops,
+            num_load_coops,
             num_accumulators: (self.b_mn / self.b_k) as u32,
             write_out_strategy: self.write_out_strategy.into(),
             cube_dispatch_strategy: self.cube_dispatch_strategy.into(),
@@ -92,6 +102,7 @@ impl CmmaConfig {
             reuse_lhs_fragment,
             lhs_smem_loader_strategy: self.lhs_smem_loader_strategy.into(),
             rhs_smem_loader_strategy: self.rhs_smem_loader_strategy.into(),
+            block_loop_strategy,
         }
     }
 
@@ -103,8 +114,9 @@ impl CmmaConfig {
         let num_rows = *output_shape.get(rank - 2).unwrap();
         let num_cols = *output_shape.get(rank - 1).unwrap();
 
-        let cubes_x = f32::ceil(num_rows as f32 / self.b_mn as f32) as u32;
-        let cubes_y = f32::ceil(num_cols as f32 / self.b_mn as f32) as u32;
+        let (cubes_x, cubes_y) = self
+            .cube_dispatch_strategy
+            .get_cube_dim(num_rows, num_cols, self.b_mn);
 
         let mut num_iter = 1;
         for shape in output_shape.iter().take(rank - 2) {
@@ -117,7 +129,7 @@ impl CmmaConfig {
     pub(crate) fn cube_dim(&self) -> CubeDim {
         CubeDim {
             x: CMMA_COOP_DIM as u32,
-            y: ((self.b_mn * self.b_k) / (CMMA_TILE_SIZE * CMMA_TILE_SIZE)) as u32,
+            y: self.block_loop_strategy.num_coops(),
             z: 1,
         }
     }
@@ -157,8 +169,10 @@ pub struct ComptimeCmmaInfo {
     pub unroll: bool,
     /// The number of units that can collaborate
     pub coop_dim: u32,
-    /// The number of collaboration groups
-    pub num_coops: u32,
+    /// The number of collaboration groups for compute
+    pub num_compute_coops: u32,
+    /// The number of collaboration groups for loading
+    pub num_load_coops: u32,
     /// Number of cmma per subcube performed in one pass
     pub num_accumulators: u32,
     /// 0 = large, 1 = reuse
@@ -176,4 +190,6 @@ pub struct ComptimeCmmaInfo {
     /// 0 = tilewise row major, 1 = tilewise col major
     /// 2 = continous row major, 3 = continuous col major
     pub rhs_smem_loader_strategy: u32,
+    /// 0 same role, 1 = split roles halfway
+    pub block_loop_strategy: u32,
 }

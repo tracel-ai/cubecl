@@ -13,6 +13,10 @@ pub enum Variable {
         item: Item,
         depth: u8,
     },
+    LocalBinding {
+        id: u16,
+        item: Item,
+    },
     Named {
         name: String,
         item: Item,
@@ -83,11 +87,7 @@ impl Variable {
         match self {
             Variable::GlobalScalar(_, _, _) => true,
             Variable::ConstantScalar(_, _) => true,
-            Variable::LocalScalar {
-                id: _,
-                elem: _,
-                depth: _,
-            } => true,
+            Variable::LocalScalar { .. } => true,
             Variable::Id => true,
             Variable::LocalInvocationIndex => true,
             Variable::LocalInvocationIdX => true,
@@ -100,6 +100,7 @@ impl Variable {
             Variable::ConstantArray(_, _, _) => false,
             Variable::LocalArray(_, _, _, _) => false,
             Variable::Local { .. } => false,
+            Variable::LocalBinding { .. } => false,
             Variable::Named { .. } => false,
             Variable::Slice { .. } => false,
             Variable::WorkgroupIdX => true,
@@ -149,6 +150,7 @@ impl Variable {
             Self::ConstantArray(_, e, _) => *e,
             Self::LocalArray(_, e, _, _) => *e,
             Self::Local { item, .. } => *item,
+            Self::LocalBinding { item, .. } => *item,
             Self::Slice { item, .. } => *item,
             Self::Named { item, .. } => *item,
             Self::ConstantScalar(_, e) => Item::Scalar(*e),
@@ -181,6 +183,14 @@ impl Variable {
     pub fn elem(&self) -> Elem {
         *self.item().elem()
     }
+
+    pub fn fmt_cast_to(&self, item: Item) -> String {
+        if self.item() != item {
+            format!("{item}({self})")
+        } else {
+            format!("{self}")
+        }
+    }
 }
 
 impl Item {
@@ -199,6 +209,14 @@ impl Item {
             Item::Vec3(_) => 3,
             Item::Vec2(_) => 2,
             Item::Scalar(_) => 1,
+        }
+    }
+
+    pub fn fmt_cast_to(&self, item: Item, text: String) -> String {
+        if *self != item {
+            format!("{item}({text})")
+        } else {
+            text
         }
     }
 }
@@ -236,10 +254,10 @@ impl Display for Elem {
 impl Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Item::Vec4(elem) => f.write_fmt(format_args!("vec4<{elem}>")),
-            Item::Vec3(elem) => f.write_fmt(format_args!("vec3<{elem}>")),
-            Item::Vec2(elem) => f.write_fmt(format_args!("vec2<{elem}>")),
-            Item::Scalar(elem) => f.write_fmt(format_args!("{elem}")),
+            Item::Vec4(elem) => write!(f, "vec4<{elem}>"),
+            Item::Vec3(elem) => write!(f, "vec3<{elem}>"),
+            Item::Vec2(elem) => write!(f, "vec2<{elem}>"),
+            Item::Scalar(elem) => write!(f, "{elem}"),
         }
     }
 }
@@ -254,36 +272,37 @@ impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => {
-                f.write_fmt(format_args!("input_{number}_global"))
+                write!(f, "input_{number}_global")
             }
             Variable::LocalScalar {
                 id: index,
-                elem: _,
                 depth: scope_depth,
-            } => f.write_fmt(format_args!("s_{scope_depth}_{index}")),
+                ..
+            } => write!(f, "s_{scope_depth}_{index}"),
             Variable::Local {
                 id: index,
-                item: _,
                 depth: scope_depth,
-            } => f.write_fmt(format_args!("l_{scope_depth}_{index}")),
+                ..
+            } => write!(f, "l_{scope_depth}_{index}"),
+            Variable::LocalBinding { id: index, .. } => write!(f, "_{index}"),
             Variable::Named { name, .. } => f.write_str(name),
             Variable::Slice {
                 id: index,
                 item: _,
                 depth: scope_depth,
-            } => f.write_fmt(format_args!("slice_{scope_depth}_{index}")),
+            } => write!(f, "slice_{scope_depth}_{index}"),
             Variable::GlobalOutputArray(number, _) => {
-                f.write_fmt(format_args!("output_{number}_global"))
+                write!(f, "output_{number}_global")
             }
             Variable::GlobalScalar(number, _, elem) => {
-                f.write_fmt(format_args!("scalars_{elem}[{number}]"))
+                write!(f, "scalars_{elem}[{number}]")
             }
             // We do the conversion in Rust and then render the number to avoid overflow or other
             // precision related problems.
             Variable::ConstantScalar(number, _elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
-                    IntKind::I32 => f.write_fmt(format_args!("{}i", *val as i32)),
-                    IntKind::I64 => f.write_fmt(format_args!("{}i", { *val })),
+                    IntKind::I32 => write!(f, "{}i", *val as i32),
+                    IntKind::I64 => write!(f, "{}i", { *val }),
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
                     FloatKind::F16 => {
@@ -294,15 +313,15 @@ impl Display for Variable {
                     }
                     FloatKind::F32 | FloatKind::F64 => f.write_str(&format_number(*val)),
                 },
-                ConstantScalarValue::UInt(val) => f.write_fmt(format_args!("{}u", *val as u32)),
-                ConstantScalarValue::Bool(val) => f.write_fmt(format_args!("{}", val)),
+                ConstantScalarValue::UInt(val) => write!(f, "{}u", *val as u32),
+                ConstantScalarValue::Bool(val) => write!(f, "{}", val),
             },
             Variable::SharedMemory(number, _, _) => {
-                f.write_fmt(format_args!("shared_memory_{number}"))
+                write!(f, "shared_memory_{number}")
             }
             Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
             Variable::LocalArray(number, _, scope_depth, _) => {
-                f.write_fmt(format_args!("a_{scope_depth}_{number}"))
+                write!(f, "a_{scope_depth}_{number}")
             }
             Variable::Id => f.write_str("id"),
             Variable::LocalInvocationIndex => f.write_str("local_idx"),
@@ -332,23 +351,44 @@ impl Display for Variable {
 
 impl Display for IndexedVariable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let should_index = |item: &Item| match item {
-            Item::Vec4(_) => true,
-            Item::Vec3(_) => true,
-            Item::Vec2(_) => true,
-            Item::Scalar(_) => false,
-        };
-
         let var = &self.var;
         let item = var.item();
         let index = self.index;
 
-        match self.var {
-            Variable::GlobalScalar(_, _, _) => f.write_fmt(format_args!("{var}")),
-            _ => match should_index(&item) {
-                true => f.write_fmt(format_args!("{var}[{index}]")),
-                false => f.write_fmt(format_args!("{var}")),
-            },
+        match &self.var {
+            Variable::GlobalScalar(_, _, _) => write!(f, "{var}"),
+            var if matches!(item, Item::Scalar(_)) => write!(f, "{var}"),
+            var => write!(f, "{var}[{index}]"),
+        }
+    }
+}
+
+impl Variable {
+    pub fn fmt_left(&self) -> String {
+        match self {
+            Variable::LocalBinding { id, .. } => {
+                format!("let _{id}")
+            }
+            var => format!("{}", var),
+        }
+    }
+}
+
+impl IndexedVariable {
+    pub fn fmt_left(&self) -> String {
+        let item = self.var.item();
+        match &self.var {
+            Variable::GlobalScalar(_, _, _) => self.var.fmt_left(),
+            var if matches!(item, Item::Scalar(_)) => var.fmt_left(),
+            _ => format!("{self}"),
+        }
+    }
+
+    pub fn fmt_cast(&self, item: Item) -> String {
+        if self.var.item() != item {
+            format!("{item}({self})")
+        } else {
+            format!("{self}")
         }
     }
 }

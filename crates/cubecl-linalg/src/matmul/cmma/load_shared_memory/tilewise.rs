@@ -1,23 +1,19 @@
-use std::marker::PhantomData;
-
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::super::runtime_info::RuntimeCmmaInfo;
 use crate::matmul::cmma::{
-    base::RuntimeCmmaInfo, block_io::base::BlockLoader, config::ComptimeCmmaInfo,
-    load_shared_memory::base::get_tile_smem_position,
+    block_io::base::BlockLoader, config::ComptimeCmmaInfo,
+    load_shared_memory::base::get_tile_smem_index,
 };
 
 use super::{base::SmemLoader, load_info::LoadInfo, tiled_layout::TilingOrder};
 
-pub(crate) struct TilewiseSmemLoader<I: LoadInfo, T: TilingOrder> {
-    _load_info: PhantomData<I>,
-    _tiling_order: PhantomData<T>,
-}
+pub(crate) struct TilewiseSmemLoader {}
 
 #[cube]
-impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
-    for TilewiseSmemLoader<I, T>
+impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
+    for TilewiseSmemLoader
 {
     fn load_gmem_to_smem<L: BlockLoader<F, FC>>(
         gmem: &Tensor<F>,
@@ -35,8 +31,8 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
         let coop_step = coop_dim * tensor_vec;
         let lane_row_step = coop_dim * tensor_vec / tile_size;
 
-        let nth_tile = runtime_info.ids.coop;
-        let lane_id = runtime_info.ids.lane;
+        let nth_tile = runtime_info.load_ids.coop;
+        let lane_id = runtime_info.load_ids.lane;
 
         let smem_tile_width = I::smem_width(comptime_info) / tile_size;
         let smem_tile_height = I::smem_height(comptime_info) / tile_size;
@@ -60,11 +56,11 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC>
         }
     }
 
-    fn get_tile_smem_position(
+    fn get_tile_smem_index(
         tile_row: u32,
         tile_col: u32,
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) -> u32 {
-        get_tile_smem_position::<I, T>(tile_row, tile_col, comptime_info)
+        get_tile_smem_index::<I, T>(tile_row, tile_col, comptime_info)
     }
 }

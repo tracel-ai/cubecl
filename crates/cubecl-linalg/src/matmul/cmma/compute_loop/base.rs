@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::super::runtime_info::{Fragments, Ids, SharedMemories};
 use crate::matmul::cmma::{
-    base::{Fragments, Ids, SharedMemories},
     compute_loop::{
         accumulators_first::AllAccumulatorsFirstComputeLoop,
         buffers_first::AllBuffersFirstComputeLoop,
@@ -11,8 +11,8 @@ use crate::matmul::cmma::{
     load_shared_memory::{
         base::SmemLoader,
         continous::ContinuousSmemLoader,
-        load_info::{LhsLoadInfo, RhsLoadInfo},
-        tiled_layout::{ColMajorTiling, RowMajorTiling},
+        load_info::{LhsLoadInfo, LoadInfo, RhsLoadInfo},
+        tiled_layout::{ColMajorTiling, RowMajorTiling, TilingOrder},
         tilewise::TilewiseSmemLoader,
     },
 };
@@ -21,21 +21,21 @@ use crate::matmul::cmma::{
 pub(crate) fn compute_loop<F: Float, FC: Float>(
     shared_memories: SharedMemories<FC>,
     fragments: &mut Fragments<F, FC>,
-    ids: Ids,
+    compute_ids: Ids,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
     if comptime_info.compute_loop_order_strategy == 0 {
         AllBuffersFirstComputeLoop::compute_loop::<F, FC>(
             shared_memories,
             fragments,
-            ids,
+            compute_ids,
             comptime_info,
         );
     } else {
         AllAccumulatorsFirstComputeLoop::compute_loop::<F, FC>(
             shared_memories,
             fragments,
-            ids,
+            compute_ids,
             comptime_info,
         );
     }
@@ -73,25 +73,25 @@ pub(crate) fn get_smem_position_lhs<F: Float, FC: Float>(
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> u32 {
     if comptime_info.lhs_smem_loader_strategy == 0 {
-        get_tile_smem_position::<F, FC, TilewiseSmemLoader<LhsLoadInfo, RowMajorTiling>>(
+        get_tile_smem_position::<F, FC, LhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
             tile_row,
             tile_col,
             comptime_info,
         )
     } else if comptime_info.lhs_smem_loader_strategy == 1 {
-        get_tile_smem_position::<F, FC, TilewiseSmemLoader<LhsLoadInfo, ColMajorTiling>>(
+        get_tile_smem_position::<F, FC, LhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
             tile_row,
             tile_col,
             comptime_info,
         )
     } else if comptime_info.lhs_smem_loader_strategy == 2 {
-        get_tile_smem_position::<F, FC, ContinuousSmemLoader<LhsLoadInfo, RowMajorTiling>>(
+        get_tile_smem_position::<F, FC, LhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
             tile_row,
             tile_col,
             comptime_info,
         )
     } else {
-        get_tile_smem_position::<F, FC, ContinuousSmemLoader<LhsLoadInfo, ColMajorTiling>>(
+        get_tile_smem_position::<F, FC, LhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
             tile_row,
             tile_col,
             comptime_info,
@@ -106,25 +106,25 @@ pub(crate) fn get_smem_position_rhs<F: Float, FC: Float>(
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> u32 {
     if comptime_info.rhs_smem_loader_strategy == 0 {
-        get_tile_smem_position::<F, FC, TilewiseSmemLoader<RhsLoadInfo, RowMajorTiling>>(
+        get_tile_smem_position::<F, FC, RhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
             tile_row,
             tile_col,
             comptime_info,
         )
     } else if comptime_info.rhs_smem_loader_strategy == 1 {
-        get_tile_smem_position::<F, FC, TilewiseSmemLoader<RhsLoadInfo, ColMajorTiling>>(
+        get_tile_smem_position::<F, FC, RhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
             tile_row,
             tile_col,
             comptime_info,
         )
     } else if comptime_info.rhs_smem_loader_strategy == 2 {
-        get_tile_smem_position::<F, FC, ContinuousSmemLoader<RhsLoadInfo, RowMajorTiling>>(
+        get_tile_smem_position::<F, FC, RhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
             tile_row,
             tile_col,
             comptime_info,
         )
     } else {
-        get_tile_smem_position::<F, FC, ContinuousSmemLoader<RhsLoadInfo, ColMajorTiling>>(
+        get_tile_smem_position::<F, FC, RhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
             tile_row,
             tile_col,
             comptime_info,
@@ -133,10 +133,16 @@ pub(crate) fn get_smem_position_rhs<F: Float, FC: Float>(
 }
 
 #[cube]
-fn get_tile_smem_position<F: Float, FC: Float, S: SmemLoader<F, FC>>(
+fn get_tile_smem_position<
+    F: Float,
+    FC: Float,
+    I: LoadInfo,
+    T: TilingOrder,
+    S: SmemLoader<F, FC, I, T>,
+>(
     tile_row: u32,
     tile_col: u32,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> u32 {
-    S::get_tile_smem_position(tile_row, tile_col, comptime_info)
+    S::get_tile_smem_index(tile_row, tile_col, comptime_info)
 }

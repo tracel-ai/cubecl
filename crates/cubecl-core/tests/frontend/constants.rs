@@ -47,11 +47,11 @@ macro_rules! gen_tests {
     ($test_name:ident, $func_name:ident, $type:ty, $constant:ident, $ret_type:ty) => {
         #[test]
         fn $test_name() {
-            let mut context = CubeContext::root();
+            let mut context = CubeContext::default();
             $func_name::expand::<$type>(&mut context);
             let scope = context.into_scope();
 
-            let mut scope1 = CubeContext::root().into_scope();
+            let mut scope1 = CubeContext::default().into_scope();
             let item = Item::new(<$ret_type>::as_elem());
             scope1.create_with_value(<$type>::$constant, item);
 

@@ -110,7 +110,9 @@ pub mod index {
         let array: ExpandElement = array.into();
         let var: Variable = *array;
         let var = match var {
-            Variable::Local { .. } => binary_expand_no_vec(context, array, index, Operator::Index),
+            Variable::Local { .. } | Variable::LocalBinding { .. } => {
+                binary_expand_no_vec(context, array, index, Operator::Index)
+            }
             _ => binary_expand(context, array, index, Operator::Index),
         };
 

@@ -15,7 +15,7 @@ pub trait Cast: CubePrimitive {
         context: &mut CubeContext,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
-        let new_var = context.create_local(Item::vectorized(
+        let new_var = context.create_local_binding(Item::vectorized(
             <Self as CubePrimitive>::as_elem(),
             value.expand.item().vectorization,
         ));
@@ -45,7 +45,7 @@ pub trait BitCast: CubePrimitive {
     ) -> <Self as CubeType>::ExpandType {
         let value: ExpandElement = value.into();
         let var: Variable = *value;
-        let new_var = context.create_local(Item::vectorized(
+        let new_var = context.create_local_binding(Item::vectorized(
             <Self as CubePrimitive>::as_elem(),
             var.item().vectorization,
         ));

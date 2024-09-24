@@ -100,15 +100,15 @@ impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
             .expect("Vectorization must be comptime")
             .as_u32();
         let var = self.expand.clone();
-        let new_var = context.create_local(Item::vectorized(
-            var.item().elem(),
-            NonZero::new(factor as u8),
-        ));
+        let item = Item::vectorized(var.item().elem(), NonZero::new(factor as u8));
 
-        if factor == 1 {
+        let new_var = if factor == 1 {
+            let new_var = context.create_local_binding(item);
             let element = index::expand(context, self.clone(), ExpandElementTyped::from_lit(0u32));
             assign::expand(context, element, new_var.clone().into());
+            new_var
         } else {
+            let new_var = context.create_local_variable(item);
             for i in 0..factor {
                 let expand: Self = self.expand.clone().into();
                 let element = index::expand(context, expand, ExpandElementTyped::from_lit(i));
@@ -119,7 +119,8 @@ impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
                     element,
                 );
             }
-        }
+            new_var
+        };
         new_var.into()
     }
 }

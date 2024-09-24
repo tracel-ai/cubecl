@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::super::runtime_info::{Fragments, Ids, SharedMemories};
 use crate::matmul::cmma::{
-    base::{Fragments, Ids, SharedMemories},
     compute_loop::base::{
         get_smem_position_lhs, get_smem_position_rhs, load_tile_into_fragment, ComputeLoop,
     },

@@ -84,6 +84,7 @@ pub enum Operator {
     AtomicCompareAndSwap(CompareAndSwapOperator),
     Magnitude(UnaryOperator),
     Normalize(UnaryOperator),
+    Dot(BinaryOperator),
 }
 
 /// All metadata that can be access in a shader.

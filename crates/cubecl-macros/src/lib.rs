@@ -1,10 +1,9 @@
+use darling::FromDeriveInput;
 use error::error_into_token_stream;
-use generate::{
-    autotune::{generate_autotune_key, generate_autotune_set},
-    cube_type::generate_cube_type,
-};
+use generate::autotune::{generate_autotune_key, generate_autotune_set};
 use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
+    cube_type::CubeType,
     helpers::{RemoveHelpers, ReplaceIndices},
     kernel::{from_tokens, Launch},
 };
@@ -86,17 +85,29 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
 /// Derive macro to define a cube type that is launched with a kernel
 #[proc_macro_derive(CubeLaunch, attributes(expand))]
 pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
-
-    generate_cube_type(&input, true).into()
+    gen_cube_type(input, true)
 }
 
 /// Derive macro to define a cube type that is not launched
 #[proc_macro_derive(CubeType, attributes(expand))]
 pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
+    gen_cube_type(input, false)
+}
 
-    generate_cube_type(&input, false).into()
+fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {
+    let parsed = syn::parse(input);
+
+    let input = match &parsed {
+        Ok(val) => val,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let cube_type = match CubeType::from_derive_input(input) {
+        Ok(val) => val,
+        Err(err) => return err.write_errors().into(),
+    };
+
+    cube_type.generate(with_launch).into()
 }
 
 /// Mark the contents of this macro as compile time values, turning off all expansion for this code
