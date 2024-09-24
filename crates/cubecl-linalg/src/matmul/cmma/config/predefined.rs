@@ -3,7 +3,7 @@ use super::{
         ComputeLoopOrderStrategy, MainLoopStrategy, RasterizationStrategy, SmemLoaderStrategy,
         WriteOutStrategy,
     },
-    CmmaConfig,
+    CmmaConfig, TilingOrderStrategy,
 };
 
 #[derive(Clone, Copy)]
@@ -86,18 +86,30 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 ..Default::default()
             },
             PredefinedCmmaConfig::TilewiseInverted => CmmaConfig {
-                lhs_smem_loader_strategy: SmemLoaderStrategy::TilewiseColMajor,
-                rhs_smem_loader_strategy: SmemLoaderStrategy::TilewiseRowMajor,
+                lhs_smem_loader_strategy: SmemLoaderStrategy::Tilewise(
+                    TilingOrderStrategy::ColMajor,
+                ),
+                rhs_smem_loader_strategy: SmemLoaderStrategy::Tilewise(
+                    TilingOrderStrategy::RowMajor,
+                ),
                 ..Default::default()
             },
             PredefinedCmmaConfig::Continuous => CmmaConfig {
-                lhs_smem_loader_strategy: SmemLoaderStrategy::ContinuousRowMajor,
-                rhs_smem_loader_strategy: SmemLoaderStrategy::ContinuousColMajor,
+                lhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
+                    TilingOrderStrategy::RowMajor,
+                ),
+                rhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
+                    TilingOrderStrategy::ColMajor,
+                ),
                 ..Default::default()
             },
             PredefinedCmmaConfig::ContinuousInverted => CmmaConfig {
-                lhs_smem_loader_strategy: SmemLoaderStrategy::ContinuousColMajor,
-                rhs_smem_loader_strategy: SmemLoaderStrategy::ContinuousRowMajor,
+                lhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
+                    TilingOrderStrategy::ColMajor,
+                ),
+                rhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
+                    TilingOrderStrategy::RowMajor,
+                ),
                 ..Default::default()
             },
             PredefinedCmmaConfig::LargeSmem => CmmaConfig {
@@ -145,7 +157,9 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 b_m: 32,
                 b_k: 16,
                 b_n: 64,
-                rhs_smem_loader_strategy: SmemLoaderStrategy::ContinuousColMajor,
+                rhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
+                    TilingOrderStrategy::ColMajor,
+                ),
                 main_loop_strategy: MainLoopStrategy::Standard(2),
                 ..Default::default()
             },
@@ -153,7 +167,9 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 b_m: 16,
                 b_k: 32,
                 b_n: 64,
-                rhs_smem_loader_strategy: SmemLoaderStrategy::ContinuousColMajor,
+                rhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
+                    TilingOrderStrategy::ColMajor,
+                ),
                 main_loop_strategy: MainLoopStrategy::Standard(2),
                 ..Default::default()
             },

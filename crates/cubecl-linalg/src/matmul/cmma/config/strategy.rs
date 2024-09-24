@@ -9,15 +9,16 @@ pub enum WriteOutStrategy {
 
 /// How cubes are dispatched in the hypercube
 /// Should impact L2 cache reuse
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub enum RasterizationStrategy {
     /// Cubes are dispatched row major
     RowMajor,
     /// Cubes are dispatched col major
     ColMajor,
-    /// Cubes follow swizzle pattern, see https://bruce-lee-ly.medium.com/nvidia-tensor-core-cuda-hgemm-advanced-optimization-5a17eb77dd85
+    /// Cubes follow swizzle pattern
     Swizzle,
 }
+
 impl RasterizationStrategy {
     pub(crate) fn get_cube_dim(
         &self,
@@ -38,17 +39,7 @@ impl RasterizationStrategy {
     }
 }
 
-impl From<RasterizationStrategy> for u32 {
-    fn from(value: RasterizationStrategy) -> Self {
-        match value {
-            RasterizationStrategy::RowMajor => 0,
-            RasterizationStrategy::ColMajor => 1,
-            RasterizationStrategy::Swizzle => 2,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Defines how data travels from accumulators to global output
 pub enum ComputeLoopOrderStrategy {
     /// Accumulators for one warp are put concurrently in a shared memory large enough to contain them all
@@ -68,32 +59,23 @@ impl From<ComputeLoopOrderStrategy> for (u32, bool) {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+pub enum TilingOrderStrategy {
+    RowMajor,
+    ColMajor,
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 #[allow(clippy::enum_variant_names)]
 /// Defines how data is loaded from global to shared memory
 pub enum SmemLoaderStrategy {
-    /// One coop fills one tile, tile order is row major
-    TilewiseRowMajor,
-    /// One coop fills one tile, tile order is col major
-    TilewiseColMajor,
-    /// Coops can work in any tile, tile order is row major
-    ContinuousRowMajor,
-    /// Coops can work in any tile, tile order is col major
-    ContinuousColMajor,
+    /// One coop fills one tile
+    Tilewise(TilingOrderStrategy),
+    /// Coops can work in any tile
+    Continuous(TilingOrderStrategy),
 }
 
-impl From<SmemLoaderStrategy> for u32 {
-    fn from(value: SmemLoaderStrategy) -> Self {
-        match value {
-            SmemLoaderStrategy::TilewiseRowMajor => 0,
-            SmemLoaderStrategy::TilewiseColMajor => 1,
-            SmemLoaderStrategy::ContinuousRowMajor => 2,
-            SmemLoaderStrategy::ContinuousColMajor => 3,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Defines if different coops have different roles
 pub enum MainLoopStrategy {
     /// All coops both load and compute

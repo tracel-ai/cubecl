@@ -17,6 +17,7 @@ use super::{
     tiled_layout::{ColMajorTiling, RowMajorTiling},
     tilewise::TilewiseSmemLoader,
 };
+use crate::matmul::cmma::config::{SmemLoaderStrategy, TilingOrderStrategy};
 
 #[cube]
 pub(crate) trait SmemLoader<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> {
@@ -166,71 +167,89 @@ pub(crate) fn load_to_shared_memories<F: Float, FC: Float>(
     runtime_info: RuntimeCmmaInfo,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    if comptime_info.lhs_smem_loader_strategy == 0 {
-        load_lhs::<F, FC, LhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
-            lhs,
-            &mut shared.lhs,
-            k_offset,
-            runtime_info,
-            comptime_info,
-        );
-    } else if comptime_info.lhs_smem_loader_strategy == 1 {
-        load_lhs::<F, FC, LhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
-            lhs,
-            &mut shared.lhs,
-            k_offset,
-            runtime_info,
-            comptime_info,
-        );
-    } else if comptime_info.lhs_smem_loader_strategy == 2 {
-        load_lhs::<F, FC, LhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
-            lhs,
-            &mut shared.lhs,
-            k_offset,
-            runtime_info,
-            comptime_info,
-        );
-    } else {
-        load_lhs::<F, FC, LhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
-            lhs,
-            &mut shared.lhs,
-            k_offset,
-            runtime_info,
-            comptime_info,
-        );
+    match comptime_info.lhs_smem_loader_strategy {
+        SmemLoaderStrategy::Tilewise(tiling_order) => match tiling_order {
+            TilingOrderStrategy::RowMajor => {
+                load_lhs::<F, FC, LhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
+                    lhs,
+                    &mut shared.lhs,
+                    k_offset,
+                    runtime_info,
+                    comptime_info,
+                );
+            }
+            TilingOrderStrategy::ColMajor => {
+                load_lhs::<F, FC, LhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
+                    lhs,
+                    &mut shared.lhs,
+                    k_offset,
+                    runtime_info,
+                    comptime_info,
+                )
+            }
+        },
+        SmemLoaderStrategy::Continuous(tiling_order) => match tiling_order {
+            TilingOrderStrategy::RowMajor => {
+                load_lhs::<F, FC, LhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
+                    lhs,
+                    &mut shared.lhs,
+                    k_offset,
+                    runtime_info,
+                    comptime_info,
+                )
+            }
+            TilingOrderStrategy::ColMajor => {
+                load_lhs::<F, FC, LhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
+                    lhs,
+                    &mut shared.lhs,
+                    k_offset,
+                    runtime_info,
+                    comptime_info,
+                )
+            }
+        },
     }
 
-    if comptime_info.rhs_smem_loader_strategy == 0 {
-        load_rhs::<F, FC, RhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
-            rhs,
-            &mut shared.rhs,
-            k_offset,
-            runtime_info,
-            comptime_info,
-        );
-    } else if comptime_info.rhs_smem_loader_strategy == 1 {
-        load_rhs::<F, FC, RhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
-            rhs,
-            &mut shared.rhs,
-            k_offset,
-            runtime_info,
-            comptime_info,
-        );
-    } else if comptime_info.rhs_smem_loader_strategy == 2 {
-        load_rhs::<F, FC, RhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
-            rhs,
-            &mut shared.rhs,
-            k_offset,
-            runtime_info,
-            comptime_info,
-        );
-    } else {
-        load_rhs::<F, FC, RhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
-            rhs,
-            &mut shared.rhs,
-            k_offset,
-            runtime_info,
-            comptime_info,
-        );
+    match comptime_info.rhs_smem_loader_strategy {
+        SmemLoaderStrategy::Tilewise(tiling_order) => match tiling_order {
+            TilingOrderStrategy::RowMajor => {
+                load_rhs::<F, FC, RhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
+                    rhs,
+                    &mut shared.rhs,
+                    k_offset,
+                    runtime_info,
+                    comptime_info,
+                );
+            }
+            TilingOrderStrategy::ColMajor => {
+                load_rhs::<F, FC, RhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
+                    rhs,
+                    &mut shared.rhs,
+                    k_offset,
+                    runtime_info,
+                    comptime_info,
+                )
+            }
+        },
+        SmemLoaderStrategy::Continuous(tiling_order) => match tiling_order {
+            TilingOrderStrategy::RowMajor => {
+                load_lhs::<F, FC, RhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
+                    lhs,
+                    &mut shared.lhs,
+                    k_offset,
+                    runtime_info,
+                    comptime_info,
+                )
+            }
+            TilingOrderStrategy::ColMajor => {
+                load_rhs::<F, FC, RhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
+                    rhs,
+                    &mut shared.rhs,
+                    k_offset,
+                    runtime_info,
+                    comptime_info,
+                )
+            }
+        },
     }
 }

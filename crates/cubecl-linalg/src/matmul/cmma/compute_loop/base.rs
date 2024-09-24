@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::super::prologue::{Fragments, Ids, SharedMemories};
+use crate::matmul::cmma::config::{SmemLoaderStrategy, TilingOrderStrategy};
 use crate::matmul::cmma::{
     compute_loop::{
         accumulators_first::AllAccumulatorsFirstComputeLoop,
@@ -72,30 +73,39 @@ pub(crate) fn get_smem_position_lhs<F: Float, FC: Float>(
     tile_col: u32,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> u32 {
-    if comptime_info.lhs_smem_loader_strategy == 0 {
-        get_tile_smem_position::<F, FC, LhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
-            tile_row,
-            tile_col,
-            comptime_info,
-        )
-    } else if comptime_info.lhs_smem_loader_strategy == 1 {
-        get_tile_smem_position::<F, FC, LhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
-            tile_row,
-            tile_col,
-            comptime_info,
-        )
-    } else if comptime_info.lhs_smem_loader_strategy == 2 {
-        get_tile_smem_position::<F, FC, LhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
-            tile_row,
-            tile_col,
-            comptime_info,
-        )
-    } else {
-        get_tile_smem_position::<F, FC, LhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
-            tile_row,
-            tile_col,
-            comptime_info,
-        )
+    match comptime_info.lhs_smem_loader_strategy {
+        SmemLoaderStrategy::Tilewise(tiling_order) => match tiling_order {
+            TilingOrderStrategy::RowMajor => {
+                get_tile_smem_position::<F, FC, LhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
+                    tile_row,
+                    tile_col,
+                    comptime_info,
+                )
+            }
+            TilingOrderStrategy::ColMajor => {
+                get_tile_smem_position::<F, FC, LhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
+                    tile_row,
+                    tile_col,
+                    comptime_info,
+                )
+            }
+        },
+        SmemLoaderStrategy::Continuous(tiling_order) => match tiling_order {
+            TilingOrderStrategy::RowMajor => {
+                get_tile_smem_position::<F, FC, LhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
+                    tile_row,
+                    tile_col,
+                    comptime_info,
+                )
+            }
+            TilingOrderStrategy::ColMajor => {
+                get_tile_smem_position::<F, FC, LhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
+                    tile_row,
+                    tile_col,
+                    comptime_info,
+                )
+            }
+        },
     }
 }
 
@@ -105,30 +115,39 @@ pub(crate) fn get_smem_position_rhs<F: Float, FC: Float>(
     tile_col: u32,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> u32 {
-    if comptime_info.rhs_smem_loader_strategy == 0 {
-        get_tile_smem_position::<F, FC, RhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
-            tile_row,
-            tile_col,
-            comptime_info,
-        )
-    } else if comptime_info.rhs_smem_loader_strategy == 1 {
-        get_tile_smem_position::<F, FC, RhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
-            tile_row,
-            tile_col,
-            comptime_info,
-        )
-    } else if comptime_info.rhs_smem_loader_strategy == 2 {
-        get_tile_smem_position::<F, FC, RhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
-            tile_row,
-            tile_col,
-            comptime_info,
-        )
-    } else {
-        get_tile_smem_position::<F, FC, RhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
-            tile_row,
-            tile_col,
-            comptime_info,
-        )
+    match comptime_info.rhs_smem_loader_strategy {
+        SmemLoaderStrategy::Tilewise(tiling_order) => match tiling_order {
+            TilingOrderStrategy::RowMajor => {
+                get_tile_smem_position::<F, FC, RhsLoadInfo, RowMajorTiling, TilewiseSmemLoader>(
+                    tile_row,
+                    tile_col,
+                    comptime_info,
+                )
+            }
+            TilingOrderStrategy::ColMajor => {
+                get_tile_smem_position::<F, FC, RhsLoadInfo, ColMajorTiling, TilewiseSmemLoader>(
+                    tile_row,
+                    tile_col,
+                    comptime_info,
+                )
+            }
+        },
+        SmemLoaderStrategy::Continuous(tiling_order) => match tiling_order {
+            TilingOrderStrategy::RowMajor => {
+                get_tile_smem_position::<F, FC, RhsLoadInfo, RowMajorTiling, ContinuousSmemLoader>(
+                    tile_row,
+                    tile_col,
+                    comptime_info,
+                )
+            }
+            TilingOrderStrategy::ColMajor => {
+                get_tile_smem_position::<F, FC, RhsLoadInfo, ColMajorTiling, ContinuousSmemLoader>(
+                    tile_row,
+                    tile_col,
+                    comptime_info,
+                )
+            }
+        },
     }
 }
 

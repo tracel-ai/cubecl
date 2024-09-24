@@ -1,6 +1,7 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
+use crate::matmul::cmma::config::RasterizationStrategy;
 use crate::matmul::cmma::rasterization::base::{
     ColMajorRasterization, Rasterization, RowMajorRasterization, SwizzleRasterization,
 };
@@ -56,11 +57,9 @@ pub(crate) fn calculate_offsets<F: Float>(
 
 #[cube]
 pub(crate) fn get_row_col(#[comptime] comptime_info: ComptimeCmmaInfo) -> (u32, u32) {
-    if comptime_info.rasterization_strategy == 0 {
-        RowMajorRasterization::get_row_col(comptime_info)
-    } else if comptime_info.rasterization_strategy == 1 {
-        ColMajorRasterization::get_row_col(comptime_info)
-    } else {
-        SwizzleRasterization::get_row_col(comptime_info)
+    match comptime_info.rasterization_strategy {
+        RasterizationStrategy::RowMajor => RowMajorRasterization::get_row_col(comptime_info),
+        RasterizationStrategy::ColMajor => ColMajorRasterization::get_row_col(comptime_info),
+        RasterizationStrategy::Swizzle => SwizzleRasterization::get_row_col(comptime_info),
     }
 }

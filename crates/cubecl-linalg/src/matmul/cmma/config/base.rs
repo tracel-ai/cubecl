@@ -1,8 +1,11 @@
 use cubecl_core::prelude::*;
 
-use super::strategy::{
-    ComputeLoopOrderStrategy, MainLoopStrategy, RasterizationStrategy, SmemLoaderStrategy,
-    WriteOutStrategy,
+use super::{
+    strategy::{
+        ComputeLoopOrderStrategy, MainLoopStrategy, RasterizationStrategy, SmemLoaderStrategy,
+        WriteOutStrategy,
+    },
+    TilingOrderStrategy,
 };
 
 // It is assumed that CMMA uses 32 units to compute 16x16x16 tiles
@@ -44,8 +47,8 @@ impl Default for CmmaConfig {
             WriteOutStrategy::ReuseSmem,
             RasterizationStrategy::Swizzle,
             ComputeLoopOrderStrategy::AllAccumulatorsFirst(true),
-            SmemLoaderStrategy::TilewiseRowMajor,
-            SmemLoaderStrategy::TilewiseColMajor,
+            SmemLoaderStrategy::Tilewise(TilingOrderStrategy::RowMajor),
+            SmemLoaderStrategy::Tilewise(TilingOrderStrategy::ColMajor),
             MainLoopStrategy::Standard(8),
         )
     }
@@ -104,11 +107,11 @@ impl CmmaConfig {
             num_accumulators: (self.b_m * self.b_n / (CMMA_TILE_SIZE * CMMA_TILE_SIZE)) as u32
                 / num_compute_coops,
             write_out_strategy: self.write_out_strategy,
-            rasterization_strategy: self.rasterization_strategy.into(),
+            rasterization_strategy: self.rasterization_strategy,
             compute_loop_order_strategy,
             reuse_lhs_fragment,
-            lhs_smem_loader_strategy: self.lhs_smem_loader_strategy.into(),
-            rhs_smem_loader_strategy: self.rhs_smem_loader_strategy.into(),
+            lhs_smem_loader_strategy: self.lhs_smem_loader_strategy,
+            rhs_smem_loader_strategy: self.rhs_smem_loader_strategy,
             main_loop_strategy: block_loop_strategy,
         }
     }
@@ -185,7 +188,7 @@ pub struct ComptimeCmmaInfo {
     /// 0 = large, 1 = reuse
     pub write_out_strategy: WriteOutStrategy,
     /// 0 = RowMajor, 1 = ColMajor, 2 = Swizzle
-    pub rasterization_strategy: u32,
+    pub rasterization_strategy: RasterizationStrategy,
     /// 0 = all buffers first, 1 = all accumulators first
     pub compute_loop_order_strategy: u32,
     /// Whether to reuse lhs fragment (true) or to reload it (false)
@@ -193,10 +196,10 @@ pub struct ComptimeCmmaInfo {
     pub reuse_lhs_fragment: bool,
     /// 0 = tilewise row major, 1 = tilewise col major
     /// 2 = continous row major, 3 = continuous col major
-    pub lhs_smem_loader_strategy: u32,
+    pub lhs_smem_loader_strategy: SmemLoaderStrategy,
     /// 0 = tilewise row major, 1 = tilewise col major
     /// 2 = continous row major, 3 = continuous col major
-    pub rhs_smem_loader_strategy: u32,
+    pub rhs_smem_loader_strategy: SmemLoaderStrategy,
     /// 0 same role, 1 = split roles halfway
     pub main_loop_strategy: u32,
 }
