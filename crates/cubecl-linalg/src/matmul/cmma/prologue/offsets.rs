@@ -1,11 +1,11 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use super::super::config::ComptimeCmmaInfo;
-
-use super::super::cube_dispatch::base::{
-    ColMajorCubeDispatch, CubeDispatch, RowMajorCubeDispatch, SwizzleCubeDispatch,
+use crate::matmul::cmma::rasterization::base::{
+    ColMajorRasterization, Rasterization, RowMajorRasterization, SwizzleRasterization,
 };
+
+use super::super::config::ComptimeCmmaInfo;
 
 #[derive(CubeType, Copy, Clone)]
 /// Not divided by vectorization factor
@@ -56,11 +56,11 @@ pub(crate) fn calculate_offsets<F: Float>(
 
 #[cube]
 pub(crate) fn get_row_col(#[comptime] comptime_info: ComptimeCmmaInfo) -> (u32, u32) {
-    if comptime_info.cube_dispatch_strategy == 0 {
-        RowMajorCubeDispatch::get_row_col(comptime_info)
-    } else if comptime_info.cube_dispatch_strategy == 1 {
-        ColMajorCubeDispatch::get_row_col(comptime_info)
+    if comptime_info.rasterization_strategy == 0 {
+        RowMajorRasterization::get_row_col(comptime_info)
+    } else if comptime_info.rasterization_strategy == 1 {
+        ColMajorRasterization::get_row_col(comptime_info)
     } else {
-        SwizzleCubeDispatch::get_row_col(comptime_info)
+        SwizzleRasterization::get_row_col(comptime_info)
     }
 }

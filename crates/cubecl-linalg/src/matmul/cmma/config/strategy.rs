@@ -1,4 +1,4 @@
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Defines how data travels from accumulators to global output
 pub enum WriteOutStrategy {
     /// Accumulators for one warp are put concurrently in a shared memory large enough to contain them all
@@ -7,19 +7,10 @@ pub enum WriteOutStrategy {
     ReuseSmem,
 }
 
-impl From<WriteOutStrategy> for u32 {
-    fn from(value: WriteOutStrategy) -> Self {
-        match value {
-            WriteOutStrategy::LargeSmem => 0,
-            WriteOutStrategy::ReuseSmem => 1,
-        }
-    }
-}
-
 /// How cubes are dispatched in the hypercube
 /// Should impact L2 cache reuse
 #[derive(Clone, Copy)]
-pub enum CubeDispatchStrategy {
+pub enum RasterizationStrategy {
     /// Cubes are dispatched row major
     RowMajor,
     /// Cubes are dispatched col major
@@ -27,7 +18,7 @@ pub enum CubeDispatchStrategy {
     /// Cubes follow swizzle pattern, see https://bruce-lee-ly.medium.com/nvidia-tensor-core-cuda-hgemm-advanced-optimization-5a17eb77dd85
     Swizzle,
 }
-impl CubeDispatchStrategy {
+impl RasterizationStrategy {
     pub(crate) fn get_cube_dim(
         &self,
         num_rows: usize,
@@ -39,20 +30,20 @@ impl CubeDispatchStrategy {
         let cubes_for_cols = f32::ceil(num_cols as f32 / b_n as f32) as u32;
 
         match self {
-            CubeDispatchStrategy::RowMajor | CubeDispatchStrategy::Swizzle => {
+            RasterizationStrategy::RowMajor | RasterizationStrategy::Swizzle => {
                 (cubes_for_cols, cubes_for_rows)
             }
-            CubeDispatchStrategy::ColMajor => (cubes_for_rows, cubes_for_cols),
+            RasterizationStrategy::ColMajor => (cubes_for_rows, cubes_for_cols),
         }
     }
 }
 
-impl From<CubeDispatchStrategy> for u32 {
-    fn from(value: CubeDispatchStrategy) -> Self {
+impl From<RasterizationStrategy> for u32 {
+    fn from(value: RasterizationStrategy) -> Self {
         match value {
-            CubeDispatchStrategy::RowMajor => 0,
-            CubeDispatchStrategy::ColMajor => 1,
-            CubeDispatchStrategy::Swizzle => 2,
+            RasterizationStrategy::RowMajor => 0,
+            RasterizationStrategy::ColMajor => 1,
+            RasterizationStrategy::Swizzle => 2,
         }
     }
 }
@@ -104,27 +95,27 @@ impl From<SmemLoaderStrategy> for u32 {
 
 #[derive(Clone, Copy)]
 /// Defines if different coops have different roles
-pub enum BlockLoopStrategy {
+pub enum MainLoopStrategy {
     /// All coops both load and compute
     Standard(u32),
     /// Part compute, part load
     Split(u32, u32),
 }
 
-impl From<BlockLoopStrategy> for (u32, u32, u32) {
-    fn from(value: BlockLoopStrategy) -> Self {
+impl From<MainLoopStrategy> for (u32, u32, u32) {
+    fn from(value: MainLoopStrategy) -> Self {
         match value {
-            BlockLoopStrategy::Standard(num_coops) => (0, num_coops, num_coops),
-            BlockLoopStrategy::Split(num_compute, num_load) => (1, num_compute, num_load),
+            MainLoopStrategy::Standard(num_coops) => (0, num_coops, num_coops),
+            MainLoopStrategy::Split(num_compute, num_load) => (1, num_compute, num_load),
         }
     }
 }
 
-impl BlockLoopStrategy {
+impl MainLoopStrategy {
     pub(crate) fn num_coops(&self) -> u32 {
         match self {
-            BlockLoopStrategy::Standard(num_coops) => *num_coops,
-            BlockLoopStrategy::Split(num_compute, num_load) => num_compute + num_load,
+            MainLoopStrategy::Standard(num_coops) => *num_coops,
+            MainLoopStrategy::Split(num_compute, num_load) => num_compute + num_load,
         }
     }
 }

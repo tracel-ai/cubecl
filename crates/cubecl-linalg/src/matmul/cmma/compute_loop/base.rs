@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::super::runtime_info::{Fragments, Ids, SharedMemories};
+use super::super::prologue::{Fragments, Ids, SharedMemories};
 use crate::matmul::cmma::{
     compute_loop::{
         accumulators_first::AllAccumulatorsFirstComputeLoop,

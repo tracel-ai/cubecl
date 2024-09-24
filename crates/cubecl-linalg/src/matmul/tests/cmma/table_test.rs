@@ -54,11 +54,11 @@ impl Iterator for CmmaConfigIterator {
             )),
             10 => Some((PredefinedCmmaConfig::LargeSmem, "large_smem".to_string())),
             11 => Some((
-                PredefinedCmmaConfig::RowMajorDispatch,
+                PredefinedCmmaConfig::RowMajorRasterization,
                 "row_major_dispatch".to_string(),
             )),
             12 => Some((
-                PredefinedCmmaConfig::SwizzleDispatch,
+                PredefinedCmmaConfig::SwizzleRasterization,
                 "swizzle_dispatch".to_string(),
             )),
             13 => Some((

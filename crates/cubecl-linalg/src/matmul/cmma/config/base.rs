@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 
 use super::strategy::{
-    BlockLoopStrategy, ComputeLoopOrderStrategy, CubeDispatchStrategy, SmemLoaderStrategy,
+    ComputeLoopOrderStrategy, MainLoopStrategy, RasterizationStrategy, SmemLoaderStrategy,
     WriteOutStrategy,
 };
 
@@ -23,7 +23,7 @@ pub struct CmmaConfig {
     /// Whether to write all accumulators in different spots of a large shared memory or reuse the space
     pub write_out_strategy: WriteOutStrategy,
     /// Order in which to dispatch cubes
-    pub cube_dispatch_strategy: CubeDispatchStrategy,
+    pub rasterization_strategy: RasterizationStrategy,
     /// Whether to iterate on buffers or accumulators first
     pub compute_loop_order_strategy: ComputeLoopOrderStrategy,
     /// How to load and read from LHS shared memory
@@ -31,7 +31,7 @@ pub struct CmmaConfig {
     /// How to load and read from RHS shared memory
     pub rhs_smem_loader_strategy: SmemLoaderStrategy,
     /// How to parallelize the outer loop among different warps
-    pub block_loop_strategy: BlockLoopStrategy,
+    pub main_loop_strategy: MainLoopStrategy,
 }
 
 impl Default for CmmaConfig {
@@ -42,11 +42,11 @@ impl Default for CmmaConfig {
             64,
             false,
             WriteOutStrategy::ReuseSmem,
-            CubeDispatchStrategy::Swizzle,
+            RasterizationStrategy::Swizzle,
             ComputeLoopOrderStrategy::AllAccumulatorsFirst(true),
             SmemLoaderStrategy::TilewiseRowMajor,
             SmemLoaderStrategy::TilewiseColMajor,
-            BlockLoopStrategy::Standard(8),
+            MainLoopStrategy::Standard(8),
         )
     }
 }
@@ -59,11 +59,11 @@ impl CmmaConfig {
         b_n: usize,
         unroll: bool,
         write_out_strategy: WriteOutStrategy,
-        cube_dispatch_strategy: CubeDispatchStrategy,
+        rasterization_strategy: RasterizationStrategy,
         compute_loop_order_strategy: ComputeLoopOrderStrategy,
         lhs_smem_loader_strategy: SmemLoaderStrategy,
         rhs_smem_loader_strategy: SmemLoaderStrategy,
-        block_loop_strategy: BlockLoopStrategy,
+        main_loop_strategy: MainLoopStrategy,
     ) -> CmmaConfig {
         assert!(b_m % CMMA_TILE_SIZE == 0);
         assert!(b_k % CMMA_TILE_SIZE == 0);
@@ -75,11 +75,11 @@ impl CmmaConfig {
             b_n,
             unroll,
             write_out_strategy,
-            cube_dispatch_strategy,
+            rasterization_strategy,
             compute_loop_order_strategy,
             lhs_smem_loader_strategy,
             rhs_smem_loader_strategy,
-            block_loop_strategy,
+            main_loop_strategy,
         }
     }
 
@@ -87,7 +87,7 @@ impl CmmaConfig {
         let (compute_loop_order_strategy, reuse_lhs_fragment) =
             self.compute_loop_order_strategy.into();
         let (block_loop_strategy, num_compute_coops, num_load_coops) =
-            self.block_loop_strategy.into();
+            self.main_loop_strategy.into();
 
         ComptimeCmmaInfo {
             block_size_m: self.b_m as u32,
@@ -103,13 +103,13 @@ impl CmmaConfig {
             num_load_coops,
             num_accumulators: (self.b_m * self.b_n / (CMMA_TILE_SIZE * CMMA_TILE_SIZE)) as u32
                 / num_compute_coops,
-            write_out_strategy: self.write_out_strategy.into(),
-            cube_dispatch_strategy: self.cube_dispatch_strategy.into(),
+            write_out_strategy: self.write_out_strategy,
+            rasterization_strategy: self.rasterization_strategy.into(),
             compute_loop_order_strategy,
             reuse_lhs_fragment,
             lhs_smem_loader_strategy: self.lhs_smem_loader_strategy.into(),
             rhs_smem_loader_strategy: self.rhs_smem_loader_strategy.into(),
-            block_loop_strategy,
+            main_loop_strategy: block_loop_strategy,
         }
     }
 
@@ -122,7 +122,7 @@ impl CmmaConfig {
         let num_cols = *output_shape.get(rank - 1).unwrap();
 
         let (cubes_x, cubes_y) = self
-            .cube_dispatch_strategy
+            .rasterization_strategy
             .get_cube_dim(num_rows, num_cols, self.b_m, self.b_n);
 
         let mut num_iter = 1;
@@ -136,7 +136,7 @@ impl CmmaConfig {
     pub(crate) fn cube_dim(&self) -> CubeDim {
         CubeDim {
             x: CMMA_COOP_DIM as u32,
-            y: self.block_loop_strategy.num_coops(),
+            y: self.main_loop_strategy.num_coops(),
             z: 1,
         }
     }
@@ -183,9 +183,9 @@ pub struct ComptimeCmmaInfo {
     /// Number of cmma per subcube performed in one pass
     pub num_accumulators: u32,
     /// 0 = large, 1 = reuse
-    pub write_out_strategy: u32,
+    pub write_out_strategy: WriteOutStrategy,
     /// 0 = RowMajor, 1 = ColMajor, 2 = Swizzle
-    pub cube_dispatch_strategy: u32,
+    pub rasterization_strategy: u32,
     /// 0 = all buffers first, 1 = all accumulators first
     pub compute_loop_order_strategy: u32,
     /// Whether to reuse lhs fragment (true) or to reload it (false)
@@ -198,5 +198,5 @@ pub struct ComptimeCmmaInfo {
     /// 2 = continous row major, 3 = continuous col major
     pub rhs_smem_loader_strategy: u32,
     /// 0 same role, 1 = split roles halfway
-    pub block_loop_strategy: u32,
+    pub main_loop_strategy: u32,
 }

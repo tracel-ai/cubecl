@@ -1,8 +1,8 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use super::super::block_loop::BlockLoop;
 use super::super::config::ComptimeCmmaInfo;
+use super::super::main_loop::MainLoop;
 use super::dims::{get_dims, Dimensions};
 use super::offsets::{calculate_offsets, Offsets};
 
@@ -21,7 +21,7 @@ pub(crate) struct Ids {
 }
 
 #[cube]
-pub(crate) fn get_runtime_info<F: Float, D: BlockLoop>(
+pub(crate) fn get_runtime_info<F: Float, D: MainLoop>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,

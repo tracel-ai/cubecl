@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use super::super::runtime_info::{RuntimeCmmaInfo, SharedMemories};
+use super::super::prologue::{RuntimeCmmaInfo, SharedMemories};
 use crate::matmul::cmma::block_io::base::BlockLoader;
 use crate::matmul::cmma::block_io::{
     horizontal_block_check::HorizontalCheckBlockIO, unchecked_block::UncheckedBlockIO,
