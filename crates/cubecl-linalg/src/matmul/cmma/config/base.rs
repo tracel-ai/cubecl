@@ -87,7 +87,10 @@ impl CmmaConfig {
     }
 
     pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> ComptimeCmmaInfo {
-        let (num_compute_coops, num_load_coops) = self.main_loop_strategy.get_num_planes();
+        let (num_compute_coops, num_load_coops) = match self.main_loop_strategy {
+            MainLoopStrategy::Standard(num) => (num, num),
+            MainLoopStrategy::Split(num_compute, num_load) => (num_compute, num_load),
+        };
 
         ComptimeCmmaInfo {
             block_size_m: self.b_m as u32,
@@ -133,10 +136,13 @@ impl CmmaConfig {
     }
 
     pub(crate) fn cube_dim(&self) -> CubeDim {
-        let (num_compute, num_load) = self.main_loop_strategy.get_num_planes();
+        let y_size = match self.main_loop_strategy {
+            MainLoopStrategy::Standard(num) => num,
+            MainLoopStrategy::Split(num_compute, num_load) => num_compute + num_load,
+        };
         CubeDim {
             x: CMMA_COOP_DIM as u32,
-            y: num_compute + num_load,
+            y: y_size,
             z: 1,
         }
     }

@@ -82,12 +82,3 @@ pub enum MainLoopStrategy {
     /// Part compute, part load
     Split(u32, u32),
 }
-
-impl MainLoopStrategy {
-    pub(crate) fn get_num_planes(&self) -> (u32, u32) {
-        match self {
-            MainLoopStrategy::Standard(num_coops) => (*num_coops, *num_coops),
-            MainLoopStrategy::Split(num_compute, num_load) => (*num_compute, *num_load),
-        }
-    }
-}
