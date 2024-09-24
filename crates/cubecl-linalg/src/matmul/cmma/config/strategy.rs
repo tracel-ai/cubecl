@@ -27,6 +27,20 @@ pub enum CubeDispatchStrategy {
     /// Cubes follow swizzle pattern, see https://bruce-lee-ly.medium.com/nvidia-tensor-core-cuda-hgemm-advanced-optimization-5a17eb77dd85
     Swizzle,
 }
+impl CubeDispatchStrategy {
+    pub(crate) fn get_cube_dim(&self, num_rows: usize, num_cols: usize, b_mn: usize) -> (u32, u32) {
+        match self {
+            CubeDispatchStrategy::RowMajor | CubeDispatchStrategy::Swizzle => (
+                f32::ceil(num_cols as f32 / b_mn as f32) as u32,
+                f32::ceil(num_rows as f32 / b_mn as f32) as u32,
+            ),
+            CubeDispatchStrategy::ColMajor => (
+                f32::ceil(num_rows as f32 / b_mn as f32) as u32,
+                f32::ceil(num_cols as f32 / b_mn as f32) as u32,
+            ),
+        }
+    }
+}
 
 impl From<CubeDispatchStrategy> for u32 {
     fn from(value: CubeDispatchStrategy) -> Self {
@@ -60,10 +74,15 @@ impl From<ComputeLoopOrderStrategy> for (u32, bool) {
 
 #[derive(Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
+/// Defines how data is loaded from global to shared memory
 pub enum SmemLoaderStrategy {
+    /// One coop fills one tile, tile order is row major
     TilewiseRowMajor,
+    /// One coop fills one tile, tile order is col major
     TilewiseColMajor,
+    /// Coops can work in any tile, tile order is row major
     ContinuousRowMajor,
+    /// Coops can work in any tile, tile order is col major
     ContinuousColMajor,
 }
 
@@ -74,6 +93,33 @@ impl From<SmemLoaderStrategy> for u32 {
             SmemLoaderStrategy::TilewiseColMajor => 1,
             SmemLoaderStrategy::ContinuousRowMajor => 2,
             SmemLoaderStrategy::ContinuousColMajor => 3,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+/// Defines if different coops have different roles
+pub enum BlockLoopStrategy {
+    /// All coops both load and compute
+    Standard(u32),
+    /// Part compute, part load
+    Split(u32, u32),
+}
+
+impl From<BlockLoopStrategy> for (u32, u32, u32) {
+    fn from(value: BlockLoopStrategy) -> Self {
+        match value {
+            BlockLoopStrategy::Standard(num_coops) => (0, num_coops, num_coops),
+            BlockLoopStrategy::Split(num_compute, num_load) => (1, num_compute, num_load),
+        }
+    }
+}
+
+impl BlockLoopStrategy {
+    pub(crate) fn num_coops(&self) -> u32 {
+        match self {
+            BlockLoopStrategy::Standard(num_coops) => *num_coops,
+            BlockLoopStrategy::Split(num_compute, num_load) => num_compute + num_load,
         }
     }
 }
