@@ -19,14 +19,8 @@ pub struct CmmaConfig {
     pub b_k: u32,
     /// Corresponds to the number of tiles in the n dimension for a block
     pub b_n: u32,
-    pub t_m: u32,
-    pub t_k: u32,
-    pub t_n: u32,
     /// Whether to unroll loop over k within the shared memory
     pub unroll: bool,
-    pub num_compute_planes: u32,
-    pub num_buffers: u32,
-    pub num_accumulators: u32,
     /// Whether to write all accumulators in different spots of a large shared memory or reuse the space
     pub write_out_strategy: WriteOutStrategy,
     /// Order in which to dispatch cubes
@@ -78,45 +72,12 @@ impl CmmaConfig {
         tile_dimension_strategy: TileDimensionStrategy,
         num_compute_planes_strategy: NumComputePlanesStrategy,
     ) -> CmmaConfig {
-        let tile_dim: TileDimension = tile_dimension_strategy.into();
-        let t_m = tile_dim.m;
-        let t_k = tile_dim.k;
-        let t_n = tile_dim.n;
-
-        assert!(b_m % t_m == 0);
-        assert!(b_k % t_k == 0);
-        assert!(b_n % t_n == 0);
-
-        let num_tiles_m = b_m / t_m;
-        let num_tiles_k = b_k / t_k;
-        let num_tiles_n = b_n / t_n;
-
-        let num_compute_planes =
-            num_compute_planes_strategy.get_num_compute_planes(num_tiles_m, num_tiles_k);
-        let num_accumulators =
-            num_compute_planes_strategy.get_num_accumulators(num_tiles_m, num_tiles_k, num_tiles_n);
-        let num_buffers = num_tiles_k;
-
-        let num_load_planes = main_loop_strategy.get_num_load_planes(num_compute_planes);
-
-        if let SmemLoaderStrategy::Tilewise(_) = lhs_smem_loader_strategy {
-            assert!(num_load_planes == num_tiles_m * num_tiles_k);
-        }
-        if let SmemLoaderStrategy::Tilewise(_) = rhs_smem_loader_strategy {
-            assert!(num_load_planes == num_tiles_k * num_tiles_n);
-        }
-
+        // Don't modify things here
         CmmaConfig {
             b_m,
             b_k,
             b_n,
-            t_m,
-            t_k,
-            t_n,
             unroll,
-            num_compute_planes,
-            num_buffers,
-            num_accumulators,
             write_out_strategy,
             rasterization_strategy,
             compute_loop_order_strategy,
@@ -128,22 +89,67 @@ impl CmmaConfig {
         }
     }
 
+    // TODO: bad
+    fn get_num_compute_planes(&self) -> u32 {
+        let tile_dim: TileDimension = self.tile_dimension_strategy.into();
+
+        let num_tiles_m = self.b_m / tile_dim.m;
+        let num_tiles_k = self.b_k / tile_dim.k;
+
+        self.num_compute_planes_strategy
+            .get_num_compute_planes(num_tiles_m, num_tiles_k)
+    }
+
     pub(crate) fn comptime_info(&self, m: u32, k: u32, n: u32) -> ComptimeCmmaInfo {
+        let tile_dim: TileDimension = self.tile_dimension_strategy.into();
+        let t_m = tile_dim.m;
+        let t_k = tile_dim.k;
+        let t_n = tile_dim.n;
+
+        assert!(self.b_m % t_m == 0);
+        assert!(self.b_k % t_k == 0);
+        assert!(self.b_n % t_n == 0);
+
+        let num_tiles_m = self.b_m / t_m;
+        let num_tiles_k = self.b_k / t_k;
+        let num_tiles_n = self.b_n / t_n;
+
+        let num_compute_planes = self
+            .num_compute_planes_strategy
+            .get_num_compute_planes(num_tiles_m, num_tiles_k);
+        let num_accumulators = self.num_compute_planes_strategy.get_num_accumulators(
+            num_tiles_m,
+            num_tiles_k,
+            num_tiles_n,
+        );
+        let num_buffers = num_tiles_k;
+
+        let num_load_planes = self
+            .main_loop_strategy
+            .get_num_load_planes(num_compute_planes);
+
+        if let SmemLoaderStrategy::Tilewise(_) = self.lhs_smem_loader_strategy {
+            assert!(num_load_planes == num_tiles_m * num_tiles_k);
+        }
+        if let SmemLoaderStrategy::Tilewise(_) = self.rhs_smem_loader_strategy {
+            assert!(num_load_planes == num_tiles_k * num_tiles_n);
+        }
+
         ComptimeCmmaInfo {
             block_size_m: self.b_m,
             block_size_k: self.b_k,
             block_size_n: self.b_n,
-            tile_size_m: self.t_m,
-            tile_size_k: self.t_k,
-            tile_size_n: self.t_n,
+            tile_size_m: t_m,
+            tile_size_k: t_k,
+            tile_size_n: t_n,
             unroll: self.unroll,
             check_m_bounds: m % self.b_m != 0,
             check_k_bounds: k % self.b_k != 0,
             check_n_bounds: n % self.b_n != 0,
             plane_dim: CMMA_PLANE_DIM as u32,
-            num_compute_planes: self.num_compute_planes,
-            num_buffers: self.num_buffers,
-            num_accumulators: self.num_accumulators,
+            num_compute_planes: num_compute_planes,
+            num_buffers: num_buffers,
+            num_accumulators: num_accumulators,
             write_out_strategy: self.write_out_strategy,
             rasterization_strategy: self.rasterization_strategy,
             compute_loop_order_strategy: self.compute_loop_order_strategy,
@@ -179,7 +185,7 @@ impl CmmaConfig {
             x: CMMA_PLANE_DIM as u32,
             y: self
                 .main_loop_strategy
-                .get_num_planes(self.num_compute_planes),
+                .get_num_planes(self.get_num_compute_planes()),
             z: 1,
         }
     }
