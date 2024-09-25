@@ -7,24 +7,25 @@ use super::{
         ComputeLoopOrderStrategy, MainLoopStrategy, RasterizationStrategy, SmemLoaderStrategy,
         WriteOutStrategy,
     },
-    TileDimensionStrategy, TilingOrderStrategy,
+    NumComputePlanesStrategy, TileDimensionStrategy, TilingOrderStrategy,
 };
 
 pub(crate) const CMMA_PLANE_DIM: u8 = 32;
 
 pub struct CmmaConfig {
     /// Corresponds to the number of tiles in the m dimension for a block
-    pub b_m: usize,
+    pub b_m: u32,
     /// Corresponds to the number of tiles in the k dimension for a block
-    pub b_k: usize,
+    pub b_k: u32,
     /// Corresponds to the number of tiles in the n dimension for a block
-    pub b_n: usize,
-    pub t_m: u8,
-    pub t_k: u8,
-    pub t_n: u8,
+    pub b_n: u32,
+    pub t_m: u32,
+    pub t_k: u32,
+    pub t_n: u32,
     /// Whether to unroll loop over k within the shared memory
     pub unroll: bool,
     pub num_compute_planes: u32,
+    pub num_buffers: u32,
     pub num_accumulators: u32,
     /// Whether to write all accumulators in different spots of a large shared memory or reuse the space
     pub write_out_strategy: WriteOutStrategy,
@@ -39,6 +40,7 @@ pub struct CmmaConfig {
     /// How to parallelize the outer loop among different warps
     pub main_loop_strategy: MainLoopStrategy,
     pub tile_dimension_strategy: TileDimensionStrategy,
+    pub num_compute_planes_strategy: NumComputePlanesStrategy,
 }
 
 impl Default for CmmaConfig {
@@ -55,6 +57,7 @@ impl Default for CmmaConfig {
             SmemLoaderStrategy::Tilewise(TilingOrderStrategy::ColMajor),
             MainLoopStrategy::Standard,
             TileDimensionStrategy::M16K16N16,
+            NumComputePlanesStrategy::NumTilesLhs,
         )
     }
 }
@@ -62,9 +65,9 @@ impl Default for CmmaConfig {
 impl CmmaConfig {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        b_m: usize,
-        b_k: usize,
-        b_n: usize,
+        b_m: u32,
+        b_k: u32,
+        b_n: u32,
         unroll: bool,
         write_out_strategy: WriteOutStrategy,
         rasterization_strategy: RasterizationStrategy,
@@ -73,19 +76,35 @@ impl CmmaConfig {
         rhs_smem_loader_strategy: SmemLoaderStrategy,
         main_loop_strategy: MainLoopStrategy,
         tile_dimension_strategy: TileDimensionStrategy,
+        num_compute_planes_strategy: NumComputePlanesStrategy,
     ) -> CmmaConfig {
         let tile_dim: TileDimension = tile_dimension_strategy.into();
         let t_m = tile_dim.m;
         let t_k = tile_dim.k;
         let t_n = tile_dim.n;
 
-        assert!(b_m % tile_dim.m as usize == 0);
-        assert!(b_k % tile_dim.k as usize == 0);
-        assert!(b_n % tile_dim.n as usize == 0);
+        assert!(b_m % t_m == 0);
+        assert!(b_k % t_k == 0);
+        assert!(b_n % t_n == 0);
 
-        let num_compute_planes = b_m as u32 / tile_dim.m as u32;
-        // let num_buffers = self.b_k as u32 / tile_dim.k as u32;
-        let num_accumulators = b_n as u32 / tile_dim.n as u32;
+        let num_tiles_m = b_m / t_m;
+        let num_tiles_k = b_k / t_k;
+        let num_tiles_n = b_n / t_n;
+
+        let num_compute_planes =
+            num_compute_planes_strategy.get_num_compute_planes(num_tiles_m, num_tiles_k);
+        let num_accumulators =
+            num_compute_planes_strategy.get_num_accumulators(num_tiles_m, num_tiles_k, num_tiles_n);
+        let num_buffers = num_tiles_k;
+
+        let num_load_planes = main_loop_strategy.get_num_load_planes(num_compute_planes);
+
+        if let SmemLoaderStrategy::Tilewise(_) = lhs_smem_loader_strategy {
+            assert!(num_load_planes == num_tiles_m * num_tiles_k);
+        }
+        if let SmemLoaderStrategy::Tilewise(_) = rhs_smem_loader_strategy {
+            assert!(num_load_planes == num_tiles_k * num_tiles_n);
+        }
 
         CmmaConfig {
             b_m,
@@ -96,6 +115,7 @@ impl CmmaConfig {
             t_n,
             unroll,
             num_compute_planes,
+            num_buffers,
             num_accumulators,
             write_out_strategy,
             rasterization_strategy,
@@ -104,23 +124,25 @@ impl CmmaConfig {
             rhs_smem_loader_strategy,
             main_loop_strategy,
             tile_dimension_strategy,
+            num_compute_planes_strategy,
         }
     }
 
-    pub(crate) fn comptime_info(&self, m: usize, k: usize, n: usize) -> ComptimeCmmaInfo {
+    pub(crate) fn comptime_info(&self, m: u32, k: u32, n: u32) -> ComptimeCmmaInfo {
         ComptimeCmmaInfo {
-            block_size_m: self.b_m as u32,
-            block_size_k: self.b_k as u32,
-            block_size_n: self.b_n as u32,
-            tile_size_m: self.t_m as u32,
-            tile_size_k: self.t_k as u32,
-            tile_size_n: self.t_n as u32,
+            block_size_m: self.b_m,
+            block_size_k: self.b_k,
+            block_size_n: self.b_n,
+            tile_size_m: self.t_m,
+            tile_size_k: self.t_k,
+            tile_size_n: self.t_n,
             unroll: self.unroll,
             check_m_bounds: m % self.b_m != 0,
             check_k_bounds: k % self.b_k != 0,
             check_n_bounds: n % self.b_n != 0,
             plane_dim: CMMA_PLANE_DIM as u32,
             num_compute_planes: self.num_compute_planes,
+            num_buffers: self.num_buffers,
             num_accumulators: self.num_accumulators,
             write_out_strategy: self.write_out_strategy,
             rasterization_strategy: self.rasterization_strategy,
@@ -128,6 +150,7 @@ impl CmmaConfig {
             lhs_smem_loader_strategy: self.lhs_smem_loader_strategy,
             rhs_smem_loader_strategy: self.rhs_smem_loader_strategy,
             main_loop_strategy: self.main_loop_strategy,
+            num_compute_planes_strategy: self.num_compute_planes_strategy,
         }
     }
 
@@ -152,15 +175,11 @@ impl CmmaConfig {
     }
 
     pub(crate) fn cube_dim(&self) -> CubeDim {
-        let y_size = self.num_compute_planes
-            + match self.main_loop_strategy {
-                MainLoopStrategy::Standard => 0,
-                MainLoopStrategy::Split(num_load) => num_load,
-            };
-
         CubeDim {
             x: CMMA_PLANE_DIM as u32,
-            y: y_size,
+            y: self
+                .main_loop_strategy
+                .get_num_planes(self.num_compute_planes),
             z: 1,
         }
     }
@@ -202,6 +221,8 @@ pub struct ComptimeCmmaInfo {
     pub plane_dim: u32,
     /// The number of collaboration planes for compute
     pub num_compute_planes: u32,
+    /// The number of buffers, should equal block_size_k / tile_size_k
+    pub num_buffers: u32,
     /// Number of cmma per subcube performed in one pass
     pub num_accumulators: u32,
     pub write_out_strategy: WriteOutStrategy,
@@ -210,4 +231,5 @@ pub struct ComptimeCmmaInfo {
     pub lhs_smem_loader_strategy: SmemLoaderStrategy,
     pub rhs_smem_loader_strategy: SmemLoaderStrategy,
     pub main_loop_strategy: MainLoopStrategy,
+    pub num_compute_planes_strategy: NumComputePlanesStrategy,
 }

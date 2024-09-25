@@ -28,7 +28,7 @@ pub enum PredefinedCmmaConfig {
     RowMajorRasterization,
     SwizzleRasterization,
     AccumulatorsFirstNoReuse,
-    AccumulatorsFirstWithReuse,
+    BuffersFirst,
 }
 
 impl From<PredefinedCmmaConfig> for CmmaConfig {
@@ -123,8 +123,8 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 compute_loop_order_strategy: ComputeLoopOrderStrategy::AllAccumulatorsFirst(false),
                 ..Default::default()
             },
-            PredefinedCmmaConfig::AccumulatorsFirstWithReuse => CmmaConfig {
-                compute_loop_order_strategy: ComputeLoopOrderStrategy::AllAccumulatorsFirst(true),
+            PredefinedCmmaConfig::BuffersFirst => CmmaConfig {
+                compute_loop_order_strategy: ComputeLoopOrderStrategy::AllBuffersFirst,
                 ..Default::default()
             },
             PredefinedCmmaConfig::M128K16N64 => CmmaConfig {

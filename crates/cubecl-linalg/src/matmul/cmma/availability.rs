@@ -26,9 +26,9 @@ pub fn check_cmma_availability<R: Runtime>(
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),
         c: Elem::Float(FloatKind::F32),
-        m: tile_dim.m,
-        k: tile_dim.k,
-        n: tile_dim.n,
+        m: tile_dim.m as u8,
+        k: tile_dim.k as u8,
+        n: tile_dim.n as u8,
     }) {
         return Err(UnavailabilityReason::CmmaInstructionsUnsupported);
     }

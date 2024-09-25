@@ -83,9 +83,9 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
 ) {
     let rank = lhs.strides.len();
 
-    let m = lhs.shape[rank - 2];
-    let k = lhs.shape[rank - 1];
-    let n = rhs.shape[rank - 1];
+    let m = lhs.shape[rank - 2] as u32;
+    let k = lhs.shape[rank - 1] as u32;
+    let n = rhs.shape[rank - 1] as u32;
 
     let available_vectorizations = cmma_config.available_vectorizations();
     let lhs_vectorization =

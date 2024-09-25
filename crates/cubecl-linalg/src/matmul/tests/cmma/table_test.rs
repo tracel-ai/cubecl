@@ -63,11 +63,11 @@ impl Iterator for CmmaConfigIterator {
             )),
             13 => Some((
                 PredefinedCmmaConfig::AccumulatorsFirstNoReuse,
-                "accumulators_no_reuse".to_string(),
+                "accumulators_first_no_reuse".to_string(),
             )),
             14 => Some((
-                PredefinedCmmaConfig::AccumulatorsFirstWithReuse,
-                "accumulators_reuse".to_string(),
+                PredefinedCmmaConfig::BuffersFirst,
+                "buffers_first".to_string(),
             )),
             15 => Some((
                 PredefinedCmmaConfig::M128K16N64,

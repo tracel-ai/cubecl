@@ -21,12 +21,10 @@ impl ComputeLoop for BuffersFirstComputeLoop {
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
         // Comptime values
-        let block_size_k = comptime_info.block_size_k;
         let block_size_n = comptime_info.block_size_n;
-        // let tile_size = comptime_info.tile_size;
         let unroll = comptime_info.unroll;
         let num_accumulators = comptime_info.num_accumulators;
-        let num_buffers = block_size_k / comptime_info.tile_size_k;
+        let num_buffers = comptime_info.num_buffers;
         let num_planes_per_row = (block_size_n / comptime_info.tile_size_n) / num_accumulators;
 
         // Runtime values
