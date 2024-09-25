@@ -72,14 +72,14 @@ impl CmmaMain for StandardMainLoop {
 
     fn get_compute_ids(#[comptime] _comptime_info: ComptimeCmmaInfo) -> Ids {
         Ids {
-            coop: UNIT_POS_Y,
+            plane: UNIT_POS_Y,
             lane: UNIT_POS_X,
         }
     }
 
     fn get_load_ids(#[comptime] _comptime_info: ComptimeCmmaInfo) -> Ids {
         Ids {
-            coop: UNIT_POS_Y,
+            plane: UNIT_POS_Y,
             lane: UNIT_POS_X,
         }
     }

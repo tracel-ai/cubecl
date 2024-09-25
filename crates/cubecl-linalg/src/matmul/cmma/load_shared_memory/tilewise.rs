@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
 use cubecl_core::comptime;
+use cubecl_core::prelude::*;
 
 use super::super::prologue::RuntimeCmmaInfo;
 use crate::matmul::cmma::{
@@ -24,15 +24,16 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
         // let tile_size = comptime_info.tile_size;
-        let coop_dim = comptime_info.coop_dim;
+        let plane_dim = comptime_info.plane_dim;
         let tensor_vec = vectorization_of(gmem);
-        let num_unit_reads = comptime!{I::num_tile_elements(comptime_info) / (tensor_vec * coop_dim)};
+        let num_unit_reads =
+            comptime! {I::num_tile_elements(comptime_info) / (tensor_vec * plane_dim)};
         let num_units_per_row = I::tile_width(comptime_info) / tensor_vec;
         let smem_stride = I::num_tile_elements(comptime_info);
-        let coop_step = coop_dim * tensor_vec;
-        let lane_row_step = coop_dim * tensor_vec / I::tile_width(comptime_info);
+        let plane_step = plane_dim * tensor_vec;
+        let lane_row_step = plane_dim * tensor_vec / I::tile_width(comptime_info);
 
-        let nth_tile = runtime_info.load_ids.coop;
+        let nth_tile = runtime_info.load_ids.plane;
         let lane_id = runtime_info.load_ids.lane;
 
         let smem_tile_width = I::smem_tile_width(comptime_info);
@@ -51,7 +52,7 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
         #[unroll]
         for i in 0..num_unit_reads {
             let read_row = read_row_offset + i * lane_row_step;
-            let write_pos = write_offset + i * coop_step;
+            let write_pos = write_offset + i * plane_step;
 
             L::load_single::<I>(gmem, smem, read_row, read_col, write_pos, runtime_info);
         }

@@ -3,7 +3,7 @@ use cubecl_core::{self as cubecl};
 
 use super::super::prologue::RuntimeCmmaInfo;
 use crate::matmul::cmma::block_io::base::BlockLoader;
-use crate::matmul::cmma::config::ComptimeCmmaInfo;
+use crate::matmul::cmma::config::{ComptimeCmmaInfo, MainLoopStrategy};
 use crate::matmul::cmma::load_shared_memory::base::get_tile_smem_index;
 
 use super::base::SmemLoader;
@@ -24,17 +24,20 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
         // Comptime information
-        let coop_dim = comptime_info.coop_dim;
-        let num_load_coops = comptime_info.num_load_coops;
+        let plane_dim = comptime_info.plane_dim;
+        let num_load_planes = match comptime_info.main_loop_strategy {
+            MainLoopStrategy::Standard => comptime_info.num_compute_planes,
+            MainLoopStrategy::Split(num_load_planes) => num_load_planes,
+        };
         let num_smem_elements = I::smem_width(comptime_info) * I::smem_height(comptime_info);
         let vectorization = vectorization_of(gmem);
-        let jump_length = num_load_coops * vectorization * coop_dim;
+        let jump_length = num_load_planes * vectorization * plane_dim;
         let num_iterations = num_smem_elements / jump_length;
         let unroll = comptime_info.unroll;
 
         let lane_id = runtime_info.load_ids.lane;
-        let coop_id = runtime_info.load_ids.coop;
-        let unit_position_base = (coop_id * coop_dim + lane_id) * vectorization;
+        let plane_id = runtime_info.load_ids.plane;
+        let unit_position_base = (plane_id * plane_dim + lane_id) * vectorization;
         let (skip_row, skip_col) = I::skips(k_offset, runtime_info);
 
         #[unroll(unroll)]

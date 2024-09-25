@@ -116,22 +116,22 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let out_vec = vectorization_of(out);
     let n_units_per_tile_row = tile_height / out_vec;
     let smem_stride = num_tile_elements;
-    let coop_dim = comptime_info.coop_dim;
+    let plane_dim = comptime_info.plane_dim;
 
-    let coop_id = runtime_info.compute_ids.coop;
+    let plane_id = runtime_info.compute_ids.plane;
     let lane_id = runtime_info.compute_ids.lane;
 
     let offsets = runtime_info.offsets;
 
-    let tile_row = coop_id / num_accum_groups_in_block_row;
-    let tile_col = (coop_id % num_accum_groups_in_block_row) * num_accumulators;
+    let tile_row = plane_id / num_accum_groups_in_block_row;
+    let tile_col = (plane_id % num_accum_groups_in_block_row) * num_accumulators;
 
-    let num_unit_writes = num_tile_elements / (out_vec * coop_dim);
+    let num_unit_writes = num_tile_elements / (out_vec * plane_dim);
 
     let smem_offset = smem_position * smem_stride + lane_id * out_vec;
-    let sm_step = coop_dim * out_vec;
+    let sm_step = plane_dim * out_vec;
 
-    let lane_row_step = coop_dim * out_vec / tile_height;
+    let lane_row_step = plane_dim * out_vec / tile_height;
     let unit_write_row = lane_id / n_units_per_tile_row;
     let unit_write_col = lane_id % n_units_per_tile_row * out_vec;
 

@@ -27,11 +27,11 @@ impl ComputeLoop for BuffersFirstComputeLoop {
         let unroll = comptime_info.unroll;
         let num_accumulators = comptime_info.num_accumulators;
         let num_buffers = block_size_k / comptime_info.tile_size_k;
-        let num_coop_per_row = (block_size_n / comptime_info.tile_size_n) / num_accumulators;
+        let num_planes_per_row = (block_size_n / comptime_info.tile_size_n) / num_accumulators;
 
         // Runtime values
-        let tile_row = compute_ids.coop / num_coop_per_row;
-        let tile_col_base = (compute_ids.coop % num_coop_per_row) * num_accumulators;
+        let tile_row = compute_ids.plane / num_planes_per_row;
+        let tile_col_base = (compute_ids.plane % num_planes_per_row) * num_accumulators;
 
         #[unroll]
         for accumulator_iter in 0..num_accumulators {

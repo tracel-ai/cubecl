@@ -40,14 +40,12 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 b_m: 128,
                 b_k: 16,
                 b_n: 128,
-                main_loop_strategy: MainLoopStrategy::Standard(8),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M64K32 => CmmaConfig {
                 b_m: 64,
                 b_k: 32,
                 b_n: 64,
-                main_loop_strategy: MainLoopStrategy::Standard(8),
                 ..Default::default()
             },
 
@@ -55,35 +53,32 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 b_m: 64,
                 b_k: 16,
                 b_n: 64,
-                main_loop_strategy: MainLoopStrategy::Standard(4),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M32K16 => CmmaConfig {
                 b_m: 32,
                 b_k: 16,
                 b_n: 32,
-                main_loop_strategy: MainLoopStrategy::Standard(2),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M32K32 => CmmaConfig {
                 b_m: 32,
                 b_k: 32,
                 b_n: 32,
-                main_loop_strategy: MainLoopStrategy::Standard(4),
                 ..Default::default()
             },
             PredefinedCmmaConfig::SplitM32k32 => CmmaConfig {
                 b_m: 32,
                 b_k: 32,
                 b_n: 32,
-                main_loop_strategy: MainLoopStrategy::Split(4, 4),
+                main_loop_strategy: MainLoopStrategy::Split(4),
                 ..Default::default()
             },
             PredefinedCmmaConfig::SplitM64k16 => CmmaConfig {
                 b_m: 64,
                 b_k: 16,
                 b_n: 64,
-                main_loop_strategy: MainLoopStrategy::Split(4, 4),
+                main_loop_strategy: MainLoopStrategy::Split(4),
                 ..Default::default()
             },
             PredefinedCmmaConfig::TilewiseInverted => CmmaConfig {
@@ -137,21 +132,18 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 b_m: 128,
                 b_k: 16,
                 b_n: 64,
-                main_loop_strategy: MainLoopStrategy::Standard(8),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M64K32N32 => CmmaConfig {
                 b_m: 64,
                 b_k: 32,
                 b_n: 32,
-                main_loop_strategy: MainLoopStrategy::Standard(8),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M64K16N32 => CmmaConfig {
                 b_m: 64,
                 b_k: 16,
                 b_n: 32,
-                main_loop_strategy: MainLoopStrategy::Standard(4),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M32K16N64 => CmmaConfig {
@@ -161,7 +153,6 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 rhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
                     TilingOrderStrategy::ColMajor,
                 ),
-                main_loop_strategy: MainLoopStrategy::Standard(2),
                 ..Default::default()
             },
             PredefinedCmmaConfig::M16K32N64 => CmmaConfig {
@@ -171,7 +162,6 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 rhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
                     TilingOrderStrategy::ColMajor,
                 ),
-                main_loop_strategy: MainLoopStrategy::Standard(2),
                 ..Default::default()
             },
             PredefinedCmmaConfig::CuboidSize => CmmaConfig {
@@ -184,7 +174,6 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 rhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
                     TilingOrderStrategy::ColMajor,
                 ),
-                main_loop_strategy: MainLoopStrategy::Standard(1),
                 ..Default::default()
             },
         }

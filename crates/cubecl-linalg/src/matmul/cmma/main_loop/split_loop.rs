@@ -12,7 +12,6 @@ use super::super::{
 };
 use super::base::CmmaMain;
 
-/// Assumes CUBE_DIM_Y / 2 = comptime_info.num_compute_coops = comptime_info.num_load_coops
 pub(crate) struct SplitMainLoop {}
 
 #[cube]
@@ -40,7 +39,7 @@ impl CmmaMain for SplitMainLoop {
         for block in 0..num_loops {
             let k_offset = block * comptime_info.block_size_k;
 
-            if !is_compute_coop(comptime_info) {
+            if !is_compute_plane(comptime_info) {
                 load_to_shared_memories::<F, FC>(
                     lhs,
                     rhs,
@@ -53,7 +52,7 @@ impl CmmaMain for SplitMainLoop {
 
             sync_units();
 
-            if is_compute_coop(comptime_info) {
+            if is_compute_plane(comptime_info) {
                 C::compute_loop::<F, FC>(
                     shared_memories,
                     fragments,
@@ -72,27 +71,27 @@ impl CmmaMain for SplitMainLoop {
         runtime_info: RuntimeCmmaInfo,
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
-        if is_compute_coop(comptime_info) {
+        if is_compute_plane(comptime_info) {
             write_to_output(out, accumulators, runtime_info, comptime_info);
         }
     }
 
     fn get_compute_ids(#[comptime] _comptime_info: ComptimeCmmaInfo) -> Ids {
         Ids {
-            coop: UNIT_POS_Y / 2,
+            plane: UNIT_POS_Y,
             lane: UNIT_POS_X,
         }
     }
 
-    fn get_load_ids(#[comptime] _comptime_info: ComptimeCmmaInfo) -> Ids {
+    fn get_load_ids(#[comptime] comptime_info: ComptimeCmmaInfo) -> Ids {
         Ids {
-            coop: UNIT_POS_Y / 2,
+            plane: UNIT_POS_Y - comptime_info.num_compute_planes,
             lane: UNIT_POS_X,
         }
     }
 }
 
 #[cube]
-fn is_compute_coop(#[comptime] _comptime_info: ComptimeCmmaInfo) -> bool {
-    UNIT_POS_Y % 2 == 0
+fn is_compute_plane(#[comptime] comptime_info: ComptimeCmmaInfo) -> bool {
+    UNIT_POS_Y < comptime_info.num_compute_planes
 }

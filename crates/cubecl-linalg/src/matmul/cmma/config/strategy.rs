@@ -68,19 +68,19 @@ pub enum TilingOrderStrategy {
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 /// Defines how data is loaded from global to shared memory
 pub enum SmemLoaderStrategy {
-    /// One coop fills one tile
+    /// One plane fills one tile
     Tilewise(TilingOrderStrategy),
-    /// Coops can work in any tile
+    /// Planes can work in any tile
     Continuous(TilingOrderStrategy),
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-/// Defines if different coops have different roles
+/// Defines if different planes have different roles
 pub enum MainLoopStrategy {
-    /// All coops both load and compute
-    Standard(u32),
-    /// Part compute, part load
-    Split(u32, u32),
+    /// All planes both load and compute
+    Standard,
+    /// Part compute, part load. Number of load planes specified here
+    Split(u32),
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
