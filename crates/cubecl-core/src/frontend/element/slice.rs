@@ -51,6 +51,14 @@ impl<'a, C: CubeType> Init for ExpandElementTyped<Slice<'a, C>> {
     }
 }
 
+impl<'a, C: CubeType> ExpandElementTyped<Slice<'a, C>> {
+    // Expand method of [len](Slice::len).
+    pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
+        elem.__expand_len_method(context)
+    }
+}
+
 impl<'a, E: CubeType> CubeType for SliceMut<'a, E> {
     type ExpandType = ExpandElementTyped<SliceMut<'static, E>>;
 }

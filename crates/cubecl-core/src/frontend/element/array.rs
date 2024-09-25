@@ -3,7 +3,7 @@ use std::{marker::PhantomData, num::NonZero};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     frontend::CubeType,
-    ir::{Branch, Item, RangeLoop, Vectorization},
+    ir::{Branch, Elem, Item, Metadata, RangeLoop, Vectorization},
     prelude::{CubeIndex, Iterable, TensorHandleRef},
     unexpanded, Runtime,
 };
@@ -265,6 +265,12 @@ pub trait SizedContainer:
     CubeIndex<ExpandElementTyped<u32>, Output = Self::Item> + CubeType
 {
     type Item: CubeType<ExpandType = ExpandElementTyped<Self::Item>>;
+
+    /// Return the length of the container.
+    fn len(val: &ExpandElement, context: &mut CubeContext) -> ExpandElement {
+        let val: ExpandElementTyped<Array<Self::Item>> = val.clone().into();
+        val.__expand_len_method(context).expand
+    }
 }
 
 impl<T: CubeType<ExpandType = ExpandElementTyped<T>>> SizedContainer for Array<T> {
@@ -279,6 +285,18 @@ impl<T: CubeType> Iterator for &Array<T> {
     }
 }
 
+impl<T: CubeType> ExpandElementTyped<Array<T>> {
+    // Expand method of [len](Array::len).
+    pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        let out = context.create_local_binding(Item::new(Elem::UInt));
+        context.register(Metadata::Length {
+            var: self.expand.into(),
+            out: out.clone().into(),
+        });
+        out.into()
+    }
+}
+
 impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
     fn expand(
         self,
@@ -286,7 +304,7 @@ impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
         mut body: impl FnMut(&mut CubeContext, <T::Item as CubeType>::ExpandType),
     ) {
         let index_ty = Item::new(u32::as_elem());
-        let len: ExpandElement = self.clone().__expand_len_method(context).into();
+        let len: ExpandElement = T::len(&self.expand, context);
 
         let mut child = context.child();
         let i = child.scope.borrow_mut().create_local_undeclared(index_ty);
