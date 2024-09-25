@@ -1,28 +1,36 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use crate::matmul::cmma::runtime_info::Ids;
+use crate::matmul::cmma::compute_loop::base::ComputeLoop;
+use crate::matmul::cmma::prologue::{prologue, Ids};
 
 use super::super::{
-    compute_loop::base::compute_loop,
     config::ComptimeCmmaInfo,
+    epilogue::base::write_to_output,
     load_shared_memory::base::load_to_shared_memories,
-    runtime_info::{Fragments, RuntimeCmmaInfo, SharedMemories},
-    write_output::base::write_to_output,
+    prologue::{Fragments, RuntimeCmmaInfo, SharedMemories},
 };
-use super::base::BlockLoop;
+use super::base::CmmaMain;
 
 /// Assumes CUBE_DIM_Y / 2 = comptime_info.num_compute_coops = comptime_info.num_load_coops
-pub(crate) struct SplitBlockLoop {}
+pub(crate) struct SplitMainLoop {}
 
 #[cube]
-impl BlockLoop for SplitBlockLoop {
-    fn block_loop<F: Float, FC: Float>(
+impl CmmaMain for SplitMainLoop {
+    fn prologue<F: Float, FC: Float>(
         lhs: &Tensor<F>,
         rhs: &Tensor<F>,
         out: &mut Tensor<F>,
+        #[comptime] comptime_info: ComptimeCmmaInfo,
+    ) -> (RuntimeCmmaInfo, Fragments<F, FC>, SharedMemories<FC>) {
+        prologue::<SplitMainLoop, F, FC>(lhs, rhs, out, comptime_info)
+    }
+
+    fn main_loop<C: ComputeLoop, F: Float, FC: Float>(
+        lhs: &Tensor<F>,
+        rhs: &Tensor<F>,
         shared_memories: SharedMemories<FC>,
-        mut fragments: Fragments<F, FC>,
+        fragments: &mut Fragments<F, FC>,
         runtime_info: RuntimeCmmaInfo,
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
@@ -46,9 +54,9 @@ impl BlockLoop for SplitBlockLoop {
             sync_units();
 
             if is_compute_coop(comptime_info) {
-                compute_loop::<F, FC>(
+                C::compute_loop::<F, FC>(
                     shared_memories,
-                    &mut fragments,
+                    fragments,
                     runtime_info.compute_ids,
                     comptime_info,
                 );
@@ -56,9 +64,16 @@ impl BlockLoop for SplitBlockLoop {
 
             sync_units();
         }
+    }
 
+    fn epilogue<F: Float>(
+        out: &mut Tensor<F>,
+        accumulators: Sequence<cmma::Matrix<F>>,
+        runtime_info: RuntimeCmmaInfo,
+        #[comptime] comptime_info: ComptimeCmmaInfo,
+    ) {
         if is_compute_coop(comptime_info) {
-            write_to_output(out, fragments.accumulators, runtime_info, comptime_info);
+            write_to_output(out, accumulators, runtime_info, comptime_info);
         }
     }
 

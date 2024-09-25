@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::super::runtime_info::RuntimeCmmaInfo;
+use super::super::prologue::RuntimeCmmaInfo;
 
 use super::super::{
     block_io::{
@@ -9,9 +9,9 @@ use super::super::{
         unchecked_block::UncheckedBlockIO, vertical_block_check::VerticalCheckBlockIO,
         whole_block_check::WholeCheckBlockIO,
     },
-    config::ComptimeCmmaInfo,
+    config::{ComptimeCmmaInfo, WriteOutStrategy},
 };
-use crate::matmul::cmma::write_output::{large_smem::LargeSmemWriter, reuse_smem::ReuseSmemWriter};
+use super::{large_smem::LargeSmemWriter, reuse_smem::ReuseSmemWriter};
 
 #[cube]
 pub(crate) fn write_to_output<F: Float>(
@@ -20,10 +20,13 @@ pub(crate) fn write_to_output<F: Float>(
     runtime_info: RuntimeCmmaInfo,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    if comptime_info.write_out_strategy == 0 {
-        LargeSmemWriter::write_to_output(out, accumulators, runtime_info, comptime_info);
-    } else {
-        ReuseSmemWriter::write_to_output(out, accumulators, runtime_info, comptime_info);
+    match comptime_info.write_out_strategy {
+        WriteOutStrategy::LargeSmem => {
+            LargeSmemWriter::write_to_output(out, accumulators, runtime_info, comptime_info);
+        }
+        WriteOutStrategy::ReuseSmem => {
+            ReuseSmemWriter::write_to_output(out, accumulators, runtime_info, comptime_info);
+        }
     }
 }
 
