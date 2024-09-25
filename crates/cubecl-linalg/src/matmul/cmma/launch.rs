@@ -2,7 +2,7 @@ use cubecl_core::{
     client::ComputeClient,
     frontend::{Float, TensorArg, TensorHandleRef},
     ir::{Elem, FloatKind},
-    tensor_vectorization_factor, Feature, Runtime,
+    tensor_line_length, Feature, Runtime,
 };
 use half::f16;
 
@@ -113,13 +113,13 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let k = lhs.shape[rank - 1];
     let n = rhs.shape[rank - 1];
 
-    let available_vectorizations = cmma_config.available_vectorizations();
+    let available_vectorizations = cmma_config.available_vectorizations::<R>();
     let lhs_vectorization =
-        tensor_vectorization_factor(&available_vectorizations, lhs.shape, lhs.strides, rank - 1);
+        tensor_line_length(&available_vectorizations, lhs.shape, lhs.strides, rank - 1);
     let rhs_vectorization =
-        tensor_vectorization_factor(&available_vectorizations, rhs.shape, rhs.strides, rank - 1);
+        tensor_line_length(&available_vectorizations, rhs.shape, rhs.strides, rank - 1);
     let out_vectorization =
-        tensor_vectorization_factor(&available_vectorizations, out.shape, out.strides, rank - 1);
+        tensor_line_length(&available_vectorizations, out.shape, out.strides, rank - 1);
 
     unsafe {
         cmma_launch::launch_unchecked::<F, f16, R>(

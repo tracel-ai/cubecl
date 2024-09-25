@@ -229,6 +229,23 @@ impl<T: CubeType> ExpandElementTyped<T> {
 
     // Expanded version of len
     pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        let var: Variable = *self.expand;
+
+        // In some case the len expand should return the vectorization factor.
+        let item = match var {
+            Variable::Local { item, .. } => Some(item),
+            Variable::LocalBinding { item, .. } => Some(item),
+            _ => None,
+        };
+
+        if let Some(val) = item {
+            let var = Variable::ConstantScalar(crate::ir::ConstantScalarValue::UInt(
+                val.vectorization.map(|val| val.get() as u64).unwrap_or(1),
+            ));
+
+            return ExpandElement::Plain(var).into();
+        };
+
         let out = context.create_local_binding(Item::new(Elem::UInt));
         context.register(Metadata::Length {
             var: self.expand.into(),

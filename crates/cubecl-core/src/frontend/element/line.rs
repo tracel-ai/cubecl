@@ -3,15 +3,12 @@ use std::num::NonZero;
 use num_traits::{NumCast, ToPrimitive};
 
 use crate::{
-    ir::Item,
+    ir::{ConstantScalarValue, Item},
     prelude::{assign, Abs, Clamp, CubeContext, CubeIndex, CubeIndexMut, Erf, Log, Max, Min},
     unexpanded,
 };
 
-use super::{
-    CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime,
-    Numeric,
-};
+use super::{CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
 
 /// A contiguous list of elements that supports auto-vectorization.
 #[derive(Clone, Copy, Eq)]
@@ -38,53 +35,94 @@ impl<P: CubePrimitive> Line<P> {
     }
 }
 
+impl<P: CubePrimitive> ExpandElementTyped<Line<P>> {
+    pub fn __expand_fill_method(
+        &self,
+        context: &mut CubeContext,
+        value: ExpandElementTyped<P>,
+    ) -> Self {
+        let length = self.expand.item().vectorization;
+        let output = context.create_local_binding(Item::vectorized(P::as_elem(), length));
+
+        assign::expand::<P>(context, value.into(), output.clone().into());
+
+        output.into()
+    }
+}
+
 impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Line<P> {
     /// Create an empty line of the given length.
     #[allow(unused_variables)]
     pub fn empty(length: u32) -> Self {
         unexpanded!()
     }
-    /// Increase the length of the line.
+
     #[allow(unused_variables)]
-    pub fn lengthen(self, length: u32) -> Self {
+    pub fn fill(mut self, value: P) -> Self {
+        self.val = value;
         self
     }
 
+    /// Get the length of the line.
     pub fn len(&self) -> u32 {
         unexpanded!()
     }
 
-    pub fn __expand_len(_context: &mut CubeContext, element: ExpandElementTyped<P>) -> u32 {
-        let elem: ExpandElement = element.into();
-
-        elem.item()
-            .vectorization
-            .map(|it| it.get() as u32)
-            .unwrap_or(1)
+    pub fn __expand_len(context: &mut CubeContext, element: ExpandElementTyped<P>) -> u32 {
+        element.__expand_vectorization_factor_method(context)
     }
 
-    pub fn __expand_lengthen(
+    pub fn __expand_fill(
         context: &mut CubeContext,
-        val: P,
-        length: u32,
+        line: ExpandElementTyped<Self>,
+        value: ExpandElementTyped<P>,
     ) -> ExpandElementTyped<Self> {
-        let output = context
-            .create_local_binding(Item::vectorized(P::as_elem(), NonZero::new(length as u8)));
-
-        assign::expand(context, val.into(), output.clone().into());
-
-        output.into()
+        line.__expand_fill_method(context, value)
     }
 
-    fn __expand_empty(context: &mut CubeContext, length: u32) -> ExpandElementTyped<Self> {
+    pub fn __expand_empty(
+        context: &mut CubeContext,
+        length: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<Self> {
+        let length = match length.expand.as_const() {
+            Some(val) => match val {
+                ConstantScalarValue::Int(val, _) => NonZero::new(val)
+                    .map(|val| val.get() as u8)
+                    .map(|val| NonZero::new(val).unwrap()),
+                ConstantScalarValue::Float(val, _) => NonZero::new(val as i64)
+                    .map(|val| val.get() as u8)
+                    .map(|val| NonZero::new(val).unwrap()),
+                ConstantScalarValue::UInt(val) => NonZero::new(val as u8),
+                ConstantScalarValue::Bool(_) => None,
+            },
+            None => None,
+        };
         context
-            .create_local_variable(Item::vectorized(
-                Self::as_elem(),
-                NonZero::new(length as u8),
-            ))
+            .create_local_variable(Item::vectorized(Self::as_elem(), length))
             .into()
     }
 }
+
+// impl<P: CubePrimitive> LaunchArg for Line<P> {
+//     type RuntimeArg<'a, R: crate::Runtime> = ();
+//
+//     fn compilation_arg<R: crate::Runtime>(
+//         runtime_arg: &Self::RuntimeArg<'_, R>,
+//     ) -> Self::CompilationArg {
+//         todo!()
+//     }
+// }
+//
+// impl<P: CubePrimitive> LaunchArgExpand for Line<P> {
+//     type CompilationArg = ();
+//
+//     fn expand(
+//         arg: &Self::CompilationArg,
+//         builder: &mut crate::prelude::KernelBuilder,
+//     ) -> <Self as CubeType>::ExpandType {
+//         todo!()
+//     }
+// }
 
 impl<P: CubePrimitive> ExpandElementBaseInit for Line<P> {
     fn init_elem(

@@ -141,12 +141,12 @@ impl CmmaConfig {
         }
     }
 
-    pub(crate) fn available_vectorizations(&self) -> Vec<u8> {
-        let vectorizations = vec![8, 4, 2];
+    pub(crate) fn available_vectorizations<R: Runtime>(&self) -> Vec<u8> {
+        let vectorizations = R::supported_line_lengths();
         for v in vectorizations.iter() {
             assert!(CMMA_TILE_SIZE * CMMA_TILE_SIZE % (*v as usize * CMMA_COOP_DIM) == 0);
         }
-        vectorizations
+        vectorizations.to_vec()
     }
 }
 

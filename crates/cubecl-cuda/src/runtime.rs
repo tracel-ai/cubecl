@@ -90,6 +90,10 @@ impl Runtime for CudaRuntime {
     fn require_array_lengths() -> bool {
         true
     }
+
+    fn supported_line_lengths() -> &'static [u8] {
+        &[8, 4, 2]
+    }
 }
 
 fn register_wmma_features(features: &mut FeatureSet, arch: u32) {

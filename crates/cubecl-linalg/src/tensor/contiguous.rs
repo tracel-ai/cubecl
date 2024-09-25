@@ -1,12 +1,12 @@
 use super::TensorHandle;
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_vectorization_factor};
+use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_length};
 
 /// Returns the offset of the tensor corresponding to the layout tensor.
 #[cube]
 pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
-    tensor: &Tensor<N>,
-    layout: &Tensor<L>,
+    tensor: &Tensor<Line<N>>,
+    layout: &Tensor<Line<L>>,
     offset_layout: u32,
     dim_start: u32,
     dim_end: u32,
@@ -28,8 +28,8 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
 
 #[cube(launch_unchecked)]
 fn into_contiguous_kernel<N: CubePrimitive>(
-    input: &Tensor<N>,
-    output: &mut Tensor<N>,
+    input: &Tensor<Line<N>>,
+    output: &mut Tensor<Line<N>>,
     #[comptime] rank: Option<u32>,
 ) {
     let offset_output = ABSOLUTE_POS;
@@ -57,8 +57,12 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
 ) -> TensorHandle<R, E> {
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
-    let vectorization_factor =
-        tensor_vectorization_factor(&[4, 2], input.shape, input.strides, rank - 1);
+    let vectorization_factor = tensor_line_length(
+        R::supported_line_lengths(),
+        input.shape,
+        input.strides,
+        rank - 1,
+    );
 
     let num_elems: usize = input.shape.iter().product();
     let cube_dim = CubeDim::default();
@@ -68,7 +72,7 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
     unsafe {
-        into_contiguous_kernel::launch_unchecked::<E, R>(
+        into_contiguous_kernel::launch_unchecked::<Line<E>, R>(
             client,
             cube_count,
             cube_dim,
