@@ -119,10 +119,10 @@ pub struct TileDimension {
     pub n: u32,
 }
 
-impl Into<TileDimension> for TileDimensionStrategy {
-    fn into(self) -> TileDimension {
-        match self {
-            TileDimensionStrategy::M16K16N16 => TileDimension {
+impl From<TileDimensionStrategy> for TileDimension {
+    fn from(value: TileDimensionStrategy) -> Self {
+        match value {
+            TileDimensionStrategy::M16K16N16 => Self {
                 m: 16,
                 k: 16,
                 n: 16,
