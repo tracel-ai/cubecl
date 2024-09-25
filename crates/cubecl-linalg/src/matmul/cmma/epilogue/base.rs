@@ -103,7 +103,6 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     runtime_info: RuntimeCmmaInfo,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    // let tile_size = comptime_info.tile_size;
     let num_accumulators = comptime_info.num_accumulators;
     let block_size_n = comptime_info.block_size_n;
 
@@ -129,7 +128,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let num_unit_writes = num_tile_elements / (out_vec * plane_dim);
 
     let smem_offset = smem_position * smem_stride + lane_id * out_vec;
-    let sm_step = plane_dim * out_vec;
+    let smem_step = plane_dim * out_vec;
 
     let lane_row_step = plane_dim * out_vec / tile_height;
     let unit_write_row = lane_id / n_units_per_tile_row;
@@ -140,7 +139,7 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
 
     #[unroll]
     for i in 0..num_unit_writes {
-        let read_pos = smem_offset + i * sm_step;
+        let read_pos = smem_offset + i * smem_step;
         let write_row = row_offset + unit_write_row + i * lane_row_step;
 
         W::write_single(

@@ -135,6 +135,11 @@ impl CmmaConfig {
             assert!(num_load_planes == num_tiles_k * num_tiles_n);
         }
 
+        assert!(
+            num_tiles_k * num_tiles_n >= num_load_planes,
+            "Otherwise can do out of bounds"
+        );
+
         ComptimeCmmaInfo {
             block_size_m: self.b_m,
             block_size_k: self.b_k,

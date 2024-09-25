@@ -21,13 +21,13 @@ impl OutputWriter for ReuseSmemWriter {
         let num_compute_planes = comptime_info.num_compute_planes;
         let plane_id = runtime_info.compute_ids.plane;
 
-        let sm_stride = comptime_info.tile_size_m * comptime_info.tile_size_n;
-        let sm_size = num_compute_planes * sm_stride;
+        let smem_stride = comptime_info.tile_size_m * comptime_info.tile_size_n;
+        let smem_size = num_compute_planes * smem_stride;
 
-        let acc_sm = SharedMemory::<F>::new(sm_size);
+        let acc_sm = SharedMemory::<F>::new(smem_size);
 
-        let slice_offset = plane_id * sm_stride;
-        let slice = acc_sm.slice_mut_unsafe(slice_offset, slice_offset + sm_stride);
+        let slice_offset = plane_id * smem_stride;
+        let slice = acc_sm.slice_mut_unsafe(slice_offset, slice_offset + smem_stride);
 
         #[unroll]
         for n in 0..num_accumulators {

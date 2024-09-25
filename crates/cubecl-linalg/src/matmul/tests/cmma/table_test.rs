@@ -69,14 +69,8 @@ impl Iterator for CmmaConfigIterator {
                 PredefinedCmmaConfig::BuffersFirst,
                 "buffers_first".to_string(),
             )),
-            15 => Some((
-                PredefinedCmmaConfig::M128K16N64,
-                "m_128_k16_n64".to_string(),
-            )),
             16 => Some((PredefinedCmmaConfig::M16K32N64, "m_16_k32_n64".to_string())),
             17 => Some((PredefinedCmmaConfig::M32K16N64, "m_32_k16_n64".to_string())),
-            18 => Some((PredefinedCmmaConfig::M64K16N32, "m_64_k16_n32".to_string())),
-            19 => Some((PredefinedCmmaConfig::M64K32N32, "m_64_k32_n32".to_string())),
             _ => None,
         };
 
