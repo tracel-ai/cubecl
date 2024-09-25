@@ -63,21 +63,21 @@ pub(crate) fn apply_tiled_layout<I: LoadInfo, T: TilingOrder>(
     unit_position: u32,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> (u32, u32) {
-    let tile_size = comptime_info.tile_size;
-    let tile_square = tile_size * tile_size;
-    let smem_tile_width = I::smem_width(comptime_info) / tile_size;
-    let smem_tile_height = I::smem_height(comptime_info) / tile_size;
+    let num_tile_elements = I::num_tile_elements(comptime_info);
+    let smem_tile_width = I::smem_tile_width(comptime_info);
+    let smem_tile_height = I::smem_tile_height(comptime_info);
 
-    let nth_tile = unit_position / tile_square;
+    let nth_tile = unit_position / num_tile_elements;
 
     let (tile_row, tile_col) = T::to_row_col(nth_tile, smem_tile_width, smem_tile_height);
 
-    let pos_within_tile = unit_position % tile_square;
-    let row_within_tile = pos_within_tile / tile_size;
-    let col_within_tile = pos_within_tile % tile_size;
+    let tile_stride = I::tile_width(comptime_info);
+    let pos_within_tile = unit_position % num_tile_elements;
+    let row_within_tile = pos_within_tile / tile_stride;
+    let col_within_tile = pos_within_tile % tile_stride;
 
-    let row = tile_row * tile_size + row_within_tile;
-    let col = tile_col * tile_size + col_within_tile;
+    let row = tile_row * I::tile_height(comptime_info) + row_within_tile;
+    let col = tile_col * I::tile_width(comptime_info) + col_within_tile;
 
     (row, col)
 }

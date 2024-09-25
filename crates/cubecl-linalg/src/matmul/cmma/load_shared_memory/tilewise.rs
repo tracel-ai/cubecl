@@ -22,28 +22,28 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
         runtime_info: RuntimeCmmaInfo,
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
-        let tile_size = comptime_info.tile_size;
+        // let tile_size = comptime_info.tile_size;
         let coop_dim = comptime_info.coop_dim;
         let tensor_vec = vectorization_of(gmem);
-        let num_unit_reads = tile_size * tile_size / (tensor_vec * coop_dim);
-        let num_units_per_row = tile_size / tensor_vec;
-        let smem_stride = tile_size * tile_size;
+        let num_unit_reads = I::num_tile_elements(comptime_info) / (tensor_vec * coop_dim);
+        let num_units_per_row = I::tile_width(comptime_info) / tensor_vec;
+        let smem_stride = I::num_tile_elements(comptime_info);
         let coop_step = coop_dim * tensor_vec;
-        let lane_row_step = coop_dim * tensor_vec / tile_size;
+        let lane_row_step = coop_dim * tensor_vec / I::tile_width(comptime_info);
 
         let nth_tile = runtime_info.load_ids.coop;
         let lane_id = runtime_info.load_ids.lane;
 
-        let smem_tile_width = I::smem_width(comptime_info) / tile_size;
-        let smem_tile_height = I::smem_height(comptime_info) / tile_size;
+        let smem_tile_width = I::smem_tile_width(comptime_info);
+        let smem_tile_height = I::smem_tile_height(comptime_info);
         let (tile_row, tile_col) = T::to_row_col(nth_tile, smem_tile_width, smem_tile_height);
         let (skip_row, skip_col) = I::skips(k_offset, runtime_info);
 
         let lane_row_offset = lane_id / num_units_per_row;
-        let read_row_offset = skip_row + tile_row * tile_size + lane_row_offset;
+        let read_row_offset = skip_row + tile_row * I::tile_height(comptime_info) + lane_row_offset;
 
         let lane_col_offset = lane_id % num_units_per_row * tensor_vec;
-        let read_col = skip_col + tile_col * tile_size + lane_col_offset;
+        let read_col = skip_col + tile_col * I::tile_width(comptime_info) + lane_col_offset;
 
         let write_offset = nth_tile * smem_stride + lane_id * tensor_vec;
 

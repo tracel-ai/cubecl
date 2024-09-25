@@ -9,10 +9,11 @@ use super::{
 };
 
 // It is assumed that CMMA uses 32 units to compute 16x16x16 tiles
-// TODO put it in config and split tile size into three different parameters
 // TODO add number of smem banks
 pub(crate) const CMMA_COOP_DIM: usize = 32;
-pub(crate) const CMMA_TILE_SIZE: usize = 16;
+pub(crate) const TILE_SIZE_M: usize = 16;
+pub(crate) const TILE_SIZE_K: usize = 16;
+pub(crate) const TILE_SIZE_N: usize = 16;
 
 pub struct CmmaConfig {
     /// Corresponds to the number of tiles in the m dimension for a block
@@ -68,9 +69,9 @@ impl CmmaConfig {
         rhs_smem_loader_strategy: SmemLoaderStrategy,
         main_loop_strategy: MainLoopStrategy,
     ) -> CmmaConfig {
-        assert!(b_m % CMMA_TILE_SIZE == 0);
-        assert!(b_k % CMMA_TILE_SIZE == 0);
-        assert!(b_n % CMMA_TILE_SIZE == 0);
+        assert!(b_m % TILE_SIZE_M == 0);
+        assert!(b_k % TILE_SIZE_K == 0);
+        assert!(b_n % TILE_SIZE_N == 0);
 
         CmmaConfig {
             b_m,
@@ -96,7 +97,9 @@ impl CmmaConfig {
             block_size_m: self.b_m as u32,
             block_size_k: self.b_k as u32,
             block_size_n: self.b_n as u32,
-            tile_size: CMMA_TILE_SIZE as u32,
+            tile_size_m: TILE_SIZE_M as u32,
+            tile_size_k: TILE_SIZE_K as u32,
+            tile_size_n: TILE_SIZE_N as u32,
             unroll: self.unroll,
             check_m_bounds: m % self.b_m != 0,
             check_k_bounds: k % self.b_k != 0,
@@ -104,7 +107,7 @@ impl CmmaConfig {
             coop_dim: CMMA_COOP_DIM as u32,
             num_compute_coops,
             num_load_coops,
-            num_accumulators: (self.b_m * self.b_n / (CMMA_TILE_SIZE * CMMA_TILE_SIZE)) as u32
+            num_accumulators: (self.b_m * self.b_n / (TILE_SIZE_M * TILE_SIZE_N)) as u32
                 / num_compute_coops,
             write_out_strategy: self.write_out_strategy,
             rasterization_strategy: self.rasterization_strategy,
@@ -148,11 +151,7 @@ impl CmmaConfig {
     }
 
     pub(crate) fn available_vectorizations(&self) -> Vec<u8> {
-        let vectorizations = vec![8, 4, 2];
-        for v in vectorizations.iter() {
-            assert!(CMMA_TILE_SIZE * CMMA_TILE_SIZE % (*v as usize * CMMA_COOP_DIM) == 0);
-        }
-        vectorizations
+        vec![8, 4, 2]
     }
 }
 
@@ -170,8 +169,12 @@ pub struct ComptimeCmmaInfo {
     pub block_size_k: u32,
     /// Block size along dimension of rhs
     pub block_size_n: u32,
-    /// Tile size (dimension of one side). Should correspond to cmma supported tile size
-    pub tile_size: u32,
+    /// Tile size along dimension m. Should correspond to cmma supported tile size
+    pub tile_size_m: u32,
+    /// Tile size along dimension k. Should correspond to cmma supported tile size
+    pub tile_size_k: u32,
+    /// Tile size along dimension n. Should correspond to cmma supported tile size
+    pub tile_size_n: u32,
     /// Bounds must be checked on lhs dimension
     pub check_m_bounds: bool,
     /// Bounds must be checked on common dimension

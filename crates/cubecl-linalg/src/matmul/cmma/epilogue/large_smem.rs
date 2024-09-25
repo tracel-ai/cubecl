@@ -19,11 +19,10 @@ impl OutputWriter for LargeSmemWriter {
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
         let num_accumulators = comptime_info.num_accumulators;
-        let tile_size = comptime_info.tile_size;
         let num_compute_coops = comptime_info.num_compute_coops;
         let coop_id = runtime_info.compute_ids.coop;
 
-        let smem_stride = tile_size * tile_size;
+        let smem_stride = comptime_info.tile_size_m * comptime_info.tile_size_n;
         let smem_size = num_accumulators * num_compute_coops * smem_stride;
 
         let mut acc_sm = SharedMemory::<F>::new(smem_size);

@@ -103,14 +103,19 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     runtime_info: RuntimeCmmaInfo,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    let tile_size = comptime_info.tile_size;
+    // let tile_size = comptime_info.tile_size;
     let num_accumulators = comptime_info.num_accumulators;
     let block_size_n = comptime_info.block_size_n;
-    let num_accum_groups_in_block_row = block_size_n / (tile_size * num_accumulators);
+
+    let tile_height = comptime_info.tile_size_m;
+    let tile_width = comptime_info.tile_size_n;
+    let num_tile_elements = tile_height * tile_width;
+
+    let num_accum_groups_in_block_row = block_size_n / (tile_width * num_accumulators);
 
     let out_vec = vectorization_of(out);
-    let n_units_per_tile_row = tile_size / out_vec;
-    let sm_stride = tile_size * tile_size;
+    let n_units_per_tile_row = tile_height / out_vec;
+    let smem_stride = num_tile_elements;
     let coop_dim = comptime_info.coop_dim;
 
     let coop_id = runtime_info.compute_ids.coop;
@@ -121,17 +126,17 @@ fn write_tile<F: Float, W: BlockWriter<F>>(
     let tile_row = coop_id / num_accum_groups_in_block_row;
     let tile_col = (coop_id % num_accum_groups_in_block_row) * num_accumulators;
 
-    let num_unit_writes = tile_size * tile_size / (out_vec * coop_dim);
+    let num_unit_writes = num_tile_elements / (out_vec * coop_dim);
 
-    let smem_offset = smem_position * sm_stride + lane_id * out_vec;
+    let smem_offset = smem_position * smem_stride + lane_id * out_vec;
     let sm_step = coop_dim * out_vec;
 
-    let lane_row_step = coop_dim * out_vec / tile_size;
+    let lane_row_step = coop_dim * out_vec / tile_height;
     let unit_write_row = lane_id / n_units_per_tile_row;
     let unit_write_col = lane_id % n_units_per_tile_row * out_vec;
 
-    let row_offset = offsets.cube_row + tile_row * tile_size;
-    let write_col = offsets.cube_col + tile_col * tile_size + unit_write_col + n_iter * tile_size;
+    let row_offset = offsets.cube_row + tile_row * tile_height;
+    let write_col = offsets.cube_col + tile_col * tile_width + unit_write_col + n_iter * tile_width;
 
     #[unroll]
     for i in 0..num_unit_writes {
