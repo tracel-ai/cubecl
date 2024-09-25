@@ -16,7 +16,7 @@ use crate::matmul::{
 
 #[cube(launch_unchecked)]
 fn write_to_output_test<F: Float>(
-    out: &mut Tensor<F>,
+    out: &mut Tensor<Line<F>>,
     results: &mut Array<F>,
     #[comptime] config: CubeTiling2dConfig,
 ) {
@@ -37,7 +37,7 @@ fn write_to_output_test<F: Float>(
 
 #[cube(launch_unchecked)]
 fn write_results_to_output_out_of_bounds_test<F: Float>(
-    out: &mut Tensor<F>,
+    out: &mut Tensor<Line<F>>,
     results: &mut Array<F>,
     #[comptime] config: CubeTiling2dConfig,
 ) {

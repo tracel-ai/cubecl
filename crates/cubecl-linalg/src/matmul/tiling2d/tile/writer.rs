@@ -22,7 +22,7 @@ pub(crate) struct TileWriter<F: Float> {
 #[cube]
 impl<F: Float> OutputWriter<F> for TileWriter<F> {
     fn write_output<B: BlockWriter<F>>(
-        out: &mut Tensor<F>,
+        out: &mut Tensor<Line<F>>,
         results: &Array<F>,
         write_info: WriteTileInfo,
         dims: Dimensions,

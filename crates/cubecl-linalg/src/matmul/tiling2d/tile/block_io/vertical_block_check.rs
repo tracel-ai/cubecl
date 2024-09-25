@@ -17,8 +17,8 @@ pub(crate) struct VerticalCheckBlockIO;
 #[cube]
 impl<F: Float> BlockLoader<F> for VerticalCheckBlockIO {
     fn load_tile_plain<A: ContiguousAccess<F>>(
-        tensor: &Tensor<F>,
-        shared_memory: &mut SharedMemory<F>,
+        tensor: &Tensor<Line<F>>,
+        shared_memory: &mut SharedMemory<Line<F>>,
         info: ReadTileInfo,
         #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
@@ -49,8 +49,8 @@ impl<F: Float> BlockLoader<F> for VerticalCheckBlockIO {
     }
 
     fn load_tile_transposed(
-        tensor: &Tensor<F>,
-        shared_memory: &mut SharedMemory<F>,
+        tensor: &Tensor<Line<F>>,
+        shared_memory: &mut SharedMemory<Line<F>>,
         info: ReadTileInfo,
         #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
@@ -78,7 +78,7 @@ impl<F: Float> BlockLoader<F> for VerticalCheckBlockIO {
 #[cube]
 impl<F: Float> BlockWriter<F> for VerticalCheckBlockIO {
     fn write_output<A: ContiguousAccess<F>>(
-        out: &mut Tensor<F>,
+        out: &mut Tensor<Line<F>>,
         results: &Array<F>,
         info: WriteTileInfo,
         #[comptime] config: CubeTiling2dConfig,

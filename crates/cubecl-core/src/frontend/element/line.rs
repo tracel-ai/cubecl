@@ -283,7 +283,7 @@ impl<P> CubeIndex<u32> for Line<P>
 where
     P: CubePrimitive + CubeIndex<u32, Output = P>,
 {
-    type Output = Self;
+    type Output = P;
 
     fn cube_idx(&self, _i: u32) -> &Self::Output {
         unexpanded!()
@@ -295,6 +295,26 @@ where
     P: CubePrimitive + CubeIndexMut<u32, Output = P>,
 {
     fn cube_idx_mut(&mut self, _i: u32) -> &mut Self::Output {
+        unexpanded!()
+    }
+}
+
+impl<P> CubeIndex<ExpandElementTyped<u32>> for Line<P>
+where
+    P: CubePrimitive + CubeIndex<ExpandElementTyped<u32>, Output = P>,
+{
+    type Output = P;
+
+    fn cube_idx(&self, _i: ExpandElementTyped<u32>) -> &Self::Output {
+        unexpanded!()
+    }
+}
+
+impl<P> CubeIndexMut<ExpandElementTyped<u32>> for Line<P>
+where
+    P: CubePrimitive + CubeIndexMut<ExpandElementTyped<u32>, Output = P>,
+{
+    fn cube_idx_mut(&mut self, _i: ExpandElementTyped<u32>) -> &mut Self::Output {
         unexpanded!()
     }
 }

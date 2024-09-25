@@ -12,9 +12,9 @@ use super::{
 
 #[cube]
 pub(crate) fn block_loop<F: Float>(
-    lhs: &Tensor<F>,
-    rhs: &Tensor<F>,
-    out: &mut Tensor<F>,
+    lhs: &Tensor<Line<F>>,
+    rhs: &Tensor<Line<F>>,
+    out: &mut Tensor<Line<F>>,
     coordinates: Coordinates,
     offsets: BatchOffsets,
     shared: SharedMemories<F>,

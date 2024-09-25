@@ -14,8 +14,8 @@ use crate::matmul::{
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
 fn tile_outer_product_test<F: Float>(
-    register_m: Array<F>,
-    register_n: Array<F>,
+    register_m: Array<Line<F>>,
+    register_n: Array<Line<F>>,
     results: &mut Array<F>,
     #[comptime] config: CubeTiling2dConfig,
 ) {
@@ -65,8 +65,8 @@ pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device)
 
 #[cube(launch_unchecked)]
 fn compute_loop_test<F: Float>(
-    lhs: &Tensor<F>,
-    rhs: &Tensor<F>,
+    lhs: &Tensor<Line<F>>,
+    rhs: &Tensor<Line<F>>,
     unit_row: u32,
     unit_col: u32,
     results: &mut Array<F>,
@@ -82,13 +82,13 @@ fn compute_loop_test<F: Float>(
     let sm_size_rhs = block_size_n * block_size_k / tile_size;
 
     // Shared memories are not launchable, so we launch with tensor and convert to shared memory
-    let mut shared_lhs = SharedMemory::<F>::vectorized(sm_size_lhs, tile_size);
+    let mut shared_lhs = SharedMemory::<F>::new_lined(sm_size_lhs, tile_size);
     #[unroll]
     for i in 0..lhs_len {
         shared_lhs[i] = lhs[i];
     }
 
-    let mut shared_rhs = SharedMemory::<F>::vectorized(sm_size_rhs, tile_size);
+    let mut shared_rhs = SharedMemory::<F>::new_lined(sm_size_rhs, tile_size);
     #[unroll]
     for i in 0..rhs_len {
         shared_rhs[i] = rhs[i];
