@@ -132,21 +132,21 @@ impl<T: CubeType> Iterator for &Tensor<T> {
 }
 
 impl<P: CubePrimitive> Tensor<Line<P>> {
-    pub fn line_len(&self) -> u32 {
+    pub fn line_size(&self) -> u32 {
         unexpanded!()
     }
 
-    pub fn __expand_line_len(
+    pub fn __expand_line_size(
         expand: <Self as CubeType>::ExpandType,
         context: &mut CubeContext,
     ) -> u32 {
-        expand.__expand_line_len_method(context)
+        expand.__expand_line_size_method(context)
     }
 }
 
 impl<P: CubePrimitive> ExpandElementTyped<Tensor<Line<P>>> {
     // So that it can be used in comptime.
-    pub fn line_len(&self) -> u32 {
+    pub fn line_size(&self) -> u32 {
         self.expand
             .item()
             .vectorization
@@ -154,7 +154,7 @@ impl<P: CubePrimitive> ExpandElementTyped<Tensor<Line<P>>> {
             .unwrap_or(NonZero::new(1).unwrap())
             .get() as u32
     }
-    pub fn __expand_line_len_method(&self, _content: &mut CubeContext) -> u32 {
-        self.line_len()
+    pub fn __expand_line_size_method(&self, _content: &mut CubeContext) -> u32 {
+        self.line_size()
     }
 }
