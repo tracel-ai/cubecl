@@ -2,10 +2,11 @@ use std::marker::PhantomData;
 
 use super::{
     Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory,
-    SizedContainer, Tensor,
+    SizedContainer,
 };
 use crate::{
     frontend::indexation::Index,
+    frontend::Tensor,
     ir::{self, Operator},
     prelude::CubeContext,
     unexpanded,

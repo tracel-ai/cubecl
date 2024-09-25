@@ -4,7 +4,7 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     frontend::CubeType,
     ir::{Branch, Item, RangeLoop, Vectorization},
-    prelude::{CubeIndex, Iterable},
+    prelude::{CubeIndex, Iterable, TensorHandleRef},
     unexpanded, Runtime,
 };
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
 
 use super::{
     ArgSettings, CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
-    IntoRuntime, LaunchArg, LaunchArgExpand, TensorHandleRef,
+    IntoRuntime, LaunchArg, LaunchArgExpand,
 };
 
 /// A contiguous array of elements.

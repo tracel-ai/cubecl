@@ -128,11 +128,17 @@ mod empty {
 mod size {
     use super::*;
 
-    impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Line<P> {
+    impl<P: CubePrimitive> Line<P> {
         /// Get the number of individual elements a line contains.
         ///
         /// The size is available at comptime and may be used in combination with the comptime
         /// macro.
+        ///
+        /// ```rust, ignore
+        /// // The if statement is going to be executed at comptime.
+        /// if comptime!(line.size() == 1) {
+        /// }
+        /// ```
         pub fn size(&self) -> u32 {
             unexpanded!()
         }
@@ -140,6 +146,22 @@ mod size {
         /// Expand function of [size](Self::size).
         pub fn __expand_size(context: &mut CubeContext, element: ExpandElementTyped<P>) -> u32 {
             element.__expand_vectorization_factor_method(context)
+        }
+    }
+
+    impl<P: CubePrimitive> ExpandElementTyped<Line<P>> {
+        /// Comptime version of [size](Line::size).
+        pub fn size(&self) -> u32 {
+            self.expand
+                .item()
+                .vectorization
+                .unwrap_or(NonZero::new(1).unwrap())
+                .get() as u32
+        }
+
+        /// Expand method of [size](Line::size).
+        pub fn __expand_size_method(&self, _context: &mut CubeContext) -> u32 {
+            self.size()
         }
     }
 }

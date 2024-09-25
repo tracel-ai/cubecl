@@ -1,6 +1,3 @@
-//! This module contains implementations to various operations from [core::ops] and from our custom
-//! ops as well, making line usable with basic math.
-
 use num_traits::{NumCast, ToPrimitive};
 
 use crate::{
