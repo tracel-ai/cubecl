@@ -77,7 +77,6 @@ impl Iterator for CmmaConfigIterator {
             17 => Some((PredefinedCmmaConfig::M32K16N64, "m_32_k16_n64".to_string())),
             18 => Some((PredefinedCmmaConfig::M64K16N32, "m_64_k16_n32".to_string())),
             19 => Some((PredefinedCmmaConfig::M64K32N32, "m_64_k32_n32".to_string())),
-            20 => Some((PredefinedCmmaConfig::CuboidSize, "cuboid_size".to_string())),
             _ => None,
         };
 

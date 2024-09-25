@@ -29,7 +29,6 @@ pub enum PredefinedCmmaConfig {
     SwizzleRasterization,
     AccumulatorsFirstNoReuse,
     AccumulatorsFirstWithReuse,
-    CuboidSize,
 }
 
 impl From<PredefinedCmmaConfig> for CmmaConfig {
@@ -172,19 +171,6 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                     TilingOrderStrategy::ColMajor,
                 ),
                 main_loop_strategy: MainLoopStrategy::Standard(2),
-                ..Default::default()
-            },
-            PredefinedCmmaConfig::CuboidSize => CmmaConfig {
-                b_m: 8,
-                b_k: 16,
-                b_n: 32,
-                lhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
-                    TilingOrderStrategy::RowMajor,
-                ),
-                rhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
-                    TilingOrderStrategy::ColMajor,
-                ),
-                main_loop_strategy: MainLoopStrategy::Standard(1),
                 ..Default::default()
             },
         }
