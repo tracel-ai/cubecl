@@ -1,4 +1,4 @@
-use super::Instruction;
+use super::{Instruction, Variable};
 use std::fmt::Display;
 
 /// A body is composed of a list of [instructions](Instruction).
@@ -111,7 +111,12 @@ impl Display for Body {
                 "const {} arrays_{}[{}] = {{",
                 const_array.item, const_array.index, const_array.size
             ))?;
-            for value in const_array.values.iter() {
+            let elem = const_array.item.elem;
+            for value in const_array.values.iter().copied() {
+                let value = match value {
+                    Variable::ConstantScalar(value, _) => Variable::ConstantScalar(value, elem),
+                    _ => unreachable!("Value is always constant"),
+                };
                 f.write_fmt(format_args!("{value},"))?;
             }
             f.write_str("};\n")?;

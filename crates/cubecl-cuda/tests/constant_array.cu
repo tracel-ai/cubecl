@@ -12,9 +12,9 @@ extern "C" __global__ void kernel(float output_0[], uint info[]) {
   uint rank = info[0];
   uint rank_2 = rank * 2;
   const float arrays_0[3] = {
-      uint(3),
-      uint(5),
-      uint(1),
+      float(3),
+      float(5),
+      float(1),
   };
   uint l_0_0;
   bool l_0_1;
