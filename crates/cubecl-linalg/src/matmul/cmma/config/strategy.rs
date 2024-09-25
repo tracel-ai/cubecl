@@ -82,3 +82,30 @@ pub enum MainLoopStrategy {
     /// Part compute, part load
     Split(u32, u32),
 }
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+pub enum TileDimensionStrategy {
+    M16K16N16,
+    M32K16N8,
+    M8K16N32,
+}
+
+pub struct TileDimension {
+    pub m: u8,
+    pub k: u8,
+    pub n: u8,
+}
+
+impl Into<TileDimension> for TileDimensionStrategy {
+    fn into(self) -> TileDimension {
+        match self {
+            TileDimensionStrategy::M16K16N16 => TileDimension {
+                m: 16,
+                k: 16,
+                n: 16,
+            },
+            TileDimensionStrategy::M32K16N8 => panic!("Unsupported, contains a bug"),
+            TileDimensionStrategy::M8K16N32 => panic!("Unsupported, contains a bug"),
+        }
+    }
+}

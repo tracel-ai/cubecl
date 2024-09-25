@@ -1,17 +1,19 @@
 use cubecl_core::prelude::*;
 
+use crate::matmul::cmma::config::TileDimension;
+
 use super::{
     strategy::{
         ComputeLoopOrderStrategy, MainLoopStrategy, RasterizationStrategy, SmemLoaderStrategy,
         WriteOutStrategy,
     },
-    TilingOrderStrategy,
+    TileDimensionStrategy, TilingOrderStrategy,
 };
 
 pub(crate) const CMMA_COOP_DIM: u8 = 32;
-pub(crate) const TILE_SIZE_M: u8 = 8;
-pub(crate) const TILE_SIZE_K: u8 = 16;
-pub(crate) const TILE_SIZE_N: u8 = 32;
+// pub(crate) const TILE_SIZE_M: u8 = 16;
+// pub(crate) const TILE_SIZE_K: u8 = 16;
+// pub(crate) const TILE_SIZE_N: u8 = 16;
 
 pub struct CmmaConfig {
     /// Corresponds to the number of tiles in the m dimension for a block
@@ -34,6 +36,7 @@ pub struct CmmaConfig {
     pub rhs_smem_loader_strategy: SmemLoaderStrategy,
     /// How to parallelize the outer loop among different warps
     pub main_loop_strategy: MainLoopStrategy,
+    pub tile_dimension_strategy: TileDimensionStrategy,
 }
 
 impl Default for CmmaConfig {
@@ -49,6 +52,7 @@ impl Default for CmmaConfig {
             SmemLoaderStrategy::Tilewise(TilingOrderStrategy::RowMajor),
             SmemLoaderStrategy::Tilewise(TilingOrderStrategy::ColMajor),
             MainLoopStrategy::Standard(8),
+            TileDimensionStrategy::M16K16N16,
         )
     }
 }
@@ -66,10 +70,12 @@ impl CmmaConfig {
         lhs_smem_loader_strategy: SmemLoaderStrategy,
         rhs_smem_loader_strategy: SmemLoaderStrategy,
         main_loop_strategy: MainLoopStrategy,
+        tile_dimension_strategy: TileDimensionStrategy,
     ) -> CmmaConfig {
-        assert!(b_m % TILE_SIZE_M as usize == 0);
-        assert!(b_k % TILE_SIZE_K as usize == 0);
-        assert!(b_n % TILE_SIZE_N as usize == 0);
+        let tile_dim: TileDimension = tile_dimension_strategy.into();
+        assert!(b_m % tile_dim.m as usize == 0);
+        assert!(b_k % tile_dim.k as usize == 0);
+        assert!(b_n % tile_dim.n as usize == 0);
 
         CmmaConfig {
             b_m,
@@ -82,6 +88,7 @@ impl CmmaConfig {
             lhs_smem_loader_strategy,
             rhs_smem_loader_strategy,
             main_loop_strategy,
+            tile_dimension_strategy,
         }
     }
 
@@ -90,14 +97,15 @@ impl CmmaConfig {
             MainLoopStrategy::Standard(num) => (num, num),
             MainLoopStrategy::Split(num_compute, num_load) => (num_compute, num_load),
         };
+        let tile_dim: TileDimension = self.tile_dimension_strategy.into();
 
         ComptimeCmmaInfo {
             block_size_m: self.b_m as u32,
             block_size_k: self.b_k as u32,
             block_size_n: self.b_n as u32,
-            tile_size_m: TILE_SIZE_M as u32,
-            tile_size_k: TILE_SIZE_K as u32,
-            tile_size_n: TILE_SIZE_N as u32,
+            tile_size_m: tile_dim.m as u32,
+            tile_size_k: tile_dim.k as u32,
+            tile_size_n: tile_dim.n as u32,
             unroll: self.unroll,
             check_m_bounds: m % self.b_m != 0,
             check_k_bounds: k % self.b_k != 0,
@@ -105,7 +113,8 @@ impl CmmaConfig {
             coop_dim: CMMA_COOP_DIM as u32,
             num_compute_coops,
             num_load_coops,
-            num_accumulators: ((self.b_m * self.b_n) as u32 / (TILE_SIZE_M as u32 * TILE_SIZE_N as u32))
+            num_accumulators: ((self.b_m * self.b_n) as u32
+                / (tile_dim.m as u32 * tile_dim.n as u32))
                 / num_compute_coops,
             write_out_strategy: self.write_out_strategy,
             rasterization_strategy: self.rasterization_strategy,
