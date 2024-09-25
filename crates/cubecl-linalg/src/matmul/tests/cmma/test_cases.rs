@@ -9,6 +9,9 @@ use super::super::test_utils::{assert_equals_approx, cmma_available};
 
 #[derive(Copy, Clone)]
 pub enum MatmulTest {
+    One16_16_16,
+    One32_16_8,
+    One8_16_32,
     SmallRound,
     MediumMultibatch,
     LargeRound,
@@ -22,6 +25,15 @@ pub enum MatmulTest {
 impl Into<MatmulTestCase> for MatmulTest {
     fn into(self) -> MatmulTestCase {
         match self {
+            MatmulTest::One16_16_16 => MatmulTestCase {
+                m: 16, k: 16, n: 16, batch: 1
+            },
+            MatmulTest::One32_16_8 => MatmulTestCase {
+                m: 16, k: 16, n: 16, batch: 1
+            },
+            MatmulTest::One8_16_32 => MatmulTestCase {
+                m: 16, k: 16, n: 16, batch: 1
+            },
             MatmulTest::SmallRound => MatmulTestCase {
                 m: 64,
                 k: 64,

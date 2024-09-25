@@ -77,6 +77,7 @@ impl Iterator for CmmaConfigIterator {
             17 => Some((PredefinedCmmaConfig::M32K16N64, "m_32_k16_n64".to_string())),
             18 => Some((PredefinedCmmaConfig::M64K16N32, "m_64_k16_n32".to_string())),
             19 => Some((PredefinedCmmaConfig::M64K32N32, "m_64_k32_n32".to_string())),
+            20 => Some((PredefinedCmmaConfig::CuboidSize, "cuboid_size".to_string())),
             _ => None,
         };
 
@@ -101,6 +102,9 @@ impl Iterator for TestCaseIterator {
             5 => Some((MatmulTest::SmallNoVec, "small_novec".to_string())),
             6 => Some((MatmulTest::MLargerThanN, "m_larger_than_n".to_string())),
             7 => Some((MatmulTest::MSmallerThanN, "m_smaller_than_n".to_string())),
+            8 => Some((MatmulTest::One16_16_16, "one_16_16_16".to_string())),
+            9 => Some((MatmulTest::One32_16_8, "one_32_16_8".to_string())),
+            10 => Some((MatmulTest::One8_16_32, "one_8_16_32".to_string())),
             _ => None,
         };
 
