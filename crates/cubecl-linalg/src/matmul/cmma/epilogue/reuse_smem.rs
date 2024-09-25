@@ -34,7 +34,7 @@ impl OutputWriter for ReuseSmemWriter {
             cmma::store::<F>(
                 slice,
                 accumulators.index(n),
-                16,
+                comptime_info.tile_size_n,
                 cmma::MatrixLayout::RowMajor,
             );
 

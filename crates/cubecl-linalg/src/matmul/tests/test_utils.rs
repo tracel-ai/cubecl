@@ -7,7 +7,10 @@ use cubecl_core::{
 };
 
 use crate::{
-    matmul::tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig},
+    matmul::{
+        cmma::config::{TILE_SIZE_K, TILE_SIZE_M, TILE_SIZE_N},
+        tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig},
+    },
     tensor::TensorHandle,
 };
 
@@ -120,9 +123,9 @@ pub(crate) fn cmma_available<R: Runtime>(device: &R::Device) -> bool {
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),
         c: Elem::Float(FloatKind::F32),
-        m: 16,
-        k: 16,
-        n: 16,
+        m: TILE_SIZE_M,
+        k: TILE_SIZE_K,
+        n: TILE_SIZE_N,
     })
 }
 

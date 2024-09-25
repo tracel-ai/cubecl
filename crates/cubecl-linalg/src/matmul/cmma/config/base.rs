@@ -10,10 +10,10 @@ use super::{
 
 // It is assumed that CMMA uses 32 units to compute 16x16x16 tiles
 // TODO add number of smem banks
-pub(crate) const CMMA_COOP_DIM: usize = 32;
-pub(crate) const TILE_SIZE_M: usize = 16;
-pub(crate) const TILE_SIZE_K: usize = 16;
-pub(crate) const TILE_SIZE_N: usize = 16;
+pub(crate) const CMMA_COOP_DIM: u8 = 32;
+pub(crate) const TILE_SIZE_M: u8 = 16;
+pub(crate) const TILE_SIZE_K: u8 = 16;
+pub(crate) const TILE_SIZE_N: u8 = 16;
 
 pub struct CmmaConfig {
     /// Corresponds to the number of tiles in the m dimension for a block
@@ -69,9 +69,9 @@ impl CmmaConfig {
         rhs_smem_loader_strategy: SmemLoaderStrategy,
         main_loop_strategy: MainLoopStrategy,
     ) -> CmmaConfig {
-        assert!(b_m % TILE_SIZE_M == 0);
-        assert!(b_k % TILE_SIZE_K == 0);
-        assert!(b_n % TILE_SIZE_N == 0);
+        assert!(b_m % TILE_SIZE_M as usize == 0);
+        assert!(b_k % TILE_SIZE_K as usize == 0);
+        assert!(b_n % TILE_SIZE_N as usize == 0);
 
         CmmaConfig {
             b_m,
@@ -107,7 +107,7 @@ impl CmmaConfig {
             coop_dim: CMMA_COOP_DIM as u32,
             num_compute_coops,
             num_load_coops,
-            num_accumulators: (self.b_m * self.b_n / (TILE_SIZE_M * TILE_SIZE_N)) as u32
+            num_accumulators: ((self.b_m * self.b_n) as u32 / (TILE_SIZE_M * TILE_SIZE_N) as u32)
                 / num_compute_coops,
             write_out_strategy: self.write_out_strategy,
             rasterization_strategy: self.rasterization_strategy,

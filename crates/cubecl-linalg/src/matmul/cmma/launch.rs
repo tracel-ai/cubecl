@@ -11,6 +11,8 @@ use crate::{
     tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle},
 };
 
+use super::config::{TILE_SIZE_K, TILE_SIZE_M, TILE_SIZE_N};
+
 /// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
 pub fn matmul_cmma<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
@@ -45,9 +47,9 @@ pub fn check_cmma_availability<R: Runtime, F: Float>(
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),
         c: Elem::Float(FloatKind::F32),
-        m: 16,
-        k: 16,
-        n: 16,
+        m: TILE_SIZE_M,
+        k: TILE_SIZE_K,
+        n: TILE_SIZE_N,
     }) {
         return Err(UnavailabilityReason::CmmaInstructionsUnsupported);
     }
