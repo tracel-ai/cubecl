@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::comptime;
 
 use super::super::prologue::RuntimeCmmaInfo;
 use crate::matmul::cmma::{
@@ -25,7 +26,7 @@ impl<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> SmemLoader<F, FC, I, T>
         // let tile_size = comptime_info.tile_size;
         let coop_dim = comptime_info.coop_dim;
         let tensor_vec = vectorization_of(gmem);
-        let num_unit_reads = I::num_tile_elements(comptime_info) / (tensor_vec * coop_dim);
+        let num_unit_reads = comptime!{I::num_tile_elements(comptime_info) / (tensor_vec * coop_dim)};
         let num_units_per_row = I::tile_width(comptime_info) / tensor_vec;
         let smem_stride = I::num_tile_elements(comptime_info);
         let coop_step = coop_dim * tensor_vec;
