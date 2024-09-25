@@ -14,10 +14,10 @@ pub(crate) fn tile_outer_product<F: Float>(
     let unroll = config.unroll_tile;
 
     #[unroll(unroll)]
-    for res_idx_m in 0..register_m.len() {
+    for res_idx_m in 0..register_m.size() {
         let res_pos_base = res_idx_m * tile_size;
         #[unroll(unroll)]
-        for res_idx_n in 0..register_n.len() {
+        for res_idx_n in 0..register_n.size() {
             let mul: F = register_m[res_idx_m] * register_n[res_idx_n];
             results[res_pos_base + res_idx_n] += mul;
         }

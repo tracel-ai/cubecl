@@ -3,9 +3,10 @@ use std::{marker::PhantomData, num::NonZero};
 use crate::{
     frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType},
     ir::Item,
+    prelude::Line,
 };
 
-use super::{ExpandElementTyped, Init, IntoRuntime, Line};
+use super::{ExpandElementTyped, Init, IntoRuntime};
 
 #[derive(Clone, Copy)]
 pub struct SharedMemory<T: CubeType> {

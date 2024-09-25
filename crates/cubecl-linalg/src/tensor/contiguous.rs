@@ -12,9 +12,7 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
     dim_end: u32,
     #[comptime] unroll: bool,
 ) -> u32 {
-    let vectorization = vectorization_of(tensor);
-
-    let offset_ref = offset_layout * vectorization;
+    let offset_ref = offset_layout * tensor.line_len();
     let mut offset = 0;
 
     #[unroll(unroll)]
@@ -23,7 +21,7 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
         offset += ogwl % tensor.shape(i) * tensor.stride(i);
     }
 
-    offset / vectorization
+    offset / tensor.line_len()
 }
 
 #[cube(launch_unchecked)]
