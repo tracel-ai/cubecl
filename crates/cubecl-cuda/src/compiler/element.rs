@@ -66,6 +66,7 @@ impl Display for Item {
 
 pub trait Component: Display + FmtLeft {
     fn item(&self) -> Item;
+    fn is_const(&self) -> bool;
     fn index(&self, index: usize) -> IndexedVariable;
     fn elem(&self) -> Elem {
         *self.item().elem()
@@ -79,6 +80,10 @@ impl Component for IndexedVariable {
 
     fn index(&self, index: usize) -> IndexedVariable {
         self.var.index(index)
+    }
+
+    fn is_const(&self) -> bool {
+        matches!(self.var, Variable::ConstLocal { .. })
     }
 }
 impl Component for Variable {
@@ -130,6 +135,10 @@ impl Component for Variable {
             Variable::BlockDimGlobal => Item::scalar(Elem::U32),
             Variable::GridDimGlobal => Item::scalar(Elem::U32),
         }
+    }
+
+    fn is_const(&self) -> bool {
+        matches!(self, Variable::ConstLocal { .. })
     }
 }
 
@@ -294,7 +303,7 @@ impl Variable {
                 item: item.optimized(),
                 depth: *depth,
             },
-            Variable::ConstLocal { id, item, depth } => Variable::Local {
+            Variable::ConstLocal { id, item, depth } => Variable::ConstLocal {
                 id: *id,
                 item: item.optimized(),
                 depth: *depth,
@@ -409,17 +418,24 @@ pub struct IndexedVariable {
 impl Display for IndexedVariable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let var = &self.var;
+        let ref_ = matches!(var, Variable::ConstLocal { .. })
+            .then_some("const&")
+            .unwrap_or("&");
 
         if self.var.item().vectorization > 1 {
             if self.optimized {
                 let item = self.var.item();
-                write!(f, "(reinterpret_cast<{item}&>({var})).i_{}", self.index)
+                write!(
+                    f,
+                    "(reinterpret_cast<{item} {ref_}>({var})).i_{}",
+                    self.index
+                )
             } else {
                 write!(f, "{var}.i_{}", self.index)
             }
         } else if self.optimized {
             let item = self.var.item();
-            write!(f, "reinterpret_cast<{item}&>({var})")
+            write!(f, "reinterpret_cast<{item} {ref_}>({var})")
         } else {
             write!(f, "{var}")
         }

@@ -44,6 +44,12 @@ pub enum Instruction {
     Mul(BinaryInstruction),
     Sub(BinaryInstruction),
     Index(BinaryInstruction),
+    CheckedIndex {
+        len: Variable,
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
     IndexAssign(BinaryInstruction),
     CheckedIndexAssign(BinaryInstruction),
     Assign(UnaryInstruction),
@@ -185,6 +191,21 @@ impl Display for Instruction {
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::CheckedIndex { len, lhs, rhs, out } => {
+                let item_out = out.item();
+                if let Elem::Atomic(inner) = item_out.elem {
+                    write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
+                } else {
+                    let out = out.fmt_left();
+                    write!(f, "{out} = ({rhs} < {len}) ? ")?;
+                    Index::format_scalar(f, *lhs, *rhs, item_out)?;
+                    if item_out.vectorization == 1 {
+                        writeln!(f, " : {item_out}(0);")
+                    } else {
+                        writeln!(f, " : {item_out}{{}};")
+                    }
+                }
+            }
             Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::CheckedIndexAssign(it) => {
                 IndexAssign::format(f, &it.lhs, &it.rhs, &it.out)
@@ -450,13 +471,14 @@ impl Fma {
         c: &Variable,
         out: &Variable,
     ) -> core::fmt::Result {
-        let num = out.item().vectorization;
+        let out_item = out.item();
+        let num = out_item.vectorization;
 
         let out = out.fmt_left();
         if num == 1 {
             writeln!(f, "{out} = fma({a}, {b}, {c});")
         } else {
-            writeln!(f, "{out} = {{")?;
+            writeln!(f, "{out} = {out_item}{{")?;
 
             for i in 0..num {
                 let ai = a.index(i);
@@ -484,13 +506,14 @@ impl Clamp {
         let min_value = min_value.optimized();
         let max_value = max_value.optimized();
         let out = out.optimized();
-        let num = out.item().vectorization;
+        let out_item = out.item();
+        let num = out_item.vectorization;
 
         let out = out.fmt_left();
         if num == 1 {
             writeln!(f, "{out} = max({min_value}, min({max_value}, {input}));")
         } else {
-            writeln!(f, "{out} = {{")?;
+            writeln!(f, "{out} = {out_item}{{")?;
             for i in 0..num {
                 let inputi = input.index(i);
                 let mini = min_value.index(i);
@@ -516,13 +539,14 @@ impl Remainder {
         let lhs = lhs.optimized();
         let rhs = rhs.optimized();
         let out = out.optimized();
-        let num = out.item().vectorization;
+        let out_item = out.item();
+        let num = out_item.vectorization;
 
         let out = out.fmt_left();
         if num == 1 {
             writeln!(f, "{out} = {lhs} - {rhs} * floor({lhs} / {rhs});")
         } else {
-            writeln!(f, "{out} = {{")?;
+            writeln!(f, "{out} = {out_item}{{")?;
             for i in 0..num {
                 let lhsi = lhs.index(i);
                 let rhsi = rhs.index(i);
@@ -545,15 +569,17 @@ impl Magnitude {
         let num = input.item().vectorization;
         let elem = input.elem();
 
-        writeln!(f, "{out} = 0.0;")?;
+        let mag = format!("{out}_mag");
+
+        writeln!(f, "{} {mag} = 0.0;", out.item())?;
 
         for i in 0..num {
             let input_i = input.index(i);
-            writeln!(f, "{out} += {input_i} * {input_i};")?;
+            writeln!(f, "{mag} += {input_i} * {input_i};")?;
         }
 
         write!(f, "{out} = ")?;
-        Sqrt::format_unary(f, out, elem)?;
+        Sqrt::format_unary(f, &mag, elem)?;
         f.write_str(";\n")
     }
 }
@@ -570,8 +596,8 @@ impl Normalize {
         let elem = input.elem();
         let norm = format!("{out}_norm");
 
+        let out_item = out.item();
         let out = out.fmt_left();
-        write!(f, "{out} = {{")?;
         writeln!(f, "{elem} {norm} = 0.0;")?;
 
         for i in 0..num {
@@ -584,16 +610,16 @@ impl Normalize {
         f.write_str(";\n")?;
 
         if num == 1 {
-            write!(f, "{norm}\n}};")
+            write!(f, "{out} = {norm}\n}};")
         } else {
-            f.write_str("{")?;
+            write!(f, "{out} = {out_item}{{")?;
             for i in 0..num {
                 let input_i = input.index(i);
 
                 writeln!(f, "{input_i} / {norm},")?;
             }
 
-            f.write_str("}\n};\n")
+            f.write_str("};\n")
         }
     }
 }

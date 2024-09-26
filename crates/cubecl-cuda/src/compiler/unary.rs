@@ -38,8 +38,9 @@ pub trait Unary {
             None => (index, elem),
         };
 
+        let out_item = out.item();
         let out = out.fmt_left();
-        writeln!(f, "{out} = {{")?;
+        writeln!(f, "{out} = {out_item}{{")?;
 
         for i in 0..index {
             let inputi = input.index(i);

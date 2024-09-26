@@ -47,7 +47,7 @@ pub trait Binary {
         };
 
         let out = out.fmt_left();
-        writeln!(f, "{out} = {{")?;
+        writeln!(f, "{out} = {item_out}{{")?;
         for i in 0..index {
             let lhsi = lhs.index(i);
             let rhsi = rhs.index(i);
@@ -119,6 +119,7 @@ function!(Min, "min");
 
 pub struct IndexAssign;
 pub struct Index;
+pub struct CheckedIndex;
 
 impl Binary for IndexAssign {
     fn format_scalar<Lhs, Rhs>(
@@ -134,7 +135,7 @@ impl Binary for IndexAssign {
         let item_rhs = rhs.item();
 
         let format_vec = |f: &mut Formatter<'_>, cast: bool| {
-            f.write_str("{\n")?;
+            writeln!(f, "{item_out}{{")?;
             for i in 0..item_out.vectorization {
                 if cast {
                     writeln!(f, "{}({}),", item_out.elem, rhs.index(i))?;
@@ -156,6 +157,9 @@ impl Binary for IndexAssign {
                 write!(f, "{}({rhs})", item_out.elem)?;
             }
             Ok(())
+        } else if rhs.is_const() && item_rhs.vectorization > 1 {
+            // Reinterpret cast in case rhs is optimized
+            write!(f, "reinterpret_cast<{item_out} const&>({rhs})")
         } else {
             write!(f, "{rhs}")
         }
@@ -239,7 +243,7 @@ impl Binary for Index {
         let item_lhs = lhs.item();
 
         let format_vec = |f: &mut Formatter<'_>| {
-            f.write_str("{\n")?;
+            writeln!(f, "{item_out}{{")?;
             for i in 0..item_out.vectorization {
                 write!(f, "{}({lhs}[{rhs}].i_{i}),", item_out.elem)?;
             }
@@ -255,7 +259,7 @@ impl Binary for Index {
                 write!(f, "{}({lhs}[{rhs}])", item_out.elem)
             }
         } else {
-            write!(f, "{lhs}[{rhs}];")
+            write!(f, "{lhs}[{rhs}]")
         }
     }
 }
