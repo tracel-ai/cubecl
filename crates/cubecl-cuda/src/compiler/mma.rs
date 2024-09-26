@@ -106,10 +106,7 @@ impl Display for WmmaInstruction {
                 frag_b,
                 frag_c,
                 frag_d,
-            } => writeln!(
-                f,
-                "wmma::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
-            ),
+            } => writeln!(f, "wmma::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"),
             WmmaInstruction::Store {
                 output,
                 frag,
