@@ -32,7 +32,7 @@ mod new {
             _context: &mut CubeContext,
             val: P::ExpandType,
         ) -> ExpandElementTyped<Self> {
-            let elem: ExpandElementTyped<P> = val.into();
+            let elem: ExpandElementTyped<P> = val;
             elem.expand.into()
         }
     }
@@ -79,7 +79,7 @@ mod fill {
             let length = self.expand.item().vectorization;
             let output = context.create_local_binding(Item::vectorized(P::as_elem(), length));
 
-            assign::expand::<P>(context, value.into(), output.clone().into());
+            assign::expand::<P>(context, value, output.clone().into());
 
             output.into()
         }

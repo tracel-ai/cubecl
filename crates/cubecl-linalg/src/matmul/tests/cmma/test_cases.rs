@@ -101,7 +101,7 @@ pub(crate) fn test_cmma<R: Runtime>(
     device: &R::Device,
 ) -> Result<(), String> {
     let client = R::client(device);
-    if let Ok(_) = is_available::<R>(&client, &config) {
+    if is_available::<R>(&client, &config).is_ok() {
         let lhs = case.random_lhs::<R>(&client);
         let rhs = case.random_rhs::<R>(&client);
 

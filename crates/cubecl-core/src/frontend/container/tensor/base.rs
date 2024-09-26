@@ -158,7 +158,6 @@ mod line {
             self.expand
                 .item()
                 .vectorization
-                .clone()
                 .unwrap_or(NonZero::new(1).unwrap())
                 .get() as u32
         }

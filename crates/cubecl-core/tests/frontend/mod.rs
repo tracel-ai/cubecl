@@ -11,7 +11,6 @@ mod function_call;
 mod generic_kernel;
 mod r#if;
 mod intrinsics;
-mod line;
 mod literal;
 mod r#loop;
 mod module_import;

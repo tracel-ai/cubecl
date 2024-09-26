@@ -190,6 +190,7 @@ where
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Into<ExpandElementTyped<Self>> for Line<P> {
     fn into(self) -> ExpandElementTyped<Self> {
         let elem: ExpandElementTyped<P> = self.val.into();

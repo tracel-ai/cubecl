@@ -131,8 +131,8 @@ impl DebugLogger {
         };
         match option {
             DebugOptions::Debug => None,
-            DebugOptions::Profile(level) => Some(level.clone()),
-            DebugOptions::All(level) => Some(level.clone()),
+            DebugOptions::Profile(level) => Some(*level),
+            DebugOptions::All(level) => Some(*level),
         }
     }
 

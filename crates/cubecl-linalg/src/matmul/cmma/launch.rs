@@ -89,11 +89,11 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
 
     let available_vectorizations = R::supported_line_lengths();
     let lhs_vectorization =
-        tensor_line_length(&available_vectorizations, lhs.shape, lhs.strides, rank - 1);
+        tensor_line_length(available_vectorizations, lhs.shape, lhs.strides, rank - 1);
     let rhs_vectorization =
-        tensor_line_length(&available_vectorizations, rhs.shape, rhs.strides, rank - 1);
+        tensor_line_length(available_vectorizations, rhs.shape, rhs.strides, rank - 1);
     let out_vectorization =
-        tensor_line_length(&available_vectorizations, out.shape, out.strides, rank - 1);
+        tensor_line_length(available_vectorizations, out.shape, out.strides, rank - 1);
 
     unsafe {
         cmma_launch::launch_unchecked::<F, f16, R>(
