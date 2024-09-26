@@ -200,7 +200,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             KernelKind::Basic => launch_basic::<R>(&client, &input, &output, len),
             KernelKind::Subcube => launch_subgroup::<R>(&client, &input, &output, len),
             KernelKind::TraitSum => {
-                // When using trait, it's normaly a good idea to check if the variation can be
+                // When using trait, it's normally a good idea to check if the variation can be
                 // executed.
                 if client.features().enabled(cubecl::Feature::Subcube) {
                     launch_trait::<R, SumSubcube>(&client, &input, &output, len)
