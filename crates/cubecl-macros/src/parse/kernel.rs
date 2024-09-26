@@ -3,7 +3,7 @@ use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::TokenStream;
 use std::iter;
 use syn::{
-    parse_quote, punctuated::Punctuated, visit_mut::VisitMut, FnArg, Generics, Ident, ItemFn,
+    parse_quote, punctuated::Punctuated, visit_mut::VisitMut, Expr, FnArg, Generics, Ident, ItemFn,
     Signature, TraitItemFn, Type, Visibility,
 };
 
@@ -15,6 +15,7 @@ pub(crate) struct KernelArgs {
     pub launch_unchecked: Flag,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
+    pub local_allocator: Option<Expr>,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
