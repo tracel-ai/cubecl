@@ -1,5 +1,5 @@
 use quote::quote;
-use syn::{spanned::Spanned, ExprForLoop, ExprIf, ExprLoop, Ident};
+use syn::{spanned::Spanned, Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, Ident, Lit, Pat};
 
 use crate::{
     expression::{Block, Expression},
@@ -87,6 +87,71 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
         condition: Box::new(condition),
         then_block,
         else_branch,
+    })
+}
+
+pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression> {
+    fn parse_pat(pat: Pat) -> Option<Vec<Lit>> {
+        match pat {
+            Pat::Lit(lit) => Some(vec![lit.lit]),
+            Pat::Or(or) => {
+                let pats = or
+                    .cases
+                    .into_iter()
+                    .map(parse_pat)
+                    .collect::<Option<Vec<_>>>()?;
+                Some(pats.into_iter().flatten().collect())
+            }
+            Pat::Wild(_) => Some(vec![]),
+            _ => None,
+        }
+    }
+
+    fn parse_body(expr: Expr, context: &mut Context) -> Option<Block> {
+        match expr {
+            Expr::Block(block) => Block::from_block(block.block, context).ok(),
+            expr => {
+                let expr = Expression::from_expr(expr, context).ok()?;
+                Some(Block {
+                    ret: Some(Box::new(expr)),
+                    inner: vec![],
+                    ty: None,
+                })
+            }
+        }
+    }
+
+    let value = Box::new(Expression::from_expr(*mat.expr, context).ok()?);
+
+    let arms = mat
+        .arms
+        .into_iter()
+        .map(|arm| arm.guard.is_none().then_some(arm))
+        .collect::<Option<Vec<_>>>()?;
+
+    let mut switch_arms = Vec::new();
+    let mut default = None;
+
+    for arm in arms {
+        let pat = parse_pat(arm.pat)?;
+        if pat.is_empty() {
+            default = Some(arm.body)
+        } else {
+            switch_arms.extend(pat.into_iter().map(|lit| (lit, arm.body.clone())));
+        }
+    }
+
+    let default = parse_body(*default?, context)?;
+
+    let cases = switch_arms
+        .into_iter()
+        .map(|(lit, body)| Some((lit, parse_body(*body, context)?)))
+        .collect::<Option<Vec<_>>>()?;
+
+    Some(Expression::Switch {
+        value,
+        cases,
+        default,
     })
 }
 
