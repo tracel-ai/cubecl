@@ -8,6 +8,8 @@ pub enum Branch {
     If(If),
     /// An if else statement.
     IfElse(IfElse),
+    // A select statement/ternary
+    Select(Select),
     /// A switch statement
     Switch(Switch),
     /// A range loop.
@@ -33,6 +35,15 @@ pub struct IfElse {
     pub cond: Variable,
     pub scope_if: Scope,
     pub scope_else: Scope,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(missing_docs)]
+pub struct Select {
+    pub cond: Variable,
+    pub then: Variable,
+    pub or_else: Variable,
+    pub out: Variable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
