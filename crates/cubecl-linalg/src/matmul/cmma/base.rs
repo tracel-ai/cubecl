@@ -19,10 +19,10 @@ pub fn cmma_launch<F: Float, FC: Float>(
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
     match comptime_info.main_loop_strategy {
-        MainLoopStrategy::Standard(_) => {
+        MainLoopStrategy::Standard => {
             cmma_build_step_1::<StandardMainLoop, F, FC>(lhs, rhs, out, comptime_info)
         }
-        MainLoopStrategy::Split(_, _) => {
+        MainLoopStrategy::Split(_) => {
             cmma_build_step_1::<SplitMainLoop, F, FC>(lhs, rhs, out, comptime_info)
         }
     }

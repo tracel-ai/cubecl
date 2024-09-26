@@ -25,18 +25,17 @@ pub(crate) trait ComputeLoop {
 }
 
 #[cube]
-pub(crate) fn load_tile_into_fragment<FC: Float>(
+pub(crate) fn load_tile_into_fragment<FC: Float, I: LoadInfo>(
     nth_tile: u32,
     smem: SharedMemory<FC>,
     fragment: &cmma::Matrix<FC>,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) {
-    let tile_size = comptime_info.tile_size;
-    let smem_stride = tile_size * tile_size;
+    let smem_stride = I::num_tile_elements(comptime_info);
 
     let smem_pos = nth_tile * smem_stride;
     let slice = smem.slice(smem_pos, smem_pos + smem_stride);
-    cmma::load::<FC>(fragment, slice, 16);
+    cmma::load::<FC>(fragment, slice, I::tile_width(comptime_info));
 }
 
 #[cube]

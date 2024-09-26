@@ -42,10 +42,8 @@ pub(crate) fn get_tile_smem_index<I: LoadInfo, T: TilingOrder>(
     tile_col: u32,
     #[comptime] comptime_info: ComptimeCmmaInfo,
 ) -> u32 {
-    let tile_size = comptime_info.tile_size;
-
-    let smem_tile_width = I::smem_width(comptime_info) / tile_size;
-    let smem_tile_height = I::smem_height(comptime_info) / tile_size;
+    let smem_tile_width = I::smem_tile_width(comptime_info);
+    let smem_tile_height = I::smem_tile_height(comptime_info);
 
     T::to_nth_tile(tile_row, tile_col, smem_tile_width, smem_tile_height)
 }

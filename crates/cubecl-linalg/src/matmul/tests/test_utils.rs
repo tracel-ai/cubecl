@@ -1,10 +1,5 @@
 use bytemuck::cast_slice;
-use cubecl_core::{
-    client::ComputeClient,
-    ir::{Elem, FloatKind},
-    server::Handle,
-    CubeElement, Feature, Runtime,
-};
+use cubecl_core::{client::ComputeClient, server::Handle, CubeElement, Runtime};
 
 use crate::{
     matmul::tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig},
@@ -113,17 +108,6 @@ pub(crate) fn make_tiling2d_config(m: usize, k: usize, n: usize) -> CubeTiling2d
         ..Default::default()
     };
     CubeTiling2dConfig::new(&tiling2d_config, m, k, n, false, false)
-}
-
-pub(crate) fn cmma_available<R: Runtime>(device: &R::Device) -> bool {
-    R::client(device).features().enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
-        m: 16,
-        k: 16,
-        n: 16,
-    })
 }
 
 pub(crate) fn random_tensor<R: Runtime>(

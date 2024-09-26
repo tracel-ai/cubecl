@@ -15,15 +15,18 @@ pub(crate) fn make_fragments<F: Float, FC: Float>(
     #[comptime] config: ComptimeCmmaInfo,
 ) -> Fragments<F, FC> {
     let num_accumulators = config.num_accumulators;
+    let tile_size_m = config.tile_size_m;
+    let tile_size_n = config.tile_size_n;
+    let tile_size_k = config.tile_size_k;
     let mut accumulators = Sequence::<cmma::Matrix<F>>::new();
 
     #[unroll]
     for _ in 0..num_accumulators {
         let acc = cmma::Matrix::<F>::new(
             cmma::MatrixIdent::Accumulator,
-            16,
-            16,
-            16,
+            tile_size_m,
+            tile_size_n,
+            tile_size_k,
             cmma::MatrixLayout::Undefined,
         );
 
@@ -34,17 +37,17 @@ pub(crate) fn make_fragments<F: Float, FC: Float>(
 
     let lhs = cmma::Matrix::<FC>::new(
         cmma::MatrixIdent::A,
-        16,
-        16,
-        16,
+        tile_size_m,
+        tile_size_n,
+        tile_size_k,
         cmma::MatrixLayout::RowMajor,
     );
 
     let rhs = cmma::Matrix::<FC>::new(
         cmma::MatrixIdent::B,
-        16,
-        16,
-        16,
+        tile_size_m,
+        tile_size_n,
+        tile_size_k,
         cmma::MatrixLayout::RowMajor,
     );
 

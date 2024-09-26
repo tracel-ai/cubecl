@@ -34,7 +34,7 @@ pub(crate) struct RuntimeCmmaInfo {
 
 #[derive(CubeType, Copy, Clone)]
 pub(crate) struct Ids {
-    pub coop: u32,
+    pub plane: u32,
     pub lane: u32,
 }
 
