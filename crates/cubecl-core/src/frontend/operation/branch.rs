@@ -1,5 +1,12 @@
 use crate::prelude::CubePrimitive;
 
+/// Executes both branches, *then* selects a value based on the condition. This *should* be
+/// branchless, but might depend on the compiler.
+///
+/// # Safety
+///
+/// Since both branches are *evaluated* regardless of the condition, both branches must be *valid*
+/// regardless of the condition. Illegal memory accesses should not be done in either branch.
 pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
     if condition {
         then
