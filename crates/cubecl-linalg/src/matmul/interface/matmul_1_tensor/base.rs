@@ -25,3 +25,75 @@ pub trait TensorMatmul {
 
     fn execute(lhs: &Self::Input, rhs: &Self::Input, out: &mut Self::Output);
 }
+
+pub trait MatmulConfig {
+    fn init(cube_dim: (u32, u32, u32)) -> Self;
+}
+
+#[cube]
+pub trait BatchMatmul<N: Numeric> {
+    type Config;
+
+    fn execute(
+        lhs: &Tensor<Line<N>>,
+        rhs: &Tensor<Line<N>>,
+        out: &mut Tensor<Line<N>>,
+        #[comptime] config: Self::Config,
+    );
+}
+
+#[cube]
+pub trait Matmul<N: Numeric> {
+    type Config;
+
+    fn execute(
+        lhs: &Matrix<Line<N>>,
+        rhs: &Matrix<Line<N>>,
+        out: &mut MatrixMut<Line<N>>,
+        #[comptime] config: Self::Config,
+    );
+}
+
+#[cube]
+pub trait MultiplyAddAndAccumulate<N: Numeric> {
+    type Config;
+    type Accumulator: CubeType;
+
+    fn execute(
+        lhs: &Matrix<Line<N>>,
+        rhs: &Matrix<Line<N>>,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: &Self::Config,
+    );
+
+    fn acc_init_zeros(#[comptime] config: &Self::Config) -> Self::Accumulator;
+    fn acc_init(matrix: &Matrix<Line<N>>, #[comptime] config: &Self::Config) -> Self::Accumulator;
+    fn acc_read(
+        acc: &Self::Accumulator,
+        out: &mut Matrix<Line<N>>,
+        #[comptime] config: &Self::Config,
+    ) -> Self::Accumulator;
+}
+
+#[derive(CubeType)]
+pub struct Matrix<'b, N: CubePrimitive> {
+    pub slice: Slice<'b, N>,
+    pub strides: (u32, u32),
+    pub shape: (u32, u32),
+}
+
+#[derive(CubeType)]
+pub struct MatrixMut<'b, N: CubePrimitive> {
+    pub slice: SliceMut<'b, N>,
+    pub strides: (u32, u32),
+    pub shape: (u32, u32),
+}
+
+#[cube]
+pub fn allo<N: Numeric>(
+    lhs: &Matrix<Line<N>>,
+    rhs: &Matrix<Line<N>>,
+    out: &mut MatrixMut<Line<N>>,
+) {
+    out.slice[0] = lhs.slice[0] * rhs.slice[0];
+}

@@ -1,4 +1,5 @@
 use crate::frontend::{ExpandElementBaseInit, ExpandElementTyped, SizedContainer};
+use crate::prelude::IntoRuntime;
 use crate::{
     frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType, ExpandElement},
     ir::{Elem, Item, Metadata, Variable},
@@ -189,5 +190,11 @@ impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
     fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem
+    }
+}
+
+impl<E: CubePrimitive> IntoRuntime for Tensor<E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Array can't exist at compile time")
     }
 }

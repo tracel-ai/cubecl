@@ -4,6 +4,7 @@ use crate::frontend::{
     Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory,
     SizedContainer,
 };
+use crate::prelude::IntoRuntime;
 use crate::{
     frontend::indexation::Index,
     frontend::Tensor,
@@ -315,4 +316,16 @@ pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
     }));
 
     out
+}
+
+impl<'a, E: CubePrimitive> IntoRuntime for Slice<'a, E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Array can't exist at compile time")
+    }
+}
+
+impl<'a, E: CubePrimitive> IntoRuntime for SliceMut<'a, E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Array can't exist at compile time")
+    }
 }
