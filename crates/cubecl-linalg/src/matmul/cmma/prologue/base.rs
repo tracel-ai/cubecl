@@ -1,10 +1,28 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use super::super::block_loop::BlockLoop;
 use super::super::config::ComptimeCmmaInfo;
+use super::super::main_loop::CmmaMain;
 use super::dims::{get_dims, Dimensions};
 use super::offsets::{calculate_offsets, Offsets};
+
+use crate::matmul::cmma::prologue::{make_fragments, make_shared_memories};
+
+use super::super::prologue::{Fragments, SharedMemories};
+
+#[cube]
+pub(crate) fn prologue<D: CmmaMain, F: Float, FC: Float>(
+    lhs: &Tensor<F>,
+    rhs: &Tensor<F>,
+    out: &mut Tensor<F>,
+    #[comptime] comptime_info: ComptimeCmmaInfo,
+) -> (RuntimeCmmaInfo, Fragments<F, FC>, SharedMemories<FC>) {
+    let runtime_info = get_runtime_info::<F, D>(lhs, rhs, out, comptime_info);
+    let fragments = make_fragments::<F, FC>(comptime_info);
+    let shared_memories = make_shared_memories::<FC>(comptime_info);
+
+    (runtime_info, fragments, shared_memories)
+}
 
 #[derive(CubeType, Copy, Clone)]
 pub(crate) struct RuntimeCmmaInfo {
@@ -16,12 +34,12 @@ pub(crate) struct RuntimeCmmaInfo {
 
 #[derive(CubeType, Copy, Clone)]
 pub(crate) struct Ids {
-    pub coop: u32,
+    pub plane: u32,
     pub lane: u32,
 }
 
 #[cube]
-pub(crate) fn get_runtime_info<F: Float, D: BlockLoop>(
+pub(crate) fn get_runtime_info<F: Float, D: CmmaMain>(
     lhs: &Tensor<F>,
     rhs: &Tensor<F>,
     out: &mut Tensor<F>,

@@ -58,9 +58,9 @@ impl<T: CubePrimitive + Clone> Array<T> {
             .into()
     }
 
-    pub fn __expand_vectorized<S: Index>(
+    pub fn __expand_vectorized(
         context: &mut CubeContext,
-        size: S,
+        size: ExpandElementTyped<u32>,
         vectorization_factor: u32,
     ) -> <Self as CubeType>::ExpandType {
         let size = size.value();

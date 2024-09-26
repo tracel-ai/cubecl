@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::super::runtime_info::RuntimeCmmaInfo;
+use super::super::prologue::RuntimeCmmaInfo;
 
 use super::{
     super::config::ComptimeCmmaInfo,
@@ -19,17 +19,16 @@ impl OutputWriter for LargeSmemWriter {
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
         let num_accumulators = comptime_info.num_accumulators;
-        let tile_size = comptime_info.tile_size;
-        let num_compute_coops = comptime_info.num_compute_coops;
-        let coop_id = runtime_info.compute_ids.coop;
+        let num_compute_planes = comptime_info.num_compute_planes;
+        let plane_id = runtime_info.compute_ids.plane;
 
-        let smem_stride = tile_size * tile_size;
-        let smem_size = num_accumulators * num_compute_coops * smem_stride;
+        let smem_stride = comptime_info.tile_size_m * comptime_info.tile_size_n;
+        let smem_size = num_accumulators * num_compute_planes * smem_stride;
 
         let mut acc_sm = SharedMemory::<F>::new(smem_size);
 
-        let slice_offset = coop_id * num_accumulators * smem_stride;
-        let smem_position_base = num_accumulators * coop_id;
+        let slice_offset = plane_id * num_accumulators * smem_stride;
+        let smem_position_base = num_accumulators * plane_id;
 
         #[unroll]
         for n in 0..num_accumulators {
@@ -41,7 +40,7 @@ impl OutputWriter for LargeSmemWriter {
             cmma::store::<F>(
                 slice,
                 accumulators.index(n),
-                16,
+                comptime_info.tile_size_n,
                 cmma::MatrixLayout::RowMajor,
             );
         }
