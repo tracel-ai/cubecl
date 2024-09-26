@@ -64,7 +64,7 @@ impl Display for Item {
     }
 }
 
-pub trait Component: Display {
+pub trait Component: Display + FmtLeft {
     fn item(&self) -> Item;
     fn index(&self, index: usize) -> IndexedVariable;
     fn elem(&self) -> Elem {
@@ -199,7 +199,7 @@ impl Display for Variable {
                         write!(f, "{elem}({:?})", half::bf16::from_f64(*val))
                     }
                     gpu::FloatKind::F32 => write!(f, "{elem}({:?})", *val as f32),
-                    gpu::FloatKind::F64 => write!(f, "{elem}({:?})", { *val }),
+                    gpu::FloatKind::F64 => write!(f, "{elem}({:?})", *val),
                 },
                 ConstantScalarValue::UInt(val) => {
                     write!(f, "{elem}({})", *val as u32)
@@ -369,19 +369,33 @@ impl Variable {
             optimized: self.is_optimized(),
         }
     }
+}
 
-    pub fn fmt_left(&self) -> String {
+pub trait FmtLeft: Display {
+    fn fmt_left(&self) -> String;
+}
+
+impl FmtLeft for Variable {
+    fn fmt_left(&self) -> String {
         match self {
             Self::ConstLocal { item, .. } => format!("const {item} {self}"),
             var => format!("{var}"),
         }
     }
+}
 
-    pub fn fmt_cast_to(&self, item: Item) -> String {
-        match self.item() == item {
-            true => format!("{self}"),
-            false => format!("{item}({self})"),
+impl FmtLeft for IndexedVariable {
+    fn fmt_left(&self) -> String {
+        match self.var {
+            Variable::ConstLocal { item, .. } => format!("const {item} {self}"),
+            _ => format!("{self}"),
         }
+    }
+}
+
+impl FmtLeft for &String {
+    fn fmt_left(&self) -> String {
+        self.to_string()
     }
 }
 

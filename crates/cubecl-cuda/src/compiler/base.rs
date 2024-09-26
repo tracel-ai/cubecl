@@ -1,7 +1,7 @@
 use std::{collections::HashSet, num::NonZero};
 
 use cubecl_core::{
-    ir::{self as gpu, ConstantScalarValue, ReusingAllocator},
+    ir::{self as gpu, ConstantScalarValue, HybridAllocator},
     Compiler,
 };
 use cubecl_runtime::ExecutionMode;
@@ -50,7 +50,7 @@ impl Compiler for CudaCompiler {
     }
 
     fn local_allocator() -> impl gpu::LocalAllocator {
-        ReusingAllocator::default()
+        HybridAllocator::default()
     }
 }
 

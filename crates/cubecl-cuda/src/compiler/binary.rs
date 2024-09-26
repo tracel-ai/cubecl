@@ -1,4 +1,6 @@
-use super::{Component, Elem, Variable};
+use crate::compiler::FmtLeft;
+
+use super::{Component, Elem, Item, Variable};
 use std::fmt::{Display, Formatter};
 
 pub trait Binary {
@@ -8,19 +10,26 @@ pub trait Binary {
         rhs: &Variable,
         out: &Variable,
     ) -> std::fmt::Result {
-        Self::unroll_vec(f, lhs, rhs, out)
+        let out_item = out.item();
+        if out.item().vectorization == 1 {
+            let out = out.fmt_left();
+            write!(f, "{out} = ")?;
+            Self::format_scalar(f, *lhs, *rhs, out_item)?;
+            f.write_str(";\n")
+        } else {
+            Self::unroll_vec(f, lhs, rhs, out)
+        }
     }
 
-    fn format_scalar<Lhs, Rhs, Out>(
+    fn format_scalar<Lhs, Rhs>(
         f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
-        out: Out,
+        item: Item,
     ) -> std::fmt::Result
     where
         Lhs: Component,
-        Rhs: Component,
-        Out: Component;
+        Rhs: Component;
 
     fn unroll_vec(
         f: &mut Formatter<'_>,
@@ -30,10 +39,6 @@ pub trait Binary {
     ) -> core::fmt::Result {
         let item_out = out.item();
 
-        if item_out.vectorization == 1 {
-            return Self::format_scalar(f, *lhs, *rhs, *out);
-        }
-
         let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
         let [lhs, rhs, out] = optimized.args;
         let index = match optimized.optimization_factor {
@@ -41,15 +46,17 @@ pub trait Binary {
             None => item_out.vectorization,
         };
 
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {{")?;
         for i in 0..index {
             let lhsi = lhs.index(i);
             let rhsi = rhs.index(i);
-            let outi = out.index(i);
 
-            Self::format_scalar(f, lhsi, rhsi, outi)?;
+            Self::format_scalar(f, lhsi, rhsi, item_out)?;
+            f.write_str(", ")?;
         }
 
-        Ok(())
+        f.write_str("};\n")
     }
 }
 
@@ -58,13 +65,13 @@ macro_rules! operator {
         pub struct $name;
 
         impl Binary for $name {
-            fn format_scalar<Lhs: Display, Rhs: Display, Out: Display>(
+            fn format_scalar<Lhs: Display, Rhs: Display>(
                 f: &mut std::fmt::Formatter<'_>,
                 lhs: Lhs,
                 rhs: Rhs,
-                out: Out,
+                _item: Item,
             ) -> std::fmt::Result {
-                write!(f, "{out} = {lhs} {} {rhs};\n", $op)
+                write!(f, "{lhs} {} {rhs}", $op)
             }
         }
     };
@@ -75,13 +82,13 @@ macro_rules! function {
         pub struct $name;
 
         impl Binary for $name {
-            fn format_scalar<Lhs: Display, Rhs: Display, Out: Display>(
+            fn format_scalar<Lhs: Display, Rhs: Display>(
                 f: &mut std::fmt::Formatter<'_>,
                 lhs: Lhs,
                 rhs: Rhs,
-                out: Out,
+                _item: Item,
             ) -> std::fmt::Result {
-                write!(f, "{out} = {}({lhs}, {rhs});\n", $op)
+                write!(f, "{}({lhs}, {rhs})", $op)
             }
         }
     };
@@ -114,32 +121,27 @@ pub struct IndexAssign;
 pub struct Index;
 
 impl Binary for IndexAssign {
-    fn format_scalar<Lhs, Rhs, Out>(
+    fn format_scalar<Lhs, Rhs>(
         f: &mut Formatter<'_>,
-        lhs: Lhs,
+        _lhs: Lhs,
         rhs: Rhs,
-        out: Out,
+        item_out: Item,
     ) -> std::fmt::Result
     where
         Lhs: Component,
         Rhs: Component,
-        Out: Component,
     {
-        let item_out = out.item();
         let item_rhs = rhs.item();
 
         let format_vec = |f: &mut Formatter<'_>, cast: bool| {
             f.write_str("{\n")?;
-            let var = "broadcasted";
-            writeln!(f, "{item_out} {var};")?;
             for i in 0..item_out.vectorization {
                 if cast {
-                    writeln!(f, "{var}.i_{i} = {}({});", item_out.elem, rhs.index(i))?;
+                    writeln!(f, "{}({}),", item_out.elem, rhs.index(i))?;
                 } else {
-                    writeln!(f, "{var}.i_{i} = {};", rhs.index(i))?;
+                    writeln!(f, "{},", rhs.index(i))?;
                 }
             }
-            writeln!(f, "{out}[{lhs}] = {var};")?;
             f.write_str("}")?;
 
             Ok(())
@@ -151,11 +153,11 @@ impl Binary for IndexAssign {
             if item_out.vectorization > 1 {
                 format_vec(f, true)?;
             } else {
-                writeln!(f, "{out}[{lhs}] = {}({rhs});", item_out.elem)?;
+                write!(f, "{}({rhs})", item_out.elem)?;
             }
             Ok(())
         } else {
-            writeln!(f, "{out}[{lhs}] = {rhs};")
+            write!(f, "{rhs}")
         }
     }
 
@@ -166,15 +168,15 @@ impl Binary for IndexAssign {
         out: &Variable,
     ) -> std::fmt::Result {
         let item_lhs = lhs.item();
-
-        if item_lhs.vectorization == 1 {
-            return Self::format_scalar(f, *lhs, *rhs, *out);
-        }
+        let out_item = out.item();
+        let out = out.fmt_left();
 
         for i in 0..item_lhs.vectorization {
             let lhsi = lhs.index(i);
             let rhsi = rhs.index(i);
-            Self::format_scalar(f, lhsi, rhsi, *out)?;
+            write!(f, "{out}[{lhs}] = ")?;
+            Self::format_scalar(f, lhsi, rhsi, out_item)?;
+            f.write_str(";\n")?;
         }
 
         Ok(())
@@ -186,16 +188,19 @@ impl Binary for IndexAssign {
         rhs: &Variable,
         out: &Variable,
     ) -> std::fmt::Result {
-        if let Variable::Local {
-            id: _,
-            item: _,
-            depth: _,
-        } = out
-        {
+        if matches!(out, Variable::Local { .. } | Variable::ConstLocal { .. }) {
             return IndexAssignVector::format(f, lhs, rhs, out);
         };
 
-        Self::unroll_vec(f, lhs, rhs, out)
+        let out_item = out.item();
+
+        if lhs.item().vectorization == 1 {
+            write!(f, "{}[{lhs}] = ", out.fmt_left())?;
+            Self::format_scalar(f, *lhs, *rhs, out_item)?;
+            f.write_str(";\n")
+        } else {
+            Self::unroll_vec(f, lhs, rhs, out)
+        }
     }
 }
 
@@ -206,40 +211,38 @@ impl Binary for Index {
         rhs: &Variable,
         out: &Variable,
     ) -> std::fmt::Result {
-        if let Variable::Local {
-            id: _,
-            item: _,
-            depth: _,
-        } = lhs
-        {
+        if matches!(lhs, Variable::Local { .. } | Variable::ConstLocal { .. }) {
             return IndexVector::format(f, lhs, rhs, out);
         }
 
-        Self::format_scalar(f, *lhs, *rhs, *out)
+        let item_out = out.item();
+        if let Elem::Atomic(inner) = item_out.elem {
+            write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
+        } else {
+            let out = out.fmt_left();
+            write!(f, "{out} = ")?;
+            Self::format_scalar(f, *lhs, *rhs, item_out)?;
+            f.write_str(";\n")
+        }
     }
 
-    fn format_scalar<Lhs, Rhs, Out>(
+    fn format_scalar<Lhs, Rhs>(
         f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
-        out: Out,
+        item_out: Item,
     ) -> std::fmt::Result
     where
         Lhs: Component,
         Rhs: Component,
-        Out: Component,
     {
-        let item_out = out.item();
         let item_lhs = lhs.item();
 
         let format_vec = |f: &mut Formatter<'_>| {
             f.write_str("{\n")?;
-            let var = "broadcasted";
-            writeln!(f, "{item_out} {var};")?;
             for i in 0..item_out.vectorization {
-                writeln!(f, "{var}.i_{i} = {}({lhs}[{rhs}].i_{i});", item_out.elem)?;
+                write!(f, "{}({lhs}[{rhs}].i_{i}),", item_out.elem)?;
             }
-            writeln!(f, "{out} = {var};")?;
             f.write_str("}")?;
 
             Ok(())
@@ -247,15 +250,12 @@ impl Binary for Index {
 
         if item_out.elem != item_lhs.elem {
             if item_out.vectorization > 1 {
-                format_vec(f)?;
+                format_vec(f)
             } else {
-                writeln!(f, "{out} = {}({lhs}[{rhs}]);", item_out.elem)?;
+                write!(f, "{}({lhs}[{rhs}])", item_out.elem)
             }
-            Ok(())
-        } else if let Elem::Atomic(inner) = item_out.elem {
-            writeln!(f, "{inner}* {out} = &{lhs}[{rhs}];")
         } else {
-            writeln!(f, "{out} = {lhs}[{rhs}];")
+            write!(f, "{lhs}[{rhs}];")
         }
     }
 }
@@ -294,6 +294,7 @@ impl IndexVector {
             Variable::ConstantScalar(value, _elem) => value.as_usize(),
             _ => {
                 let elem = out.elem();
+                let out = out.fmt_left();
                 return writeln!(f, "{out} = *(({elem}*)&{lhs} + {rhs});");
             }
         };
@@ -301,6 +302,7 @@ impl IndexVector {
         let out = out.index(index);
         let lhs = lhs.index(index);
 
+        let out = out.fmt_left();
         writeln!(f, "{out} = {lhs};")
     }
 }

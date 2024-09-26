@@ -1,3 +1,5 @@
+use crate::compiler::FmtLeft;
+
 use super::{binary::*, unary::*, Component, Elem, Variable, WarpInstruction, WmmaInstruction};
 use std::fmt::Display;
 
@@ -156,11 +158,7 @@ impl Display for Instruction {
             Instruction::Return => f.write_str("return;"),
             Instruction::Break => f.write_str("break;"),
             Instruction::DeclareVariable { var } => match var {
-                Variable::WmmaFragment {
-                    id: _,
-                    frag,
-                    depth: _,
-                } => writeln!(f, "{frag} {var};"),
+                Variable::WmmaFragment { frag, .. } => writeln!(f, "{frag} {var};"),
                 _ => {
                     let item = var.item();
                     writeln!(f, "{item} {var};")
@@ -174,7 +172,7 @@ impl Display for Instruction {
                 out,
             } => {
                 let item = out.item();
-                writeln!(f, "uint {out}_length = {end} - {start};")?;
+                writeln!(f, "const uint {out}_length = {end} - {start};")?;
                 writeln!(f, "{item} *{out} = {input} + {start};")
             }
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
@@ -268,12 +266,13 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 f.write_str("}\n}\n")
             }
             Instruction::Stride { dim, position, out } => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = info[({position} * rank_2) + {dim} + 1];")
             }
-            Instruction::Shape { dim, position, out } => writeln!(
-                f,
-                "{out} = info[({position} * rank_2) + rank + {dim} + 1];"
-            ),
+            Instruction::Shape { dim, position, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = info[({position} * rank_2) + rank + {dim} + 1];")
+            }
             Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Lower(it) => Lower::format(f, &it.lhs, &it.rhs, &it.out),
@@ -307,6 +306,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),
             Instruction::Floor(it) => Floor::format(f, &it.input, &it.out),
             Instruction::SliceLength { input, out } => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = {input}_length;")
             }
             Instruction::Length {
@@ -322,6 +322,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     _ => panic!("Can only know the len of a global array."),
                 } + 1;
                 let factor = input.item().vectorization;
+                let out = out.fmt_left();
 
                 if factor == 1 {
                     return writeln!(f, "{out} = info[({offset} * 2 * info[0]) + {index}];");
@@ -336,7 +337,9 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
             Instruction::Wmma(it) => write!(f, "{it}"),
             Instruction::Bitcast(UnaryInstruction { input, out }) => {
-                match (input.elem(), out.elem()) {
+                let out_elem = out.elem();
+                let out = out.fmt_left();
+                match (input.elem(), out_elem) {
                     (Elem::F32, Elem::I32) => {
                         writeln!(f, "{out} = __float_as_int({input});")
                     }
@@ -381,39 +384,53 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 cmp,
                 val,
                 out,
-            } => writeln!(f, "{out} = atomicCAS({input}, {cmp}, {val});"),
+            } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = atomicCAS({input}, {cmp}, {val});")
+            }
             Instruction::AtomicSwap(BinaryInstruction { lhs, rhs, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = atomicExch({lhs}, {rhs});")
             }
             Instruction::AtomicAdd(BinaryInstruction { lhs, rhs, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = atomicAdd({lhs}, {rhs});")
             }
             Instruction::AtomicSub(BinaryInstruction { lhs, rhs, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = atomicSub({lhs}, {rhs});")
             }
             Instruction::AtomicMax(BinaryInstruction { lhs, rhs, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = atomicMax({lhs}, {rhs});")
             }
             Instruction::AtomicMin(BinaryInstruction { lhs, rhs, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = atomicMin({lhs}, {rhs});")
             }
             Instruction::AtomicAnd(BinaryInstruction { lhs, rhs, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = atomicAnd({lhs}, {rhs});")
             }
             Instruction::AtomicOr(BinaryInstruction { lhs, rhs, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = atomicOr({lhs}, {rhs});")
             }
             Instruction::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = atomicXor({lhs}, {rhs});")
             }
             Instruction::AtomicLoad(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = atomicAdd({input}, 0);")
             }
             Instruction::AtomicStore(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "atomicExch({out}, {input});")
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::Negate(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
                 writeln!(f, "{out} = !{input};")
             }
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
@@ -435,16 +452,21 @@ impl Fma {
     ) -> core::fmt::Result {
         let num = out.item().vectorization;
 
-        for i in 0..num {
-            let ai = a.index(i);
-            let bi = b.index(i);
-            let ci = c.index(i);
-            let outi = out.index(i);
+        let out = out.fmt_left();
+        if num == 1 {
+            writeln!(f, "{out} = fma({a}, {b}, {c});")
+        } else {
+            writeln!(f, "{out} = {{")?;
 
-            writeln!(f, "{outi} = fma({ai}, {bi}, {ci});")?;
+            for i in 0..num {
+                let ai = a.index(i);
+                let bi = b.index(i);
+                let ci = c.index(i);
+
+                writeln!(f, "fma({ai}, {bi}, {ci}),")?;
+            }
+            f.write_str("};\n")
         }
-
-        Ok(())
     }
 }
 
@@ -464,16 +486,21 @@ impl Clamp {
         let out = out.optimized();
         let num = out.item().vectorization;
 
-        for i in 0..num {
-            let inputi = input.index(i);
-            let mini = min_value.index(i);
-            let maxi = max_value.index(i);
-            let outi = out.index(i);
+        let out = out.fmt_left();
+        if num == 1 {
+            writeln!(f, "{out} = max({min_value}, min({max_value}, {input}));")
+        } else {
+            writeln!(f, "{out} = {{")?;
+            for i in 0..num {
+                let inputi = input.index(i);
+                let mini = min_value.index(i);
+                let maxi = max_value.index(i);
 
-            writeln!(f, "{outi} = max({mini}, min({maxi}, {inputi}));")?;
+                writeln!(f, "max({mini}, min({maxi}, {inputi})),")?;
+            }
+
+            f.write_str("};\n")
         }
-
-        Ok(())
     }
 }
 
@@ -491,15 +518,19 @@ impl Remainder {
         let out = out.optimized();
         let num = out.item().vectorization;
 
-        for i in 0..num {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
-            let outi = out.index(i);
+        let out = out.fmt_left();
+        if num == 1 {
+            writeln!(f, "{out} = {lhs} - {rhs} * floor({lhs} / {rhs});")
+        } else {
+            writeln!(f, "{out} = {{")?;
+            for i in 0..num {
+                let lhsi = lhs.index(i);
+                let rhsi = rhs.index(i);
 
-            writeln!(f, "{outi} = {lhsi} - {rhsi} * floor({lhsi} / {rhsi});")?;
+                writeln!(f, "{lhsi} - {rhsi} * floor({lhsi} / {rhsi}),")?;
+            }
+            f.write_str("};\n")
         }
-
-        Ok(())
     }
 }
 
@@ -521,7 +552,9 @@ impl Magnitude {
             writeln!(f, "{out} += {input_i} * {input_i};")?;
         }
 
-        Sqrt::format_unary(f, out, out, elem)
+        write!(f, "{out} = ")?;
+        Sqrt::format_unary(f, out, elem)?;
+        f.write_str(";\n")
     }
 }
 
@@ -537,7 +570,8 @@ impl Normalize {
         let elem = input.elem();
         let norm = format!("{out}_norm");
 
-        writeln!(f, "{{")?;
+        let out = out.fmt_left();
+        write!(f, "{out} = {{")?;
         writeln!(f, "{elem} {norm} = 0.0;")?;
 
         for i in 0..num {
@@ -545,16 +579,22 @@ impl Normalize {
             writeln!(f, "{norm} += {input_i} * {input_i};")?;
         }
 
-        Sqrt::format_unary(f, &norm, &norm, elem)?;
+        write!(f, "{norm} = ")?;
+        Sqrt::format_unary(f, &norm, elem)?;
+        f.write_str(";\n")?;
 
-        for i in 0..num {
-            let input_i = input.index(i);
-            let output_i = out.index(i);
+        if num == 1 {
+            write!(f, "{norm}\n}};")
+        } else {
+            f.write_str("{")?;
+            for i in 0..num {
+                let input_i = input.index(i);
 
-            writeln!(f, "{output_i} = {input_i} / {norm};")?;
+                writeln!(f, "{input_i} / {norm},")?;
+            }
+
+            f.write_str("}\n};\n")
         }
-
-        writeln!(f, "}}")
     }
 }
 
@@ -569,13 +609,15 @@ impl Dot {
     ) -> core::fmt::Result {
         let num = lhs.item().vectorization;
 
-        writeln!(f, "{out} = 0.0;")?;
+        let muls = (0..num)
+            .map(|i| {
+                let lhs_i = lhs.index(i);
+                let rhs_i = rhs.index(i);
+                format!("{lhs_i} * {rhs_i}")
+            })
+            .collect::<Vec<_>>();
 
-        for i in 0..num {
-            let lhs_i = lhs.index(i);
-            let rhs_i = rhs.index(i);
-            writeln!(f, "{out} += {lhs_i} * {rhs_i};")?;
-        }
-        Ok(())
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {};", muls.join(" + "))
     }
 }

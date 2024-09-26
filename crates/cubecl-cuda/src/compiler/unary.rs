@@ -1,4 +1,4 @@
-use super::{Component, Elem, Variable};
+use super::{Component, Elem, FmtLeft, Variable};
 use std::fmt::Display;
 
 pub trait Unary {
@@ -9,18 +9,20 @@ pub trait Unary {
     ) -> std::fmt::Result {
         let item = out.item();
 
-        Self::unroll_vec(f, input, out, item.elem, item.vectorization)
+        if item.vectorization == 1 {
+            write!(f, "{} = ", out.fmt_left())?;
+            Self::format_scalar(f, *input, item.elem)?;
+            f.write_str(";\n")
+        } else {
+            Self::unroll_vec(f, input, out, item.elem, item.vectorization)
+        }
     }
 
-    fn format_scalar<Input, Out>(
+    fn format_scalar<Input: Component>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        out: Out,
         elem: Elem,
-    ) -> std::fmt::Result
-    where
-        Input: Component,
-        Out: Component;
+    ) -> std::fmt::Result;
 
     fn unroll_vec(
         f: &mut std::fmt::Formatter<'_>,
@@ -36,14 +38,17 @@ pub trait Unary {
             None => (index, elem),
         };
 
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {{")?;
+
         for i in 0..index {
             let inputi = input.index(i);
-            let outi = out.index(i);
 
-            Self::format_scalar(f, inputi, outi, elem)?;
+            Self::format_scalar(f, inputi, elem)?;
+            f.write_str(",")?;
         }
 
-        Ok(())
+        f.write_str("};\n")
     }
 }
 
@@ -56,13 +61,12 @@ pub trait FunctionFmt {
             _ => Self::base_function_name().into(),
         }
     }
-    fn format_unary<Input: Display, Output: Display>(
+    fn format_unary<Input: Display>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        out: Output,
         elem: Elem,
     ) -> std::fmt::Result {
-        writeln!(f, "{out} = {}({input});", Self::function_name(elem))
+        write!(f, "{}({input})", Self::function_name(elem))
     }
 }
 
@@ -77,13 +81,12 @@ macro_rules! function {
         }
 
         impl Unary for $name {
-            fn format_scalar<Input: Display, Out: Display>(
+            fn format_scalar<Input: Display>(
                 f: &mut std::fmt::Formatter<'_>,
                 input: Input,
-                out: Out,
                 elem: Elem,
             ) -> std::fmt::Result {
-                Self::format_unary(f, input, out, elem)
+                Self::format_unary(f, input, elem)
             }
         }
     };
@@ -105,38 +108,50 @@ function!(Round, "rint");
 pub struct Not;
 
 impl Unary for Not {
-    fn format_scalar<Input, Out>(
+    fn format_scalar<Input>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        out: Out,
         _elem: Elem,
     ) -> std::fmt::Result
     where
         Input: Component,
-        Out: Component,
     {
-        writeln!(f, "{out} = !{input};")
+        write!(f, "!{input}")
     }
 }
 
 pub struct Assign;
 
 impl Unary for Assign {
-    fn format_scalar<Input, Out>(
+    fn format(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable,
+        out: &Variable,
+    ) -> std::fmt::Result {
+        let item = out.item();
+
+        if item.vectorization == 1 || input.item() == item {
+            write!(f, "{} = ", out.fmt_left())?;
+            Self::format_scalar(f, *input, item.elem)?;
+            f.write_str(";\n")
+        } else {
+            Self::unroll_vec(f, input, out, item.elem, item.vectorization)
+        }
+    }
+
+    fn format_scalar<Input>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        out: Out,
         elem: Elem,
     ) -> std::fmt::Result
     where
         Input: Component,
-        Out: Component,
     {
         // Cast only when necessary.
         if elem != input.elem() {
-            writeln!(f, "{out} = {elem}({input});")
+            write!(f, "{elem}({input})")
         } else {
-            writeln!(f, "{out} = {input};")
+            write!(f, "{input}")
         }
     }
 }
