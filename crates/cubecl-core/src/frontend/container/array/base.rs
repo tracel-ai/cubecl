@@ -86,6 +86,8 @@ mod new {
 }
 
 /// Module that contains the implementation details of vectorization functions.
+///
+/// TODO: Remove vectorization in favor of the line API.
 mod vectorization {
     use super::*;
 

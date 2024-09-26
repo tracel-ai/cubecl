@@ -9,7 +9,11 @@ fn gelu_array<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
 
 #[cube]
 fn gelu_scalar<F: Float>(x: Line<F>) -> Line<F> {
-    x * (Line::erf(x / Line::cast_from(2.0f32.sqrt())) + 1.0) / 2.0
+    // Execute the sqrt function at comptime.
+    let sqrt2 = F::new(comptime!(2.0f32.sqrt()));
+    let tmp = x / Line::new(sqrt2);
+
+    x * (Line::erf(tmp) + 1.0) / 2.0
 }
 
 pub fn launch<R: Runtime>(device: &R::Device) {

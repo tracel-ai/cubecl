@@ -91,7 +91,7 @@ impl Runtime for CudaRuntime {
         true
     }
 
-    fn supported_line_lengths() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [u8] {
         &[8, 4, 2]
     }
 }

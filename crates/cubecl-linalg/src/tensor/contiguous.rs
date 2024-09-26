@@ -1,6 +1,6 @@
 use super::TensorHandle;
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_length};
+use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_size};
 
 /// Returns the offset of the tensor corresponding to the layout tensor.
 #[cube]
@@ -55,8 +55,8 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
 ) -> TensorHandle<R, E> {
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
-    let vectorization_factor = tensor_line_length(
-        R::supported_line_lengths(),
+    let vectorization_factor = tensor_line_size(
+        R::supported_line_sizes(),
         input.shape,
         input.strides,
         rank - 1,

@@ -72,7 +72,7 @@ mod fill {
     impl<P: CubePrimitive> ExpandElementTyped<Line<P>> {
         /// Expand method of [fill](Line::fill).
         pub fn __expand_fill_method(
-            &self,
+            self,
             context: &mut CubeContext,
             value: ExpandElementTyped<P>,
         ) -> Self {

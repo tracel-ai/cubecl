@@ -138,7 +138,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
 
         #[unroll(unroll)]
         for i in 0u32..tile_size / vectorization_factor {
-            if is_scalar {
+            if comptime!(is_scalar) {
                 vector[i] = tensor[gm_position + i][0];
             } else {
                 let intermediate = tensor[gm_position + i];
@@ -174,7 +174,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
         }
 
         for i in 0..num_loops {
-            if is_scalar {
+            if comptime!(is_scalar) {
                 vector[i] = tensor[gm_position + i][0];
             } else {
                 let intermediate = tensor[gm_position + i];
@@ -202,10 +202,10 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
 
         #[unroll(unroll)]
         for i in 0..tile_size / vectorization_factor {
-            if is_scalar {
+            if comptime!(is_scalar) {
                 out[i + positions.out] = Line::new(results[positions.result + i]);
             } else {
-                let mut output_elem = F::vectorized_empty(vectorization_factor);
+                let mut output_elem = Line::empty(vectorization_factor);
 
                 #[unroll(unroll)]
                 for j in 0..vectorization_factor {
@@ -213,7 +213,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
                     output_elem[j] = results[positions.result + index];
                 }
 
-                out[i + positions.out / vectorization_factor] = Line::new(output_elem);
+                out[i + positions.out / vectorization_factor] = output_elem;
             }
         }
     }
@@ -239,10 +239,10 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
         for i in 0..num_loops {
             let unroll = config.unroll_tile;
 
-            if is_scalar {
+            if comptime!(is_scalar) {
                 out[i + positions.out] = Line::new(results[positions.result + i]);
             } else {
-                let mut output_elem = F::vectorized_empty(vectorization_factor);
+                let mut output_elem = Line::empty(vectorization_factor);
 
                 #[unroll(unroll)]
                 for j in 0u32..vectorization_factor {
@@ -250,7 +250,7 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
                     output_elem[j] = results[positions.result + index];
                 }
 
-                out[i + positions.out / vectorization_factor] = Line::new(output_elem);
+                out[i + positions.out / vectorization_factor] = output_elem;
             }
         }
     }
@@ -288,10 +288,11 @@ impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
         let tile_size = config.tile_size;
 
         let mut vertical = Line::empty(tile_size);
-
         let mut num_reads = 0;
+
         let row = check_bounds.skip_row + info.read_row;
         let dim_vertical = check_bounds.dim_vertical;
+
         if dim_vertical > row {
             num_reads = Min::min(dim_vertical - row, tile_size);
         }
@@ -299,6 +300,7 @@ impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
         for i in 0..num_reads {
             vertical[i] = tensor[gm_position + i * gm_stride][0];
         }
+
         for i in num_reads..tile_size {
             vertical[i] = F::new(0.);
         }

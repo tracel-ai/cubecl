@@ -69,7 +69,7 @@ impl Runtime for WgpuRuntime {
         "wgpu"
     }
 
-    fn supported_line_lengths() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [u8] {
         &[4, 2]
     }
 }
