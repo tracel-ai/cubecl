@@ -21,7 +21,7 @@ pub(crate) struct WriteTileInfo {
 #[cube]
 pub(crate) trait OutputWriter<F: Float>: Sync + Send + 'static {
     fn write_output<B: BlockWriter<F>>(
-        out: &mut Tensor<F>,
+        out: &mut Tensor<Line<F>>,
         results: &Array<F>,
         write_tile_info: WriteTileInfo,
         dims: Dimensions,
@@ -31,7 +31,7 @@ pub(crate) trait OutputWriter<F: Float>: Sync + Send + 'static {
 
 #[cube]
 pub(crate) fn write_to_output<F: Float, W: OutputWriter<F>>(
-    out: &mut Tensor<F>,
+    out: &mut Tensor<Line<F>>,
     results: &Array<F>,
     coordinates: Coordinates,
     offset_output: u32,

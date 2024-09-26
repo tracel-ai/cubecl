@@ -1,11 +1,12 @@
 use std::marker::PhantomData;
 
-use super::{
+use crate::frontend::{
     Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory,
-    SizedContainer, Tensor,
+    SizedContainer,
 };
 use crate::{
     frontend::indexation::Index,
+    frontend::Tensor,
     ir::{self, Operator},
     prelude::CubeContext,
     unexpanded,
@@ -47,6 +48,14 @@ impl<'a, C: CubeType> Init for ExpandElementTyped<Slice<'a, C>> {
     fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
         // The type can't be deeply cloned/copied.
         self
+    }
+}
+
+impl<'a, C: CubeType> ExpandElementTyped<Slice<'a, C>> {
+    // Expand method of [len](Slice::len).
+    pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
+        elem.__expand_len_method(context)
     }
 }
 

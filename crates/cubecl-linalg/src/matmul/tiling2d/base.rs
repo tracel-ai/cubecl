@@ -9,9 +9,9 @@ pub(crate) const TILE_SIZE: usize = 4;
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
 pub fn tiling2d_cube_kernel<F: Float>(
-    lhs: &Tensor<F>,
-    rhs: &Tensor<F>,
-    out: &mut Tensor<F>,
+    lhs: &Tensor<Line<F>>,
+    rhs: &Tensor<Line<F>>,
+    out: &mut Tensor<Line<F>>,
     #[comptime] config: CubeTiling2dConfig,
 ) {
     let dims = get_dims::<F>(lhs, rhs);
@@ -41,8 +41,8 @@ pub(crate) struct Dimensions {
 
 #[derive(CubeType, Copy, Clone)]
 pub(crate) struct SharedMemories<F: Float> {
-    pub lhs: SharedMemory<F>,
-    pub rhs: SharedMemory<F>,
+    pub lhs: SharedMemory<Line<F>>,
+    pub rhs: SharedMemory<Line<F>>,
 }
 
 #[derive(CubeType, Copy, Clone)]
@@ -63,7 +63,7 @@ pub(crate) struct Coordinates {
 }
 
 #[cube]
-fn get_dims<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>) -> Dimensions {
+fn get_dims<F: Float>(lhs: &Tensor<Line<F>>, rhs: &Tensor<Line<F>>) -> Dimensions {
     let rank = lhs.rank();
     let first_dim = rank - 2;
     let second_dim = rank - 1;
@@ -106,9 +106,9 @@ fn calculate_coordinates(
 #[cube]
 #[allow(unused_mut)]
 fn calculate_batch_offsets<F: Float>(
-    lhs: &Tensor<F>,
-    rhs: &Tensor<F>,
-    out: &Tensor<F>,
+    lhs: &Tensor<Line<F>>,
+    rhs: &Tensor<Line<F>>,
+    out: &Tensor<Line<F>>,
     batch_number: u32,
 ) -> BatchOffsets {
     let rank = out.rank();
@@ -142,8 +142,8 @@ fn make_shared_memories<F: Float>(#[comptime] config: CubeTiling2dConfig) -> Sha
     let block_size_k = config.block_size_k;
     let block_size_n = config.block_size_n;
 
-    let lhs = SharedMemory::<F>::vectorized(block_size_k * block_size_m / tile_size, tile_size);
-    let rhs = SharedMemory::<F>::vectorized(block_size_k * block_size_n / tile_size, tile_size);
+    let lhs = SharedMemory::<F>::new_lined(block_size_k * block_size_m / tile_size, tile_size);
+    let rhs = SharedMemory::<F>::new_lined(block_size_k * block_size_n / tile_size, tile_size);
 
     SharedMemories::<F> { lhs, rhs }
 }

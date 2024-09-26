@@ -1,4 +1,3 @@
-mod array;
 mod atomic;
 mod base;
 mod bool;
@@ -7,12 +6,9 @@ mod cube_elem;
 mod float;
 mod int;
 mod numeric;
-mod shared_memory;
-mod slice;
-mod tensor;
 mod uint;
 mod vectorized;
-pub use array::*;
+
 pub use atomic::*;
 pub use base::*;
 pub use bool::*;
@@ -21,7 +17,4 @@ pub use cube_elem::*;
 pub use float::*;
 pub use int::*;
 pub use numeric::*;
-pub use shared_memory::*;
-pub use slice::*;
-pub use tensor::*;
 pub use vectorized::*;

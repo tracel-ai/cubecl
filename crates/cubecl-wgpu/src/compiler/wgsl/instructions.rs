@@ -909,6 +909,12 @@ fn index(
     out: &Variable,
     offset: Option<Variable>,
 ) -> core::fmt::Result {
+    let is_scalar = match lhs {
+        Variable::Local { item, .. } => item.vectorization_factor() == 1,
+        Variable::LocalBinding { item, .. } => item.vectorization_factor() == 1,
+        _ => false,
+    };
+
     if out.item().elem().is_atomic() {
         match offset {
             Some(offset) => writeln!(f, "let {out} = &{lhs}[{rhs} + {offset}];"),
@@ -925,15 +931,26 @@ fn index(
                 writeln!(f, "{out} = {value};")
             }
             None => {
-                let value = lhs.item().fmt_cast_to(item, format!("{lhs}[{rhs}]"));
-                writeln!(f, "{out} = {value};")
+                if is_scalar {
+                    let value = lhs.item().fmt_cast_to(item, format!("{lhs}"));
+                    writeln!(f, "{out} = {value};")
+                } else {
+                    let value = lhs.item().fmt_cast_to(item, format!("{lhs}[{rhs}]"));
+                    writeln!(f, "{out} = {value};")
+                }
             }
         }
     } else {
         let out = out.fmt_left();
         match offset {
             Some(offset) => writeln!(f, "{out} = {lhs}[{rhs} + {offset}];"),
-            None => writeln!(f, "{out} = {lhs}[{rhs}];"),
+            None => {
+                if is_scalar {
+                    writeln!(f, "{out} = {lhs};")
+                } else {
+                    writeln!(f, "{out} = {lhs}[{rhs}];")
+                }
+            }
         }
     }
 }

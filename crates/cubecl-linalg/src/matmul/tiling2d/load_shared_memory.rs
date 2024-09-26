@@ -17,29 +17,29 @@ pub(crate) struct LoadInfo<F: Float> {
     pub coordinates: Coordinates,
     pub k: u32,
     pub batch_offset: u32,
-    pub shared_memory: SharedMemory<F>,
+    pub shared_memory: SharedMemory<Line<F>>,
     pub dims: Dimensions,
 }
 
 #[cube]
 pub(crate) trait Loader<F: Float>: Sync + Send + 'static {
     fn load_lhs_plain<B: BlockLoader<F>>(
-        lhs: &Tensor<F>,
+        lhs: &Tensor<Line<F>>,
         load_info: LoadInfo<F>,
         #[comptime] config: CubeTiling2dConfig,
     );
     fn load_lhs_transposed<B: BlockLoader<F>>(
-        lhs: &Tensor<F>,
+        lhs: &Tensor<Line<F>>,
         load_info: LoadInfo<F>,
         #[comptime] config: CubeTiling2dConfig,
     );
     fn load_rhs_plain<B: BlockLoader<F>>(
-        rhs: &Tensor<F>,
+        rhs: &Tensor<Line<F>>,
         load_info: LoadInfo<F>,
         #[comptime] config: CubeTiling2dConfig,
     );
     fn load_rhs_transposed<B: BlockLoader<F>>(
-        rhs: &Tensor<F>,
+        rhs: &Tensor<Line<F>>,
         load_info: LoadInfo<F>,
         #[comptime] config: CubeTiling2dConfig,
     );
@@ -47,8 +47,8 @@ pub(crate) trait Loader<F: Float>: Sync + Send + 'static {
 
 #[cube]
 pub(crate) fn load_to_shared_memories<F: Float, L: Loader<F>>(
-    lhs: &Tensor<F>,
-    rhs: &Tensor<F>,
+    lhs: &Tensor<Line<F>>,
+    rhs: &Tensor<Line<F>>,
     coordinates: Coordinates,
     k: u32,
     offsets: BatchOffsets,
@@ -91,7 +91,7 @@ pub(crate) fn load_to_shared_memories<F: Float, L: Loader<F>>(
 
 #[cube]
 pub(crate) fn load_lhs_transposed<F: Float, L: Loader<F>>(
-    lhs: &Tensor<F>,
+    lhs: &Tensor<Line<F>>,
     load_info: LoadInfo<F>,
     #[comptime] config: CubeTiling2dConfig,
 ) {
@@ -113,7 +113,7 @@ pub(crate) fn load_lhs_transposed<F: Float, L: Loader<F>>(
 
 #[cube]
 pub(crate) fn load_lhs_plain<F: Float, L: Loader<F>>(
-    lhs: &Tensor<F>,
+    lhs: &Tensor<Line<F>>,
     load_info: LoadInfo<F>,
     #[comptime] config: CubeTiling2dConfig,
 ) {
@@ -135,7 +135,7 @@ pub(crate) fn load_lhs_plain<F: Float, L: Loader<F>>(
 
 #[cube]
 pub(crate) fn load_rhs_transposed<F: Float, L: Loader<F>>(
-    rhs: &Tensor<F>,
+    rhs: &Tensor<Line<F>>,
     load_info: LoadInfo<F>,
     #[comptime] config: CubeTiling2dConfig,
 ) {
@@ -157,7 +157,7 @@ pub(crate) fn load_rhs_transposed<F: Float, L: Loader<F>>(
 
 #[cube]
 pub(crate) fn load_rhs_plain<F: Float, L: Loader<F>>(
-    rhs: &Tensor<F>,
+    rhs: &Tensor<Line<F>>,
     load_info: LoadInfo<F>,
     #[comptime] config: CubeTiling2dConfig,
 ) {

@@ -46,7 +46,7 @@ pub(crate) struct ReadTileInfo {
 #[cube]
 impl<F: Float> Loader<F> for TileLoader<F> {
     fn load_lhs_plain<B: BlockLoader<F>>(
-        lhs: &Tensor<F>,
+        lhs: &Tensor<Line<F>>,
         load_info: LoadInfo<F>,
         #[comptime] config: CubeTiling2dConfig,
     ) {
@@ -70,7 +70,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
     }
 
     fn load_lhs_transposed<B: BlockLoader<F>>(
-        lhs: &Tensor<F>,
+        lhs: &Tensor<Line<F>>,
         load_info: LoadInfo<F>,
         #[comptime] config: CubeTiling2dConfig,
     ) {
@@ -94,7 +94,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
     }
 
     fn load_rhs_plain<B: BlockLoader<F>>(
-        rhs: &Tensor<F>,
+        rhs: &Tensor<Line<F>>,
         load_info: LoadInfo<F>,
         #[comptime] config: CubeTiling2dConfig,
     ) {
@@ -118,7 +118,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
     }
 
     fn load_rhs_transposed<B: BlockLoader<F>>(
-        rhs: &Tensor<F>,
+        rhs: &Tensor<Line<F>>,
         load_info: LoadInfo<F>,
         #[comptime] config: CubeTiling2dConfig,
     ) {
@@ -144,7 +144,7 @@ impl<F: Float> Loader<F> for TileLoader<F> {
 
 #[cube]
 pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
-    tensor: &Tensor<F>,
+    tensor: &Tensor<Line<F>>,
     load_info: LoadInfo<F>,
     load_indices: LoadIndices,
     check_bounds: CheckBounds,
@@ -197,7 +197,7 @@ pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
 
 #[cube]
 pub(crate) fn load_transposed<F: Float, L: BlockLoader<F>>(
-    tensor: &Tensor<F>,
+    tensor: &Tensor<Line<F>>,
     load_info: LoadInfo<F>,
     load_indices: LoadIndices,
     check_bounds: CheckBounds,

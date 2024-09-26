@@ -7,8 +7,8 @@ use super::{base::Coordinates, config::CubeTiling2dConfig, outer_product::tile_o
 #[allow(unused_mut)]
 pub(crate) fn compute_loop<F: Float>(
     coordinates: Coordinates,
-    shared_lhs: SharedMemory<F>,
-    shared_rhs: SharedMemory<F>,
+    shared_lhs: SharedMemory<Line<F>>,
+    shared_rhs: SharedMemory<Line<F>>,
     results: &mut Array<F>,
     #[comptime] config: CubeTiling2dConfig,
 ) {

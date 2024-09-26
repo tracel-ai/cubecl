@@ -68,6 +68,10 @@ pub fn tensor_vectorization_factor(
     strides: &[usize],
     dim: usize,
 ) -> u8 {
+    tensor_line_size(factors, shape, strides, dim)
+}
+
+pub fn tensor_line_size(factors: &[u8], shape: &[usize], strides: &[usize], dim: usize) -> u8 {
     match strides.get(dim) {
         Some(val) => {
             if *val != 1 {

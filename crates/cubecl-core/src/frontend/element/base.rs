@@ -258,7 +258,7 @@ impl<T: CubeType> Vectorized for ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> ExpandElementTyped<T> {
-    // Expanded version of rank.
+    // Expanded version of vectorization factor.
     pub fn __expand_vectorization_factor_method(self, _context: &mut CubeContext) -> u32 {
         self.expand
             .item()

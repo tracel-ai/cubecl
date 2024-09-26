@@ -17,8 +17,8 @@ use crate::matmul::{
 
 #[cube(launch_unchecked)]
 fn load_tensor_test<F: Float>(
-    tensor: &Tensor<F>,
-    sm_out: &mut Array<F>,
+    tensor: &Tensor<Line<F>>,
+    sm_out: &mut Array<Line<F>>,
     unit_row: u32,
     unit_col: u32,
     k: u32,
@@ -29,11 +29,11 @@ fn load_tensor_test<F: Float>(
     let block_size_k = config.block_size_k;
     let block_size_m = config.block_size_m;
     let sm_size = block_size_k * block_size_m / tile_size;
-    let mut shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
+    let mut shared_memory = SharedMemory::<F>::new_lined(sm_size, tile_size);
 
     for i in 0..sm_size {
-        sm_out[i] = F::vectorized(0., tile_size);
-        shared_memory[i] = F::vectorized(0., tile_size);
+        sm_out[i] = Line::empty(tile_size).fill(F::new(0.));
+        shared_memory[i] = Line::empty(tile_size).fill(F::new(0.));
     }
 
     let batch_offset = 0;
@@ -84,8 +84,8 @@ fn load_tensor_test<F: Float>(
 
 #[cube(launch_unchecked)]
 fn load_tensor_permuted_test<F: Float>(
-    tensor: &Tensor<F>,
-    sm_out: &mut Array<F>,
+    tensor: &Tensor<Line<F>>,
+    sm_out: &mut Array<Line<F>>,
     unit_row: u32,
     unit_col: u32,
     k: u32,
@@ -96,11 +96,11 @@ fn load_tensor_permuted_test<F: Float>(
     let block_size_k = config.block_size_k;
     let block_size_m = config.block_size_m;
     let sm_size = block_size_k * block_size_m / tile_size;
-    let mut shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
+    let mut shared_memory = SharedMemory::<F>::new_lined(sm_size, tile_size);
 
     for i in 0..sm_size {
-        sm_out[i] = F::vectorized(0., tile_size);
-        shared_memory[i] = F::vectorized(0., tile_size);
+        sm_out[i] = Line::empty(tile_size).fill(F::new(0.));
+        shared_memory[i] = Line::empty(tile_size).fill(F::new(0.));
     }
 
     let batch_offset = 0;
@@ -153,8 +153,8 @@ fn load_tensor_permuted_test<F: Float>(
 
 #[cube(launch_unchecked)]
 fn load_tensor_multiple_tiles_test<F: Float>(
-    tensor: &Tensor<F>,
-    sm_out: &mut Array<F>,
+    tensor: &Tensor<Line<F>>,
+    sm_out: &mut Array<Line<F>>,
     k: u32,
     #[comptime] config: CubeTiling2dConfig,
     #[comptime] is_lhs: bool,
@@ -163,11 +163,11 @@ fn load_tensor_multiple_tiles_test<F: Float>(
     let block_size_k = config.block_size_k;
     let block_size_m = config.block_size_m;
     let sm_size = block_size_k * block_size_m / tile_size;
-    let mut shared_memory = SharedMemory::<F>::vectorized(sm_size, tile_size);
+    let mut shared_memory = SharedMemory::<F>::new_lined(sm_size, tile_size);
 
     for i in 0..sm_size {
-        sm_out[i] = F::vectorized(0., tile_size);
-        shared_memory[i] = F::vectorized(0., tile_size);
+        sm_out[i] = Line::empty(tile_size).fill(F::new(0.));
+        shared_memory[i] = Line::empty(tile_size).fill(F::new(0.));
     }
 
     sync_units();
