@@ -2,6 +2,7 @@ pub mod assign;
 pub mod binary;
 pub mod cmma;
 pub mod const_match;
+pub mod constants;
 pub mod different_rank;
 pub mod launch;
 pub mod sequence;
@@ -23,6 +24,7 @@ macro_rules! testgen_all {
         cubecl_core::testgen_slice!();
         cubecl_core::testgen_assign!();
         cubecl_core::testgen_switch!();
+        cubecl_core::testgen_constants!();
         cubecl_core::testgen_topology!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_unary!();
