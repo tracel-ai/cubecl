@@ -76,14 +76,16 @@ impl Display for FragmentIdent {
 impl Display for Fragment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.layout {
-            Some(layout) => f.write_fmt(format_args!(
+            Some(layout) => write!(
+                f,
                 "wmma::fragment<{}, {}, {}, {}, {}, {}>",
                 self.ident, self.m, self.n, self.k, self.elem, layout
-            )),
-            None => f.write_fmt(format_args!(
+            ),
+            None => write!(
+                f,
                 "wmma::fragment<{}, {}, {}, {}, {}>",
                 self.ident, self.m, self.n, self.k, self.elem,
-            )),
+            ),
         }
     }
 }
@@ -92,23 +94,22 @@ impl Display for WmmaInstruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WmmaInstruction::Fill { frag, value } => {
-                f.write_fmt(format_args!("wmma::fill_fragment({frag}, {value});\n"))
+                writeln!(f, "wmma::fill_fragment({frag}, {value});")
             }
             WmmaInstruction::Load {
                 frag,
                 value,
                 stride,
-            } => f.write_fmt(format_args!(
-                "wmma::load_matrix_sync({frag}, {value}, {stride});\n"
-            )),
+            } => writeln!(f, "wmma::load_matrix_sync({frag}, {value}, {stride});"),
             WmmaInstruction::Execute {
                 frag_a,
                 frag_b,
                 frag_c,
                 frag_d,
-            } => f.write_fmt(format_args!(
-                "wmma::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});\n"
-            )),
+            } => writeln!(
+                f,
+                "wmma::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
+            ),
             WmmaInstruction::Store {
                 output,
                 frag,
@@ -120,9 +121,10 @@ impl Display for WmmaInstruction {
                     FragmentLayout::RowMajor => "wmma::mem_row_major",
                 };
 
-                f.write_fmt(format_args!(
-                    "wmma::store_matrix_sync({output}, {frag}, {stride}, {layout});\n"
-                ))
+                writeln!(
+                    f,
+                    "wmma::store_matrix_sync({output}, {frag}, {stride}, {layout});"
+                )
             }
         }
     }

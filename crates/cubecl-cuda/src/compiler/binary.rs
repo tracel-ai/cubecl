@@ -64,7 +64,7 @@ macro_rules! operator {
                 rhs: Rhs,
                 out: Out,
             ) -> std::fmt::Result {
-                f.write_fmt(format_args!("{out} = {lhs} {} {rhs};\n", $op))
+                write!(f, "{out} = {lhs} {} {rhs};\n", $op)
             }
         }
     };
@@ -81,7 +81,7 @@ macro_rules! function {
                 rhs: Rhs,
                 out: Out,
             ) -> std::fmt::Result {
-                f.write_fmt(format_args!("{out} = {}({lhs}, {rhs});\n", $op))
+                write!(f, "{out} = {}({lhs}, {rhs});\n", $op)
             }
         }
     };
@@ -131,19 +131,15 @@ impl Binary for IndexAssign {
         let format_vec = |f: &mut Formatter<'_>, cast: bool| {
             f.write_str("{\n")?;
             let var = "broadcasted";
-            f.write_fmt(format_args!("{item_out} {var};\n"))?;
+            writeln!(f, "{item_out} {var};")?;
             for i in 0..item_out.vectorization {
                 if cast {
-                    f.write_fmt(format_args!(
-                        "{var}.i_{i} = {}({});\n",
-                        item_out.elem,
-                        rhs.index(i)
-                    ))?;
+                    writeln!(f, "{var}.i_{i} = {}({});", item_out.elem, rhs.index(i))?;
                 } else {
-                    f.write_fmt(format_args!("{var}.i_{i} = {};\n", rhs.index(i)))?;
+                    writeln!(f, "{var}.i_{i} = {};", rhs.index(i))?;
                 }
             }
-            f.write_fmt(format_args!("{out}[{lhs}] = {var};\n"))?;
+            writeln!(f, "{out}[{lhs}] = {var};")?;
             f.write_str("}")?;
 
             Ok(())
@@ -155,11 +151,11 @@ impl Binary for IndexAssign {
             if item_out.vectorization > 1 {
                 format_vec(f, true)?;
             } else {
-                f.write_fmt(format_args!("{out}[{lhs}] = {}({rhs});\n", item_out.elem))?;
+                writeln!(f, "{out}[{lhs}] = {}({rhs});", item_out.elem)?;
             }
             Ok(())
         } else {
-            f.write_fmt(format_args!("{out}[{lhs}] = {rhs};\n"))
+            writeln!(f, "{out}[{lhs}] = {rhs};")
         }
     }
 
@@ -239,14 +235,11 @@ impl Binary for Index {
         let format_vec = |f: &mut Formatter<'_>| {
             f.write_str("{\n")?;
             let var = "broadcasted";
-            f.write_fmt(format_args!("{item_out} {var};\n"))?;
+            writeln!(f, "{item_out} {var};")?;
             for i in 0..item_out.vectorization {
-                f.write_fmt(format_args!(
-                    "{var}.i_{i} = {}({lhs}[{rhs}].i_{i});\n",
-                    item_out.elem
-                ))?;
+                writeln!(f, "{var}.i_{i} = {}({lhs}[{rhs}].i_{i});", item_out.elem)?;
             }
-            f.write_fmt(format_args!("{out} = {var};\n"))?;
+            writeln!(f, "{out} = {var};")?;
             f.write_str("}")?;
 
             Ok(())
@@ -256,13 +249,13 @@ impl Binary for Index {
             if item_out.vectorization > 1 {
                 format_vec(f)?;
             } else {
-                f.write_fmt(format_args!("{out} = {}({lhs}[{rhs}]);\n", item_out.elem))?;
+                writeln!(f, "{out} = {}({lhs}[{rhs}]);", item_out.elem)?;
             }
             Ok(())
         } else if let Elem::Atomic(inner) = item_out.elem {
-            f.write_fmt(format_args!("{inner}* {out} = &{lhs}[{rhs}];\n"))
+            writeln!(f, "{inner}* {out} = &{lhs}[{rhs}];")
         } else {
-            f.write_fmt(format_args!("{out} = {lhs}[{rhs}];\n"))
+            writeln!(f, "{out} = {lhs}[{rhs}];")
         }
     }
 }
@@ -301,14 +294,14 @@ impl IndexVector {
             Variable::ConstantScalar(value, _elem) => value.as_usize(),
             _ => {
                 let elem = out.elem();
-                return f.write_fmt(format_args!("{out} = *(({elem}*)&{lhs} + {rhs});\n"));
+                return writeln!(f, "{out} = *(({elem}*)&{lhs} + {rhs});");
             }
         };
 
         let out = out.index(index);
         let lhs = lhs.index(index);
 
-        f.write_fmt(format_args!("{out} = {lhs};\n"))
+        writeln!(f, "{out} = {lhs};")
     }
 }
 
@@ -323,13 +316,13 @@ impl IndexAssignVector {
             Variable::ConstantScalar(value, _) => value.as_usize(),
             _ => {
                 let elem = out.elem();
-                return f.write_fmt(format_args!("*(({elem}*)&{out} + {lhs}) = {rhs};\n"));
+                return writeln!(f, "*(({elem}*)&{out} + {lhs}) = {rhs};");
             }
         };
 
         let out = out.index(index);
         let rhs = rhs.index(index);
 
-        f.write_fmt(format_args!("{out} = {rhs};\n"))
+        writeln!(f, "{out} = {rhs};")
     }
 }

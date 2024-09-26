@@ -160,10 +160,10 @@ impl Display for Instruction {
                     id: _,
                     frag,
                     depth: _,
-                } => f.write_fmt(format_args!("{frag} {var};\n")),
+                } => writeln!(f, "{frag} {var};"),
                 _ => {
                     let item = var.item();
-                    f.write_fmt(format_args!("{item} {var};\n"))
+                    writeln!(f, "{item} {var};")
                 }
             },
             Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
@@ -174,8 +174,8 @@ impl Display for Instruction {
                 out,
             } => {
                 let item = out.item();
-                f.write_fmt(format_args!("uint {out}_length = {end} - {start};\n"))?;
-                f.write_fmt(format_args!("{item} *{out} = {input} + {start};\n"))
+                writeln!(f, "uint {out}_length = {end} - {start};")?;
+                writeln!(f, "{item} *{out} = {input} + {start};")
             }
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
@@ -206,29 +206,30 @@ impl Display for Instruction {
                 let cmp = if *inclusive { "<=" } else { "<" };
                 let i_ty = i.item();
 
-                f.write_fmt(format_args!(
+                write!(
+                    f,
                     "
 for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
 "
-                ))?;
+                )?;
                 for instruction in instructions {
-                    f.write_fmt(format_args!("{instruction}"))?;
+                    write!(f, "{instruction}")?;
                 }
 
                 f.write_str("}\n")
             }
 
             Instruction::Loop { instructions } => {
-                f.write_fmt(format_args!("while (true) {{\n"))?;
+                writeln!(f, "while (true) {{")?;
                 for i in instructions {
-                    f.write_fmt(format_args!("{i}"))?;
+                    write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
             Instruction::If { cond, instructions } => {
-                f.write_fmt(format_args!("if ({cond}) {{\n"))?;
+                writeln!(f, "if ({cond}) {{")?;
                 for i in instructions {
-                    f.write_fmt(format_args!("{i}"))?;
+                    write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
@@ -237,13 +238,13 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 instructions_if,
                 instructions_else,
             } => {
-                f.write_fmt(format_args!("if ({cond}) {{\n"))?;
+                writeln!(f, "if ({cond}) {{")?;
                 for i in instructions_if {
-                    f.write_fmt(format_args!("{i}"))?;
+                    write!(f, "{i}")?;
                 }
                 f.write_str("} else {\n")?;
                 for i in instructions_else {
-                    f.write_fmt(format_args!("{i}"))?;
+                    write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
@@ -252,9 +253,9 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 instructions_default,
                 instructions_cases,
             } => {
-                f.write_fmt(format_args!("switch({value}) {{\n"))?;
+                writeln!(f, "switch({value}) {{")?;
                 for (value, block) in instructions_cases {
-                    f.write_fmt(format_args!("case {value}:\n{{\n"))?;
+                    write!(f, "case {value}:\n{{\n")?;
                     for i in block {
                         i.fmt(f)?;
                     }
@@ -266,12 +267,13 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("}\n}\n")
             }
-            Instruction::Stride { dim, position, out } => f.write_fmt(format_args!(
-                "{out} = info[({position} * rank_2) + {dim} + 1];\n"
-            )),
-            Instruction::Shape { dim, position, out } => f.write_fmt(format_args!(
-                "{out} = info[({position} * rank_2) + rank + {dim} + 1];\n"
-            )),
+            Instruction::Stride { dim, position, out } => {
+                writeln!(f, "{out} = info[({position} * rank_2) + {dim} + 1];")
+            }
+            Instruction::Shape { dim, position, out } => writeln!(
+                f,
+                "{out} = info[({position} * rank_2) + rank + {dim} + 1];"
+            ),
             Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Lower(it) => Lower::format(f, &it.lhs, &it.rhs, &it.out),
@@ -305,7 +307,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),
             Instruction::Floor(it) => Floor::format(f, &it.input, &it.out),
             Instruction::SliceLength { input, out } => {
-                f.write_fmt(format_args!("{out} = {input}_length;\n"))
+                writeln!(f, "{out} = {input}_length;")
             }
             Instruction::Length {
                 input,
@@ -322,55 +324,54 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let factor = input.item().vectorization;
 
                 if factor == 1 {
-                    return f.write_fmt(format_args!(
-                        "{out} = info[({offset} * 2 * info[0]) + {index}];\n"
-                    ));
+                    return writeln!(f, "{out} = info[({offset} * 2 * info[0]) + {index}];");
                 }
 
-                f.write_fmt(format_args!(
-                    "{out} = info[({offset} * 2 * info[0]) + {index}] / {factor};\n"
-                ))
+                writeln!(
+                    f,
+                    "{out} = info[({offset} * 2 * info[0]) + {index}] / {factor};"
+                )
             }
-            Instruction::Wrap(it) => f.write_fmt(format_args!("{it}")),
+            Instruction::Wrap(it) => write!(f, "{it}"),
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
-            Instruction::Wmma(it) => f.write_fmt(format_args!("{it}")),
+            Instruction::Wmma(it) => write!(f, "{it}"),
             Instruction::Bitcast(UnaryInstruction { input, out }) => {
                 match (input.elem(), out.elem()) {
                     (Elem::F32, Elem::I32) => {
-                        f.write_fmt(format_args!("{out} = __float_as_int({input});\n"))
+                        writeln!(f, "{out} = __float_as_int({input});")
                     }
                     (Elem::F32, Elem::U32) => {
-                        f.write_fmt(format_args!("{out} = __float_as_uint({input});\n"))
+                        writeln!(f, "{out} = __float_as_uint({input});")
                     }
                     (Elem::F16, Elem::I32) => {
-                        f.write_fmt(format_args!("{out} = __half_as_short({input});\n"))
+                        writeln!(f, "{out} = __half_as_short({input});")
                     }
                     (Elem::F16, Elem::U32) => {
-                        f.write_fmt(format_args!("{out} = __half_as_ushort({input});\n"))
+                        writeln!(f, "{out} = __half_as_ushort({input});")
                     }
                     (Elem::BF16, Elem::I32) => {
-                        f.write_fmt(format_args!("{out} = __bfloat16_as_short({input});\n"))
+                        writeln!(f, "{out} = __bfloat16_as_short({input});")
                     }
                     (Elem::BF16, Elem::U32) => {
-                        f.write_fmt(format_args!("{out} = __bfloat16_as_ushort({input});\n"))
+                        writeln!(f, "{out} = __bfloat16_as_ushort({input});")
                     }
                     (Elem::I32, Elem::F32) => {
-                        f.write_fmt(format_args!("{out} = __int_as_float({input});\n"))
+                        writeln!(f, "{out} = __int_as_float({input});")
                     }
                     (Elem::I32, Elem::F16) => {
-                        f.write_fmt(format_args!("{out} = __short_as_half({input});\n"))
+                        writeln!(f, "{out} = __short_as_half({input});")
                     }
                     (Elem::I32, Elem::BF16) => {
-                        f.write_fmt(format_args!("{out} = __short_as_bfloat16({input});\n"))
+                        writeln!(f, "{out} = __short_as_bfloat16({input});")
                     }
                     (Elem::U32, Elem::F32) => {
-                        f.write_fmt(format_args!("{out} = __uint_as_float({input});\n"))
+                        writeln!(f, "{out} = __uint_as_float({input});")
                     }
                     (Elem::U32, Elem::F16) => {
-                        f.write_fmt(format_args!("{out} = __ushort_as_half({input});\n"))
+                        writeln!(f, "{out} = __ushort_as_half({input});")
                     }
                     (Elem::U32, Elem::BF16) => {
-                        f.write_fmt(format_args!("{out} = __ushort_as_bfloat16({input});\n"))
+                        writeln!(f, "{out} = __ushort_as_bfloat16({input});")
                     }
                     _ => panic!("Unsupported type for bitcasting"),
                 }
@@ -380,40 +381,40 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 cmp,
                 val,
                 out,
-            } => f.write_fmt(format_args!("{out} = atomicCAS({input}, {cmp}, {val});\n")),
+            } => writeln!(f, "{out} = atomicCAS({input}, {cmp}, {val});"),
             Instruction::AtomicSwap(BinaryInstruction { lhs, rhs, out }) => {
-                f.write_fmt(format_args!("{out} = atomicExch({lhs}, {rhs});\n"))
+                writeln!(f, "{out} = atomicExch({lhs}, {rhs});")
             }
             Instruction::AtomicAdd(BinaryInstruction { lhs, rhs, out }) => {
-                f.write_fmt(format_args!("{out} = atomicAdd({lhs}, {rhs});\n"))
+                writeln!(f, "{out} = atomicAdd({lhs}, {rhs});")
             }
             Instruction::AtomicSub(BinaryInstruction { lhs, rhs, out }) => {
-                f.write_fmt(format_args!("{out} = atomicSub({lhs}, {rhs});\n"))
+                writeln!(f, "{out} = atomicSub({lhs}, {rhs});")
             }
             Instruction::AtomicMax(BinaryInstruction { lhs, rhs, out }) => {
-                f.write_fmt(format_args!("{out} = atomicMax({lhs}, {rhs});\n"))
+                writeln!(f, "{out} = atomicMax({lhs}, {rhs});")
             }
             Instruction::AtomicMin(BinaryInstruction { lhs, rhs, out }) => {
-                f.write_fmt(format_args!("{out} = atomicMin({lhs}, {rhs});\n"))
+                writeln!(f, "{out} = atomicMin({lhs}, {rhs});")
             }
             Instruction::AtomicAnd(BinaryInstruction { lhs, rhs, out }) => {
-                f.write_fmt(format_args!("{out} = atomicAnd({lhs}, {rhs});\n"))
+                writeln!(f, "{out} = atomicAnd({lhs}, {rhs});")
             }
             Instruction::AtomicOr(BinaryInstruction { lhs, rhs, out }) => {
-                f.write_fmt(format_args!("{out} = atomicOr({lhs}, {rhs});\n"))
+                writeln!(f, "{out} = atomicOr({lhs}, {rhs});")
             }
             Instruction::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
-                f.write_fmt(format_args!("{out} = atomicXor({lhs}, {rhs});\n"))
+                writeln!(f, "{out} = atomicXor({lhs}, {rhs});")
             }
             Instruction::AtomicLoad(UnaryInstruction { input, out }) => {
-                f.write_fmt(format_args!("{out} = atomicAdd({input}, 0);\n"))
+                writeln!(f, "{out} = atomicAdd({input}, 0);")
             }
             Instruction::AtomicStore(UnaryInstruction { input, out }) => {
-                f.write_fmt(format_args!("atomicExch({out}, {input});\n"))
+                writeln!(f, "atomicExch({out}, {input});")
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::Negate(UnaryInstruction { input, out }) => {
-                f.write_fmt(format_args!("{out} = !{input};\n"))
+                writeln!(f, "{out} = !{input};")
             }
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
             Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
@@ -440,7 +441,7 @@ impl Fma {
             let ci = c.index(i);
             let outi = out.index(i);
 
-            f.write_fmt(format_args!("{outi} = fma({ai}, {bi}, {ci});\n"))?;
+            writeln!(f, "{outi} = fma({ai}, {bi}, {ci});")?;
         }
 
         Ok(())
@@ -469,9 +470,7 @@ impl Clamp {
             let maxi = max_value.index(i);
             let outi = out.index(i);
 
-            f.write_fmt(format_args!(
-                "{outi} = max({mini}, min({maxi}, {inputi}));\n"
-            ))?;
+            writeln!(f, "{outi} = max({mini}, min({maxi}, {inputi}));")?;
         }
 
         Ok(())
@@ -497,9 +496,7 @@ impl Remainder {
             let rhsi = rhs.index(i);
             let outi = out.index(i);
 
-            f.write_fmt(format_args!(
-                "{outi} = {lhsi} - {rhsi} * floor({lhsi} / {rhsi});\n"
-            ))?;
+            writeln!(f, "{outi} = {lhsi} - {rhsi} * floor({lhsi} / {rhsi});")?;
         }
 
         Ok(())
@@ -517,11 +514,11 @@ impl Magnitude {
         let num = input.item().vectorization;
         let elem = input.elem();
 
-        f.write_fmt(format_args!("{out} = 0.0;\n"))?;
+        writeln!(f, "{out} = 0.0;")?;
 
         for i in 0..num {
             let input_i = input.index(i);
-            f.write_fmt(format_args!("{out} += {input_i} * {input_i};\n"))?;
+            writeln!(f, "{out} += {input_i} * {input_i};")?;
         }
 
         Sqrt::format_unary(f, out, out, elem)
@@ -540,12 +537,12 @@ impl Normalize {
         let elem = input.elem();
         let norm = format!("{out}_norm");
 
-        f.write_fmt(format_args!("{{\n"))?;
-        f.write_fmt(format_args!("{elem} {norm} = 0.0;\n"))?;
+        writeln!(f, "{{")?;
+        writeln!(f, "{elem} {norm} = 0.0;")?;
 
         for i in 0..num {
             let input_i = input.index(i);
-            f.write_fmt(format_args!("{norm} += {input_i} * {input_i};\n"))?;
+            writeln!(f, "{norm} += {input_i} * {input_i};")?;
         }
 
         Sqrt::format_unary(f, &norm, &norm, elem)?;
@@ -554,10 +551,10 @@ impl Normalize {
             let input_i = input.index(i);
             let output_i = out.index(i);
 
-            f.write_fmt(format_args!("{output_i} = {input_i} / {norm};\n"))?;
+            writeln!(f, "{output_i} = {input_i} / {norm};")?;
         }
 
-        f.write_fmt(format_args!("}}\n"))
+        writeln!(f, "}}")
     }
 }
 
@@ -572,12 +569,12 @@ impl Dot {
     ) -> core::fmt::Result {
         let num = lhs.item().vectorization;
 
-        f.write_fmt(format_args!("{out} = 0.0;\n"))?;
+        writeln!(f, "{out} = 0.0;")?;
 
         for i in 0..num {
             let lhs_i = lhs.index(i);
             let rhs_i = rhs.index(i);
-            f.write_fmt(format_args!("{out} += {lhs_i} * {rhs_i};\n"))?;
+            writeln!(f, "{out} += {lhs_i} * {rhs_i};")?;
         }
         Ok(())
     }

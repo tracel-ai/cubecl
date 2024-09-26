@@ -62,10 +62,7 @@ pub trait FunctionFmt {
         out: Output,
         elem: Elem,
     ) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "{out} = {}({input});\n",
-            Self::function_name(elem)
-        ))
+        writeln!(f, "{out} = {}({input});", Self::function_name(elem))
     }
 }
 
@@ -118,7 +115,7 @@ impl Unary for Not {
         Input: Component,
         Out: Component,
     {
-        f.write_fmt(format_args!("{out} = !{input};\n"))
+        writeln!(f, "{out} = !{input};")
     }
 }
 
@@ -137,9 +134,9 @@ impl Unary for Assign {
     {
         // Cast only when necessary.
         if elem != input.elem() {
-            f.write_fmt(format_args!("{out} = {elem}({input});\n"))
+            writeln!(f, "{out} = {elem}({input});")
         } else {
-            f.write_fmt(format_args!("{out} = {input};\n"))
+            writeln!(f, "{out} = {input};")
         }
     }
 }
