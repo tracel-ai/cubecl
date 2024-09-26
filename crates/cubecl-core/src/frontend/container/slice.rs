@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use super::{
+use crate::frontend::{
     Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory,
     SizedContainer,
 };

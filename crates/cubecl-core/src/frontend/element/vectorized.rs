@@ -1,7 +1,5 @@
+use crate::frontend::{Array, CubeType, ExpandElement, Tensor};
 use crate::unexpanded;
-
-use super::{Array, CubeType, ExpandElement};
-use crate::frontend::Tensor;
 
 pub trait Vectorized {
     fn vectorization_factor(&self) -> u32;
