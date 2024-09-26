@@ -37,6 +37,9 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     fn require_array_lengths() -> bool {
         false
     }
+
+    /// Returns the supported line sizes for the current runtime's compiler.
+    fn supported_line_sizes() -> &'static [u8];
 }
 
 /// The set of [features](Feature) supported by a [runtime](Runtime).

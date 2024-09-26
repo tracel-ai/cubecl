@@ -27,4 +27,5 @@ pub use crate::frontend::{
 pub use crate::frontend::{subcube_all, subcube_max, subcube_min, subcube_prod, subcube_sum};
 pub use cubecl_runtime::client::ComputeClient;
 
+pub use crate::comptime;
 pub use crate::frontend::*;

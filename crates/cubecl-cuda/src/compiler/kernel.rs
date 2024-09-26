@@ -1,4 +1,4 @@
-use super::{Body, Item};
+use super::{Body, Item, Variable};
 use cubecl_core::{ir::CubeDim, CompilerRepresentation};
 use std::{collections::HashSet, fmt::Display, io::Write, process::Command};
 
@@ -13,6 +13,14 @@ pub struct SharedMemory {
     pub index: u16,
     pub item: Item,
     pub size: u32,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ConstArray {
+    pub index: u16,
+    pub item: Item,
+    pub size: u32,
+    pub values: Vec<Variable>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

@@ -258,7 +258,7 @@ impl<T: CubeType> Vectorized for ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> ExpandElementTyped<T> {
-    // Expanded version of rank.
+    // Expanded version of vectorization factor.
     pub fn __expand_vectorization_factor_method(self, _context: &mut CubeContext) -> u32 {
         self.expand
             .item()
@@ -406,6 +406,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         | Variable::GlobalInputArray { .. }
         | Variable::GlobalOutputArray { .. }
         | Variable::LocalArray { .. }
+        | Variable::ConstantArray { .. }
         | Variable::Slice { .. }
         | Variable::Matrix { .. } => elem,
     }

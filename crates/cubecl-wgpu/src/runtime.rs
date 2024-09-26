@@ -68,6 +68,10 @@ impl Runtime for WgpuRuntime {
     fn name() -> &'static str {
         "wgpu"
     }
+
+    fn supported_line_sizes() -> &'static [u8] {
+        &[4, 2]
+    }
 }
 
 /// The values that control how a WGPU Runtime will perform its calculations.

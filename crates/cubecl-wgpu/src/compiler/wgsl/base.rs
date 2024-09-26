@@ -33,6 +33,7 @@ pub enum Variable {
         depth: u8,
     },
     SharedMemory(u16, Item, u32),
+    ConstantArray(u16, Item, u32),
     LocalArray(u16, Item, u8, u32),
     Id,
     LocalInvocationIndex,
@@ -96,6 +97,7 @@ impl Variable {
             Variable::GlobalInputArray(_, _) => false,
             Variable::GlobalOutputArray(_, _) => false,
             Variable::SharedMemory(_, _, _) => false,
+            Variable::ConstantArray(_, _, _) => false,
             Variable::LocalArray(_, _, _, _) => false,
             Variable::Local { .. } => false,
             Variable::LocalBinding { .. } => false,
@@ -145,6 +147,7 @@ impl Variable {
             Self::GlobalInputArray(_, e) => *e,
             Self::GlobalOutputArray(_, e) => *e,
             Self::SharedMemory(_, e, _) => *e,
+            Self::ConstantArray(_, e, _) => *e,
             Self::LocalArray(_, e, _, _) => *e,
             Self::Local { item, .. } => *item,
             Self::LocalBinding { item, .. } => *item,
@@ -316,6 +319,7 @@ impl Display for Variable {
             Variable::SharedMemory(number, _, _) => {
                 write!(f, "shared_memory_{number}")
             }
+            Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
             Variable::LocalArray(number, _, scope_depth, _) => {
                 write!(f, "a_{scope_depth}_{number}")
             }

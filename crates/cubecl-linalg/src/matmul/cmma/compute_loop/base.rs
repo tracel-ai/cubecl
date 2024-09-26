@@ -7,7 +7,7 @@ use crate::matmul::cmma::{
     config::ComptimeCmmaInfo,
     load_shared_memory::{
         base::SmemLoader,
-        continous::ContinuousSmemLoader,
+        continuous::ContinuousSmemLoader,
         load_info::{LhsLoadInfo, LoadInfo, RhsLoadInfo},
         tiled_layout::{ColMajorTiling, RowMajorTiling, TilingOrder},
         tilewise::TilewiseSmemLoader,

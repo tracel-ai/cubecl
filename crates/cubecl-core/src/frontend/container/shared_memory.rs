@@ -1,11 +1,13 @@
 use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
-    frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType},
+    frontend::{
+        indexation::Index, CubeContext, CubePrimitive, CubeType, ExpandElementTyped, Init,
+        IntoRuntime,
+    },
     ir::Item,
+    prelude::Line,
 };
-
-use super::{ExpandElementTyped, Init, IntoRuntime};
 
 #[derive(Clone, Copy)]
 pub struct SharedMemory<T: CubeType> {
@@ -33,6 +35,25 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         SharedMemory { _val: PhantomData }
     }
 
+    pub fn new_lined<S: Index>(_size: S, _vectorization_factor: u32) -> SharedMemory<Line<T>> {
+        SharedMemory { _val: PhantomData }
+    }
+
+    pub fn __expand_new_lined(
+        context: &mut CubeContext,
+        size: ExpandElementTyped<u32>,
+        vectorization_factor: u32,
+    ) -> <SharedMemory<Line<T>> as CubeType>::ExpandType {
+        let size = size
+            .constant()
+            .expect("Shared memory need constant initialization value")
+            .as_u32();
+        let var = context.create_shared(
+            Item::vectorized(T::as_elem(), NonZero::new(vectorization_factor as u8)),
+            size,
+        );
+        ExpandElementTyped::new(var)
+    }
     pub fn vectorized<S: Index>(_size: S, _vectorization_factor: u32) -> Self {
         SharedMemory { _val: PhantomData }
     }

@@ -68,10 +68,10 @@ enum MatmulKind {
 #[allow(dead_code)]
 fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
     let bench = MatmulBench::<R, E> {
-        b: 8,
-        m: 2048,
-        k: 2048,
-        n: 2048,
+        b: 1,
+        m: 4096,
+        k: 4096,
+        n: 4096,
         client: R::client(&device),
         device,
         kind,

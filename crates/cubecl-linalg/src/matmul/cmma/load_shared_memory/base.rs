@@ -12,7 +12,7 @@ use crate::matmul::cmma::config::ComptimeCmmaInfo;
 use super::load_info::LoadInfo;
 use super::tiled_layout::TilingOrder;
 use super::{
-    continous::ContinuousSmemLoader,
+    continuous::ContinuousSmemLoader,
     load_info::{LhsLoadInfo, RhsLoadInfo},
     tiled_layout::{ColMajorTiling, RowMajorTiling},
     tilewise::TilewiseSmemLoader,

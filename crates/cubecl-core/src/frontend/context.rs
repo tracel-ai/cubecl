@@ -1,4 +1,4 @@
-use crate::ir::{self, Elem, Item, Operation, ReusingAllocator, Scope};
+use crate::ir::{self, Elem, Item, Operation, ReusingAllocator, Scope, Variable};
 use crate::{frontend::ExpandElement, ir::LocalAllocator};
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -83,6 +83,10 @@ impl CubeContext {
 
     pub fn create_local_array(&mut self, item: Item, size: u32) -> ExpandElement {
         ExpandElement::Plain(self.root.borrow_mut().create_local_array(item, size))
+    }
+
+    pub fn create_const_array(&mut self, item: Item, data: Vec<Variable>) -> ExpandElement {
+        ExpandElement::Plain(self.root.borrow_mut().create_const_array(item, data))
     }
 
     /// Obtain the index-th input

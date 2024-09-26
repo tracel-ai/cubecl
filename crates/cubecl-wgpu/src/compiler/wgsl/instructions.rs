@@ -41,6 +41,12 @@ pub enum Instruction {
         instructions_if: Vec<Instruction>,
         instructions_else: Vec<Instruction>,
     },
+    Select {
+        cond: Variable,
+        then: Variable,
+        or_else: Variable,
+        out: Variable,
+    },
     Switch {
         value: Variable,
         instructions_default: Vec<Instruction>,
@@ -627,6 +633,15 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("}\n")
             }
+            Instruction::Select {
+                cond,
+                then,
+                or_else,
+                out,
+            } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = select({or_else}, {then}, {cond});")
+            }
             Instruction::Switch {
                 value,
                 instructions_default,
@@ -777,9 +792,9 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::Dot { lhs, rhs, out } => {
                 if lhs.item().vectorization_factor() == 1 {
-                    f.write_fmt(format_args!("{out} = {lhs} * {rhs};\n"))
+                    writeln!(f, "{out} = {lhs} * {rhs};")
                 } else {
-                    f.write_fmt(format_args!("{out} = dot({lhs}, {rhs});\n"))
+                    writeln!(f, "{out} = dot({lhs}, {rhs});")
                 }
             }
         }
@@ -909,6 +924,12 @@ fn index(
     out: &Variable,
     offset: Option<Variable>,
 ) -> core::fmt::Result {
+    let is_scalar = match lhs {
+        Variable::Local { item, .. } => item.vectorization_factor() == 1,
+        Variable::LocalBinding { item, .. } => item.vectorization_factor() == 1,
+        _ => false,
+    };
+
     if out.item().elem().is_atomic() {
         match offset {
             Some(offset) => writeln!(f, "let {out} = &{lhs}[{rhs} + {offset}];"),
@@ -925,15 +946,26 @@ fn index(
                 writeln!(f, "{out} = {value};")
             }
             None => {
-                let value = lhs.item().fmt_cast_to(item, format!("{lhs}[{rhs}]"));
-                writeln!(f, "{out} = {value};")
+                if is_scalar {
+                    let value = lhs.item().fmt_cast_to(item, format!("{lhs}"));
+                    writeln!(f, "{out} = {value};")
+                } else {
+                    let value = lhs.item().fmt_cast_to(item, format!("{lhs}[{rhs}]"));
+                    writeln!(f, "{out} = {value};")
+                }
             }
         }
     } else {
         let out = out.fmt_left();
         match offset {
             Some(offset) => writeln!(f, "{out} = {lhs}[{rhs} + {offset}];"),
-            None => writeln!(f, "{out} = {lhs}[{rhs}];"),
+            None => {
+                if is_scalar {
+                    writeln!(f, "{out} = {lhs};")
+                } else {
+                    writeln!(f, "{out} = {lhs}[{rhs}];")
+                }
+            }
         }
     }
 }

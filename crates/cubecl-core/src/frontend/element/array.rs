@@ -3,7 +3,7 @@ use std::{marker::PhantomData, num::NonZero};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     frontend::CubeType,
-    ir::{Branch, Item, RangeLoop, Vectorization},
+    ir::{Branch, Item, RangeLoop, Variable, Vectorization},
     prelude::{CubeIndex, Iterable},
     unexpanded, Runtime,
 };
@@ -41,6 +41,10 @@ impl<T: CubePrimitive + Clone> Array<T> {
         Array { _val: PhantomData }
     }
 
+    pub fn from_data<C: CubePrimitive>(_data: impl IntoIterator<Item = C>) -> Self {
+        Array { _val: PhantomData }
+    }
+
     pub fn __expand_new(
         context: &mut CubeContext,
         size: ExpandElementTyped<u32>,
@@ -70,6 +74,14 @@ impl<T: CubePrimitive + Clone> Array<T> {
                 size,
             )
             .into()
+    }
+
+    pub fn __expand_from_data<C: CubePrimitive>(
+        context: &mut CubeContext,
+        data: ArrayData<C>,
+    ) -> <Self as CubeType>::ExpandType {
+        let var = context.create_const_array(Item::new(T::as_elem()), data.values);
+        ExpandElementTyped::new(var)
     }
 
     pub fn to_vectorized(self, _vectorization_factor: u32) -> T {
@@ -110,6 +122,29 @@ impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
             new_var
         };
         new_var.into()
+    }
+}
+
+pub struct ArrayData<C> {
+    values: Vec<Variable>,
+    _ty: PhantomData<C>,
+}
+
+impl<C: CubePrimitive + Into<ExpandElementTyped<C>>, T: IntoIterator<Item = C>> From<T>
+    for ArrayData<C>
+{
+    fn from(value: T) -> Self {
+        let values: Vec<Variable> = value
+            .into_iter()
+            .map(|value| {
+                let value: ExpandElementTyped<C> = value.into();
+                *value.expand
+            })
+            .collect();
+        ArrayData {
+            values,
+            _ty: PhantomData,
+        }
     }
 }
 

@@ -12,6 +12,7 @@ use super::{Instruction, VariableSettings, WarpInstruction};
 #[derive(Clone, Debug, Default)]
 pub struct CudaCompiler {
     shared_memories: Vec<super::SharedMemory>,
+    const_arrays: Vec<super::ConstArray>,
     local_arrays: Vec<super::LocalArray>,
     rank: bool,
     wrap_size_checked: bool,
@@ -81,6 +82,7 @@ impl CudaCompiler {
             stride: true,
             shape: true,
             shared_memories: self.shared_memories,
+            const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
             rank: self.rank,
             wrap_size_checked: self.wrap_size_checked,
@@ -102,6 +104,22 @@ impl CudaCompiler {
 
     fn compile_scope(&mut self, scope: &mut gpu::Scope) -> Vec<Instruction> {
         let mut instructions = Vec::new();
+
+        let const_arrays = scope
+            .const_arrays
+            .drain(..)
+            .map(|(var, values)| super::ConstArray {
+                index: var.index().unwrap(),
+                item: self.compile_item(var.item()),
+                size: values.len() as u32,
+                values: values
+                    .into_iter()
+                    .map(|val| self.compile_variable(val))
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        self.const_arrays.extend(const_arrays);
+
         let processing = scope.process();
 
         for var in processing.variables {
@@ -301,6 +319,12 @@ impl CudaCompiler {
                         (self.compile_variable(val), self.compile_scope(&mut block))
                     })
                     .collect(),
+            }),
+            gpu::Branch::Select(op) => instructions.push(Instruction::Select {
+                cond: self.compile_variable(op.cond),
+                then: self.compile_variable(op.then),
+                or_else: self.compile_variable(op.or_else),
+                out: self.compile_variable(op.out),
             }),
             gpu::Branch::Return => instructions.push(Instruction::Return),
             gpu::Branch::Break => instructions.push(Instruction::Break),
@@ -632,6 +656,10 @@ impl CudaCompiler {
                         .push(super::SharedMemory::new(id, item, length));
                 }
                 super::Variable::SharedMemory(id, item, length)
+            }
+            gpu::Variable::ConstantArray { id, item, length } => {
+                let item = self.compile_item(item);
+                super::Variable::ConstantArray(id, item, length)
             }
             gpu::Variable::AbsolutePos => {
                 self.settings.idx_global = true;

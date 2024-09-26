@@ -194,10 +194,6 @@ impl CmmaConfig {
             z: 1,
         }
     }
-
-    pub(crate) fn available_vectorizations(&self) -> Vec<u8> {
-        vec![8, 4, 2]
-    }
 }
 
 impl Init for ComptimeCmmaInfo {

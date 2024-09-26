@@ -73,6 +73,12 @@ pub enum Instruction {
         instructions_if: Vec<Self>,
         instructions_else: Vec<Self>,
     },
+    Select {
+        cond: Variable,
+        then: Variable,
+        or_else: Variable,
+        out: Variable,
+    },
     Switch {
         value: Variable,
         instructions_default: Vec<Self>,
@@ -266,6 +272,15 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
+            }
+            Instruction::Select {
+                cond,
+                then,
+                or_else,
+                out,
+            } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
             }
             Instruction::Switch {
                 value,
