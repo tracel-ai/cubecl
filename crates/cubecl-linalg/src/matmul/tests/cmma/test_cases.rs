@@ -22,9 +22,9 @@ pub enum MatmulTest {
     MSmallerThanN,
 }
 
-impl Into<MatmulTestCase> for MatmulTest {
-    fn into(self) -> MatmulTestCase {
-        match self {
+impl From<MatmulTest> for MatmulTestCase {
+    fn from(val: MatmulTest) -> Self {
+        match val {
             MatmulTest::One16_16_16 => MatmulTestCase {
                 m: 16,
                 k: 16,
@@ -32,15 +32,15 @@ impl Into<MatmulTestCase> for MatmulTest {
                 batch: 1,
             },
             MatmulTest::One32_16_8 => MatmulTestCase {
-                m: 16,
+                m: 32,
                 k: 16,
-                n: 16,
+                n: 8,
                 batch: 1,
             },
             MatmulTest::One8_16_32 => MatmulTestCase {
-                m: 16,
+                m: 8,
                 k: 16,
-                n: 16,
+                n: 32,
                 batch: 1,
             },
             MatmulTest::SmallRound => MatmulTestCase {

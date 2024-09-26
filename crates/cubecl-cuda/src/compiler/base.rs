@@ -291,6 +291,17 @@ impl CudaCompiler {
                 instructions_if: self.compile_scope(&mut op.scope_if),
                 instructions_else: self.compile_scope(&mut op.scope_else),
             }),
+            gpu::Branch::Switch(mut op) => instructions.push(Instruction::Switch {
+                value: self.compile_variable(op.value),
+                instructions_default: self.compile_scope(&mut op.scope_default),
+                instructions_cases: op
+                    .cases
+                    .into_iter()
+                    .map(|(val, mut block)| {
+                        (self.compile_variable(val), self.compile_scope(&mut block))
+                    })
+                    .collect(),
+            }),
             gpu::Branch::Return => instructions.push(Instruction::Return),
             gpu::Branch::Break => instructions.push(Instruction::Break),
             gpu::Branch::RangeLoop(mut range_loop) => instructions.push(Instruction::RangeLoop {

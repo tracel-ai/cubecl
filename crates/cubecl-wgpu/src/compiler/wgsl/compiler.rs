@@ -374,6 +374,17 @@ impl WgslCompiler {
                 instructions_if: self.compile_scope(&mut op.scope_if),
                 instructions_else: self.compile_scope(&mut op.scope_else),
             }),
+            cube::Branch::Switch(mut op) => instructions.push(wgsl::Instruction::Switch {
+                value: self.compile_variable(op.value),
+                instructions_default: self.compile_scope(&mut op.scope_default),
+                cases: op
+                    .cases
+                    .into_iter()
+                    .map(|(val, mut scope)| {
+                        (self.compile_variable(val), self.compile_scope(&mut scope))
+                    })
+                    .collect(),
+            }),
             cube::Branch::Return => instructions.push(wgsl::Instruction::Return),
             cube::Branch::Break => instructions.push(wgsl::Instruction::Break),
             cube::Branch::RangeLoop(mut range_loop) => {
