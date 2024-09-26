@@ -1,14 +1,17 @@
 use cubecl_core::Runtime;
 
 use crate::matmul::{
-    cmma::{self, config::CmmaConfig},
+    cmma::{self, config::CmmaConfig, is_available},
     tests::matmul_test_case::MatmulTestCase,
 };
 
-use super::super::test_utils::{assert_equals_approx, cmma_available};
+use super::super::test_utils::assert_equals_approx;
 
 #[derive(Copy, Clone)]
 pub enum MatmulTest {
+    One16_16_16,
+    One32_16_8,
+    One8_16_32,
     SmallRound,
     MediumMultibatch,
     LargeRound,
@@ -19,9 +22,27 @@ pub enum MatmulTest {
     MSmallerThanN,
 }
 
-impl Into<MatmulTestCase> for MatmulTest {
-    fn into(self) -> MatmulTestCase {
-        match self {
+impl From<MatmulTest> for MatmulTestCase {
+    fn from(val: MatmulTest) -> Self {
+        match val {
+            MatmulTest::One16_16_16 => MatmulTestCase {
+                m: 16,
+                k: 16,
+                n: 16,
+                batch: 1,
+            },
+            MatmulTest::One32_16_8 => MatmulTestCase {
+                m: 32,
+                k: 16,
+                n: 8,
+                batch: 1,
+            },
+            MatmulTest::One8_16_32 => MatmulTestCase {
+                m: 8,
+                k: 16,
+                n: 32,
+                batch: 1,
+            },
             MatmulTest::SmallRound => MatmulTestCase {
                 m: 64,
                 k: 64,
@@ -79,18 +100,18 @@ pub(crate) fn test_cmma<R: Runtime>(
     config: CmmaConfig,
     device: &R::Device,
 ) -> Result<(), String> {
-    if !cmma_available::<R>(device) {
-        // We can't execute the test, skip.
-        return Ok(());
-    }
-
     let client = R::client(device);
-    let lhs = case.random_lhs::<R>(&client);
-    let rhs = case.random_rhs::<R>(&client);
+    if let Ok(_) = is_available::<R>(&client, &config) {
+        let lhs = case.random_lhs::<R>(&client);
+        let rhs = case.random_rhs::<R>(&client);
 
-    let expected = case.matmul_cpu(&lhs, &rhs, &client);
+        let expected = case.matmul_cpu(&lhs, &rhs, &client);
 
-    let out = cmma::launch::<R, f32>(&client, lhs, rhs, case.empty_out(&client), config);
+        let out = cmma::launch::<R, f32>(&client, lhs, rhs, case.empty_out(&client), config);
 
-    assert_equals_approx::<R>(&client, out.handle, &expected, 10e-3)
+        assert_equals_approx::<R>(&client, out.handle, &expected, 10e-3)
+    } else {
+        // Cmma unavailable, nothing to do
+        Ok(())
+    }
 }

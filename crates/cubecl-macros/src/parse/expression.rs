@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    branch::{expand_for_loop, expand_if, expand_loop},
+    branch::{expand_for_loop, expand_if, expand_loop, numeric_match},
     operator::{parse_binop, parse_unop},
 };
 
@@ -293,10 +293,12 @@ impl Expression {
                         const_expr: mat.expr.as_ref().clone(),
                         arms,
                     }
+                } else if let Some(switch) = numeric_match(mat, context) {
+                    switch
                 } else {
                     Err(syn::Error::new(
                         span,
-                        "match expressions aren't yet supported at runtime",
+                        "Only numeric match expression is supported at runtime",
                     ))?
                 }
             }

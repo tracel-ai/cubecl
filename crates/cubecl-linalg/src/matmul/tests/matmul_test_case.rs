@@ -23,8 +23,8 @@ impl MatmulTestCase {
         let lhs_binding = &client.read(lhs.handle.clone().binding());
         let rhs_binding = &client.read(rhs.handle.clone().binding());
 
-        let lhs = f32::from_bytes(&lhs_binding);
-        let rhs = f32::from_bytes(&rhs_binding);
+        let lhs = f32::from_bytes(lhs_binding);
+        let rhs = f32::from_bytes(rhs_binding);
 
         self.matmul_cpu_algorithm(lhs, rhs)
     }
@@ -73,7 +73,7 @@ impl MatmulTestCase {
     ) -> TensorHandle<R, f32> {
         TensorHandle::new_contiguous(
             vec![self.batch, self.m, self.n],
-            create_empty::<R>(&client, self.batch * self.m, self.n),
+            create_empty::<R>(client, self.batch * self.m, self.n),
         )
     }
 }

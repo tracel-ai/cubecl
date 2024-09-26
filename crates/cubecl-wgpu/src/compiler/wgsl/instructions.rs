@@ -41,6 +41,11 @@ pub enum Instruction {
         instructions_if: Vec<Instruction>,
         instructions_else: Vec<Instruction>,
     },
+    Switch {
+        value: Variable,
+        instructions_default: Vec<Instruction>,
+        cases: Vec<(Variable, Vec<Instruction>)>,
+    },
     Return,
     Break,
     WorkgroupBarrier,
@@ -621,6 +626,25 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
+            }
+            Instruction::Switch {
+                value,
+                instructions_default,
+                cases,
+            } => {
+                writeln!(f, "switch({value}) {{")?;
+                for (val, block) in cases {
+                    writeln!(f, "case {val}: {{")?;
+                    for i in block {
+                        i.fmt(f)?;
+                    }
+                    f.write_str("}\n")?;
+                }
+                f.write_str("default: {\n")?;
+                for i in instructions_default {
+                    i.fmt(f)?;
+                }
+                f.write_str("}\n}\n")
             }
             Instruction::Return => f.write_str("return;\n"),
             Instruction::Break => f.write_str("break;\n"),

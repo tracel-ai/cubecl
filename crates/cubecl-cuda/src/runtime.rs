@@ -136,16 +136,16 @@ fn register_wmma_features(features: &mut FeatureSet, arch: u32) {
                 b,
                 c,
                 m: 32,
-                k: 8,
-                n: 16,
+                k: 16,
+                n: 8,
             });
             features.register(Feature::Cmma {
                 a,
                 b,
                 c,
                 m: 8,
-                k: 32,
-                n: 16,
+                k: 16,
+                n: 32,
             });
         }
     }
