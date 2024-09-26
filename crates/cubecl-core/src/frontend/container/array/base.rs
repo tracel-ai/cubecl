@@ -22,11 +22,17 @@ pub struct Array<E> {
 /// Module that contains the implementation details of the new function.
 mod new {
     use super::*;
+    use crate::ir::Variable;
 
     impl<T: CubePrimitive + Clone> Array<T> {
         /// Create a new array of the given length.
         #[allow(unused_variables)]
         pub fn new<L: Index>(length: L) -> Self {
+            Array { _val: PhantomData }
+        }
+
+        /// Create an array from data.
+        pub fn from_data<C: CubePrimitive>(_data: impl IntoIterator<Item = C>) -> Self {
             Array { _val: PhantomData }
         }
 
@@ -42,6 +48,39 @@ mod new {
             context
                 .create_local_array(Item::new(T::as_elem()), size)
                 .into()
+        }
+
+        /// Expand function of [from_data](Array::from_data).
+        pub fn __expand_from_data<C: CubePrimitive>(
+            context: &mut CubeContext,
+            data: ArrayData<C>,
+        ) -> <Self as CubeType>::ExpandType {
+            let var = context.create_const_array(Item::new(T::as_elem()), data.values);
+            ExpandElementTyped::new(var)
+        }
+    }
+
+    /// Type useful for the expand function of [from_data](Array::from_data).
+    pub struct ArrayData<C> {
+        values: Vec<Variable>,
+        _ty: PhantomData<C>,
+    }
+
+    impl<C: CubePrimitive + Into<ExpandElementTyped<C>>, T: IntoIterator<Item = C>> From<T>
+        for ArrayData<C>
+    {
+        fn from(value: T) -> Self {
+            let values: Vec<Variable> = value
+                .into_iter()
+                .map(|value| {
+                    let value: ExpandElementTyped<C> = value.into();
+                    *value.expand
+                })
+                .collect();
+            ArrayData {
+                values,
+                _ty: PhantomData,
+            }
         }
     }
 }

@@ -91,6 +91,7 @@ impl Component for Variable {
             Variable::GlobalInputArray(_, e) => *e,
             Variable::GlobalOutputArray(_, e) => *e,
             Variable::SharedMemory(_, e, _) => *e,
+            Variable::ConstantArray(_, e, _) => *e,
             Variable::Local {
                 id: _,
                 item,
@@ -140,12 +141,13 @@ impl Component for Variable {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Variable {
     WarpSize,
     GlobalInputArray(u16, Item),
     GlobalOutputArray(u16, Item),
     GlobalScalar(u16, Elem, gpu::Elem),
+    ConstantArray(u16, Item, u32),
     ConstantScalar(ConstantScalarValue, Elem),
     Local { id: u16, item: Item, depth: u8 },
     Slice { id: u16, item: Item, depth: u8 },
@@ -222,6 +224,7 @@ impl Display for Variable {
             Variable::SharedMemory(number, _, _) => {
                 f.write_fmt(format_args!("shared_memory_{number}"))
             }
+            Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
             Variable::ThreadIdxGlobal => f.write_str("threadIdxGlobal"),
             Variable::ThreadIdxX => f.write_str("threadIdx.x"),
             Variable::ThreadIdxY => f.write_str("threadIdx.y"),
@@ -336,11 +339,7 @@ impl Variable {
         match self {
             Variable::GlobalScalar(_, _, _) => true,
             Variable::ConstantScalar(_, _) => true,
-            Variable::LocalScalar {
-                id: _,
-                elem: _,
-                depth: _,
-            } => true,
+            Variable::LocalScalar { .. } => true,
             Variable::IdxGlobal => true,
             Variable::ThreadIdxGlobal => true,
             Variable::ThreadIdxX => true,
@@ -350,6 +349,7 @@ impl Variable {
             Variable::GlobalInputArray(_, _) => false,
             Variable::GlobalOutputArray(_, _) => false,
             Variable::SharedMemory(_, _, _) => false,
+            Variable::ConstantArray(_, _, _) => false,
             Variable::Local {
                 id: _,
                 item: _,
