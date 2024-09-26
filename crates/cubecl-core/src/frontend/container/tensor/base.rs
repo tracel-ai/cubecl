@@ -162,7 +162,7 @@ mod line {
                 .get() as u32
         }
 
-        // Expand methos of [size](Tensor::line_size).
+        // Expand method of [size](Tensor::line_size).
         pub fn __expand_line_size_method(&self, _content: &mut CubeContext) -> u32 {
             self.line_size()
         }

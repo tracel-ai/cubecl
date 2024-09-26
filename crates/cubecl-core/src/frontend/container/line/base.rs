@@ -45,7 +45,7 @@ mod fill {
     impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Line<P> {
         /// Fill the line with the given value.
         ///
-        /// If you want to fill the line with different values, condifer using the index API
+        /// If you want to fill the line with different values, consider using the index API
         /// instead.
         ///
         /// ```rust, ignore
