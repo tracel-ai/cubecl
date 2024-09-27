@@ -1,35 +1,17 @@
 use std::marker::PhantomData;
 
 use cubecl_core as cubecl;
-use cubecl_core::{cmma, prelude::*};
-use half::f16;
+use cubecl_core::prelude::*;
 
-use crate::matmul::{Matmul, MatmulDefinition, MatmulInstruction, Matrix, MatrixMut};
+use crate::matmul::{Matmul, MatmulInstruction, MatrixLayout, MatrixMut, TileReader};
 
-#[cube]
-pub trait PlaneMapper {
-    fn tile_index(row_offset: u32, col_offset: u32) -> u32;
-    // let compute_plane_id = 0; // TMP
+use super::instruction::CmmaValid;
 
-    // let num_planes_per_row = (definition.n / 16) / acc.len();
-    // let tile_row = compute_plane_id / num_planes_per_row;
-    // let tile_col_base = (compute_plane_id % num_planes_per_row) * acc.len();
-}
-
-pub struct CmmaMatmul<
-    A: CmmaValid,
-    E: CmmaValid,
-    SL: PlaneMapper,
-    SR: PlaneMapper,
-    SO: PlaneMapper,
-    I: MatmulInstruction<E, A, 16, 16, 16>,
-> {
+pub struct CmmaMatmul<A: CmmaValid, E: CmmaValid, I: MatmulInstruction<E, A>, CMS: CmmaMatmulSize> {
     _accumulator_precision: PhantomData<A>,
     _input_precision: PhantomData<E>,
-    _lhs_smem_loader: PhantomData<SL>,
-    _rhs_smem_loader: PhantomData<SR>,
-    _writer: PhantomData<SO>,
     _instruction: PhantomData<I>,
+    _cms: PhantomData<CMS>,
 }
 
 #[derive(CubeType, Clone, Copy)]
@@ -37,56 +19,70 @@ pub struct CmmaMatmulConfig {
     pub num_accumulators: u32,
 }
 
+pub trait CmmaMatmulSize {
+    const M: u32;
+    const N: u32;
+    const K: u32;
+}
+
+pub struct S128_128_16;
+
+impl CmmaMatmulSize for S128_128_16 {
+    const M: u32 = 128;
+    const N: u32 = 128;
+    const K: u32 = 16;
+}
+
 #[cube]
-impl<
-        A: CmmaValid,
-        E: CmmaValid,
-        SL: PlaneMapper,
-        SR: PlaneMapper,
-        SO: PlaneMapper,
-        I: MatmulInstruction<E, A, 16, 16, 16>,
-    > Matmul<E> for CmmaMatmul<A, E, SL, SR, SO, I>
+impl<A, E, I, CMS, Lhs, Rhs> Matmul<E, Lhs, Rhs> for CmmaMatmul<A, E, I, CMS>
+where
+    A: CmmaValid,
+    E: CmmaValid,
+    I: MatmulInstruction<E, A>,
+    CMS: CmmaMatmulSize,
+    Lhs: TileReader<Line<E>>,
+    Rhs: TileReader<Line<E>>,
 {
     type Config = CmmaMatmulConfig;
-    type Accumulator = Sequence<I::Output>;
+    type Accumulator = Sequence<I::Out>;
+    const M: u32 = CMS::M;
+    const N: u32 = CMS::N;
+    const K: u32 = CMS::K;
 
     fn execute(
-        lhs: &Matrix<Line<E>>,
-        rhs: &Matrix<Line<E>>,
+        lhs: Lhs,
+        rhs: Rhs,
         acc: &mut Self::Accumulator,
-        #[comptime] definition: MatmulDefinition,
+        #[comptime] layouts: (MatrixLayout, MatrixLayout),
         #[comptime] _config: &Self::Config,
     ) {
-        let num_buffers = definition.k / 16;
+        let num_buffers = CMS::K / I::K;
+        let mut instruction_lhs = I::init_lhs(layouts.0);
+        let mut instruction_rhs = I::init_rhs(layouts.1);
 
         #[unroll]
         for buffer_iter in 0..num_buffers {
-            let tile_index = SL::tile_index(0, buffer_iter);
-            let start = tile_index * I::slice_length();
-            let end = start + I::slice_length();
-
-            let lhs_instruction_input = I::fill_input(lhs.slice.slice(start, end));
+            let tile_lhs = Lhs::read(&lhs, 0, buffer_iter);
+            I::fill_lhs(&tile_lhs, &mut instruction_lhs);
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_index = SR::tile_index(buffer_iter, accumulator_iter);
-                let start = tile_index * I::slice_length();
-                let end = start + I::slice_length();
-
-                let rhs_instruction_input = I::fill_input(rhs.slice.slice(start, end));
+                let tile_rhs = Rhs::read(&rhs, buffer_iter, accumulator_iter);
+                I::fill_rhs(&tile_rhs, &mut instruction_rhs);
 
                 let accumulator = acc.index_mut(accumulator_iter);
-
-                I::execute(&lhs_instruction_input, &rhs_instruction_input, accumulator);
+                I::execute(&instruction_lhs, &instruction_rhs, accumulator);
             }
         }
     }
 
-    fn acc_init_zeros(#[comptime] config: &Self::Config) -> Self::Accumulator {
-        let mut accumulators = Sequence::<I::Output>::new();
+    fn acc_init_zeros(#[comptime] _config: &Self::Config) -> Self::Accumulator {
+        let mut accumulators = Sequence::<I::Out>::new();
+
+        let num_accumulators = Rhs::NUM_TILES_Y;
 
         #[unroll]
-        for _ in 0..config.num_accumulators {
+        for _ in 0..num_accumulators {
             let acc = I::init_output();
 
             accumulators.push(acc);
@@ -100,73 +96,25 @@ impl<
         out: &mut MatrixMut<Line<E>>,
         #[comptime] config: &Self::Config,
     ) {
-        for accumulator_iter in 0..config.num_accumulators {
+        let plane_id = UNIT_POS_Y;
+        let num_planes = 8u32;
+        let line_size = 4u32;
+
+        let size = Lhs::TILE_SIZE_X * Rhs::TILE_SIZE_Y;
+        let mut output_smem = SharedMemory::<E>::new_lined(
+            num_planes * Lhs::TILE_SIZE_X * Rhs::TILE_SIZE_Y,
+            line_size,
+        );
+
+        for accumulator_iter in 0..acc.len() {
             let accumulator = acc.index(accumulator_iter);
 
-            let tile_index = SO::tile_index(0, accumulator_iter);
-            let start = tile_index * I::slice_length();
-            let end = start + I::slice_length();
+            I::read_output(
+                accumulator,
+                output_smem.slice_mut(plane_id * size, plane_id * size + size),
+            );
 
-            I::read_output(accumulator, &mut out.slice.slice_mut(start, end));
+            // from output_smem to out, using tile writer
         }
-    }
-}
-
-pub struct CmmaInstruction<I: CmmaValid, O: CmmaValid> {
-    _input: PhantomData<I>,
-    _output: PhantomData<O>,
-}
-
-pub trait CmmaValid: Numeric {}
-impl CmmaValid for f32 {}
-impl CmmaValid for f16 {}
-
-pub struct CmmaInstructionConfig {}
-
-#[cube]
-impl<I: CmmaValid, O: CmmaValid> MatmulInstruction<I, O, 16, 16, 16> for CmmaInstruction<I, O> {
-    type Config = CmmaInstructionConfig;
-    type Input = cmma::Matrix<I>;
-    type Output = cmma::Matrix<O>;
-
-    fn execute(lhs: &Self::Input, rhs: &Self::Input, out: &mut Self::Output) {
-        cmma::execute::<I, I, O, O>(lhs, rhs, out, out);
-    }
-
-    fn fill_input<C: CubePrimitive>(slice: &Slice<'_, C>) -> cmma::Matrix<I> {
-        // TODO: this will make a new each time...
-        let fragment = cmma::Matrix::<I>::new(
-            cmma::MatrixIdent::A,
-            16,
-            16,
-            16,
-            cmma::MatrixLayout::RowMajor,
-        );
-
-        cmma::load(&fragment, slice, 16);
-
-        fragment
-    }
-
-    fn init_output() -> cmma::Matrix<O> {
-        let out = cmma::Matrix::<O>::new(
-            cmma::MatrixIdent::Accumulator,
-            16,
-            16,
-            16,
-            cmma::MatrixLayout::Undefined,
-        );
-
-        cmma::fill(&out, O::from_int(0));
-
-        out
-    }
-
-    fn read_output<C: CubePrimitive>(out: &cmma::Matrix<O>, slice: &mut SliceMut<'_, C>) {
-        cmma::store(slice, out, 16, cmma::MatrixLayout::RowMajor);
-    }
-
-    fn slice_length() -> u32 {
-        256u32
     }
 }

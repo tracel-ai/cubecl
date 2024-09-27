@@ -16,15 +16,18 @@ pub trait BatchMatmul<N: Numeric> {
 
 #[cube]
 /// Execute a matmul over matrices.
-pub trait Matmul<E: Numeric> {
+pub trait Matmul<E: Numeric, Lhs: TileReader<Line<E>>, Rhs: TileReader<Line<E>>> {
     type Config;
     type Accumulator: CubeType;
+    const M: u32;
+    const N: u32;
+    const K: u32;
 
     fn execute(
-        lhs: &Matrix<Line<E>>,
-        rhs: &Matrix<Line<E>>,
+        lhs: Lhs,
+        rhs: Rhs,
         acc: &mut Self::Accumulator,
-        #[comptime] definition: MatmulDefinition,
+        #[comptime] layouts: (MatrixLayout, MatrixLayout),
         #[comptime] config: &Self::Config,
     );
 
@@ -37,25 +40,39 @@ pub trait Matmul<E: Numeric> {
     );
 }
 
-pub struct MatmulDefinition {
-    pub m: u32,
-    pub n: u32,
-    pub k: u32,
+#[cube]
+/// Executes a matmul at the lowest level
+pub trait MatmulInstruction<I: Numeric, O: Numeric> {
+    type Config;
+    type Lhs: CubeType;
+    type Rhs: CubeType;
+    type Out: CubeType;
+    const M: u32;
+    const N: u32;
+    const K: u32;
+
+    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out);
+
+    fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs;
+    fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs;
+
+    fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs);
+    fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs);
+
+    fn init_output() -> Self::Out;
+    fn read_output<C: CubePrimitive>(out: &Self::Out, slice: &mut SliceMut<'_, C>);
 }
 
 #[cube]
-/// Executes a matmul at the lowest level
-pub trait MatmulInstruction<I: Numeric, O: Numeric, const M: u8, const N: u8, const K: u8> {
-    type Config;
-    type Input: CubeType;
-    type Output: CubeType;
+/// Defines the number of tiles and their size in each plane
+pub trait TileReader<E: CubeType>: CubeType {
+    const NUM_TILES_X: u32;
+    const NUM_TILES_Y: u32;
 
-    fn execute(lhs: &Self::Input, rhs: &Self::Input, out: &mut Self::Output);
+    const TILE_SIZE_X: u32;
+    const TILE_SIZE_Y: u32;
 
-    fn fill_input<C: CubePrimitive>(slice: &Slice<'_, C>) -> Self::Input;
-    fn init_output() -> Self::Output;
-    fn read_output<C: CubePrimitive>(out: &Self::Output, slice: &mut SliceMut<'_, C>);
-    fn slice_length() -> u32;
+    fn read(reader: &Self, pos_x: u32, pos_y: u32) -> Slice<'_, E>;
 }
 
 #[derive(CubeType)]
@@ -70,16 +87,32 @@ pub struct MatrixMut<'b, N: CubePrimitive> {
     pub layout: MatrixLayout,
 }
 
-#[derive(CubeType, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub enum MatrixLayout {
     Row,
     Col,
 }
 
-// #[cube]
-// pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
-//     match layout {
-//         MatrixLayout::Row => cmma::MatrixLayout::RowMajor,
-//         MatrixLayout::Col => cmma::MatrixLayout::ColMajor,
-//     }
-// }
+impl CubeType for MatrixLayout {
+    type ExpandType = Self;
+}
+
+impl Init for MatrixLayout {
+    fn init(self, _context: &mut CubeContext) -> Self {
+        self
+    }
+}
+
+impl IntoRuntime for MatrixLayout {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        self
+    }
+}
+
+#[cube]
+pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
+    match layout {
+        MatrixLayout::Row => cmma::MatrixLayout::RowMajor,
+        MatrixLayout::Col => cmma::MatrixLayout::ColMajor,
+    }
+}
