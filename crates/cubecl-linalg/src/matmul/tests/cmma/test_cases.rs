@@ -1,7 +1,7 @@
 use cubecl_core::Runtime;
 
 use crate::matmul::{
-    cmma::{self, config::CmmaConfig, is_available},
+    cmma::old::{config::CmmaConfig, is_available, launch},
     tests::matmul_test_case::MatmulTestCase,
 };
 
@@ -107,7 +107,7 @@ pub(crate) fn test_cmma<R: Runtime>(
 
         let expected = case.matmul_cpu(&lhs, &rhs, &client);
 
-        let out = cmma::launch::<R, f32>(&client, lhs, rhs, case.empty_out(&client), config);
+        let out = launch::<R, f32>(&client, lhs, rhs, case.empty_out(&client), config);
 
         assert_equals_approx::<R>(&client, out.handle, &expected, 10e-3)
     } else {

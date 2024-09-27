@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::super::config::{SmemLoaderStrategy, TilingOrderStrategy};
 use super::super::prologue::{Fragments, Ids, SharedMemories};
-use crate::matmul::cmma::config::{SmemLoaderStrategy, TilingOrderStrategy};
-use crate::matmul::cmma::{
+use super::super::{
     config::ComptimeCmmaInfo,
     load_shared_memory::{
         base::SmemLoader,

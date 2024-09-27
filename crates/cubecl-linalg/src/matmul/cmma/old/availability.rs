@@ -4,7 +4,7 @@ use cubecl_core::{
     Feature, Runtime,
 };
 
-use crate::matmul::cmma::config::CmmaConfig;
+use super::config::CmmaConfig;
 
 use super::config::TileDimension;
 

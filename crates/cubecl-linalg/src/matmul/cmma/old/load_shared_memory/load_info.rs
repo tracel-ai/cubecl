@@ -2,7 +2,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use super::super::prologue::RuntimeCmmaInfo;
-use crate::matmul::cmma::config::ComptimeCmmaInfo;
+use super::super::config::ComptimeCmmaInfo;
 
 #[cube]
 pub(crate) trait LoadInfo {

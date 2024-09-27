@@ -2,9 +2,9 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use super::super::prologue::RuntimeCmmaInfo;
-use crate::matmul::cmma::block_io::base::BlockLoader;
-use crate::matmul::cmma::config::{ComptimeCmmaInfo, MainLoopStrategy};
-use crate::matmul::cmma::load_shared_memory::base::get_tile_smem_index;
+use super::super::block_io::base::BlockLoader;
+use super::super::config::{ComptimeCmmaInfo, MainLoopStrategy};
+use super::super::load_shared_memory::base::get_tile_smem_index;
 
 use super::base::SmemLoader;
 use super::load_info::LoadInfo;

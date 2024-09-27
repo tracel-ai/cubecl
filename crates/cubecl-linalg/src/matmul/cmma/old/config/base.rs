@@ -1,6 +1,6 @@
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::config::TileDimension;
+use super::super::config::TileDimension;
 
 use super::{
     strategy::{

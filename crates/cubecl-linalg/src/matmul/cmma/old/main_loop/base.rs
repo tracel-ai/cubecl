@@ -1,8 +1,8 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use crate::matmul::cmma::compute_loop::base::ComputeLoop;
-use crate::matmul::cmma::prologue::Ids;
+use super::super::compute_loop::base::ComputeLoop;
+use super::super::prologue::Ids;
 
 use super::super::{
     config::ComptimeCmmaInfo,

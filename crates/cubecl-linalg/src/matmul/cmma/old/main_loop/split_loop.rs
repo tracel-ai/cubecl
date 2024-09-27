@@ -1,8 +1,8 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use crate::matmul::cmma::compute_loop::base::ComputeLoop;
-use crate::matmul::cmma::prologue::{prologue, Ids};
+use super::super::compute_loop::base::ComputeLoop;
+use super::super::prologue::{prologue, Ids};
 
 use super::super::{
     config::ComptimeCmmaInfo,
@@ -12,17 +12,17 @@ use super::super::{
 };
 use super::base::CmmaMain;
 
-pub(crate) struct StandardMainLoop {}
+pub(crate) struct SplitMainLoop {}
 
 #[cube]
-impl CmmaMain for StandardMainLoop {
+impl CmmaMain for SplitMainLoop {
     fn prologue<F: Float, FC: Float>(
         lhs: &Tensor<F>,
         rhs: &Tensor<F>,
         out: &mut Tensor<F>,
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) -> (RuntimeCmmaInfo, Fragments<F, FC>, SharedMemories<FC>) {
-        prologue::<StandardMainLoop, F, FC>(lhs, rhs, out, comptime_info)
+        prologue::<SplitMainLoop, F, FC>(lhs, rhs, out, comptime_info)
     }
 
     fn main_loop<C: ComputeLoop, F: Float, FC: Float>(
@@ -39,23 +39,27 @@ impl CmmaMain for StandardMainLoop {
         for block in 0..num_loops {
             let k_offset = block * comptime_info.block_size_k;
 
-            load_to_shared_memories::<F, FC>(
-                lhs,
-                rhs,
-                shared_memories,
-                k_offset,
-                runtime_info,
-                comptime_info,
-            );
+            if !is_compute_plane(comptime_info) {
+                load_to_shared_memories::<F, FC>(
+                    lhs,
+                    rhs,
+                    shared_memories,
+                    k_offset,
+                    runtime_info,
+                    comptime_info,
+                );
+            }
 
             sync_units();
 
-            C::compute_loop::<F, FC>(
-                shared_memories,
-                fragments,
-                runtime_info.compute_ids,
-                comptime_info,
-            );
+            if is_compute_plane(comptime_info) {
+                C::compute_loop::<F, FC>(
+                    shared_memories,
+                    fragments,
+                    runtime_info.compute_ids,
+                    comptime_info,
+                );
+            }
 
             sync_units();
         }
@@ -67,7 +71,9 @@ impl CmmaMain for StandardMainLoop {
         runtime_info: RuntimeCmmaInfo,
         #[comptime] comptime_info: ComptimeCmmaInfo,
     ) {
-        write_to_output(out, accumulators, runtime_info, comptime_info);
+        if is_compute_plane(comptime_info) {
+            write_to_output(out, accumulators, runtime_info, comptime_info);
+        }
     }
 
     fn get_compute_ids(#[comptime] _comptime_info: ComptimeCmmaInfo) -> Ids {
@@ -77,10 +83,15 @@ impl CmmaMain for StandardMainLoop {
         }
     }
 
-    fn get_load_ids(#[comptime] _comptime_info: ComptimeCmmaInfo) -> Ids {
+    fn get_load_ids(#[comptime] comptime_info: ComptimeCmmaInfo) -> Ids {
         Ids {
-            plane: UNIT_POS_Y,
+            plane: UNIT_POS_Y - comptime_info.num_compute_planes,
             lane: UNIT_POS_X,
         }
     }
+}
+
+#[cube]
+fn is_compute_plane(#[comptime] comptime_info: ComptimeCmmaInfo) -> bool {
+    UNIT_POS_Y < comptime_info.num_compute_planes
 }

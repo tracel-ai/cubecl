@@ -1,5 +1,5 @@
-use crate::matmul::cmma::load_shared_memory::load_info::LoadInfo;
-use crate::matmul::cmma::prologue::{Dimensions, RuntimeCmmaInfo};
+use super::super::load_shared_memory::load_info::LoadInfo;
+use super::super::prologue::{Dimensions, RuntimeCmmaInfo};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

@@ -5,10 +5,8 @@ use cubecl_core::{
 };
 use half::f16;
 
-use crate::{
-    matmul::cmma::{base::cmma_launch, config::CmmaConfig},
-    tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle},
-};
+use super::{base::cmma_launch, config::CmmaConfig};
+use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
 /// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
 pub fn matmul_cmma<R: Runtime, F: Float>(

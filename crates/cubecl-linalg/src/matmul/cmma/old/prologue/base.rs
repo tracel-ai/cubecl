@@ -6,7 +6,7 @@ use super::super::main_loop::CmmaMain;
 use super::dims::{get_dims, Dimensions};
 use super::offsets::{calculate_offsets, Offsets};
 
-use crate::matmul::cmma::prologue::{make_fragments, make_shared_memories};
+use super::super::prologue::{make_fragments, make_shared_memories};
 
 use super::super::prologue::{Fragments, SharedMemories};
 

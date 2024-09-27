@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::super::prologue::{Fragments, Ids, SharedMemories};
-use crate::matmul::cmma::{
+use super::super::{
     compute_loop::base::{
         get_smem_position_lhs, get_smem_position_rhs, load_tile_into_fragment, ComputeLoop,
     },

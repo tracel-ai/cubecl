@@ -58,6 +58,7 @@ impl<
         #[comptime] _config: &Self::Config,
     ) {
         let num_buffers = definition.k / 16;
+
         #[unroll]
         for buffer_iter in 0..num_buffers {
             let tile_index = SL::tile_index(0, buffer_iter);

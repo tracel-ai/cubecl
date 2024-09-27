@@ -2,12 +2,12 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use super::super::prologue::{RuntimeCmmaInfo, SharedMemories};
-use crate::matmul::cmma::block_io::base::BlockLoader;
-use crate::matmul::cmma::block_io::{
+use super::super::block_io::base::BlockLoader;
+use super::super::block_io::{
     horizontal_block_check::HorizontalCheckBlockIO, unchecked_block::UncheckedBlockIO,
     vertical_block_check::VerticalCheckBlockIO, whole_block_check::WholeCheckBlockIO,
 };
-use crate::matmul::cmma::config::ComptimeCmmaInfo;
+use super::super::config::ComptimeCmmaInfo;
 
 use super::load_info::LoadInfo;
 use super::tiled_layout::TilingOrder;
@@ -17,7 +17,7 @@ use super::{
     tiled_layout::{ColMajorTiling, RowMajorTiling},
     tilewise::TilewiseSmemLoader,
 };
-use crate::matmul::cmma::config::{SmemLoaderStrategy, TilingOrderStrategy};
+use super::super::config::{SmemLoaderStrategy, TilingOrderStrategy};
 
 #[cube]
 pub(crate) trait SmemLoader<F: Float, FC: Float, I: LoadInfo, T: TilingOrder> {

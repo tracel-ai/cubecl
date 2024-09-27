@@ -3,7 +3,7 @@ use cubecl_core::comptime;
 use cubecl_core::prelude::*;
 
 use super::super::prologue::RuntimeCmmaInfo;
-use crate::matmul::cmma::{
+use super::super::{
     block_io::base::BlockLoader, config::ComptimeCmmaInfo,
     load_shared_memory::base::get_tile_smem_index,
 };

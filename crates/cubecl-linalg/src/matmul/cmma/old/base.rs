@@ -3,13 +3,13 @@ use cubecl_core::{self as cubecl, prelude::*};
 
 use super::config::{ComptimeCmmaInfo, MainLoopStrategy};
 use super::main_loop::{CmmaMain, SplitMainLoop, StandardMainLoop};
-use crate::matmul::cmma::compute_loop::base::ComputeLoop;
-use crate::matmul::cmma::compute_loop::{
+use super::compute_loop::base::ComputeLoop;
+use super::compute_loop::{
     accumulators_first::AccumulatorsFirstComputeLoop,
     accumulators_first::AccumulatorsFirstWithReuseComputeLoop,
     buffers_first::BuffersFirstComputeLoop,
 };
-use crate::matmul::cmma::config::ComputeLoopOrderStrategy;
+use super::config::ComputeLoopOrderStrategy;
 
 #[cube(launch_unchecked)]
 pub fn cmma_launch<F: Float, FC: Float>(

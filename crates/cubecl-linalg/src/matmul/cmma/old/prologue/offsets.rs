@@ -1,8 +1,8 @@
 use cubecl_core::cube;
 use cubecl_core::{self as cubecl, prelude::*};
 
-use crate::matmul::cmma::config::RasterizationStrategy;
-use crate::matmul::cmma::rasterization::base::{
+use super::super::config::RasterizationStrategy;
+use super::super::rasterization::base::{
     ColMajorRasterization, Rasterization, RowMajorRasterization, SwizzleRasterization,
 };
 

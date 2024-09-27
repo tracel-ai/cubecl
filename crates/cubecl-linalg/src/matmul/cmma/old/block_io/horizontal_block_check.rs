@@ -3,8 +3,8 @@ use cubecl_core::prelude::*;
 
 use super::base::{BlockLoader, BlockWriter};
 
-use crate::matmul::cmma::load_shared_memory::load_info::LoadInfo;
-use crate::matmul::cmma::prologue::{Dimensions, RuntimeCmmaInfo};
+use super::super::load_shared_memory::load_info::LoadInfo;
+use super::super::prologue::{Dimensions, RuntimeCmmaInfo};
 
 pub(crate) struct HorizontalCheckBlockIO;
 

@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma::config::ComptimeCmmaInfo;
+use super::super::config::ComptimeCmmaInfo;
 
 #[cube]
 pub(crate) trait Rasterization {
