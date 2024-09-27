@@ -35,7 +35,7 @@ pub(crate) fn load_tile_into_fragment<FC: Float, I: LoadInfo>(
 
     let smem_pos = nth_tile * smem_stride;
     let slice = smem.slice(smem_pos, smem_pos + smem_stride);
-    cmma::load::<FC>(fragment, slice, I::tile_width(comptime_info));
+    cmma::load(fragment, slice, I::tile_width(comptime_info));
 }
 
 #[cube]

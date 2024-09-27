@@ -31,7 +31,7 @@ impl OutputWriter for ReuseSmemWriter {
 
         #[unroll]
         for n in 0..num_accumulators {
-            cmma::store::<F>(
+            cmma::store(
                 slice,
                 accumulators.index(n),
                 comptime_info.tile_size_n,

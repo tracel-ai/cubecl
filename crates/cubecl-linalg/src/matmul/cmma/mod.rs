@@ -13,3 +13,6 @@ pub(crate) mod rasterization;
 pub use availability::check_cmma_availability as is_available;
 pub use launch::matmul_cmma as launch;
 pub use launch::matmul_cmma_ref as launch_ref;
+
+mod matmul;
+pub use matmul::*;

@@ -1,9 +1,9 @@
 use cmma::config::{CmmaConfig, PredefinedCmmaConfig};
 use cubecl_core::prelude::*;
 
+mod base;
 /// Contains algorithms for cooperative matrix multiplication.
 pub mod cmma;
-pub mod interface;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not
 /// available.
@@ -26,3 +26,5 @@ pub fn launch_ref<R: Runtime, F: Float>(
         tiling2d::launch_ref::<R, F>(client, lhs, rhs, out, Default::default());
     }
 }
+
+pub use base::*;

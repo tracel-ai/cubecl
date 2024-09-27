@@ -70,22 +70,31 @@ pub struct Matrix<C: CubeType> {
 }
 
 /// Expand type of [Matrix].
-#[derive(Clone)]
-pub struct MatrixExpand {
+pub struct MatrixExpand<C: CubeType> {
     elem: ExpandElement,
+    _c: PhantomData<C>,
+}
+
+impl<C: CubeType> Clone for MatrixExpand<C> {
+    fn clone(&self) -> Self {
+        Self {
+            elem: self.elem.clone(),
+            _c: self._c.clone(),
+        }
+    }
 }
 
 impl<C: CubeType> CubeType for Matrix<C> {
-    type ExpandType = MatrixExpand;
+    type ExpandType = MatrixExpand<C>;
 }
 
 impl<C: CubeType> IntoRuntime for Matrix<C> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> MatrixExpand {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> MatrixExpand<C> {
         unimplemented!("Matrices can't exist at compile time")
     }
 }
 
-impl Init for MatrixExpand {
+impl<C: CubeType> Init for MatrixExpand<C> {
     fn init(self, _context: &mut CubeContext) -> Self {
         self
     }
@@ -117,7 +126,7 @@ impl<C: CubePrimitive> Matrix<C> {
         n: ExpandElementTyped<u32>,
         k: ExpandElementTyped<u32>,
         layout: MatrixLayout,
-    ) -> MatrixExpand {
+    ) -> MatrixExpand<C> {
         let elem = context.create_matrix(ir::Matrix {
             ident,
             m: m.constant().unwrap().as_u32() as u8,
@@ -126,7 +135,10 @@ impl<C: CubePrimitive> Matrix<C> {
             elem: C::as_elem(),
             layout,
         });
-        MatrixExpand { elem }
+        MatrixExpand {
+            elem,
+            _c: PhantomData,
+        }
     }
 }
 
@@ -143,7 +155,7 @@ pub mod fill {
     /// Expand method of [fill()].
     pub fn expand<C: CubeType>(
         context: &mut CubeContext,
-        mat: MatrixExpand,
+        mat: MatrixExpand<C>,
         value: ExpandElementTyped<C>,
     ) {
         let value: ExpandElement = value.into();
@@ -156,7 +168,11 @@ pub mod fill {
 
 /// Load the matrix with the provided array using the stride.
 #[allow(unused_variables)]
-pub fn load<C: CubeType>(mat: &Matrix<C>, value: &Slice<'_, C>, stride: u32) {
+pub fn load<C: CubePrimitive, V: CubePrimitive>(
+    mat: &Matrix<C>,
+    value: &Slice<'_, V>,
+    stride: u32,
+) {
     unexpanded!()
 }
 
@@ -166,10 +182,10 @@ pub mod load {
 
     /// Expand method of [load()].
     #[allow(unused_variables)]
-    pub fn expand<C: CubeType>(
+    pub fn expand<C: CubePrimitive, V: CubePrimitive>(
         context: &mut CubeContext,
-        mat: MatrixExpand,
-        value: ExpandElementTyped<Slice<'static, C>>,
+        mat: MatrixExpand<C>,
+        value: ExpandElementTyped<Slice<'static, V>>,
         stride: ExpandElementTyped<u32>,
     ) {
         let stride: ExpandElement = stride.into();
@@ -184,8 +200,8 @@ pub mod load {
 
 /// Store the matrix in the given array following the given stride and layout.
 #[allow(unused_variables)]
-pub fn store<C: CubePrimitive>(
-    output: &mut SliceMut<'_, C>,
+pub fn store<C: CubePrimitive, O: CubePrimitive>(
+    output: &mut SliceMut<'_, O>,
     mat: &Matrix<C>,
     stride: u32,
     layout: MatrixLayout,
@@ -199,10 +215,10 @@ pub mod store {
 
     /// Expand method of [store()].
     #[allow(unused_variables)]
-    pub fn expand<C: CubePrimitive>(
+    pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         context: &mut CubeContext,
-        output: ExpandElementTyped<SliceMut<'static, C>>,
-        mat: MatrixExpand,
+        output: ExpandElementTyped<SliceMut<'static, O>>,
+        mat: MatrixExpand<C>,
         stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) {
@@ -235,10 +251,10 @@ pub mod execute {
     /// Expand method of [execute()].
     pub fn expand<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrimitive>(
         context: &mut CubeContext,
-        mat_a: MatrixExpand,
-        mat_b: MatrixExpand,
-        mat_c: MatrixExpand,
-        mat_d: MatrixExpand,
+        mat_a: MatrixExpand<A>,
+        mat_b: MatrixExpand<B>,
+        mat_c: MatrixExpand<C>,
+        mat_d: MatrixExpand<D>,
     ) {
         context.register(Operation::CoopMma(ir::CoopMma::Execute {
             mat_a: *mat_a.elem,

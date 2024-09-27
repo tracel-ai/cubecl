@@ -37,7 +37,7 @@ impl OutputWriter for LargeSmemWriter {
 
             let slice = acc_sm.slice_mut(slice_start, slice_end);
 
-            cmma::store::<F>(
+            cmma::store(
                 slice,
                 accumulators.index(n),
                 comptime_info.tile_size_n,
