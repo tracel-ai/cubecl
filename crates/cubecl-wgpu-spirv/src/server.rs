@@ -1,7 +1,5 @@
 use std::num::NonZero;
 
-use crate::compiler::wgsl::ComputeShader;
-
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
@@ -15,12 +13,13 @@ use cubecl_runtime::{
     storage::{ComputeStorage, StorageId},
     ExecutionMode,
 };
+use cubecl_spirv::SpirvKernel;
 use hashbrown::HashMap;
 use wgpu::{CommandEncoder, ComputePass, ComputePipeline, ShaderModuleDescriptor};
 
 /// Wgpu compute server.
 #[derive(Debug)]
-pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
+pub struct WgpuSpirvServer<MM: MemoryManagement<WgpuStorage>> {
     memory_management: MM,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -40,7 +39,7 @@ fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
     })
 }
 
-impl<MM> WgpuServer<MM>
+impl<MM> WgpuSpirvServer<MM>
 where
     MM: MemoryManagement<WgpuStorage>,
 {
@@ -80,28 +79,28 @@ where
 
         let mut compile = kernel.compile(mode);
         if self.logger.is_activated() {
-            compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
+            compile.debug_info = Some(DebugInformation::new("spv", kernel_id.clone()));
         }
 
         let compile = self.logger.debug(compile);
-        let pipeline = self.compile_source(&compile.source, mode);
+        let pipeline = self.compile_source(&compile.repr.assemble(), mode);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         pipeline
     }
 
-    fn compile_source(&self, source: &str, mode: ExecutionMode) -> Arc<ComputePipeline> {
+    fn compile_source(&self, spirv: &[u32], mode: ExecutionMode) -> Arc<ComputePipeline> {
         let module = match mode {
             ExecutionMode::Checked => self.device.create_shader_module(ShaderModuleDescriptor {
                 label: None,
-                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv)),
             }),
             ExecutionMode::Unchecked => unsafe {
                 self.device
                     .create_shader_module_unchecked(ShaderModuleDescriptor {
                         label: None,
-                        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv)),
                     })
             },
         };
@@ -127,11 +126,11 @@ where
     }
 }
 
-impl<MM> ComputeServer for WgpuServer<MM>
+impl<MM> ComputeServer for WgpuSpirvServer<MM>
 where
     MM: MemoryManagement<WgpuStorage>,
 {
-    type Kernel = Box<dyn CubeTask<ComputeShader>>;
+    type Kernel = Box<dyn CubeTask<SpirvKernel>>;
     type DispatchOptions = CubeCount<Self>;
     type Storage = WgpuStorage;
     type MemoryManagement = MM;

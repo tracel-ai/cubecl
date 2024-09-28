@@ -11,10 +11,12 @@ use cubecl_runtime::{
 };
 
 /// A kernel, compiled in the target language
-pub struct CompiledKernel {
+pub struct CompiledKernel<Repr: CompilerRepresentation> {
     pub name: Option<&'static str>,
     /// Source code of the kernel
     pub source: String,
+    /// In-memory representation of the kernel
+    pub repr: Repr,
     /// Size of a cube for the compiled kernel
     pub cube_dim: CubeDim,
     /// The number of bytes used by the share memory
@@ -48,7 +50,7 @@ impl Display for KernelId {
     }
 }
 
-impl Display for CompiledKernel {
+impl<R: CompilerRepresentation> Display for CompiledKernel<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("\n[START_KERNEL_COMPILATION]")?;
 
@@ -172,11 +174,11 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the
 /// provided id.
-pub trait CubeTask: Send + Sync {
+pub trait CubeTask<Repr: CompilerRepresentation>: Send + Sync {
     /// Identifier for the kernel, used for caching kernel compilation.
     fn id(&self) -> KernelId;
     /// Compile the kernel into source
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel;
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<Repr>;
     fn name(&self) -> &'static str {
         core::any::type_name::<Self>()
     }
@@ -189,17 +191,17 @@ pub struct KernelTask<C: Compiler, K: Kernel> {
     _compiler: PhantomData<C>,
 }
 
-impl<C: Compiler, K: Kernel> CubeTask for KernelTask<C, K> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel {
+impl<C: Compiler, K: Kernel> CubeTask<C::Representation> for KernelTask<C, K> {
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C::Representation> {
         let gpu_ir = self.kernel_definition.define();
         let cube_dim = gpu_ir.cube_dim;
         let lower_level_ir = C::compile(gpu_ir, mode);
         let shared_mem_bytes = lower_level_ir.shared_memory_size();
-        let source = lower_level_ir.to_string();
 
         CompiledKernel {
             name: Some(core::any::type_name::<K>()),
-            source,
+            source: lower_level_ir.to_string(),
+            repr: lower_level_ir,
             cube_dim,
             shared_mem_bytes,
             debug_info: None,
@@ -215,8 +217,8 @@ impl<C: Compiler, K: Kernel> CubeTask for KernelTask<C, K> {
     }
 }
 
-impl CubeTask for Arc<dyn CubeTask> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel {
+impl<R: CompilerRepresentation> CubeTask<R> for Arc<dyn CubeTask<R>> {
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<R> {
         self.as_ref().compile(mode)
     }
 
@@ -228,8 +230,8 @@ impl CubeTask for Arc<dyn CubeTask> {
     }
 }
 
-impl CubeTask for Box<dyn CubeTask> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel {
+impl<R: CompilerRepresentation> CubeTask<R> for Box<dyn CubeTask<R>> {
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<R> {
         self.as_ref().compile(mode)
     }
 
