@@ -176,9 +176,13 @@ impl Launch {
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let (_, generics, _) = self.func.sig.generics.split_for_impl();
         let generics = generics.as_turbofish();
+        let allocator = self.args.local_allocator.as_ref();
+        let allocator = allocator.map(|it| it.to_token_stream()).unwrap_or_else(
+            || quote![<<__R as #runtime>::Compiler as #compiler>::local_allocator()],
+        );
 
         quote! {
-            let mut builder = #kernel_builder::with_local_allocator(<<__R as #runtime>::Compiler as #compiler>::local_allocator());
+            let mut builder = #kernel_builder::with_local_allocator(#allocator);
             #io_map
             expand #generics(&mut builder.context, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
             builder.build(self.settings.clone())
