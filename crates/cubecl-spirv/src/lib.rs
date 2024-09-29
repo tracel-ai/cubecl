@@ -21,6 +21,7 @@ pub use target::*;
 #[derive(Debug, Clone)]
 pub struct SpirvKernel {
     pub module: Module,
+    pub num_bindings: usize,
 }
 
 impl CompilerRepresentation for SpirvKernel {

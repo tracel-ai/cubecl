@@ -47,8 +47,8 @@ impl SpirvTarget for GLCompute {
             .collect();
 
         b.capability(Capability::Shader);
-        b.extension("SPV_KHR_storage_buffer_storage_class"); // Storage buffer bindings
-        b.memory_model(AddressingModel::Logical, MemoryModel::GLSL450);
+        b.capability(Capability::VulkanMemoryModel);
+        b.memory_model(AddressingModel::Logical, MemoryModel::Vulkan);
         b.entry_point(ExecutionModel::GLCompute, main, "main", interface);
         b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
     }

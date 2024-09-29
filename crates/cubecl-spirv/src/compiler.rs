@@ -81,12 +81,16 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
     type Representation = SpirvKernel;
 
     fn compile(kernel: KernelDefinition, mode: ExecutionMode) -> Self::Representation {
+        let num_bindings = kernel.inputs.len() + kernel.outputs.len() + kernel.named.len();
         let module = Self {
             mode,
             ..Default::default()
         }
         .compile_kernel(kernel);
-        SpirvKernel { module }
+        SpirvKernel {
+            module,
+            num_bindings,
+        }
     }
 
     fn elem_size(elem: core::Elem) -> usize {

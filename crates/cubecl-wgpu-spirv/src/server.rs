@@ -15,7 +15,11 @@ use cubecl_runtime::{
 };
 use cubecl_spirv::SpirvKernel;
 use hashbrown::HashMap;
-use wgpu::{CommandEncoder, ComputePass, ComputePipeline, ShaderModuleDescriptor};
+use wgpu::{
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
+    CommandEncoder, ComputePass, ComputePipeline, PipelineLayout, PipelineLayoutDescriptor,
+    ShaderModuleDescriptor, ShaderModuleDescriptorSpirV, ShaderStages,
+};
 
 /// Wgpu compute server.
 #[derive(Debug)]
@@ -83,33 +87,55 @@ where
         }
 
         let compile = self.logger.debug(compile);
-        let pipeline = self.compile_source(&compile.repr.assemble(), mode);
+
+        let num_bindings = compile.repr.num_bindings as u32;
+        let bindings = (0..num_bindings)
+            .map(|i| BindGroupLayoutEntry {
+                binding: i,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            })
+            .collect::<Vec<_>>();
+        let layout = self
+            .device
+            .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: None,
+                entries: &bindings,
+            });
+        let layout = self
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&layout],
+                push_constant_ranges: &[],
+            });
+
+        let pipeline = self.compile_source(&compile.repr.assemble(), &layout);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         pipeline
     }
 
-    fn compile_source(&self, spirv: &[u32], mode: ExecutionMode) -> Arc<ComputePipeline> {
-        let module = match mode {
-            ExecutionMode::Checked => self.device.create_shader_module(ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv)),
-            }),
-            ExecutionMode::Unchecked => unsafe {
-                self.device
-                    .create_shader_module_unchecked(ShaderModuleDescriptor {
-                        label: None,
-                        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv)),
-                    })
-            },
+    fn compile_source(&self, spirv: &[u32], layout: &PipelineLayout) -> Arc<ComputePipeline> {
+        let module = unsafe {
+            self.device
+                .create_shader_module_spirv(&ShaderModuleDescriptorSpirV {
+                    label: None,
+                    source: Cow::Borrowed(spirv),
+                })
         };
 
         Arc::new(
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: None,
-                    layout: None,
+                    layout: Some(layout),
                     module: &module,
                     entry_point: "main",
                     compilation_options: wgpu::PipelineCompilationOptions {
