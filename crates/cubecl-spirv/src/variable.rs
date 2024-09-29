@@ -36,6 +36,7 @@ pub enum Variable {
         ptr: Box<Variable>,
         offset: Word,
         len: Word,
+        const_len: Option<u32>,
         item: Item,
     },
     LocalScalar {
@@ -141,6 +142,13 @@ impl Variable {
                 | Variable::ConstantArray(_, _, _)
                 | Variable::LocalArray(_, _, _)
         )
+    }
+
+    pub fn as_const(&self) -> Option<u64> {
+        match self {
+            Self::ConstantScalar(_, val, _) => Some(*val),
+            _ => None,
+        }
     }
 }
 
@@ -532,7 +540,11 @@ fn is_always_in_bounds(var: &Variable, index: &Variable) -> bool {
     let len = match var {
         Variable::SharedMemory(_, _, len)
         | Variable::ConstantArray(_, _, len)
-        | Variable::LocalArray(_, _, len) => *len,
+        | Variable::LocalArray(_, _, len)
+        | Variable::Slice {
+            const_len: Some(len),
+            ..
+        } => *len,
         _ => return false,
     };
 
