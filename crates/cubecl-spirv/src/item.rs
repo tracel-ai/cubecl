@@ -114,6 +114,47 @@ impl Item {
             }
         })
     }
+
+    pub fn cast_to<T: SpirvTarget>(
+        &self,
+        b: &mut SpirvCompiler<T>,
+        object: Word,
+        other: &Item,
+    ) -> Word {
+        if self == other {
+            return object;
+        }
+
+        let broadcast = match (self, other) {
+            (Item::Vector(_, factor), Item::Vector(_, factor2)) if factor == factor2 => object,
+            (Item::Scalar(_), Item::Scalar(_)) => object,
+            (Item::Scalar(elem), Item::Vector(_, factor)) => {
+                let item = Item::Vector(*elem, *factor);
+                let ty = item.id(b);
+                b.composite_construct(ty, None, (0..*factor).map(|_| object).collect::<Vec<_>>())
+                    .unwrap()
+            }
+            (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
+        };
+
+        if self.elem() == other.elem() {
+            return broadcast;
+        }
+
+        let ty = other.id(b);
+
+        match (self.elem(), other.elem()) {
+            (Elem::Bool, Elem::Int(_)) => todo!(),
+            (Elem::Bool, Elem::Float(_)) => todo!(),
+            (Elem::Int(_), Elem::Bool) => todo!(),
+            (Elem::Int(_), Elem::Int(_)) => b.u_convert(ty, None, broadcast).unwrap(),
+            (Elem::Int(_), Elem::Float(_)) => b.convert_u_to_f(ty, None, broadcast).unwrap(),
+            (Elem::Float(_), Elem::Bool) => todo!(),
+            (Elem::Float(_), Elem::Int(_)) => b.convert_f_to_u(ty, None, broadcast).unwrap(),
+            (Elem::Float(_), Elem::Float(_)) => b.f_convert(ty, None, broadcast).unwrap(),
+            (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

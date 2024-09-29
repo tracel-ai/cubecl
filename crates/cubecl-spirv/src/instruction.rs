@@ -1,8 +1,13 @@
-use cubecl_core::ir::{self as core, Metadata};
+use cubecl_core::ir::{self as core, BinaryOperator, Metadata};
 use cubecl_core::ir::{Operation, Operator};
 use rspirv::spirv::Word;
 
-use crate::{containers::Slice, item::Elem, variable::Variable, SpirvCompiler, SpirvTarget};
+use crate::{
+    containers::Slice,
+    item::{Elem, Item},
+    variable::Variable,
+    SpirvCompiler, SpirvTarget,
+};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, op: Operation) {
@@ -16,23 +21,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_operator(&mut self, op: Operator) {
         match op {
-            Operator::Equal(op) => {
-                let lhs = self.compile_variable(op.lhs);
-                let rhs = self.compile_variable(op.rhs);
-                let out = self.compile_variable(op.out);
-                let lhs_id = self.read(&lhs);
-                let rhs_id = self.read(&rhs);
-                let out_id = self.write_id(&out);
-                let ty = out.item().id(self);
-                match lhs.elem() {
-                    Elem::Bool => self.logical_equal(ty, Some(out_id), lhs_id, rhs_id),
-                    Elem::Int(_) => self.i_equal(ty, Some(out_id), lhs_id, rhs_id),
-                    Elem::Float(_) => self.f_ord_equal(ty, Some(out_id), lhs_id, rhs_id),
-                    Elem::Void => unreachable!(),
-                }
-                .unwrap();
-                self.write(&out, out_id);
-            }
             Operator::Index(op) => {
                 let value = self.compile_variable(op.lhs);
                 let index = self.compile_variable(op.rhs);
@@ -85,8 +73,173 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     },
                 );
             }
+            Operator::Assign(op) => {
+                let input = self.compile_variable(op.input);
+                let out = self.compile_variable(op.out);
+                let input_id = self.read_as(&input, &out.item());
+                let out_id = self.write_id(&out);
+                let out_ty = out.item().id(self);
+                self.copy_object(out_ty, Some(out_id), input_id).unwrap();
+                self.write(&out, out_id);
+            }
+            Operator::Equal(op) => {
+                self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Bool => b.logical_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_) => b.i_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_equal(ty, Some(out), lhs, rhs),
+                        Elem::Void => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Operator::NotEqual(op) => {
+                self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Bool => b.logical_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_) => b.i_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Void => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Operator::Lower(op) => {
+                self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Int(_) => b.s_less_than(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_less_than(ty, Some(out), lhs, rhs),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Operator::LowerEqual(op) => {
+                self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Int(_) => b.s_less_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_less_than_equal(ty, Some(out), lhs, rhs),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Operator::Greater(op) => {
+                self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Int(_) => b.s_greater_than(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_greater_than(ty, Some(out), lhs, rhs),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Operator::GreaterEqual(op) => {
+                self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Int(_) => b.s_greater_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Operator::Add(op) => {
+                self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
+                    match out_ty.elem() {
+                        Elem::Int(_) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(_) => b.f_add(ty, Some(out), lhs, rhs).unwrap(),
+                        _ => unreachable!(),
+                    };
+                });
+            }
+            Operator::Sub(op) => {
+                self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
+                    match out_ty.elem() {
+                        Elem::Int(_) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(_) => b.f_add(ty, Some(out), lhs, rhs).unwrap(),
+                        _ => unreachable!(),
+                    };
+                });
+            }
+            Operator::Mul(op) => {
+                self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
+                    match out_ty.elem() {
+                        Elem::Int(_) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(_) => b.f_mul(ty, Some(out), lhs, rhs).unwrap(),
+                        _ => unreachable!(),
+                    };
+                });
+            }
+            Operator::Div(op) => {
+                self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
+                    match out_ty.elem() {
+                        Elem::Int(_) => b.s_div(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(_) => b.f_div(ty, Some(out), lhs, rhs).unwrap(),
+                        _ => unreachable!(),
+                    };
+                });
+            }
+            Operator::Remainder(op) => {
+                self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
+                    match out_ty.elem() {
+                        Elem::Int(_) => b.s_rem(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(_) => b.f_rem(ty, Some(out), lhs, rhs).unwrap(),
+                        _ => unreachable!(),
+                    };
+                });
+            }
+            Operator::Modulo(op) => {
+                self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
+                    match out_ty.elem() {
+                        Elem::Int(_) => b.s_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(_) => b.f_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        _ => unreachable!(),
+                    };
+                });
+            }
             op => todo!("{op:?}"),
         }
+    }
+
+    fn compile_binary_op(
+        &mut self,
+        op: BinaryOperator,
+        exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
+    ) {
+        let lhs = self.compile_variable(op.lhs);
+        let rhs = self.compile_variable(op.rhs);
+        let out = self.compile_variable(op.out);
+        let out_ty = out.item();
+
+        let lhs_id = self.read_as(&lhs, &out_ty);
+        let rhs_id = self.read_as(&rhs, &out_ty);
+        let out_id = self.write_id(&out);
+
+        let ty = out_ty.id(self);
+
+        exec(self, out_ty, ty, lhs_id, rhs_id, out_id);
+        self.write(&out, out_id);
+    }
+
+    fn compile_binary_op_bool(
+        &mut self,
+        op: BinaryOperator,
+        exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
+    ) {
+        let lhs = self.compile_variable(op.lhs);
+        let rhs = self.compile_variable(op.rhs);
+        let out = self.compile_variable(op.out);
+        let lhs_ty = lhs.item();
+
+        let lhs_id = self.read(&lhs);
+        let rhs_id = self.read_as(&rhs, &lhs_ty);
+        let out_id = self.write_id(&out);
+
+        let ty = out.item().id(self);
+
+        exec(self, lhs_ty, ty, lhs_id, rhs_id, out_id);
+        self.write(&out, out_id);
     }
 
     fn compile_meta(&mut self, meta: Metadata) {

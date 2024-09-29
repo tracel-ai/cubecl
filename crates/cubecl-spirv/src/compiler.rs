@@ -29,6 +29,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub mode: ExecutionMode,
     global_invocation_id: Word,
     num_workgroups: Word,
+    variable_block: usize,
 
     pub capabilities: HashSet<Capability>,
     pub state: LookupTables,
@@ -42,6 +43,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             mode: self.mode,
             global_invocation_id: self.global_invocation_id,
             num_workgroups: self.num_workgroups,
+            variable_block: self.variable_block,
 
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
@@ -59,6 +61,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             num_workgroups: Default::default(),
             capabilities: Default::default(),
             state: Default::default(),
+            variable_block: Default::default(),
         }
     }
 }
@@ -127,12 +130,20 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .begin_function(void, None, FunctionControl::NONE, voidf)
             .unwrap();
 
-        let setup_block = self.setup();
-        let body_block = self.compile_scope(kernel.body, None);
+        self.begin_block(None).unwrap();
+        self.variable_block = self.selected_block().unwrap();
+        self.select_block(None).unwrap(); // Pop variables so we can terminate it later once we're done
+
+        let setup = self.id();
+        let body = self.id();
+        self.setup(setup, body);
+        self.compile_scope(kernel.body, Some(body));
         self.ret().unwrap();
 
-        self.select_block(setup_block).unwrap();
-        self.branch(body_block).unwrap();
+        // Terminate variable block
+        let var_block = self.variable_block;
+        self.select_block(Some(var_block)).unwrap();
+        self.branch(setup).unwrap();
 
         self.end_function().unwrap();
 
@@ -154,8 +165,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         take(&mut self.builder).module()
     }
 
-    fn setup(&mut self) -> Option<usize> {
-        self.begin_block(None).unwrap();
+    fn setup(&mut self, label: Word, body: Word) {
+        self.begin_block(Some(label)).unwrap();
         let int = Item::Scalar(Elem::Int(32));
         let int_ty = int.id(self);
         let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(self);
@@ -165,9 +176,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .access_chain(int_ptr, None, info, vec![zero, zero])
             .unwrap();
         self.state.rank = self.load(int_ty, None, rank_ptr, None, vec![]).unwrap();
-        let setup_block = self.selected_block();
-        self.select_block(None).unwrap();
-        setup_block
+        self.branch(body).unwrap();
     }
 
     pub fn builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
@@ -191,7 +200,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                     let ptr =
                         Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
 
-                    let var = self.variable(ptr, None, StorageClass::Function, None);
+                    let var = self.declare_function_variable(ptr);
                     self.state.variables.insert((id, depth), var);
                 }
                 core::Variable::Slice { .. } => {}
@@ -203,5 +212,15 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.compile_operation(operation);
         }
         label
+    }
+
+    // Declare variable in the first block of the function
+    pub fn declare_function_variable(&mut self, ty: Word) -> Word {
+        let current_block = self.selected_block();
+        let var_block = self.variable_block;
+        self.select_block(Some(var_block)).unwrap();
+        let var = self.variable(ty, None, StorageClass::Function, None);
+        self.select_block(current_block).unwrap();
+        var
     }
 }

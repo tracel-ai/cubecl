@@ -389,6 +389,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
+    pub fn read_as(&mut self, variable: &Variable, item: &Item) -> Word {
+        let id = self.read(variable);
+        variable.item().cast_to(self, id, item)
+    }
+
     fn index(&mut self, variable: &Variable, index: &Variable, unchecked: bool) -> IndexedVariable {
         let access_chain = if unchecked {
             Builder::in_bounds_access_chain

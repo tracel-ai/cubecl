@@ -57,22 +57,42 @@ pub fn slice_len() {
         array(&input),
         array(&output),
     );
-    let kernel2 = slice_len_kernel::create_dummy_kernel::<WgpuRuntime>(
+    let kernel = compile(kernel);
+    fs::write("out/slice_len.spv.txt", kernel.clone().disassemble()).unwrap();
+    fs::write("out/slice_len.spv", to_bytes(kernel.clone())).unwrap();
+
+    let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
+    assert_eq!(kernel.disassemble(), expected);
+}
+
+#[cube(launch, create_dummy_kernel)]
+pub fn slice_for_kernel(input: &Array<f32>, output: &mut Array<f32>) {
+    if UNIT_POS == 0 {
+        let mut sum = 0f32;
+
+        for item in input.slice(2, 4) {
+            sum += item;
+        }
+
+        output[0] = sum;
+    }
+}
+
+#[test]
+pub fn slice_for() {
+    let client = client();
+    let input = handle(&client);
+    let output = handle(&client);
+
+    let kernel = slice_for_kernel::create_dummy_kernel::<WgpuRuntime>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new(1, 1, 1),
         array(&input),
         array(&output),
     );
-
-    let kernel_unchecked = compile_unchecked(kernel2);
     let kernel = compile(kernel);
-    fs::write("out/slice_len.spv.txt", kernel.clone().disassemble()).unwrap();
-    fs::write("out/slice_len.spv", to_bytes(kernel.clone())).unwrap();
-    fs::write(
-        "out/slice_len_unchecked.spv",
-        to_bytes(kernel_unchecked.clone()),
-    )
-    .unwrap();
+    fs::write("out/slice_for.spv.txt", kernel.clone().disassemble()).unwrap();
+    fs::write("out/slice_for.spv", to_bytes(kernel.clone())).unwrap();
 
     let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
     assert_eq!(kernel.disassemble(), expected);
