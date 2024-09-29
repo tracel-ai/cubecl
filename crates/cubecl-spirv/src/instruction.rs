@@ -1,6 +1,9 @@
-use cubecl_core::ir::{self as core, BinaryOperator, Metadata};
+use cubecl_core::ir::{self as core, BinaryOperator, Metadata, UnaryOperator};
 use cubecl_core::ir::{Operation, Operator};
-use rspirv::spirv::Word;
+use rspirv::{
+    dr::Operand,
+    spirv::{Capability, Word},
+};
 
 use crate::{
     containers::Slice,
@@ -57,7 +60,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                     _ => {
                         let end_id = self.read(&end);
-                        let len_ty = Elem::Int(32).id(self);
+                        let len_ty = Elem::Int(32, false).id(self);
                         (self.i_sub(len_ty, None, end_id, start_id).unwrap(), None)
                     }
                 };
@@ -86,7 +89,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
                         Elem::Bool => b.logical_equal(ty, Some(out), lhs, rhs),
-                        Elem::Int(_) => b.i_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, _) => b.i_equal(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_equal(ty, Some(out), lhs, rhs),
                         Elem::Void => unreachable!(),
                     }
@@ -97,7 +100,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
                         Elem::Bool => b.logical_not_equal(ty, Some(out), lhs, rhs),
-                        Elem::Int(_) => b.i_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, _) => b.i_not_equal(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_not_equal(ty, Some(out), lhs, rhs),
                         Elem::Void => unreachable!(),
                     }
@@ -107,7 +110,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Lower(op) => {
                 self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
-                        Elem::Int(_) => b.s_less_than(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, false) => b.u_less_than(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, true) => b.s_less_than(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_less_than(ty, Some(out), lhs, rhs),
                         _ => unreachable!(),
                     }
@@ -117,7 +121,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::LowerEqual(op) => {
                 self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
-                        Elem::Int(_) => b.s_less_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, false) => b.u_less_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, true) => b.s_less_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_less_than_equal(ty, Some(out), lhs, rhs),
                         _ => unreachable!(),
                     }
@@ -127,7 +132,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Greater(op) => {
                 self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
-                        Elem::Int(_) => b.s_greater_than(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, false) => b.u_greater_than(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, true) => b.s_greater_than(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_greater_than(ty, Some(out), lhs, rhs),
                         _ => unreachable!(),
                     }
@@ -137,7 +143,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::GreaterEqual(op) => {
                 self.compile_binary_op_bool(op, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
-                        Elem::Int(_) => b.s_greater_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, false) => b.u_greater_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, true) => b.s_greater_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs),
                         _ => unreachable!(),
                     }
@@ -147,7 +154,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Add(op) => {
                 self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
-                        Elem::Int(_) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, _) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_add(ty, Some(out), lhs, rhs).unwrap(),
                         _ => unreachable!(),
                     };
@@ -156,7 +163,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Sub(op) => {
                 self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
-                        Elem::Int(_) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, _) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_add(ty, Some(out), lhs, rhs).unwrap(),
                         _ => unreachable!(),
                     };
@@ -165,7 +172,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Mul(op) => {
                 self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
-                        Elem::Int(_) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_mul(ty, Some(out), lhs, rhs).unwrap(),
                         _ => unreachable!(),
                     };
@@ -174,7 +181,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Div(op) => {
                 self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
-                        Elem::Int(_) => b.s_div(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, false) => b.u_div(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, true) => b.s_div(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_div(ty, Some(out), lhs, rhs).unwrap(),
                         _ => unreachable!(),
                     };
@@ -183,7 +191,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Remainder(op) => {
                 self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
-                        Elem::Int(_) => b.s_rem(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, true) => b.s_rem(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_rem(ty, Some(out), lhs, rhs).unwrap(),
                         _ => unreachable!(),
                     };
@@ -192,14 +201,94 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Modulo(op) => {
                 self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
-                        Elem::Int(_) => b.s_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, true) => b.s_mod(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_mod(ty, Some(out), lhs, rhs).unwrap(),
                         _ => unreachable!(),
                     };
                 });
             }
+            Operator::Normalize(op) => {
+                const OPCODE: Word = 69;
+                self.compile_unary_op(op, |b, _, ty, input, out| {
+                    let ext = b.extensions[0];
+                    b.ext_inst(ty, Some(out), ext, OPCODE, vec![Operand::IdRef(input)])
+                        .unwrap();
+                });
+            }
+            Operator::Magnitude(op) => {
+                const OPCODE: Word = 66;
+                self.compile_unary_op(op, |b, _, ty, input, out| {
+                    let ext = b.extensions[0];
+                    b.ext_inst(ty, Some(out), ext, OPCODE, vec![Operand::IdRef(input)])
+                        .unwrap();
+                });
+            }
+            Operator::Dot(op) => {
+                if op.lhs.item().vectorization.map(|it| it.get()).unwrap_or(1) == 1 {
+                    self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
+                        match out_ty.elem() {
+                            Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
+                            Elem::Float(_) => b.f_mul(ty, Some(out), lhs, rhs).unwrap(),
+                            _ => unreachable!(),
+                        };
+                    });
+                } else {
+                    let lhs = self.compile_variable(op.lhs);
+                    let rhs = self.compile_variable(op.rhs);
+                    let out = self.compile_variable(op.out);
+                    let ty = out.item().id(self);
+
+                    let lhs_id = self.read(&lhs);
+                    let rhs_id = self.read(&rhs);
+                    let out_id = self.write_id(&out);
+
+                    if matches!(lhs.elem(), Elem::Int(_, _)) {
+                        self.capabilities.insert(Capability::DotProduct);
+                    }
+
+                    match (lhs.elem(), rhs.elem()) {
+                        (Elem::Int(_, false), Elem::Int(_, false)) => {
+                            self.u_dot(ty, Some(out_id), lhs_id, rhs_id, None)
+                        }
+                        (Elem::Int(_, true), Elem::Int(_, false)) => {
+                            self.su_dot(ty, Some(out_id), lhs_id, rhs_id, None)
+                        }
+                        (Elem::Int(_, false), Elem::Int(_, true)) => {
+                            self.su_dot(ty, Some(out_id), rhs_id, lhs_id, None)
+                        }
+                        (Elem::Int(_, true), Elem::Int(_, true)) => {
+                            self.s_dot(ty, Some(out_id), lhs_id, rhs_id, None)
+                        }
+                        (Elem::Float(_), Elem::Float(_)) => {
+                            self.dot(ty, Some(out_id), lhs_id, rhs_id)
+                        }
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                    self.write(&out, out_id);
+                }
+            }
             op => todo!("{op:?}"),
         }
+    }
+
+    fn compile_unary_op(
+        &mut self,
+        op: UnaryOperator,
+        exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
+    ) {
+        let input = self.compile_variable(op.input);
+        let out = self.compile_variable(op.out);
+        let out_ty = out.item();
+
+        let input_id = self.read(&input);
+        let out_id = self.write_id(&out);
+
+        let ty = out_ty.id(self);
+
+        exec(self, out_ty, ty, input_id, out_id);
+        self.write(&out, out_id);
     }
 
     fn compile_binary_op(

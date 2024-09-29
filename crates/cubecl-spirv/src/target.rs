@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use crate::{item::Item, SpirvCompiler};
 
 pub trait SpirvTarget: Debug + Clone + Default + Send + Sync + 'static {
+    fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> Vec<Word>;
     fn set_modes(
         &mut self,
         b: &mut SpirvCompiler<Self>,
@@ -48,6 +49,12 @@ impl SpirvTarget for GLCompute {
 
         b.capability(Capability::Shader);
         b.capability(Capability::VulkanMemoryModel);
+
+        let caps: Vec<_> = b.capabilities.iter().copied().collect();
+        for cap in caps {
+            b.capability(cap);
+        }
+
         b.memory_model(AddressingModel::Logical, MemoryModel::Vulkan);
         b.entry_point(ExecutionModel::GLCompute, main, "main", interface);
         b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
@@ -85,5 +92,9 @@ impl SpirvTarget for GLCompute {
         b.member_decorate(struct_ty, 0, Decoration::Offset, vec![0u32.into()]);
 
         var
+    }
+
+    fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> Vec<Word> {
+        vec![b.ext_inst_import("GLSL.std.450")]
     }
 }

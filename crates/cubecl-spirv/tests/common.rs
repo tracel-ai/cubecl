@@ -35,10 +35,17 @@ pub fn array(tensor: &Handle) -> ArrayArg<'_, WgpuRuntime> {
     unsafe { ArrayArg::from_raw_parts(tensor, 1, 1) }
 }
 
+#[allow(unused)]
+pub fn array_vec(tensor: &Handle, factor: u8) -> ArrayArg<'_, WgpuRuntime> {
+    unsafe { ArrayArg::from_raw_parts(tensor, 1, factor) }
+}
+
+#[allow(unused)]
 pub fn compile(kernel: impl Kernel) -> Module {
     SpirvCompiler::<GLCompute>::compile(kernel.define(), ExecutionMode::Checked).module
 }
 
+#[allow(unused)]
 pub fn compile_unchecked(kernel: impl Kernel) -> Module {
     SpirvCompiler::<GLCompute>::compile(kernel.define(), ExecutionMode::Unchecked).module
 }

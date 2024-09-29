@@ -33,6 +33,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
 
     pub capabilities: HashSet<Capability>,
     pub state: LookupTables,
+    pub extensions: Vec<Word>,
 }
 
 impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
@@ -47,6 +48,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
 
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
+            extensions: self.extensions.clone(),
         }
     }
 }
@@ -62,6 +64,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             capabilities: Default::default(),
             state: Default::default(),
             variable_block: Default::default(),
+            extensions: Default::default(),
         }
     }
 }
@@ -123,6 +126,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
         let mut target = self.target.clone();
+        let extensions = target.extensions(self);
+        self.extensions = extensions;
 
         let void = self.type_void();
         let voidf = self.type_function(void, vec![]);
@@ -167,7 +172,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     fn setup(&mut self, label: Word, body: Word) {
         self.begin_block(Some(label)).unwrap();
-        let int = Item::Scalar(Elem::Int(32));
+        let int = Item::Scalar(Elem::Int(32, false));
         let int_ty = int.id(self);
         let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(self);
         let info = self.state.named["info"];

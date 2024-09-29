@@ -123,7 +123,7 @@ impl Variable {
             Variable::SharedMemory(_, item, _) => item.clone(),
             Variable::ConstantArray(_, item, _) => item.clone(),
             Variable::LocalArray(_, item, _) => item.clone(),
-            _ => Item::Scalar(Elem::Int(32)), // builtin
+            _ => Item::Scalar(Elem::Int(32, false)), // builtin
         }
     }
 
@@ -262,11 +262,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::LocalBinding { id: binding, item }
                 }
             }
-            core::Variable::UnitPos => Variable::LocalInvocationIndex(
-                self.get_or_insert_global(Globals::GlobalInvocationIndex, |b| {
-                    b.load_builtin(BuiltIn::LocalInvocationIndex, Item::Scalar(Elem::Int(32)))
-                }),
-            ),
+            core::Variable::UnitPos => Variable::LocalInvocationIndex(self.get_or_insert_global(
+                Globals::GlobalInvocationIndex,
+                |b| {
+                    b.load_builtin(
+                        BuiltIn::LocalInvocationIndex,
+                        Item::Scalar(Elem::Int(32, false)),
+                    )
+                },
+            )),
             core::Variable::UnitPosX => Variable::LocalInvocationIdX(
                 self.get_or_insert_global(Globals::LocalInvocationIdX, |b| {
                     b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 0)
@@ -303,12 +307,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::Variable::CubeDimZ => Variable::WorkgroupSizeZ(self.state.cube_dims[2]),
             core::Variable::CubeCount => todo!(),
             core::Variable::CubeCountX => {
-                Variable::WorkgroupSizeZ(self.get_or_insert_global(Globals::NumWorkgroupsZ, |b| {
+                Variable::WorkgroupSizeX(self.get_or_insert_global(Globals::NumWorkgroupsX, |b| {
                     b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 0)
                 }))
             }
             core::Variable::CubeCountY => {
-                Variable::WorkgroupSizeY(self.get_or_insert_global(Globals::NumWorkgroupsZ, |b| {
+                Variable::WorkgroupSizeY(self.get_or_insert_global(Globals::NumWorkgroupsY, |b| {
                     b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 1)
                 }))
             }
@@ -319,7 +323,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             core::Variable::SubcubeDim => {
                 let id = self.get_or_insert_global(Globals::SubgroupSize, |b| {
-                    b.load_builtin(BuiltIn::SubgroupSize, Item::Scalar(Elem::Int(32)))
+                    b.load_builtin(BuiltIn::SubgroupSize, Item::Scalar(Elem::Int(32, false)))
                 });
                 Variable::SubgroupSize(id)
             }
@@ -433,7 +437,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Item::Vector(*elem, *vec),
             ),
             Variable::Slice { ptr, offset, .. } => {
-                let item = Item::Scalar(Elem::Int(32));
+                let item = Item::Scalar(Elem::Int(32, false));
                 let int = item.id(self);
                 let index = self.i_add(int, None, *offset, index_id).unwrap();
                 self.index(ptr, &Variable::LocalBinding { id: index, item }, unchecked)
@@ -537,13 +541,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn extract(&mut self, global: Globals, builtin: BuiltIn, idx: u32) -> Word {
         let composite_id = self.vec_global(global, builtin);
-        let ty = Elem::Int(32).id(self);
+        let ty = Elem::Int(32, false).id(self);
         self.composite_extract(ty, None, composite_id, vec![idx])
             .unwrap()
     }
 
     fn vec_global(&mut self, global: Globals, builtin: BuiltIn) -> Word {
-        let item = Item::Vector(Elem::Int(32), 3);
+        let item = Item::Vector(Elem::Int(32, false), 3);
 
         self.get_or_insert_global(global, |b| b.load_builtin(builtin, item))
     }

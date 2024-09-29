@@ -1,8 +1,12 @@
 use cubecl_core::ir::{self as core, Loop, RangeLoop};
 use cubecl_core::ir::{Branch, If, Scope};
-use rspirv::spirv::{LoopControl, SelectionControl, StorageClass, Word};
+use rspirv::spirv::{LoopControl, SelectionControl, Word};
 
-use crate::{item::Item, variable::Variable, SpirvCompiler, SpirvTarget};
+use crate::{
+    item::{Elem, Item},
+    variable::Variable,
+    SpirvCompiler, SpirvTarget,
+};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_branch(&mut self, branch: Branch) {
@@ -17,34 +21,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 inclusive,
                 scope,
             }) => {
+                let i = self.compile_variable(i);
                 let start = self.compile_variable(start);
                 let end = self.compile_variable(end);
                 let step = step.map(|it| self.compile_variable(it));
-                let i = match i {
-                    core::Variable::Local { id, item, depth } => {
-                        let item = Item::Pointer(
-                            StorageClass::Function,
-                            Box::new(self.compile_item(item)),
-                        );
-                        let ty = item.id(self);
-                        let var = self.declare_function_variable(ty);
-                        self.state.variables.insert((id, depth), var);
-                        let start_id = self.read(&start);
-                        self.store(var, start_id, None, vec![]).unwrap();
-                        var
-                    }
-                    _ => unreachable!(),
-                };
 
                 self.compile_range_loop(i, start, end, step, inclusive, scope);
             }
+            Branch::Return => self.ret().unwrap(),
             b => todo!("{b:?}"),
         }
     }
 
     pub fn compile_range_loop(
         &mut self,
-        i: Word,
+        i: Variable,
         start: Variable,
         end: Variable,
         step: Option<Variable>,
@@ -54,40 +45,59 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let i_ty = start.item().id(self);
         let bool = self.type_bool();
 
+        let i_value = self.read(&i);
+        let start_id = self.read(&start);
+        let end_id = self.read(&end);
+
+        let current_func = self.selected_function().unwrap();
+        let current_block = self.selected_block().unwrap();
+
+        let pre = self.module_ref().functions[current_func].blocks[current_block]
+            .label_id()
+            .unwrap();
         let header = self.id();
         let break_cond = self.id();
         let body = self.id();
         let continue_target = self.id();
         let post = self.id();
 
+        let inc = self.id();
+
         self.branch(header).unwrap();
         self.begin_block(Some(header)).unwrap();
 
+        self.phi(
+            i_ty,
+            Some(i_value),
+            vec![(start_id, pre), (inc, continue_target)],
+        )
+        .unwrap();
         self.loop_merge(post, continue_target, LoopControl::NONE, vec![])
             .unwrap();
         self.branch(break_cond).unwrap();
 
-        let end_id = self.read(&end);
-
         self.begin_block(Some(break_cond)).unwrap();
-        let i_value = self.load(i_ty, None, i, None, vec![]).unwrap();
-        let cond = match inclusive {
-            true => self.s_less_than_equal(bool, None, i_value, end_id).unwrap(),
-            false => self.s_less_than(bool, None, i_value, end_id).unwrap(),
-        };
+        let cond = match (inclusive, i.elem()) {
+            (true, Elem::Int(_, false)) => self.u_less_than_equal(bool, None, i_value, end_id),
+            (true, Elem::Int(_, true)) => self.s_less_than_equal(bool, None, i_value, end_id),
+            (false, Elem::Int(_, false)) => self.u_less_than(bool, None, i_value, end_id),
+            (false, Elem::Int(_, true)) => self.s_less_than(bool, None, i_value, end_id),
+            _ => panic!("For loop should be integer"),
+        }
+        .unwrap();
         self.branch_conditional(cond, body, post, vec![]).unwrap();
 
         self.compile_scope(scope, Some(body));
-        self.branch(continue_target).unwrap();
+        if self.selected_block().is_some() {
+            self.branch(continue_target).unwrap();
+        }
 
         let step_id = step
             .map(|it| self.read(&it))
             .unwrap_or_else(|| self.const_u32(1));
 
         self.begin_block(Some(continue_target)).unwrap();
-        let i_value = self.load(i_ty, None, i, None, vec![]).unwrap();
-        let inc = self.i_add(i_ty, None, i_value, step_id).unwrap();
-        self.store(i, inc, None, vec![]).unwrap();
+        self.i_add(i_ty, Some(inc), i_value, step_id).unwrap();
         self.branch(header).unwrap();
 
         self.begin_block(Some(post)).unwrap();
@@ -107,7 +117,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.branch(body).unwrap();
 
         self.compile_scope(scope, Some(body));
-        self.branch(continue_target).unwrap();
+        if self.selected_block().is_some() {
+            self.branch(continue_target).unwrap();
+        }
 
         self.begin_block(Some(continue_target)).unwrap();
         self.branch(header).unwrap();
@@ -190,7 +202,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap();
 
         self.compile_scope(scope, Some(then));
-        self.branch(next).unwrap();
+        if self.selected_block().is_some() {
+            self.branch(next).unwrap();
+        }
         self.begin_block(Some(next)).unwrap();
     }
 }

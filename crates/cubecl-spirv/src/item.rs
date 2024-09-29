@@ -144,13 +144,22 @@ impl Item {
         let ty = other.id(b);
 
         match (self.elem(), other.elem()) {
-            (Elem::Bool, Elem::Int(_)) => todo!(),
+            (Elem::Bool, Elem::Int(_, _)) => todo!(),
             (Elem::Bool, Elem::Float(_)) => todo!(),
-            (Elem::Int(_), Elem::Bool) => todo!(),
-            (Elem::Int(_), Elem::Int(_)) => b.u_convert(ty, None, broadcast).unwrap(),
-            (Elem::Int(_), Elem::Float(_)) => b.convert_u_to_f(ty, None, broadcast).unwrap(),
+            (Elem::Int(_, _), Elem::Bool) => todo!(),
+            (Elem::Int(_, false), Elem::Int(_, false)) => b.u_convert(ty, None, broadcast).unwrap(),
+            (Elem::Int(_, true), Elem::Int(_, false)) => {
+                b.sat_convert_s_to_u(ty, None, broadcast).unwrap()
+            }
+            (Elem::Int(_, true), Elem::Int(_, true)) => b.s_convert(ty, None, broadcast).unwrap(),
+            (Elem::Int(_, false), Elem::Int(_, true)) => {
+                b.sat_convert_u_to_s(ty, None, broadcast).unwrap()
+            }
+            (Elem::Int(_, false), Elem::Float(_)) => b.convert_u_to_f(ty, None, broadcast).unwrap(),
+            (Elem::Int(_, true), Elem::Float(_)) => b.convert_s_to_f(ty, None, broadcast).unwrap(),
             (Elem::Float(_), Elem::Bool) => todo!(),
-            (Elem::Float(_), Elem::Int(_)) => b.convert_f_to_u(ty, None, broadcast).unwrap(),
+            (Elem::Float(_), Elem::Int(_, false)) => b.convert_f_to_u(ty, None, broadcast).unwrap(),
+            (Elem::Float(_), Elem::Int(_, true)) => b.convert_f_to_s(ty, None, broadcast).unwrap(),
             (Elem::Float(_), Elem::Float(_)) => b.f_convert(ty, None, broadcast).unwrap(),
             (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
         }
@@ -161,7 +170,7 @@ impl Item {
 pub enum Elem {
     Void,
     Bool,
-    Int(u32),
+    Int(u32, bool),
     Float(u32),
 }
 
@@ -170,7 +179,7 @@ impl Elem {
         match self {
             Elem::Void => b.type_void(),
             Elem::Bool => b.type_bool(),
-            Elem::Int(width) => b.type_int(*width, 0),
+            Elem::Int(width, signed) => b.type_int(*width, if *signed { 1 } else { 0 }),
             Elem::Float(width) => {
                 if *width == 16 {
                     b.capabilities.insert(Capability::Float16);
@@ -184,7 +193,7 @@ impl Elem {
         match self {
             Elem::Void => 0,
             Elem::Bool => 1,
-            Elem::Int(size) => *size / 8,
+            Elem::Int(size, _) => *size / 8,
             Elem::Float(size) => *size / 8,
         }
     }
@@ -198,7 +207,7 @@ impl Elem {
                     true => b.constant_true(ty),
                     false => b.constant_false(ty),
                 },
-                Elem::Int(width) => match *width {
+                Elem::Int(width, _) => match *width {
                     64 => b.constant_bit64(ty, value),
                     _ => b.constant_bit32(ty, value as u32),
                 },
@@ -216,10 +225,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let size = item.elem.size() as u32 * 8;
         let elem = match item.elem {
             core::Elem::Float(_) => Elem::Float(size),
-            core::Elem::Int(_) => Elem::Int(size),
-            core::Elem::AtomicInt(_) => Elem::Int(size),
-            core::Elem::UInt => Elem::Int(size),
-            core::Elem::AtomicUInt => Elem::Int(size),
+            core::Elem::Int(_) => Elem::Int(size, true),
+            core::Elem::AtomicInt(_) => Elem::Int(size, true),
+            core::Elem::UInt => Elem::Int(size, false),
+            core::Elem::AtomicUInt => Elem::Int(size, false),
             core::Elem::Bool => Elem::Bool,
         };
         let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
@@ -237,6 +246,6 @@ pub trait HasId {
 
 impl HasId for u32 {
     fn id<T: SpirvTarget>(b: &mut SpirvCompiler<T>) -> Word {
-        Elem::Int(32).id(b)
+        Elem::Int(32, false).id(b)
     }
 }

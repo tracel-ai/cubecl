@@ -68,7 +68,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn const_u32(&mut self, value: u32) -> Word {
-        let ty = Item::Scalar(Elem::Int(32));
+        let ty = Item::Scalar(Elem::Int(32, false));
         let ty_id = ty.id(self);
         self.get_or_insert_const(value as u64, ty, |b| b.constant_bit32(ty_id, value))
     }

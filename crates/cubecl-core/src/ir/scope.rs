@@ -137,7 +137,7 @@ impl Scope {
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
     pub fn create_local_undeclared(&mut self, item: Item) -> Variable {
         let index = self.new_local_index();
-        let local = Variable::Local {
+        let local = Variable::LocalBinding {
             id: index,
             item,
             depth: self.depth,
