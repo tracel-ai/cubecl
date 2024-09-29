@@ -61,6 +61,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 )
             })
             .collect();
+
+        let cube_dims = [kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
+        self.state.cube_dims = cube_dims.iter().map(|dim| self.const_u32(*dim)).collect();
+        self.state.cube_size = self.const_u32(cube_dims.iter().product());
     }
 
     pub fn const_u32(&mut self, value: u32) -> Word {

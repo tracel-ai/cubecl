@@ -117,6 +117,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.set_version(1, 6);
 
         self.init_state(kernel.clone());
+        let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
+
         let mut target = self.target.clone();
 
         let void = self.type_void();
@@ -147,9 +149,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             })
             .collect::<Vec<_>>();
 
-        let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
-        self.state.cube_dims = cube_dims.iter().map(|dim| self.const_u32(*dim)).collect();
-        self.state.cube_size = self.const_u32(cube_dims.iter().sum());
         target.set_modes(self, main, builtins, cube_dims);
 
         take(&mut self.builder).module()
