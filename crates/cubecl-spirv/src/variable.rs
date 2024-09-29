@@ -4,7 +4,10 @@ use crate::{
     item::{Elem, HasId, Item},
     SpirvCompiler, SpirvTarget,
 };
-use cubecl_core::ir::{self as core};
+use cubecl_core::{
+    ir::{self as core},
+    ExecutionMode,
+};
 use rspirv::spirv::{BuiltIn, StorageClass, Word};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -12,17 +15,17 @@ pub enum Variable {
     SubgroupSize(Word),
     GlobalInputArray(Word, Item),
     GlobalOutputArray(Word, Item),
-    ConstantScalar(u32, Elem),
+    ConstantScalar(Word, Elem),
     Local {
-        id: u32,
+        id: Word,
         item: Item,
     },
     LocalBinding {
-        id: u32,
+        id: Word,
         item: Item,
     },
     Named {
-        name: String,
+        id: Word,
         item: Item,
         is_array: bool,
     },
@@ -33,13 +36,12 @@ pub enum Variable {
         item: Item,
     },
     LocalScalar {
-        id: u16,
+        id: Word,
         elem: Elem,
-        depth: u8,
     },
-    SharedMemory(u16, Item, u32),
-    ConstantArray(u16, Item, u32),
-    LocalArray(u16, Item, u8, u32),
+    SharedMemory(Word, Item, u32),
+    ConstantArray(Word, Item, u32),
+    LocalArray(Word, Item, u32),
     Id(Word),
     LocalInvocationIndex(Word),
     LocalInvocationIdX(Word),
@@ -67,21 +69,17 @@ pub enum Variable {
 impl Variable {
     pub fn id(&self) -> Word {
         match self {
-            Variable::GlobalInputArray(_, item) => todo!(),
-            Variable::GlobalOutputArray(_, item) => todo!(),
+            Variable::GlobalInputArray(id, _) => *id,
+            Variable::GlobalOutputArray(id, _) => *id,
             Variable::ConstantScalar(id, _) => *id,
             Variable::Local { id, .. } => *id,
             Variable::LocalBinding { id, .. } => *id,
-            Variable::Named {
-                name,
-                item,
-                is_array,
-            } => todo!(),
+            Variable::Named { id, .. } => *id,
             Variable::Slice { ptr, .. } => ptr.id(),
-            Variable::LocalScalar { id, elem, depth } => todo!(),
-            Variable::SharedMemory(_, item, _) => todo!(),
-            Variable::ConstantArray(_, item, _) => todo!(),
-            Variable::LocalArray(_, item, _, _) => todo!(),
+            Variable::LocalScalar { id, .. } => *id,
+            Variable::SharedMemory(id, _, _) => *id,
+            Variable::ConstantArray(id, _, _) => *id,
+            Variable::LocalArray(id, _, _) => *id,
             Variable::SubgroupSize(id) => *id,
             Variable::Id(id) => *id,
             Variable::LocalInvocationIndex(id) => *id,
@@ -120,7 +118,7 @@ impl Variable {
             Variable::LocalScalar { elem, .. } => Item::Scalar(*elem),
             Variable::SharedMemory(_, item, _) => item.clone(),
             Variable::ConstantArray(_, item, _) => item.clone(),
-            Variable::LocalArray(_, item, _, _) => item.clone(),
+            Variable::LocalArray(_, item, _) => item.clone(),
             _ => Item::Scalar(Elem::Int(32)), // builtin
         }
     }
@@ -128,20 +126,24 @@ impl Variable {
     pub fn elem(&self) -> Elem {
         self.item().elem()
     }
+
+    pub fn has_len(&self) -> bool {
+        matches!(
+            self,
+            Variable::GlobalInputArray(_, _)
+                | Variable::GlobalOutputArray(_, _)
+                | Variable::Named { .. }
+                | Variable::Slice { .. }
+                | Variable::SharedMemory(_, _, _)
+                | Variable::ConstantArray(_, _, _)
+                | Variable::LocalArray(_, _, _)
+        )
+    }
 }
 
 pub enum IndexedVariable {
     Pointer(Word, Item),
     Composite(Word, u32, Item),
-}
-
-impl IndexedVariable {
-    pub fn id(&self) -> Word {
-        match self {
-            IndexedVariable::Pointer(ptr, _) => *ptr,
-            IndexedVariable::Composite(ptr, _, _) => *ptr,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -177,16 +179,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_variable(&mut self, variable: core::Variable) -> Variable {
         match variable {
             core::Variable::ConstantScalar(value) => {
-                let elem = self.compile_item(core::Item::new(value.elem())).elem();
-                let elem_id = elem.id(self);
+                let item = self.compile_item(core::Item::new(value.elem()));
+                let elem_id = item.id(self);
                 let map_val: u64 = match value {
                     core::ConstantScalarValue::Int(val, _) => unsafe { transmute::<i64, u64>(val) },
                     core::ConstantScalarValue::Float(val, _) => val.to_bits(),
                     core::ConstantScalarValue::UInt(val) => val,
                     core::ConstantScalarValue::Bool(val) => val as u64,
                 };
-                if let Some(existing) = self.state.constants.get(&(map_val, elem)) {
-                    Variable::ConstantScalar(*existing, elem)
+                if let Some(existing) = self.state.constants.get(&(map_val, item.clone())) {
+                    Variable::ConstantScalar(*existing, item.elem())
                 } else {
                     let id = match value {
                         core::ConstantScalarValue::Int(val, kind) => match kind {
@@ -212,8 +214,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             false => self.constant_false(elem_id),
                         },
                     };
-                    self.state.constants.insert((map_val, elem), id);
-                    Variable::ConstantScalar(id, elem)
+                    self.state.constants.insert((map_val, item.clone()), id);
+                    Variable::ConstantScalar(id, item.elem())
                 }
             }
             core::Variable::Slice { id, depth, .. } => self
@@ -360,41 +362,27 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         match variable {
             Variable::GlobalInputArray(id, _) => *id,
             Variable::GlobalOutputArray(id, _) => *id,
+            Variable::SharedMemory(id, _, _) => *id,
+            Variable::ConstantArray(id, _, _) => *id,
+            Variable::LocalArray(id, _, _) => *id,
+            Variable::Slice { ptr, .. } => self.read(ptr),
             Variable::Local { id, item } => {
                 let ty = item.id(self);
                 self.load(ty, None, *id, None, vec![]).unwrap()
             }
-            Variable::Named {
-                name,
-                item,
-                is_array,
-            } => todo!(),
-            Variable::Slice { ptr, item, .. } => self.read(ptr),
-            Variable::LocalScalar { id, elem, depth } => todo!(),
-            Variable::SharedMemory(_, item, _) => todo!(),
-            Variable::ConstantArray(_, item, _) => todo!(),
-            Variable::LocalArray(_, item, _, _) => todo!(),
+            Variable::Named { id, item, .. } => {
+                let ty = item.id(self);
+                self.load(ty, None, *id, None, vec![]).unwrap()
+            }
             ssa => ssa.id(),
         }
     }
 
-    pub fn read_indexed(&mut self, out_id: Word, variable: &IndexedVariable) -> Word {
+    fn index(&mut self, variable: &Variable, index: Word) -> IndexedVariable {
         match variable {
-            IndexedVariable::Pointer(ptr, item) => {
-                let ty = item.id(self);
-                self.load(ty, Some(out_id), *ptr, None, vec![]).unwrap()
-            }
-            IndexedVariable::Composite(var, index, item) => {
-                let ty = item.id(self);
-                self.composite_extract(ty, Some(out_id), *var, vec![*index])
-                    .unwrap()
-            }
-        }
-    }
-
-    pub fn index(&mut self, variable: &Variable, index: Word) -> IndexedVariable {
-        match variable {
-            Variable::GlobalInputArray(id, item) | Variable::GlobalOutputArray(id, item) => {
+            Variable::GlobalInputArray(id, item)
+            | Variable::GlobalOutputArray(id, item)
+            | Variable::Named { id, item, .. } => {
                 let ptr_ty =
                     Item::Pointer(StorageClass::StorageBuffer, Box::new(item.clone())).id(self);
                 let zero = self.const_u32(0);
@@ -403,77 +391,107 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .unwrap();
                 IndexedVariable::Pointer(id, item.clone())
             }
-            Variable::Local { id, item } => todo!(),
-            Variable::LocalBinding { id, item } => todo!(),
-            Variable::Named {
-                name,
-                item,
-                is_array,
-            } => todo!(),
-            Variable::Slice {
-                ptr, offset, item, ..
-            } => {
+            Variable::Local {
+                id,
+                item: Item::Vector(elem, vec),
+            } => IndexedVariable::Composite(*id, index, Item::Vector(*elem, *vec)),
+            Variable::LocalBinding {
+                id,
+                item: Item::Vector(elem, vec),
+            } => IndexedVariable::Composite(*id, index, Item::Vector(*elem, *vec)),
+            Variable::Slice { ptr, offset, .. } => {
                 let int = Elem::Int(32).id(self);
                 let index = self.i_add(int, None, *offset, index).unwrap();
                 self.index(ptr, index)
             }
-            Variable::LocalScalar { id, elem, depth } => todo!(),
-            Variable::SharedMemory(_, item, _) => todo!(),
-            Variable::ConstantArray(_, item, _) => todo!(),
-            Variable::LocalArray(_, item, _, _) => todo!(),
+            Variable::SharedMemory(id, item, _) => {
+                let ptr_ty =
+                    Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
+                let id = self.access_chain(ptr_ty, None, *id, vec![index]).unwrap();
+                IndexedVariable::Pointer(id, item.clone())
+            }
+            Variable::ConstantArray(id, item, _) => {
+                let ptr_ty =
+                    Item::Pointer(StorageClass::UniformConstant, Box::new(item.clone())).id(self);
+                let id = self.access_chain(ptr_ty, None, *id, vec![index]).unwrap();
+                IndexedVariable::Pointer(id, item.clone())
+            }
+            Variable::LocalArray(id, item, _) => {
+                let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
+                let id = self.access_chain(ptr_ty, None, *id, vec![index]).unwrap();
+                IndexedVariable::Pointer(id, item.clone())
+            }
+
             var => unimplemented!("Can't index into {var:?}"),
+        }
+    }
+
+    pub fn read_indexed(&mut self, out_id: Word, variable: &Variable, index: Word) -> Word {
+        let checked = matches!(self.mode, ExecutionMode::Checked);
+        let read = |b: &mut Self| {
+            let variable = b.index(variable, index);
+            match variable {
+                IndexedVariable::Pointer(ptr, item) => {
+                    let ty = item.id(b);
+                    b.load(ty, Some(out_id), ptr, None, vec![]).unwrap()
+                }
+                IndexedVariable::Composite(var, index, item) => {
+                    let ty = item.id(b);
+                    b.composite_extract(ty, Some(out_id), var, vec![index])
+                        .unwrap()
+                }
+            }
+        };
+        if checked && variable.has_len() {
+            self.compile_read_bound(variable, index, variable.item(), read)
+        } else {
+            read(self)
         }
     }
 
     pub fn write_id(&mut self, variable: &Variable) -> Word {
         match variable {
-            Variable::GlobalInputArray(_, item) => todo!(),
-            Variable::GlobalOutputArray(_, item) => todo!(),
-            Variable::ConstantScalar(_, elem) => todo!(),
-            Variable::Local { .. } => self.id(),
             Variable::LocalBinding { id, .. } => *id,
-            Variable::Named {
-                name,
-                item,
-                is_array,
-            } => todo!(),
-            Variable::Slice { .. } => self.id(),
-            Variable::LocalScalar { id, elem, depth } => todo!(),
-            Variable::SharedMemory(_, item, _) => todo!(),
-            Variable::ConstantArray(_, item, _) => todo!(),
-            Variable::LocalArray(_, item, _, _) => todo!(),
+            Variable::Local { .. } => self.id(),
+            Variable::LocalScalar { .. } => self.id(),
+            Variable::ConstantScalar(_, _) => panic!("Can't write to constant scalar"),
+            Variable::GlobalInputArray(_, _)
+            | Variable::GlobalOutputArray(_, _)
+            | Variable::Slice { .. }
+            | Variable::Named { .. }
+            | Variable::SharedMemory(_, _, _)
+            | Variable::ConstantArray(_, _, _)
+            | Variable::LocalArray(_, _, _) => panic!("Can't write to unindexed array"),
             global => panic!("Can't write to builtin {global:?}"),
         }
     }
 
     pub fn write(&mut self, variable: &Variable, value: Word) {
         match variable {
-            Variable::GlobalInputArray(_, item) => todo!(),
-            Variable::GlobalOutputArray(_, item) => todo!(),
-            Variable::ConstantScalar(_, elem) => todo!(),
             Variable::Local { id, .. } => self.store(*id, value, None, vec![]).unwrap(),
-            Variable::Named {
-                name,
-                item,
-                is_array,
-            } => todo!(),
+            Variable::LocalScalar { id, .. } => self.store(*id, value, None, vec![]).unwrap(),
             Variable::Slice { ptr, .. } => self.write(ptr, value),
-            Variable::LocalScalar { id, elem, depth } => todo!(),
-            Variable::SharedMemory(_, item, _) => todo!(),
-            Variable::ConstantArray(_, item, _) => todo!(),
-            Variable::LocalArray(_, item, _, _) => todo!(),
             _ => {}
         }
     }
 
-    pub fn write_indexed(&mut self, variable: &IndexedVariable, value: Word) {
-        match variable {
-            IndexedVariable::Pointer(ptr, _) => self.store(*ptr, value, None, vec![]).unwrap(),
-            IndexedVariable::Composite(var, index, item) => {
-                let ty = item.id(self);
-                self.composite_insert(ty, None, value, *var, vec![*index])
-                    .unwrap();
+    pub fn write_indexed(&mut self, out: &Variable, index: Word, value: Word) {
+        let checked = matches!(self.mode, ExecutionMode::Checked);
+        let write = |b: &mut Self| {
+            let variable = b.index(out, index);
+            match variable {
+                IndexedVariable::Pointer(ptr, _) => b.store(ptr, value, None, vec![]).unwrap(),
+                IndexedVariable::Composite(var, index, item) => {
+                    let ty = item.id(b);
+                    b.composite_insert(ty, None, value, var, vec![index])
+                        .unwrap();
+                }
             }
+        };
+        if checked && out.has_len() {
+            self.compile_write_bound(out, index, write);
+        } else {
+            write(self)
         }
     }
 

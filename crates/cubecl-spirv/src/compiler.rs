@@ -26,7 +26,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
     builder: Builder,
 
-    mode: ExecutionMode,
+    pub mode: ExecutionMode,
     global_invocation_id: Word,
     num_workgroups: Word,
 
@@ -126,7 +126,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .unwrap();
 
         let setup_block = self.setup();
-        let body_block = self.compile_scope(kernel.body);
+        let body_block = self.compile_scope(kernel.body, None);
         self.ret().unwrap();
 
         self.select_block(setup_block).unwrap();
@@ -181,8 +181,9 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         }
     }
 
-    pub fn compile_scope(&mut self, mut scope: Scope) -> Word {
+    pub fn compile_scope(&mut self, mut scope: Scope, label: Option<Word>) -> Word {
         let processed = scope.process();
+        let label = self.begin_block(label).unwrap();
 
         for variable in processed.variables {
             let item = self.compile_item(variable.item());
@@ -199,7 +200,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             };
         }
 
-        let label = self.begin_block(None).unwrap();
         for operation in processed.operations {
             self.compile_operation(operation);
         }

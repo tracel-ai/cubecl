@@ -39,6 +39,10 @@ pub fn compile(kernel: impl Kernel) -> Module {
     SpirvCompiler::<GLCompute>::compile(kernel.define(), ExecutionMode::Checked).module
 }
 
+pub fn compile_unchecked(kernel: impl Kernel) -> Module {
+    SpirvCompiler::<GLCompute>::compile(kernel.define(), ExecutionMode::Unchecked).module
+}
+
 pub fn to_bytes(module: Module) -> Vec<u8> {
     module
         .assemble()

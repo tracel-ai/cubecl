@@ -18,7 +18,7 @@ use hashbrown::HashMap;
 use wgpu::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     CommandEncoder, ComputePass, ComputePipeline, PipelineLayout, PipelineLayoutDescriptor,
-    ShaderModuleDescriptor, ShaderModuleDescriptorSpirV, ShaderStages,
+    ShaderModuleDescriptorSpirV, ShaderStages,
 };
 
 /// Wgpu compute server.

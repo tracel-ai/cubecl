@@ -3,7 +3,7 @@ use rspirv::spirv::{Capability, CooperativeMatrixUse, Decoration, StorageClass, 
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {
     Scalar(Elem),
     // Vector of scalars. Must be 2, 3, or 4, or 8/16 for OpenCL only
@@ -89,6 +89,31 @@ impl Item {
             Item::CoopMatrix { ty, .. } => *ty,
         }
     }
+
+    pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: u64) -> Word {
+        let scalar = self.elem().constant(b, value);
+        b.get_or_insert_const(value, self.clone(), |b| {
+            let ty = self.id(b);
+            match self {
+                Item::Scalar(_) => scalar,
+                Item::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
+                Item::Array(item, len) => {
+                    let elem = item.constant(b, value);
+                    b.constant_composite(ty, (0..*len).map(|_| elem))
+                }
+                Item::RuntimeArray(_) => unimplemented!("Can't create constant runtime array"),
+                Item::Struct(elems) => {
+                    let items = elems
+                        .iter()
+                        .map(|item| item.constant(b, value))
+                        .collect::<Vec<_>>();
+                    b.constant_composite(ty, items)
+                }
+                Item::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
+                Item::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -121,6 +146,27 @@ impl Elem {
             Elem::Int(size) => *size / 8,
             Elem::Float(size) => *size / 8,
         }
+    }
+
+    pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: u64) -> Word {
+        b.get_or_insert_const(value, Item::Scalar(*self), |b| {
+            let ty = self.id(b);
+            match self {
+                Elem::Void => unreachable!(),
+                Elem::Bool => match value == 1 {
+                    true => b.constant_true(ty),
+                    false => b.constant_false(ty),
+                },
+                Elem::Int(width) => match *width {
+                    64 => b.constant_bit64(ty, value),
+                    _ => b.constant_bit32(ty, value as u32),
+                },
+                Elem::Float(width) => match *width {
+                    64 => b.constant_bit64(ty, value),
+                    _ => b.constant_bit32(ty, value as u32),
+                },
+            }
+        })
     }
 }
 

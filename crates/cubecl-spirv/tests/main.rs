@@ -57,10 +57,22 @@ pub fn slice_len() {
         array(&input),
         array(&output),
     );
+    let kernel2 = slice_len_kernel::create_dummy_kernel::<WgpuRuntime>(
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(1, 1, 1),
+        array(&input),
+        array(&output),
+    );
 
+    let kernel_unchecked = compile_unchecked(kernel2);
     let kernel = compile(kernel);
     fs::write("out/slice_len.spv.txt", kernel.clone().disassemble()).unwrap();
     fs::write("out/slice_len.spv", to_bytes(kernel.clone())).unwrap();
+    fs::write(
+        "out/slice_len_unchecked.spv",
+        to_bytes(kernel_unchecked.clone()),
+    )
+    .unwrap();
 
     let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
     assert_eq!(kernel.disassemble(), expected);

@@ -1,7 +1,8 @@
 use cubecl_core::ir::{self as core, Metadata};
 use cubecl_core::ir::{Operation, Operator};
+use rspirv::spirv::Word;
 
-use crate::{containers::Slice, item::Elem, SpirvCompiler, SpirvTarget};
+use crate::{containers::Slice, item::Elem, variable::Variable, SpirvCompiler, SpirvTarget};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, op: Operation) {
@@ -38,8 +39,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let index_id = self.read(&index);
                 let out_id = self.write_id(&out);
-                let indexed = self.index(&value, index_id);
-                self.read_indexed(out_id, &indexed);
+
+                self.read_indexed(out_id, &value, index_id);
                 self.write(&out, out_id);
             }
             Operator::IndexAssign(op) => {
@@ -48,8 +49,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let value_id = self.read(&value);
                 let index_id = self.read(&index);
-                let indexed = self.index(&out, index_id);
-                self.write_indexed(&indexed, value_id);
+
+                self.write_indexed(&out, index_id, value_id);
             }
             Operator::Slice(op) => {
                 let item = self.compile_item(op.input.item());
@@ -84,28 +85,40 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Metadata::Length { var, out } => {
                 let var = self.compile_variable(var);
                 let out = self.compile_variable(out);
-                let out_id = self.write_id(&out);
-                let out_ty = out.item().id(self);
-                match var {
-                    crate::variable::Variable::GlobalInputArray(_, item) => todo!(),
-                    crate::variable::Variable::GlobalOutputArray(_, item) => todo!(),
-                    crate::variable::Variable::Named {
-                        name,
-                        item,
-                        is_array,
-                    } => todo!(),
-                    crate::variable::Variable::Slice { len, .. } => {
-                        self.copy_object(out_ty, Some(out_id), len).unwrap();
-                        self.write(&out, out_id);
-                    }
-                    crate::variable::Variable::SharedMemory(_, item, _) => todo!(),
-                    crate::variable::Variable::ConstantArray(_, item, _) => todo!(),
-                    crate::variable::Variable::LocalArray(_, item, _, _) => todo!(),
-
-                    var => unimplemented!("Var {var:?} doesn't have length"),
-                }
+                self.length(&var, Some(&out));
             }
             meta => todo!("{meta:?}"),
         }
+    }
+
+    pub fn length(&mut self, var: &Variable, out: Option<&Variable>) -> Word {
+        let (out_id, out_ty) = if let Some(out) = out {
+            let out_id = self.write_id(out);
+            let out_ty = out.elem().id(self);
+            (Some(out_id), out_ty)
+        } else {
+            (None, self.type_int(32, 0))
+        };
+
+        let id = match var {
+            Variable::GlobalInputArray(ptr, _) | Variable::GlobalOutputArray(ptr, _) => {
+                self.array_length(out_ty, out_id, *ptr, 0).unwrap()
+            }
+            Variable::Slice { len, .. } => {
+                if out.is_some() {
+                    self.copy_object(out_ty, out_id, *len).unwrap()
+                } else {
+                    *len
+                }
+            }
+            Variable::SharedMemory(_, _, len)
+            | Variable::ConstantArray(_, _, len)
+            | Variable::LocalArray(_, _, len) => self.const_u32(*len),
+            var => unimplemented!("Var {var:?} doesn't have length"),
+        };
+        if let Some(out) = out {
+            self.write(out, id);
+        }
+        id
     }
 }

@@ -23,7 +23,7 @@ pub struct LookupTables {
     pub array_types: HashMap<Word, Word>,
     pub globals: HashMap<Globals, Word>,
 
-    pub constants: HashMap<(u64, Elem), Word>,
+    pub constants: HashMap<(u64, Item), Word>,
     pub bindings: HashMap<(u16, u8), Word>,
     pub variables: HashMap<(u16, u8), Word>,
 
@@ -64,7 +64,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn const_u32(&mut self, value: u32) -> Word {
-        let ty = Elem::Int(32);
+        let ty = Item::Scalar(Elem::Int(32));
         let ty_id = ty.id(self);
         self.get_or_insert_const(value as u64, ty, |b| b.constant_bit32(ty_id, value))
     }
@@ -72,14 +72,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn get_or_insert_const(
         &mut self,
         value: u64,
-        elem: Elem,
+        item: Item,
         insert: impl FnOnce(&mut Self) -> Word,
     ) -> Word {
-        if let Some(id) = self.state.constants.get(&(value, elem)) {
+        if let Some(id) = self.state.constants.get(&(value, item.clone())) {
             *id
         } else {
             let id = insert(self);
-            self.state.constants.insert((value, elem), id);
+            self.state.constants.insert((value, item), id);
             id
         }
     }
