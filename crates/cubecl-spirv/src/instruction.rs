@@ -37,10 +37,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let value = self.compile_variable(op.lhs);
                 let index = self.compile_variable(op.rhs);
                 let out = self.compile_variable(op.out);
-                let index_id = self.read(&index);
                 let out_id = self.write_id(&out);
 
-                self.read_indexed(out_id, &value, index_id);
+                self.read_indexed(out_id, &value, &index);
                 self.write(&out, out_id);
             }
             Operator::IndexAssign(op) => {
@@ -48,9 +47,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let value = self.compile_variable(op.rhs);
                 let out = self.compile_variable(op.out);
                 let value_id = self.read(&value);
-                let index_id = self.read(&index);
 
-                self.write_indexed(&out, index_id, value_id);
+                self.write_indexed(&out, &index, value_id);
             }
             Operator::Slice(op) => {
                 let item = self.compile_item(op.input.item());

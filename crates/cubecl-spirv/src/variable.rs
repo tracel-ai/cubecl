@@ -8,14 +8,17 @@ use cubecl_core::{
     ir::{self as core},
     ExecutionMode,
 };
-use rspirv::spirv::{BuiltIn, StorageClass, Word};
+use rspirv::{
+    dr::Builder,
+    spirv::{BuiltIn, StorageClass, Word},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
     SubgroupSize(Word),
     GlobalInputArray(Word, Item),
     GlobalOutputArray(Word, Item),
-    ConstantScalar(Word, Elem),
+    ConstantScalar(Word, u64, Elem),
     Local {
         id: Word,
         item: Item,
@@ -71,7 +74,7 @@ impl Variable {
         match self {
             Variable::GlobalInputArray(id, _) => *id,
             Variable::GlobalOutputArray(id, _) => *id,
-            Variable::ConstantScalar(id, _) => *id,
+            Variable::ConstantScalar(id, _, _) => *id,
             Variable::Local { id, .. } => *id,
             Variable::LocalBinding { id, .. } => *id,
             Variable::Named { id, .. } => *id,
@@ -110,7 +113,7 @@ impl Variable {
         match self {
             Variable::GlobalInputArray(_, item) => item.clone(),
             Variable::GlobalOutputArray(_, item) => item.clone(),
-            Variable::ConstantScalar(_, elem) => Item::Scalar(*elem),
+            Variable::ConstantScalar(_, _, elem) => Item::Scalar(*elem),
             Variable::Local { item, .. } => item.clone(),
             Variable::LocalBinding { item, .. } => item.clone(),
             Variable::Named { item, .. } => item.clone(),
@@ -188,7 +191,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     core::ConstantScalarValue::Bool(val) => val as u64,
                 };
                 if let Some(existing) = self.state.constants.get(&(map_val, item.clone())) {
-                    Variable::ConstantScalar(*existing, item.elem())
+                    Variable::ConstantScalar(*existing, map_val, item.elem())
                 } else {
                     let id = match value {
                         core::ConstantScalarValue::Int(val, kind) => match kind {
@@ -215,7 +218,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         },
                     };
                     self.state.constants.insert((map_val, item.clone()), id);
-                    Variable::ConstantScalar(id, item.elem())
+                    Variable::ConstantScalar(id, map_val, item.elem())
                 }
             }
             core::Variable::Slice { id, depth, .. } => self
@@ -378,7 +381,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    fn index(&mut self, variable: &Variable, index: Word) -> IndexedVariable {
+    fn index(&mut self, variable: &Variable, index: Word, unchecked: bool) -> IndexedVariable {
+        let access_chain = if unchecked {
+            Builder::in_bounds_access_chain
+        } else {
+            Builder::access_chain
+        };
         match variable {
             Variable::GlobalInputArray(id, item)
             | Variable::GlobalOutputArray(id, item)
@@ -386,9 +394,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let ptr_ty =
                     Item::Pointer(StorageClass::StorageBuffer, Box::new(item.clone())).id(self);
                 let zero = self.const_u32(0);
-                let id = self
-                    .access_chain(ptr_ty, None, *id, vec![zero, index])
-                    .unwrap();
+                let id = access_chain(self, ptr_ty, None, *id, vec![zero, index]).unwrap();
+
                 IndexedVariable::Pointer(id, item.clone())
             }
             Variable::Local {
@@ -402,23 +409,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Slice { ptr, offset, .. } => {
                 let int = Elem::Int(32).id(self);
                 let index = self.i_add(int, None, *offset, index).unwrap();
-                self.index(ptr, index)
+                self.index(ptr, index, unchecked)
             }
             Variable::SharedMemory(id, item, _) => {
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
-                let id = self.access_chain(ptr_ty, None, *id, vec![index]).unwrap();
+                let id = access_chain(self, ptr_ty, None, *id, vec![index]).unwrap();
                 IndexedVariable::Pointer(id, item.clone())
             }
             Variable::ConstantArray(id, item, _) => {
                 let ptr_ty =
                     Item::Pointer(StorageClass::UniformConstant, Box::new(item.clone())).id(self);
-                let id = self.access_chain(ptr_ty, None, *id, vec![index]).unwrap();
+                let id = access_chain(self, ptr_ty, None, *id, vec![index]).unwrap();
                 IndexedVariable::Pointer(id, item.clone())
             }
             Variable::LocalArray(id, item, _) => {
                 let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-                let id = self.access_chain(ptr_ty, None, *id, vec![index]).unwrap();
+                let id = access_chain(self, ptr_ty, None, *id, vec![index]).unwrap();
                 IndexedVariable::Pointer(id, item.clone())
             }
 
@@ -426,10 +433,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn read_indexed(&mut self, out_id: Word, variable: &Variable, index: Word) -> Word {
-        let checked = matches!(self.mode, ExecutionMode::Checked);
+    pub fn read_indexed(&mut self, out_id: Word, variable: &Variable, index: &Variable) -> Word {
+        let checked = matches!(self.mode, ExecutionMode::Checked) && variable.has_len();
+        let always_in_bounds = is_always_in_bounds(variable, index);
+        let index = self.read(index);
         let read = |b: &mut Self| {
-            let variable = b.index(variable, index);
+            // If we bounds check, the index can be unchecked
+            let variable = b.index(variable, index, checked || always_in_bounds);
             match variable {
                 IndexedVariable::Pointer(ptr, item) => {
                     let ty = item.id(b);
@@ -442,7 +452,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
         };
-        if checked && variable.has_len() {
+        if checked && !always_in_bounds {
             self.compile_read_bound(variable, index, variable.item(), read)
         } else {
             read(self)
@@ -454,7 +464,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::LocalBinding { id, .. } => *id,
             Variable::Local { .. } => self.id(),
             Variable::LocalScalar { .. } => self.id(),
-            Variable::ConstantScalar(_, _) => panic!("Can't write to constant scalar"),
+            Variable::ConstantScalar(_, _, _) => panic!("Can't write to constant scalar"),
             Variable::GlobalInputArray(_, _)
             | Variable::GlobalOutputArray(_, _)
             | Variable::Slice { .. }
@@ -475,10 +485,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn write_indexed(&mut self, out: &Variable, index: Word, value: Word) {
-        let checked = matches!(self.mode, ExecutionMode::Checked);
+    pub fn write_indexed(&mut self, out: &Variable, index: &Variable, value: Word) {
+        let checked = matches!(self.mode, ExecutionMode::Checked) && out.has_len();
+        let always_in_bounds = is_always_in_bounds(out, index);
+        let index = self.read(index);
         let write = |b: &mut Self| {
-            let variable = b.index(out, index);
+            // If we bounds check, the index can be unchecked
+            let variable = b.index(out, index, checked || always_in_bounds);
             match variable {
                 IndexedVariable::Pointer(ptr, _) => b.store(ptr, value, None, vec![]).unwrap(),
                 IndexedVariable::Composite(var, index, item) => {
@@ -488,7 +501,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
         };
-        if checked && out.has_len() {
+        if checked && !always_in_bounds {
             self.compile_write_bound(out, index, write);
         } else {
             write(self)
@@ -513,4 +526,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let id = self.builtin(builtin, item);
         self.load(item_id, None, id, None, vec![]).unwrap()
     }
+}
+
+fn is_always_in_bounds(var: &Variable, index: &Variable) -> bool {
+    let len = match var {
+        Variable::SharedMemory(_, _, len)
+        | Variable::ConstantArray(_, _, len)
+        | Variable::LocalArray(_, _, len) => *len,
+        _ => return false,
+    };
+
+    let const_index = match index {
+        Variable::ConstantScalar(_, value, _) => *value as u32,
+        _ => return false,
+    };
+
+    const_index < len
 }
