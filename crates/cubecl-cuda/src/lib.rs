@@ -16,5 +16,7 @@ mod tests {
     pub type TestRuntime = crate::CudaRuntime;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_all!();
+    cubecl_linalg::testgen_cmma_old!();
+    cubecl_linalg::testgen_tiling2d_old!();
+    cubecl_linalg::testgen_matmul_instruction_cmma_f16!();
 }

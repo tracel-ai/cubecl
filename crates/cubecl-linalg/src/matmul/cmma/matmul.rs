@@ -3,7 +3,11 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::{Matmul, MatmulInstruction, MatrixLayout, MatrixMut, TileReader};
+use crate::matmul::{
+    matrix_layout::MatrixLayout,
+    tile_io::{TileReader, TileWriter},
+    FixedShapeMatmul, MatmulInstruction,
+};
 
 use super::instruction::CmmaValid;
 
@@ -34,7 +38,7 @@ impl CmmaMatmulSize for S128_128_16 {
 }
 
 #[cube]
-impl<ElemAcc, Elem, Instr, Block, Lhs, Rhs> Matmul<Elem, Lhs, Rhs>
+impl<ElemAcc, Elem, Instr, Block, Lhs, Rhs, Out> FixedShapeMatmul<Elem, Lhs, Rhs, Out>
     for CmmaMatmul<ElemAcc, Elem, Instr, Block>
 where
     ElemAcc: CmmaValid,
@@ -43,6 +47,7 @@ where
     Block: CmmaMatmulSize,
     Lhs: TileReader<Line<Elem>>,
     Rhs: TileReader<Line<Elem>>,
+    Out: TileWriter<Line<Elem>>,
 {
     type Config = CmmaMatmulConfig;
     type Accumulator = Sequence<Instr::Out>;
@@ -79,43 +84,23 @@ where
 
     fn acc_init_zeros(#[comptime] _config: &Self::Config) -> Self::Accumulator {
         let mut accumulators = Sequence::<Instr::Out>::new();
-
         let num_accumulators = Rhs::NUM_TILES_Y;
 
         #[unroll]
         for _ in 0..num_accumulators {
-            let acc = Instr::init_output();
-
-            accumulators.push(acc);
+            accumulators.push(Instr::init_output());
         }
 
         accumulators
     }
 
-    fn acc_read(
-        acc: &Self::Accumulator,
-        out: &mut MatrixMut<Line<Elem>>,
-        #[comptime] config: &Self::Config,
-    ) {
-        let plane_id = UNIT_POS_Y;
-        let num_planes = 8u32;
-        let line_size = 4u32;
-
-        let size = Lhs::TILE_SIZE_X * Rhs::TILE_SIZE_Y;
-        let mut output_smem = SharedMemory::<Elem>::new_lined(
-            num_planes * Lhs::TILE_SIZE_X * Rhs::TILE_SIZE_Y,
-            line_size,
-        );
-
+    fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] _config: &Self::Config) {
         for accumulator_iter in 0..acc.len() {
             let accumulator = acc.index(accumulator_iter);
 
-            Instr::read_output(
-                accumulator,
-                output_smem.slice_mut(plane_id * size, plane_id * size + size),
-            );
-
-            // from output_smem to out, using tile writer
+            let mut slice = Out::get_tile_as_slice_mut(out, 0u32, accumulator_iter);
+            Instr::read_output(accumulator, &mut slice);
+            Out::reorganize_slice(out, slice.as_slice(), 0u32, accumulator_iter);
         }
     }
 }
