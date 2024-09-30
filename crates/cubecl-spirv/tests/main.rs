@@ -196,3 +196,41 @@ pub fn absolute_pos() {
     let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
     assert_eq!(kernel.disassemble(), expected);
 }
+
+#[cube(launch, create_dummy_kernel)]
+pub fn kernel_switch_value_expr(output: &mut Array<f32>, case: u32) {
+    if UNIT_POS == 0 {
+        let value = match case {
+            0 => 1.0f32,
+            1 => 3.0f32,
+            _ => 5.0f32,
+        };
+        output[0] = value;
+    }
+}
+
+#[test]
+pub fn switch_value() {
+    let client = client();
+    let output = handle(&client);
+
+    let kernel = kernel_switch_value_expr::create_dummy_kernel::<WgpuRuntime>(
+        CubeCount::Static(3, 5, 2),
+        CubeDim::new(16, 16, 1),
+        array(&output),
+        ScalarArg::new(1),
+    );
+
+    let wgsl = <<WgpuRuntime as Runtime>::Compiler as Compiler>::compile(
+        kernel.define(),
+        ExecutionMode::Unchecked,
+    )
+    .to_string();
+    let kernel = compile_unchecked(kernel);
+    fs::write("out/switch_value.spv.txt", kernel.clone().disassemble()).unwrap();
+    fs::write("out/switch_value.spv", to_bytes(kernel.clone())).unwrap();
+    fs::write("out/switch_value.wgsl", wgsl).unwrap();
+
+    let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
+    assert_eq!(kernel.disassemble(), expected);
+}

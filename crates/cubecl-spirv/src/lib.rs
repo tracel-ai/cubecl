@@ -12,6 +12,7 @@ mod containers;
 mod instruction;
 mod item;
 mod lookups;
+mod subgroup;
 mod target;
 mod variable;
 

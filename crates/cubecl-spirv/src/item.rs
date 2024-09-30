@@ -31,7 +31,8 @@ impl Item {
             }
             Item::Array(item, len) => {
                 let item = item.id(b);
-                b.type_array(item, *len)
+                let len = b.const_u32(*len);
+                b.type_array(item, len)
             }
             Item::RuntimeArray(item) => {
                 let size = item.size();

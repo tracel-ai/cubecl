@@ -1,9 +1,13 @@
-use cubecl_core::ir::{self as core, Loop, RangeLoop};
+use cubecl_core::ir::{self as core, Loop, RangeLoop, Switch};
 use cubecl_core::ir::{Branch, If, Scope};
-use rspirv::spirv::{LoopControl, SelectionControl, Word};
+use rspirv::{
+    dr::Operand,
+    spirv::{LoopControl, SelectionControl, Word},
+};
 
 use crate::{
     item::{Elem, Item},
+    lookups,
     variable::Variable,
     SpirvCompiler, SpirvTarget,
 };
@@ -12,6 +16,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_branch(&mut self, branch: Branch) {
         match branch {
             Branch::If(If { cond, scope }) => self.compile_if(cond, scope),
+            Branch::Switch(Switch {
+                value,
+                scope_default,
+                cases,
+            }) => {
+                let value = self.compile_variable(value);
+                let cases = cases
+                    .into_iter()
+                    .map(|(var, case)| (self.compile_variable(var), case))
+                    .collect();
+                self.compile_switch(value, scope_default, cases)
+            }
             Branch::Loop(Loop { scope }) => self.compile_loop(scope),
             Branch::RangeLoop(RangeLoop {
                 i,
@@ -29,6 +45,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_range_loop(i, start, end, step, inclusive, scope);
             }
             Branch::Return => self.ret().unwrap(),
+            Branch::Break => {
+                let current = self.state.loops.back();
+                let post = current.expect("Can't break when not in loop").post;
+                self.branch(post).unwrap();
+            }
             b => todo!("{b:?}"),
         }
     }
@@ -60,6 +81,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let body = self.id();
         let continue_target = self.id();
         let post = self.id();
+
+        self.state.loops.push_back(lookups::Loop {
+            header,
+            continue_target,
+            post,
+        });
 
         let inc = self.id();
 
@@ -100,6 +127,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.i_add(i_ty, Some(inc), i_value, step_id).unwrap();
         self.branch(header).unwrap();
 
+        self.state.loops.pop_back();
+
         self.begin_block(Some(post)).unwrap();
     }
 
@@ -108,6 +137,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let body = self.id();
         let continue_target = self.id();
         let post = self.id();
+
+        self.state.loops.push_back(lookups::Loop {
+            header,
+            continue_target,
+            post,
+        });
 
         self.branch(header).unwrap();
         self.begin_block(Some(header)).unwrap();
@@ -123,6 +158,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         self.begin_block(Some(continue_target)).unwrap();
         self.branch(header).unwrap();
+
+        self.state.loops.pop_back();
 
         self.begin_block(Some(post)).unwrap();
     }
@@ -205,6 +242,40 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         if self.selected_block().is_some() {
             self.branch(next).unwrap();
         }
+        self.begin_block(Some(next)).unwrap();
+    }
+
+    fn compile_switch(&mut self, var: Variable, default: Scope, branches: Vec<(Variable, Scope)>) {
+        let var = self.read(&var);
+
+        let branch_labels = branches
+            .into_iter()
+            .map(|(val, branch)| {
+                let value = val.as_const().expect("Switch case must be const") as u32;
+                (value, self.id(), branch)
+            })
+            .collect::<Vec<_>>();
+        let default_block = self.id();
+        let next = self.id();
+
+        let targets = branch_labels
+            .iter()
+            .map(|(val, id, _)| (Operand::LiteralBit32(*val), *id))
+            .collect::<Vec<_>>();
+
+        self.selection_merge(next, SelectionControl::NONE).unwrap();
+        self.switch(var, default_block, targets).unwrap();
+        for (_, id, branch) in branch_labels {
+            self.compile_scope(branch, Some(id));
+            if self.selected_block().is_some() {
+                self.branch(next).unwrap();
+            }
+        }
+        self.compile_scope(default, Some(default_block));
+        if self.selected_block().is_some() {
+            self.branch(next).unwrap();
+        }
+
         self.begin_block(Some(next)).unwrap();
     }
 }

@@ -33,7 +33,6 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
 
     pub capabilities: HashSet<Capability>,
     pub state: LookupTables,
-    pub extensions: Vec<Word>,
 }
 
 impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
@@ -48,7 +47,6 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
 
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
-            extensions: self.extensions.clone(),
         }
     }
 }
@@ -64,7 +62,6 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             capabilities: Default::default(),
             state: Default::default(),
             variable_block: Default::default(),
-            extensions: Default::default(),
         }
     }
 }
@@ -127,7 +124,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let mut target = self.target.clone();
         let extensions = target.extensions(self);
-        self.extensions = extensions;
+        self.state.extensions = extensions;
 
         let void = self.type_void();
         let voidf = self.type_function(void, vec![]);

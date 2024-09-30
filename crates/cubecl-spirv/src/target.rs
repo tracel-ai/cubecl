@@ -1,4 +1,5 @@
 use cubecl_core::ir::{Binding, Location, Visibility};
+use extensions::TargetExtensions;
 use rspirv::spirv::{
     self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass, Word,
 };
@@ -6,7 +7,11 @@ use std::fmt::Debug;
 
 use crate::{item::Item, SpirvCompiler};
 
-pub trait SpirvTarget: Debug + Clone + Default + Send + Sync + 'static {
+pub mod extensions;
+
+pub trait SpirvTarget:
+    TargetExtensions<Self> + Debug + Clone + Default + Send + Sync + 'static
+{
     fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> Vec<Word>;
     fn set_modes(
         &mut self,

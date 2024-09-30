@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use cubecl_core::ir::KernelDefinition;
 use hashbrown::HashMap;
 use rspirv::spirv::{BuiltIn, Word};
@@ -19,10 +21,8 @@ pub struct LookupTables {
 
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
-    // Need separate tracking so we can decorate strides
-    pub array_types: HashMap<Word, Word>,
     pub globals: HashMap<Globals, Word>,
-
+    pub array_types: HashMap<Word, Word>,
     pub constants: HashMap<(u64, Item), Word>,
     pub bindings: HashMap<(u16, u8), Word>,
     pub variables: HashMap<(u16, u8), Word>,
@@ -30,6 +30,16 @@ pub struct LookupTables {
     pub slices: HashMap<(u16, u8), Slice>,
 
     pub rank: Word,
+    pub extensions: Vec<Word>,
+    // For break, continue
+    pub loops: VecDeque<Loop>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Loop {
+    pub header: Word,
+    pub continue_target: Word,
+    pub post: Word,
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {

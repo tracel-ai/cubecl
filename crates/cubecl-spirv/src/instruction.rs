@@ -211,7 +211,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Normalize(op) => {
                 const OPCODE: Word = 69;
                 self.compile_unary_op(op, |b, _, ty, input, out| {
-                    let ext = b.extensions[0];
+                    let ext = b.state.extensions[0];
                     b.ext_inst(ty, Some(out), ext, OPCODE, vec![Operand::IdRef(input)])
                         .unwrap();
                 });
@@ -219,7 +219,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Magnitude(op) => {
                 const OPCODE: Word = 66;
                 self.compile_unary_op(op, |b, _, ty, input, out| {
-                    let ext = b.extensions[0];
+                    let ext = b.state.extensions[0];
                     b.ext_inst(ty, Some(out), ext, OPCODE, vec![Operand::IdRef(input)])
                         .unwrap();
                 });

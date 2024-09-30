@@ -18,6 +18,7 @@ pub enum Variable {
     SubgroupSize(Word),
     GlobalInputArray(Word, Item),
     GlobalOutputArray(Word, Item),
+    GlobalScalar(Word, Elem),
     ConstantScalar(Word, u64, Elem),
     Local {
         id: Word,
@@ -75,6 +76,7 @@ impl Variable {
         match self {
             Variable::GlobalInputArray(id, _) => *id,
             Variable::GlobalOutputArray(id, _) => *id,
+            Variable::GlobalScalar(id, _) => *id,
             Variable::ConstantScalar(id, _, _) => *id,
             Variable::Local { id, .. } => *id,
             Variable::LocalBinding { id, .. } => *id,
@@ -242,6 +244,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::Variable::GlobalOutputArray { id, item } => {
                 let id = self.state.outputs[id as usize];
                 Variable::GlobalOutputArray(id, self.compile_item(item))
+            }
+            core::Variable::GlobalScalar { id, elem } => {
+                let arr_id = self.state.named[&format!("scalars_{elem}")];
+                let item = self.compile_item(core::Item::new(elem));
+                let arr = Variable::GlobalInputArray(arr_id, item.clone());
+                let id = self.const_u32(id as u32);
+                let index = Variable::ConstantScalar(id, id as u64, Elem::Int(32, false));
+                let val = self.id();
+                self.read_indexed(val, &arr, &index);
+                Variable::GlobalScalar(val, item.elem())
             }
             core::Variable::Local { id, item, depth } => {
                 let item = self.compile_item(item);
