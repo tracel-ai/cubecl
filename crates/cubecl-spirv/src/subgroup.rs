@@ -24,7 +24,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Subcube::Any(op) => {
-                println!("{op:?}");
                 self.compile_unary_op(op, |b, _, ty, input, out| {
                     b.group_non_uniform_any(ty, Some(out), subgroup, input)
                         .unwrap();

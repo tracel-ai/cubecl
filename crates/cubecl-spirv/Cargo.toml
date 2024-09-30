@@ -17,4 +17,7 @@ rspirv = "0.12"
 hashbrown = { workspace = true }
 
 [dev-dependencies]
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", features = [
+    "export_tests",
+] }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0" }

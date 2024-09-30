@@ -200,7 +200,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.branch(next).unwrap();
 
         self.begin_block(Some(fallback)).unwrap();
-        let fallback_value = item.constant(self, 0);
+        let fallback_value = item.constant(self, 0u32.into());
         self.branch(next).unwrap();
 
         self.begin_block(Some(next)).unwrap();
@@ -310,7 +310,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let branch_labels = branches
             .into_iter()
             .map(|(val, branch)| {
-                let value = val.as_const().expect("Switch case must be const") as u32;
+                let value = val.as_const().expect("Switch case must be const").as_u32();
                 (value, self.id(), branch)
             })
             .collect::<Vec<_>>();

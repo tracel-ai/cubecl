@@ -5,6 +5,9 @@ use cubecl_core::{cube, prelude::*};
 
 mod common;
 use common::*;
+use cubecl_linalg::matmul::tests::{
+    make_tiling2d_config, tiling2d::load_shared_memory::load_tensor_test,
+};
 use cubecl_wgpu::WgpuRuntime;
 use rspirv::binary::Disassemble;
 
@@ -298,6 +301,40 @@ pub fn constant_array() {
     let kernel = compile(kernel);
     fs::write("out/constant_array.spv.txt", kernel.clone().disassemble()).unwrap();
     fs::write("out/constant_array.spv", to_bytes(kernel.clone())).unwrap();
+
+    let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
+    assert_eq!(kernel.disassemble(), expected);
+}
+
+#[test]
+pub fn lhs_plain() {
+    let client = client();
+    let input = handle(&client);
+    let sm = handle(&client);
+
+    let config = make_tiling2d_config(16, 16, 8);
+
+    let kernel = load_tensor_test::create_dummy_kernel::<f32, WgpuRuntime>(
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(1, 1, 1),
+        tensor_vec(&input, 1),
+        array_vec(&sm, 4),
+        ScalarArg::new(4),
+        ScalarArg::new(4),
+        ScalarArg::new(8),
+        config,
+        true,
+    );
+
+    let wgsl = <<WgpuRuntime as Runtime>::Compiler as Compiler>::compile(
+        kernel.define(),
+        ExecutionMode::Unchecked,
+    )
+    .to_string();
+    fs::write("out/rhs_plain.wgsl", wgsl).unwrap();
+    let kernel = compile_unchecked(kernel);
+    fs::write("out/rhs_plain.spv.txt", kernel.clone().disassemble()).unwrap();
+    fs::write("out/rhs_plain.spv", to_bytes(kernel.clone())).unwrap();
 
     let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
     assert_eq!(kernel.disassemble(), expected);

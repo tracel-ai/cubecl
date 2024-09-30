@@ -52,7 +52,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let start_id = self.read(&start);
                 let (len, const_len) = match (start.as_const(), end.as_const()) {
                     (Some(start), Some(end)) => {
-                        let len = (end - start) as u32;
+                        let len = end.as_u32() - start.as_u32();
                         let len_id = self.const_u32(len);
                         (len_id, Some(len))
                     }
@@ -77,10 +77,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Assign(op) => {
                 let input = self.compile_variable(op.input);
                 let out = self.compile_variable(op.out);
-                let input_id = self.read_as(&input, &out.item());
                 let out_id = self.write_id(&out);
-                let out_ty = out.item().id(self);
-                self.copy_object(out_ty, Some(out_id), input_id).unwrap();
+
+                if input.item() == out.item() {
+                    self.read_to(&input, out_id);
+                } else {
+                    let input_id = self.read_as(&input, &out.item());
+                    let out_ty = out.item().id(self);
+                    self.copy_object(out_ty, Some(out_id), input_id).unwrap();
+                };
+
                 self.write(&out, out_id);
             }
             Operator::Equal(op) => {
@@ -161,8 +167,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Sub(op) => {
                 self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
-                        Elem::Int(_, _) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Float(_) => b.f_add(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, _) => b.i_sub(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(_) => b.f_sub(ty, Some(out), lhs, rhs).unwrap(),
                         _ => unreachable!(),
                     };
                 });
@@ -368,7 +374,72 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(out);
                 self.length(&var, Some(&out));
             }
-            meta => todo!("{meta:?}"),
+            Metadata::Stride { dim, var, out } => {
+                let int_ty = Item::Scalar(Elem::Int(32, false));
+                let int = self.type_int(32, 0);
+                let position = match var {
+                    core::Variable::GlobalInputArray { id, .. } => id as usize,
+                    core::Variable::GlobalOutputArray { id, .. } => {
+                        self.state.inputs.len() + id as usize
+                    }
+                    _ => panic!("Only Input and Output have a stride, got: {:?}", var),
+                };
+                let position = self.const_u32(position as u32);
+                let dim = self.compile_variable(dim);
+                let out = self.compile_variable(out);
+                let one = self.const_u32(1);
+
+                let dim_id = self.read(&dim);
+                let out_id = self.write_id(&out);
+                let rank_2 = self.state.rank_2;
+                let index = self.i_mul(int, None, position, rank_2).unwrap();
+                let index = self.i_add(int, None, index, dim_id).unwrap();
+                let index = self.i_add(int, None, index, one).unwrap();
+                let index = Variable::LocalBinding {
+                    id: index,
+                    item: int_ty.clone(),
+                };
+                let info = Variable::Named {
+                    id: self.state.named["info"],
+                    item: int_ty,
+                    is_array: true,
+                };
+                self.read_indexed(out_id, &info, &index);
+            }
+            Metadata::Shape { dim, var, out } => {
+                let int_ty = Item::Scalar(Elem::Int(32, false));
+                let int = self.type_int(32, 0);
+                let position = match var {
+                    core::Variable::GlobalInputArray { id, .. } => id as usize,
+                    core::Variable::GlobalOutputArray { id, .. } => {
+                        self.state.inputs.len() + id as usize
+                    }
+                    _ => panic!("Only Input and Output have a stride, got: {:?}", var),
+                };
+                let position = self.const_u32(position as u32);
+                let dim = self.compile_variable(dim);
+                let out = self.compile_variable(out);
+                let one = self.const_u32(1);
+
+                let dim_id = self.read(&dim);
+                let out_id = self.write_id(&out);
+                let rank = self.state.rank;
+                let rank_2 = self.state.rank_2;
+                let index = self.i_mul(int, None, position, rank_2).unwrap();
+                let index = self.i_add(int, None, index, rank).unwrap();
+                let index = self.i_add(int, None, index, dim_id).unwrap();
+                let index = self.i_add(int, None, index, one).unwrap();
+                let index = Variable::LocalBinding {
+                    id: index,
+                    item: int_ty.clone(),
+                };
+                let info = Variable::Named {
+                    id: self.state.named["info"],
+                    item: int_ty,
+                    is_array: true,
+                };
+                self.read_indexed(out_id, &info, &index);
+            }
         }
     }
 

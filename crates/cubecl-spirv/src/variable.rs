@@ -2,10 +2,11 @@ use std::mem::transmute;
 
 use crate::{
     item::{Elem, HasId, Item},
+    lookups::Array,
     SpirvCompiler, SpirvTarget,
 };
 use cubecl_core::{
-    ir::{self as core},
+    ir::{self as core, ConstantScalarValue, FloatKind, IntKind},
     ExecutionMode,
 };
 use rspirv::{
@@ -19,7 +20,7 @@ pub enum Variable {
     GlobalInputArray(Word, Item),
     GlobalOutputArray(Word, Item),
     GlobalScalar(Word, Elem),
-    ConstantScalar(Word, u64, Elem),
+    ConstantScalar(Word, ConstVal, Elem),
     Local {
         id: Word,
         item: Item,
@@ -69,6 +70,67 @@ pub enum Variable {
     NumWorkgroupsX(Word),
     NumWorkgroupsY(Word),
     NumWorkgroupsZ(Word),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConstVal {
+    Bit32(u32),
+    Bit64(u64),
+}
+
+impl ConstVal {
+    pub fn as_u64(&self) -> u64 {
+        match self {
+            ConstVal::Bit32(val) => *val as u64,
+            ConstVal::Bit64(val) => *val,
+        }
+    }
+
+    pub fn as_u32(&self) -> u32 {
+        match self {
+            ConstVal::Bit32(val) => *val,
+            ConstVal::Bit64(_) => panic!("Truncating 64 bit variable to 32 bit"),
+        }
+    }
+}
+
+impl From<ConstantScalarValue> for ConstVal {
+    fn from(value: ConstantScalarValue) -> Self {
+        unsafe {
+            match value {
+                ConstantScalarValue::Int(val, IntKind::I32) => {
+                    ConstVal::Bit32(transmute::<i32, u32>(val as i32))
+                }
+                ConstantScalarValue::Int(val, IntKind::I64) => {
+                    ConstVal::Bit64(transmute::<i64, u64>(val))
+                }
+                ConstantScalarValue::Float(val, FloatKind::F64) => ConstVal::Bit64(val.to_bits()),
+                ConstantScalarValue::Float(val, FloatKind::F32) => {
+                    ConstVal::Bit32((val as f32).to_bits())
+                }
+                ConstantScalarValue::Float(val, FloatKind::F16) => {
+                    ConstVal::Bit32((val as f32).to_bits())
+                }
+                ConstantScalarValue::Float(_, FloatKind::BF16) => {
+                    panic!("bf16 not supported in SPIR-V")
+                }
+                ConstantScalarValue::UInt(val) => ConstVal::Bit32(val as u32),
+                ConstantScalarValue::Bool(val) => ConstVal::Bit32(val as u32),
+            }
+        }
+    }
+}
+
+impl From<u32> for ConstVal {
+    fn from(value: u32) -> Self {
+        ConstVal::Bit32(value)
+    }
+}
+
+impl From<f32> for ConstVal {
+    fn from(value: f32) -> Self {
+        ConstVal::Bit32(value.to_bits())
+    }
 }
 
 impl Variable {
@@ -146,7 +208,7 @@ impl Variable {
         )
     }
 
-    pub fn as_const(&self) -> Option<u64> {
+    pub fn as_const(&self) -> Option<ConstVal> {
         match self {
             Self::ConstantScalar(_, val, _) => Some(*val),
             _ => None,
@@ -157,21 +219,23 @@ impl Variable {
 pub enum IndexedVariable {
     Pointer(Word, Item),
     Composite(Word, u32, Item),
+    Scalar(Variable),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Globals {
     Id,
-    LocalInvocationIndex,
     LocalInvocationId,
     LocalInvocationIdX,
     LocalInvocationIdY,
     LocalInvocationIdZ,
+    LocalInvocationIndex,
     Rank,
     WorkgroupId,
     WorkgroupIdX,
     WorkgroupIdY,
     WorkgroupIdZ,
+    WorkgroupIndex,
     GlobalInvocationId,
     GlobalInvocationIdX,
     GlobalInvocationIdY,
@@ -182,6 +246,7 @@ pub enum Globals {
     WorkgroupSizeY,
     WorkgroupSizeZ,
     NumWorkgroups,
+    NumWorkgroupsTotal,
     NumWorkgroupsX,
     NumWorkgroupsY,
     NumWorkgroupsZ,
@@ -194,12 +259,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::Variable::ConstantScalar(value) => {
                 let item = self.compile_item(core::Item::new(value.elem()));
                 let elem_id = item.id(self);
-                let map_val: u64 = match value {
-                    core::ConstantScalarValue::Int(val, _) => unsafe { transmute::<i64, u64>(val) },
-                    core::ConstantScalarValue::Float(val, _) => val.to_bits(),
-                    core::ConstantScalarValue::UInt(val) => val,
-                    core::ConstantScalarValue::Bool(val) => val as u64,
-                };
+                let map_val = value.into();
+
                 if let Some(existing) = self.state.constants.get(&(map_val, item.clone())) {
                     Variable::ConstantScalar(*existing, map_val, item.elem())
                 } else {
@@ -249,9 +310,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let arr_id = self.state.named[&format!("scalars_{elem}")];
                 let item = self.compile_item(core::Item::new(elem));
                 let arr = Variable::GlobalInputArray(arr_id, item.clone());
-                let id = self.const_u32(id as u32);
-                let index = Variable::ConstantScalar(id, id as u64, Elem::Int(32, false));
+                let const_id = self.const_u32(id as u32);
+                let index =
+                    Variable::ConstantScalar(const_id, (id as u32).into(), Elem::Int(32, false));
                 let val = self.id();
+                self.debug_name(val, format!("scalars_{elem}[{id}]"));
                 self.read_indexed(val, &arr, &index);
                 Variable::GlobalScalar(val, item.elem())
             }
@@ -270,77 +333,116 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::LocalBinding { id: *binding, item }
                 } else {
                     let binding = self.id();
+                    self.debug_name(binding, format!("_{id}"));
                     self.state.bindings.insert((id, depth), binding);
                     Variable::LocalBinding { id: binding, item }
                 }
             }
             core::Variable::UnitPos => Variable::LocalInvocationIndex(self.get_or_insert_global(
-                Globals::GlobalInvocationIndex,
+                Globals::LocalInvocationIndex,
                 |b| {
-                    b.load_builtin(
+                    let id = b.load_builtin(
                         BuiltIn::LocalInvocationIndex,
                         Item::Scalar(Elem::Int(32, false)),
-                    )
+                    );
+                    b.debug_name(id, "UNIT_POS");
+                    id
                 },
             )),
-            core::Variable::UnitPosX => Variable::LocalInvocationIdX(
-                self.get_or_insert_global(Globals::LocalInvocationIdX, |b| {
-                    b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 0)
-                }),
-            ),
-            core::Variable::UnitPosY => Variable::LocalInvocationIdX(
-                self.get_or_insert_global(Globals::LocalInvocationIdX, |b| {
-                    b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 1)
-                }),
-            ),
-            core::Variable::UnitPosZ => Variable::LocalInvocationIdX(
-                self.get_or_insert_global(Globals::LocalInvocationIdX, |b| {
-                    b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 2)
-                }),
-            ),
+            core::Variable::UnitPosX => Variable::LocalInvocationIdX(self.get_or_insert_global(
+                Globals::LocalInvocationIdX,
+                |b| {
+                    let id = b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 0);
+                    b.debug_name(id, "UNIT_POS_X");
+                    id
+                },
+            )),
+            core::Variable::UnitPosY => Variable::LocalInvocationIdY(self.get_or_insert_global(
+                Globals::LocalInvocationIdY,
+                |b| {
+                    let id = b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 1);
+                    b.debug_name(id, "UNIT_POS_Y");
+                    id
+                },
+            )),
+            core::Variable::UnitPosZ => Variable::LocalInvocationIdZ(self.get_or_insert_global(
+                Globals::LocalInvocationIdZ,
+                |b| {
+                    let id = b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 2);
+                    b.debug_name(id, "UNIT_POS_Z");
+                    id
+                },
+            )),
             core::Variable::CubePosX => {
                 Variable::WorkgroupIdX(self.get_or_insert_global(Globals::WorkgroupIdX, |b| {
-                    b.extract(Globals::WorkgroupId, BuiltIn::WorkgroupId, 2)
+                    let id = b.extract(Globals::WorkgroupId, BuiltIn::WorkgroupId, 0);
+                    b.debug_name(id, "CUBE_POS_X");
+                    id
                 }))
             }
             core::Variable::CubePosY => {
                 Variable::WorkgroupIdY(self.get_or_insert_global(Globals::WorkgroupIdY, |b| {
-                    b.extract(Globals::WorkgroupId, BuiltIn::WorkgroupId, 1)
+                    let id = b.extract(Globals::WorkgroupId, BuiltIn::WorkgroupId, 1);
+                    b.debug_name(id, "CUBE_POS_Y");
+                    id
                 }))
             }
             core::Variable::CubePosZ => {
                 Variable::WorkgroupIdZ(self.get_or_insert_global(Globals::WorkgroupIdZ, |b| {
-                    b.extract(Globals::WorkgroupId, BuiltIn::WorkgroupId, 2)
+                    let id = b.extract(Globals::WorkgroupId, BuiltIn::WorkgroupId, 2);
+                    b.debug_name(id, "CUBE_POS_Z");
+                    id
                 }))
             }
             core::Variable::CubeDim => Variable::WorkgroupSize(self.state.cube_size),
             core::Variable::CubeDimX => Variable::WorkgroupSizeX(self.state.cube_dims[0]),
             core::Variable::CubeDimY => Variable::WorkgroupSizeY(self.state.cube_dims[1]),
             core::Variable::CubeDimZ => Variable::WorkgroupSizeZ(self.state.cube_dims[2]),
-            core::Variable::CubeCount => todo!(),
+            core::Variable::CubeCount => Variable::WorkgroupSize(self.get_or_insert_global(
+                Globals::NumWorkgroupsTotal,
+                |b: &mut SpirvCompiler<T>| {
+                    let int = b.type_int(32, 0);
+                    let x = b.compile_variable(core::Variable::CubeCountX).id();
+                    let y = b.compile_variable(core::Variable::CubeCountY).id();
+                    let z = b.compile_variable(core::Variable::CubeCountZ).id();
+                    let count = b.i_mul(int, None, x, y).unwrap();
+                    let count = b.i_mul(int, None, count, z).unwrap();
+                    b.debug_name(count, "CUBE_COUNT");
+                    count
+                },
+            )),
             core::Variable::CubeCountX => {
-                Variable::WorkgroupSizeX(self.get_or_insert_global(Globals::NumWorkgroupsX, |b| {
-                    b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 0)
+                Variable::NumWorkgroupsX(self.get_or_insert_global(Globals::NumWorkgroupsX, |b| {
+                    let id = b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 0);
+                    b.debug_name(id, "CUBE_COUNT_X");
+                    id
                 }))
             }
             core::Variable::CubeCountY => {
-                Variable::WorkgroupSizeY(self.get_or_insert_global(Globals::NumWorkgroupsY, |b| {
-                    b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 1)
+                Variable::NumWorkgroupsY(self.get_or_insert_global(Globals::NumWorkgroupsY, |b| {
+                    let id = b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 1);
+                    b.debug_name(id, "CUBE_COUNT_Y");
+                    id
                 }))
             }
             core::Variable::CubeCountZ => {
-                Variable::WorkgroupSizeZ(self.get_or_insert_global(Globals::NumWorkgroupsZ, |b| {
-                    b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 2)
+                Variable::NumWorkgroupsZ(self.get_or_insert_global(Globals::NumWorkgroupsZ, |b| {
+                    let id = b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 2);
+                    b.debug_name(id, "CUBE_COUNT_Z");
+                    id
                 }))
             }
             core::Variable::SubcubeDim => {
                 let id = self.get_or_insert_global(Globals::SubgroupSize, |b| {
-                    b.load_builtin(BuiltIn::SubgroupSize, Item::Scalar(Elem::Int(32, false)))
+                    let id =
+                        b.load_builtin(BuiltIn::SubgroupSize, Item::Scalar(Elem::Int(32, false)));
+                    b.debug_name(id, "SUBCUBE_DIM");
+                    id
                 });
                 Variable::SubgroupSize(id)
             }
             core::Variable::CubePos => {
-                let id = self.get_or_insert_global(Globals::WorkgroupId, |b| {
+                let id = self.get_or_insert_global(Globals::WorkgroupIndex, |b| {
                     let x = b.compile_variable(core::Variable::CubePosX).id();
                     let y = b.compile_variable(core::Variable::CubePosY).id();
                     let z = b.compile_variable(core::Variable::CubePosZ).id();
@@ -351,7 +453,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let id = b.i_mul(ty, None, z, groups_y).unwrap();
                     let id = b.i_add(ty, None, id, y).unwrap();
                     let id = b.i_mul(ty, None, id, groups_x).unwrap();
-                    b.i_add(ty, None, id, x).unwrap()
+                    let id = b.i_add(ty, None, id, x).unwrap();
+                    b.debug_name(id, "CUBE_POS");
+                    id
                 });
                 Variable::WorkgroupId(id)
             }
@@ -371,27 +475,35 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let id = b.i_mul(ty, None, z, size_y).unwrap();
                     let id = b.i_add(ty, None, id, y).unwrap();
                     let id = b.i_mul(ty, None, id, size_x).unwrap();
-                    b.i_add(ty, None, id, x).unwrap()
+                    let id = b.i_add(ty, None, id, x).unwrap();
+                    b.debug_name(id, "ABSOLUTE_POS");
+                    id
                 });
                 Variable::GlobalInvocationIndex(id)
             }
             core::Variable::AbsolutePosX => {
                 let id = self.get_or_insert_global(Globals::GlobalInvocationIdX, |b| {
-                    b.extract(Globals::GlobalInvocationId, BuiltIn::GlobalInvocationId, 0)
+                    let id = b.extract(Globals::GlobalInvocationId, BuiltIn::GlobalInvocationId, 0);
+                    b.debug_name(id, "ABSOLUTE_POS_X");
+                    id
                 });
 
                 Variable::GlobalInvocationIdX(id)
             }
             core::Variable::AbsolutePosY => {
                 let id = self.get_or_insert_global(Globals::GlobalInvocationIdY, |b| {
-                    b.extract(Globals::GlobalInvocationId, BuiltIn::GlobalInvocationId, 1)
+                    let id = b.extract(Globals::GlobalInvocationId, BuiltIn::GlobalInvocationId, 1);
+                    b.debug_name(id, "ABSOLUTE_POS_Y");
+                    id
                 });
 
                 Variable::GlobalInvocationIdY(id)
             }
             core::Variable::AbsolutePosZ => {
                 let id = self.get_or_insert_global(Globals::GlobalInvocationIdZ, |b| {
-                    b.extract(Globals::GlobalInvocationId, BuiltIn::GlobalInvocationId, 2)
+                    let id = b.extract(Globals::GlobalInvocationId, BuiltIn::GlobalInvocationId, 2);
+                    b.debug_name(id, "ABSOLUTE_POS_Z");
+                    id
                 });
 
                 Variable::GlobalInvocationIdZ(id)
@@ -404,7 +516,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             core::Variable::SharedMemory { id, item, length } => {
                 let item = self.compile_item(item);
-                let id = self.state.shared_memories[id as usize].id;
+                let id = if let Some(arr) = self.state.shared_memories.get(&id) {
+                    arr.id
+                } else {
+                    let arr_id = self.id();
+                    let arr = Array {
+                        id: arr_id,
+                        item: item.clone(),
+                        len: length,
+                    };
+                    self.state.shared_memories.insert(id, arr);
+                    arr_id
+                };
                 Variable::SharedMemory(id, item, length)
             }
             core::Variable::LocalArray {
@@ -414,7 +537,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 length,
             } => {
                 let item = self.compile_item(item);
-                let id = self.state.local_arrays[&(id, depth)].id;
+                let id = if let Some(arr) = self.state.local_arrays.get(&(id, depth)) {
+                    arr.id
+                } else {
+                    let arr_ty = Item::Array(Box::new(item.clone()), length);
+                    let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(arr_ty)).id(self);
+                    let arr_id = self.declare_function_variable(ptr_ty);
+                    self.debug_name(arr_id, format!("array_{id}_{depth}"));
+                    let arr = Array {
+                        id: arr_id,
+                        item: item.clone(),
+                        len: length,
+                    };
+                    self.state.local_arrays.insert((id, depth), arr);
+                    arr_id
+                };
                 Variable::LocalArray(id, item, length)
             }
             core::Variable::Matrix { .. } => todo!(),
@@ -438,6 +575,29 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.load(ty, None, *id, None, vec![]).unwrap()
             }
             ssa => ssa.id(),
+        }
+    }
+
+    pub fn read_to(&mut self, variable: &Variable, out_id: Word) -> Word {
+        match variable {
+            Variable::GlobalInputArray(_, _)
+            | Variable::GlobalOutputArray(_, _)
+            | Variable::SharedMemory(_, _, _)
+            | Variable::ConstantArray(_, _, _)
+            | Variable::LocalArray(_, _, _)
+            | Variable::Slice { .. } => panic!("Can't read unindexed array"),
+            Variable::Local { id, item } => {
+                let ty = item.id(self);
+                self.load(ty, Some(out_id), *id, None, vec![]).unwrap()
+            }
+            Variable::Named { id, item, .. } => {
+                let ty = item.id(self);
+                self.load(ty, Some(out_id), *id, None, vec![]).unwrap()
+            }
+            ssa => {
+                let ty = ssa.item().id(self);
+                self.copy_object(ty, Some(out_id), ssa.id()).unwrap()
+            }
         }
     }
 
@@ -466,14 +626,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Variable::Local {
                 id,
-                item: Item::Vector(elem, vec),
-            } => IndexedVariable::Composite(
-                *id,
-                index
-                    .as_const()
-                    .expect("Index into vector must be constant") as u32,
-                Item::Vector(*elem, *vec),
-            ),
+                item: Item::Vector(elem, _),
+            } => {
+                let ptr_ty =
+                    Item::Pointer(StorageClass::Function, Box::new(Item::Scalar(*elem))).id(self);
+                let id = access_chain(self, ptr_ty, None, *id, vec![index_id]).unwrap();
+
+                IndexedVariable::Pointer(id, Item::Scalar(*elem))
+            }
             Variable::LocalBinding {
                 id,
                 item: Item::Vector(elem, vec),
@@ -481,9 +641,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 *id,
                 index
                     .as_const()
-                    .expect("Index into vector must be constant") as u32,
+                    .expect("Index into vector must be constant")
+                    .as_u32(),
                 Item::Vector(*elem, *vec),
             ),
+            Variable::LocalBinding { .. } | Variable::Local { .. } => {
+                let index = index
+                    .as_const()
+                    .expect("Index into vector must be constant")
+                    .as_u32();
+                if index > 0 {
+                    panic!("Tried accessing {index}th element of scalar!");
+                } else {
+                    IndexedVariable::Scalar(variable.clone())
+                }
+            }
             Variable::Slice { ptr, offset, .. } => {
                 let item = Item::Scalar(Elem::Int(32, false));
                 let int = item.id(self);
@@ -507,7 +679,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = access_chain(self, ptr_ty, None, *id, vec![index_id]).unwrap();
                 IndexedVariable::Pointer(id, item.clone())
             }
-
             var => unimplemented!("Can't index into {var:?}"),
         }
     }
@@ -524,10 +695,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 b.load(ty, Some(out_id), ptr, None, vec![]).unwrap()
             }
             IndexedVariable::Composite(var, index, item) => {
-                let ty = item.id(b);
+                let elem = item.elem();
+                let ty = elem.id(b);
                 b.composite_extract(ty, Some(out_id), var, vec![index])
                     .unwrap()
             }
+            IndexedVariable::Scalar(var) => b.read_to(&var, out_id),
         };
         if checked && !always_in_bounds {
             self.compile_read_bound(variable, index_id, variable.item(), read)
@@ -571,10 +744,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let write = |b: &mut Self| match variable {
             IndexedVariable::Pointer(ptr, _) => b.store(ptr, value, None, vec![]).unwrap(),
             IndexedVariable::Composite(var, index, item) => {
+                let out_id = b.write_id(out);
                 let ty = item.id(b);
-                b.composite_insert(ty, None, value, var, vec![index])
+                b.composite_insert(ty, Some(out_id), value, var, vec![index])
                     .unwrap();
+                b.write(out, out_id);
             }
+            IndexedVariable::Scalar(var) => b.write(&var, value),
         };
         if checked && !always_in_bounds {
             self.compile_write_bound(out, index_id, write);
@@ -616,7 +792,7 @@ fn is_always_in_bounds(var: &Variable, index: &Variable) -> bool {
     };
 
     let const_index = match index {
-        Variable::ConstantScalar(_, value, _) => *value as u32,
+        Variable::ConstantScalar(_, value, _) => value.as_u32(),
         _ => return false,
     };
 

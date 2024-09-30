@@ -6,7 +6,7 @@ use rspirv::spirv::{BuiltIn, Word};
 
 use crate::{
     item::{Elem, Item},
-    variable::{Globals, Variable},
+    variable::{ConstVal, Globals, Variable},
     SpirvCompiler, SpirvTarget,
 };
 
@@ -19,20 +19,21 @@ pub struct LookupTables {
     pub cube_size: Word,
 
     pub const_arrays: Vec<ConstArray>,
-    pub shared_memories: Vec<Array>,
+    pub shared_memories: HashMap<u16, Array>,
     pub local_arrays: HashMap<(u16, u8), Array>,
 
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
     pub globals: HashMap<Globals, Word>,
     pub array_types: HashMap<Word, Word>,
-    pub constants: HashMap<(u64, Item), Word>,
+    pub constants: HashMap<(ConstVal, Item), Word>,
     pub bindings: HashMap<(u16, u8), Word>,
     pub variables: HashMap<(u16, u8), Word>,
 
     pub slices: HashMap<(u16, u8), Slice>,
 
     pub rank: Word,
+    pub rank_2: Word,
     pub extensions: Vec<Word>,
     // For break, continue
     pub loops: VecDeque<Loop>,
@@ -89,14 +90,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .inputs
             .into_iter()
             .enumerate()
-            .map(|(i, binding)| target.generate_binding(self, binding, i as u32))
+            .map(|(i, binding)| {
+                target.generate_binding(self, binding, format!("input_{i}"), i as u32)
+            })
             .collect();
         let offset = self.state.inputs.len() as u32;
         self.state.outputs = kernel
             .outputs
             .into_iter()
             .enumerate()
-            .map(|(i, binding)| target.generate_binding(self, binding, i as u32 + offset))
+            .map(|(i, binding)| {
+                target.generate_binding(self, binding, format!("output_{i}"), i as u32 + offset)
+            })
             .collect();
         let offset = offset + self.state.outputs.len() as u32;
         self.state.named = kernel
@@ -105,8 +110,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .enumerate()
             .map(|(i, (name, binding))| {
                 (
-                    name,
-                    target.generate_binding(self, binding, i as u32 + offset),
+                    name.clone(),
+                    target.generate_binding(self, binding, name, i as u32 + offset),
                 )
             })
             .collect();
@@ -119,12 +124,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn const_u32(&mut self, value: u32) -> Word {
         let ty = Item::Scalar(Elem::Int(32, false));
         let ty_id = ty.id(self);
-        self.get_or_insert_const(value as u64, ty, |b| b.constant_bit32(ty_id, value))
+        self.get_or_insert_const(ConstVal::Bit32(value), ty, |b| {
+            b.constant_bit32(ty_id, value)
+        })
     }
 
     pub fn get_or_insert_const(
         &mut self,
-        value: u64,
+        value: ConstVal,
         item: Item,
         insert: impl FnOnce(&mut Self) -> Word,
     ) -> Word {

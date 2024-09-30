@@ -1,7 +1,9 @@
+use std::mem::transmute;
+
 use cubecl_core::ir as core;
 use rspirv::spirv::{Capability, CooperativeMatrixUse, Decoration, StorageClass, Word};
 
-use crate::{compiler::SpirvCompiler, target::SpirvTarget};
+use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {
@@ -30,9 +32,15 @@ impl Item {
                 b.type_vector(elem, *vec)
             }
             Item::Array(item, len) => {
+                let size = item.size();
                 let item = item.id(b);
                 let len = b.const_u32(*len);
-                b.type_array(item, len)
+                let ty = b.type_array(item, len);
+                if !b.state.array_types.contains_key(&ty) {
+                    b.decorate(ty, Decoration::ArrayStride, vec![size.into()]);
+                    b.state.array_types.insert(ty, ty);
+                }
+                ty
             }
             Item::RuntimeArray(item) => {
                 let size = item.size();
@@ -91,7 +99,7 @@ impl Item {
         }
     }
 
-    pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: u64) -> Word {
+    pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: ConstVal) -> Word {
         let scalar = self.elem().constant(b, value);
         b.get_or_insert_const(value, self.clone(), |b| {
             let ty = self.id(b);
@@ -146,17 +154,17 @@ impl Item {
 
         match (self.elem(), other.elem()) {
             (Elem::Bool, Elem::Int(_, _)) => {
-                let one = other.constant(b, 1);
-                let zero = other.constant(b, 0);
+                let one = other.constant(b, 1u32.into());
+                let zero = other.constant(b, 0u32.into());
                 b.select(ty, None, broadcast, one, zero).unwrap()
             }
             (Elem::Bool, Elem::Float(_)) => {
-                let one = other.constant(b, 1f32.to_bits() as u64);
-                let zero = other.constant(b, 0f32.to_bits() as u64);
+                let one = other.constant(b, 1f32.into());
+                let zero = other.constant(b, 0f32.into());
                 b.select(ty, None, broadcast, one, zero).unwrap()
             }
             (Elem::Int(_, _), Elem::Bool) => {
-                let one = other.constant(b, 1);
+                let one = other.constant(b, 1u32.into());
                 b.i_equal(ty, None, broadcast, one).unwrap()
             }
             (Elem::Int(_, false), Elem::Int(_, false)) => b.u_convert(ty, None, broadcast).unwrap(),
@@ -170,7 +178,7 @@ impl Item {
             (Elem::Int(_, false), Elem::Float(_)) => b.convert_u_to_f(ty, None, broadcast).unwrap(),
             (Elem::Int(_, true), Elem::Float(_)) => b.convert_s_to_f(ty, None, broadcast).unwrap(),
             (Elem::Float(_), Elem::Bool) => {
-                let one = other.constant(b, 1f32.to_bits() as u64);
+                let one = other.constant(b, 1f32.into());
                 b.i_equal(ty, None, broadcast, one).unwrap()
             }
             (Elem::Float(_), Elem::Int(_, false)) => b.convert_f_to_u(ty, None, broadcast).unwrap(),
@@ -213,23 +221,17 @@ impl Elem {
         }
     }
 
-    pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: u64) -> Word {
+    pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: ConstVal) -> Word {
         b.get_or_insert_const(value, Item::Scalar(*self), |b| {
             let ty = self.id(b);
             match self {
                 Elem::Void => unreachable!(),
-                Elem::Bool => match value == 1 {
-                    true => b.constant_true(ty),
-                    false => b.constant_false(ty),
-                },
-                Elem::Int(width, _) => match *width {
-                    64 => b.constant_bit64(ty, value),
-                    _ => b.constant_bit32(ty, value as u32),
-                },
-                Elem::Float(width) => match *width {
-                    64 => b.constant_bit64(ty, value),
-                    _ => b.constant_bit32(ty, value as u32),
-                },
+                Elem::Bool if value.as_u64() == 1 => b.constant_true(ty),
+                Elem::Bool => b.constant_false(ty),
+                Elem::Int(64, _) => b.constant_bit64(ty, value.as_u64()),
+                Elem::Int(_, _) => b.constant_bit32(ty, value.as_u32()),
+                Elem::Float(64) => b.constant_bit64(ty, value.as_u64()),
+                Elem::Float(_) => b.constant_bit32(ty, value.as_u32()),
             }
         })
     }
@@ -251,6 +253,92 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Item::Scalar(elem)
         } else {
             Item::Vector(elem, vectorization as u32)
+        }
+    }
+
+    pub fn static_cast(&mut self, val: core::Variable, item: &Item) -> Word {
+        let val = val.as_const().unwrap();
+        unsafe {
+            let value = match (val, item.elem()) {
+                (core::ConstantScalarValue::Int(val, _), Elem::Bool) => {
+                    ConstVal::Bit32((val == 1) as u32)
+                }
+                (core::ConstantScalarValue::Int(val, _), Elem::Int(64, false)) => {
+                    ConstVal::Bit64(val as u64)
+                }
+                (core::ConstantScalarValue::Int(val, _), Elem::Int(64, true)) => {
+                    ConstVal::Bit64(transmute::<i64, u64>(val))
+                }
+                (core::ConstantScalarValue::Int(val, _), Elem::Int(_, false)) => {
+                    ConstVal::Bit32(val as i32 as u32)
+                }
+                (core::ConstantScalarValue::Int(val, _), Elem::Int(_, true)) => {
+                    ConstVal::Bit32(transmute::<i32, u32>(val as i32))
+                }
+                (core::ConstantScalarValue::Int(val, _), Elem::Float(64)) => {
+                    ConstVal::Bit64((val as f64).to_bits())
+                }
+                (core::ConstantScalarValue::Int(val, _), Elem::Float(32)) => {
+                    ConstVal::Bit32((val as f32).to_bits())
+                }
+                (core::ConstantScalarValue::Float(val, _), Elem::Bool) => {
+                    ConstVal::Bit32((val == 1.0) as u32)
+                }
+                (core::ConstantScalarValue::Float(val, _), Elem::Int(64, false)) => {
+                    ConstVal::Bit64(val as u64)
+                }
+                (core::ConstantScalarValue::Float(val, _), Elem::Int(64, true)) => {
+                    ConstVal::Bit64(transmute::<i64, u64>(val as i64))
+                }
+                (core::ConstantScalarValue::Float(val, _), Elem::Int(_, false)) => {
+                    ConstVal::Bit32(val as u32)
+                }
+                (core::ConstantScalarValue::Float(val, _), Elem::Int(_, true)) => {
+                    ConstVal::Bit32(transmute::<i32, u32>(val as i32))
+                }
+                (core::ConstantScalarValue::Float(val, _), Elem::Float(64)) => {
+                    ConstVal::Bit64(val.to_bits())
+                }
+                (core::ConstantScalarValue::Float(val, _), Elem::Float(_)) => {
+                    ConstVal::Bit32((val as f32).to_bits())
+                }
+                (core::ConstantScalarValue::UInt(val), Elem::Bool) => {
+                    ConstVal::Bit32((val == 1) as u32)
+                }
+                (core::ConstantScalarValue::UInt(val), Elem::Int(64, false)) => {
+                    ConstVal::Bit64(val)
+                }
+                (core::ConstantScalarValue::UInt(val), Elem::Int(64, true)) => {
+                    ConstVal::Bit64(val as i64 as u64) //clip sign bit
+                }
+                (core::ConstantScalarValue::UInt(val), Elem::Int(_, false)) => {
+                    ConstVal::Bit32(val as u32)
+                }
+                (core::ConstantScalarValue::UInt(val), Elem::Int(_, true)) => {
+                    ConstVal::Bit32(val as i32 as u32) //clip sign bit
+                }
+                (core::ConstantScalarValue::UInt(val), Elem::Float(64)) => {
+                    ConstVal::Bit64((val as f64).to_bits())
+                }
+                (core::ConstantScalarValue::UInt(val), Elem::Float(_)) => {
+                    ConstVal::Bit32((val as f32).to_bits())
+                }
+                (core::ConstantScalarValue::Bool(val), Elem::Bool) => ConstVal::Bit32(val as u32),
+                (core::ConstantScalarValue::Bool(val), Elem::Int(64, _)) => {
+                    ConstVal::Bit64(val as u64)
+                }
+                (core::ConstantScalarValue::Bool(val), Elem::Int(_, _)) => {
+                    ConstVal::Bit32(val as u32)
+                }
+                (core::ConstantScalarValue::Bool(val), Elem::Float(64)) => {
+                    ConstVal::Bit64((val as u32 as f64).to_bits())
+                }
+                (core::ConstantScalarValue::Bool(val), Elem::Float(_)) => {
+                    ConstVal::Bit32((val as u32 as f32).to_bits())
+                }
+                _ => unreachable!(),
+            };
+            item.constant(self, value)
         }
     }
 }

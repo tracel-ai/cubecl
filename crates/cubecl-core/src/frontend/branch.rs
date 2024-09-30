@@ -101,7 +101,8 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
     ) {
         let mut child = context.child();
         let index_ty = Item::new(I::as_elem());
-        let i = child.scope.borrow_mut().create_local_undeclared(index_ty);
+        // Ensure i is globally unique so we don't get conflicts on successive loops at same depth
+        let i = context.root.borrow_mut().create_local_undeclared(index_ty);
         let i = ExpandElement::Plain(i);
 
         body(&mut child, i.clone().into());
@@ -132,7 +133,8 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
     ) {
         let mut child = context.child();
         let index_ty = Item::new(I::as_elem());
-        let i = child.scope.borrow_mut().create_local_undeclared(index_ty);
+        // Ensure i is globally unique so we don't get conflicts on successive loops at same depth
+        let i = context.root.borrow_mut().create_local_undeclared(index_ty);
         let i = ExpandElement::Plain(i);
 
         body(&mut child, i.clone().into());

@@ -24,6 +24,7 @@ pub trait SpirvTarget:
         &mut self,
         b: &mut SpirvCompiler<Self>,
         binding: Binding,
+        name: String,
         index: u32,
     ) -> Word;
 }
@@ -51,6 +52,7 @@ impl SpirvTarget for GLCompute {
             .chain(b.state.outputs.iter().copied())
             .chain(b.state.named.values().copied())
             .chain(b.state.const_arrays.iter().map(|it| it.id))
+            .chain(b.state.shared_memories.values().map(|it| it.id))
             .collect();
 
         b.capability(Capability::Shader);
@@ -70,6 +72,7 @@ impl SpirvTarget for GLCompute {
         &mut self,
         b: &mut SpirvCompiler<Self>,
         binding: Binding,
+        name: String,
         index: u32,
     ) -> Word {
         let item = b.compile_item(binding.item);
@@ -87,6 +90,8 @@ impl SpirvTarget for GLCompute {
         };
         let ptr_ty = b.type_pointer(None, location, struct_ty);
         let var = b.variable(ptr_ty, None, location, None);
+
+        b.debug_name(var, name);
 
         if matches!(binding.visibility, Visibility::Read) {
             b.decorate(var, Decoration::NonWritable, vec![]);
