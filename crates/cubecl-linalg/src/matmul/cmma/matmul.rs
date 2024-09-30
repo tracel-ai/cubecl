@@ -76,6 +76,7 @@ where
             Instr::fill_lhs(&tile_lhs, &mut instruction_lhs);
 
             #[unroll]
+            // TODO acc.len() is not comptime
             for accumulator_iter in 0..acc.len() {
                 let tile_rhs = Rhs::read(&rhs, buffer_iter, accumulator_iter);
                 Instr::fill_rhs(&tile_rhs, &mut instruction_rhs);
