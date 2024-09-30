@@ -7,11 +7,41 @@ macro_rules! testgen_matmul_instruction_cmma_f16 {
         use half::f16;
 
         #[test]
-        pub fn test_matmul_instruction_f16_input() {
+        pub fn test_matmul_instruction_f16_in_f16_out() {
             tests::matmul_instruction::test_matmul_instruction::<
                 CmmaInstruction<f16, f16>,
                 f16,
                 f16,
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
+        pub fn test_matmul_instruction_f32_in_f16_out() {
+            tests::matmul_instruction::test_matmul_instruction::<
+                CmmaInstruction<f32, f16>,
+                f32,
+                f16,
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
+        pub fn test_matmul_instruction_f16_in_f32_out() {
+            tests::matmul_instruction::test_matmul_instruction::<
+                CmmaInstruction<f16, f32>,
+                f16,
+                f32,
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
+        pub fn test_matmul_instruction_f32_in_f32_out() {
+            tests::matmul_instruction::test_matmul_instruction::<
+                CmmaInstruction<f32, f32>,
+                f32,
+                f32,
                 TestRuntime,
             >(&Default::default())
         }
