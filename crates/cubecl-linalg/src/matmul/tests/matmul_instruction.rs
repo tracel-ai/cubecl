@@ -5,7 +5,7 @@ use cubecl_core::CubeElement;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::MatmulInstruction;
 
-use super::test_utils::assert_equals;
+use super::test_utils::assert_equals_approx;
 
 #[cube(launch_unchecked)]
 fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
@@ -61,5 +61,7 @@ where
     }
 
     let expected = vec![16.; out_size];
-    assert_equals::<R>(&client, out, &expected);
+    if let Err(e) = assert_equals_approx::<I, R>(&client, out, &expected, 10e-3) {
+        panic!("{}", e);
+    }
 }

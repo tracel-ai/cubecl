@@ -75,16 +75,17 @@ pub(crate) fn assert_equals<R: Runtime>(
     pretty_assertions::assert_eq!(actual, expected);
 }
 
-pub(crate) fn assert_equals_approx<R: Runtime>(
+pub(crate) fn assert_equals_approx<I: CubeElement, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     output: Handle<<R as Runtime>::Server>,
     expected: &[f32],
     epsilon: f32,
 ) -> Result<(), String> {
     let actual = client.read(output.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = I::from_bytes(&actual);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+        let a = I::to_f32_value(*a);
         if (a - e).abs() >= epsilon {
             return Err(format!(
             "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
