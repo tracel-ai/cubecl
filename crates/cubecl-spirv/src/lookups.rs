@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use cubecl_core::ir::KernelDefinition;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use rspirv::spirv::{BuiltIn, Word};
 
 use crate::{
@@ -37,6 +37,8 @@ pub struct LookupTables {
     pub extensions: Vec<Word>,
     // For break, continue
     pub loops: VecDeque<Loop>,
+
+    pub debug_types: HashSet<Word>,
 }
 
 #[derive(Clone, Debug)]
@@ -91,7 +93,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .into_iter()
             .enumerate()
             .map(|(i, binding)| {
-                target.generate_binding(self, binding, format!("input_{i}"), i as u32)
+                target.generate_binding(self, binding, format!("input({i})"), i as u32)
             })
             .collect();
         let offset = self.state.inputs.len() as u32;
@@ -100,7 +102,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .into_iter()
             .enumerate()
             .map(|(i, binding)| {
-                target.generate_binding(self, binding, format!("output_{i}"), i as u32 + offset)
+                target.generate_binding(self, binding, format!("output({i})"), i as u32 + offset)
             })
             .collect();
         let offset = offset + self.state.outputs.len() as u32;

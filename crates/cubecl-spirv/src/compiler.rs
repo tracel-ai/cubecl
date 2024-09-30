@@ -188,7 +188,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.state.rank = rank;
         let two = self.const_u32(2);
         let rank_2 = self.i_mul(int_ty, None, rank, two).unwrap();
-        self.debug_name(rank_2, "rank_2");
+        self.debug_name(rank_2, "rank*2");
         self.state.rank_2 = rank_2;
         self.branch(body).unwrap();
     }
@@ -217,7 +217,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                         Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
 
                     let var = self.declare_function_variable(ptr);
-                    self.debug_name(var, format!("l_{depth}_{id}"));
+                    self.debug_name(var, format!("local({id}, {depth})"));
                     self.state.variables.insert((id, depth), var);
                 }
                 core::Variable::Slice { .. } => {}
@@ -272,7 +272,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             let arr_ty = Item::Array(Box::new(memory.item), memory.len);
             let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(arr_ty)).id(self);
 
-            self.debug_name(memory.id, format!("shared_{id}"));
+            self.debug_name(memory.id, format!("shared({id})"));
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
         }
     }

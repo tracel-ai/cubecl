@@ -1,7 +1,7 @@
 use std::mem::transmute;
 
 use cubecl_core::ir as core;
-use rspirv::spirv::{Capability, CooperativeMatrixUse, Decoration, StorageClass, Word};
+use rspirv::spirv::{Capability, CooperativeMatrixUse, Decoration, Scope, StorageClass, Word};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
 
@@ -19,13 +19,12 @@ pub enum Item {
         rows: u32,
         columns: u32,
         ident: CooperativeMatrixUse,
-        scope: Word,
     },
 }
 
 impl Item {
     pub fn id<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>) -> Word {
-        match self {
+        let id = match self {
             Item::Scalar(elem) => elem.id(b),
             Item::Vector(elem, vec) => {
                 let elem = elem.id(b);
@@ -67,12 +66,17 @@ impl Item {
                 rows,
                 columns,
                 ident,
-                scope,
             } => {
                 let ty = ty.id(b);
-                b.type_cooperative_matrix_khr(ty, *scope, *rows, *columns, *ident as u32)
+                let scope = b.const_u32(Scope::Subgroup as u32);
+                b.type_cooperative_matrix_khr(ty, scope, *rows, *columns, *ident as u32)
             }
+        };
+        if b.debug && !b.state.debug_types.contains(&id) {
+            b.debug_name(id, format!("{self}"));
+            b.state.debug_types.insert(id);
         }
+        id
     }
 
     fn size(&self) -> u32 {
@@ -199,7 +203,7 @@ pub enum Elem {
 
 impl Elem {
     pub fn id<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>) -> Word {
-        match self {
+        let id = match self {
             Elem::Void => b.type_void(),
             Elem::Bool => b.type_bool(),
             Elem::Int(width, signed) => b.type_int(*width, if *signed { 1 } else { 0 }),
@@ -209,7 +213,12 @@ impl Elem {
                 }
                 b.type_float(*width)
             }
+        };
+        if b.debug && !b.state.debug_types.contains(&id) {
+            b.debug_name(id, format!("{self}"));
+            b.state.debug_types.insert(id);
         }
+        id
     }
 
     pub fn size(&self) -> u32 {
@@ -339,6 +348,43 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 _ => unreachable!(),
             };
             item.constant(self, value)
+        }
+    }
+}
+
+impl std::fmt::Display for Item {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Item::Scalar(elem) => write!(f, "{elem}"),
+            Item::Vector(elem, factor) => write!(f, "vec{factor}<{elem}>"),
+            Item::Array(item, len) => write!(f, "array<{item}, {len}>"),
+            Item::RuntimeArray(item) => write!(f, "array<{item}>"),
+            Item::Struct(members) => {
+                write!(f, "struct<")?;
+                for item in members {
+                    write!(f, "{item}")?;
+                }
+                f.write_str(">")
+            }
+            Item::Pointer(class, item) => write!(f, "ptr<{class:?}, {item}>"),
+            Item::CoopMatrix {
+                ty,
+                rows,
+                columns,
+                ident,
+            } => write!(f, "matrix<{ty}, {rows} x {columns}, {ident:?}>"),
+        }
+    }
+}
+
+impl std::fmt::Display for Elem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Elem::Void => write!(f, "void"),
+            Elem::Bool => write!(f, "bool"),
+            Elem::Int(width, false) => write!(f, "u{width}"),
+            Elem::Int(width, true) => write!(f, "i{width}"),
+            Elem::Float(width) => write!(f, "f{width}"),
         }
     }
 }

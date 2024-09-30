@@ -543,7 +543,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let arr_ty = Item::Array(Box::new(item.clone()), length);
                     let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(arr_ty)).id(self);
                     let arr_id = self.declare_function_variable(ptr_ty);
-                    self.debug_name(arr_id, format!("array_{id}_{depth}"));
+                    self.debug_name(arr_id, format!("array({id}, {depth})"));
                     let arr = Array {
                         id: arr_id,
                         item: item.clone(),
