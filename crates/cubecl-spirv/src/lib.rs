@@ -8,7 +8,6 @@ use rspirv::{
 
 mod branch;
 mod compiler;
-mod containers;
 mod instruction;
 mod item;
 mod lookups;

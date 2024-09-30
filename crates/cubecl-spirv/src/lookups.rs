@@ -5,9 +5,8 @@ use hashbrown::HashMap;
 use rspirv::spirv::{BuiltIn, Word};
 
 use crate::{
-    containers::{Array, Slice},
     item::{Elem, Item},
-    variable::Globals,
+    variable::{Globals, Variable},
     SpirvCompiler, SpirvTarget,
 };
 
@@ -19,7 +18,7 @@ pub struct LookupTables {
     pub cube_dims: Vec<Word>,
     pub cube_size: Word,
 
-    pub const_arrays: Vec<Array>,
+    pub const_arrays: Vec<ConstArray>,
     pub shared_memories: Vec<Array>,
     pub local_arrays: HashMap<(u16, u8), Array>,
 
@@ -37,6 +36,42 @@ pub struct LookupTables {
     pub extensions: Vec<Word>,
     // For break, continue
     pub loops: VecDeque<Loop>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Slice {
+    pub ptr: Variable,
+    pub offset: Word,
+    pub len: Word,
+    pub const_len: Option<u32>,
+    pub item: Item,
+}
+
+impl From<&Slice> for Variable {
+    fn from(value: &Slice) -> Self {
+        Variable::Slice {
+            ptr: Box::new(value.ptr.clone()),
+            offset: value.offset,
+            len: value.len,
+            const_len: value.const_len,
+            item: value.item.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Array {
+    pub id: Word,
+    pub item: Item,
+    pub len: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConstArray {
+    pub id: Word,
+    pub item: Item,
+    pub len: u32,
+    pub composite_id: Word,
 }
 
 #[derive(Clone, Debug)]

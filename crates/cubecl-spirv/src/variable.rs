@@ -516,19 +516,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let checked = matches!(self.mode, ExecutionMode::Checked) && variable.has_len();
         let always_in_bounds = is_always_in_bounds(variable, index);
         let index_id = self.read(index);
-        let read = |b: &mut Self| {
-            // If we bounds check, the index can be unchecked
-            let variable = b.index(variable, index, checked || always_in_bounds);
-            match variable {
-                IndexedVariable::Pointer(ptr, item) => {
-                    let ty = item.id(b);
-                    b.load(ty, Some(out_id), ptr, None, vec![]).unwrap()
-                }
-                IndexedVariable::Composite(var, index, item) => {
-                    let ty = item.id(b);
-                    b.composite_extract(ty, Some(out_id), var, vec![index])
-                        .unwrap()
-                }
+        let indexed = self.index(variable, index, always_in_bounds);
+
+        let read = |b: &mut Self| match indexed {
+            IndexedVariable::Pointer(ptr, item) => {
+                let ty = item.id(b);
+                b.load(ty, Some(out_id), ptr, None, vec![]).unwrap()
+            }
+            IndexedVariable::Composite(var, index, item) => {
+                let ty = item.id(b);
+                b.composite_extract(ty, Some(out_id), var, vec![index])
+                    .unwrap()
             }
         };
         if checked && !always_in_bounds {
@@ -568,16 +566,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let checked = matches!(self.mode, ExecutionMode::Checked) && out.has_len();
         let always_in_bounds = is_always_in_bounds(out, index);
         let index_id = self.read(index);
-        let write = |b: &mut Self| {
-            // If we bounds check, the index can be unchecked
-            let variable = b.index(out, index, checked || always_in_bounds);
-            match variable {
-                IndexedVariable::Pointer(ptr, _) => b.store(ptr, value, None, vec![]).unwrap(),
-                IndexedVariable::Composite(var, index, item) => {
-                    let ty = item.id(b);
-                    b.composite_insert(ty, None, value, var, vec![index])
-                        .unwrap();
-                }
+        let variable = self.index(out, index, always_in_bounds);
+
+        let write = |b: &mut Self| match variable {
+            IndexedVariable::Pointer(ptr, _) => b.store(ptr, value, None, vec![]).unwrap(),
+            IndexedVariable::Composite(var, index, item) => {
+                let ty = item.id(b);
+                b.composite_insert(ty, None, value, var, vec![index])
+                    .unwrap();
             }
         };
         if checked && !always_in_bounds {

@@ -50,6 +50,7 @@ impl SpirvTarget for GLCompute {
             .chain(b.state.inputs.iter().copied())
             .chain(b.state.outputs.iter().copied())
             .chain(b.state.named.values().copied())
+            .chain(b.state.const_arrays.iter().map(|it| it.id))
             .collect();
 
         b.capability(Capability::Shader);

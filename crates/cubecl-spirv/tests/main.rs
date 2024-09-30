@@ -266,3 +266,39 @@ pub fn test_subcube_any() {
     let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
     assert_eq!(kernel.disassemble(), expected);
 }
+
+#[cube(launch, create_dummy_kernel)]
+fn constant_array_kernel<F: Float>(out: &mut Tensor<F>, #[comptime] data: Vec<u32>) {
+    let array = Array::<F>::from_data(data);
+
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = array[ABSOLUTE_POS];
+    }
+}
+
+#[test]
+pub fn constant_array() {
+    let client = client();
+    let out = handle(&client);
+    let data: Vec<u32> = vec![3, 5, 1];
+
+    let kernel = constant_array_kernel::create_dummy_kernel::<f32, WgpuRuntime>(
+        CubeCount::Static(1, 1, 1),
+        CubeDim::default(),
+        tensor_vec(&out, 1),
+        data,
+    );
+
+    let wgsl = <<WgpuRuntime as Runtime>::Compiler as Compiler>::compile(
+        kernel.define(),
+        ExecutionMode::Checked,
+    )
+    .to_string();
+    fs::write("out/constant_array.wgsl", wgsl).unwrap();
+    let kernel = compile(kernel);
+    fs::write("out/constant_array.spv.txt", kernel.clone().disassemble()).unwrap();
+    fs::write("out/constant_array.spv", to_bytes(kernel.clone())).unwrap();
+
+    let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
+    assert_eq!(kernel.disassemble(), expected);
+}

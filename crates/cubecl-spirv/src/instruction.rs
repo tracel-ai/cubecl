@@ -3,8 +3,8 @@ use cubecl_core::ir::{Operation, Operator};
 use rspirv::spirv::{Capability, Word};
 
 use crate::{
-    containers::Slice,
     item::{Elem, Item},
+    lookups::Slice,
     variable::Variable,
     SpirvCompiler, SpirvTarget,
 };

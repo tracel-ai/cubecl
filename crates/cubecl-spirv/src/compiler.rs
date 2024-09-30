@@ -2,7 +2,7 @@ use cubecl_core::ir::{self as core, Scope};
 use std::{
     collections::HashSet,
     fmt::Debug,
-    mem::take,
+    mem::{take, transmute},
     ops::{Deref, DerefMut},
 };
 
@@ -17,7 +17,7 @@ use rspirv::{
 
 use crate::{
     item::{Elem, Item},
-    lookups::LookupTables,
+    lookups::{ConstArray, LookupTables},
     target::{GLCompute, SpirvTarget},
     SpirvKernel,
 };
@@ -149,6 +149,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         self.end_function().unwrap();
 
+        self.copy_const_arrays();
+
         let builtins = self
             .state
             .used_builtins
@@ -192,6 +194,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     pub fn compile_scope(&mut self, mut scope: Scope, label: Option<Word>) -> Word {
+        self.declare_const_arrays(scope.const_arrays.drain(..));
+
         let processed = scope.process();
         let label = self.begin_block(label).unwrap();
 
@@ -224,5 +228,97 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let var = self.variable(ty, None, StorageClass::Function, None);
         self.select_block(current_block).unwrap();
         var
+    }
+
+    fn declare_const_arrays(
+        &mut self,
+        const_arrays: impl Iterator<Item = (core::Variable, Vec<core::Variable>)>,
+    ) {
+        let const_arrays = const_arrays
+            .map(|(var, values)| {
+                let item = self.compile_item(var.item());
+                let len = values.len() as u32;
+                let arr_ty = Item::Array(Box::new(item.clone()), len).id(self);
+                let values: Vec<_> = values
+                    .into_iter()
+                    .map(|val| self.static_cast(val, &item))
+                    .collect();
+                let composite_id = self.constant_composite(arr_ty, values);
+                ConstArray {
+                    id: self.id(),
+                    item,
+                    len,
+                    composite_id,
+                }
+            })
+            .collect::<Vec<_>>();
+        self.state.const_arrays.extend(const_arrays);
+    }
+
+    fn static_cast(&mut self, val: core::Variable, item: &Item) -> Word {
+        let val = val.as_const().unwrap();
+        let value = match (val, item.elem()) {
+            (core::ConstantScalarValue::Int(val, _), Elem::Bool) => (val == 1) as u64,
+            (core::ConstantScalarValue::Int(val, _), Elem::Int(64, _)) => unsafe {
+                transmute::<i64, u64>(val)
+            },
+            (core::ConstantScalarValue::Int(val, _), Elem::Int(_, _)) => unsafe {
+                transmute::<i64, u64>(val) as u32 as u64 // truncate
+            },
+            (core::ConstantScalarValue::Int(val, _), Elem::Float(64)) => (val as f64).to_bits(),
+            (core::ConstantScalarValue::Int(val, _), Elem::Float(32)) => {
+                (val as f32).to_bits() as u64
+            }
+            (core::ConstantScalarValue::Float(val, _), Elem::Bool) => (val == 1.0) as u64,
+            (core::ConstantScalarValue::Float(val, _), Elem::Int(64, _)) => unsafe {
+                transmute::<i64, u64>(val as i64)
+            },
+            (core::ConstantScalarValue::Float(val, _), Elem::Int(_, _)) => unsafe {
+                transmute::<i64, u64>(val as i64) as u32 as u64 // truncate
+            },
+            (core::ConstantScalarValue::Float(val, _), Elem::Float(64)) => val.to_bits(),
+            (core::ConstantScalarValue::Float(val, _), Elem::Float(_)) => {
+                (val as f32).to_bits() as u64
+            }
+            (core::ConstantScalarValue::UInt(val), Elem::Bool) => (val == 1) as u64,
+            (core::ConstantScalarValue::UInt(val), Elem::Int(64, false)) => val,
+            (core::ConstantScalarValue::UInt(val), Elem::Int(64, true)) => val as i64 as u64, //clip sign bit
+            (core::ConstantScalarValue::UInt(val), Elem::Int(_, false)) => val as u32 as u64, //truncate
+            (core::ConstantScalarValue::UInt(val), Elem::Int(_, true)) => val as i32 as u64, //clip sign bit
+            (core::ConstantScalarValue::UInt(val), Elem::Float(64)) => (val as f64).to_bits(),
+            (core::ConstantScalarValue::UInt(val), Elem::Float(_)) => (val as f32).to_bits() as u64,
+            (core::ConstantScalarValue::Bool(val), Elem::Bool) => val as u64,
+            (core::ConstantScalarValue::Bool(val), Elem::Int(_, _)) => val as u64,
+            (core::ConstantScalarValue::Bool(val), Elem::Float(64)) => {
+                (val as u32 as f64).to_bits()
+            }
+            (core::ConstantScalarValue::Bool(val), Elem::Float(_)) => {
+                (val as u32 as f32).to_bits() as u64
+            }
+            _ => unreachable!(),
+        };
+        println!(
+            "val: {val:?}, value: {value}, value as float: {}, item: {item:?}",
+            f32::from_bits(value as u32)
+        );
+        item.constant(self, value)
+    }
+
+    fn copy_const_arrays(&mut self) {
+        let const_arrays = self.state.const_arrays.clone();
+
+        for array in const_arrays {
+            let ptr_ty = Item::Pointer(
+                StorageClass::UniformConstant,
+                Box::new(Item::Array(Box::new(array.item), array.len)),
+            )
+            .id(self);
+            self.variable(
+                ptr_ty,
+                Some(array.id),
+                StorageClass::UniformConstant,
+                Some(array.composite_id),
+            );
+        }
     }
 }
