@@ -18,6 +18,15 @@ macro_rules! testgen_cmma_instruction {
             >(&Default::default())
         }
 
+         #[test]
+        pub fn test_block_matmul_16_16_16_f16() {
+            tests::block_matmul::test_block_matmul::<
+                CmmaMatmul<f16, f16, CmmaInstruction16_16_16<f16, f16>, S16_16_16>,
+                f16,
+                TestRuntime,
+            >(&Default::default())
+        }
+
         #[test]
         pub fn test_matmul_instruction_f16_in_f16_out() {
             tests::matmul_instruction::test_matmul_instruction::<
