@@ -110,11 +110,6 @@ impl Component for Variable {
             Variable::ThreadIdxY => Item::scalar(Elem::U32),
             Variable::ThreadIdxZ => Item::scalar(Elem::U32),
             Variable::Rank => Item::scalar(Elem::U32),
-            Variable::LocalScalar {
-                id: _,
-                elem,
-                depth: _,
-            } => Item::scalar(*elem),
             Variable::BlockIdxX => Item::scalar(Elem::U32),
             Variable::BlockIdxY => Item::scalar(Elem::U32),
             Variable::BlockIdxZ => Item::scalar(Elem::U32),
@@ -151,7 +146,6 @@ pub enum Variable {
     ConstantScalar(ConstantScalarValue, Elem),
     Local { id: u16, item: Item, depth: u8 },
     Slice { id: u16, item: Item, depth: u8 },
-    LocalScalar { id: u16, elem: Elem, depth: u8 },
     SharedMemory(u16, Item, u32),
     LocalArray(u16, Item, u8, u32),
     IdxGlobal,
@@ -182,11 +176,6 @@ impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
-            Variable::LocalScalar {
-                id: index,
-                elem: _,
-                depth: scope_depth,
-            } => f.write_fmt(format_args!("s_{scope_depth}_{index}")),
             Variable::Local {
                 id: index,
                 item: _,
@@ -339,7 +328,6 @@ impl Variable {
         match self {
             Variable::GlobalScalar(_, _, _) => true,
             Variable::ConstantScalar(_, _) => true,
-            Variable::LocalScalar { .. } => true,
             Variable::IdxGlobal => true,
             Variable::ThreadIdxGlobal => true,
             Variable::ThreadIdxX => true,

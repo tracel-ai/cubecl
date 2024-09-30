@@ -22,3 +22,9 @@ impl From<&Slice> for Variable {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct Array {
+    pub id: Word,
+    pub len: u32,
+}

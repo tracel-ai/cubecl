@@ -255,7 +255,6 @@ impl Variable {
             Variable::GlobalScalar { .. } => *self,
             Variable::AbsolutePos => *self,
             Variable::Rank => *self,
-            Variable::LocalScalar { .. } => *self,
             Variable::Matrix { .. } => *self,
             Variable::UnitPos => *self,
             Variable::UnitPosX => *self,

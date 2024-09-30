@@ -166,22 +166,6 @@ impl Scope {
             .push(Procedure::IndexOffsetGlobalWithLayout(proc).into());
     }
 
-    /// Reads an input scalar to a local variable.
-    ///
-    /// The index refers to the scalar position for the same [element](Elem) type.
-    pub fn read_scalar(&mut self, index: u16, elem: Elem) -> Variable {
-        let local = Variable::LocalScalar {
-            id: self.new_local_scalar_index(),
-            elem,
-            depth: self.depth,
-        };
-        let scalar = Variable::GlobalScalar { id: index, elem };
-
-        self.reads_scalar.push((local, scalar));
-
-        local
-    }
-
     /// Retrieve the last local variable that was created.
     pub fn last_local_index(&self) -> Option<&Variable> {
         self.locals.last()
@@ -387,10 +371,6 @@ impl Scope {
 
     pub fn new_local_index(&self) -> u16 {
         self.locals.len() as u16 + self.undeclared
-    }
-
-    fn new_local_scalar_index(&self) -> u16 {
-        self.reads_scalar.len() as u16
     }
 
     fn new_shared_index(&self) -> u16 {

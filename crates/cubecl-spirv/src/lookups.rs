@@ -5,7 +5,7 @@ use hashbrown::HashMap;
 use rspirv::spirv::{BuiltIn, Word};
 
 use crate::{
-    containers::Slice,
+    containers::{Array, Slice},
     item::{Elem, Item},
     variable::Globals,
     SpirvCompiler, SpirvTarget,
@@ -18,6 +18,10 @@ pub struct LookupTables {
     pub named: HashMap<String, Word>,
     pub cube_dims: Vec<Word>,
     pub cube_size: Word,
+
+    pub const_arrays: Vec<Array>,
+    pub shared_memories: Vec<Array>,
+    pub local_arrays: HashMap<(u16, u8), Array>,
 
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 

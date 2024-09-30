@@ -3,7 +3,10 @@ extern crate alloc;
 use std::sync::Arc;
 
 use cubecl_core::{
-    channel::MutexComputeChannel, client::ComputeClient, Feature, FeatureSet, Properties, Runtime,
+    channel::MutexComputeChannel,
+    client::ComputeClient,
+    ir::{Elem, FloatKind},
+    Feature, FeatureSet, Properties, Runtime,
 };
 use cubecl_runtime::{memory_management::dynamic::DynamicMemoryManagement, ComputeRuntime};
 use cubecl_spirv::{GLCompute, SpirvCompiler};
@@ -80,11 +83,61 @@ pub fn create_client(
     if features.contains(wgpu::Features::SUBGROUP) {
         features_cube.register(Feature::Subcube);
     }
+    // Unsafely assume cooperative matrix multiply is supported until I can figure out how to
+    // get Vulkan specific features of device.
+    // TODO: Replace this with safer option
+    register_cmma_features(&mut features_cube);
     let properties = Properties {
         memory_offset_alignment: limits.min_storage_buffer_offset_alignment,
     };
 
     ComputeClient::new(channel, features_cube, properties)
+}
+
+fn register_cmma_features(features: &mut FeatureSet) {
+    // Types fully supported.
+    for (a, b, c) in [
+        (
+            Elem::Float(FloatKind::F16),
+            Elem::Float(FloatKind::F16),
+            Elem::Float(FloatKind::F16),
+        ),
+        (
+            Elem::Float(FloatKind::F16),
+            Elem::Float(FloatKind::F16),
+            Elem::Float(FloatKind::F32),
+        ),
+        (
+            Elem::Float(FloatKind::BF16),
+            Elem::Float(FloatKind::BF16),
+            Elem::Float(FloatKind::F32),
+        ),
+    ] {
+        features.register(Feature::Cmma {
+            a,
+            b,
+            c,
+            m: 16,
+            k: 16,
+            n: 16,
+        });
+        features.register(Feature::Cmma {
+            a,
+            b,
+            c,
+            m: 32,
+            k: 16,
+            n: 8,
+        });
+        features.register(Feature::Cmma {
+            a,
+            b,
+            c,
+            m: 8,
+            k: 16,
+            n: 32,
+        });
+    }
 }
 
 #[cfg(test)]

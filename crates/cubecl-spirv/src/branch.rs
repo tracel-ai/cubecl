@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self as core, Loop, RangeLoop, Switch};
+use cubecl_core::ir::{self as core, IfElse, Loop, RangeLoop, Select, Switch};
 use cubecl_core::ir::{Branch, If, Scope};
 use rspirv::{
     dr::Operand,
@@ -16,6 +16,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_branch(&mut self, branch: Branch) {
         match branch {
             Branch::If(If { cond, scope }) => self.compile_if(cond, scope),
+            Branch::IfElse(IfElse {
+                cond,
+                scope_if,
+                scope_else,
+            }) => self.compile_if_else(cond, scope_if, scope_else),
             Branch::Switch(Switch {
                 value,
                 scope_default,
@@ -50,7 +55,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let post = current.expect("Can't break when not in loop").post;
                 self.branch(post).unwrap();
             }
-            b => todo!("{b:?}"),
+            Branch::Select(Select {
+                cond,
+                then,
+                or_else,
+                out,
+            }) => self.compile_select(cond, then, or_else, out),
         }
     }
 
@@ -243,6 +253,55 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             self.branch(next).unwrap();
         }
         self.begin_block(Some(next)).unwrap();
+    }
+
+    fn compile_if_else(&mut self, cond: core::Variable, scope_if: Scope, scope_else: Scope) {
+        let cond = self.compile_variable(cond);
+        let cond_id = self.read(&cond);
+
+        let then = self.id();
+        let or_else = self.id();
+        let next = self.id();
+
+        self.selection_merge(next, SelectionControl::NONE).unwrap();
+        self.branch_conditional(cond_id, then, or_else, vec![])
+            .unwrap();
+
+        self.compile_scope(scope_if, Some(then));
+        if self.selected_block().is_some() {
+            self.branch(next).unwrap();
+        }
+        self.compile_scope(scope_else, Some(or_else));
+        if self.selected_block().is_some() {
+            self.branch(next).unwrap();
+        }
+
+        self.begin_block(Some(next)).unwrap();
+    }
+
+    fn compile_select(
+        &mut self,
+        cond: core::Variable,
+        then: core::Variable,
+        or_else: core::Variable,
+        out: core::Variable,
+    ) {
+        let cond = self.compile_variable(cond);
+        let then = self.compile_variable(then);
+        let or_else = self.compile_variable(or_else);
+        let out = self.compile_variable(out);
+
+        let then_ty = then.item();
+        let ty = then_ty.id(self);
+
+        let cond_id = self.read(&cond);
+        let then = self.read(&then);
+        let or_else = self.read_as(&or_else, &then_ty);
+        let out_id = self.write_id(&out);
+
+        self.select(ty, Some(out_id), cond_id, then, or_else)
+            .unwrap();
+        self.write(&out, out_id);
     }
 
     fn compile_switch(&mut self, var: Variable, default: Scope, branches: Vec<(Variable, Scope)>) {

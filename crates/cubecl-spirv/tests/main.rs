@@ -234,3 +234,35 @@ pub fn switch_value() {
     let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
     assert_eq!(kernel.disassemble(), expected);
 }
+
+#[cube(launch, create_dummy_kernel)]
+pub fn kernel_any(output: &mut Tensor<f32>) {
+    let val = output[UNIT_POS];
+    let val2 = subcube_any(val < 5.0);
+    output[UNIT_POS] = val2 as u32 as f32;
+}
+
+#[test]
+pub fn test_subcube_any() {
+    let client = client();
+    let output = handle(&client);
+
+    let kernel = kernel_any::create_dummy_kernel::<WgpuRuntime>(
+        CubeCount::Static(3, 5, 2),
+        CubeDim::new(16, 16, 1),
+        tensor(&output),
+    );
+
+    let wgsl = <<WgpuRuntime as Runtime>::Compiler as Compiler>::compile(
+        kernel.define(),
+        ExecutionMode::Unchecked,
+    )
+    .to_string();
+    fs::write("out/subcube_any.wgsl", wgsl).unwrap();
+    let kernel = compile_unchecked(kernel);
+    fs::write("out/subcube_any.spv.txt", kernel.clone().disassemble()).unwrap();
+    fs::write("out/subcube_any.spv", to_bytes(kernel.clone())).unwrap();
+
+    let expected = include_str!("slice_assign.spv.text").replace("\r\n", "\n");
+    assert_eq!(kernel.disassemble(), expected);
+}

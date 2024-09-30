@@ -145,9 +145,20 @@ impl Item {
         let ty = other.id(b);
 
         match (self.elem(), other.elem()) {
-            (Elem::Bool, Elem::Int(_, _)) => todo!(),
-            (Elem::Bool, Elem::Float(_)) => todo!(),
-            (Elem::Int(_, _), Elem::Bool) => todo!(),
+            (Elem::Bool, Elem::Int(_, _)) => {
+                let one = other.constant(b, 1);
+                let zero = other.constant(b, 0);
+                b.select(ty, None, broadcast, one, zero).unwrap()
+            }
+            (Elem::Bool, Elem::Float(_)) => {
+                let one = other.constant(b, 1f32.to_bits() as u64);
+                let zero = other.constant(b, 0f32.to_bits() as u64);
+                b.select(ty, None, broadcast, one, zero).unwrap()
+            }
+            (Elem::Int(_, _), Elem::Bool) => {
+                let one = other.constant(b, 1);
+                b.i_equal(ty, None, broadcast, one).unwrap()
+            }
             (Elem::Int(_, false), Elem::Int(_, false)) => b.u_convert(ty, None, broadcast).unwrap(),
             (Elem::Int(_, true), Elem::Int(_, false)) => {
                 b.sat_convert_s_to_u(ty, None, broadcast).unwrap()
@@ -158,7 +169,10 @@ impl Item {
             }
             (Elem::Int(_, false), Elem::Float(_)) => b.convert_u_to_f(ty, None, broadcast).unwrap(),
             (Elem::Int(_, true), Elem::Float(_)) => b.convert_s_to_f(ty, None, broadcast).unwrap(),
-            (Elem::Float(_), Elem::Bool) => todo!(),
+            (Elem::Float(_), Elem::Bool) => {
+                let one = other.constant(b, 1f32.to_bits() as u64);
+                b.i_equal(ty, None, broadcast, one).unwrap()
+            }
             (Elem::Float(_), Elem::Int(_, false)) => b.convert_f_to_u(ty, None, broadcast).unwrap(),
             (Elem::Float(_), Elem::Int(_, true)) => b.convert_f_to_s(ty, None, broadcast).unwrap(),
             (Elem::Float(_), Elem::Float(_)) => b.f_convert(ty, None, broadcast).unwrap(),

@@ -1,9 +1,6 @@
 use cubecl_core::ir::{self as core, BinaryOperator, Metadata, UnaryOperator};
 use cubecl_core::ir::{Operation, Operator};
-use rspirv::{
-    dr::Operand,
-    spirv::{Capability, Word},
-};
+use rspirv::spirv::{Capability, Word};
 
 use crate::{
     containers::Slice,
@@ -18,6 +15,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Operator(operator) => self.compile_operator(operator),
             Operation::Branch(branch) => self.compile_branch(branch),
             Operation::Metadata(meta) => self.compile_meta(meta),
+            Operation::Subcube(subcube) => self.compile_subcube(subcube),
             op => todo!("{op:?}"),
         }
     }
@@ -209,19 +207,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Operator::Normalize(op) => {
-                const OPCODE: Word = 69;
                 self.compile_unary_op(op, |b, _, ty, input, out| {
-                    let ext = b.state.extensions[0];
-                    b.ext_inst(ty, Some(out), ext, OPCODE, vec![Operand::IdRef(input)])
-                        .unwrap();
+                    T::normalize(b, ty, input, out);
                 });
             }
             Operator::Magnitude(op) => {
-                const OPCODE: Word = 66;
                 self.compile_unary_op(op, |b, _, ty, input, out| {
-                    let ext = b.state.extensions[0];
-                    b.ext_inst(ty, Some(out), ext, OPCODE, vec![Operand::IdRef(input)])
-                        .unwrap();
+                    T::magnitude(b, ty, input, out);
                 });
             }
             Operator::Dot(op) => {
@@ -273,7 +265,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    fn compile_unary_op(
+    pub fn compile_unary_op(
         &mut self,
         op: UnaryOperator,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
@@ -291,7 +283,25 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.write(&out, out_id);
     }
 
-    fn compile_binary_op(
+    pub fn compile_unary_op_bool(
+        &mut self,
+        op: UnaryOperator,
+        exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
+    ) {
+        let input = self.compile_variable(op.input);
+        let out = self.compile_variable(op.out);
+        let in_ty = input.item();
+
+        let input_id = self.read(&input);
+        let out_id = self.write_id(&out);
+
+        let ty = out.item().id(self);
+
+        exec(self, in_ty, ty, input_id, out_id);
+        self.write(&out, out_id);
+    }
+
+    pub fn compile_binary_op(
         &mut self,
         op: BinaryOperator,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
@@ -311,7 +321,27 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.write(&out, out_id);
     }
 
-    fn compile_binary_op_bool(
+    pub fn compile_binary_op_no_cast(
+        &mut self,
+        op: BinaryOperator,
+        exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
+    ) {
+        let lhs = self.compile_variable(op.lhs);
+        let rhs = self.compile_variable(op.rhs);
+        let out = self.compile_variable(op.out);
+        let out_ty = out.item();
+
+        let lhs_id = self.read(&lhs);
+        let rhs_id = self.read(&rhs);
+        let out_id = self.write_id(&out);
+
+        let ty = out_ty.id(self);
+
+        exec(self, out_ty, ty, lhs_id, rhs_id, out_id);
+        self.write(&out, out_id);
+    }
+
+    pub fn compile_binary_op_bool(
         &mut self,
         op: BinaryOperator,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),

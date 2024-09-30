@@ -339,6 +339,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
                 Variable::SubgroupSize(id)
             }
+            core::Variable::CubePos => {
+                let id = self.get_or_insert_global(Globals::WorkgroupId, |b| {
+                    let x = b.compile_variable(core::Variable::CubePosX).id();
+                    let y = b.compile_variable(core::Variable::CubePosY).id();
+                    let z = b.compile_variable(core::Variable::CubePosZ).id();
+
+                    let groups_x = b.compile_variable(core::Variable::CubeCountX).id();
+                    let groups_y = b.compile_variable(core::Variable::CubeCountY).id();
+                    let ty = u32::id(b);
+                    let id = b.i_mul(ty, None, z, groups_y).unwrap();
+                    let id = b.i_add(ty, None, id, y).unwrap();
+                    let id = b.i_mul(ty, None, id, groups_x).unwrap();
+                    b.i_add(ty, None, id, x).unwrap()
+                });
+                Variable::WorkgroupId(id)
+            }
             core::Variable::AbsolutePos => {
                 let id = self.get_or_insert_global(Globals::GlobalInvocationIndex, |b| {
                     let x = b.compile_variable(core::Variable::AbsolutePosX).id();
@@ -350,12 +366,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let size_x = b.state.cube_dims[0];
                     let size_y = b.state.cube_dims[1];
                     let ty = u32::id(b);
-                    let stride_y = b.i_mul(ty, None, groups_x, size_x).unwrap();
+                    let size_x = b.i_mul(ty, None, groups_x, size_x).unwrap();
                     let size_y = b.i_mul(ty, None, groups_y, size_y).unwrap();
-                    let stride_z = b.i_mul(ty, None, stride_y, size_y).unwrap();
-                    let z = b.i_mul(ty, None, z, stride_z).unwrap();
-                    let y = b.i_mul(ty, None, y, stride_y).unwrap();
-                    let id = b.i_add(ty, None, y, z).unwrap();
+                    let id = b.i_mul(ty, None, z, size_y).unwrap();
+                    let id = b.i_add(ty, None, id, y).unwrap();
+                    let id = b.i_mul(ty, None, id, size_x).unwrap();
                     b.i_add(ty, None, id, x).unwrap()
                 });
                 Variable::GlobalInvocationIndex(id)
@@ -381,7 +396,28 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 Variable::GlobalInvocationIdZ(id)
             }
-            var => todo!("{var:?}"),
+            core::Variable::Rank => Variable::Rank(self.state.rank),
+            core::Variable::ConstantArray { id, item, length } => {
+                let item = self.compile_item(item);
+                let id = self.state.const_arrays[id as usize].id;
+                Variable::ConstantArray(id, item, length)
+            }
+            core::Variable::SharedMemory { id, item, length } => {
+                let item = self.compile_item(item);
+                let id = self.state.shared_memories[id as usize].id;
+                Variable::SharedMemory(id, item, length)
+            }
+            core::Variable::LocalArray {
+                id,
+                item,
+                depth,
+                length,
+            } => {
+                let item = self.compile_item(item);
+                let id = self.state.local_arrays[&(id, depth)].id;
+                Variable::LocalArray(id, item, length)
+            }
+            core::Variable::Matrix { .. } => todo!(),
         }
     }
 
