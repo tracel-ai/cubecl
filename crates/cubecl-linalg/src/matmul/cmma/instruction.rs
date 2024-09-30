@@ -12,15 +12,7 @@ pub struct CmmaInstruction<I: Numeric, O: Numeric> {
     _output: PhantomData<O>,
 }
 
-// pub trait CmmaValid: Numeric {}
-// impl CmmaValid for f32 {}
-// impl CmmaValid for f16 {}
-// impl CmmaValid for bf16 {}
-
-// Define a trait for valid pairs
 pub trait CmmaValid<I: Numeric, O: Numeric> {}
-
-// Implement the trait for valid pairs
 impl CmmaValid<f16, f16> for (f16, f16) {}
 impl CmmaValid<f16, f32> for (f16, f32) {}
 impl CmmaValid<bf16, f32> for (bf16, f32) {}

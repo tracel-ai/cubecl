@@ -38,8 +38,8 @@ where
     let rhs_size = (MI::K * MI::N) as usize;
     let out_size = (MI::M * MI::N) as usize;
 
-    let lhs_data = vec![1.; lhs_size];
-    let rhs_data = vec![1.; rhs_size];
+    let lhs_data: Vec<f32> = (0..lhs_size).map(|x| (x / 100) as f32).collect();
+    let rhs_data: Vec<f32> = (0..rhs_size).map(|x| (x / 100) as f32).collect();
 
     let lhs = client.create(I::as_bytes(&I::from_values(&lhs_data)));
     let rhs = client.create(I::as_bytes(&I::from_values(&rhs_data)));
@@ -60,8 +60,28 @@ where
         );
     }
 
-    let expected = vec![16.; out_size];
+    let expected = matmul_cpu_reference(
+        &lhs_data,
+        &rhs_data,
+        MI::M as usize,
+        MI::N as usize,
+        MI::K as usize,
+    );
     if let Err(e) = assert_equals_approx::<O, R>(&client, out, &expected, 10e-3) {
         panic!("{}", e);
     }
+}
+
+fn matmul_cpu_reference(lhs: &[f32], rhs: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
+    let mut out = Vec::with_capacity(m * n);
+
+    for i in 0..m {
+        for j in 0..n {
+            for k_ in 0..k {
+                out[i * n + j] += lhs[i * k + k_] * rhs[j + k_ * n];
+            }
+        }
+    }
+
+    out
 }
