@@ -109,7 +109,7 @@ pub(crate) fn test_cmma<R: Runtime>(
 
         let out = launch::<R, f32>(&client, lhs, rhs, case.empty_out(&client), config);
 
-        assert_equals_approx::<R>(&client, out.handle, &expected, 10e-3)
+        assert_equals_approx::<f32, R>(&client, out.handle, &expected, 10e-3)
     } else {
         // Cmma unavailable, nothing to do
         Ok(())

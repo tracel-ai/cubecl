@@ -64,7 +64,7 @@ fn test_tiling2d<R: Runtime>(case: MatmulTestCase, device: &R::Device) {
         Default::default(),
     );
 
-    if let Err(e) = assert_equals_approx::<R>(&client, out.handle, &expected, 10e-3) {
+    if let Err(e) = assert_equals_approx::<f32, R>(&client, out.handle, &expected, 10e-3) {
         panic!("{}", e);
     }
 }

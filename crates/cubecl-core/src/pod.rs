@@ -18,6 +18,7 @@ pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemu
         slice.iter().map(|&x| Self::from_f32_value(x)).collect()
     }
     fn from_f32_value(value: f32) -> Self;
+    fn to_f32_value(value: Self) -> f32;
 }
 
 impl CubeElement for u32 {
@@ -41,6 +42,9 @@ impl CubeElement for u32 {
     }
     fn from_f32_value(value: f32) -> Self {
         value as Self
+    }
+    fn to_f32_value(value: Self) -> f32 {
+        value as f32
     }
 }
 
@@ -68,6 +72,9 @@ impl CubeElement for i32 {
     fn from_f32_value(value: f32) -> Self {
         value as Self
     }
+    fn to_f32_value(value: Self) -> f32 {
+        value as f32
+    }
 }
 
 impl CubeElement for f32 {
@@ -91,6 +98,9 @@ impl CubeElement for f32 {
     }
     fn from_f32_value(value: f32) -> Self {
         value
+    }
+    fn to_f32_value(value: Self) -> f32 {
+        value as f32
     }
 }
 
@@ -116,6 +126,9 @@ impl CubeElement for half::f16 {
     fn from_f32_value(value: f32) -> Self {
         Self::from_f32(value)
     }
+    fn to_f32_value(value: Self) -> f32 {
+        Self::to_f32(value)
+    }
 }
 
 impl CubeElement for half::bf16 {
@@ -139,5 +152,8 @@ impl CubeElement for half::bf16 {
     }
     fn from_f32_value(value: f32) -> Self {
         Self::from_f32(value)
+    }
+    fn to_f32_value(value: Self) -> f32 {
+        Self::to_f32(value)
     }
 }
