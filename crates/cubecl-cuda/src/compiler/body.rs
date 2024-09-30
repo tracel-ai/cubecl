@@ -100,10 +100,11 @@ impl Display for Body {
         }
 
         for shared in self.shared_memories.iter() {
-            f.write_fmt(format_args!(
-                "__shared__ {} shared_memory_{}[{}];\n",
+            writeln!(
+                f,
+                "__shared__ {} shared_memory_{}[{}];",
                 shared.item, shared.index, shared.size
-            ))?;
+            )?;
         }
 
         for const_array in self.const_arrays.iter() {
@@ -124,14 +125,15 @@ impl Display for Body {
 
         // Local arrays
         for array in self.local_arrays.iter() {
-            f.write_fmt(format_args!(
+            write!(
+                f,
                 "{} l_arr_{}_{}[{}];\n\n",
                 array.item, array.index, array.depth, array.size
-            ))?;
+            )?;
         }
 
         for ops in self.instructions.iter() {
-            f.write_fmt(format_args!("{ops}"))?;
+            write!(f, "{ops}")?;
         }
 
         Ok(())

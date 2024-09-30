@@ -43,7 +43,8 @@ impl Display for WarpInstruction {
         match self {
             WarpInstruction::ReduceSum { input, out } => reduce_operator(f, input, out, "+="),
             WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
-            WarpInstruction::ReduceMax { input, out } => f.write_fmt(format_args!(
+            WarpInstruction::ReduceMax { input, out } => write!(
+                f,
                 "
 {out} = {input};
                 {{
@@ -52,8 +53,9 @@ for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
 }}
 }}
                     "
-            )),
-            WarpInstruction::ReduceMin { input, out } => f.write_fmt(format_args!(
+            ),
+            WarpInstruction::ReduceMin { input, out } => write!(
+                f,
                 "
 {out} = {input};
                 {{
@@ -62,35 +64,39 @@ for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
 }}
 }}
                     "
-            )),
-            WarpInstruction::Elect { out } => f.write_fmt(format_args!(
+            ),
+            WarpInstruction::Elect { out } => write!(
+                f,
                 "
 unsigned int mask = __activemask();
 unsigned int leader = __ffs(mask) - 1;
 {out} = threadIdx.x % warpSize == leader;
             "
-            )),
-            WarpInstruction::All { input, out } => f.write_fmt(format_args!(
+            ),
+            WarpInstruction::All { input, out } => write!(
+                f,
                 "
     {out} = {input};
 {{
     {out} =  __all_sync(0xFFFFFFFF, {out});
 }}
 "
-            )),
-            WarpInstruction::Any { input, out } => f.write_fmt(format_args!(
+            ),
+            WarpInstruction::Any { input, out } => write!(
+                f,
                 "
     {out} = {input};
 {{
     {out} =  __any_sync(0xFFFFFFFF, {out});
 }}
 "
-            )),
-            WarpInstruction::Broadcast { input, id, out } => f.write_fmt(format_args!(
+            ),
+            WarpInstruction::Broadcast { input, id, out } => write!(
+                f,
                 "
 {out} = __shfl_sync(0xFFFFFFFF, {input}, {id});
             "
-            )),
+            ),
         }
     }
 }
@@ -101,7 +107,8 @@ fn reduce_operator(
     out: &Variable,
     op: &str,
 ) -> core::fmt::Result {
-    f.write_fmt(format_args!(
+    write!(
+        f,
         "
     {out} = {input};
 {{
@@ -110,5 +117,5 @@ fn reduce_operator(
     }}
 }}
 "
-    ))
+    )
 }
