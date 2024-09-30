@@ -136,3 +136,23 @@ pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
 
     (0..num_elements).map(|_| lcg(&mut seed)).collect()
 }
+
+pub(crate) fn matmul_cpu_reference(
+    lhs: &[f32],
+    rhs: &[f32],
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Vec<f32> {
+    let mut out = vec![0.; m * n];
+
+    for i in 0..m {
+        for j in 0..n {
+            for k_ in 0..k {
+                out[i * n + j] += lhs[i * k + k_] * rhs[k_ * n + j];
+            }
+        }
+    }
+
+    out
+}

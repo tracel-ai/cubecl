@@ -1,12 +1,22 @@
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! testgen_matmul_instruction_cmma_f16 {
+macro_rules! testgen_cmma_instruction {
     () => {
         use cubecl_linalg::matmul::cmma::{
             CmmaInstruction16_16_16, CmmaInstruction32_8_16, CmmaInstruction8_32_16,
         };
+        use cubecl_linalg::matmul::cmma::{CmmaMatmul, S16_16_16};
         use cubecl_linalg::matmul::tests;
         use half::{bf16, f16};
+
+        #[test]
+        pub fn test_block_matmul_16_16_16() {
+            tests::block_matmul::test_block_matmul::<
+                CmmaMatmul<f16, f32, CmmaInstruction16_16_16<f16, f32>, S16_16_16>,
+                f16,
+                TestRuntime,
+            >(&Default::default())
+        }
 
         #[test]
         pub fn test_matmul_instruction_f16_in_f16_out() {

@@ -45,6 +45,10 @@ impl<'a, E: CubeType> CubeType for Slice<'a, E> {
     type ExpandType = ExpandElementTyped<Slice<'static, E>>;
 }
 
+impl<'a, E: CubeType> CubeType for &Slice<'a, E> {
+    type ExpandType = ExpandElementTyped<Slice<'static, E>>;
+}
+
 impl<'a, C: CubeType> Init for ExpandElementTyped<Slice<'a, C>> {
     fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
         // The type can't be deeply cloned/copied.
@@ -61,6 +65,10 @@ impl<'a, C: CubeType> ExpandElementTyped<Slice<'a, C>> {
 }
 
 impl<'a, E: CubeType> CubeType for SliceMut<'a, E> {
+    type ExpandType = ExpandElementTyped<SliceMut<'static, E>>;
+}
+
+impl<'a, E: CubeType> CubeType for &mut SliceMut<'a, E> {
     type ExpandType = ExpandElementTyped<SliceMut<'static, E>>;
 }
 

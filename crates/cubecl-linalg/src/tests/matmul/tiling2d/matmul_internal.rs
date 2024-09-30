@@ -1,7 +1,6 @@
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_tiling2d_internal {
-
     () => {
         use cubecl_linalg::matmul::tests::tiling2d;
 

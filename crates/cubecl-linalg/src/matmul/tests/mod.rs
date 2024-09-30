@@ -1,3 +1,4 @@
+pub mod block_matmul;
 pub mod cmma;
 pub mod matmul_instruction;
 mod matmul_test_case;

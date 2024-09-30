@@ -19,12 +19,12 @@ pub trait BatchMatmul<N: Numeric> {
 
 #[cube]
 /// Execute a matmul over matrices.
-pub trait FixedShapeMatmul<
+pub trait BlockMatmul<
     E: Numeric,
     Lhs: TileReader<Line<E>>,
     Rhs: TileReader<Line<E>>,
     Out: TileWriter<Line<E>>,
->
+>: 'static + Send + Sync
 {
     type Config;
     type Accumulator: CubeType;
@@ -37,11 +37,10 @@ pub trait FixedShapeMatmul<
         rhs: Rhs,
         acc: &mut Self::Accumulator,
         #[comptime] layouts: (MatrixLayout, MatrixLayout),
-        #[comptime] config: &Self::Config,
     );
 
-    fn acc_init_zeros(#[comptime] config: &Self::Config) -> Self::Accumulator;
-    fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] config: &Self::Config);
+    fn acc_init_zeros() -> Self::Accumulator;
+    fn acc_read(acc: &Self::Accumulator, out: &mut Out);
 }
 
 #[cube]

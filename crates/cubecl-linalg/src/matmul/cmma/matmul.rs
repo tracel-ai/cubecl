@@ -6,14 +6,14 @@ use cubecl_core::prelude::*;
 use crate::matmul::{
     matrix_layout::MatrixLayout,
     tile_io::{TileReader, TileWriter},
-    FixedShapeMatmul, MatmulInstruction,
+    BlockMatmul, MatmulInstruction,
 };
 
-pub struct CmmaMatmul<A: Numeric, E: Numeric, I: MatmulInstruction<E, A>, CMS: CmmaMatmulSize> {
+pub struct CmmaMatmul<E: Numeric, A: Numeric, I: MatmulInstruction<E, A>, Block: CmmaBlockSize> {
     _accumulator_precision: PhantomData<A>,
     _input_precision: PhantomData<E>,
     _instruction: PhantomData<I>,
-    _cms: PhantomData<CMS>,
+    _cms: PhantomData<Block>,
 }
 
 #[derive(CubeType, Clone, Copy)]
@@ -21,28 +21,35 @@ pub struct CmmaMatmulConfig {
     pub num_accumulators: u32,
 }
 
-pub trait CmmaMatmulSize {
+pub trait CmmaBlockSize: 'static + Send + Sync {
     const M: u32;
     const N: u32;
     const K: u32;
 }
 
 pub struct S128_128_16;
+pub struct S16_16_16;
 
-impl CmmaMatmulSize for S128_128_16 {
+impl CmmaBlockSize for S128_128_16 {
     const M: u32 = 128;
     const N: u32 = 128;
     const K: u32 = 16;
 }
 
+impl CmmaBlockSize for S16_16_16 {
+    const M: u32 = 16;
+    const N: u32 = 16;
+    const K: u32 = 16;
+}
+
 #[cube]
-impl<ElemAcc, Elem, Instr, Block, Lhs, Rhs, Out> FixedShapeMatmul<Elem, Lhs, Rhs, Out>
-    for CmmaMatmul<ElemAcc, Elem, Instr, Block>
+impl<Elem, ElemAcc, Instr, Block, Lhs, Rhs, Out> BlockMatmul<Elem, Lhs, Rhs, Out>
+    for CmmaMatmul<Elem, ElemAcc, Instr, Block>
 where
-    ElemAcc: Numeric,
     Elem: Numeric,
+    ElemAcc: Numeric,
     Instr: MatmulInstruction<Elem, ElemAcc>,
-    Block: CmmaMatmulSize,
+    Block: CmmaBlockSize,
     Lhs: TileReader<Line<Elem>>,
     Rhs: TileReader<Line<Elem>>,
     Out: TileWriter<Line<Elem>>,
@@ -58,7 +65,6 @@ where
         rhs: Rhs,
         acc: &mut Self::Accumulator,
         #[comptime] layouts: (MatrixLayout, MatrixLayout),
-        #[comptime] _config: &Self::Config,
     ) {
         let num_buffers = Block::K / Instr::K;
         let mut instruction_lhs = Instr::init_lhs(layouts.0);
@@ -80,7 +86,7 @@ where
         }
     }
 
-    fn acc_init_zeros(#[comptime] _config: &Self::Config) -> Self::Accumulator {
+    fn acc_init_zeros() -> Self::Accumulator {
         let mut accumulators = Sequence::<Instr::Out>::new();
         let num_accumulators = Rhs::NUM_TILES_Y;
 
@@ -92,13 +98,15 @@ where
         accumulators
     }
 
-    fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] _config: &Self::Config) {
+    fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
         for accumulator_iter in 0..acc.len() {
             let accumulator = acc.index(accumulator_iter);
-
-            let mut slice = Out::get_tile_as_slice_mut(out, 0u32, accumulator_iter);
-            Instr::read_output(accumulator, &mut slice);
-            Out::reorganize_slice(out, slice.as_slice(), 0u32, accumulator_iter);
+            Out::from_instruction_to_output::<Instr, Elem, ElemAcc>(
+                out,
+                accumulator,
+                0u32,
+                accumulator_iter,
+            );
         }
     }
 }
