@@ -4,7 +4,8 @@ use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use half::f16;
 
-use crate::matmul::{as_cmma_layout, MatmulInstruction, MatrixLayout};
+use crate::matmul::matrix_layout::{as_cmma_layout, MatrixLayout};
+use crate::matmul::MatmulInstruction;
 
 pub struct CmmaInstruction<I: CmmaValid, O: CmmaValid> {
     _input: PhantomData<I>,

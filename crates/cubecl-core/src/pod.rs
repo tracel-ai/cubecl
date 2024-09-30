@@ -14,6 +14,10 @@ pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemu
     fn maximum_value() -> Self;
     /// Lowest possible value
     fn minimum_value() -> Self;
+    fn from_values(slice: &[f32]) -> Vec<Self> {
+        slice.iter().map(|&x| Self::from_f32_value(x)).collect()
+    }
+    fn from_f32_value(value: f32) -> Self;
 }
 
 impl CubeElement for u32 {
@@ -34,6 +38,9 @@ impl CubeElement for u32 {
     }
     fn minimum_value() -> Self {
         u32::MIN
+    }
+    fn from_f32_value(value: f32) -> Self {
+        value as Self
     }
 }
 
@@ -58,6 +65,9 @@ impl CubeElement for i32 {
         // Seems to cause problem for some GPU
         i32::MIN + 1
     }
+    fn from_f32_value(value: f32) -> Self {
+        value as Self
+    }
 }
 
 impl CubeElement for f32 {
@@ -78,6 +88,9 @@ impl CubeElement for f32 {
     }
     fn minimum_value() -> Self {
         f32::MIN
+    }
+    fn from_f32_value(value: f32) -> Self {
+        value
     }
 }
 
@@ -100,6 +113,9 @@ impl CubeElement for half::f16 {
     fn minimum_value() -> Self {
         half::f16::MIN
     }
+    fn from_f32_value(value: f32) -> Self {
+        Self::from_f32(value)
+    }
 }
 
 impl CubeElement for half::bf16 {
@@ -120,5 +136,8 @@ impl CubeElement for half::bf16 {
     }
     fn minimum_value() -> Self {
         half::bf16::MIN
+    }
+    fn from_f32_value(value: f32) -> Self {
+        Self::from_f32(value)
     }
 }

@@ -5,6 +5,8 @@ use cubecl_core::prelude::*;
 mod base;
 /// Contains algorithms for cooperative matrix multiplication.
 pub mod cmma;
+mod matrix_layout;
+mod tile_io;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not
 /// available.

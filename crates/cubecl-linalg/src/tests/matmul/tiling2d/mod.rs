@@ -4,7 +4,7 @@ pub mod matmul;
 pub mod matmul_internal;
 
 #[macro_export]
-macro_rules! testgen_tiling2d {
+macro_rules! testgen_tiling2d_old {
     () => {
         use super::*;
 

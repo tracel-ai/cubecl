@@ -3,7 +3,7 @@
 pub mod matmul;
 
 #[macro_export]
-macro_rules! testgen_cmma {
+macro_rules! testgen_cmma_old {
     () => {
         use super::*;
 
