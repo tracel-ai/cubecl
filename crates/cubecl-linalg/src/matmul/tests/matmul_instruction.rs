@@ -29,7 +29,7 @@ fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>
 pub fn test_matmul_instruction<MI, I, O, R>(device: &R::Device)
 where
     I: Numeric + CubeElement,
-    O: Numeric,
+    O: Numeric + CubeElement,
     MI: MatmulInstruction<I, O>,
     R: Runtime,
 {
@@ -61,7 +61,7 @@ where
     }
 
     let expected = vec![16.; out_size];
-    if let Err(e) = assert_equals_approx::<I, R>(&client, out, &expected, 10e-3) {
+    if let Err(e) = assert_equals_approx::<O, R>(&client, out, &expected, 10e-3) {
         panic!("{}", e);
     }
 }
