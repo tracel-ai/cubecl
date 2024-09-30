@@ -83,6 +83,8 @@ pub(crate) fn assert_equals_approx<I: CubeElement, R: Runtime>(
 ) -> Result<(), String> {
     let actual = client.read(output.binding());
     let actual = I::from_bytes(&actual);
+    println!("{:?}", actual);
+    println!("{:?}", expected);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         let a = I::to_f32_value(*a);

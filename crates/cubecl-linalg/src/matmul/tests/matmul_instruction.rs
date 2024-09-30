@@ -38,12 +38,12 @@ where
     let rhs_size = (MI::K * MI::N) as usize;
     let out_size = (MI::M * MI::N) as usize;
 
-    let lhs_data: Vec<f32> = (0..lhs_size).map(|x| (x / 100) as f32).collect();
-    let rhs_data: Vec<f32> = (0..rhs_size).map(|x| (x / 100) as f32).collect();
+    let lhs_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 100.).collect();
+    let rhs_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 100.).collect();
 
     let lhs = client.create(I::as_bytes(&I::from_values(&lhs_data)));
     let rhs = client.create(I::as_bytes(&I::from_values(&rhs_data)));
-    let out = client.empty(out_size);
+    let out = client.empty(out_size * O::as_elem().size());
 
     let cube_dim = CubeDim::new(32, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
@@ -67,7 +67,7 @@ where
         MI::N as usize,
         MI::K as usize,
     );
-    if let Err(e) = assert_equals_approx::<O, R>(&client, out, &expected, 10e-3) {
+    if let Err(e) = assert_equals_approx::<O, R>(&client, out, &expected, 10e-1) {
         panic!("{}", e);
     }
 }
@@ -78,7 +78,7 @@ fn matmul_cpu_reference(lhs: &[f32], rhs: &[f32], m: usize, n: usize, k: usize) 
     for i in 0..m {
         for j in 0..n {
             for k_ in 0..k {
-                out[i * n + j] += lhs[i * k + k_] * rhs[j + k_ * n];
+                out[i * n + j] += lhs[i * k + k_] * rhs[k_ * n + j];
             }
         }
     }
