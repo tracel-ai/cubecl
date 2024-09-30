@@ -89,7 +89,7 @@ where
     }
 
     fn read_output<C: CubePrimitive>(out: &cmma::Matrix<O>, slice: &mut SliceMut<'_, C>) {
-        cmma::store(slice, out, 16, cmma::MatrixLayout::RowMajor);
+        cmma::store(slice, out, Self::M, cmma::MatrixLayout::RowMajor);
     }
 }
 
@@ -153,7 +153,7 @@ where
     }
 
     fn read_output<C: CubePrimitive>(out: &cmma::Matrix<O>, slice: &mut SliceMut<'_, C>) {
-        cmma::store(slice, out, 16, cmma::MatrixLayout::RowMajor);
+        cmma::store(slice, out, Self::M, cmma::MatrixLayout::RowMajor);
     }
 }
 
