@@ -9,8 +9,6 @@ use crate::matmul::{
     FixedShapeMatmul, MatmulInstruction,
 };
 
-use super::instruction::CmmaValid;
-
 pub struct CmmaMatmul<A: Numeric, E: Numeric, I: MatmulInstruction<E, A>, CMS: CmmaMatmulSize> {
     _accumulator_precision: PhantomData<A>,
     _input_precision: PhantomData<E>,
