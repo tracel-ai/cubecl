@@ -70,16 +70,13 @@ where
         let mut instruction_lhs = Instr::init_lhs(layouts.0);
         let mut instruction_rhs = Instr::init_rhs(layouts.1);
 
-        // Because acc.len() is seemingly not comptime
-        let num_accumulators = Rhs::NUM_TILES_Y;
-
         #[unroll]
         for buffer_iter in 0..num_buffers {
             let tile_lhs = Lhs::read(&lhs, 0, buffer_iter);
             Instr::fill_lhs(&tile_lhs, &mut instruction_lhs);
 
             #[unroll]
-            for accumulator_iter in 0..num_accumulators {
+            for accumulator_iter in 0..acc.len() {
                 let tile_rhs = Rhs::read(&rhs, buffer_iter, accumulator_iter);
                 Instr::fill_rhs(&tile_rhs, &mut instruction_rhs);
 
@@ -102,10 +99,8 @@ where
     }
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
-        // Because acc.len() is seemingly not comptime
-        let num_accumulators = Rhs::NUM_TILES_Y;
-
-        for accumulator_iter in 0..num_accumulators {
+        #[unroll]
+        for accumulator_iter in 0..acc.len() {
             let accumulator = acc.index(accumulator_iter);
             Out::from_instruction_to_output::<Instr, Elem, ElemAcc>(
                 out,
