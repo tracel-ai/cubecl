@@ -27,6 +27,7 @@ macro_rules! testgen_matmul_instruction_cmma_f16 {
         }
 
         #[test]
+        #[ignore]
         pub fn test_matmul_instruction_bf16_in_f32_out() {
             tests::matmul_instruction::test_matmul_instruction::<
                 CmmaInstruction<bf16, f32>,

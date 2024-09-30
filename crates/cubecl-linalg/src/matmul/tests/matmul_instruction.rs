@@ -73,7 +73,7 @@ where
 }
 
 fn matmul_cpu_reference(lhs: &[f32], rhs: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
-    let mut out = Vec::with_capacity(m * n);
+    let mut out = vec![0.; m * n];
 
     for i in 0..m {
         for j in 0..n {
