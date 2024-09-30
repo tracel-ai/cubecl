@@ -11,7 +11,7 @@ use crate::matmul::{
 
 use super::instruction::CmmaValid;
 
-pub struct CmmaMatmul<A: CmmaValid, E: CmmaValid, I: MatmulInstruction<E, A>, CMS: CmmaMatmulSize> {
+pub struct CmmaMatmul<A: Numeric, E: Numeric, I: MatmulInstruction<E, A>, CMS: CmmaMatmulSize> {
     _accumulator_precision: PhantomData<A>,
     _input_precision: PhantomData<E>,
     _instruction: PhantomData<I>,
@@ -41,8 +41,8 @@ impl CmmaMatmulSize for S128_128_16 {
 impl<ElemAcc, Elem, Instr, Block, Lhs, Rhs, Out> FixedShapeMatmul<Elem, Lhs, Rhs, Out>
     for CmmaMatmul<ElemAcc, Elem, Instr, Block>
 where
-    ElemAcc: CmmaValid,
-    Elem: CmmaValid,
+    ElemAcc: Numeric,
+    Elem: Numeric,
     Instr: MatmulInstruction<Elem, ElemAcc>,
     Block: CmmaMatmulSize,
     Lhs: TileReader<Line<Elem>>,

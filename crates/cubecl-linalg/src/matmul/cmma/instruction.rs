@@ -2,24 +2,36 @@ use std::marker::PhantomData;
 
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
-use half::f16;
+use half::{bf16, f16};
 
 use crate::matmul::matrix_layout::{as_cmma_layout, MatrixLayout};
 use crate::matmul::MatmulInstruction;
 
-pub struct CmmaInstruction<I: CmmaValid, O: CmmaValid> {
+pub struct CmmaInstruction<I: Numeric, O: Numeric> {
     _input: PhantomData<I>,
     _output: PhantomData<O>,
 }
 
-pub trait CmmaValid: Numeric {}
-impl CmmaValid for f32 {}
-impl CmmaValid for f16 {}
+// pub trait CmmaValid: Numeric {}
+// impl CmmaValid for f32 {}
+// impl CmmaValid for f16 {}
+// impl CmmaValid for bf16 {}
+
+// Define a trait for valid pairs
+pub trait CmmaValid<I: Numeric, O: Numeric> {}
+
+// Implement the trait for valid pairs
+impl CmmaValid<f16, f16> for (f16, f16) {}
+impl CmmaValid<f16, f32> for (f16, f32) {}
+impl CmmaValid<bf16, f32> for (bf16, f32) {}
 
 pub struct CmmaInstructionConfig {}
 
 #[cube]
-impl<I: CmmaValid, O: CmmaValid> MatmulInstruction<I, O> for CmmaInstruction<I, O> {
+impl<I: Numeric, O: Numeric> MatmulInstruction<I, O> for CmmaInstruction<I, O>
+where
+    (I, O): CmmaValid<I, O>,
+{
     type Config = CmmaInstructionConfig;
     type Lhs = cmma::Matrix<I>;
     type Rhs = cmma::Matrix<I>;
