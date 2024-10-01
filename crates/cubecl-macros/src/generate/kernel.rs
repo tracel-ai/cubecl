@@ -34,13 +34,27 @@ impl ToTokens for KernelSignature {
         let name = &self.name;
         let generics = &self.generics;
         let return_type = &self.returns;
-        let args = &self.parameters;
+        let is_method = self.parameters.first().is_some_and(|p| p.name == "self");
 
-        let out = quote! {
-            fn #name #generics(
-                context: &mut #cube_context,
-                #(#args),*
-            ) -> <#return_type as #cube_type>::ExpandType
+        let out = if is_method {
+            let args = self.parameters.iter().skip(1);
+            let self_tok = self.parameters.first().unwrap();
+
+            quote! {
+                fn #name #generics(
+                    #self_tok,
+                    context: &mut #cube_context,
+                    #(#args),*
+                ) -> <#return_type as #cube_type>::ExpandType
+            }
+        } else {
+            let args = &self.parameters;
+            quote! {
+                fn #name #generics(
+                    context: &mut #cube_context,
+                    #(#args),*
+                ) -> <#return_type as #cube_type>::ExpandType
+            }
         };
         tokens.extend(out);
     }
@@ -48,9 +62,18 @@ impl ToTokens for KernelSignature {
 
 impl ToTokens for KernelParam {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let name = &self.name;
-        let ty = &self.normalized_ty;
-        tokens.extend(quote![#name: #ty]);
+        if self.name == "self" {
+            match (self.is_mut, self.is_ref) {
+                (false, false) => tokens.extend(quote![self]),
+                (false, true) => tokens.extend(quote![&self]),
+                (true, false) => tokens.extend(quote![mut self]),
+                (true, true) => tokens.extend(quote![&mut self]),
+            };
+        } else {
+            let name = &self.name;
+            let ty = &self.normalized_ty;
+            tokens.extend(quote![#name: #ty]);
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+use darling::util::Flag;
 use quote::format_ident;
 use syn::{
     visit_mut::VisitMut, Attribute, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Path, Token,
@@ -6,7 +7,7 @@ use syn::{
 
 use super::{
     helpers::{RemoveHelpers, ReplaceIndices},
-    kernel::{KernelFn, KernelSignature},
+    kernel::{KernelArgs, KernelFn, KernelSignature},
     StripBounds, StripDefault,
 };
 
@@ -18,6 +19,7 @@ pub struct CubeTrait {
     pub generics: Generics,
     pub items: Vec<CubeTraitItem>,
     pub original_trait: ItemTrait,
+    pub debug: Flag,
 }
 
 pub struct CubeTraitImpl {
@@ -82,7 +84,7 @@ impl CubeTraitImplItem {
 }
 
 impl CubeTrait {
-    pub fn from_item_trait(item: ItemTrait) -> syn::Result<Self> {
+    pub fn from_item_trait(item: ItemTrait, args: KernelArgs) -> syn::Result<Self> {
         let mut original_trait = item.clone();
         RemoveHelpers.visit_item_trait_mut(&mut original_trait);
 
@@ -111,6 +113,7 @@ impl CubeTrait {
             unsafety,
             name,
             generics,
+            debug: args.debug,
             items,
             original_trait,
         })

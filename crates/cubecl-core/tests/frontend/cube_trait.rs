@@ -1,6 +1,71 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+// #[cube(debug)]
+// trait FunctionGeneriAc {
+//     #[allow(unused)]
+//     fn test<C: Float>(&self, lhs: C, rhs: C) -> C;
+// }
+//
+
+trait TestF {
+    fn test<C: Float>(&self, lhs: C, rhs: C) -> C;
+
+    fn __expand_test<C: Float>(
+        context: &mut cubecl::prelude::CubeContext,
+        v: &Self::ExpandType,
+        lhs: <C as cubecl::prelude::CubeType>::ExpandType,
+        rhs: <C as cubecl::prelude::CubeType>::ExpandType,
+    ) -> <C as cubecl::prelude::CubeType>::ExpandType
+    where
+        Self: CubeType,
+        Self::ExpandType: TestF,
+    {
+        v.__expand_test_method::<C>(context, lhs, rhs)
+    }
+
+    fn __expand_test_method<C: Float>(
+        &self,
+        context: &mut cubecl::prelude::CubeContext,
+        lhs: <C as cubecl::prelude::CubeType>::ExpandType,
+        rhs: <C as cubecl::prelude::CubeType>::ExpandType,
+    ) -> <C as cubecl::prelude::CubeType>::ExpandType;
+}
+
+#[derive(CubeType)]
+struct TestImpl;
+
+impl TestF for TestImpl {
+    fn test<C: Float>(&self, lhs: C, rhs: C) -> C {
+        lhs + rhs
+    }
+
+    fn __expand_test_method<C: Float>(
+        &self,
+        context: &mut cubecl_core::prelude::CubeContext,
+        lhs: <C as cubecl_core::prelude::CubeType>::ExpandType,
+        rhs: <C as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> <C as cubecl_core::prelude::CubeType>::ExpandType {
+        panic!("Unsupported");
+    }
+}
+
+impl TestF for <TestImpl as CubeType>::ExpandType {
+    fn test<C: Float>(&self, lhs: C, rhs: C) -> C {
+        panic!("Unsupported");
+    }
+
+    fn __expand_test_method<C: Float>(
+        &self,
+        context: &mut cubecl_core::prelude::CubeContext,
+        lhs: <C as cubecl_core::prelude::CubeType>::ExpandType,
+        rhs: <C as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> <C as cubecl_core::prelude::CubeType>::ExpandType {
+        // Would put the generated code.
+        todo!();
+    }
+}
+
 #[cube]
 trait FunctionGeneric {
     #[allow(unused)]
@@ -22,21 +87,21 @@ trait CombinedTraitFunctionGeneric<C: Float> {
 struct Test;
 
 #[cube]
-impl FunctionGeneric for Test {
+impl FunctionGeneric for TestF {
     fn test<C: Float>(lhs: C, rhs: C) -> C {
         lhs + rhs
     }
 }
 
 #[cube]
-impl<C: Float> TraitGeneric<C> for Test {
+impl<C: Float> TraitGeneric<C> for TestF {
     fn test(lhs: C, rhs: C) -> C {
         lhs + rhs
     }
 }
 
 #[cube]
-impl<C: Float> CombinedTraitFunctionGeneric<C> for Test {
+impl<C: Float> CombinedTraitFunctionGeneric<C> for TestF {
     fn test<O: Numeric>(lhs: C, rhs: C) -> O {
         O::cast_from(lhs + rhs)
     }
@@ -63,7 +128,7 @@ mod tests {
         let lhs = context.create_local_binding(Item::new(f32::as_elem()));
         let rhs = context.create_local_binding(Item::new(f32::as_elem()));
 
-        <Test as FunctionGeneric>::__expand_test::<f32>(&mut context, lhs.into(), rhs.into());
+        <TestF as FunctionGeneric>::__expand_test::<f32>(&mut context, lhs.into(), rhs.into());
 
         assert_eq!(simple_scope(), context.into_scope());
     }
@@ -74,7 +139,7 @@ mod tests {
         let lhs = context.create_local_binding(Item::new(f32::as_elem()));
         let rhs = context.create_local_binding(Item::new(f32::as_elem()));
 
-        <Test as TraitGeneric<f32>>::__expand_test(&mut context, lhs.into(), rhs.into());
+        <TestF as TraitGeneric<f32>>::__expand_test(&mut context, lhs.into(), rhs.into());
 
         assert_eq!(simple_scope(), context.into_scope());
     }
@@ -85,7 +150,7 @@ mod tests {
         let lhs = context.create_local_binding(Item::new(f32::as_elem()));
         let rhs = context.create_local_binding(Item::new(f32::as_elem()));
 
-        <Test as CombinedTraitFunctionGeneric<f32>>::__expand_test::<u32>(
+        <TestF as CombinedTraitFunctionGeneric<f32>>::__expand_test::<u32>(
             &mut context,
             lhs.into(),
             rhs.into(),

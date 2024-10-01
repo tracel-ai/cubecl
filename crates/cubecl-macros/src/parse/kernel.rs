@@ -1,10 +1,10 @@
 use crate::{expression::Block, paths::prelude_type, scope::Context, statement::Pattern};
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::TokenStream;
-use std::iter;
+use std::{iter, thread::panicking};
 use syn::{
-    parse_quote, punctuated::Punctuated, visit_mut::VisitMut, Expr, FnArg, Generics, Ident, ItemFn,
-    Signature, TraitItemFn, Type, Visibility,
+    parse_quote, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut, Expr, FnArg,
+    Generics, Ident, ItemFn, Signature, TraitItemFn, Type, Visibility,
 };
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
@@ -66,10 +66,16 @@ impl KernelParam {
     fn from_param(param: FnArg) -> syn::Result<Self> {
         let param = match param {
             FnArg::Typed(param) => param,
-            param => Err(syn::Error::new_spanned(
-                param,
-                "Can't use `cube` on methods",
-            ))?,
+            FnArg::Receiver(param) => {
+                return Ok(KernelParam {
+                    name: Ident::new("self", param.span()),
+                    ty: *param.ty.clone(),
+                    normalized_ty: *param.ty.clone(),
+                    is_const: false,
+                    is_mut: param.mutability.is_some(),
+                    is_ref: param.reference.is_some(),
+                });
+            }
         };
         let Pattern {
             ident,
@@ -146,7 +152,7 @@ impl KernelFn {
         let sig = KernelSignature::from_signature(sig)?;
         Desugar.visit_block_mut(&mut block);
 
-        let mut context = Context::new(sig.returns.clone());
+        let mut context = Context::new(sig.returns.clone(), false);
         context.extend(sig.parameters.clone());
         let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
 

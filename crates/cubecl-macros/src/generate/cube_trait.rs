@@ -13,6 +13,7 @@ impl ToTokens for CubeTrait {
         let unsafety = &self.unsafety;
         let name = &self.name;
         let generics = &self.generics;
+
         let fns = self.items.iter().filter_map(CubeTraitItem::func);
 
         let out = quote! {
@@ -27,6 +28,10 @@ impl ToTokens for CubeTrait {
                 )*
             }
         };
+        if self.debug.is_present() {
+            let tokens: TokenStream = out.to_token_stream();
+            panic!("{tokens}");
+        }
         tokens.extend(out);
     }
 }
