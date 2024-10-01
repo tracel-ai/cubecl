@@ -6,6 +6,7 @@ use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::MatmulInstruction;
 
 use super::test_utils::assert_equals_approx;
+use super::test_utils::matmul_cpu_reference;
 
 #[cube(launch_unchecked)]
 fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
@@ -70,18 +71,4 @@ where
     if let Err(e) = assert_equals_approx::<O, R>(&client, out, &expected, 10e-1) {
         panic!("{}", e);
     }
-}
-
-fn matmul_cpu_reference(lhs: &[f32], rhs: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
-    let mut out = vec![0.; m * n];
-
-    for i in 0..m {
-        for j in 0..n {
-            for k_ in 0..k {
-                out[i * n + j] += lhs[i * k + k_] * rhs[k_ * n + j];
-            }
-        }
-    }
-
-    out
 }

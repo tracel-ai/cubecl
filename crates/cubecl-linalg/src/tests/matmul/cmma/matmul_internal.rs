@@ -1,6 +1,6 @@
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! testgen_cmma_instruction {
+macro_rules! testgen_cmma_internal {
     () => {
         use cubecl_linalg::matmul::cmma::base::{
             CmmaInstruction16_16_16, CmmaInstruction32_8_16, CmmaInstruction8_32_16,

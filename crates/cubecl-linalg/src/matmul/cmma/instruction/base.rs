@@ -56,11 +56,11 @@ macro_rules! impl_matmul_instruction {
                 fill_rhs(slice, rhs, Self::N);
             }
 
-            fn init_output() -> cmma::Matrix<O> {
+            fn init_output() -> Self::Out {
                 init_output(Self::M, Self::N, Self::K)
             }
 
-            fn read_output<C: CubePrimitive>(out: &cmma::Matrix<O>, slice: &mut SliceMut<'_, C>) {
+            fn read_output<C: CubePrimitive>(out: &Self::Out, slice: &mut SliceMut<'_, C>) {
                 read_output::<O, C>(out, slice, Self::N);
             }
         }

@@ -113,7 +113,6 @@ where
             #[unroll]
             for accumulator_iter in 0..acc.len() {
                 let accumulator = acc.index(accumulator_iter);
-
                 let smem_slice = smem.slice_mut(start, start + num_tile_elements);
                 Instr::read_output(accumulator, smem_slice);
                 Out::write_with_cast(out, smem_slice.as_slice(), 0u32, accumulator_iter);
@@ -124,10 +123,8 @@ where
             #[unroll]
             for accumulator_iter in 0..acc.len() {
                 let accumulator = acc.index(accumulator_iter);
-
                 let smem_slice = smem.slice_mut(start, start + num_tile_elements);
                 Instr::read_output(accumulator, smem_slice);
-
                 Out::write_with_cast(out, smem_slice.as_slice(), 0u32, accumulator_iter);
             }
         }
