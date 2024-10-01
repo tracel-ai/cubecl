@@ -424,12 +424,7 @@ impl std::fmt::Display for Item {
                 f.write_str(">")
             }
             Item::Pointer(class, item) => write!(f, "ptr<{class:?}, {item}>"),
-            Item::CoopMatrix {
-                ty,
-                rows,
-                columns,
-                ident,
-            } => write!(f, "matrix<{ty}, {rows} x {columns}, {ident:?}>"),
+            Item::CoopMatrix { ty, ident, .. } => write!(f, "matrix<{ty}, {ident:?}>"),
         }
     }
 }

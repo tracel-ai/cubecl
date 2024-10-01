@@ -1,11 +1,11 @@
-use cubecl_core::ir::{self as core, BinaryOperator, Metadata, UnaryOperator};
+use cubecl_core::ir::{self as core, BinaryOperator, UnaryOperator};
 use cubecl_core::ir::{Operation, Operator};
-use rspirv::spirv::{Capability, Word};
+use rspirv::spirv::{Capability, MemorySemantics, Scope, Word};
 
 use crate::{
     item::{Elem, Item},
     lookups::Slice,
-    variable::Variable,
+    variable::ConstVal,
     SpirvCompiler, SpirvTarget,
 };
 
@@ -40,6 +40,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let value_id = self.read(&value);
 
                 self.write_indexed(&out, &index, value_id);
+            }
+            Operator::UncheckedIndex(op) => {
+                let value = self.compile_variable(op.lhs);
+                let index = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let out_id = self.write_id(&out);
+
+                self.read_indexed_unchecked(out_id, &value, &index);
+                self.write(&out, out_id);
+            }
+            Operator::UncheckedIndexAssign(op) => {
+                let index = self.compile_variable(op.lhs);
+                let value = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let value_id = self.read(&value);
+
+                self.write_indexed_unchecked(&out, &index, value_id);
             }
             Operator::Slice(op) => {
                 let item = self.compile_item(op.input.item());
@@ -214,16 +231,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Operator::Normalize(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| {
-                    T::normalize(b, ty, input, out);
-                });
-            }
-            Operator::Magnitude(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| {
-                    T::magnitude(b, ty, input, out);
-                });
-            }
             Operator::Dot(op) => {
                 if op.lhs.item().vectorization.map(|it| it.get()).unwrap_or(1) == 1 {
                     self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
@@ -269,7 +276,393 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.write(&out, out_id);
                 }
             }
-            op => todo!("{op:?}"),
+            Operator::Fma(op) => {
+                let a = self.compile_variable(op.a);
+                let b = self.compile_variable(op.b);
+                let c = self.compile_variable(op.c);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let a_id = self.read_as(&a, &out_ty);
+                let b_id = self.read_as(&b, &out_ty);
+                let c_id = self.read_as(&c, &out_ty);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+
+                let mul = self.f_mul(ty, None, a_id, b_id).unwrap();
+                self.f_add(ty, Some(out_id), mul, c_id).unwrap();
+                self.write(&out, out_id);
+            }
+            Operator::Recip(op) => {
+                self.compile_unary_op(op, |b, out_ty, ty, input, out| {
+                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    b.f_div(ty, Some(out), one, input).unwrap();
+                });
+            }
+            Operator::And(op) => {
+                self.compile_binary_op(op, |b, _, ty, lhs, rhs, out| {
+                    b.logical_and(ty, Some(out), lhs, rhs).unwrap();
+                });
+            }
+            Operator::Or(op) => {
+                self.compile_binary_op(op, |b, _, ty, lhs, rhs, out| {
+                    b.logical_or(ty, Some(out), lhs, rhs).unwrap();
+                });
+            }
+            Operator::Not(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| {
+                    b.logical_not(ty, Some(out), input).unwrap();
+                });
+            }
+            Operator::Neg(op) => {
+                self.compile_unary_op(op, |b, out_ty, ty, input, out| {
+                    match out_ty.elem() {
+                        Elem::Int(_, true) => b.s_negate(ty, Some(out), input).unwrap(),
+                        Elem::Float(_) => b.f_negate(ty, Some(out), input).unwrap(),
+                        _ => unreachable!(),
+                    };
+                });
+            }
+            Operator::BitwiseAnd(op) => self.compile_binary_op(op, |b, _, ty, lhs, rhs, out| {
+                b.bitwise_and(ty, Some(out), lhs, rhs).unwrap();
+            }),
+            Operator::BitwiseOr(op) => self.compile_binary_op(op, |b, _, ty, lhs, rhs, out| {
+                b.bitwise_or(ty, Some(out), lhs, rhs).unwrap();
+            }),
+            Operator::BitwiseXor(op) => self.compile_binary_op(op, |b, _, ty, lhs, rhs, out| {
+                b.bitwise_xor(ty, Some(out), lhs, rhs).unwrap();
+            }),
+            Operator::ShiftLeft(op) => self.compile_binary_op(op, |b, _, ty, lhs, rhs, out| {
+                b.shift_left_logical(ty, Some(out), lhs, rhs).unwrap();
+            }),
+            Operator::ShiftRight(op) => self.compile_binary_op(op, |b, _, ty, lhs, rhs, out| {
+                b.shift_right_logical(ty, Some(out), lhs, rhs).unwrap();
+            }),
+            Operator::Bitcast(op) => self.compile_unary_op(op, |b, _, ty, input, out| {
+                b.bitcast(ty, Some(out), input).unwrap();
+            }),
+            Operator::Erf(op) => self.compile_unary_op(op, |b, out_ty, ty, input, out| {
+                b.compile_erf(out_ty, ty, input, out);
+            }),
+
+            // Extension functions
+            Operator::Normalize(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| {
+                    T::normalize(b, ty, input, out);
+                });
+            }
+            Operator::Magnitude(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| {
+                    T::magnitude(b, ty, input, out);
+                });
+            }
+            Operator::Abs(op) => {
+                self.compile_unary_op(op, |b, out_ty, ty, input, out| match out_ty.elem() {
+                    Elem::Int(_, _) => T::s_abs(b, ty, input, out),
+                    Elem::Float(_) => T::f_abs(b, ty, input, out),
+                    _ => unreachable!(),
+                });
+            }
+            Operator::Exp(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| T::exp(b, ty, input, out));
+            }
+            Operator::Log(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| T::log(b, ty, input, out))
+            }
+            Operator::Log1p(op) => {
+                self.compile_unary_op(op, |b, out_ty, ty, input, out| {
+                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    let add = match out_ty.elem() {
+                        Elem::Int(_, false) => b.i_add(ty, None, input, one).unwrap(),
+                        Elem::Float(_) => b.f_add(ty, None, input, one).unwrap(),
+                        _ => unreachable!(),
+                    };
+                    T::exp(b, ty, add, out)
+                });
+            }
+            Operator::Cos(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| T::cos(b, ty, input, out))
+            }
+            Operator::Sin(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| T::sin(b, ty, input, out))
+            }
+            Operator::Tanh(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| T::tanh(b, ty, input, out))
+            }
+            Operator::Powf(op) => {
+                self.compile_binary_op(op, |b, _, ty, lhs, rhs, out| T::pow(b, ty, lhs, rhs, out))
+            }
+            Operator::Sqrt(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| T::sqrt(b, ty, input, out))
+            }
+            Operator::Round(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| T::round(b, ty, input, out))
+            }
+            Operator::Floor(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| T::floor(b, ty, input, out))
+            }
+            Operator::Ceil(op) => {
+                self.compile_unary_op(op, |b, _, ty, input, out| T::ceil(b, ty, input, out))
+            }
+            Operator::Clamp(op) => {
+                let input = self.compile_variable(op.input);
+                let min = self.compile_variable(op.min_value);
+                let max = self.compile_variable(op.max_value);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let input = self.read_as(&input, &out_ty);
+                let min = self.read_as(&min, &out_ty);
+                let max = self.read_as(&max, &out_ty);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+
+                match out_ty.elem() {
+                    Elem::Int(_, false) => T::u_clamp(self, ty, input, min, max, out_id),
+                    Elem::Int(_, true) => T::s_clamp(self, ty, input, min, max, out_id),
+                    Elem::Float(_) => T::f_clamp(self, ty, input, min, max, out_id),
+                    _ => unreachable!(),
+                }
+                self.write(&out, out_id);
+            }
+
+            Operator::Max(op) => {
+                self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| match out_ty.elem() {
+                    Elem::Int(_, false) => T::u_max(b, ty, lhs, rhs, out),
+                    Elem::Int(_, true) => T::s_max(b, ty, lhs, rhs, out),
+                    Elem::Float(_) => T::f_max(b, ty, lhs, rhs, out),
+                    _ => unreachable!(),
+                })
+            }
+            Operator::Min(op) => {
+                self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| match out_ty.elem() {
+                    Elem::Int(_, false) => T::u_min(b, ty, lhs, rhs, out),
+                    Elem::Int(_, true) => T::s_min(b, ty, lhs, rhs, out),
+                    Elem::Float(_) => T::f_min(b, ty, lhs, rhs, out),
+                    _ => unreachable!(),
+                })
+            }
+
+            // Atomic ops
+            Operator::AtomicLoad(op) => {
+                let input = self.compile_variable(op.input);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let input_id = input.id();
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                self.atomic_load(ty, Some(out_id), input_id, memory, semantics)
+                    .unwrap();
+                self.write(&out, out_id);
+            }
+            Operator::AtomicStore(op) => {
+                let input = self.compile_variable(op.input);
+                let out = self.compile_variable(op.out);
+
+                let input_id = self.read(&input);
+                let out_id = out.id();
+
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                self.atomic_store(out_id, memory, semantics, input_id)
+                    .unwrap();
+            }
+            Operator::AtomicSwap(op) => {
+                let lhs = self.compile_variable(op.lhs);
+                let rhs = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let lhs_id = lhs.id();
+                let rhs_id = self.read(&rhs);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                self.atomic_exchange(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                    .unwrap();
+                self.write(&out, out_id);
+            }
+            Operator::AtomicCompareAndSwap(op) => {
+                let atomic = self.compile_variable(op.input);
+                let cmp = self.compile_variable(op.cmp);
+                let val = self.compile_variable(op.val);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let atomic_id = atomic.id();
+                let cmp_id = self.read(&cmp);
+                let val_id = self.read(&val);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics_success = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let semantics_failure = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                self.atomic_compare_exchange(
+                    ty,
+                    Some(out_id),
+                    atomic_id,
+                    memory,
+                    semantics_success,
+                    semantics_failure,
+                    val_id,
+                    cmp_id,
+                )
+                .unwrap();
+                self.write(&out, out_id);
+            }
+            Operator::AtomicAdd(op) => {
+                let lhs = self.compile_variable(op.lhs);
+                let rhs = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let lhs_id = lhs.id();
+                let rhs_id = self.read(&rhs);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                self.atomic_i_add(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                    .unwrap();
+                self.write(&out, out_id);
+            }
+            Operator::AtomicSub(op) => {
+                let lhs = self.compile_variable(op.lhs);
+                let rhs = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let lhs_id = lhs.id();
+                let rhs_id = self.read(&rhs);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                self.atomic_i_sub(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                    .unwrap();
+                self.write(&out, out_id);
+            }
+            Operator::AtomicMax(op) => {
+                let lhs = self.compile_variable(op.lhs);
+                let rhs = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let lhs_id = lhs.id();
+                let rhs_id = self.read(&rhs);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                match out_ty.elem() {
+                    Elem::Int(_, false) => self
+                        .atomic_u_max(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .unwrap(),
+                    Elem::Int(_, true) => self
+                        .atomic_s_max(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .unwrap(),
+                    _ => unreachable!(),
+                };
+                self.write(&out, out_id);
+            }
+            Operator::AtomicMin(op) => {
+                let lhs = self.compile_variable(op.lhs);
+                let rhs = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let lhs_id = lhs.id();
+                let rhs_id = self.read(&rhs);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                match out_ty.elem() {
+                    Elem::Int(_, false) => self
+                        .atomic_u_min(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .unwrap(),
+                    Elem::Int(_, true) => self
+                        .atomic_s_min(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .unwrap(),
+                    _ => unreachable!(),
+                };
+                self.write(&out, out_id);
+            }
+            Operator::AtomicAnd(op) => {
+                let lhs = self.compile_variable(op.lhs);
+                let rhs = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let lhs_id = lhs.id();
+                let rhs_id = self.read(&rhs);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                self.atomic_and(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                    .unwrap();
+                self.write(&out, out_id);
+            }
+            Operator::AtomicOr(op) => {
+                let lhs = self.compile_variable(op.lhs);
+                let rhs = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let lhs_id = lhs.id();
+                let rhs_id = self.read(&rhs);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                self.atomic_or(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                    .unwrap();
+                self.write(&out, out_id);
+            }
+            Operator::AtomicXor(op) => {
+                let lhs = self.compile_variable(op.lhs);
+                let rhs = self.compile_variable(op.rhs);
+                let out = self.compile_variable(op.out);
+                let out_ty = out.item();
+
+                let lhs_id = lhs.id();
+                let rhs_id = self.read(&rhs);
+                let out_id = self.write_id(&out);
+
+                let ty = out_ty.id(self);
+                let memory = self.const_u32(Scope::Device as u32);
+                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+
+                self.atomic_xor(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                    .unwrap();
+                self.write(&out, out_id);
+            }
         }
     }
 
@@ -369,110 +762,59 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.write(&out, out_id);
     }
 
-    fn compile_meta(&mut self, meta: Metadata) {
-        match meta {
-            Metadata::Length { var, out } => {
-                let var = self.compile_variable(var);
-                let out = self.compile_variable(out);
-                self.length(&var, Some(&out));
-            }
-            Metadata::Stride { dim, var, out } => {
-                let int_ty = Item::Scalar(Elem::Int(32, false));
-                let int = self.type_int(32, 0);
-                let position = match var {
-                    core::Variable::GlobalInputArray { id, .. } => id as usize,
-                    core::Variable::GlobalOutputArray { id, .. } => {
-                        self.state.inputs.len() + id as usize
-                    }
-                    _ => panic!("Only Input and Output have a stride, got: {:?}", var),
-                };
-                let position = self.const_u32(position as u32);
-                let dim = self.compile_variable(dim);
-                let out = self.compile_variable(out);
-                let one = self.const_u32(1);
-
-                let dim_id = self.read(&dim);
-                let out_id = self.write_id(&out);
-                let rank_2 = self.state.rank_2;
-                let index = self.i_mul(int, None, position, rank_2).unwrap();
-                let index = self.i_add(int, None, index, dim_id).unwrap();
-                let index = self.i_add(int, None, index, one).unwrap();
-                let index = Variable::LocalBinding {
-                    id: index,
-                    item: int_ty.clone(),
-                };
-                let info = Variable::Named {
-                    id: self.state.named["info"],
-                    item: int_ty,
-                    is_array: true,
-                };
-                self.read_indexed(out_id, &info, &index);
-            }
-            Metadata::Shape { dim, var, out } => {
-                let int_ty = Item::Scalar(Elem::Int(32, false));
-                let int = self.type_int(32, 0);
-                let position = match var {
-                    core::Variable::GlobalInputArray { id, .. } => id as usize,
-                    core::Variable::GlobalOutputArray { id, .. } => {
-                        self.state.inputs.len() + id as usize
-                    }
-                    _ => panic!("Only Input and Output have a stride, got: {:?}", var),
-                };
-                let position = self.const_u32(position as u32);
-                let dim = self.compile_variable(dim);
-                let out = self.compile_variable(out);
-                let one = self.const_u32(1);
-
-                let dim_id = self.read(&dim);
-                let out_id = self.write_id(&out);
-                let rank = self.state.rank;
-                let rank_2 = self.state.rank_2;
-                let index = self.i_mul(int, None, position, rank_2).unwrap();
-                let index = self.i_add(int, None, index, rank).unwrap();
-                let index = self.i_add(int, None, index, dim_id).unwrap();
-                let index = self.i_add(int, None, index, one).unwrap();
-                let index = Variable::LocalBinding {
-                    id: index,
-                    item: int_ty.clone(),
-                };
-                let info = Variable::Named {
-                    id: self.state.named["info"],
-                    item: int_ty,
-                    is_array: true,
-                };
-                self.read_indexed(out_id, &info, &index);
-            }
+    fn compile_erf(&mut self, out_ty: Item, ty: Word, input: Word, out: Word) {
+        let bool = match out_ty {
+            Item::Scalar(_) => Item::Scalar(Elem::Bool),
+            Item::Vector(_, factor) => Item::Vector(Elem::Bool, factor),
+            _ => unreachable!(),
         }
-    }
+        .id(self);
+        let mut cast =
+            |val: f64| self.static_cast(ConstVal::Bit64(val.to_bits()), &Elem::Float(64), &out_ty);
+        let p = cast(0.3275911);
+        let a1 = cast(0.254829592);
+        let a2 = cast(-0.284496736);
+        let a3 = cast(1.421413741);
+        let a4 = cast(-1.453152027);
+        let a5 = cast(1.061405429);
+        let one = cast(1.0);
+        let zero = cast(0.0);
 
-    pub fn length(&mut self, var: &Variable, out: Option<&Variable>) -> Word {
-        let (out_id, out_ty) = if let Some(out) = out {
-            let out_id = self.write_id(out);
-            let out_ty = out.elem().id(self);
-            (Some(out_id), out_ty)
-        } else {
-            (None, self.type_int(32, 0))
+        let mul = |b: &mut Self, lhs: Word, rhs: Word| b.f_mul(ty, None, lhs, rhs).unwrap();
+        let add = |b: &mut Self, lhs: Word, rhs: Word| b.f_add(ty, None, lhs, rhs).unwrap();
+
+        let erf = |b: &mut Self, input: Word| {
+            let abs = b.id();
+            T::f_abs(b, ty, input, abs);
+            let t_0 = mul(b, p, abs);
+            let t_1 = add(b, t_0, one);
+            let t = b.f_div(ty, None, one, t_1).unwrap();
+
+            let tmp_1 = mul(b, a5, t);
+            let tmp_2 = add(b, tmp_1, a4);
+            let tmp_3 = mul(b, tmp_2, t);
+            let tmp_4 = add(b, tmp_3, a3);
+            let tmp_5 = mul(b, tmp_4, t);
+            let tmp_6 = add(b, tmp_5, a2);
+            let tmp_7 = mul(b, tmp_6, t);
+            let tmp = add(b, tmp_7, a1);
+
+            let ret_0 = b.f_negate(ty, None, input).unwrap();
+            let ret_1 = mul(b, ret_0, input);
+            let ret_2 = b.id();
+            T::exp(b, ty, ret_1, ret_2);
+            let ret_3 = mul(b, tmp, t);
+            let ret_4 = mul(b, ret_2, ret_3);
+            b.f_sub(ty, None, one, ret_4).unwrap()
         };
 
-        let id = match var {
-            Variable::GlobalInputArray(ptr, _) | Variable::GlobalOutputArray(ptr, _) => {
-                self.array_length(out_ty, out_id, *ptr, 0).unwrap()
-            }
-            Variable::Slice { len, .. } => {
-                if out.is_some() {
-                    self.copy_object(out_ty, out_id, *len).unwrap()
-                } else {
-                    *len
-                }
-            }
-            Variable::SharedMemory(_, _, len)
-            | Variable::ConstantArray(_, _, len)
-            | Variable::LocalArray(_, _, len) => self.const_u32(*len),
-            var => unimplemented!("Var {var:?} doesn't have length"),
+        let cond = self.f_ord_less_than(bool, None, input, zero).unwrap();
+        let neg = {
+            let neg_in = self.f_negate(ty, None, input).unwrap();
+            let res = erf(self, neg_in);
+            self.f_negate(ty, None, res).unwrap()
         };
-        if let Some(out) = out {
-            self.write(out, id);
-        }
-        id
+        let pos = erf(self, input);
+        self.select(ty, Some(out), cond, neg, pos).unwrap();
     }
 }

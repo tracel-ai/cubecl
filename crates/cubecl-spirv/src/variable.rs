@@ -728,6 +728,29 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
+    pub fn read_indexed_unchecked(
+        &mut self,
+        out_id: Word,
+        variable: &Variable,
+        index: &Variable,
+    ) -> Word {
+        let indexed = self.index(variable, index, true);
+
+        match indexed {
+            IndexedVariable::Pointer(ptr, item) => {
+                let ty = item.id(self);
+                self.load(ty, Some(out_id), ptr, None, vec![]).unwrap()
+            }
+            IndexedVariable::Composite(var, index, item) => {
+                let elem = item.elem();
+                let ty = elem.id(self);
+                self.composite_extract(ty, Some(out_id), var, vec![index])
+                    .unwrap()
+            }
+            IndexedVariable::Scalar(var) => self.read_to(&var, out_id),
+        }
+    }
+
     pub fn write_id(&mut self, variable: &Variable) -> Word {
         match variable {
             Variable::LocalBinding { id, .. } => *id,
@@ -775,6 +798,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             self.compile_write_bound(out, index_id, write);
         } else {
             write(self)
+        }
+    }
+
+    pub fn write_indexed_unchecked(&mut self, out: &Variable, index: &Variable, value: Word) {
+        let variable = self.index(out, index, true);
+
+        match variable {
+            IndexedVariable::Pointer(ptr, _) => self.store(ptr, value, None, vec![]).unwrap(),
+            IndexedVariable::Composite(var, index, item) => {
+                let out_id = self.write_id(out);
+                let ty = item.id(self);
+                self.composite_insert(ty, Some(out_id), value, var, vec![index])
+                    .unwrap();
+                self.write(out, out_id);
+            }
+            IndexedVariable::Scalar(var) => self.write(&var, value),
         }
     }
 

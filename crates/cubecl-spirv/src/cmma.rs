@@ -56,9 +56,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let ty = item.id(self);
         let mat_id = match value {
             Variable::ConstantScalar(id, value, _) => {
-                let const_mat =
-                    self.get_or_insert_const(value, item, |b| b.constant_composite(ty, vec![id]));
-                self.copy_object(ty, None, const_mat).unwrap()
+                self.get_or_insert_const(value, item, |b| b.constant_composite(ty, vec![id]))
             }
             var => {
                 let var = self.read(&var);

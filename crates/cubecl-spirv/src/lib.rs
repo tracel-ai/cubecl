@@ -9,9 +9,11 @@ use rspirv::{
 mod branch;
 mod cmma;
 mod compiler;
+mod extensions;
 mod instruction;
 mod item;
 mod lookups;
+mod metadata;
 mod subgroup;
 mod sync;
 mod target;

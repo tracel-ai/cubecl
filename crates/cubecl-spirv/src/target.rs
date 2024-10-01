@@ -1,13 +1,10 @@
 use cubecl_core::ir::{Binding, Location, Visibility};
-use extensions::TargetExtensions;
 use rspirv::spirv::{
     self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass, Word,
 };
 use std::fmt::Debug;
 
-use crate::{item::Item, SpirvCompiler};
-
-pub mod extensions;
+use crate::{extensions::TargetExtensions, item::Item, SpirvCompiler};
 
 pub trait SpirvTarget:
     TargetExtensions<Self> + Debug + Clone + Default + Send + Sync + 'static
