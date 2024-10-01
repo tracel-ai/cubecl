@@ -217,6 +217,16 @@ where
     }
 
     fn read_output<C: CubePrimitive>(out: &cmma::Matrix<O>, slice: &mut SliceMut<'_, C>) {
-        cmma::store(slice, out, Self::N, cmma::MatrixLayout::RowMajor);
+        let same_type = comptime!(
+            std::any::TypeId::of::<C>() == std::any::TypeId::of::<O>()
+                || std::any::TypeId::of::<C>() == std::any::TypeId::of::<Line<O>>()
+        );
+
+        if same_type {
+            // We can skip the cast
+            cmma::store(slice, out, Self::N, cmma::MatrixLayout::RowMajor);
+        } else {
+            // Algo that casts 256/32 values each
+        }
     }
 }

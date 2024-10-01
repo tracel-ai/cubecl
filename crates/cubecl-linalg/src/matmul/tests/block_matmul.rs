@@ -6,18 +6,17 @@ use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::TileReader;
 use crate::matmul::tile_io::TileWriter;
 use crate::matmul::BlockMatmul;
-use crate::matmul::MatmulInstruction;
 
 use super::test_utils::assert_equals_approx;
 use super::test_utils::matmul_cpu_reference;
 
 #[derive(CubeType)]
-pub struct ArrayTile<E: Numeric> {
+pub struct DummyArrayTile<E: Numeric> {
     pub array: Array<Line<E>>,
 }
 
 #[cube]
-impl<E: Numeric> TileReader<Line<E>> for ArrayTile<E> {
+impl<E: Numeric> TileReader<Line<E>> for DummyArrayTile<E> {
     const NUM_TILES_X: u32 = 1;
     const NUM_TILES_Y: u32 = 1;
 
@@ -30,29 +29,33 @@ impl<E: Numeric> TileReader<Line<E>> for ArrayTile<E> {
 }
 
 #[cube]
-impl<E: Numeric> TileWriter<Line<E>> for ArrayTile<E> {
-    fn from_instruction_to_output<'a, Instr: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
-        writer: &'a mut Self,
-        instr_out: &Instr::Out,
-        _pos_x: u32,
-        _pos_y: u32,
-    ) -> &'a mut SliceMut<'a, Line<E>> {
-        let slice_mut = writer.array.as_slice_mut();
-        Instr::read_output(instr_out, slice_mut);
-        slice_mut
+impl<E: Numeric> TileWriter<Line<E>> for DummyArrayTile<E> {
+    const NUM_TILES_X: u32 = 1;
+    const NUM_TILES_Y: u32 = 1;
+
+    const TILE_SIZE_X: u32 = 16;
+    const TILE_SIZE_Y: u32 = 16;
+
+    fn write(writer: &mut Self, slice: &Slice<'_, Line<E>>, _pos_x: u32, _pos_y: u32) {
+        for i in 0..writer.array.len() {
+            writer.array[i] = slice[i];
+        }
     }
 }
 
 #[cube(launch_unchecked)]
-fn block_matmul_launch<BM: BlockMatmul<E, ArrayTile<E>, ArrayTile<E>, ArrayTile<E>>, E: Numeric>(
+fn block_matmul_launch<
+    BM: BlockMatmul<E, DummyArrayTile<E>, DummyArrayTile<E>, DummyArrayTile<E>>,
+    E: Numeric,
+>(
     lhs_slice: Array<Line<E>>,
     rhs_slice: Array<Line<E>>,
     out_slice: Array<Line<E>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
 ) {
-    let lhs = ArrayTile::<E> { array: lhs_slice };
-    let rhs = ArrayTile::<E> { array: rhs_slice };
-    let mut out = ArrayTile::<E> { array: out_slice };
+    let lhs = DummyArrayTile::<E> { array: lhs_slice };
+    let rhs = DummyArrayTile::<E> { array: rhs_slice };
+    let mut out = DummyArrayTile::<E> { array: out_slice };
 
     let mut acc = BM::acc_init_zeros();
     BM::execute(lhs, rhs, &mut acc, layouts);
@@ -62,7 +65,7 @@ fn block_matmul_launch<BM: BlockMatmul<E, ArrayTile<E>, ArrayTile<E>, ArrayTile<
 /// Exported test
 pub fn test_block_matmul<BM, E, R>(device: &R::Device)
 where
-    BM: BlockMatmul<E, ArrayTile<E>, ArrayTile<E>, ArrayTile<E>>,
+    BM: BlockMatmul<E, DummyArrayTile<E>, DummyArrayTile<E>, DummyArrayTile<E>>,
     E: Numeric + CubeElement,
     R: Runtime,
 {

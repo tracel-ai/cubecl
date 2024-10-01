@@ -99,15 +99,23 @@ where
     }
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
+        let smem_line_size = 4u32; // TODO config
+        let num_planes = <Self as BlockMatmul<Elem, Lhs, Rhs, Out>>::M / Instr::M; // TODO config
+        let plane_id = UNIT_POS_Y; // TODO some plane mapper
+
+        let num_tile_elements = Instr::M * Instr::N;
+        let mut smem = SharedMemory::new_lined(num_tile_elements * num_planes, smem_line_size);
+
         #[unroll]
         for accumulator_iter in 0..acc.len() {
             let accumulator = acc.index(accumulator_iter);
-            Out::from_instruction_to_output::<Instr, Elem, ElemAcc>(
-                out,
-                accumulator,
-                0u32,
-                accumulator_iter,
-            );
+
+            let start = num_tile_elements * plane_id;
+            let smem_slice = smem.slice_mut(start, start + num_tile_elements);
+
+            Instr::read_output(accumulator, smem_slice);
+
+            Out::write(out, smem_slice.as_slice(), 0u32, accumulator_iter);
         }
     }
 }

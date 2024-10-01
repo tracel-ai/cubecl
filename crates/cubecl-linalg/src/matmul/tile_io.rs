@@ -1,8 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::MatmulInstruction;
-
 #[cube]
 /// Defines the number of tiles and their size in each plane
 pub trait TileReader<E: CubeType>: CubeType + 'static + Send + Sync {
@@ -26,11 +24,11 @@ pub trait MatmulInstructionWriter: CubeType {}
 #[cube]
 /// Defines the number of tiles and their size in each plane
 pub trait TileWriter<E: CubeType>: CubeType + 'static + Send + Sync {
-    // TODO: wrong that it uselessly needs to know I and O
-    fn from_instruction_to_output<'a, Instr: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
-        writer: &'a mut Self,
-        instr_out: &Instr::Out,
-        pos_x: u32,
-        pos_y: u32,
-    ) -> &'a mut SliceMut<'a, E>;
+    const NUM_TILES_X: u32;
+    const NUM_TILES_Y: u32;
+
+    const TILE_SIZE_X: u32;
+    const TILE_SIZE_Y: u32;
+
+    fn write(writer: &mut Self, slice: &Slice<'_, E>, pos_x: u32, pos_y: u32);
 }

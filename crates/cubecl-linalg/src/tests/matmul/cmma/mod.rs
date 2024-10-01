@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 
 pub mod matmul;
-pub mod matmul_instruction;
+pub mod matmul_internal;
 
 #[macro_export]
 macro_rules! testgen_cmma {

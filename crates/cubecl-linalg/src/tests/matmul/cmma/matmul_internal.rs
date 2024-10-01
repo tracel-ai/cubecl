@@ -10,7 +10,7 @@ macro_rules! testgen_cmma_instruction {
         use half::{bf16, f16};
 
         #[test]
-        pub fn test_block_matmul_16_16_16() {
+        pub fn test_block_matmul_16_16_16_f32() {
             tests::block_matmul::test_block_matmul::<
                 CmmaMatmul<f16, f32, CmmaInstruction16_16_16<f16, f32>, S16_16_16>,
                 f16,
