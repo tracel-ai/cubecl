@@ -1,10 +1,12 @@
-use cmma::old::config::{CmmaConfig, PredefinedCmmaConfig};
-use cmma::old::{is_available as cmma_available, launch_ref as cmma_launch_ref};
+use cmma_old::config::{CmmaConfig, PredefinedCmmaConfig};
+use cmma_old::{is_available as cmma_available, launch_ref as cmma_launch_ref};
 use cubecl_core::prelude::*;
 
 mod base;
+pub mod cmma_instruction;
+pub mod cmma_matmul;
 /// Contains algorithms for cooperative matrix multiplication.
-pub mod cmma;
+pub mod cmma_old;
 pub mod dummy_unit_instruction;
 mod matrix_layout;
 mod tile_io;

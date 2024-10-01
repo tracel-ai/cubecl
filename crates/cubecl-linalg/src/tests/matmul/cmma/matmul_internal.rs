@@ -2,10 +2,10 @@
 #[macro_export]
 macro_rules! testgen_cmma_internal {
     () => {
-        use cubecl_linalg::matmul::cmma::base::{
+        use cubecl_linalg::matmul::cmma_instruction::base::{
             CmmaInstruction16_16_16, CmmaInstruction32_8_16, CmmaInstruction8_32_16,
         };
-        use cubecl_linalg::matmul::cmma::{CmmaMatmul, S16_16_16};
+        use cubecl_linalg::matmul::cmma_matmul::{CmmaMatmul, S16_16_16, S32_8_16, S8_32_16};
         use cubecl_linalg::matmul::tests;
         use half::{bf16, f16};
 
@@ -22,6 +22,24 @@ macro_rules! testgen_cmma_internal {
         pub fn test_block_matmul_16_16_16_f16() {
             tests::block_matmul::test_block_matmul::<
                 CmmaMatmul<f16, f16, CmmaInstruction16_16_16<f16, f16>, S16_16_16>,
+                f16,
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
+        pub fn test_block_matmul_32_8_16() {
+            tests::block_matmul::test_block_matmul::<
+                CmmaMatmul<f16, f32, CmmaInstruction32_8_16<f16, f32>, S32_8_16>,
+                f16,
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
+        pub fn test_block_matmul_8_32_16() {
+            tests::block_matmul::test_block_matmul::<
+                CmmaMatmul<f16, f32, CmmaInstruction8_32_16<f16, f32>, S8_32_16>,
                 f16,
                 TestRuntime,
             >(&Default::default())

@@ -9,6 +9,8 @@ use crate::matmul::{
     BlockMatmul, MatmulInstruction,
 };
 
+use super::CmmaBlockSize;
+
 pub struct CmmaMatmul<E: Numeric, A: Numeric, I: MatmulInstruction<E, A>, Block: CmmaBlockSize> {
     _accumulator_precision: PhantomData<A>,
     _input_precision: PhantomData<E>,
@@ -19,27 +21,6 @@ pub struct CmmaMatmul<E: Numeric, A: Numeric, I: MatmulInstruction<E, A>, Block:
 #[derive(CubeType, Clone, Copy)]
 pub struct CmmaMatmulConfig {
     pub num_accumulators: u32,
-}
-
-pub trait CmmaBlockSize: 'static + Send + Sync {
-    const M: u32;
-    const N: u32;
-    const K: u32;
-}
-
-pub struct S128_128_16;
-pub struct S16_16_16;
-
-impl CmmaBlockSize for S128_128_16 {
-    const M: u32 = 128;
-    const N: u32 = 128;
-    const K: u32 = 16;
-}
-
-impl CmmaBlockSize for S16_16_16 {
-    const M: u32 = 16;
-    const N: u32 = 16;
-    const K: u32 = 16;
 }
 
 #[cube]
@@ -100,7 +81,7 @@ where
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
         let num_planes = <Self as BlockMatmul<Elem, Lhs, Rhs, Out>>::M / Instr::M; // TODO config
-        let plane_id = UNIT_POS_Y; // TODO some plane mapper
+        let plane_id = 0u32; // TODO some plane mapper
         let num_tile_elements = Instr::M * Instr::N;
         let start = num_tile_elements * plane_id;
 
