@@ -22,34 +22,39 @@ pub(crate) fn make_fragments<F: Float, FC: Float>(
 
     #[unroll]
     for _ in 0..num_accumulators {
-        let acc = cmma::Matrix::<F>::new(
+        let acc = cmma::Matrix::<F>::filled(
             cmma::MatrixIdent::Accumulator,
             tile_size_m,
             tile_size_n,
             tile_size_k,
             cmma::MatrixLayout::Undefined,
+            F::new(0.0),
         );
-
-        cmma::fill::<F>(&acc, F::new(0.0));
 
         accumulators.push(acc);
     }
 
-    let lhs = cmma::Matrix::<FC>::new(
-        cmma::MatrixIdent::A,
-        tile_size_m,
-        tile_size_n,
-        tile_size_k,
-        cmma::MatrixLayout::RowMajor,
-    );
+    // Safety: these are always loaded before being used.
+    let lhs = unsafe {
+        cmma::Matrix::<FC>::uninitialized(
+            cmma::MatrixIdent::A,
+            tile_size_m,
+            tile_size_n,
+            tile_size_k,
+            cmma::MatrixLayout::RowMajor,
+        )
+    };
 
-    let rhs = cmma::Matrix::<FC>::new(
-        cmma::MatrixIdent::B,
-        tile_size_m,
-        tile_size_n,
-        tile_size_k,
-        cmma::MatrixLayout::RowMajor,
-    );
+    // Safety: these are always loaded before being used.
+    let rhs = unsafe {
+        cmma::Matrix::<FC>::uninitialized(
+            cmma::MatrixIdent::B,
+            tile_size_m,
+            tile_size_n,
+            tile_size_k,
+            cmma::MatrixLayout::RowMajor,
+        )
+    };
 
     Fragments::<F, FC> {
         accumulators,
