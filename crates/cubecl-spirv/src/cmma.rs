@@ -5,7 +5,9 @@ use crate::{
     SpirvCompiler, SpirvTarget,
 };
 use cubecl_core::ir::{self as core, CoopMma};
-use rspirv::spirv::{Capability, CooperativeMatrixLayout, CooperativeMatrixUse, Word};
+use rspirv::spirv::{
+    Capability, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word,
+};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_cmma(&mut self, cmma: CoopMma) {
@@ -30,7 +32,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_load(&mut self, mat: core::Variable, value: core::Variable, stride: core::Variable) {
         let mat = self.compile_variable(mat);
-        let (id, depth, mat) = self.matrix_var(&mat);
+        let mat = self.matrix_var(&mat).2;
 
         let value = self.compile_variable(value);
         let stride = self.compile_variable(stride);
@@ -45,13 +47,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let mat_id = self
             .cooperative_matrix_load_khr(ty, None, ptr, memory_layout, Some(stride), None, vec![])
             .unwrap();
-        self.state.matrices.get_mut(&(id, depth)).unwrap().id = mat_id;
+
+        self.store(mat.id, mat_id, None, vec![]).unwrap();
     }
 
     fn compile_fill(&mut self, mat: core::Variable, value: core::Variable) {
         let mat = self.compile_variable(mat);
         let value = self.compile_variable(value);
-        let (id, depth, mat) = self.matrix_var(&mat);
+        let mat = self.matrix_var(&mat).2;
         let item = self.item(&mat);
         let ty = item.id(self);
         let mat_id = match value {
@@ -64,14 +67,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
         };
 
-        self.state.matrices.get_mut(&(id, depth)).unwrap().id = mat_id;
+        self.store(mat.id, mat_id, None, vec![]).unwrap();
     }
 
     fn compile_store(&mut self, mat: core::Variable, out: core::Variable, stride: core::Variable) {
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).2;
-        let mat_obj = mat.id;
-        assert_ne!(mat_obj, 0, "Can't store uninitialized matrix");
+        let item = self.item(&mat);
+        let ty = item.id(self);
+        let mat_obj = self.load(ty, None, mat.id, None, vec![]).unwrap();
+        //assert_ne!(mat_obj, 0, "Can't store uninitialized matrix");
 
         let out = self.compile_variable(out);
         let stride = self.compile_variable(stride);
@@ -99,18 +104,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let mat_a = self.matrix_var(&mat_a).2;
         let mat_b = self.matrix_var(&mat_b).2;
         let mat_c = self.matrix_var(&mat_c).2;
-        let (d_id, d_depth, mat_d) = self.matrix_var(&mat_d);
+        let mat_d = self.matrix_var(&mat_d).2;
 
-        assert_ne!(mat_a.id, 0, "Can't execute with uninitialized matrix");
-        assert_ne!(mat_b.id, 0, "Can't execute with uninitialized matrix");
-        assert_ne!(mat_c.id, 0, "Can't execute with uninitialized matrix");
+        let mat_a_ty = self.item(&mat_a).id(self);
+        let mat_b_ty = self.item(&mat_b).id(self);
+        let mat_c_ty = self.item(&mat_c).id(self);
+
+        let mat_a_id = self.load(mat_a_ty, None, mat_a.id, None, vec![]).unwrap();
+        let mat_b_id = self.load(mat_b_ty, None, mat_b.id, None, vec![]).unwrap();
+        let mat_c_id = self.load(mat_c_ty, None, mat_c.id, None, vec![]).unwrap();
+
         let ty = self.item(&mat_d).id(self);
 
         let mat_d_id = self
-            .cooperative_matrix_mul_add_khr(ty, None, mat_a.id, mat_b.id, mat_c.id, None)
+            .cooperative_matrix_mul_add_khr(ty, None, mat_a_id, mat_b_id, mat_c_id, None)
             .unwrap();
 
-        self.state.matrices.get_mut(&(d_id, d_depth)).unwrap().id = mat_d_id;
+        self.store(mat_d.id, mat_d_id, None, vec![]).unwrap();
     }
 
     fn matrix_var(&mut self, var: &Variable) -> (u16, u8, Matrix) {
@@ -171,7 +181,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::MatrixLayout::Undefined => None,
         };
 
-        Matrix {
+        let mut mat = Matrix {
             id: 0,
             ident,
             m: mat.m,
@@ -179,6 +189,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             k: mat.k,
             elem,
             layout,
-        }
+        };
+
+        let item = Item::Pointer(StorageClass::Function, Box::new(self.item(&mat)));
+        let ty = item.id(self);
+        mat.id = self.declare_function_variable(ty);
+
+        mat
     }
 }

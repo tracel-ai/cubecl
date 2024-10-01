@@ -42,12 +42,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 inclusive,
                 scope,
             }) => {
-                let i = self.compile_variable(i);
+                let i_key = match i {
+                    core::Variable::LocalBinding { id, depth, .. } => (id, depth),
+                    _ => unreachable!(),
+                };
                 let start = self.compile_variable(start);
                 let end = self.compile_variable(end);
                 let step = step.map(|it| self.compile_variable(it));
 
-                self.compile_range_loop(i, start, end, step, inclusive, scope);
+                self.compile_range_loop(i_key, start, end, step, inclusive, scope);
             }
             Branch::Return => self.ret().unwrap(),
             Branch::Break => {
@@ -66,7 +69,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_range_loop(
         &mut self,
-        i: Variable,
+        i_key: (u16, u8),
         start: Variable,
         end: Variable,
         step: Option<Variable>,
@@ -76,7 +79,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let i_ty = start.item().id(self);
         let bool = self.type_bool();
 
-        let i_value = self.read(&i);
         let start_id = self.read(&start);
         let end_id = self.read(&end);
 
@@ -103,18 +105,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.branch(header).unwrap();
         self.begin_block(Some(header)).unwrap();
 
-        self.phi(
-            i_ty,
-            Some(i_value),
-            vec![(start_id, pre), (inc, continue_target)],
-        )
-        .unwrap();
+        let i_value = self
+            .phi(i_ty, None, vec![(start_id, pre), (inc, continue_target)])
+            .unwrap();
+        self.state.bindings.insert(i_key, i_value);
+
         self.loop_merge(post, continue_target, LoopControl::NONE, vec![])
             .unwrap();
         self.branch(break_cond).unwrap();
 
         self.begin_block(Some(break_cond)).unwrap();
-        let cond = match (inclusive, i.elem()) {
+        let cond = match (inclusive, start.elem()) {
             (true, Elem::Int(_, false)) => self.u_less_than_equal(bool, None, i_value, end_id),
             (true, Elem::Int(_, true)) => self.s_less_than_equal(bool, None, i_value, end_id),
             (false, Elem::Int(_, false)) => self.u_less_than(bool, None, i_value, end_id),

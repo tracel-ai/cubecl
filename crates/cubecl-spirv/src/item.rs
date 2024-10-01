@@ -69,7 +69,8 @@ impl Item {
             } => {
                 let ty = ty.id(b);
                 let scope = b.const_u32(Scope::Subgroup as u32);
-                b.type_cooperative_matrix_khr(ty, scope, *rows, *columns, *ident as u32)
+                let usage = b.const_u32(*ident as u32);
+                b.type_cooperative_matrix_khr(ty, scope, *rows, *columns, usage)
             }
         };
         if b.debug && !b.state.debug_types.contains(&id) {
