@@ -221,6 +221,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                     self.state.variables.insert((id, depth), var);
                 }
                 core::Variable::Slice { .. } => {}
+                core::Variable::Matrix { .. } => {}
                 var => todo!("{var:?}"),
             };
         }
@@ -252,7 +253,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 let arr_ty = Item::Array(Box::new(item.clone()), len).id(self);
                 let values: Vec<_> = values
                     .into_iter()
-                    .map(|val| self.static_cast(val, &item))
+                    .map(|val| self.static_core(val, &item))
                     .collect();
                 let composite_id = self.constant_composite(arr_ty, values);
                 ConstArray {

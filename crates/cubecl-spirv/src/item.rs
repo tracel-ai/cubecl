@@ -265,7 +265,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn static_cast(&mut self, val: core::Variable, item: &Item) -> Word {
+    pub fn static_core(&mut self, val: core::Variable, item: &Item) -> Word {
         let val = val.as_const().unwrap();
         unsafe {
             let value = match (val, item.elem()) {
@@ -349,6 +349,63 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             };
             item.constant(self, value)
         }
+    }
+
+    pub fn static_cast(&mut self, val: ConstVal, from: &Elem, item: &Item) -> Word {
+        let elem_cast = match (from, item.elem()) {
+            (Elem::Bool, Elem::Int(64, _)) => ConstVal::Bit64(val.as_u64()),
+            (Elem::Bool, Elem::Int(_, _)) => ConstVal::Bit32(val.as_u32()),
+            (Elem::Bool, Elem::Float(64)) => ConstVal::Bit64((val.as_u32() as f64).to_bits()),
+            (Elem::Bool, Elem::Float(_)) => ConstVal::Bit32((val.as_u32() as f32).to_bits()),
+            (Elem::Int(_, _), Elem::Bool) => ConstVal::Bit32((val.as_u64() == 1) as u32),
+            (Elem::Int(_, _), Elem::Int(64, _)) => ConstVal::Bit64(val.as_u64()),
+            (Elem::Int(_, _), Elem::Int(_, _)) => ConstVal::Bit32(val.as_u32()),
+            (Elem::Int(_, false), Elem::Float(64)) => {
+                ConstVal::Bit64((val.as_u64() as f64).to_bits())
+            }
+            (Elem::Int(_, true), Elem::Float(64)) => unsafe {
+                ConstVal::Bit64((transmute::<u64, i64>(val.as_u64()) as f64).to_bits())
+            },
+            (Elem::Float(64), Elem::Bool) => {
+                ConstVal::Bit32((f64::from_bits(val.as_u64()) == 1.0) as u32)
+            }
+            (Elem::Float(_), Elem::Bool) => {
+                ConstVal::Bit32((f32::from_bits(val.as_u32()) == 1.0) as u32)
+            }
+            (Elem::Float(64), Elem::Int(64, false)) => {
+                ConstVal::Bit64(f64::from_bits(val.as_u64()) as u64)
+            }
+            (Elem::Float(_), Elem::Int(64, false)) => {
+                ConstVal::Bit64(f32::from_bits(val.as_u32()) as u64)
+            }
+            (Elem::Float(64), Elem::Int(64, true)) => ConstVal::Bit64(unsafe {
+                transmute::<i64, u64>(f64::from_bits(val.as_u64()) as i64)
+            }),
+            (Elem::Float(_), Elem::Int(64, true)) => ConstVal::Bit64(unsafe {
+                transmute::<i64, u64>(f32::from_bits(val.as_u32()) as i64)
+            }),
+            (Elem::Float(64), Elem::Int(_, false)) => {
+                ConstVal::Bit32(f64::from_bits(val.as_u64()) as u32)
+            }
+            (Elem::Float(_), Elem::Int(_, false)) => {
+                ConstVal::Bit32(f32::from_bits(val.as_u32()) as u32)
+            }
+            (Elem::Float(64), Elem::Int(_, true)) => ConstVal::Bit32(unsafe {
+                transmute::<i32, u32>(f64::from_bits(val.as_u64()) as i32)
+            }),
+            (Elem::Float(_), Elem::Int(_, true)) => ConstVal::Bit32(unsafe {
+                transmute::<i32, u32>(f32::from_bits(val.as_u32()) as i32)
+            }),
+            (Elem::Float(64), Elem::Float(64)) => val,
+            (Elem::Float(64), Elem::Float(_)) => {
+                ConstVal::Bit32((f64::from_bits(val.as_u64()) as f32).to_bits())
+            }
+            (Elem::Float(_), Elem::Float(64)) => {
+                ConstVal::Bit64((f32::from_bits(val.as_u32()) as f64).to_bits())
+            }
+            _ => val,
+        };
+        item.constant(self, elem_cast)
     }
 }
 

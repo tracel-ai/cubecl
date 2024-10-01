@@ -59,8 +59,12 @@ impl SpirvTarget for GLCompute {
         b.capability(Capability::VulkanMemoryModel);
 
         let caps: Vec<_> = b.capabilities.iter().copied().collect();
-        for cap in caps {
-            b.capability(cap);
+        for cap in caps.iter() {
+            b.capability(*cap);
+        }
+
+        if caps.contains(&Capability::CooperativeMatrixKHR) {
+            b.extension("SPV_KHR_cooperative_matrix");
         }
 
         b.memory_model(AddressingModel::Logical, MemoryModel::Vulkan);

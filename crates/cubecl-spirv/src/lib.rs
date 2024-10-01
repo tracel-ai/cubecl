@@ -7,11 +7,13 @@ use rspirv::{
 };
 
 mod branch;
+mod cmma;
 mod compiler;
 mod instruction;
 mod item;
 mod lookups;
 mod subgroup;
+mod sync;
 mod target;
 mod variable;
 

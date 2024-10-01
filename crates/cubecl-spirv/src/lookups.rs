@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use cubecl_core::ir::KernelDefinition;
 use hashbrown::{HashMap, HashSet};
-use rspirv::spirv::{BuiltIn, Word};
+use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, Word};
 
 use crate::{
     item::{Elem, Item},
@@ -21,6 +21,7 @@ pub struct LookupTables {
     pub const_arrays: Vec<ConstArray>,
     pub shared_memories: HashMap<u16, Array>,
     pub local_arrays: HashMap<(u16, u8), Array>,
+    pub matrices: HashMap<(u16, u8), Matrix>,
 
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
@@ -75,6 +76,18 @@ pub struct ConstArray {
     pub item: Item,
     pub len: u32,
     pub composite_id: Word,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(missing_docs)]
+pub struct Matrix {
+    pub id: Word,
+    pub ident: CooperativeMatrixUse,
+    pub m: u8,
+    pub n: u8,
+    pub k: u8,
+    pub elem: Elem,
+    pub layout: Option<CooperativeMatrixLayout>,
 }
 
 #[derive(Clone, Debug)]

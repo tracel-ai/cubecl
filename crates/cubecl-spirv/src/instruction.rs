@@ -16,7 +16,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Branch(branch) => self.compile_branch(branch),
             Operation::Metadata(meta) => self.compile_meta(meta),
             Operation::Subcube(subcube) => self.compile_subcube(subcube),
-            op => todo!("{op:?}"),
+            Operation::Procedure(_) => todo!(),
+            Operation::Synchronization(sync) => self.compile_sync(sync),
+            Operation::CoopMma(cmma) => self.compile_cmma(cmma),
         }
     }
 

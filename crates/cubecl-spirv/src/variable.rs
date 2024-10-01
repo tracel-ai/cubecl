@@ -11,7 +11,7 @@ use cubecl_core::{
 };
 use rspirv::{
     dr::Builder,
-    spirv::{BuiltIn, StorageClass, Word},
+    spirv::{BuiltIn, Capability, StorageClass, Word},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,6 +48,7 @@ pub enum Variable {
     SharedMemory(Word, Item, u32),
     ConstantArray(Word, Item, u32),
     LocalArray(Word, Item, u32),
+    CoopMatrix(u16, u8),
     Id(Word),
     LocalInvocationIndex(Word),
     LocalInvocationIdX(Word),
@@ -148,6 +149,7 @@ impl Variable {
             Variable::SharedMemory(id, _, _) => *id,
             Variable::ConstantArray(id, _, _) => *id,
             Variable::LocalArray(id, _, _) => *id,
+            Variable::CoopMatrix(_, _) => 0,
             Variable::SubgroupSize(id) => *id,
             Variable::Id(id) => *id,
             Variable::LocalInvocationIndex(id) => *id,
@@ -554,7 +556,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 };
                 Variable::LocalArray(id, item, length)
             }
-            core::Variable::Matrix { .. } => todo!(),
+            core::Variable::Matrix { id, mat, depth } => {
+                self.capabilities.insert(Capability::CooperativeMatrixKHR);
+                if self.state.matrices.contains_key(&(id, depth)) {
+                    Variable::CoopMatrix(id, depth)
+                } else {
+                    let matrix = self.init_coop_matrix(mat);
+                    self.state.matrices.insert((id, depth), matrix);
+                    Variable::CoopMatrix(id, depth)
+                }
+            }
         }
     }
 
@@ -602,11 +613,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn read_as(&mut self, variable: &Variable, item: &Item) -> Word {
-        let id = self.read(variable);
-        variable.item().cast_to(self, id, item)
+        if let Some(as_const) = variable.as_const() {
+            self.static_cast(as_const, &variable.elem(), item)
+        } else {
+            let id = self.read(variable);
+            variable.item().cast_to(self, id, item)
+        }
     }
 
-    fn index(&mut self, variable: &Variable, index: &Variable, unchecked: bool) -> IndexedVariable {
+    pub fn index(
+        &mut self,
+        variable: &Variable,
+        index: &Variable,
+        unchecked: bool,
+    ) -> IndexedVariable {
         let access_chain = if unchecked {
             Builder::in_bounds_access_chain
         } else {
