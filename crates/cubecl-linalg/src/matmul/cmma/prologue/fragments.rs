@@ -22,7 +22,7 @@ pub(crate) fn make_fragments<F: Float, FC: Float>(
 
     #[unroll]
     for _ in 0..num_accumulators {
-        let acc = cmma::Matrix::<F>::filled(
+        let acc = cmma::Matrix::<F>::from_value(
             cmma::MatrixIdent::Accumulator,
             tile_size_m,
             tile_size_n,

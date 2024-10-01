@@ -10,7 +10,7 @@ use half::f16;
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
-    let a = cmma::Matrix::<f16>::load(
+    let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         16,
         16,
@@ -19,7 +19,7 @@ pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
         lhs.as_slice(),
         16,
     );
-    let b = cmma::Matrix::<f16>::load(
+    let b = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::B,
         16,
         16,
@@ -28,7 +28,7 @@ pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
         rhs.as_slice(),
         16,
     );
-    let c = cmma::Matrix::<f32>::filled(
+    let c = cmma::Matrix::<f32>::from_value(
         cmma::MatrixIdent::Accumulator,
         16,
         16,

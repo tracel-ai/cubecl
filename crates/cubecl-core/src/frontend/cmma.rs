@@ -134,7 +134,7 @@ impl<C: CubePrimitive> Matrix<C> {
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
-    pub fn filled(
+    pub fn from_value(
         ident: MatrixIdent,
         m: u32,
         n: u32,
@@ -159,7 +159,7 @@ impl<C: CubePrimitive> Matrix<C> {
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
-    pub fn load(
+    pub fn from_slice(
         ident: MatrixIdent,
         m: u32,
         n: u32,
@@ -190,7 +190,7 @@ impl<C: CubePrimitive> Matrix<C> {
         MatrixExpand { elem }
     }
 
-    pub fn __expand_filled(
+    pub fn __expand_from_value(
         context: &mut CubeContext,
         ident: MatrixIdent,
         m: ExpandElementTyped<u32>,
@@ -205,7 +205,7 @@ impl<C: CubePrimitive> Matrix<C> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn __expand_load(
+    pub fn __expand_from_slice(
         context: &mut CubeContext,
         ident: MatrixIdent,
         m: ExpandElementTyped<u32>,
