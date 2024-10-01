@@ -11,7 +11,7 @@ use cubecl_core::{
 };
 use rspirv::{
     dr::Builder,
-    spirv::{BuiltIn, Capability, StorageClass, Word},
+    spirv::{BuiltIn, StorageClass, Word},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -557,7 +557,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Variable::LocalArray(id, item, length)
             }
             core::Variable::Matrix { id, mat, depth } => {
-                self.capabilities.insert(Capability::CooperativeMatrixKHR);
                 if self.state.matrices.contains_key(&(id, depth)) {
                     Variable::CoopMatrix(id, depth)
                 } else {

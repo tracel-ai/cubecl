@@ -5,10 +5,11 @@ use crate::{
     SpirvCompiler, SpirvTarget,
 };
 use cubecl_core::ir::{self as core, CoopMma};
-use rspirv::spirv::{CooperativeMatrixLayout, CooperativeMatrixUse, Word};
+use rspirv::spirv::{Capability, CooperativeMatrixLayout, CooperativeMatrixUse, Word};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_cmma(&mut self, cmma: CoopMma) {
+        self.capabilities.insert(Capability::CooperativeMatrixKHR);
         match cmma {
             CoopMma::Fill { mat, value } => self.compile_fill(mat, value),
             CoopMma::Load { mat, value, stride } => self.compile_load(mat, value, stride),
