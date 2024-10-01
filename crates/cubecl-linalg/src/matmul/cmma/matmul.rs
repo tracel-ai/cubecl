@@ -99,7 +99,6 @@ where
     }
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
-        let out_line_size = 4u32; // TODO config
         let num_planes = <Self as BlockMatmul<Elem, Lhs, Rhs, Out>>::M / Instr::M; // TODO config
         let plane_id = UNIT_POS_Y; // TODO some plane mapper
         let num_tile_elements = Instr::M * Instr::N;
@@ -109,10 +108,7 @@ where
             comptime!(std::any::TypeId::of::<Elem>() == std::any::TypeId::of::<ElemAcc>());
 
         if same_type {
-            let mut smem = SharedMemory::<Elem>::new_lined(
-                num_tile_elements * num_planes / out_line_size,
-                out_line_size,
-            );
+            let mut smem = SharedMemory::<Elem>::new(num_tile_elements * num_planes);
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
@@ -120,7 +116,7 @@ where
 
                 let smem_slice = smem.slice_mut(start, start + num_tile_elements);
                 Instr::read_output(accumulator, smem_slice);
-                Out::write(out, smem_slice.as_slice(), 0u32, accumulator_iter);
+                Out::write_with_cast(out, smem_slice.as_slice(), 0u32, accumulator_iter);
             }
         } else {
             let mut smem = SharedMemory::<ElemAcc>::new(num_tile_elements * num_planes);
