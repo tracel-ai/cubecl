@@ -1,4 +1,3 @@
-
 pub trait CmmaBlockSize: 'static + Send + Sync {
     const M: u32;
     const N: u32;
@@ -21,3 +20,4 @@ create_cmma_block!(S128_128_16, 128, 128, 16);
 create_cmma_block!(S16_16_16, 16, 16, 16);
 create_cmma_block!(S32_8_16, 32, 8, 16);
 create_cmma_block!(S8_32_16, 8, 32, 16);
+create_cmma_block!(S32_16_16, 32, 16, 16);

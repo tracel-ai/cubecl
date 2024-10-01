@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::compiler::Component;
+
 use super::{Elem, Variable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -100,7 +102,15 @@ impl Display for WmmaInstruction {
                 frag,
                 value,
                 stride,
-            } => writeln!(f, "wmma::load_matrix_sync({frag}, {value}, {stride});"),
+            } => {
+                let item = value.item();
+                if item.vectorization > 1 {
+                    let elem = item.elem;
+                    writeln!(f, "wmma::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride});")
+                } else {
+                    writeln!(f, "wmma::load_matrix_sync({frag}, {value}, {stride});")
+                }
+            }
             WmmaInstruction::Execute {
                 frag_a,
                 frag_b,
@@ -118,10 +128,19 @@ impl Display for WmmaInstruction {
                     FragmentLayout::RowMajor => "wmma::mem_row_major",
                 };
 
-                writeln!(
-                    f,
-                    "wmma::store_matrix_sync({output}, {frag}, {stride}, {layout});"
-                )
+                let item = output.item();
+                if item.vectorization > 1 {
+                    let elem = item.elem;
+                    writeln!(
+                        f,
+                        "wmma::store_matrix_sync(reinterpret_cast<{elem} *>({output}), {frag}, {stride}, {layout});"
+                    )
+                } else {
+                    writeln!(
+                        f,
+                        "wmma::store_matrix_sync({output}, {frag}, {stride}, {layout});"
+                    )
+                }
             }
         }
     }

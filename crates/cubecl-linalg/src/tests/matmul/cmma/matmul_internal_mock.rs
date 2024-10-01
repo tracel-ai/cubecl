@@ -2,7 +2,9 @@
 #[macro_export]
 macro_rules! testgen_cmma_internal_mock {
     () => {
-        use cubecl_linalg::matmul::cmma_matmul::{CmmaMatmul, S16_16_16, S32_8_16, S8_32_16};
+        use cubecl_linalg::matmul::cmma_matmul::{
+            CmmaMatmul, S16_16_16, S32_16_16, S32_8_16, S8_32_16,
+        };
         use cubecl_linalg::matmul::dummy_unit_instruction::{
             DummyUnitInstruction16_16_16, DummyUnitInstruction32_8_16, DummyUnitInstruction8_32_16,
         };
@@ -12,6 +14,15 @@ macro_rules! testgen_cmma_internal_mock {
         pub fn test_block_matmul_16_16_16() {
             tests::block_matmul::test_block_matmul::<
                 CmmaMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16_16_16>,
+                f32,
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
+        pub fn test_block_matmul_32_16_16() {
+            tests::block_matmul::test_block_matmul_two_planes::<
+                CmmaMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32_16_16>,
                 f32,
                 TestRuntime,
             >(&Default::default())

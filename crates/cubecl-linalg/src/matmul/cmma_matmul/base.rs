@@ -81,7 +81,7 @@ where
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
         let num_planes = <Self as BlockMatmul<Elem, Lhs, Rhs, Out>>::M / Instr::M; // TODO config
-        let plane_id = 0u32; // TODO some plane mapper
+        let plane_id = UNIT_POS_Y; // TODO some plane mapper
         let num_tile_elements = Instr::M * Instr::N;
         let start = num_tile_elements * plane_id;
 
