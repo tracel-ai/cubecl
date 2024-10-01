@@ -25,6 +25,9 @@ pub struct DummyWriter<E: Numeric> {
     pub array: Array<Line<E>>,
 }
 
+// TODO: tile size x / y as associated const don't follow the instruction
+// Not too wrong for now cause we just need them to prod to 256
+
 #[cube]
 impl<E: Numeric> TileReader<Line<E>> for DummyLhsReader<E> {
     const NUM_TILES_X: u32 = 1;
@@ -51,9 +54,7 @@ impl<E: Numeric> TileReader<Line<E>> for DummyRhsReader<E> {
 
     fn read(reader: &Self, _offset_x: u32, _offset_y: u32) -> &Slice<'_, Line<E>> {
         let num_tile_elements = Self::TILE_SIZE_X * Self::TILE_SIZE_Y;
-
-        let start = 0;
-        reader.array.slice(start, start + num_tile_elements)
+        reader.array.slice(0, num_tile_elements)
     }
 }
 
@@ -68,8 +69,8 @@ impl<E: Numeric> TileWriter<Line<E>> for DummyWriter<E> {
     fn write_with_cast<C: Numeric>(
         writer: &mut Self,
         slice: &Slice<'_, C>,
-        _pos_x: u32,
-        _pos_y: u32,
+        _offset_x: u32,
+        _offset_y: u32,
     ) {
         let num_tile_elements = Self::TILE_SIZE_X * Self::TILE_SIZE_Y;
 
