@@ -41,6 +41,17 @@ impl<E: Numeric> TileWriter<Line<E>> for DummyArrayTile<E> {
             writer.array[i] = slice[i];
         }
     }
+
+    fn write_with_cast<C: Numeric>(
+        writer: &mut Self,
+        slice: &Slice<'_, C>,
+        _pos_x: u32,
+        _pos_y: u32,
+    ) {
+        for i in 0..writer.array.len() {
+            writer.array[i] = Line::<E>::cast_from(slice[i]);
+        }
+    }
 }
 
 #[cube(launch_unchecked)]

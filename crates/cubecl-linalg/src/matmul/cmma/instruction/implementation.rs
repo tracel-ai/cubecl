@@ -66,20 +66,13 @@ pub(super) fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> cmma::Matrix<O>
 }
 
 #[cube]
+/// Having two generics allows to write out on a lined slice.
+/// However cast cannot occur here as we must store the fragment
+/// before having such liberty.
 pub(super) fn read_output<O: Numeric, C: CubePrimitive>(
     out: &cmma::Matrix<O>,
     slice: &mut SliceMut<'_, C>,
     n: u32,
 ) {
-    let same_type = comptime!(
-        std::any::TypeId::of::<C>() == std::any::TypeId::of::<O>()
-            || std::any::TypeId::of::<C>() == std::any::TypeId::of::<Line<O>>()
-    );
-
-    if same_type {
-        // We can skip the cast
-        cmma::store(slice, out, n, cmma::MatrixLayout::RowMajor);
-    } else {
-        // Algo that casts 256/32 values each
-    }
+    cmma::store(slice, out, n, cmma::MatrixLayout::RowMajor);
 }

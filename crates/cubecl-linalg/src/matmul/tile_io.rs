@@ -31,4 +31,5 @@ pub trait TileWriter<E: CubeType>: CubeType + 'static + Send + Sync {
     const TILE_SIZE_Y: u32;
 
     fn write(writer: &mut Self, slice: &Slice<'_, E>, pos_x: u32, pos_y: u32);
+    fn write_with_cast<C: Numeric>(writer: &mut Self, slice: &Slice<'_, C>, pos_x: u32, pos_y: u32);
 }
