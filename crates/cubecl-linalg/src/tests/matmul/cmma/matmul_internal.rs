@@ -2,7 +2,7 @@
 #[macro_export]
 macro_rules! testgen_cmma_instruction {
     () => {
-        use cubecl_linalg::matmul::cmma::{
+        use cubecl_linalg::matmul::cmma::base::{
             CmmaInstruction16_16_16, CmmaInstruction32_8_16, CmmaInstruction8_32_16,
         };
         use cubecl_linalg::matmul::cmma::{CmmaMatmul, S16_16_16};
@@ -18,7 +18,7 @@ macro_rules! testgen_cmma_instruction {
             >(&Default::default())
         }
 
-         #[test]
+        #[test]
         pub fn test_block_matmul_16_16_16_f16() {
             tests::block_matmul::test_block_matmul::<
                 CmmaMatmul<f16, f16, CmmaInstruction16_16_16<f16, f16>, S16_16_16>,
