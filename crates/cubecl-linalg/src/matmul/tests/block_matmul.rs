@@ -59,12 +59,9 @@ fn block_matmul_launch<
     BM::execute(lhs, rhs, &mut acc, layouts);
     BM::acc_read(&mut acc, &mut out);
 
-    let offset = out_block_info.tile_size_x * out_block_info.tile_size_y;
-    let start = UNIT_POS_Y * offset;
-
     array_into_row_major_block_layout(
         out.memory.as_slice(),
-        out_result.slice_mut(start, start + offset),
+        out_result.as_slice_mut(),
         BM::block_info(BlockKind::Out),
         true,
     );
