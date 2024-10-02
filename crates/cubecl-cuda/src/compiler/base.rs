@@ -1,7 +1,7 @@
 use std::{collections::HashSet, num::NonZero};
 
 use cubecl_core::{
-    ir::{self as gpu, ConstantScalarValue, ReusingAllocator},
+    ir::{self as gpu, ConstantScalarValue, Metadata, ReusingAllocator},
     Compiler,
 };
 use cubecl_runtime::ExecutionMode;
@@ -408,26 +408,26 @@ impl CudaCompiler {
                 out: self.compile_variable(op.out),
             }),
             gpu::Operator::Index(op) => {
-                if let ExecutionMode::Checked = self.strategy {
-                    // Since atomics must be declared inline (for `wgpu` compatibility), we need to
-                    // disable runtime checks for them. Otherwise the variable would be declared
-                    // inside the `if` scope.
-                    if has_length(&op.lhs) && !op.lhs.item().elem.is_atomic() {
-                        self.compile_procedure(
-                            instructions,
-                            gpu::Procedure::CheckedIndex(gpu::CheckedIndex {
-                                lhs: op.lhs,
-                                rhs: op.rhs,
-                                out: op.out,
-                            }),
-                            scope,
-                        );
+                if matches!(self.strategy, ExecutionMode::Checked) && has_length(&op.lhs) {
+                    let lhs = op.lhs;
+                    let rhs = op.rhs;
+                    let array_len = scope.create_local(gpu::Item::new(gpu::Elem::UInt));
 
-                        return;
-                    }
-                };
+                    instructions.extend(self.compile_scope(scope));
 
-                instructions.push(Instruction::Index(self.compile_binary(op)));
+                    instructions.push(self.compile_metadata(Metadata::Length {
+                        var: lhs,
+                        out: array_len,
+                    }));
+                    instructions.push(Instruction::CheckedIndex {
+                        len: self.compile_variable(array_len),
+                        lhs: self.compile_variable(lhs),
+                        rhs: self.compile_variable(rhs),
+                        out: self.compile_variable(op.out),
+                    });
+                } else {
+                    instructions.push(Instruction::Index(self.compile_binary(op)));
+                }
             }
             gpu::Operator::UncheckedIndex(op) => {
                 instructions.push(Instruction::Index(self.compile_binary(op)))
@@ -628,7 +628,7 @@ impl CudaCompiler {
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::LocalBinding { id, item, depth } => super::Variable::Local {
+            gpu::Variable::LocalBinding { id, item, depth } => super::Variable::ConstLocal {
                 id,
                 item: self.compile_item(item),
                 depth,
