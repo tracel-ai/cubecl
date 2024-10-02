@@ -164,5 +164,18 @@ macro_rules! testgen_cmma_internal_mock {
                 &Default::default(),
             )
         }
+
+        #[test]
+        pub fn test_matmul_instruction_8_32_16_col_major() {
+            tests::matmul_instruction::test_matmul_instruction::<
+                DummyUnitInstruction8_32_16<f32, f32>,
+                f32,
+                f32,
+                TestRuntime,
+            >(
+                (MatrixLayout::ColMajor, MatrixLayout::ColMajor),
+                &Default::default(),
+            )
+        }
     };
 }

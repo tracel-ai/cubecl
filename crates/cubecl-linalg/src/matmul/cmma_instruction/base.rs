@@ -49,11 +49,11 @@ macro_rules! impl_matmul_instruction {
             }
 
             fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs) {
-                fill_lhs(slice, lhs, Self::K);
+                fill_lhs(slice, lhs, Self::M, Self::K);
             }
 
             fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs) {
-                fill_rhs(slice, rhs, Self::N);
+                fill_rhs(slice, rhs, Self::K, Self::N);
             }
 
             fn init_output() -> Self::Out {
