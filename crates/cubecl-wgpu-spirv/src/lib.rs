@@ -15,6 +15,7 @@ use cubecl_wgpu::{
     WgpuDevice, WgpuStorage,
 };
 use server::WgpuSpirvServer;
+use wgpu::hal;
 
 mod server;
 
@@ -78,15 +79,26 @@ pub fn create_client(
     let channel = MutexComputeChannel::new(server);
 
     let features = adapter.features();
+    let has_cmma = unsafe {
+        adapter.as_hal::<hal::api::Vulkan, _, _>(|adapter| {
+            if let Some(adapter) = adapter {
+                adapter
+                    .physical_device_capabilities()
+                    .supports_extension(c"VK_KHR_cooperative_matrix")
+            } else {
+                false
+            }
+        })
+    };
     let mut features_cube = FeatureSet::default();
 
     if features.contains(wgpu::Features::SUBGROUP) {
         features_cube.register(Feature::Subcube);
     }
-    // Unsafely assume cooperative matrix multiply is supported until I can figure out how to
-    // get Vulkan specific features of device.
-    // TODO: Replace this with safer option
-    register_cmma_features(&mut features_cube);
+    if has_cmma {
+        register_cmma_features(&mut features_cube);
+    }
+
     let properties = Properties {
         memory_offset_alignment: limits.min_storage_buffer_offset_alignment,
     };
