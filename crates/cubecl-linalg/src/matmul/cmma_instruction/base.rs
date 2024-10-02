@@ -16,6 +16,12 @@ impl CmmaValid<bf16, f32> for (bf16, f32) {}
 
 pub struct CmmaInstructionConfig {}
 
+#[derive(CubeType)]
+pub struct Fragment<T: Numeric> {
+    pub matrix: cmma::Matrix<T>,
+    pub stride: u32,
+}
+
 macro_rules! impl_matmul_instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
         pub struct $name<I: Numeric, O: Numeric> {
@@ -29,9 +35,9 @@ macro_rules! impl_matmul_instruction {
             (I, O): CmmaValid<I, O>,
         {
             type Config = CmmaInstructionConfig;
-            type Lhs = cmma::Matrix<I>;
-            type Rhs = cmma::Matrix<I>;
-            type Out = cmma::Matrix<O>;
+            type Lhs = Fragment<I>;
+            type Rhs = Fragment<I>;
+            type Out = Fragment<O>;
             const M: u32 = $m;
             const N: u32 = $n;
             const K: u32 = $k;
@@ -48,20 +54,12 @@ macro_rules! impl_matmul_instruction {
                 init_rhs(layout, Self::M, Self::N, Self::K)
             }
 
-            fn fill_lhs<C: CubePrimitive>(
-                slice: &Slice<'_, C>,
-                lhs: &mut Self::Lhs,
-                #[comptime] layout: MatrixLayout,
-            ) {
-                fill_lhs(slice, lhs, Self::M, Self::K, layout);
+            fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs) {
+                fill_lhs(slice, lhs);
             }
 
-            fn fill_rhs<C: CubePrimitive>(
-                slice: &Slice<'_, C>,
-                rhs: &mut Self::Rhs,
-                #[comptime] layout: MatrixLayout,
-            ) {
-                fill_rhs(slice, rhs, Self::K, Self::N, layout);
+            fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs) {
+                fill_rhs(slice, rhs);
             }
 
             fn init_output() -> Self::Out {
@@ -69,7 +67,7 @@ macro_rules! impl_matmul_instruction {
             }
 
             fn read_output<C: CubePrimitive>(out: &Self::Out, slice: &mut SliceMut<'_, C>) {
-                read_output::<O, C>(out, slice, Self::N);
+                read_output::<O, C>(out, slice);
             }
         }
     };

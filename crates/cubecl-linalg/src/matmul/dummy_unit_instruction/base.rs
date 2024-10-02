@@ -55,21 +55,13 @@ macro_rules! impl_matmul_instruction {
                 }
             }
 
-            fn fill_lhs<C: CubePrimitive>(
-                slice: &Slice<'_, C>,
-                lhs: &mut Self::Lhs,
-                #[comptime] layout: MatrixLayout,
-            ) {
+            fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs) {
                 for i in 0..Self::M * Self::K {
                     lhs.handle[i] = I::cast_from(slice[i]);
                 }
             }
 
-            fn fill_rhs<C: CubePrimitive>(
-                slice: &Slice<'_, C>,
-                rhs: &mut Self::Rhs,
-                #[comptime] layout: MatrixLayout,
-            ) {
+            fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs) {
                 for i in 0..Self::K * Self::N {
                     rhs.handle[i] = I::cast_from(slice[i]);
                 }

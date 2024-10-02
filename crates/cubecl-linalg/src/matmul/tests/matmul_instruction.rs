@@ -19,8 +19,8 @@ fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>
     let mut rhs = M::init_rhs(layouts.1);
     let mut out = M::init_output();
 
-    M::fill_lhs(lhs_slice.as_slice(), &mut lhs, layouts.0);
-    M::fill_rhs(rhs_slice.as_slice(), &mut rhs, layouts.1);
+    M::fill_lhs(lhs_slice.as_slice(), &mut lhs);
+    M::fill_rhs(rhs_slice.as_slice(), &mut rhs);
 
     M::execute(&lhs, &rhs, &mut out);
     M::read_output(&out, out_slice.as_slice_mut());
