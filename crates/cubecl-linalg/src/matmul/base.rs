@@ -72,8 +72,16 @@ pub trait MatmulInstruction<I: Numeric, O: Numeric>: 'static + Send + Sync {
     fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs;
     fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs;
 
-    fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs);
-    fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs);
+    fn fill_lhs<C: CubePrimitive>(
+        slice: &Slice<'_, C>,
+        lhs: &mut Self::Lhs,
+        #[comptime] layout: MatrixLayout,
+    );
+    fn fill_rhs<C: CubePrimitive>(
+        slice: &Slice<'_, C>,
+        rhs: &mut Self::Rhs,
+        #[comptime] layout: MatrixLayout,
+    );
 
     fn init_output() -> Self::Out;
     fn read_output<C: CubePrimitive>(out: &Self::Out, slice: &mut SliceMut<'_, C>);

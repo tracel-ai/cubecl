@@ -48,12 +48,20 @@ macro_rules! impl_matmul_instruction {
                 init_rhs(layout, Self::M, Self::N, Self::K)
             }
 
-            fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs) {
-                fill_lhs(slice, lhs, Self::M, Self::K);
+            fn fill_lhs<C: CubePrimitive>(
+                slice: &Slice<'_, C>,
+                lhs: &mut Self::Lhs,
+                #[comptime] layout: MatrixLayout,
+            ) {
+                fill_lhs(slice, lhs, Self::M, Self::K, layout);
             }
 
-            fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs) {
-                fill_rhs(slice, rhs, Self::K, Self::N);
+            fn fill_rhs<C: CubePrimitive>(
+                slice: &Slice<'_, C>,
+                rhs: &mut Self::Rhs,
+                #[comptime] layout: MatrixLayout,
+            ) {
+                fill_rhs(slice, rhs, Self::K, Self::N, layout);
             }
 
             fn init_output() -> Self::Out {

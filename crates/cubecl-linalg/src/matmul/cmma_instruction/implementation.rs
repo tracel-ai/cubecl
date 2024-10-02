@@ -38,10 +38,11 @@ pub(super) fn fill_lhs<C: CubePrimitive, I: Numeric>(
     lhs: &mut cmma::Matrix<I>,
     m: u32,
     k: u32,
+    #[comptime] layout: MatrixLayout,
 ) {
     match layout {
-       MatrixLayout::RowMajor =>cmma::load(&lhs, slice, k),
-        MatrixLayout::ColMajor =>cmma::load(&lhs, slice, m),
+        MatrixLayout::RowMajor => cmma::load(&lhs, slice, k),
+        MatrixLayout::ColMajor => cmma::load(&lhs, slice, m),
     }
 }
 
@@ -51,10 +52,11 @@ pub(super) fn fill_rhs<C: CubePrimitive, I: Numeric>(
     rhs: &mut cmma::Matrix<I>,
     k: u32,
     n: u32,
+    #[comptime] layout: MatrixLayout,
 ) {
     match layout {
-       MatrixLayout::RowMajor =>cmma::load(&rhs, slice, n),
-        MatrixLayout::ColMajor =>cmma::load(&rhs, slice, k),
+        MatrixLayout::RowMajor => cmma::load(&rhs, slice, n),
+        MatrixLayout::ColMajor => cmma::load(&rhs, slice, k),
     }
 }
 

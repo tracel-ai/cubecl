@@ -71,12 +71,12 @@ where
         #[unroll]
         for buffer_iter in 0..num_buffers {
             let tile_lhs = Lhs::read(&lhs, UNIT_POS_Y, buffer_iter, 0u32);
-            Instr::fill_lhs(&tile_lhs, &mut instruction_lhs);
+            Instr::fill_lhs(&tile_lhs, &mut instruction_lhs, layouts.0);
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
                 let tile_rhs = Rhs::read(&rhs, UNIT_POS_Y, buffer_iter, accumulator_iter);
-                Instr::fill_rhs(&tile_rhs, &mut instruction_rhs);
+                Instr::fill_rhs(&tile_rhs, &mut instruction_rhs, layouts.1);
 
                 let accumulator = acc.index_mut(accumulator_iter);
                 Instr::execute(&instruction_lhs, &instruction_rhs, accumulator);
