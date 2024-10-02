@@ -30,8 +30,7 @@ impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
         let len: ExpandElement = T::len(&self.expand, context);
 
         let mut child = context.child();
-        // Ensure i is globally unique so we don't get conflicts on successive loops at same depth
-        let i = context.root.borrow_mut().create_local_undeclared(index_ty);
+        let i = context.scope.borrow_mut().create_local_undeclared(index_ty);
         let i = ExpandElement::Plain(i);
 
         let item = index::expand(&mut child, self, i.clone().into());

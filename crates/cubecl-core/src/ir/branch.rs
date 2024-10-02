@@ -120,7 +120,7 @@ impl RangeLoop {
     ) {
         let mut scope = parent_scope.child();
         let index_ty = Item::new(Elem::UInt);
-        let i = parent_scope.create_local_undeclared(index_ty);
+        let i = scope.create_local_undeclared(index_ty);
 
         func(i, &mut scope);
 
