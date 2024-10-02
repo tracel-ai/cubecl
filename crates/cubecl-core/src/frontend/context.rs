@@ -65,6 +65,13 @@ impl CubeContext {
             .create_local_binding(self.root.clone(), self.scope.clone(), item)
     }
 
+    /// Create a new immutable local binding that must never be a reused variable, regardless of
+    /// allocator
+    pub fn create_local_undeclared(&mut self, item: Item) -> ExpandElement {
+        self.local_allocator
+            .create_local_undeclared(self.root.clone(), self.scope.clone(), item)
+    }
+
     /// Create a new matrix element.
     pub fn create_matrix(&mut self, matrix: ir::Matrix) -> ExpandElement {
         let variable = self.scope.borrow_mut().create_matrix(matrix);
