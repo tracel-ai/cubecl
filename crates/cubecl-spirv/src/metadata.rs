@@ -46,7 +46,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     item: int_ty,
                     is_array: true,
                 };
-                self.read_indexed(out_id, &info, &index);
+                self.read_indexed_unchecked(out_id, &info, &index);
             }
             Metadata::Shape { dim, var, out } => {
                 let int_ty = Item::Scalar(Elem::Int(32, false));
@@ -80,7 +80,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     item: int_ty,
                     is_array: true,
                 };
-                self.read_indexed(out_id, &info, &index);
+                self.read_indexed_unchecked(out_id, &info, &index);
             }
         }
     }

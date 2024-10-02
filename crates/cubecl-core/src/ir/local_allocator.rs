@@ -110,7 +110,7 @@ impl LocalAllocator for HybridAllocator {
     }
 
     fn create_local_binding(&self, _root: ScopeRef, scope: ScopeRef, item: Item) -> ExpandElement {
-        let id = self.ssa_index.fetch_add(1, Ordering::AcqRel);
+        let id = self.ssa_index.fetch_add(1, Ordering::AcqRel) + scope.borrow().undeclared;
         let depth = scope.borrow().depth;
         ExpandElement::Plain(Variable::LocalBinding { id, item, depth })
     }

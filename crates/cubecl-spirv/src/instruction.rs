@@ -1,11 +1,14 @@
-use cubecl_core::ir::{self as core, BinaryOperator, UnaryOperator};
 use cubecl_core::ir::{Operation, Operator};
-use rspirv::spirv::{Capability, MemorySemantics, Scope, Word};
+use cubecl_core::{
+    ir::{self as core, BinaryOperator, UnaryOperator},
+    ExecutionMode,
+};
+use rspirv::spirv::{Capability, MemorySemantics, Scope, StorageClass, Word};
 
 use crate::{
     item::{Elem, Item},
     lookups::Slice,
-    variable::ConstVal,
+    variable::{ConstVal, IndexedVariable},
     SpirvCompiler, SpirvTarget,
 };
 
@@ -25,19 +28,32 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operator(&mut self, op: Operator) {
         match op {
             Operator::Index(op) => {
+                let is_atomic = op.lhs.item().elem.is_atomic();
                 let value = self.compile_variable(op.lhs);
                 let index = self.compile_variable(op.rhs);
                 let out = self.compile_variable(op.out);
                 let out_id = self.write_id(&out);
 
-                self.read_indexed(out_id, &value, &index);
-                self.write(&out, out_id);
+                if is_atomic {
+                    let checked = matches!(self.mode, ExecutionMode::Checked) && value.has_len();
+                    let (ptr, item) = match self.index(&value, &index, !checked) {
+                        IndexedVariable::Pointer(ptr, item) => (ptr, item),
+                        _ => unreachable!("CMMA store always takes array pointer"),
+                    };
+                    // This isn't great but atomics can't currently be constructed so should be fine
+                    let item = Item::Pointer(StorageClass::StorageBuffer, Box::new(item));
+                    let ty = item.id(self);
+                    self.copy_object(ty, Some(out_id), ptr).unwrap();
+                } else {
+                    self.read_indexed(out_id, &value, &index);
+                    self.write(&out, out_id);
+                }
             }
             Operator::IndexAssign(op) => {
                 let index = self.compile_variable(op.lhs);
                 let value = self.compile_variable(op.rhs);
                 let out = self.compile_variable(op.out);
-                let value_id = self.read(&value);
+                let value_id = self.read_as(&value, &out.indexed_item());
 
                 self.write_indexed(&out, &index, value_id);
             }
@@ -54,7 +70,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let index = self.compile_variable(op.lhs);
                 let value = self.compile_variable(op.rhs);
                 let out = self.compile_variable(op.out);
-                let value_id = self.read(&value);
+                let value_id = self.read_as(&value, &out.indexed_item());
 
                 self.write_indexed_unchecked(&out, &index, value_id);
             }

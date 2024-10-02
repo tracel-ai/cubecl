@@ -41,14 +41,10 @@ pub enum Variable {
         const_len: Option<u32>,
         item: Item,
     },
-    LocalScalar {
-        id: Word,
-        elem: Elem,
-    },
     SharedMemory(Word, Item, u32),
     ConstantArray(Word, Item, u32),
     LocalArray(Word, Item, u32),
-    CoopMatrix(u16, u8),
+    CoopMatrix(u16, u8, Elem),
     Id(Word),
     LocalInvocationIndex(Word),
     LocalInvocationIdX(Word),
@@ -145,11 +141,10 @@ impl Variable {
             Variable::LocalBinding { id, .. } => *id,
             Variable::Named { id, .. } => *id,
             Variable::Slice { ptr, .. } => ptr.id(),
-            Variable::LocalScalar { id, .. } => *id,
             Variable::SharedMemory(id, _, _) => *id,
             Variable::ConstantArray(id, _, _) => *id,
             Variable::LocalArray(id, _, _) => *id,
-            Variable::CoopMatrix(_, _) => 0,
+            Variable::CoopMatrix(_, _, _) => unimplemented!("Can't get ID from matrix var"),
             Variable::SubgroupSize(id) => *id,
             Variable::Id(id) => *id,
             Variable::LocalInvocationIndex(id) => *id,
@@ -180,16 +175,31 @@ impl Variable {
         match self {
             Variable::GlobalInputArray(_, item) => item.clone(),
             Variable::GlobalOutputArray(_, item) => item.clone(),
+            Variable::GlobalScalar(_, elem) => Item::Scalar(*elem),
             Variable::ConstantScalar(_, _, elem) => Item::Scalar(*elem),
             Variable::Local { item, .. } => item.clone(),
             Variable::LocalBinding { item, .. } => item.clone(),
             Variable::Named { item, .. } => item.clone(),
             Variable::Slice { item, .. } => item.clone(),
-            Variable::LocalScalar { elem, .. } => Item::Scalar(*elem),
             Variable::SharedMemory(_, item, _) => item.clone(),
             Variable::ConstantArray(_, item, _) => item.clone(),
             Variable::LocalArray(_, item, _) => item.clone(),
+            Variable::CoopMatrix(_, _, elem) => Item::Scalar(*elem),
             _ => Item::Scalar(Elem::Int(32, false)), // builtin
+        }
+    }
+
+    pub fn indexed_item(&self) -> Item {
+        match self {
+            Variable::LocalBinding {
+                item: Item::Vector(elem, _),
+                ..
+            } => Item::Scalar(*elem),
+            Variable::Local {
+                item: Item::Vector(elem, _),
+                ..
+            } => Item::Scalar(*elem),
+            other => other.item(),
         }
     }
 
@@ -202,7 +212,10 @@ impl Variable {
             self,
             Variable::GlobalInputArray(_, _)
                 | Variable::GlobalOutputArray(_, _)
-                | Variable::Named { .. }
+                | Variable::Named {
+                    is_array: false,
+                    ..
+                }
                 | Variable::Slice { .. }
                 | Variable::SharedMemory(_, _, _)
                 | Variable::ConstantArray(_, _, _)
@@ -317,7 +330,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::ConstantScalar(const_id, (id as u32).into(), Elem::Int(32, false));
                 let val = self.id();
                 self.debug_name(val, format!("scalars_{elem}[{id}]"));
-                self.read_indexed(val, &arr, &index);
+                self.read_indexed_unchecked(val, &arr, &index);
                 Variable::GlobalScalar(val, item.elem())
             }
             core::Variable::Local { id, item, depth } => {
@@ -557,12 +570,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Variable::LocalArray(id, item, length)
             }
             core::Variable::Matrix { id, mat, depth } => {
+                let elem = self.compile_item(core::Item::new(mat.elem)).elem();
                 if self.state.matrices.contains_key(&(id, depth)) {
-                    Variable::CoopMatrix(id, depth)
+                    Variable::CoopMatrix(id, depth, elem)
                 } else {
                     let matrix = self.init_coop_matrix(mat);
                     self.state.matrices.insert((id, depth), matrix);
-                    Variable::CoopMatrix(id, depth)
+                    Variable::CoopMatrix(id, depth, elem)
                 }
             }
         }
@@ -755,7 +769,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         match variable {
             Variable::LocalBinding { id, .. } => *id,
             Variable::Local { .. } => self.id(),
-            Variable::LocalScalar { .. } => self.id(),
             Variable::ConstantScalar(_, _, _) => panic!("Can't write to constant scalar"),
             Variable::GlobalInputArray(_, _)
             | Variable::GlobalOutputArray(_, _)
@@ -771,7 +784,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn write(&mut self, variable: &Variable, value: Word) {
         match variable {
             Variable::Local { id, .. } => self.store(*id, value, None, vec![]).unwrap(),
-            Variable::LocalScalar { id, .. } => self.store(*id, value, None, vec![]).unwrap(),
             Variable::Slice { ptr, .. } => self.write(ptr, value),
             _ => {}
         }

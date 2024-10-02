@@ -157,6 +157,39 @@ impl Item {
 
         let ty = other.id(b);
 
+        let convert_int =
+            |b: &mut SpirvCompiler<T>, (width_self, signed_self), (width_other, signed_other)| {
+                let mut out = broadcast;
+                // Clip sign bit
+                if signed_self != signed_other {
+                    match width_self {
+                        64 => {
+                            let max = ConstVal::Bit64(i64::MAX as u64);
+                            let max = b.static_cast(max, &Elem::Int(64, true), other);
+                            out = b.bitwise_and(ty, None, out, max).unwrap();
+                        }
+                        _ => {
+                            let max = ConstVal::Bit32(i32::MAX as u32);
+                            let max = b.static_cast(max, &Elem::Int(32, true), other);
+                            out = b.bitwise_and(ty, None, out, max).unwrap();
+                        }
+                    }
+                }
+
+                // Convert width
+                if width_self != width_other {
+                    match signed_other {
+                        true => {
+                            out = b.s_convert(ty, None, out).unwrap();
+                        }
+                        false => {
+                            out = b.u_convert(ty, None, out).unwrap();
+                        }
+                    }
+                }
+                out
+            };
+
         match (self.elem(), other.elem()) {
             (Elem::Bool, Elem::Int(_, _)) => {
                 let one = other.constant(b, 1u32.into());
@@ -172,13 +205,8 @@ impl Item {
                 let one = other.constant(b, 1u32.into());
                 b.i_equal(ty, None, broadcast, one).unwrap()
             }
-            (Elem::Int(_, false), Elem::Int(_, false)) => b.u_convert(ty, None, broadcast).unwrap(),
-            (Elem::Int(_, true), Elem::Int(_, false)) => {
-                b.sat_convert_s_to_u(ty, None, broadcast).unwrap()
-            }
-            (Elem::Int(_, true), Elem::Int(_, true)) => b.s_convert(ty, None, broadcast).unwrap(),
-            (Elem::Int(_, false), Elem::Int(_, true)) => {
-                b.sat_convert_u_to_s(ty, None, broadcast).unwrap()
+            (Elem::Int(width_self, signed_self), Elem::Int(width_other, signed_other)) => {
+                convert_int(b, (width_self, signed_self), (width_other, signed_other))
             }
             (Elem::Int(_, false), Elem::Float(_)) => b.convert_u_to_f(ty, None, broadcast).unwrap(),
             (Elem::Int(_, true), Elem::Float(_)) => b.convert_s_to_f(ty, None, broadcast).unwrap(),

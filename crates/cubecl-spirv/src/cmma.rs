@@ -125,14 +125,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn matrix_var(&mut self, var: &Variable) -> (u16, u8, Matrix) {
         let (id, depth) = match var {
-            Variable::CoopMatrix(id, depth) => (*id, *depth),
+            Variable::CoopMatrix(id, depth, _) => (*id, *depth),
             _ => unreachable!(),
         };
         let mat = self.state.matrices[&(id, depth)];
         (id, depth, mat)
     }
 
-    fn index_ptr(&mut self, var: &Variable) -> Word {
+    pub fn index_ptr(&mut self, var: &Variable) -> Word {
         let zero = self.const_u32(0);
         let zero = Variable::ConstantScalar(zero, ConstVal::Bit32(0), Elem::Int(32, false));
         match self.index(var, &zero, false) {
