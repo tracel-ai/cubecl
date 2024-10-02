@@ -97,7 +97,7 @@ where
             ArrayArg::from_raw_parts(&lhs, lhs_size, 1),
             ArrayArg::from_raw_parts(&rhs, rhs_size, 1),
             ArrayArg::from_raw_parts(&out, out_size, 1),
-            (MatrixLayout::Row, MatrixLayout::Row),
+            (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
         );
     }
 

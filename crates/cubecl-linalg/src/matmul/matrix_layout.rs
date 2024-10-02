@@ -3,8 +3,8 @@ use cubecl_core::prelude::*;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum MatrixLayout {
-    Row,
-    Col,
+    RowMajor,
+    ColMajor,
 }
 
 impl CubeType for MatrixLayout {
@@ -26,7 +26,7 @@ impl IntoRuntime for MatrixLayout {
 #[cube]
 pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
     match layout {
-        MatrixLayout::Row => cmma::MatrixLayout::RowMajor,
-        MatrixLayout::Col => cmma::MatrixLayout::ColMajor,
+        MatrixLayout::RowMajor => cmma::MatrixLayout::RowMajor,
+        MatrixLayout::ColMajor => cmma::MatrixLayout::ColMajor,
     }
 }

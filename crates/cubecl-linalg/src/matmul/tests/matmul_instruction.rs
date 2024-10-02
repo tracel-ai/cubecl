@@ -39,8 +39,23 @@ where
     let rhs_size = (MI::K * MI::N) as usize;
     let out_size = (MI::M * MI::N) as usize;
 
-    let lhs_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 100.).collect();
-    let rhs_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 100.).collect();
+    let lhs_original_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 100.).collect();
+    let rhs_original_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 100.).collect();
+
+    let lhs_layout = MatrixLayout::ColMajor;
+    let rhs_layout = MatrixLayout::ColMajor;
+    let lhs_data = match lhs_layout {
+        MatrixLayout::RowMajor => lhs_original_data.clone(),
+        MatrixLayout::ColMajor => {
+            transpose::<f32>(&lhs_original_data, MI::M as usize, MI::K as usize)
+        }
+    };
+    let rhs_data = match rhs_layout {
+        MatrixLayout::RowMajor => rhs_original_data.clone(),
+        MatrixLayout::ColMajor => {
+            transpose::<f32>(&rhs_original_data, MI::K as usize, MI::N as usize)
+        }
+    };
 
     let lhs = client.create(I::as_bytes(&I::from_values(&lhs_data)));
     let rhs = client.create(I::as_bytes(&I::from_values(&rhs_data)));
@@ -57,13 +72,13 @@ where
             ArrayArg::from_raw_parts(&lhs, lhs_size, 1),
             ArrayArg::from_raw_parts(&rhs, rhs_size, 1),
             ArrayArg::from_raw_parts(&out, out_size, 1),
-            (MatrixLayout::Row, MatrixLayout::Row),
+            (lhs_layout, rhs_layout),
         );
     }
 
     let expected = matmul_cpu_reference(
-        &lhs_data,
-        &rhs_data,
+        &lhs_original_data,
+        &rhs_original_data,
         MI::M as usize,
         MI::N as usize,
         MI::K as usize,
@@ -71,4 +86,14 @@ where
     if let Err(e) = assert_equals_approx::<O, R>(&client, out, &expected, 10e-1) {
         panic!("{}", e);
     }
+}
+
+fn transpose<E: Copy>(array: &[E], rows: usize, cols: usize) -> Vec<E> {
+    let mut result = vec![array[0]; array.len()];
+    for i in 0..rows {
+        for j in 0..cols {
+            result[j * rows + i] = array[i * cols + j];
+        }
+    }
+    result
 }

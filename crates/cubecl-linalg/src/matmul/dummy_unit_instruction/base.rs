@@ -33,17 +33,25 @@ macro_rules! impl_matmul_instruction {
                 execute::<I, O>(lhs, rhs, out);
             }
 
-            fn init_lhs(#[comptime] _layout: MatrixLayout) -> Self::Lhs {
+            fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs {
                 DummyMatrix::<I> {
                     handle: Array::<I>::new(Self::M * Self::K),
                     shape: (Self::M.runtime(), Self::K.runtime()),
+                    is_col_major: match layout {
+                        MatrixLayout::RowMajor => false,
+                        MatrixLayout::ColMajor => true,
+                    },
                 }
             }
 
-            fn init_rhs(#[comptime] _layout: MatrixLayout) -> Self::Rhs {
+            fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs {
                 DummyMatrix::<I> {
                     handle: Array::<I>::new(Self::K * Self::N),
                     shape: (Self::K.runtime(), Self::N.runtime()),
+                    is_col_major: match layout {
+                        MatrixLayout::RowMajor => false,
+                        MatrixLayout::ColMajor => true,
+                    },
                 }
             }
 
@@ -63,6 +71,7 @@ macro_rules! impl_matmul_instruction {
                 let mut out = DummyMatrix::<O> {
                     handle: Array::<O>::new(Self::M * Self::N),
                     shape: (Self::M.runtime(), Self::N.runtime()),
+                    is_col_major: false,
                 };
 
                 for i in 0..Self::M * Self::N {
@@ -89,6 +98,7 @@ impl_matmul_instruction!(DummyUnitInstruction8_32_16, 8, 32, 16);
 pub struct DummyMatrix<E: Numeric> {
     pub handle: Array<E>,
     pub shape: (u32, u32),
+    pub is_col_major: bool,
 }
 
 #[cube]
@@ -104,8 +114,18 @@ pub(crate) fn execute<I: Numeric, O: Numeric>(
     for i in 0..m {
         for j in 0..n {
             for k_ in 0..k {
-                out.handle[i * n + j] +=
-                    O::cast_from(lhs.handle[i * k + k_] * rhs.handle[k_ * n + j]);
+                let lhs_val = if lhs.is_col_major {
+                    lhs.handle[k_ * m + i]
+                } else {
+                    lhs.handle[i * k + k_]
+                };
+                let rhs_val = if rhs.is_col_major {
+                    rhs.handle[j * k + k_]
+                } else {
+                    rhs.handle[k_ * n + j]
+                };
+
+                out.handle[i * n + j] += O::cast_from(lhs_val * rhs_val);
             }
         }
     }

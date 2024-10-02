@@ -110,6 +110,16 @@ macro_rules! testgen_cmma_internal_mock {
         }
 
         #[test]
+        pub fn test_matmul_instruction_16_16_16_col_major() {
+            tests::matmul_instruction::test_matmul_instruction::<
+                DummyUnitInstruction16_16_16<f32, f32>,
+                f32,
+                f32,
+                TestRuntime,
+            >(&Default::default())
+        }
+
+        #[test]
         pub fn test_matmul_instruction_32_8_16() {
             tests::matmul_instruction::test_matmul_instruction::<
                 DummyUnitInstruction32_8_16<f32, f32>,
