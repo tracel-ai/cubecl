@@ -27,8 +27,10 @@ fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>
 }
 
 /// Exported test
-pub fn test_matmul_instruction<MI, I, O, R>(device: &R::Device)
-where
+pub fn test_matmul_instruction<MI, I, O, R>(
+    layouts: (MatrixLayout, MatrixLayout),
+    device: &R::Device,
+) where
     I: Numeric + CubeElement,
     O: Numeric + CubeElement,
     MI: MatmulInstruction<I, O>,
@@ -42,15 +44,13 @@ where
     let lhs_original_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 100.).collect();
     let rhs_original_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 100.).collect();
 
-    let lhs_layout = MatrixLayout::ColMajor;
-    let rhs_layout = MatrixLayout::ColMajor;
-    let lhs_data = match lhs_layout {
+    let lhs_data = match layouts.0 {
         MatrixLayout::RowMajor => lhs_original_data.clone(),
         MatrixLayout::ColMajor => {
             transpose::<f32>(&lhs_original_data, MI::M as usize, MI::K as usize)
         }
     };
-    let rhs_data = match rhs_layout {
+    let rhs_data = match layouts.1 {
         MatrixLayout::RowMajor => rhs_original_data.clone(),
         MatrixLayout::ColMajor => {
             transpose::<f32>(&rhs_original_data, MI::K as usize, MI::N as usize)
@@ -72,7 +72,7 @@ where
             ArrayArg::from_raw_parts(&lhs, lhs_size, 1),
             ArrayArg::from_raw_parts(&rhs, rhs_size, 1),
             ArrayArg::from_raw_parts(&out, out_size, 1),
-            (lhs_layout, rhs_layout),
+            layouts,
         );
     }
 

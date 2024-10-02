@@ -8,7 +8,7 @@ pub mod cmma_matmul;
 /// Contains algorithms for cooperative matrix multiplication.
 pub mod cmma_old;
 pub mod dummy_unit_instruction;
-mod matrix_layout;
+pub mod matrix_layout;
 mod tile_io;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not

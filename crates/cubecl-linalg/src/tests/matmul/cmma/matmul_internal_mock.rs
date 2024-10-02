@@ -9,6 +9,7 @@ macro_rules! testgen_cmma_internal_mock {
         use cubecl_linalg::matmul::dummy_unit_instruction::{
             DummyUnitInstruction16_16_16, DummyUnitInstruction32_8_16, DummyUnitInstruction8_32_16,
         };
+        use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
         use cubecl_linalg::matmul::tests;
 
         #[test]
@@ -106,7 +107,10 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 f32,
                 TestRuntime,
-            >(&Default::default())
+            >(
+                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
         }
 
         #[test]
@@ -116,7 +120,10 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 f32,
                 TestRuntime,
-            >(&Default::default())
+            >(
+                (MatrixLayout::ColMajor, MatrixLayout::ColMajor),
+                &Default::default(),
+            )
         }
 
         #[test]
@@ -126,7 +133,23 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 f32,
                 TestRuntime,
-            >(&Default::default())
+            >(
+                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
+        pub fn test_matmul_instruction_32_8_16_col_major() {
+            tests::matmul_instruction::test_matmul_instruction::<
+                DummyUnitInstruction32_8_16<f32, f32>,
+                f32,
+                f32,
+                TestRuntime,
+            >(
+                (MatrixLayout::ColMajor, MatrixLayout::ColMajor),
+                &Default::default(),
+            )
         }
 
         #[test]
@@ -136,7 +159,10 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 f32,
                 TestRuntime,
-            >(&Default::default())
+            >(
+                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
         }
     };
 }
