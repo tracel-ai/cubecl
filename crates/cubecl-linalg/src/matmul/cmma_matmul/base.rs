@@ -6,7 +6,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::{
     matrix_layout::MatrixLayout,
     tile_io::{TileReader, TileWriter},
-    BlockMatmul, MatmulInstruction,
+    BlockMatmul, BlockMatmulWrap, MatmulInstruction,
 };
 
 use super::CmmaBlockSize;
@@ -21,6 +21,22 @@ pub struct CmmaMatmul<E: Numeric, A: Numeric, I: MatmulInstruction<E, A>, Block:
 #[derive(CubeType, Clone, Copy)]
 pub struct CmmaMatmulConfig {
     pub num_accumulators: u32,
+}
+
+impl<Elem, ElemAcc, Instr, Block> BlockMatmulWrap for CmmaMatmul<Elem, ElemAcc, Instr, Block>
+where
+    Elem: Numeric,
+    ElemAcc: Numeric,
+    Instr: MatmulInstruction<Elem, ElemAcc>,
+    Block: CmmaBlockSize,
+{
+    fn resources() -> CubeDim {
+        CubeDim {
+            x: 32,
+            y: Block::M / Instr::M,
+            z: 1,
+        }
+    }
 }
 
 #[cube]

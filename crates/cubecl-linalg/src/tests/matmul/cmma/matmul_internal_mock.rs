@@ -21,7 +21,7 @@ macro_rules! testgen_cmma_internal_mock {
 
         #[test]
         pub fn test_block_matmul_32_16_16() {
-            tests::block_matmul::test_block_matmul_two_planes::<
+            tests::block_matmul::test_block_matmul::<
                 CmmaMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32_16_16>,
                 f32,
                 TestRuntime,

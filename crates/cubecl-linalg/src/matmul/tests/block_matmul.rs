@@ -119,53 +119,7 @@ where
     let rhs = client.create(E::as_bytes(&E::from_values(&rhs_data)));
     let out = client.empty(out_size * E::as_elem().size());
 
-    let cube_dim = CubeDim::new(32, 1, 1);
-    let cube_count = CubeCount::Static(1, 1, 1);
-
-    unsafe {
-        block_matmul_launch::launch_unchecked::<BM, E, R>(
-            &client,
-            cube_count,
-            cube_dim,
-            ArrayArg::from_raw_parts(&lhs, lhs_size, 1),
-            ArrayArg::from_raw_parts(&rhs, rhs_size, 1),
-            ArrayArg::from_raw_parts(&out, out_size, 1),
-            (MatrixLayout::Row, MatrixLayout::Row),
-        );
-    }
-
-    let expected = matmul_cpu_reference(
-        &lhs_data,
-        &rhs_data,
-        BM::M as usize,
-        BM::N as usize,
-        BM::K as usize,
-    );
-    if let Err(e) = assert_equals_approx::<E, R>(&client, out, &expected, 10e-1) {
-        panic!("{}", e);
-    }
-}
-
-/// Exported test
-pub fn test_block_matmul_two_planes<BM, E, R>(device: &R::Device)
-where
-    BM: BlockMatmul<E, DummyLhsReader<E>, DummyRhsReader<E>, DummyWriter<E>>,
-    E: Numeric + CubeElement,
-    R: Runtime,
-{
-    let client = R::client(device);
-    let lhs_size = (BM::M * BM::K) as usize;
-    let rhs_size = (BM::K * BM::N) as usize;
-    let out_size = (BM::M * BM::N) as usize;
-
-    let lhs_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 100.).collect();
-    let rhs_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 100.).collect();
-
-    let lhs = client.create(E::as_bytes(&E::from_values(&lhs_data)));
-    let rhs = client.create(E::as_bytes(&E::from_values(&rhs_data)));
-    let out = client.empty(out_size * E::as_elem().size());
-
-    let cube_dim = CubeDim::new(32, 2, 1);
+    let cube_dim = BM::resources();
     let cube_count = CubeCount::Static(1, 1, 1);
 
     unsafe {

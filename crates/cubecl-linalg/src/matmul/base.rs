@@ -24,7 +24,7 @@ pub trait BlockMatmul<
     Lhs: TileReader<Line<E>>,
     Rhs: TileReader<Line<E>>,
     Out: TileWriter<Line<E>>,
->: 'static + Send + Sync
+>: 'static + Send + Sync + BlockMatmulWrap
 {
     type Config;
     type Accumulator: CubeType;
@@ -41,6 +41,10 @@ pub trait BlockMatmul<
 
     fn acc_init_zeros() -> Self::Accumulator;
     fn acc_read(acc: &Self::Accumulator, out: &mut Out);
+}
+
+pub trait BlockMatmulWrap {
+    fn resources() -> CubeDim;
 }
 
 #[cube]
