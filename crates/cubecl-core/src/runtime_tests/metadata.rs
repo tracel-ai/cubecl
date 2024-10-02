@@ -8,6 +8,9 @@ pub fn kernel_shape_dim_4(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor
         return;
     }
 
+    let _ = lhs[0];
+    let _ = rhs[0];
+
     out[0] = lhs.shape(0);
     out[1] = lhs.shape(1);
     out[2] = lhs.shape(2);
