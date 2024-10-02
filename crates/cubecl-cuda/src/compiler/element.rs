@@ -179,11 +179,8 @@ impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
-            Variable::Local {
-                id: index,
-                item: _,
-                depth: scope_depth,
-            } => f.write_fmt(format_args!("l_{scope_depth}_{index}")),
+            Variable::Local { id, depth, .. } => f.write_fmt(format_args!("l_{depth}_{id}")),
+            Variable::ConstLocal { id, depth, .. } => f.write_fmt(format_args!("ssa_{depth}_{id}")),
             Variable::Slice { id, item: _, depth } => {
                 write!(f, "slice_{depth}_{id}")
             }
