@@ -4,9 +4,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::{
+    cmma_matmul::BlockInfo,
     matrix_layout::MatrixLayout,
     tile_io::{TileReader, TileWriter},
-    BlockMatmul, BlockMatmulWrap, MatmulInstruction,
+    BlockKind, BlockMatmul, BlockMatmulWrap, MatmulInstruction,
 };
 
 use super::CmmaBlockSize;
@@ -69,12 +70,12 @@ where
 
         #[unroll]
         for buffer_iter in 0..num_buffers {
-            let tile_lhs = Lhs::read(&lhs, 0, buffer_iter);
+            let tile_lhs = Lhs::read(&lhs, UNIT_POS_Y, buffer_iter, 0u32);
             Instr::fill_lhs(&tile_lhs, &mut instruction_lhs);
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = Rhs::read(&rhs, buffer_iter, accumulator_iter);
+                let tile_rhs = Rhs::read(&rhs, UNIT_POS_Y, buffer_iter, accumulator_iter);
                 Instr::fill_rhs(&tile_rhs, &mut instruction_rhs);
 
                 let accumulator = acc.index_mut(accumulator_iter);
@@ -85,7 +86,7 @@ where
 
     fn acc_init_zeros() -> Self::Accumulator {
         let mut accumulators = Sequence::<Instr::Out>::new();
-        let num_accumulators = Rhs::NUM_TILES_Y;
+        let num_accumulators = Block::N / Instr::N;
 
         #[unroll]
         for _ in 0..num_accumulators {
@@ -98,6 +99,7 @@ where
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
         let num_planes = <Self as BlockMatmul<Elem, Lhs, Rhs, Out>>::M / Instr::M; // TODO config
         let plane_id = UNIT_POS_Y; // TODO some plane mapper
+
         let num_tile_elements = Instr::M * Instr::N;
         let start = num_tile_elements * plane_id;
 
@@ -112,7 +114,7 @@ where
                 let accumulator = acc.index(accumulator_iter);
                 let smem_slice = smem.slice_mut(start, start + num_tile_elements);
                 Instr::read_output(accumulator, smem_slice);
-                Out::write_with_cast(out, smem_slice.as_slice(), 0u32, accumulator_iter);
+                Out::write_with_cast(out, smem_slice.as_slice(), plane_id, accumulator_iter);
             }
         } else {
             let mut smem = SharedMemory::<ElemAcc>::new(num_tile_elements * num_planes);
@@ -122,8 +124,31 @@ where
                 let accumulator = acc.index(accumulator_iter);
                 let smem_slice = smem.slice_mut(start, start + num_tile_elements);
                 Instr::read_output(accumulator, smem_slice);
-                Out::write_with_cast(out, smem_slice.as_slice(), 0u32, accumulator_iter);
+                Out::write_with_cast(out, smem_slice.as_slice(), plane_id, accumulator_iter);
             }
+        }
+    }
+
+    fn block_info(#[comptime] block: BlockKind) -> BlockInfo {
+        match block {
+            BlockKind::Lhs => BlockInfo {
+                num_tiles_x: Block::M / Instr::M,
+                num_tiles_y: Block::K / Instr::K,
+                tile_size_x: Instr::M,
+                tile_size_y: Instr::K,
+            },
+            BlockKind::Rhs => BlockInfo {
+                num_tiles_x: Block::K / Instr::K,
+                num_tiles_y: Block::N / Instr::N,
+                tile_size_x: Instr::K,
+                tile_size_y: Instr::N,
+            },
+            BlockKind::Out => BlockInfo {
+                num_tiles_x: Block::M / Instr::M,
+                num_tiles_y: Block::N / Instr::N,
+                tile_size_x: Instr::M,
+                tile_size_y: Instr::N,
+            },
         }
     }
 }

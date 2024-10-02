@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::cmma_matmul::BlockInfo;
 use super::matrix_layout::MatrixLayout;
 use super::tile_io::{TileReader, TileWriter};
 
@@ -41,6 +42,14 @@ pub trait BlockMatmul<
 
     fn acc_init_zeros() -> Self::Accumulator;
     fn acc_read(acc: &Self::Accumulator, out: &mut Out);
+
+    fn block_info(#[comptime] block: BlockKind) -> BlockInfo;
+}
+
+pub enum BlockKind {
+    Lhs,
+    Rhs,
+    Out,
 }
 
 pub trait BlockMatmulWrap {

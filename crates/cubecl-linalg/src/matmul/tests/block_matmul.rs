@@ -3,101 +3,71 @@ use cubecl_core::prelude::*;
 use cubecl_core::CubeElement;
 
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tile_io::TileReader;
-use crate::matmul::tile_io::TileWriter;
+use crate::matmul::BlockKind;
 use crate::matmul::BlockMatmul;
 
+use super::dummy_tile::{
+    array_into_row_major_block_layout, DummyLhsReader, DummyRhsReader, DummyWriter,
+};
 use super::test_utils::assert_equals_approx;
 use super::test_utils::matmul_cpu_reference;
-
-#[derive(CubeType)]
-pub struct DummyLhsReader<E: Numeric> {
-    pub array: Array<Line<E>>,
-}
-
-#[derive(CubeType)]
-pub struct DummyRhsReader<E: Numeric> {
-    pub array: Array<Line<E>>,
-}
-
-#[derive(CubeType)]
-pub struct DummyWriter<E: Numeric> {
-    pub array: Array<Line<E>>,
-}
-
-// TODO: tile size x / y as associated const don't follow the instruction
-// Not too wrong for now cause we just need them to prod to 256
-
-#[cube]
-impl<E: Numeric> TileReader<Line<E>> for DummyLhsReader<E> {
-    const NUM_TILES_X: u32 = 1;
-    const NUM_TILES_Y: u32 = 1;
-
-    const TILE_SIZE_X: u32 = 16;
-    const TILE_SIZE_Y: u32 = 16;
-
-    fn read(reader: &Self, _offset_x: u32, _offset_y: u32) -> &Slice<'_, Line<E>> {
-        let num_tile_elements = Self::TILE_SIZE_X * Self::TILE_SIZE_Y;
-
-        let start = UNIT_POS_Y * num_tile_elements;
-        reader.array.slice(start, start + num_tile_elements)
-    }
-}
-
-#[cube]
-impl<E: Numeric> TileReader<Line<E>> for DummyRhsReader<E> {
-    const NUM_TILES_X: u32 = 1;
-    const NUM_TILES_Y: u32 = 1;
-
-    const TILE_SIZE_X: u32 = 16;
-    const TILE_SIZE_Y: u32 = 16;
-
-    fn read(reader: &Self, _offset_x: u32, _offset_y: u32) -> &Slice<'_, Line<E>> {
-        let num_tile_elements = Self::TILE_SIZE_X * Self::TILE_SIZE_Y;
-        reader.array.slice(0, num_tile_elements)
-    }
-}
-
-#[cube]
-impl<E: Numeric> TileWriter<Line<E>> for DummyWriter<E> {
-    const NUM_TILES_X: u32 = 1;
-    const NUM_TILES_Y: u32 = 1;
-
-    const TILE_SIZE_X: u32 = 16;
-    const TILE_SIZE_Y: u32 = 16;
-
-    fn write_with_cast<C: Numeric>(
-        writer: &mut Self,
-        slice: &Slice<'_, C>,
-        _offset_x: u32,
-        _offset_y: u32,
-    ) {
-        let num_tile_elements = Self::TILE_SIZE_X * Self::TILE_SIZE_Y;
-
-        let write_offset = UNIT_POS_Y * num_tile_elements;
-        for i in 0..num_tile_elements {
-            writer.array[i + write_offset] = Line::<E>::cast_from(slice[i]);
-        }
-    }
-}
 
 #[cube(launch_unchecked)]
 fn block_matmul_launch<
     BM: BlockMatmul<E, DummyLhsReader<E>, DummyRhsReader<E>, DummyWriter<E>>,
     E: Numeric,
 >(
-    lhs_slice: Array<Line<E>>,
-    rhs_slice: Array<Line<E>>,
-    out_slice: Array<Line<E>>,
+    lhs_data: Array<Line<E>>,
+    rhs_data: Array<Line<E>>,
+    mut out_result: Array<Line<E>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
 ) {
-    let lhs = DummyLhsReader::<E> { array: lhs_slice };
-    let rhs = DummyRhsReader::<E> { array: rhs_slice };
-    let mut out = DummyWriter::<E> { array: out_slice };
+    let mut lhs_with_layout = SharedMemory::<Line<E>>::new(BM::M * BM::K);
+    let mut rhs_with_layout = SharedMemory::<Line<E>>::new(BM::K * BM::N);
+    let out_with_layout = SharedMemory::<Line<E>>::new(BM::M * BM::N);
+
+    array_into_row_major_block_layout(
+        lhs_data.as_slice(),
+        lhs_with_layout.as_slice_mut(),
+        BM::block_info(BlockKind::Lhs),
+        false,
+    );
+
+    array_into_row_major_block_layout(
+        rhs_data.as_slice(),
+        rhs_with_layout.as_slice_mut(),
+        BM::block_info(BlockKind::Rhs),
+        false,
+    );
+
+    let lhs = DummyLhsReader::<E> {
+        memory: lhs_with_layout,
+        block_info: BM::block_info(BlockKind::Lhs),
+    };
+    let rhs = DummyRhsReader::<E> {
+        memory: rhs_with_layout,
+        block_info: BM::block_info(BlockKind::Rhs),
+    };
+
+    let out_block_info = BM::block_info(BlockKind::Out);
+    let mut out = DummyWriter::<E> {
+        memory: out_with_layout,
+        block_info: out_block_info,
+    };
 
     let mut acc = BM::acc_init_zeros();
     BM::execute(lhs, rhs, &mut acc, layouts);
     BM::acc_read(&mut acc, &mut out);
+
+    let offset = out_block_info.tile_size_x * out_block_info.tile_size_y;
+    let start = UNIT_POS_Y * offset;
+
+    array_into_row_major_block_layout(
+        out.memory.as_slice(),
+        out_result.slice_mut(start, start + offset),
+        BM::block_info(BlockKind::Out),
+        true,
+    );
 }
 
 /// Exported test

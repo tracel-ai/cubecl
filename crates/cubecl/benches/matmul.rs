@@ -28,7 +28,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
                 matmul::tiling2d::launch(&self.client, lhs, rhs, out, Default::default());
             }
             MatmulKind::Cmma => {
-                matmul::cmma::launch(&self.client, lhs, rhs, out, Default::default());
+                matmul::cmma_old::launch(&self.client, lhs, rhs, out, Default::default());
             }
         }
     }
