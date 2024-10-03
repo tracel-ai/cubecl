@@ -14,6 +14,7 @@ mod instruction;
 mod item;
 mod lookups;
 mod metadata;
+mod opt;
 mod subgroup;
 mod sync;
 mod target;

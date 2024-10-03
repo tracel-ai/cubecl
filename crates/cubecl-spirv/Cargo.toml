@@ -12,9 +12,12 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-featur
     "channel-mutex",
 ] }
 
+hashbrown = { workspace = true }
 rspirv = "0.12"
 
-hashbrown = { workspace = true }
+# Optimizer
+petgraph = { version = "0.6", features = ["serde-1"] }
+serde = { workspace = true }
 
 [dev-dependencies]
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", features = [
