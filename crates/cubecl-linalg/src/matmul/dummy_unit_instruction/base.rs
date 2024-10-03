@@ -6,6 +6,11 @@ use cubecl_core::prelude::*;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::MatmulInstruction;
 
+use cubecl_core::server::ComputeServer;
+
+use crate::matmul::launch::matmul_instruction_launch;
+use crate::matmul::Matmul;
+
 pub struct DummyUnitInstructionConfig {}
 
 macro_rules! impl_matmul_instruction {
@@ -19,15 +24,43 @@ macro_rules! impl_matmul_instruction {
             _output: PhantomData<O>,
         }
 
+        impl<I: Numeric, O: Numeric> Matmul<I, O> for $name<I, O> {
+            const M: u32 = $m;
+            const N: u32 = $n;
+            const K: u32 = $k;
+
+            fn cube_dim_resources() -> CubeDim {
+                CubeDim::new(32, 1, 1)
+            }
+
+            fn cube_count_resources<S: ComputeServer>() -> CubeCount<S> {
+                CubeCount::Static(1, 1, 1)
+            }
+
+            unsafe fn launch_unchecked<R: Runtime>(
+                client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+                cube_dim: CubeDim,
+                cube_count: CubeCount<<R as Runtime>::Server>,
+                lhs: ArrayArg<'_, R>,
+                rhs: ArrayArg<'_, R>,
+                out: ArrayArg<'_, R>,
+                layouts: (MatrixLayout, MatrixLayout),
+            ) {
+                matmul_instruction_launch::launch_unchecked::<Self, I, O, R>(
+                    &client, cube_count, cube_dim, lhs, rhs, out, layouts,
+                );
+            }
+        }
+
         #[cube]
         impl<I: Numeric, O: Numeric> MatmulInstruction<I, O> for $name<I, O> {
             type Config = DummyUnitInstructionConfig;
             type Lhs = DummyMatrix<I>;
             type Rhs = DummyMatrix<I>;
             type Out = DummyMatrix<O>;
-            const M: u32 = $m;
-            const N: u32 = $n;
-            const K: u32 = $k;
+            // const M: u32 = $m;
+            // const N: u32 = $n;
+            // const K: u32 = $k;
 
             fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out) {
                 execute::<I, O>(lhs, rhs, out);

@@ -2,15 +2,35 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::MatmulInstruction;
+
+use crate::matmul::tests::dummy_tile::array_into_row_major_block_layout;
+use crate::matmul::tests::dummy_tile::DummyLhsReader;
+use crate::matmul::tests::dummy_tile::DummyRhsReader;
+use crate::matmul::tests::dummy_tile::DummyWriter;
 use crate::matmul::BlockKind;
 use crate::matmul::BlockMatmul;
 
-use super::dummy_tile::{
-    array_into_row_major_block_layout, DummyLhsReader, DummyRhsReader, DummyWriter,
-};
+#[cube(launch_unchecked)]
+pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
+    lhs_slice: Array<I>,
+    rhs_slice: Array<I>,
+    mut out_slice: Array<O>,
+    #[comptime] layouts: (MatrixLayout, MatrixLayout),
+) {
+    let mut lhs = M::init_lhs(layouts.0);
+    let mut rhs = M::init_rhs(layouts.1);
+    let mut out = M::init_output();
+
+    M::fill_lhs(lhs_slice.as_slice(), &mut lhs);
+    M::fill_rhs(rhs_slice.as_slice(), &mut rhs);
+
+    M::execute(&lhs, &rhs, &mut out);
+    M::read_output(&out, out_slice.as_slice_mut());
+}
 
 #[cube(launch_unchecked)]
-fn block_matmul_launch<
+pub(crate) fn block_matmul_launch<
     BM: BlockMatmul<E, DummyLhsReader<E>, DummyRhsReader<E>, DummyWriter<E>>,
     E: Numeric,
 >(

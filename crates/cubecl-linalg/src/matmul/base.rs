@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::server::ComputeServer;
 
 use super::cmma_matmul::BlockInfo;
 use super::matrix_layout::MatrixLayout;
@@ -25,13 +26,10 @@ pub trait BlockMatmul<
     Lhs: TileReader<Line<E>>,
     Rhs: TileReader<Line<E>>,
     Out: TileWriter<Line<E>>,
->: 'static + Send + Sync + BlockMatmulWrap
+>: 'static + Send + Sync + Matmul<E, E>
 {
     type Config;
     type Accumulator: CubeType;
-    const M: u32;
-    const N: u32;
-    const K: u32;
 
     fn execute(
         lhs: Lhs,
@@ -52,20 +50,32 @@ pub enum BlockKind {
     Out,
 }
 
-pub trait BlockMatmulWrap {
-    fn resources() -> CubeDim;
+pub trait Matmul<I: Numeric, O: Numeric> {
+    const M: u32;
+    const N: u32;
+    const K: u32;
+
+    fn cube_dim_resources() -> CubeDim;
+    fn cube_count_resources<S: ComputeServer>() -> CubeCount<S>;
+
+    unsafe fn launch_unchecked<R: Runtime>(
+        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        cube_dim: CubeDim,
+        cube_count: CubeCount<<R as Runtime>::Server>,
+        lhs: ArrayArg<'_, R>,
+        rhs: ArrayArg<'_, R>,
+        out: ArrayArg<'_, R>,
+        layouts: (MatrixLayout, MatrixLayout),
+    );
 }
 
 #[cube]
 /// Executes a matmul at the lowest level
-pub trait MatmulInstruction<I: Numeric, O: Numeric>: 'static + Send + Sync {
+pub trait MatmulInstruction<I: Numeric, O: Numeric>: 'static + Send + Sync + Matmul<I, O> {
     type Config;
     type Lhs: CubeType;
     type Rhs: CubeType;
     type Out: CubeType;
-    const M: u32;
-    const N: u32;
-    const K: u32;
 
     fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out);
 
