@@ -36,3 +36,11 @@ pub struct BlockInfo {
     pub tile_size_x: u32,
     pub tile_size_y: u32,
 }
+
+#[cube]
+pub fn num_elements(block_info: &BlockInfo) -> u32 {
+    block_info.num_tiles_x
+        * block_info.num_tiles_y
+        * block_info.tile_size_x
+        * block_info.tile_size_y
+}

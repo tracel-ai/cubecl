@@ -4,8 +4,9 @@ use cubecl_core::prelude::*;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::MatmulInstruction;
 
+use crate::matmul::tensor_io::reader::{new_lhs_tensor_reader, new_rhs_tensor_reader};
 use crate::matmul::tensor_io::reader::{LhsTensorReader, RhsTensorReader};
-use crate::matmul::tensor_io::writer::OutTensorWriter;
+use crate::matmul::tensor_io::writer::{new_out_writer, OutTensorWriter};
 use crate::matmul::tests::dummy_tile::array_into_row_major_block_layout;
 use crate::matmul::tile_io::reader::{SmemLhsReader, SmemRhsReader};
 use crate::matmul::tile_io::writer::DummySmemWriter;
@@ -94,7 +95,14 @@ pub(crate) fn cube_matmul_launch<
 >(
     lhs_tensor: Tensor<Line<E>>,
     rhs_tensor: Tensor<Line<E>>,
-    mut out_tensor: Tensor<Line<E>>,
+    out_tensor: Tensor<Line<E>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
 ) {
+    let k = lhs_tensor.shape(lhs_tensor.rank() - 1);
+
+    let lhs = new_lhs_tensor_reader(lhs_tensor, layouts.0, CM::block_info(BlockKind::Lhs));
+    let rhs = new_rhs_tensor_reader(rhs_tensor, layouts.1, CM::block_info(BlockKind::Rhs));
+    let out = new_out_writer(out_tensor, CM::block_info(BlockKind::Out));
+
+    CM::execute(lhs, rhs, out, (0, k), layouts);
 }

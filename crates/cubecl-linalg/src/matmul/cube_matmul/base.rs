@@ -4,13 +4,14 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::ComputeServer;
 
+use crate::matmul::cmma_matmul::BlockInfo;
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tensor_io::reader::{LhsTensorReader, RhsTensorReader};
 use crate::matmul::tensor_io::writer::OutTensorWriter;
 use crate::matmul::tensor_io::{TensorLoader, TensorWriter};
 use crate::matmul::tile_io::writer::DummyTensorWriter;
-use crate::matmul::{BlockMatmul, CubeMatmul, Matmul, TensorMatmul};
+use crate::matmul::{BlockKind, BlockMatmul, CubeMatmul, Matmul, TensorMatmul};
 
 use crate::matmul::tile_io::reader::{SmemLhsReader, SmemRhsReader};
 
@@ -102,5 +103,9 @@ impl<
 
         let mut tile_writer = OutTensorWriter::as_tile_writer(out);
         BM::acc_read(&acc, &mut tile_writer);
+    }
+
+    fn block_info(#[comptime] block_kind: BlockKind) -> BlockInfo {
+        BM::block_info(block_kind)
     }
 }

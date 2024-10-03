@@ -40,6 +40,9 @@ pub trait CubeMatmul<E: Numeric, Lhs: TensorLoader<E>, Rhs: TensorLoader<E>, Out
         k_range: (u32, u32),
         layouts: (MatrixLayout, MatrixLayout),
     );
+
+    // TODO: hopefully can be removed from API
+    fn block_info(#[comptime] block: BlockKind) -> BlockInfo;
 }
 
 #[cube]
@@ -68,6 +71,7 @@ pub trait BlockMatmul<
     fn block_info(#[comptime] block: BlockKind) -> BlockInfo;
 }
 
+#[derive(Copy, Clone)]
 pub enum BlockKind {
     Lhs,
     Rhs,

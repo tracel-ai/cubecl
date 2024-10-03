@@ -22,3 +22,14 @@ impl<E: Numeric> TensorWriter<E> for OutTensorWriter<E> {
         }
     }
 }
+
+#[cube]
+pub fn new_out_writer<E: Numeric>(
+    gmem: Tensor<Line<E>>,
+    block_info: BlockInfo,
+) -> OutTensorWriter<E> {
+    OutTensorWriter::<E> {
+        out: gmem,
+        block_info,
+    }
+}
