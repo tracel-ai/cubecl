@@ -4,15 +4,14 @@ use cubecl_core::prelude::*;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::MatmulInstruction;
 
-use crate::matmul::cube_matmul::base::{LhsTensorReader, OutTensorWriter, RhsTensorReader};
+use crate::matmul::tensor_io::reader::{LhsTensorReader, RhsTensorReader};
+use crate::matmul::tensor_io::writer::OutTensorWriter;
 use crate::matmul::tests::dummy_tile::array_into_row_major_block_layout;
-use crate::matmul::tests::dummy_tile::DummyLhsReader;
-use crate::matmul::tests::dummy_tile::DummyRhsReader;
-use crate::matmul::tests::dummy_tile::DummyWriter;
+use crate::matmul::tile_io::reader::{SmemLhsReader, SmemRhsReader};
+use crate::matmul::tile_io::writer::DummySmemWriter;
 use crate::matmul::BlockKind;
 use crate::matmul::BlockMatmul;
 
-use super::tensor_io::TensorWriter;
 use super::CubeMatmul;
 
 #[cube(launch_unchecked)]
@@ -35,7 +34,7 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 
 #[cube(launch_unchecked)]
 pub(crate) fn block_matmul_launch<
-    BM: BlockMatmul<E, DummyLhsReader<E>, DummyRhsReader<E>, DummyWriter<E>>,
+    BM: BlockMatmul<E, SmemLhsReader<E>, SmemRhsReader<E>, DummySmemWriter<E>>,
     E: Numeric,
 >(
     lhs_data: Array<Line<E>>,
@@ -61,17 +60,17 @@ pub(crate) fn block_matmul_launch<
         false,
     );
 
-    let lhs = DummyLhsReader::<E> {
+    let lhs = SmemLhsReader::<E> {
         memory: lhs_with_layout,
         block_info: BM::block_info(BlockKind::Lhs),
     };
-    let rhs = DummyRhsReader::<E> {
+    let rhs = SmemRhsReader::<E> {
         memory: rhs_with_layout,
         block_info: BM::block_info(BlockKind::Rhs),
     };
 
     let out_block_info = BM::block_info(BlockKind::Out);
-    let mut out = DummyWriter::<E> {
+    let mut out = DummySmemWriter::<E> {
         memory: out_with_layout,
         block_info: out_block_info,
     };
@@ -90,7 +89,7 @@ pub(crate) fn block_matmul_launch<
 
 #[cube(launch_unchecked)]
 pub(crate) fn cube_matmul_launch<
-    CM: CubeMatmul<E, LhsTensorReader, RhsTensorReader, OutTensorWriter>,
+    CM: CubeMatmul<E, LhsTensorReader<E>, RhsTensorReader<E>, OutTensorWriter<E>>,
     E: Numeric,
 >(
     lhs_tensor: Tensor<Line<E>>,

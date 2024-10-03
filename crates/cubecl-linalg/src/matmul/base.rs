@@ -4,7 +4,7 @@ use cubecl_core::server::ComputeServer;
 
 use super::cmma_matmul::BlockInfo;
 use super::matrix_layout::MatrixLayout;
-use super::tensor_io::{TensorReader, TensorWriter};
+use super::tensor_io::{TensorLoader, TensorWriter};
 use super::tile_io::{TileReader, TileWriter};
 
 #[cube]
@@ -22,7 +22,7 @@ pub trait BatchMatmul<N: Numeric> {
 
 #[cube]
 /// Execute a matmul over a block, accumulating for arbitrary k-dim, using one Cube.
-pub trait CubeMatmul<E: Numeric, Lhs: TensorReader<E>, Rhs: TensorReader<E>, Out: TensorWriter<E>>:
+pub trait CubeMatmul<E: Numeric, Lhs: TensorLoader<E>, Rhs: TensorLoader<E>, Out: TensorWriter<E>>:
     'static + Send + Sync
 {
     // TensorReader knows where to look in GMEM, it carries its cube offset and reference to Tensor,

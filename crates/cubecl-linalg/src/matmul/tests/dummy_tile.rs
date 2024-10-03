@@ -2,79 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma_matmul::BlockInfo;
-use crate::matmul::tile_io::TileReader;
-use crate::matmul::tile_io::TileWriter;
 
 use super::test_utils::assert_equals_approx;
-
-#[derive(CubeType)]
-pub struct DummyLhsReader<E: Numeric> {
-    pub memory: SharedMemory<Line<E>>,
-    pub block_info: BlockInfo,
-}
-
-#[derive(CubeType)]
-pub struct DummyRhsReader<E: Numeric> {
-    pub memory: SharedMemory<Line<E>>,
-    pub block_info: BlockInfo,
-}
-
-#[derive(CubeType)]
-pub struct DummyWriter<E: Numeric> {
-    pub memory: SharedMemory<Line<E>>,
-    pub block_info: BlockInfo,
-}
-
-#[cube]
-impl<E: Numeric> TileReader<Line<E>> for DummyLhsReader<E> {
-    fn read(
-        reader: &Self,
-        compute_plane_offset: u32,
-        buffer_offset: u32,
-        _accumulator_offset: u32,
-    ) -> &Slice<'_, Line<E>> {
-        let num_tile_elements = reader.block_info.tile_size_x * reader.block_info.tile_size_y;
-        let num_tile_offset = compute_plane_offset * reader.block_info.num_tiles_y + buffer_offset;
-
-        let start = num_tile_offset * num_tile_elements;
-        reader.memory.slice(start, start + num_tile_elements)
-    }
-}
-
-#[cube]
-impl<E: Numeric> TileReader<Line<E>> for DummyRhsReader<E> {
-    fn read(
-        reader: &Self,
-        _compute_plane_offset: u32,
-        buffer_offset: u32,
-        accumulator_offset: u32,
-    ) -> &Slice<'_, Line<E>> {
-        let num_tile_elements = reader.block_info.tile_size_x * reader.block_info.tile_size_y;
-        let num_tile_offset = buffer_offset * reader.block_info.num_tiles_y + accumulator_offset;
-
-        let start = num_tile_offset * num_tile_elements;
-        reader.memory.slice(start, start + num_tile_elements)
-    }
-}
-
-#[cube]
-impl<E: Numeric> TileWriter<Line<E>> for DummyWriter<E> {
-    fn write_with_cast<C: Numeric>(
-        writer: &mut Self,
-        slice: &Slice<'_, C>,
-        compute_plane_offset: u32,
-        accumulator_offset: u32,
-    ) {
-        let num_tile_elements = writer.block_info.tile_size_x * writer.block_info.tile_size_y;
-        let num_tile_offset =
-            compute_plane_offset * writer.block_info.num_tiles_y + accumulator_offset;
-
-        let write_offset = num_tile_offset * num_tile_elements;
-        for i in 0..num_tile_elements {
-            writer.memory[i + write_offset] = Line::new(E::cast_from(slice[i]));
-        }
-    }
-}
 
 #[cube]
 pub(crate) fn array_into_row_major_block_layout<E: Numeric>(

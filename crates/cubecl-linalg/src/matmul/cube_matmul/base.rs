@@ -4,90 +4,31 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::ComputeServer;
 
-use crate::matmul::cmma_matmul::BlockInfo;
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tensor_io::{TensorReader, TensorWriter};
-use crate::matmul::tests::dummy_tile::{DummyLhsReader, DummyRhsReader, DummyWriter};
+use crate::matmul::tensor_io::reader::{LhsTensorReader, RhsTensorReader};
+use crate::matmul::tensor_io::writer::OutTensorWriter;
+use crate::matmul::tensor_io::{TensorLoader, TensorWriter};
+use crate::matmul::tile_io::writer::DummyTensorWriter;
 use crate::matmul::{BlockMatmul, CubeMatmul, Matmul, TensorMatmul};
+
+use crate::matmul::tile_io::reader::{SmemLhsReader, SmemRhsReader};
 
 struct CmmaCubeMatmul<
     E: Numeric,
-    BM: BlockMatmul<E, DummyLhsReader<E>, DummyRhsReader<E>, DummyWriter<E>>,
+    BM: BlockMatmul<E, SmemLhsReader<E>, SmemRhsReader<E>, DummyTensorWriter<E>>,
 > {
     _elem: PhantomData<E>,
     _block_matmul: PhantomData<BM>,
-}
-
-#[derive(CubeType)]
-pub struct LhsTensorReader {}
-#[derive(CubeType)]
-pub struct RhsTensorReader {}
-#[derive(CubeType)]
-pub struct OutTensorWriter {}
-
-#[cube]
-impl<E: Numeric> TensorReader<E> for LhsTensorReader {
-    type TileReader = DummyLhsReader<E>;
-
-    fn read(reader: &Self, k_offset: u32) -> Self::TileReader {
-        // TODO, totally TMP
-        DummyLhsReader::<E> {
-            memory: SharedMemory::new(1),
-            block_info: BlockInfo {
-                num_tiles_x: 1,
-                num_tiles_y: 1,
-                tile_size_x: 1,
-                tile_size_y: 1,
-            },
-        }
-    }
-}
-
-#[cube]
-impl<E: Numeric> TensorReader<E> for RhsTensorReader {
-    type TileReader = DummyRhsReader<E>;
-
-    fn read(reader: &Self, k_offset: u32) -> Self::TileReader {
-        // TODO, totally TMP
-        DummyRhsReader::<E> {
-            memory: SharedMemory::new(1),
-            block_info: BlockInfo {
-                num_tiles_x: 1,
-                num_tiles_y: 1,
-                tile_size_x: 1,
-                tile_size_y: 1,
-            },
-        }
-    }
-}
-
-#[cube]
-impl<E: Numeric> TensorWriter<E> for OutTensorWriter {
-    type TileWriter = DummyWriter<E>;
-
-    fn make_tile_writer() -> Self::TileWriter {
-        // TODO, totally TMP
-        DummyWriter::<E> {
-            memory: SharedMemory::new(1),
-            block_info: BlockInfo {
-                num_tiles_x: 1,
-                num_tiles_y: 1,
-                tile_size_x: 1,
-                tile_size_y: 1,
-            },
-        }
-    }
-    fn write(writer: &mut Self, tile_writer: Self::TileWriter) {}
 }
 
 impl<
         Elem: Numeric,
         BM: BlockMatmul<
             Elem,
-            <LhsTensorReader as TensorReader<Elem>>::TileReader,
-            <RhsTensorReader as TensorReader<Elem>>::TileReader,
-            <OutTensorWriter as TensorWriter<Elem>>::TileWriter,
+            <LhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
+            <RhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
+            <OutTensorWriter<Elem> as TensorWriter<Elem>>::TileWriter,
         >,
     > Matmul<Elem, Elem> for CmmaCubeMatmul<Elem, BM>
 {
@@ -104,9 +45,9 @@ impl<
         Elem: Numeric,
         BM: BlockMatmul<
             Elem,
-            <LhsTensorReader as TensorReader<Elem>>::TileReader,
-            <RhsTensorReader as TensorReader<Elem>>::TileReader,
-            <OutTensorWriter as TensorWriter<Elem>>::TileWriter,
+            <LhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
+            <RhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
+            <OutTensorWriter<Elem> as TensorWriter<Elem>>::TileWriter,
         >,
     > TensorMatmul<Elem, Elem> for CmmaCubeMatmul<Elem, BM>
 {
@@ -127,19 +68,20 @@ impl<
 
 #[cube]
 impl<
-        E: Numeric,
+        Elem: Numeric,
         BM: BlockMatmul<
-            E,
-            <LhsTensorReader as TensorReader<E>>::TileReader,
-            <RhsTensorReader as TensorReader<E>>::TileReader,
-            <OutTensorWriter as TensorWriter<E>>::TileWriter,
+            Elem,
+            <LhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
+            <RhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
+            <OutTensorWriter<Elem> as TensorWriter<Elem>>::TileWriter,
         >,
-    > CubeMatmul<E, LhsTensorReader, RhsTensorReader, OutTensorWriter> for CmmaCubeMatmul<E, BM>
+    > CubeMatmul<Elem, LhsTensorReader<Elem>, RhsTensorReader<Elem>, OutTensorWriter<Elem>>
+    for CmmaCubeMatmul<Elem, BM>
 {
     fn execute(
-        lhs: LhsTensorReader,
-        rhs: RhsTensorReader,
-        mut out: OutTensorWriter,
+        mut lhs: LhsTensorReader<Elem>,
+        mut rhs: RhsTensorReader<Elem>,
+        out: OutTensorWriter<Elem>,
         k_range: (u32, u32),
         layouts: (MatrixLayout, MatrixLayout),
     ) {
@@ -152,14 +94,13 @@ impl<
         for block_iter in 0..num_loops {
             let k_offset = block_iter * k_step;
 
-            let lhs_tile_reader = LhsTensorReader::read(&lhs, k_offset);
-            let rhs_tile_reader = RhsTensorReader::read(&rhs, k_offset);
+            let lhs_tile_reader = LhsTensorReader::load_tile(&mut lhs, k_offset);
+            let rhs_tile_reader = RhsTensorReader::load_tile(&mut rhs, k_offset);
 
             BM::execute(lhs_tile_reader, rhs_tile_reader, &mut acc, layouts);
         }
 
-        let mut tile_writer = OutTensorWriter::make_tile_writer();
+        let mut tile_writer = OutTensorWriter::as_tile_writer(out);
         BM::acc_read(&acc, &mut tile_writer);
-        OutTensorWriter::write(&mut out, tile_writer);
     }
 }
