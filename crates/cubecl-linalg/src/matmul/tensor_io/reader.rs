@@ -26,7 +26,7 @@ pub(crate) fn new_lhs_tensor_reader<E: Numeric>(
     #[comptime] block_info: BlockInfo,
 ) -> LhsTensorReader<E> {
     let line_size = gmem.line_size();
-    let smem = SharedMemory::new_lined(num_elements(block_info) / line_size, line_size);
+    let smem = SharedMemory::new_lined(comptime!(num_elements(block_info) / line_size), line_size);
 
     LhsTensorReader::<E> {
         smem,
@@ -78,7 +78,7 @@ pub(crate) fn new_rhs_tensor_reader<E: Numeric>(
     #[comptime] block_info: BlockInfo,
 ) -> RhsTensorReader<E> {
     let line_size = gmem.line_size();
-    let smem = SharedMemory::new_lined(num_elements(block_info) / line_size, line_size);
+    let smem = SharedMemory::new_lined(comptime!(num_elements(block_info) / line_size), line_size);
 
     RhsTensorReader::<E> {
         smem,
