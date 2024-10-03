@@ -1,21 +1,21 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::cmma_matmul::BlockInfoR;
 use crate::matmul::tile_io::TileReader;
 
 #[derive(CubeType)]
 pub struct SmemLhsReader<E: Numeric> {
     // TODO maybe shouldn't be owned, should have &'a
     pub memory: SharedMemory<Line<E>>,
-    pub block_info: BlockInfo,
+    pub block_info: BlockInfoR,
 }
 
 #[derive(CubeType)]
 pub struct SmemRhsReader<E: Numeric> {
     // TODO maybe shouldn't be owned, should have &'a
     pub memory: SharedMemory<Line<E>>,
-    pub block_info: BlockInfo,
+    pub block_info: BlockInfoR,
 }
 
 #[cube]

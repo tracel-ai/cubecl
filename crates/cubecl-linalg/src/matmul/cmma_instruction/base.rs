@@ -5,6 +5,7 @@ use cubecl_core::server::ComputeServer;
 use cubecl_core::{cmma, prelude::*};
 use half::{bf16, f16};
 
+use crate::matmul::cmma_matmul::{BlockInfo, BlockInfos};
 use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::{FixedShapeMatmul, Matmul, MatmulInstruction};
@@ -65,6 +66,29 @@ macro_rules! impl_matmul_instruction {
             fn cube_count_resources<S: ComputeServer>() -> CubeCount<S> {
                 CubeCount::Static(1, 1, 1)
             }
+
+            fn block_infos() -> BlockInfos {
+                BlockInfos {
+                    lhs: BlockInfo {
+                        num_tiles_x: 1,
+                        num_tiles_y: 1,
+                        tile_size_x: $m,
+                        tile_size_y: $k,
+                    },
+                    rhs: BlockInfo {
+                        num_tiles_x: 1,
+                        num_tiles_y: 1,
+                        tile_size_x: $k,
+                        tile_size_y: $n,
+                    },
+                    out: BlockInfo {
+                        num_tiles_x: 1,
+                        num_tiles_y: 1,
+                        tile_size_x: $m,
+                        tile_size_y: $n,
+                    },
+                }
+            }
         }
 
         #[cube]
@@ -76,9 +100,6 @@ macro_rules! impl_matmul_instruction {
             type Lhs = Fragment<I>;
             type Rhs = Fragment<I>;
             type Out = Fragment<O>;
-            // const M: u32 = $m;
-            // const N: u32 = $n;
-            // const K: u32 = $k;
 
             fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out) {
                 execute::<I, O>(lhs, rhs, out);

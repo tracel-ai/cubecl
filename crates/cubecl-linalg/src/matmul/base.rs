@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::ComputeServer;
 
-use super::cmma_matmul::BlockInfo;
+use super::cmma_matmul::{BlockInfo, BlockInfos};
 use super::matrix_layout::MatrixLayout;
 use super::tensor_io::{TensorLoader, TensorWriter};
 use super::tile_io::{TileReader, TileWriter};
@@ -23,16 +23,8 @@ pub trait BatchMatmul<N: Numeric> {
 #[cube]
 /// Execute a matmul over a block, accumulating for arbitrary k-dim, using one Cube.
 pub trait CubeMatmul<E: Numeric, Lhs: TensorLoader<E>, Rhs: TensorLoader<E>, Out: TensorWriter<E>>:
-    'static + Send + Sync
+    'static + Send + Sync + TensorMatmul<E>
 {
-    // TensorReader knows where to look in GMEM, it carries its cube offset and reference to Tensor,
-    // has a method that takes the k offset, and returns a TileReader
-    // TensorReader/Writer is also responsible for OOB
-
-    // k:
-    // k_start (often zero, but could change for k-stream)
-    // k_end  (often K, but could change for k-stream)
-    // k_step: underlying BlockMatmul's k
     fn execute(
         lhs: Lhs,
         rhs: Rhs,
@@ -40,9 +32,6 @@ pub trait CubeMatmul<E: Numeric, Lhs: TensorLoader<E>, Rhs: TensorLoader<E>, Out
         k_range: (u32, u32),
         layouts: (MatrixLayout, MatrixLayout),
     );
-
-    // TODO: hopefully can be removed from API
-    fn block_info(#[comptime] block: BlockKind) -> BlockInfo;
 }
 
 #[cube]
@@ -66,24 +55,16 @@ pub trait BlockMatmul<
 
     fn acc_init_zeros() -> Self::Accumulator;
     fn acc_read(acc: &Self::Accumulator, out: &mut Out);
-
-    // TODO: hopefully can be removed from API
-    fn block_info(#[comptime] block: BlockKind) -> BlockInfo;
-}
-
-#[derive(Copy, Clone)]
-pub enum BlockKind {
-    Lhs,
-    Rhs,
-    Out,
 }
 
 pub trait Matmul<I: Numeric, O: Numeric> {
     fn cube_dim_resources() -> CubeDim;
     fn cube_count_resources<S: ComputeServer>() -> CubeCount<S>;
+
+    fn block_infos() -> BlockInfos;
 }
 
-pub trait TensorMatmul<I: Numeric, O: Numeric>: Matmul<I, O> {
+pub trait TensorMatmul<E: Numeric>: Matmul<E, E> {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,

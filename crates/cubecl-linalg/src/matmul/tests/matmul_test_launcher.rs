@@ -67,16 +67,15 @@ where
     }
 }
 
-pub fn test_tensor_matmul<MM, I, O, R>(
+pub fn test_tensor_matmul<MM, Elem, R>(
     m: usize,
     n: usize,
     k: usize,
     layouts: (MatrixLayout, MatrixLayout),
     device: &R::Device,
 ) where
-    I: Numeric + CubeElement,
-    O: Numeric + CubeElement,
-    MM: TensorMatmul<I, O>,
+    Elem: Numeric + CubeElement,
+    MM: TensorMatmul<Elem>,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
@@ -102,9 +101,9 @@ pub fn test_tensor_matmul<MM, I, O, R>(
         ),
     };
 
-    let lhs = client.create(I::as_bytes(&I::from_values(&lhs_data)));
-    let rhs = client.create(I::as_bytes(&I::from_values(&rhs_data)));
-    let out = client.empty(out_size * O::as_elem().size());
+    let lhs = client.create(Elem::as_bytes(&Elem::from_values(&lhs_data)));
+    let rhs = client.create(Elem::as_bytes(&Elem::from_values(&rhs_data)));
+    let out = client.empty(out_size * Elem::as_elem().size());
 
     let cube_dim = MM::cube_dim_resources();
     let cube_count: CubeCount<<R as Runtime>::Server> = MM::cube_count_resources();
@@ -122,7 +121,7 @@ pub fn test_tensor_matmul<MM, I, O, R>(
     }
 
     let expected = matmul_cpu_reference(&lhs_original_data, &rhs_original_data, m, n, k);
-    if let Err(e) = assert_equals_approx::<O, R>(&client, out, &expected, 10e-1) {
+    if let Err(e) = assert_equals_approx::<Elem, R>(&client, out, &expected, 10e-1) {
         panic!("{}", e);
     }
 }

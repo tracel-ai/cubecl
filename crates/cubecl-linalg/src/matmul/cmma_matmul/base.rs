@@ -4,10 +4,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::{
-    cmma_matmul::BlockInfo,
+    cmma_matmul::{BlockInfo, BlockInfos},
     matrix_layout::MatrixLayout,
     tile_io::{TileReader, TileWriter},
-    BlockKind, BlockMatmul, FixedShapeMatmul, Matmul, MatmulInstruction,
+    BlockMatmul, FixedShapeMatmul, Matmul, MatmulInstruction,
 };
 
 use super::CmmaBlockSize;
@@ -48,7 +48,14 @@ where
         layouts: (MatrixLayout, MatrixLayout),
     ) {
         block_matmul_launch::launch_unchecked::<Self, Elem, R>(
-            &client, cube_count, cube_dim, lhs, rhs, out, layouts,
+            &client,
+            cube_count,
+            cube_dim,
+            lhs,
+            rhs,
+            out,
+            layouts,
+            Self::block_infos(),
         );
     }
 }
@@ -71,6 +78,29 @@ where
 
     fn cube_count_resources<S: cubecl_core::server::ComputeServer>() -> CubeCount<S> {
         CubeCount::Static(1, 1, 1)
+    }
+
+    fn block_infos() -> BlockInfos {
+        BlockInfos {
+            lhs: BlockInfo {
+                num_tiles_x: Block::M / Instr::M,
+                num_tiles_y: Block::K / Instr::K,
+                tile_size_x: Instr::M,
+                tile_size_y: Instr::K,
+            },
+            rhs: BlockInfo {
+                num_tiles_x: Block::K / Instr::K,
+                num_tiles_y: Block::N / Instr::N,
+                tile_size_x: Instr::K,
+                tile_size_y: Instr::N,
+            },
+            out: BlockInfo {
+                num_tiles_x: Block::M / Instr::M,
+                num_tiles_y: Block::N / Instr::N,
+                tile_size_x: Instr::M,
+                tile_size_y: Instr::N,
+            },
+        }
     }
 }
 
@@ -157,29 +187,6 @@ where
                 Instr::read_output(accumulator, smem_slice);
                 Out::write_with_cast(out, smem_slice.as_slice(), plane_id, accumulator_iter);
             }
-        }
-    }
-
-    fn block_info(#[comptime] block: BlockKind) -> BlockInfo {
-        match block {
-            BlockKind::Lhs => BlockInfo {
-                num_tiles_x: Block::M / Instr::M,
-                num_tiles_y: Block::K / Instr::K,
-                tile_size_x: Instr::M,
-                tile_size_y: Instr::K,
-            },
-            BlockKind::Rhs => BlockInfo {
-                num_tiles_x: Block::K / Instr::K,
-                num_tiles_y: Block::N / Instr::N,
-                tile_size_x: Instr::K,
-                tile_size_y: Instr::N,
-            },
-            BlockKind::Out => BlockInfo {
-                num_tiles_x: Block::M / Instr::M,
-                num_tiles_y: Block::N / Instr::N,
-                tile_size_x: Instr::M,
-                tile_size_y: Instr::N,
-            },
         }
     }
 }

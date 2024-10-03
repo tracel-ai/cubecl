@@ -25,7 +25,6 @@ macro_rules! testgen_cmma_internal_mock {
                     CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16_16_16>,
                 >,
                 f32,
-                f32,
                 TestRuntime,
             >(
                 16,

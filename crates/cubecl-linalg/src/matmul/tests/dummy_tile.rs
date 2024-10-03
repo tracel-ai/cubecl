@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::cmma_matmul::BlockInfoR;
 
 use super::test_utils::assert_equals_approx;
 
@@ -9,7 +9,7 @@ use super::test_utils::assert_equals_approx;
 pub(crate) fn array_into_row_major_block_layout<E: Numeric>(
     original_array: &Slice<'_, Line<E>>,
     array_out: &mut SliceMut<'_, Line<E>>,
-    block_info: BlockInfo,
+    block_info: BlockInfoR,
     #[comptime] revert: bool,
 ) {
     let stride_x = block_info.num_tiles_y * block_info.tile_size_y;
@@ -60,7 +60,7 @@ pub fn array_into_row_major_block_layout_launch<E: Numeric>(
     array_into_row_major_block_layout(
         array_in.as_slice(),
         array_out.as_slice_mut(),
-        BlockInfo {
+        BlockInfoR {
             num_tiles_x: 2,
             num_tiles_y: 2,
             tile_size_x: 2,

@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma_matmul::num_elements;
-use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::cmma_matmul::{into_runtime, BlockInfo, BlockInfoR};
 use crate::matmul::cube_matmul::smem::fill_shared_memory;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::reader::{SmemLhsReader, SmemRhsReader};
@@ -16,24 +16,24 @@ pub struct LhsTensorReader<E: Numeric> {
     gmem: Tensor<Line<E>>,
     gmem_layout: MatrixLayout,
     cube_offset: u32,
-    block_info: BlockInfo,
+    block_info: BlockInfoR,
 }
 
 #[cube]
 pub(crate) fn new_lhs_tensor_reader<E: Numeric>(
     gmem: Tensor<Line<E>>,
     gmem_layout: MatrixLayout,
-    block_info: BlockInfo,
+    #[comptime] block_info: BlockInfo,
 ) -> LhsTensorReader<E> {
     let line_size = gmem.line_size();
-    let smem = SharedMemory::new_lined(num_elements(&block_info) / line_size, line_size);
+    let smem = SharedMemory::new_lined(num_elements(block_info) / line_size, line_size);
 
     LhsTensorReader::<E> {
         smem,
         gmem,
         gmem_layout,
         cube_offset: CUBE_POS_X,
-        block_info,
+        block_info: into_runtime(block_info),
     }
 }
 
@@ -68,24 +68,24 @@ pub struct RhsTensorReader<E: Numeric> {
     gmem: Tensor<Line<E>>,
     gmem_layout: MatrixLayout,
     cube_offset: u32,
-    block_info: BlockInfo,
+    block_info: BlockInfoR,
 }
 
 #[cube]
 pub(crate) fn new_rhs_tensor_reader<E: Numeric>(
     gmem: Tensor<Line<E>>,
     gmem_layout: MatrixLayout,
-    block_info: BlockInfo,
+    #[comptime] block_info: BlockInfo,
 ) -> RhsTensorReader<E> {
     let line_size = gmem.line_size();
-    let smem = SharedMemory::new_lined(num_elements(&block_info) / line_size, line_size);
+    let smem = SharedMemory::new_lined(num_elements(block_info) / line_size, line_size);
 
     RhsTensorReader::<E> {
         smem,
         gmem,
         gmem_layout,
         cube_offset: CUBE_POS_Y,
-        block_info,
+        block_info: into_runtime(block_info),
     }
 }
 

@@ -4,14 +4,14 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::ComputeServer;
 
-use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::cmma_matmul::BlockInfos;
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tensor_io::reader::{LhsTensorReader, RhsTensorReader};
 use crate::matmul::tensor_io::writer::OutTensorWriter;
 use crate::matmul::tensor_io::{TensorLoader, TensorWriter};
 use crate::matmul::tile_io::writer::DummyTensorWriter;
-use crate::matmul::{BlockKind, BlockMatmul, CubeMatmul, Matmul, TensorMatmul};
+use crate::matmul::{BlockMatmul, CubeMatmul, Matmul, TensorMatmul};
 
 use crate::matmul::tile_io::reader::{SmemLhsReader, SmemRhsReader};
 
@@ -40,6 +40,10 @@ impl<
     fn cube_count_resources<S: ComputeServer>() -> CubeCount<S> {
         CubeCount::Static(1, 1, 1)
     }
+
+    fn block_infos() -> BlockInfos {
+        BM::block_infos()
+    }
 }
 
 impl<
@@ -50,7 +54,7 @@ impl<
             <RhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
             <OutTensorWriter<Elem> as TensorWriter<Elem>>::TileWriter,
         >,
-    > TensorMatmul<Elem, Elem> for CmmaCubeMatmul<Elem, BM>
+    > TensorMatmul<Elem> for CmmaCubeMatmul<Elem, BM>
 {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -62,7 +66,14 @@ impl<
         layouts: (MatrixLayout, MatrixLayout),
     ) {
         cube_matmul_launch::launch_unchecked::<Self, Elem, R>(
-            &client, cube_count, cube_dim, lhs, rhs, out, layouts,
+            &client,
+            cube_count,
+            cube_dim,
+            lhs,
+            rhs,
+            out,
+            layouts,
+            Self::block_infos(),
         );
     }
 }
@@ -103,9 +114,5 @@ impl<
 
         let mut tile_writer = OutTensorWriter::as_tile_writer(out);
         BM::acc_read(&acc, &mut tile_writer);
-    }
-
-    fn block_info(#[comptime] block_kind: BlockKind) -> BlockInfo {
-        BM::block_info(block_kind)
     }
 }

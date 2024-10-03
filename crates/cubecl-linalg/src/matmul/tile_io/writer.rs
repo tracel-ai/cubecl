@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::cmma_matmul::BlockInfoR;
 use crate::matmul::tile_io::TileWriter;
 
 #[derive(CubeType)]
@@ -9,7 +9,7 @@ use crate::matmul::tile_io::TileWriter;
 pub struct DummySmemWriter<E: Numeric> {
     // TODO maybe shouldn't be owned, should have &'a
     pub memory: SharedMemory<Line<E>>,
-    pub block_info: BlockInfo,
+    pub block_info: BlockInfoR,
 }
 
 #[derive(CubeType)]
@@ -17,7 +17,7 @@ pub struct DummySmemWriter<E: Numeric> {
 pub struct DummyTensorWriter<E: Numeric> {
     // TODO maybe shouldn't be owned, should have &'a
     pub memory: Tensor<Line<E>>,
-    pub block_info: BlockInfo,
+    pub block_info: BlockInfoR,
 }
 
 #[cube]
@@ -49,4 +49,3 @@ impl<E: Numeric> TileWriter<Line<E>> for DummyTensorWriter<E> {
     ) {
     }
 }
-

@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::cmma_matmul::BlockInfoR;
 
 #[cube]
 pub(crate) fn fill_shared_memory<E: Numeric>(
@@ -9,6 +9,6 @@ pub(crate) fn fill_shared_memory<E: Numeric>(
     smem: &mut SharedMemory<Line<E>>,
     gmem_x_offset: u32,
     gmem_y_offset: u32,
-    block_info: BlockInfo,
+    block_info: BlockInfoR,
 ) {
 }
