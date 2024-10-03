@@ -49,3 +49,4 @@ impl<E: Numeric> TileWriter<Line<E>> for DummyTensorWriter<E> {
     ) {
     }
 }
+

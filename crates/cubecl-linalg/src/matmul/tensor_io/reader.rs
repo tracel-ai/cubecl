@@ -38,53 +38,6 @@ pub(crate) fn new_lhs_tensor_reader<E: Numeric>(
 }
 
 #[cube]
-pub(crate) fn new_rhs_tensor_reader<E: Numeric>(
-    gmem: Tensor<Line<E>>,
-    gmem_layout: MatrixLayout,
-    block_info: BlockInfo,
-) -> RhsTensorReader<E> {
-    let line_size = gmem.line_size();
-    let smem = SharedMemory::new_lined(num_elements(&block_info) / line_size, line_size);
-
-    RhsTensorReader::<E> {
-        smem,
-        gmem,
-        gmem_layout,
-        cube_offset: CUBE_POS_X,
-        block_info,
-    }
-}
-
-#[derive(CubeType)]
-pub struct RhsTensorReader<E: Numeric> {
-    smem: SharedMemory<Line<E>>,
-    // TODO maybe shouldn't be owned, should have &'a
-    gmem: Tensor<Line<E>>,
-    gmem_layout: MatrixLayout,
-    cube_offset: u32,
-    block_info: BlockInfo,
-}
-
-impl<E: Numeric> RhsTensorReader<E> {
-    pub(crate) fn new(
-        gmem: Tensor<Line<E>>,
-        gmem_layout: MatrixLayout,
-        block_info: BlockInfo,
-    ) -> Self {
-        let line_size = gmem.line_size();
-        let smem = SharedMemory::new_lined(num_elements(&block_info) / line_size, line_size);
-
-        Self {
-            smem,
-            gmem,
-            gmem_layout,
-            cube_offset: CUBE_POS_Y,
-            block_info,
-        }
-    }
-}
-
-#[cube]
 impl<E: Numeric> TensorLoader<E> for LhsTensorReader<E> {
     type TileReader = SmemLhsReader<E>;
 
@@ -107,6 +60,35 @@ impl<E: Numeric> TensorLoader<E> for LhsTensorReader<E> {
         }
     }
 }
+
+#[derive(CubeType)]
+pub struct RhsTensorReader<E: Numeric> {
+    smem: SharedMemory<Line<E>>,
+    // TODO maybe shouldn't be owned, should have &'a
+    gmem: Tensor<Line<E>>,
+    gmem_layout: MatrixLayout,
+    cube_offset: u32,
+    block_info: BlockInfo,
+}
+
+#[cube]
+pub(crate) fn new_rhs_tensor_reader<E: Numeric>(
+    gmem: Tensor<Line<E>>,
+    gmem_layout: MatrixLayout,
+    block_info: BlockInfo,
+) -> RhsTensorReader<E> {
+    let line_size = gmem.line_size();
+    let smem = SharedMemory::new_lined(num_elements(&block_info) / line_size, line_size);
+
+    RhsTensorReader::<E> {
+        smem,
+        gmem,
+        gmem_layout,
+        cube_offset: CUBE_POS_Y,
+        block_info,
+    }
+}
+
 #[cube]
 impl<E: Numeric> TensorLoader<E> for RhsTensorReader<E> {
     type TileReader = SmemRhsReader<E>;

@@ -15,7 +15,7 @@ use crate::matmul::{BlockKind, BlockMatmul, CubeMatmul, Matmul, TensorMatmul};
 
 use crate::matmul::tile_io::reader::{SmemLhsReader, SmemRhsReader};
 
-struct CmmaCubeMatmul<
+pub struct CmmaCubeMatmul<
     E: Numeric,
     BM: BlockMatmul<E, SmemLhsReader<E>, SmemRhsReader<E>, DummyTensorWriter<E>>,
 > {
