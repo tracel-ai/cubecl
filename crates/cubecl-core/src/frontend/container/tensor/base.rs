@@ -1,4 +1,5 @@
 use crate::frontend::{ExpandElementBaseInit, ExpandElementTyped, SizedContainer};
+use crate::prelude::IntoRuntime;
 use crate::{
     frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType, ExpandElement},
     ir::{Elem, Item, Metadata, Variable},
@@ -183,6 +184,26 @@ impl<T: CubeType> Iterator for &Tensor<T> {
 
 impl<T: CubeType> CubeType for Tensor<T> {
     type ExpandType = ExpandElementTyped<Tensor<T>>;
+}
+
+impl<T: CubeType> CubeType for &Tensor<T> {
+    type ExpandType = ExpandElementTyped<Tensor<T>>;
+}
+
+impl<T: CubeType> IntoRuntime for &Tensor<T> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unreachable!()
+    }
+}
+
+impl<T: CubeType> CubeType for &mut Tensor<T> {
+    type ExpandType = ExpandElementTyped<Tensor<T>>;
+}
+
+impl<T: CubeType> IntoRuntime for &mut Tensor<T> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unreachable!()
+    }
 }
 
 impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {

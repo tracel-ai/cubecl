@@ -1,4 +1,11 @@
-use crate::prelude::CubePrimitive;
+use crate::{
+    ir::{Branch, Select},
+    prelude::*,
+};
+use crate::{
+    prelude::{CubePrimitive, Line},
+    unexpanded,
+};
 
 /// Executes both branches, *then* selects a value based on the condition. This *should* be
 /// branchless, but might depend on the compiler.
@@ -15,11 +22,16 @@ pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
     }
 }
 
+pub fn select_many<C: CubePrimitive>(
+    condition: Line<bool>,
+    then: Line<C>,
+    or_else: Line<C>,
+) -> Line<C> {
+    unexpanded!()
+}
+
 pub mod select {
-    use crate::{
-        ir::{Branch, Select},
-        prelude::*,
-    };
+    use super::*;
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
@@ -42,5 +54,18 @@ pub mod select {
         }));
 
         output.into()
+    }
+}
+
+pub mod select_many {
+    use super::*;
+
+    pub fn expand<C: CubePrimitive>(
+        context: &mut CubeContext,
+        condition: ExpandElementTyped<Line<bool>>,
+        then: ExpandElementTyped<Line<C>>,
+        or_else: ExpandElementTyped<Line<C>>,
+    ) -> ExpandElementTyped<Line<C>> {
+        select::expand(context, condition.expand.into(), then, or_else)
     }
 }
