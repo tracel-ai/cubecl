@@ -7,7 +7,7 @@ use half::{bf16, f16};
 
 use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::{Matmul, MatmulInstruction};
+use crate::matmul::{FixedShapeMatmul, Matmul, MatmulInstruction};
 
 use super::implementation::*;
 
@@ -31,21 +31,13 @@ macro_rules! impl_matmul_instruction {
             _output: PhantomData<O>,
         }
 
-        impl<I: Numeric, O: Numeric> Matmul<I, O> for $name<I, O>
+        impl<I: Numeric, O: Numeric> FixedShapeMatmul<I, O> for $name<I, O>
         where
             (I, O): CmmaValid<I, O>,
         {
             const M: u32 = $m;
             const N: u32 = $n;
             const K: u32 = $k;
-
-            fn cube_dim_resources() -> CubeDim {
-                CubeDim::new(32, 1, 1)
-            }
-
-            fn cube_count_resources<S: ComputeServer>() -> CubeCount<S> {
-                CubeCount::Static(1, 1, 1)
-            }
 
             unsafe fn launch_unchecked<R: Runtime>(
                 client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -59,6 +51,19 @@ macro_rules! impl_matmul_instruction {
                 matmul_instruction_launch::launch_unchecked::<Self, I, O, R>(
                     &client, cube_count, cube_dim, lhs, rhs, out, layouts,
                 );
+            }
+        }
+
+        impl<I: Numeric, O: Numeric> Matmul<I, O> for $name<I, O>
+        where
+            (I, O): CmmaValid<I, O>,
+        {
+            fn cube_dim_resources() -> CubeDim {
+                CubeDim::new(32, 1, 1)
+            }
+
+            fn cube_count_resources<S: ComputeServer>() -> CubeCount<S> {
+                CubeCount::Static(1, 1, 1)
             }
         }
 

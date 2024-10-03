@@ -4,12 +4,16 @@ use cubecl_core::prelude::*;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::MatmulInstruction;
 
+use crate::matmul::cube_matmul::base::{LhsTensorReader, OutTensorWriter, RhsTensorReader};
 use crate::matmul::tests::dummy_tile::array_into_row_major_block_layout;
 use crate::matmul::tests::dummy_tile::DummyLhsReader;
 use crate::matmul::tests::dummy_tile::DummyRhsReader;
 use crate::matmul::tests::dummy_tile::DummyWriter;
 use crate::matmul::BlockKind;
 use crate::matmul::BlockMatmul;
+
+use super::tensor_io::TensorWriter;
+use super::CubeMatmul;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
@@ -82,4 +86,16 @@ pub(crate) fn block_matmul_launch<
         BM::block_info(BlockKind::Out),
         true,
     );
+}
+
+#[cube(launch_unchecked)]
+pub(crate) fn cube_matmul_launch<
+    CM: CubeMatmul<E, LhsTensorReader, RhsTensorReader, OutTensorWriter>,
+    E: Numeric,
+>(
+    lhs_tensor: Tensor<Line<E>>,
+    rhs_tensor: Tensor<Line<E>>,
+    mut out_tensor: Tensor<Line<E>>,
+    #[comptime] layouts: (MatrixLayout, MatrixLayout),
+) {
 }

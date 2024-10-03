@@ -3,7 +3,7 @@
 macro_rules! testgen_cmma_internal_mock {
     () => {
         use cubecl_linalg::matmul::cmma_matmul::{
-            CmmaMatmul, S128_128_16, S128_16_16, S16_16_16, S32_16_16, S32_32_16, S32_32_32,
+            CmmaBlockMatmul, S128_128_16, S128_16_16, S16_16_16, S32_16_16, S32_32_16, S32_32_32,
             S32_8_16, S64_64_16, S8_32_16,
         };
         use cubecl_linalg::matmul::dummy_unit_instruction::{
@@ -32,7 +32,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_16_16_16() {
             test_matmul::<
-                CmmaMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16_16_16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16_16_16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -45,7 +45,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_32_16_16() {
             test_matmul::<
-                CmmaMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32_16_16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32_16_16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -58,7 +58,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_128_16_16() {
             test_matmul::<
-                CmmaMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S128_16_16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S128_16_16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -71,7 +71,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_64_64_16() {
             test_matmul::<
-                CmmaMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S64_64_16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S64_64_16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -84,7 +84,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_32_32_16() {
             test_matmul::<
-                CmmaMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32_32_16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32_32_16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -97,7 +97,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_32_32_32() {
             test_matmul::<
-                CmmaMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32_32_32>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32_32_32>,
                 f32,
                 f32,
                 TestRuntime,
@@ -110,7 +110,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_32_8_16() {
             test_matmul::<
-                CmmaMatmul<f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32_8_16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32_8_16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -123,7 +123,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_8_32_16() {
             test_matmul::<
-                CmmaMatmul<f32, f32, DummyUnitInstruction8_32_16<f32, f32>, S8_32_16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction8_32_16<f32, f32>, S8_32_16>,
                 f32,
                 f32,
                 TestRuntime,

@@ -71,7 +71,7 @@ impl<E: Numeric> TileWriter<Line<E>> for DummyWriter<E> {
 
         let write_offset = num_tile_offset * num_tile_elements;
         for i in 0..num_tile_elements {
-            writer.memory[i + write_offset] = Line::<E>::cast_from(slice[i]);
+            writer.memory[i + write_offset] = Line::new(E::cast_from(slice[i]));
         }
     }
 }

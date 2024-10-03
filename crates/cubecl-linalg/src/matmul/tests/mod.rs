@@ -1,4 +1,3 @@
-pub mod block_matmul;
 pub mod cmma;
 pub mod dummy_tile;
 pub mod matmul_instruction;

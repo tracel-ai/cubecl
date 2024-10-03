@@ -2,7 +2,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::CubeElement;
 
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::Matmul;
+use crate::matmul::FixedShapeMatmul;
 
 use super::test_utils::assert_equals_approx;
 use super::test_utils::matmul_cpu_reference;
@@ -11,7 +11,7 @@ pub fn test_matmul<MM, I, O, R>(layouts: (MatrixLayout, MatrixLayout), device: &
 where
     I: Numeric + CubeElement,
     O: Numeric + CubeElement,
-    MM: Matmul<I, O>,
+    MM: FixedShapeMatmul<I, O>,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);

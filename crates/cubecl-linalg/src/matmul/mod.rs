@@ -7,9 +7,11 @@ pub mod cmma_instruction;
 pub mod cmma_matmul;
 /// Contains algorithms for cooperative matrix multiplication.
 pub mod cmma_old;
+pub mod cube_matmul;
 pub mod dummy_unit_instruction;
 pub(crate) mod launch;
 pub mod matrix_layout;
+mod tensor_io;
 mod tile_io;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not

@@ -4,6 +4,7 @@ use cubecl_core::server::ComputeServer;
 
 use super::cmma_matmul::BlockInfo;
 use super::matrix_layout::MatrixLayout;
+use super::tensor_io::{TensorReader, TensorWriter};
 use super::tile_io::{TileReader, TileWriter};
 
 #[cube]
@@ -20,13 +21,35 @@ pub trait BatchMatmul<N: Numeric> {
 }
 
 #[cube]
-/// Execute a matmul over matrices.
+/// Execute a matmul over a block, accumulating for arbitrary k-dim, using one Cube.
+pub trait CubeMatmul<E: Numeric, Lhs: TensorReader<E>, Rhs: TensorReader<E>, Out: TensorWriter<E>>:
+    'static + Send + Sync
+{
+    // TensorReader knows where to look in GMEM, it carries its cube offset and reference to Tensor,
+    // has a method that takes the k offset, and returns a TileReader
+    // TensorReader/Writer is also responsible for OOB
+
+    // k:
+    // k_start (often zero, but could change for k-stream)
+    // k_end  (often K, but could change for k-stream)
+    // k_step: underlying BlockMatmul's k
+    fn execute(
+        lhs: Lhs,
+        rhs: Rhs,
+        out: Out,
+        k_range: (u32, u32),
+        layouts: (MatrixLayout, MatrixLayout),
+    );
+}
+
+#[cube]
+/// Execute a matmul over a fixed-size block, using one Cube.
 pub trait BlockMatmul<
     E: Numeric,
     Lhs: TileReader<Line<E>>,
     Rhs: TileReader<Line<E>>,
     Out: TileWriter<Line<E>>,
->: 'static + Send + Sync + Matmul<E, E>
+>: 'static + Send + Sync + FixedShapeMatmul<E, E>
 {
     type Config;
     type Accumulator: CubeType;
@@ -41,6 +64,7 @@ pub trait BlockMatmul<
     fn acc_init_zeros() -> Self::Accumulator;
     fn acc_read(acc: &Self::Accumulator, out: &mut Out);
 
+    // TODO: hopefully can be removed from API
     fn block_info(#[comptime] block: BlockKind) -> BlockInfo;
 }
 
@@ -51,12 +75,26 @@ pub enum BlockKind {
 }
 
 pub trait Matmul<I: Numeric, O: Numeric> {
+    fn cube_dim_resources() -> CubeDim;
+    fn cube_count_resources<S: ComputeServer>() -> CubeCount<S>;
+}
+
+pub trait TensorMatmul<I: Numeric, O: Numeric>: Matmul<I, O> {
+    unsafe fn launch_unchecked<R: Runtime>(
+        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        cube_dim: CubeDim,
+        cube_count: CubeCount<<R as Runtime>::Server>,
+        lhs: TensorArg<'_, R>,
+        rhs: TensorArg<'_, R>,
+        out: TensorArg<'_, R>,
+        layouts: (MatrixLayout, MatrixLayout),
+    );
+}
+
+pub trait FixedShapeMatmul<I: Numeric, O: Numeric>: Matmul<I, O> {
     const M: u32;
     const N: u32;
     const K: u32;
-
-    fn cube_dim_resources() -> CubeDim;
-    fn cube_count_resources<S: ComputeServer>() -> CubeCount<S>;
 
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -70,8 +108,10 @@ pub trait Matmul<I: Numeric, O: Numeric> {
 }
 
 #[cube]
-/// Executes a matmul at the lowest level
-pub trait MatmulInstruction<I: Numeric, O: Numeric>: 'static + Send + Sync + Matmul<I, O> {
+/// Executes a small matmul using one plane
+pub trait MatmulInstruction<I: Numeric, O: Numeric>:
+    'static + Send + Sync + FixedShapeMatmul<I, O>
+{
     type Config;
     type Lhs: CubeType;
     type Rhs: CubeType;

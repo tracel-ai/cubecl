@@ -7,13 +7,14 @@ use crate::matmul::{
     cmma_matmul::BlockInfo,
     matrix_layout::MatrixLayout,
     tile_io::{TileReader, TileWriter},
-    BlockKind, BlockMatmul, Matmul, MatmulInstruction,
+    BlockKind, BlockMatmul, FixedShapeMatmul, Matmul, MatmulInstruction,
 };
 
 use super::CmmaBlockSize;
 use crate::matmul::launch::block_matmul_launch;
 
-pub struct CmmaMatmul<E: Numeric, A: Numeric, I: MatmulInstruction<E, A>, Block: CmmaBlockSize> {
+pub struct CmmaBlockMatmul<E: Numeric, A: Numeric, I: MatmulInstruction<E, A>, Block: CmmaBlockSize>
+{
     _accumulator_precision: PhantomData<A>,
     _input_precision: PhantomData<E>,
     _instruction: PhantomData<I>,
@@ -25,7 +26,8 @@ pub struct CmmaMatmulConfig {
     pub num_accumulators: u32,
 }
 
-impl<Elem, ElemAcc, Instr, Block> Matmul<Elem, Elem> for CmmaMatmul<Elem, ElemAcc, Instr, Block>
+impl<Elem, ElemAcc, Instr, Block> FixedShapeMatmul<Elem, Elem>
+    for CmmaBlockMatmul<Elem, ElemAcc, Instr, Block>
 where
     Elem: Numeric,
     ElemAcc: Numeric,
@@ -35,18 +37,6 @@ where
     const M: u32 = Block::M;
     const N: u32 = Block::N;
     const K: u32 = Block::K;
-
-    fn cube_dim_resources() -> CubeDim {
-        CubeDim {
-            x: 32,
-            y: Block::M / Instr::M,
-            z: 1,
-        }
-    }
-
-    fn cube_count_resources<S: cubecl_core::server::ComputeServer>() -> CubeCount<S> {
-        CubeCount::Static(1, 1, 1)
-    }
 
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -63,9 +53,30 @@ where
     }
 }
 
+impl<Elem, ElemAcc, Instr, Block> Matmul<Elem, Elem>
+    for CmmaBlockMatmul<Elem, ElemAcc, Instr, Block>
+where
+    Elem: Numeric,
+    ElemAcc: Numeric,
+    Instr: MatmulInstruction<Elem, ElemAcc>,
+    Block: CmmaBlockSize,
+{
+    fn cube_dim_resources() -> CubeDim {
+        CubeDim {
+            x: 32,
+            y: Block::M / Instr::M,
+            z: 1,
+        }
+    }
+
+    fn cube_count_resources<S: cubecl_core::server::ComputeServer>() -> CubeCount<S> {
+        CubeCount::Static(1, 1, 1)
+    }
+}
+
 #[cube]
 impl<Elem, ElemAcc, Instr, Block, Lhs, Rhs, Out> BlockMatmul<Elem, Lhs, Rhs, Out>
-    for CmmaMatmul<Elem, ElemAcc, Instr, Block>
+    for CmmaBlockMatmul<Elem, ElemAcc, Instr, Block>
 where
     Elem: Numeric,
     ElemAcc: Numeric,
@@ -117,7 +128,7 @@ where
     }
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
-        let num_planes = <Self as Matmul<Elem, Elem>>::M / Instr::M; // TODO config
+        let num_planes = <Self as FixedShapeMatmul<Elem, Elem>>::M / Instr::M; // TODO config
         let plane_id = UNIT_POS_Y; // TODO some plane mapper
 
         let num_tile_elements = Instr::M * Instr::N;
