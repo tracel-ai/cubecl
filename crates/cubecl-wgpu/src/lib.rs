@@ -10,6 +10,7 @@ mod element;
 mod graphics;
 mod runtime;
 
+pub use compute::*;
 pub use device::*;
 pub use element::*;
 pub use graphics::*;

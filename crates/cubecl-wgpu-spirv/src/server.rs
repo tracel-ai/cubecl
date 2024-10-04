@@ -1,7 +1,5 @@
 use std::num::NonZero;
 
-use crate::compiler::wgsl::WgslCompiler;
-
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
@@ -15,12 +13,17 @@ use cubecl_runtime::{
     storage::{ComputeStorage, StorageId},
     ExecutionMode,
 };
+use cubecl_spirv::SpirvCompiler;
 use hashbrown::HashMap;
-use wgpu::{CommandEncoder, ComputePass, ComputePipeline, ShaderModuleDescriptor};
+use wgpu::{
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
+    CommandEncoder, ComputePass, ComputePipeline, PipelineLayout, PipelineLayoutDescriptor,
+    ShaderModuleDescriptorSpirV, ShaderStages,
+};
 
 /// Wgpu compute server.
 #[derive(Debug)]
-pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
+pub struct WgpuSpirvServer<MM: MemoryManagement<WgpuStorage>> {
     memory_management: MM,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -40,7 +43,7 @@ fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
     })
 }
 
-impl<MM> WgpuServer<MM>
+impl<MM> WgpuSpirvServer<MM>
 where
     MM: MemoryManagement<WgpuStorage>,
 {
@@ -80,37 +83,59 @@ where
 
         let mut compile = kernel.compile(mode);
         if self.logger.is_activated() {
-            compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
+            compile.debug_info = Some(DebugInformation::new("spv", kernel_id.clone()));
         }
 
         let compile = self.logger.debug(compile);
-        let pipeline = self.compile_source(&compile.source, mode);
+
+        let num_bindings = compile.repr.num_bindings as u32;
+        let bindings = (0..num_bindings)
+            .map(|i| BindGroupLayoutEntry {
+                binding: i,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            })
+            .collect::<Vec<_>>();
+        let layout = self
+            .device
+            .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: None,
+                entries: &bindings,
+            });
+        let layout = self
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&layout],
+                push_constant_ranges: &[],
+            });
+
+        let pipeline = self.compile_source(&compile.repr.assemble(), &layout);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         pipeline
     }
 
-    fn compile_source(&self, source: &str, mode: ExecutionMode) -> Arc<ComputePipeline> {
-        let module = match mode {
-            ExecutionMode::Checked => self.device.create_shader_module(ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-            }),
-            ExecutionMode::Unchecked => unsafe {
-                self.device
-                    .create_shader_module_unchecked(ShaderModuleDescriptor {
-                        label: None,
-                        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                    })
-            },
+    fn compile_source(&self, spirv: &[u32], layout: &PipelineLayout) -> Arc<ComputePipeline> {
+        let module = unsafe {
+            self.device
+                .create_shader_module_spirv(&ShaderModuleDescriptorSpirV {
+                    label: None,
+                    source: Cow::Borrowed(spirv),
+                })
         };
 
         Arc::new(
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: None,
-                    layout: None,
+                    layout: Some(layout),
                     module: &module,
                     entry_point: "main",
                     compilation_options: wgpu::PipelineCompilationOptions {
@@ -127,11 +152,11 @@ where
     }
 }
 
-impl<MM> ComputeServer for WgpuServer<MM>
+impl<MM> ComputeServer for WgpuSpirvServer<MM>
 where
     MM: MemoryManagement<WgpuStorage>,
 {
-    type Kernel = Box<dyn CubeTask<WgslCompiler>>;
+    type Kernel = Box<dyn CubeTask<SpirvCompiler>>;
     type DispatchOptions = CubeCount<Self>;
     type Storage = WgpuStorage;
     type MemoryManagement = MM;

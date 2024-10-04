@@ -27,11 +27,6 @@ pub enum Variable {
         item: Item,
         depth: u8,
     },
-    LocalScalar {
-        id: u16,
-        elem: Elem,
-        depth: u8,
-    },
     ConstantScalar(ConstantScalarValue),
     ConstantArray {
         id: u16,
@@ -205,7 +200,6 @@ impl Variable {
             Variable::Local { id, .. } => Some(*id),
             Variable::LocalBinding { id, .. } => Some(*id),
             Variable::Slice { id, .. } => Some(*id),
-            Variable::LocalScalar { id, .. } => Some(*id),
             Variable::GlobalOutputArray { id, .. } => Some(*id),
             Variable::ConstantScalar { .. } => None,
             Variable::ConstantArray { id, .. } => Some(*id),
@@ -245,7 +239,6 @@ impl Variable {
             Variable::GlobalScalar { elem, .. } => Item::new(*elem),
             Variable::Local { item, .. } => *item,
             Variable::LocalBinding { item, .. } => *item,
-            Variable::LocalScalar { elem, .. } => Item::new(*elem),
             Variable::ConstantScalar(value) => Item::new(value.elem()),
             Variable::ConstantArray { item, .. } => *item,
             Variable::SharedMemory { item, .. } => *item,

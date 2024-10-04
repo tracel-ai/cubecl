@@ -137,7 +137,7 @@ impl Scope {
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
     pub fn create_local_undeclared(&mut self, item: Item) -> Variable {
         let index = self.new_local_index();
-        let local = Variable::Local {
+        let local = Variable::LocalBinding {
             id: index,
             item,
             depth: self.depth,
@@ -170,9 +170,9 @@ impl Scope {
     ///
     /// The index refers to the scalar position for the same [element](Elem) type.
     pub fn read_scalar(&mut self, index: u16, elem: Elem) -> Variable {
-        let local = Variable::LocalScalar {
-            id: self.new_local_scalar_index(),
-            elem,
+        let local = Variable::LocalBinding {
+            id: self.new_local_index(),
+            item: Item::new(elem),
             depth: self.depth,
         };
         let scalar = Variable::GlobalScalar { id: index, elem };
@@ -387,10 +387,6 @@ impl Scope {
 
     pub fn new_local_index(&self) -> u16 {
         self.locals.len() as u16 + self.undeclared
-    }
-
-    fn new_local_scalar_index(&self) -> u16 {
-        self.reads_scalar.len() as u16
     }
 
     fn new_shared_index(&self) -> u16 {

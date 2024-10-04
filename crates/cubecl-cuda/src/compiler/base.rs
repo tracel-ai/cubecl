@@ -638,11 +638,6 @@ impl CudaCompiler {
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::LocalScalar { id, elem, depth } => super::Variable::LocalScalar {
-                id,
-                elem: self.compile_elem(elem),
-                depth,
-            },
             gpu::Variable::GlobalOutputArray { id, item } => {
                 super::Variable::GlobalOutputArray(id, self.compile_item(item))
             }

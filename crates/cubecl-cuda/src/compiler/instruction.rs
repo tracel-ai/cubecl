@@ -625,7 +625,7 @@ impl Normalize {
         f.write_str(";\n")?;
 
         if num == 1 {
-            write!(f, "{out} = {norm}\n}};")
+            writeln!(f, "{out} = {input} / {norm};")
         } else {
             write!(f, "{out} = {out_item}{{")?;
             for i in 0..num {

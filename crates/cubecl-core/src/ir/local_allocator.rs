@@ -17,6 +17,9 @@ pub trait LocalAllocator {
     fn create_local_variable(&self, root: ScopeRef, scope: ScopeRef, item: Item) -> ExpandElement;
     /// Creates an immutable local binding for intermediates
     fn create_local_binding(&self, root: ScopeRef, scope: ScopeRef, item: Item) -> ExpandElement;
+    /// Creates an undeclared local binding that must not be reused regardless of allocator
+    fn create_local_undeclared(&self, root: ScopeRef, scope: ScopeRef, item: Item)
+        -> ExpandElement;
 }
 
 #[derive(Default, Clone)]
@@ -92,6 +95,15 @@ impl LocalAllocator for ReusingAllocator {
     fn create_local_binding(&self, root: ScopeRef, scope: ScopeRef, item: Item) -> ExpandElement {
         self.create_local_variable(root, scope, item)
     }
+
+    fn create_local_undeclared(
+        &self,
+        _root: ScopeRef,
+        scope: ScopeRef,
+        item: Item,
+    ) -> ExpandElement {
+        ExpandElement::Plain(scope.borrow_mut().create_local_undeclared(item))
+    }
 }
 
 /// Hybrid allocator. Creates immutable local bindings for intermediates, and falls back to
@@ -113,5 +125,14 @@ impl LocalAllocator for HybridAllocator {
         let id = self.ssa_index.fetch_add(1, Ordering::AcqRel);
         let depth = scope.borrow().depth;
         ExpandElement::Plain(Variable::LocalBinding { id, item, depth })
+    }
+
+    fn create_local_undeclared(
+        &self,
+        root: ScopeRef,
+        scope: ScopeRef,
+        item: Item,
+    ) -> ExpandElement {
+        self.create_local_binding(root, scope, item)
     }
 }
