@@ -26,7 +26,7 @@ pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
     current_pass: Option<ComputePass<'static>>,
     tasks_count: usize,
     compute_storage_used: Vec<StorageId>,
-    copy_handles_used: Vec<(StorageId, u32)>,
+    copy_storage_used: Vec<StorageId>,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     tasks_max: usize,
     logger: DebugLogger,
@@ -57,7 +57,7 @@ where
             current_pass: None,
             tasks_count: 0,
             compute_storage_used: Vec::new(),
-            copy_handles_used: Vec::new(),
+            copy_storage_used: Vec::new(),
             pipelines: HashMap::new(),
             tasks_max,
             logger: DebugLogger::new(),
@@ -196,11 +196,20 @@ where
         &mut self,
         binding: server::Binding<Self>,
     ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
-        self.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        )
+        // Keep track of any buffer that might be used in the wgpu queue, as we cannot copy into them
+        // after they have any outstanding compute work. Calling get_resource repeatedly
+        // will add duplicates to this, but that is ok.
+        let handle = self.memory_management.get(binding.memory.clone());
+        self.compute_storage_used.push(handle.id);
+        let handle = match binding.offset_start {
+            Some(offset) => handle.offset_start(offset),
+            None => handle,
+        };
+        let handle = match binding.offset_end {
+            Some(offset) => handle.offset_end(offset),
+            None => handle,
+        };
+        self.memory_management.storage().get(&handle)
     }
 
     /// When we create a new handle from existing data, we use custom allocations so that we don't
@@ -211,12 +220,12 @@ where
     fn create(&mut self, data: &[u8]) -> server::Handle<Self> {
         // Reserve memory on some storage we haven't yet used this command queue for compute
         // or copying.
-        let total_handles = self
-            .compute_storage_used
-            .iter()
-            .copied()
-            .chain(self.copy_handles_used.iter().map(|x| x.0))
-            .collect::<Vec<_>>();
+        let total_handles = [
+            self.compute_storage_used.as_slice(),
+            self.copy_storage_used.as_slice(),
+        ]
+        .concat();
+
         let num_bytes = data.len();
 
         // Handle empty tensors (must bind at minimum 4 bytes)
@@ -227,8 +236,8 @@ where
             let resource_handle = self.memory_management.get(memory.clone().binding());
 
             // Dont re-use this handle for writing until the queue is flushed. All writes
-            // would happen at the start of the submission.
-            self.copy_handles_used.push((resource_handle.id, 0));
+            // happen at the start of the submission.
+            self.copy_storage_used.push(resource_handle.id);
 
             let resource = self.memory_management.storage().get(&resource_handle);
 
@@ -268,19 +277,11 @@ where
         let resources: Vec<_> = bindings
             .iter()
             .map(|binding| {
-                let resource_handle = self.memory_management.get(binding.memory.clone());
-                // Keep track of the storage we've used so far.
-                self.compute_storage_used.push(resource_handle.id);
-
-                let handle = match binding.offset_start {
-                    Some(offset) => resource_handle.offset_start(offset),
-                    None => resource_handle.clone(),
-                };
-                let handle = match binding.offset_end {
-                    Some(offset) => handle.offset_end(offset),
-                    None => handle,
-                };
-                self.memory_management.storage().get(&handle)
+                // Keep track of the used buffers, to disallow copying into them while
+                // they are active.
+                let storage_handle = self.memory_management.get(binding.memory.clone());
+                self.compute_storage_used.push(storage_handle.id);
+                self.get_resource(binding.clone())
             })
             .collect();
 
@@ -309,7 +310,7 @@ where
         // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
         // needs to be longer than the compute pass, so we can't do this just before dispatching.
         let dispatch_resource = match count.clone() {
-            CubeCount::Dynamic(binding) => Some(self.get_resource(binding)),
+            CubeCount::Dynamic(binding) => Some(self.get_resource(binding.clone())),
             _ => None,
         };
 
@@ -374,17 +375,7 @@ where
 
         self.tasks_count = 0;
         self.compute_storage_used.clear();
-
-        self.copy_handles_used.retain_mut(|x| {
-            // For some unknown reason, we have to make sure
-            // a buffer isn't used more than once not just in the current
-            // submission, but also in the next one.
-            //
-            // This really needs a better explanation of why this is, or
-            // some investigation, maybe it's a wgpu bug.
-            x.1 += 1;
-            x.1 < 2
-        });
+        self.copy_storage_used.clear();
 
         if sync_type == SyncType::Wait {
             self.device.poll(wgpu::Maintain::Wait);
