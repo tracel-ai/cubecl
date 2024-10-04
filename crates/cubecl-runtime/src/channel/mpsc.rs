@@ -4,7 +4,7 @@ use std::{sync::Arc, thread};
 use super::ComputeChannel;
 use crate::{
     server::{Binding, ComputeServer, Handle},
-    storage::ComputeStorage,
+    storage::BindingResource,
     ExecutionMode,
 };
 
@@ -34,10 +34,7 @@ where
     Server: ComputeServer,
 {
     Read(Binding<Server>, Callback<Vec<u8>>),
-    GetResource(
-        Binding<Server>,
-        Callback<<Server::Storage as ComputeStorage>::Resource>,
-    ),
+    GetResource(Binding<Server>, Callback<BindingResource<Server>>),
     Create(Vec<u8>, Callback<Handle<Server>>),
     Empty(usize, Callback<Handle<Server>>),
     ExecuteKernel(
@@ -117,10 +114,7 @@ where
         })
     }
 
-    fn get_resource(
-        &self,
-        binding: Binding<Server>,
-    ) -> <Server::Storage as ComputeStorage>::Resource {
+    fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server> {
         let (callback, response) = async_channel::unbounded();
 
         self.state

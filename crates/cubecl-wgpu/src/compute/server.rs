@@ -10,7 +10,7 @@ use cubecl_runtime::{
     debug::DebugLogger,
     memory_management::{MemoryHandle, MemoryLock, MemoryManagement},
     server::{self, ComputeServer},
-    storage::ComputeStorage,
+    storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
 use hashbrown::HashMap;
@@ -136,7 +136,8 @@ where
     type Properties = Properties;
 
     fn read(&mut self, binding: server::Binding<Self>) -> Reader {
-        let resource = self.get_resource(binding);
+        let rb = self.get_resource(binding);
+        let resource = rb.resource();
 
         let size = resource.size();
         let read_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -191,10 +192,7 @@ where
         })
     }
 
-    fn get_resource(
-        &mut self,
-        binding: server::Binding<Self>,
-    ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
+    fn get_resource(&mut self, binding: server::Binding<Self>) -> BindingResource<Self> {
         // Keep track of any buffer that might be used in the wgpu queue, as we cannot copy into them
         // after they have any outstanding compute work. Calling get_resource repeatedly
         // will add duplicates to this, but that is ok.
@@ -209,7 +207,8 @@ where
             Some(offset) => handle.offset_end(offset),
             None => handle,
         };
-        self.memory_management.storage().get(&handle)
+        let resource = self.memory_management.storage().get(&handle);
+        BindingResource::new(binding, resource)
     }
 
     /// When we create a new handle from existing data, we use custom allocations so that we don't
@@ -281,7 +280,7 @@ where
             .enumerate()
             .map(|(i, r)| wgpu::BindGroupEntry {
                 binding: i as u32,
-                resource: r.as_binding(),
+                resource: r.resource().as_wgpu_bind_resource(),
             })
             .collect::<Vec<_>>();
 
@@ -300,7 +299,7 @@ where
 
         // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
         // needs to be longer than the compute pass, so we can't do this just before dispatching.
-        let dispatch_resource = match count.clone() {
+        let dispatch_br = match count.clone() {
             CubeCount::Dynamic(binding) => Some(self.get_resource(binding)),
             _ => None,
         };
@@ -327,8 +326,11 @@ where
                 pass.dispatch_workgroups(x, y, z);
             }
             CubeCount::Dynamic(_) => {
-                let resource = dispatch_resource.as_ref().unwrap();
-                pass.dispatch_workgroups_indirect(&resource.buffer, resource.offset());
+                let binding_resource = dispatch_br.as_ref().unwrap();
+                pass.dispatch_workgroups_indirect(
+                    &binding_resource.resource().buffer,
+                    binding_resource.resource().offset(),
+                );
             }
         }
 

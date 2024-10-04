@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use cubecl_common::{reader::reader_from_concrete, sync_type::SyncType};
-use cubecl_runtime::storage::ComputeStorage;
+use cubecl_runtime::storage::{BindingResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::{simple::SimpleMemoryManagement, MemoryManagement},
     server::{Binding, ComputeServer, Handle},
-    storage::{BytesResource, BytesStorage},
+    storage::BytesStorage,
     ExecutionMode,
 };
 use derive_new::new;
@@ -36,17 +36,15 @@ where
         reader_from_concrete(bytes.read().to_vec())
     }
 
-    fn get_resource(&mut self, binding: Binding<Self>) -> BytesResource {
-        let handle = self.memory_management.get(binding.memory);
-        self.memory_management.storage().get(&handle)
+    fn get_resource(&mut self, binding: Binding<Self>) -> BindingResource<Self> {
+        let handle = self.memory_management.get(binding.clone().memory);
+        BindingResource::new(binding, self.memory_management.storage().get(&handle))
     }
 
     fn create(&mut self, data: &[u8]) -> Handle<Self> {
         let handle = self.empty(data.len());
         let resource = self.get_resource(handle.clone().binding());
-
-        let bytes = resource.write();
-
+        let bytes = resource.resource().write();
         for (i, val) in data.iter().enumerate() {
             bytes[i] = *val;
         }
@@ -65,10 +63,12 @@ where
         bindings: Vec<Binding<Self>>,
         _mode: ExecutionMode,
     ) {
-        let mut resources = bindings
+        let bind_resources = bindings
             .into_iter()
             .map(|binding| self.get_resource(binding))
             .collect::<Vec<_>>();
+
+        let mut resources: Vec<_> = bind_resources.iter().map(|x| x.resource()).collect();
 
         kernel.compute(&mut resources);
     }
