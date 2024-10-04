@@ -27,7 +27,7 @@ type MemoryManagement = memory_management::dynamic::DynamicMemoryManagement<Wgpu
 type MemoryManagement = memory_management::simple::SimpleMemoryManagement<WgpuStorage>;
 
 #[cfg(not(simple_memory_management))]
-fn init_memory_management(device: Arc<wgpu::Device>, limits: &Limits) -> MemoryManagement {
+pub fn init_memory_management(device: Arc<wgpu::Device>, limits: &Limits) -> MemoryManagement {
     let storage = WgpuStorage::new(device.clone());
 
     memory_management::dynamic::DynamicMemoryManagement::new(
@@ -40,7 +40,7 @@ fn init_memory_management(device: Arc<wgpu::Device>, limits: &Limits) -> MemoryM
 }
 
 #[cfg(simple_memory_management)]
-fn init_memory_management(device: Arc<wgpu::Device>, _limits: &Limits) -> MemoryManagement {
+pub fn init_memory_management(device: Arc<wgpu::Device>, _limits: &Limits) -> MemoryManagement {
     let storage = WgpuStorage::new(device.clone());
 
     memory_management::simple::SimpleMemoryManagement::new(
@@ -123,7 +123,7 @@ pub async fn init_async<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOpt
     RUNTIME.register(device, client)
 }
 
-async fn create_wgpu_setup<G: GraphicsApi>(
+pub async fn create_wgpu_setup<G: GraphicsApi>(
     device: &WgpuDevice,
 ) -> (Arc<wgpu::Adapter>, Arc<wgpu::Device>, Arc<wgpu::Queue>) {
     let (device_wgpu, queue, adapter) = select_device::<G>(device).await;
@@ -136,7 +136,7 @@ async fn create_wgpu_setup<G: GraphicsApi>(
     (Arc::new(adapter), Arc::new(device_wgpu), Arc::new(queue))
 }
 
-fn create_client(
+pub fn create_client(
     adapter: Arc<wgpu::Adapter>,
     device_wgpu: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,

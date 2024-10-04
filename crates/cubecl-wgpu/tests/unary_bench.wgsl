@@ -29,25 +29,25 @@ let _0 = arrayLength(&output_0_global);
 let _1 = id < _0;
 if _1 {
 
-for (var l_2_0: u32 = 0u; l_2_0 < 256u; l_2_0++) {
-let _2 = l_2_0 % 2u;
-let _3 = _2 == 0u;
-if _3 {
-let _4 = input_0_global[id];
-let _5 = input_1_global[id];
-let _6 = _4 * _5;
-let _7 = cos(_6);
-let _8 = output_0_global[id];
-let _9 = _8 - _7;
-output_0_global[id] = _9;
+for (var _2: u32 = 0u; _2 < 256u; _2++) {
+let _3 = _2 % 2u;
+let _4 = _3 == 0u;
+if _4 {
+let _5 = input_0_global[id];
+let _6 = input_1_global[id];
+let _7 = _5 * _6;
+let _8 = cos(_7);
+let _9 = output_0_global[id];
+let _10 = _9 - _8;
+output_0_global[id] = _10;
 } else {
-let _10 = input_0_global[id];
-let _11 = input_1_global[id];
-let _12 = _10 * _11;
-let _13 = cos(_12);
-let _14 = output_0_global[id];
-let _15 = _14 + _13;
-output_0_global[id] = _15;
+let _11 = input_0_global[id];
+let _12 = input_1_global[id];
+let _13 = _11 * _12;
+let _14 = cos(_13);
+let _15 = output_0_global[id];
+let _16 = _15 + _14;
+output_0_global[id] = _16;
 }
 }
 }

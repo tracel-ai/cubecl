@@ -6,6 +6,7 @@ pub mod const_match;
 pub mod constants;
 pub mod different_rank;
 pub mod launch;
+pub mod metadata;
 pub mod sequence;
 pub mod slice;
 pub mod subcube;
@@ -26,6 +27,7 @@ macro_rules! testgen_all {
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_constants!();
         cubecl_core::testgen_topology!();
+        cubecl_core::testgen_metadata!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_unary!();
         cubecl_core::testgen_binary!();

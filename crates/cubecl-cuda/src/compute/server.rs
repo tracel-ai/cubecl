@@ -1,4 +1,4 @@
-use crate::compiler::format_cpp_code;
+use crate::compiler::{format_cpp_code, CudaCompiler};
 
 use super::storage::CudaStorage;
 use super::CudaResource;
@@ -87,7 +87,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
 }
 
 impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
-    type Kernel = Box<dyn CubeTask>;
+    type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type DispatchOptions = CubeCount<Self>;
     type Storage = CudaStorage;
     type MemoryManagement = MM;
@@ -250,7 +250,7 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
     fn compile_kernel(
         &mut self,
         kernel_id: &KernelId,
-        kernel: Box<dyn CubeTask>,
+        kernel: Box<dyn CubeTask<CudaCompiler>>,
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
