@@ -2,10 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-/// Defines the number of tiles and their size in each plane
-pub trait TileReader<E: CubePrimitive>: CubeType + 'static + Send + Sync {
+pub trait TileReader<E: CubePrimitive>: CubeType {
     fn read(
-        reader: &Self,
+        tile_reader: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
         accumulator_offset: u32,
@@ -13,11 +12,18 @@ pub trait TileReader<E: CubePrimitive>: CubeType + 'static + Send + Sync {
 }
 
 #[cube]
-/// Defines the number of tiles and their size in each plane
+pub trait TensorLoader<E: CubePrimitive>: CubeType + 'static + Send + Sync {
+    type TileReader: TileReader<E>;
+
+    fn load_block(tensor_loader: &mut Self, k_offset: u32) -> Self::TileReader;
+}
+
+#[cube]
 pub trait TileWriter<E: CubePrimitive>: CubeType + 'static + Send + Sync {
-    // fn write(writer: &mut Self, slice: &Slice<'_, E>, pos_x: u32, pos_y: u32);
+    type Gmem: CubeType;
+
     fn write_with_cast<C: Numeric>(
-        writer: &mut Self,
+        tile_writer: &mut Self,
         slice: &Slice<'_, C>,
         compute_plane_offset: u32,
         accumulator_offset: u32,

@@ -120,8 +120,8 @@ where
     type Accumulator = Sequence<Instr::Out>;
 
     fn execute(
-        lhs: Lhs,
-        rhs: Rhs,
+        lhs: &Lhs,
+        rhs: &Rhs,
         acc: &mut Self::Accumulator,
         #[comptime] layouts: (MatrixLayout, MatrixLayout),
     ) {

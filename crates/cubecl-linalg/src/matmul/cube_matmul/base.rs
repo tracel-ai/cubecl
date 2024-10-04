@@ -7,30 +7,24 @@ use cubecl_core::server::ComputeServer;
 use crate::matmul::cmma_matmul::BlockInfos;
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tensor_io::reader::{LhsTensorReader, RhsTensorReader};
-use crate::matmul::tensor_io::writer::OutTensorWriter;
-use crate::matmul::tensor_io::{TensorLoader, TensorWriter};
-use crate::matmul::tile_io::writer::DummyTensorWriter;
+use crate::matmul::tile_io::loading::{
+    LhsSmemTileReader, LhsTensorLoader, RhsSmemTileReader, RhsTensorLoader,
+};
+use crate::matmul::tile_io::writing::GmemTensorWriter;
+use crate::matmul::tile_io::TensorLoader;
 use crate::matmul::{BlockMatmul, CubeMatmul, Matmul, TensorMatmul};
 
-use crate::matmul::tile_io::reader::{SmemLhsReader, SmemRhsReader};
-
 pub struct CmmaCubeMatmul<
-    E: Numeric,
-    BM: BlockMatmul<E, SmemLhsReader<E>, SmemRhsReader<E>, DummyTensorWriter<E>>,
+    Elem: Numeric,
+    BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, GmemTensorWriter<Elem>>,
 > {
-    _elem: PhantomData<E>,
+    _elem: PhantomData<Elem>,
     _block_matmul: PhantomData<BM>,
 }
 
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<
-            Elem,
-            <LhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
-            <RhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
-            <OutTensorWriter<Elem> as TensorWriter<Elem>>::TileWriter,
-        >,
+        BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, GmemTensorWriter<Elem>>,
     > Matmul<Elem, Elem> for CmmaCubeMatmul<Elem, BM>
 {
     fn cube_dim_resources() -> CubeDim {
@@ -48,12 +42,7 @@ impl<
 
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<
-            Elem,
-            <LhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
-            <RhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
-            <OutTensorWriter<Elem> as TensorWriter<Elem>>::TileWriter,
-        >,
+        BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, GmemTensorWriter<Elem>>,
     > TensorMatmul<Elem> for CmmaCubeMatmul<Elem, BM>
 {
     unsafe fn launch_unchecked<R: Runtime>(
@@ -81,19 +70,14 @@ impl<
 #[cube]
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<
-            Elem,
-            <LhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
-            <RhsTensorReader<Elem> as TensorLoader<Elem>>::TileReader,
-            <OutTensorWriter<Elem> as TensorWriter<Elem>>::TileWriter,
-        >,
-    > CubeMatmul<Elem, LhsTensorReader<Elem>, RhsTensorReader<Elem>, OutTensorWriter<Elem>>
+        BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, GmemTensorWriter<Elem>>,
+    > CubeMatmul<Elem, LhsTensorLoader<Elem>, RhsTensorLoader<Elem>, GmemTensorWriter<Elem>>
     for CmmaCubeMatmul<Elem, BM>
 {
     fn execute(
-        mut lhs: LhsTensorReader<Elem>,
-        mut rhs: RhsTensorReader<Elem>,
-        out: OutTensorWriter<Elem>,
+        mut lhs_reader: LhsTensorLoader<Elem>,
+        mut rhs_reader: RhsTensorLoader<Elem>,
+        mut out_writer: GmemTensorWriter<Elem>,
         k_range: (u32, u32),
         layouts: (MatrixLayout, MatrixLayout),
     ) {
@@ -106,13 +90,14 @@ impl<
         for block_iter in 0..num_loops {
             let k_offset = block_iter * k_step;
 
-            let lhs_tile_reader = LhsTensorReader::load_tile(&mut lhs, k_offset);
-            let rhs_tile_reader = RhsTensorReader::load_tile(&mut rhs, k_offset);
-
-            BM::execute(lhs_tile_reader, rhs_tile_reader, &mut acc, layouts);
+            BM::execute(
+                &LhsTensorLoader::load_block(&mut lhs_reader, k_offset),
+                &RhsTensorLoader::load_block(&mut rhs_reader, k_offset),
+                &mut acc,
+                layouts,
+            );
         }
 
-        let mut tile_writer = OutTensorWriter::as_tile_writer(out);
-        BM::acc_read(&acc, &mut tile_writer);
+        BM::acc_read(&acc, &mut out_writer);
     }
 }

@@ -4,16 +4,20 @@ use cubecl_core::prelude::*;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::MatmulInstruction;
 
-use crate::matmul::tensor_io::reader::{new_lhs_tensor_reader, new_rhs_tensor_reader};
-use crate::matmul::tensor_io::reader::{LhsTensorReader, RhsTensorReader};
-use crate::matmul::tensor_io::writer::{new_out_writer, OutTensorWriter};
-use crate::matmul::tests::dummy_tile::array_into_row_major_block_layout;
-use crate::matmul::tile_io::reader::{SmemLhsReader, SmemRhsReader};
-use crate::matmul::tile_io::writer::DummySmemWriter;
 use crate::matmul::BlockMatmul;
 
-use super::cmma_matmul::{into_runtime, BlockInfos};
+use super::cmma_matmul::BlockInfos;
+use super::tile_io::loading::LhsSmemTileReader;
+use super::tile_io::loading::RhsSmemTileReader;
+use super::tile_io::loading::{LhsTensorLoader, RhsTensorLoader};
+use super::tile_io::writing::GmemTensorWriter;
 use super::CubeMatmul;
+use crate::matmul::tile_io::loading::{new_lhs_tensor_loader, new_rhs_tensor_loader};
+use crate::matmul::tile_io::writing::new_tensor_writer;
+use crate::matmul::tile_io::TileWriter;
+
+use crate::matmul::cmma_matmul::into_runtime;
+use crate::matmul::tests::dummy_tile::array_into_row_major_block_layout;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
@@ -36,79 +40,83 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 #[cube(launch_unchecked)]
 /// TODO simplify using smem loading
 pub(crate) fn block_matmul_launch<
-    BM: BlockMatmul<E, SmemLhsReader<E>, SmemRhsReader<E>, DummySmemWriter<E>>,
-    E: Numeric,
+    BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, GmemTensorWriter<Elem>>,
+    Elem: Numeric,
 >(
-    lhs_data: Array<Line<E>>,
-    rhs_data: Array<Line<E>>,
-    mut out_result: Array<Line<E>>,
+    lhs_data: Array<Line<Elem>>,
+    rhs_data: Array<Line<Elem>>,
+    mut out_result: Array<Line<Elem>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
     #[comptime] block_info: BlockInfos,
 ) {
-    let mut lhs_with_layout = SharedMemory::<Line<E>>::new(BM::M * BM::K);
-    let mut rhs_with_layout = SharedMemory::<Line<E>>::new(BM::K * BM::N);
-    let out_with_layout = SharedMemory::<Line<E>>::new(BM::M * BM::N);
-
-    let lhs_block_info = into_runtime(block_info.lhs);
-    let rhs_block_info = into_runtime(block_info.rhs);
-    let out_block_info = into_runtime(block_info.out);
-
-    array_into_row_major_block_layout(
-        lhs_data.as_slice(),
-        lhs_with_layout.as_slice_mut(),
-        lhs_block_info,
-        false,
-    );
-
-    array_into_row_major_block_layout(
-        rhs_data.as_slice(),
-        rhs_with_layout.as_slice_mut(),
-        rhs_block_info,
-        false,
-    );
-
-    let lhs = SmemLhsReader::<E> {
-        memory: lhs_with_layout,
-        block_info: into_runtime(block_info.lhs),
-    };
-    let rhs = SmemRhsReader::<E> {
-        memory: rhs_with_layout,
-        block_info: into_runtime(block_info.rhs),
-    };
-
-    let mut out = DummySmemWriter::<E> {
-        memory: out_with_layout,
-        block_info: out_block_info,
-    };
+    let lhs_tile_reader = TileReader;
+    let rhs_tile_reader = TileReader;
+    let out_writer = GmemTensorWriter;
 
     let mut acc = BM::acc_init_zeros();
-    BM::execute(lhs, rhs, &mut acc, layouts);
-    BM::acc_read(&mut acc, &mut out);
+    BM::execute(lhs_tile_reader, rhs_tile_reader, &mut acc, layouts);
+    BM::acc_read(&acc, &mut out_writer);
 
-    array_into_row_major_block_layout(
-        out.memory.as_slice(),
-        out_result.as_slice_mut(),
-        out_block_info,
-        true,
-    );
+    // let mut lhs_smem = SharedMemory::<Line<E>>::new(BM::M * BM::K);
+    // let mut rhs_smem = SharedMemory::<Line<E>>::new(BM::K * BM::N);
+    // let out_smem = SharedMemory::<Line<E>>::new(BM::M * BM::N);
+
+    // let lhs_block_info = into_runtime(block_info.lhs);
+    // let rhs_block_info = into_runtime(block_info.rhs);
+    // let out_block_info = into_runtime(block_info.out);
+
+    // array_into_row_major_block_layout(
+    //     lhs_data.as_slice(),
+    //     lhs_smem.as_slice_mut(),
+    //     lhs_block_info,
+    //     false,
+    // );
+    // array_into_row_major_block_layout(
+    //     rhs_data.as_slice(),
+    //     rhs_smem.as_slice_mut(),
+    //     rhs_block_info,
+    //     false,
+    // );
+
+    // let lhs = LhsTileReader::<E> {
+    //     smem: lhs_smem,
+    //     block_info: into_runtime(block_info.lhs),
+    // };
+    // let rhs = RhsTileReader::<E> {
+    //     smem: rhs_smem,
+    //     block_info: into_runtime(block_info.rhs),
+    // };
+
+    // let mut out = new_out_writer(out_smem, out_block_info);
+
+    // let mut acc = BM::acc_init_zeros();
+    // BM::execute(&lhs, &rhs, &mut acc, layouts);
+    // BM::acc_read(&mut acc, &mut out);
+
+    // array_into_row_major_block_layout(
+    //     out.memory.as_slice(),
+    //     out_result.as_slice_mut(),
+    //     out_block_info,
+    //     true,
+    // );
 }
 
 #[cube(launch_unchecked)]
 pub(crate) fn cube_matmul_launch<
-    CM: CubeMatmul<E, LhsTensorReader<E>, RhsTensorReader<E>, OutTensorWriter<E>>,
-    E: Numeric,
+    CM: CubeMatmul<Elem, LhsTensorLoader<Elem>, RhsTensorLoader<Elem>, GmemTensorWriter<Elem>>,
+    Elem: Numeric,
 >(
-    lhs_tensor: Tensor<Line<E>>,
-    rhs_tensor: Tensor<Line<E>>,
-    out_tensor: Tensor<Line<E>>,
+    lhs_tensor: Tensor<Line<Elem>>,
+    rhs_tensor: Tensor<Line<Elem>>,
+    out_tensor: Tensor<Line<Elem>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
     #[comptime] block_info: BlockInfos,
 ) {
     let k = lhs_tensor.shape(lhs_tensor.rank() - 1);
 
-    let lhs = new_lhs_tensor_reader(lhs_tensor, layouts.0, block_info.lhs);
-    let rhs = new_rhs_tensor_reader(rhs_tensor, layouts.1, block_info.rhs);
-    let out = new_out_writer(out_tensor, block_info.out);
+    let lhs_loader = new_lhs_tensor_loader(lhs_tensor, layouts.0, block_info.lhs);
+    let rhs_loader = new_rhs_tensor_loader(rhs_tensor, layouts.1, block_info.rhs);
+    let out = new_tensor_writer(out_tensor, block_info.out);
 
-    CM::execute(lhs, rhs, out, (0, k), layouts);
+    CM::execute(lhs_loader, rhs_loader, out, (0, k), layouts);
 }

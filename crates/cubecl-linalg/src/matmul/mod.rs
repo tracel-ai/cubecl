@@ -11,7 +11,6 @@ pub mod cube_matmul;
 pub mod dummy_unit_instruction;
 pub(crate) mod launch;
 pub mod matrix_layout;
-mod tensor_io;
 mod tile_io;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not

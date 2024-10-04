@@ -2,10 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::ComputeServer;
 
-use super::cmma_matmul::{BlockInfo, BlockInfos};
+use super::cmma_matmul::BlockInfos;
 use super::matrix_layout::MatrixLayout;
-use super::tensor_io::{TensorLoader, TensorWriter};
-use super::tile_io::{TileReader, TileWriter};
+use super::tile_io::{TensorLoader, TileReader, TileWriter};
 
 #[cube]
 /// Execute a matmul on a whole tensor
@@ -22,13 +21,19 @@ pub trait BatchMatmul<N: Numeric> {
 
 #[cube]
 /// Execute a matmul over a block, accumulating for arbitrary k-dim, using one Cube.
-pub trait CubeMatmul<E: Numeric, Lhs: TensorLoader<E>, Rhs: TensorLoader<E>, Out: TensorWriter<E>>:
-    'static + Send + Sync + TensorMatmul<E>
+pub trait CubeMatmul<
+    E: Numeric,
+    Lhs: TensorLoader<Line<E>>,
+    Rhs: TensorLoader<Line<E>>,
+    Out: TileWriter<Line<E>>,
+>: 'static + Send + Sync + TensorMatmul<E>
 {
     fn execute(
-        lhs: Lhs,
-        rhs: Rhs,
-        out: Out,
+        // lhs: &Tensor<Line<E>>,
+        // rhs: &Tensor<Line<E>>,
+        lhs_reader: Lhs,
+        rhs_reader: Rhs,
+        out_writer: Out,
         k_range: (u32, u32),
         layouts: (MatrixLayout, MatrixLayout),
     );
@@ -47,8 +52,8 @@ pub trait BlockMatmul<
     type Accumulator: CubeType;
 
     fn execute(
-        lhs: Lhs,
-        rhs: Rhs,
+        lhs: &Lhs,
+        rhs: &Rhs,
         acc: &mut Self::Accumulator,
         #[comptime] layouts: (MatrixLayout, MatrixLayout),
     );
