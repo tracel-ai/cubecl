@@ -272,13 +272,7 @@ where
         // there was a way to tie the lifetime of the resource to the memory handle.
         let resources: Vec<_> = bindings
             .iter()
-            .map(|binding| {
-                // Keep track of the used buffers, to disallow copying into them while
-                // they are active.
-                let storage_handle = self.memory_management.get(binding.memory.clone());
-                self.storage_in_flight.push(storage_handle.id);
-                self.get_resource(binding.clone())
-            })
+            .map(|binding| self.get_resource(binding.clone()))
             .collect();
 
         let entries = &resources
