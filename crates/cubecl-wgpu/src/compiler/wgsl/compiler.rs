@@ -147,7 +147,10 @@ impl WgslCompiler {
             cube::Variable::GlobalScalar { id, elem } => {
                 wgsl::Variable::GlobalScalar(id, Self::compile_elem(elem), elem)
             }
-            cube::Variable::Local { id, item, depth } => wgsl::Variable::Local {
+            cube::Variable::Local { id, item, depth }
+            | cube::Variable::Versioned {
+                id, item, depth, ..
+            } => wgsl::Variable::Local {
                 id,
                 item: Self::compile_item(item),
                 depth,

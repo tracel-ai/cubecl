@@ -32,21 +32,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let one = self.const_u32(1);
 
                 let dim_id = self.read(&dim);
-                let out_id = self.write_id(&out);
                 let rank_2 = self.state.rank_2;
                 let index = self.i_mul(int, None, position, rank_2).unwrap();
                 let index = self.i_add(int, None, index, dim_id).unwrap();
                 let index = self.i_add(int, None, index, one).unwrap();
-                let index = Variable::LocalBinding {
-                    id: index,
-                    item: int_ty.clone(),
-                };
+                let index = Variable::Raw(index, int_ty.clone());
                 let info = Variable::Named {
                     id: self.state.named["info"],
                     item: int_ty,
                     is_array: true,
                 };
-                self.read_indexed_unchecked(out_id, &info, &index);
+                self.read_indexed_unchecked(&out, &info, &index);
             }
             Metadata::Shape { dim, var, out } => {
                 let int_ty = Item::Scalar(Elem::Int(32, false));
@@ -64,23 +60,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let one = self.const_u32(1);
 
                 let dim_id = self.read(&dim);
-                let out_id = self.write_id(&out);
                 let rank = self.state.rank;
                 let rank_2 = self.state.rank_2;
                 let index = self.i_mul(int, None, position, rank_2).unwrap();
                 let index = self.i_add(int, None, index, rank).unwrap();
                 let index = self.i_add(int, None, index, dim_id).unwrap();
                 let index = self.i_add(int, None, index, one).unwrap();
-                let index = Variable::LocalBinding {
-                    id: index,
-                    item: int_ty.clone(),
-                };
+                let index = Variable::Raw(index, int_ty.clone());
                 let info = Variable::Named {
                     id: self.state.named["info"],
                     item: int_ty,
                     is_array: true,
                 };
-                self.read_indexed_unchecked(out_id, &info, &index);
+                self.read_indexed_unchecked(&out, &info, &index);
             }
         }
     }

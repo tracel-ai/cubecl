@@ -22,6 +22,12 @@ pub enum Variable {
         item: Item,
         depth: u8,
     },
+    Versioned {
+        id: u16,
+        item: Item,
+        depth: u8,
+        version: u16,
+    },
     LocalBinding {
         id: u16,
         item: Item,
@@ -198,6 +204,7 @@ impl Variable {
             Variable::GlobalInputArray { id, .. } => Some(*id),
             Variable::GlobalScalar { id, .. } => Some(*id),
             Variable::Local { id, .. } => Some(*id),
+            Variable::Versioned { id, .. } => Some(*id),
             Variable::LocalBinding { id, .. } => Some(*id),
             Variable::Slice { id, .. } => Some(*id),
             Variable::GlobalOutputArray { id, .. } => Some(*id),
@@ -238,6 +245,7 @@ impl Variable {
             Variable::GlobalOutputArray { item, .. } => *item,
             Variable::GlobalScalar { elem, .. } => Item::new(*elem),
             Variable::Local { item, .. } => *item,
+            Variable::Versioned { item, .. } => *item,
             Variable::LocalBinding { item, .. } => *item,
             Variable::ConstantScalar(value) => Item::new(value.elem()),
             Variable::ConstantArray { item, .. } => *item,

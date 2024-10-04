@@ -3,7 +3,7 @@ use cubecl_core::{
     ir::{self as core, BinaryOperator, UnaryOperator},
     ExecutionMode,
 };
-use rspirv::spirv::{Capability, MemorySemantics, Scope, StorageClass, Word};
+use rspirv::spirv::{Capability, MemorySemantics, Scope, Word};
 
 use crate::{
     item::{Elem, Item},
@@ -32,20 +32,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let value = self.compile_variable(op.lhs);
                 let index = self.compile_variable(op.rhs);
                 let out = self.compile_variable(op.out);
-                let out_id = self.write_id(&out);
+                let out_id = out.as_binding().unwrap();
 
                 if is_atomic {
                     let checked = matches!(self.mode, ExecutionMode::Checked) && value.has_len();
-                    let (ptr, item) = match self.index(&value, &index, !checked) {
-                        IndexedVariable::Pointer(ptr, item) => (ptr, item),
-                        _ => unreachable!("CMMA store always takes array pointer"),
+                    let ptr = match self.index(&value, &index, !checked) {
+                        IndexedVariable::Pointer(ptr, _) => ptr,
+                        _ => unreachable!("Atomic is always pointer"),
                     };
                     // This isn't great but atomics can't currently be constructed so should be fine
-                    let item = Item::Pointer(StorageClass::StorageBuffer, Box::new(item));
-                    let ty = item.id(self);
-                    self.copy_object(ty, Some(out_id), ptr).unwrap();
+                    self.merge_binding(out_id, ptr);
                 } else {
-                    self.read_indexed(out_id, &value, &index);
+                    let out_id = self.read_indexed(&out, &value, &index);
                     self.write(&out, out_id);
                 }
             }
@@ -61,9 +59,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let value = self.compile_variable(op.lhs);
                 let index = self.compile_variable(op.rhs);
                 let out = self.compile_variable(op.out);
-                let out_id = self.write_id(&out);
 
-                self.read_indexed_unchecked(out_id, &value, &index);
+                let out_id = self.read_indexed_unchecked(&out, &value, &index);
                 self.write(&out, out_id);
             }
             Operator::UncheckedIndexAssign(op) => {
@@ -112,15 +109,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Assign(op) => {
                 let input = self.compile_variable(op.input);
                 let out = self.compile_variable(op.out);
-                let out_id = self.write_id(&out);
 
-                if input.item() == out.item() {
-                    self.read_to(&input, out_id);
-                } else {
-                    let input_id = self.read_as(&input, &out.item());
-                    let out_ty = out.item().id(self);
-                    self.copy_object(out_ty, Some(out_id), input_id).unwrap();
-                };
+                let out_id = self.read_as(&input, &out.item());
 
                 self.write(&out, out_id);
             }
@@ -467,7 +457,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let input_id = input.id();
+                let input_id = input.id(self);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
@@ -483,7 +473,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
 
                 let input_id = self.read(&input);
-                let out_id = out.id();
+                let out_id = out.id(self);
 
                 let memory = self.const_u32(Scope::Device as u32);
                 let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
@@ -497,7 +487,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id();
+                let lhs_id = lhs.id(self);
                 let rhs_id = self.read(&rhs);
                 let out_id = self.write_id(&out);
 
@@ -516,7 +506,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let atomic_id = atomic.id();
+                let atomic_id = atomic.id(self);
                 let cmp_id = self.read(&cmp);
                 let val_id = self.read(&val);
                 let out_id = self.write_id(&out);
@@ -545,7 +535,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id();
+                let lhs_id = lhs.id(self);
                 let rhs_id = self.read(&rhs);
                 let out_id = self.write_id(&out);
 
@@ -563,7 +553,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id();
+                let lhs_id = lhs.id(self);
                 let rhs_id = self.read(&rhs);
                 let out_id = self.write_id(&out);
 
@@ -581,7 +571,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id();
+                let lhs_id = lhs.id(self);
                 let rhs_id = self.read(&rhs);
                 let out_id = self.write_id(&out);
 
@@ -606,7 +596,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id();
+                let lhs_id = lhs.id(self);
                 let rhs_id = self.read(&rhs);
                 let out_id = self.write_id(&out);
 
@@ -631,7 +621,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id();
+                let lhs_id = lhs.id(self);
                 let rhs_id = self.read(&rhs);
                 let out_id = self.write_id(&out);
 
@@ -649,7 +639,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id();
+                let lhs_id = lhs.id(self);
                 let rhs_id = self.read(&rhs);
                 let out_id = self.write_id(&out);
 
@@ -667,7 +657,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(op.out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id();
+                let lhs_id = lhs.id(self);
                 let rhs_id = self.read(&rhs);
                 let out_id = self.write_id(&out);
 

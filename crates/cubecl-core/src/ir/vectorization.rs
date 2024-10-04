@@ -216,6 +216,17 @@ impl Variable {
                 item: item.vectorize(vectorize),
                 depth: *depth,
             },
+            Variable::Versioned {
+                id,
+                item,
+                depth,
+                version,
+            } => Variable::Versioned {
+                id: *id,
+                item: item.vectorize(vectorize),
+                depth: *depth,
+                version: *version,
+            },
             Variable::LocalBinding { id, item, depth } => Variable::LocalBinding {
                 id: *id,
                 item: item.vectorize(vectorize),

@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use cubecl_core::ir::KernelDefinition;
 use hashbrown::{HashMap, HashSet};
+use petgraph::graph::NodeIndex;
 use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, Word};
 
 use crate::{
@@ -30,6 +31,8 @@ pub struct LookupTables {
     pub constants: HashMap<(ConstVal, Item), Word>,
     pub bindings: HashMap<(u16, u8), Word>,
     pub variables: HashMap<(u16, u8), Word>,
+    pub versioned: HashMap<(u16, u8, u16), Word>,
+    pub labels: HashMap<NodeIndex, Word>,
 
     pub slices: HashMap<(u16, u8), Slice>,
 
@@ -170,6 +173,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let id = insert(self);
             self.state.globals.insert(global, id);
             id
+        }
+    }
+
+    pub fn get_binding(&mut self, id: (u16, u8)) -> Word {
+        if let Some(existing) = self.state.bindings.get(&id) {
+            *existing
+        } else {
+            let word = self.id();
+            self.state.bindings.insert(id, word);
+            word
+        }
+    }
+
+    pub fn merge_binding(&mut self, id: (u16, u8), word: Word) {
+        self.state.bindings.insert(id, word);
+    }
+
+    pub fn get_versioned(&mut self, id: (u16, u8, u16)) -> Word {
+        if let Some(existing) = self.state.versioned.get(&id) {
+            *existing
+        } else {
+            let word = self.id();
+            self.state.versioned.insert(id, word);
+            word
         }
     }
 }

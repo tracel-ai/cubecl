@@ -1,9 +1,11 @@
 use cubecl_core::ir::{self as core, Scope};
+use petgraph::graph::NodeIndex;
 use std::{
     collections::HashSet,
     fmt::Debug,
     mem::take,
     ops::{Deref, DerefMut},
+    rc::Rc,
 };
 
 use cubecl_core::{
@@ -18,6 +20,7 @@ use rspirv::{
 use crate::{
     item::{Elem, Item},
     lookups::{ConstArray, LookupTables},
+    opt::{BasicBlock, Optimizer},
     target::{GLCompute, SpirvTarget},
     SpirvKernel,
 };
@@ -31,10 +34,16 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     global_invocation_id: Word,
     num_workgroups: Word,
     variable_block: usize,
+    pub opt: Rc<Optimizer>,
+    pub current_block: Option<NodeIndex>,
+    pub visited: HashSet<NodeIndex>,
 
     pub capabilities: HashSet<Capability>,
     pub state: LookupTables,
 }
+
+unsafe impl<T: SpirvTarget> Send for SpirvCompiler<T> {}
+unsafe impl<T: SpirvTarget> Sync for SpirvCompiler<T> {}
 
 impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
     fn clone(&self) -> Self {
@@ -45,10 +54,13 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             global_invocation_id: self.global_invocation_id,
             num_workgroups: self.num_workgroups,
             variable_block: self.variable_block,
+            opt: self.opt.clone(),
+            current_block: self.current_block,
 
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
             debug: self.debug,
+            visited: self.visited.clone(),
         }
     }
 }
@@ -64,7 +76,10 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             capabilities: Default::default(),
             state: Default::default(),
             variable_block: Default::default(),
+            opt: Default::default(),
+            current_block: Default::default(),
             debug: true,
+            visited: Default::default(),
         }
     }
 }
@@ -142,8 +157,20 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let setup = self.id();
         let body = self.id();
         self.setup(setup, body);
-        self.compile_scope(kernel.body, Some(body));
-        self.ret().unwrap();
+        self.opt = Optimizer::new(kernel.body).into();
+        self.compile_block(self.opt.entry());
+
+        let opt = self.opt.clone();
+        let ret = opt.ret;
+        self.compile_block(ret);
+
+        if self.selected_block().is_some() {
+            let label = self.label(ret);
+            self.branch(label).unwrap();
+        }
+
+        //self.compile_scope(kernel.body, Some(body));
+        //self.ret().unwrap();
 
         // Terminate variable block
         let var_block = self.variable_block;
@@ -193,6 +220,10 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.branch(body).unwrap();
     }
 
+    pub fn current_block(&self) -> &BasicBlock {
+        self.opt.block(self.current_block.unwrap())
+    }
+
     pub fn builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
         if let Some(existing) = self.state.used_builtins.get(&builtin) {
             existing.0
@@ -201,6 +232,40 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.state.used_builtins.insert(builtin, (id, item));
             id
         }
+    }
+
+    pub fn compile_block(&mut self, block: NodeIndex) {
+        if self.visited.contains(&block) {
+            return;
+        }
+        self.visited.insert(block);
+
+        self.current_block = Some(block);
+
+        let label = self.label(block);
+        self.begin_block(Some(label)).unwrap();
+
+        for phi in self.current_block().phi_nodes.clone() {
+            let ty = self.compile_item(phi.item).id(self);
+            let out_id = self.get_versioned(phi.out);
+            let entries: Vec<_> = phi
+                .entries
+                .into_iter()
+                .map(|it| {
+                    let label = self.label(it.block);
+                    let value = self.get_versioned(it.value);
+                    (value, label)
+                })
+                .collect();
+            self.phi(ty, Some(out_id), entries).unwrap();
+        }
+
+        for operation in self.current_block().ops.clone() {
+            self.compile_operation(operation);
+        }
+
+        let control_flow = self.current_block().control_flow.clone();
+        self.compile_control_flow(control_flow);
     }
 
     pub fn compile_scope(&mut self, mut scope: Scope, label: Option<Word>) -> Word {
@@ -299,6 +364,16 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {
         if self.debug {
             self.name(var, name);
+        }
+    }
+
+    pub fn label(&mut self, block: NodeIndex) -> Word {
+        if let Some(existing) = self.state.labels.get(&block) {
+            *existing
+        } else {
+            let word = self.id();
+            self.state.labels.insert(block, word);
+            word
         }
     }
 }

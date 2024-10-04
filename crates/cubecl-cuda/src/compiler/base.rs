@@ -628,6 +628,13 @@ impl CudaCompiler {
                 item: self.compile_item(item),
                 depth,
             },
+            gpu::Variable::Versioned {
+                id, item, depth, ..
+            } => super::Variable::Local {
+                id,
+                item: self.compile_item(item),
+                depth,
+            },
             gpu::Variable::LocalBinding { id, item, depth } => super::Variable::ConstLocal {
                 id,
                 item: self.compile_item(item),

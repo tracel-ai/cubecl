@@ -2,30 +2,33 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     mem::transmute,
     ops::{Deref, DerefMut},
+    rc::Rc,
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 use cubecl_core::ir::{
     self as core, Branch, ConstantScalarValue, If, IfElse, Loop, RangeLoop, Switch, Variable,
 };
-use cubecl_core::ir::{BinaryOperator, Elem, Item, Operation, Operator, Scope};
-use expand::ExpandState;
-use petgraph::graph::{DiGraph, NodeIndex};
+use cubecl_core::ir::{BinaryOperator, Elem, Item, Operation, Operator, Scope, UnaryOperator};
+use petgraph::{graph::NodeIndex, prelude::StableDiGraph, visit::EdgeRef, Direction};
 use serde::{Deserialize, Serialize};
+use version::PhiInstruction;
 
-mod expand;
+mod debug;
 mod instructions;
-mod threshold;
+mod pass;
+mod phi_frontiers;
+mod version;
 
-#[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize, Clone)]
 struct Program {
-    pub variables: HashSet<(u16, u8)>,
-    pub graph: DiGraph<BasicBlock, ()>,
+    pub variables: HashMap<(u16, u8), Item>,
+    pub graph: StableDiGraph<BasicBlock, u32>,
     root: NodeIndex,
 }
-type Ident = u32;
 
 impl Deref for Program {
-    type Target = DiGraph<BasicBlock, ()>;
+    type Target = StableDiGraph<BasicBlock, u32>;
 
     fn deref(&self) -> &Self::Target {
         &self.graph
@@ -58,6 +61,7 @@ pub enum ControlFlow {
         merge: NodeIndex,
     },
     Loop {
+        body: NodeIndex,
         continue_target: NodeIndex,
         merge: NodeIndex,
     },
@@ -68,21 +72,29 @@ pub enum ControlFlow {
 
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
 pub struct BasicBlock {
-    phi_nodes: Vec<(u16, u8)>,
+    annotations: HashSet<Annotation>,
+    pub phi_nodes: Vec<PhiInstruction>,
     writes: HashSet<(u16, u8)>,
     dom_frontiers: HashSet<NodeIndex>,
-    ops: Vec<Operation>,
-    control_flow: ControlFlow,
-    expand: ExpandState,
+    pub ops: Vec<Operation>,
+    pub control_flow: ControlFlow,
 }
 
-#[derive(Default, Debug, Serialize, Deserialize)]
+/// Annotations to prevent merging some kinds of blocks and allowing update of others
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+pub enum Annotation {
+    ContinueTarget,
+    /// Merge target from block x
+    Merge(NodeIndex),
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct Optimizer {
-    id: u32,
     program: Program,
-    current_block: Option<NodeIndex>,
+    pub current_block: Option<NodeIndex>,
     loop_break: VecDeque<NodeIndex>,
-    ret: NodeIndex,
+    pub ret: NodeIndex,
+    edge_id: Rc<AtomicU32>,
 }
 
 impl Optimizer {
@@ -95,26 +107,93 @@ impl Optimizer {
         opt.program[opt.ret].control_flow = ControlFlow::Return;
         opt.parse_scope(expand);
         if let Some(current_block) = opt.current_block {
-            opt.program.add_edge(current_block, opt.ret, ());
+            let edge_id = opt.edge_id();
+            opt.program.add_edge(current_block, opt.ret, edge_id);
         }
         opt.program.fill_dom_frontiers();
         opt.program.place_phi_nodes();
+        opt.version_program();
         opt
     }
 
-    pub fn current_block(&mut self) -> &mut BasicBlock {
+    pub fn entry(&self) -> NodeIndex {
+        self.program.root
+    }
+
+    fn edge_id(&self) -> u32 {
+        self.edge_id.fetch_add(1, Ordering::AcqRel)
+    }
+
+    pub fn current_block_mut(&mut self) -> &mut BasicBlock {
         &mut self.program[self.current_block.unwrap()]
     }
 
-    pub fn parse_scope(&mut self, scope: Scope) {
-        let processed = scope.clone().process();
+    pub fn current_block(&self) -> &BasicBlock {
+        &self.program[self.current_block.unwrap()]
+    }
+
+    pub fn predecessors(&self, block: NodeIndex) -> Vec<NodeIndex> {
+        self.program
+            .edges_directed(block, Direction::Incoming)
+            .map(|it| it.source())
+            .collect()
+    }
+
+    pub fn sucessors(&self, block: NodeIndex) -> Vec<NodeIndex> {
+        self.program
+            .edges_directed(block, Direction::Outgoing)
+            .map(|it| it.target())
+            .collect()
+    }
+
+    pub fn annotate(&mut self, block: NodeIndex, annotation: Annotation) {
+        self.program[block].annotations.insert(annotation);
+    }
+
+    pub fn block(&self, block: NodeIndex) -> &BasicBlock {
+        &self.program[block]
+    }
+
+    pub fn parse_scope(&mut self, mut scope: Scope) {
+        let processed = scope.process();
+
+        for var in processed.variables {
+            match var {
+                Variable::Local {
+                    id,
+                    item:
+                        Item {
+                            elem,
+                            vectorization: Some(vec),
+                        },
+                    depth,
+                } if vec.get() > 1 => {
+                    let out = Variable::Local {
+                        id,
+                        item: Item::vectorized(elem, Some(vec)),
+                        depth,
+                    };
+                    let mut init = Operator::Assign(UnaryOperator {
+                        input: Variable::ConstantScalar(ConstantScalarValue::UInt(0)),
+                        out,
+                    })
+                    .into();
+                    self.visit_operation(&mut init, |_, _| {}, |opt, var| opt.write_var(var));
+                    self.current_block_mut().ops.push(init);
+                }
+                Variable::Local { id, item, depth } => {
+                    self.program.variables.insert((id, depth), item);
+                }
+                _ => {}
+            }
+        }
 
         for instruction in processed.operations {
             match instruction {
                 Operation::Branch(branch) => self.parse_control_flow(branch),
                 mut other => {
-                    self.find_writes(&mut other);
-                    self.current_block().ops.push(other);
+                    self.visit_operation(&mut other, |_, _| {}, |opt, var| opt.write_var(var));
+                    self.current_block_mut().ops.push(other);
                 }
             }
         }
@@ -126,7 +205,9 @@ impl Optimizer {
             Branch::IfElse(if_else) => self.parse_if_else(if_else),
             Branch::Select(mut select) => {
                 self.find_writes_select(&mut select);
-                self.current_block().ops.push(Branch::Select(select).into());
+                self.current_block_mut()
+                    .ops
+                    .push(Branch::Select(select).into());
             }
             Branch::Switch(switch) => self.parse_switch(switch),
             Branch::RangeLoop(range_loop) => {
@@ -135,22 +216,23 @@ impl Optimizer {
             Branch::Loop(loop_) => self.parse_loop(loop_),
             Branch::Return => {
                 let current_block = self.current_block.take().unwrap();
-                self.program.add_edge(current_block, self.ret, ());
+                let id = self.edge_id();
+                self.program.add_edge(current_block, self.ret, id);
             }
             Branch::Break => {
                 let current_block = self.current_block.take().unwrap();
                 let loop_break = self.loop_break.back().expect("Can't break outside loop");
-                self.program.add_edge(current_block, *loop_break, ());
+                let id = self.edge_id();
+                self.program.add_edge(current_block, *loop_break, id);
             }
         }
     }
 
-    pub fn parse_if(&mut self, mut if_: If) {
+    pub fn parse_if(&mut self, if_: If) {
         let current_block = self.current_block.unwrap();
         let then = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
-
-        self.read_var(&mut if_.cond);
+        self.annotate(next, Annotation::Merge(current_block));
 
         self.program[current_block].control_flow = ControlFlow::If {
             cond: if_.cond,
@@ -158,24 +240,25 @@ impl Optimizer {
             merge: next,
         };
 
-        self.program.add_edge(current_block, then, ());
-        self.program.add_edge(current_block, next, ());
+        let id = self.edge_id();
+        self.program.add_edge(current_block, then, id);
+        let id = self.edge_id();
+        self.program.add_edge(current_block, next, id);
 
         self.current_block = Some(then);
         self.parse_scope(if_.scope);
-        if self.current_block.is_some() {
-            self.program.add_edge(then, next, ());
+        if let Some(current_block) = self.current_block {
+            let id = self.edge_id();
+            self.program.add_edge(current_block, next, id);
         }
         self.current_block = Some(next);
     }
 
-    pub fn parse_if_else(&mut self, mut if_else: IfElse) {
+    pub fn parse_if_else(&mut self, if_else: IfElse) {
         let current_block = self.current_block.unwrap();
         let then = self.program.add_node(BasicBlock::default());
         let or_else = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
-
-        self.read_var(&mut if_else.cond);
 
         self.program[current_block].control_flow = ControlFlow::IfElse {
             cond: if_else.cond,
@@ -184,41 +267,46 @@ impl Optimizer {
             merge: next,
         };
 
-        self.program.add_edge(current_block, then, ());
-        self.program.add_edge(current_block, or_else, ());
+        let id = self.edge_id();
+        self.program.add_edge(current_block, then, id);
+        let id = self.edge_id();
+        self.program.add_edge(current_block, or_else, id);
 
         self.current_block = Some(then);
         self.parse_scope(if_else.scope_if);
 
-        if self.current_block.is_some() {
-            self.program.add_edge(then, next, ());
+        if let Some(current_block) = self.current_block {
+            let id = self.edge_id();
+            self.program.add_edge(current_block, next, id);
         }
 
         self.current_block = Some(or_else);
         self.parse_scope(if_else.scope_else);
 
-        if self.current_block.is_some() {
-            self.program.add_edge(or_else, next, ());
+        if let Some(current_block) = self.current_block {
+            let id = self.edge_id();
+            self.program.add_edge(current_block, next, id);
         }
 
         self.current_block = Some(next);
     }
 
-    pub fn parse_switch(&mut self, mut switch: Switch) {
+    pub fn parse_switch(&mut self, switch: Switch) {
         let current_block = self.current_block.unwrap();
         let next = self.program.add_node(BasicBlock::default());
-        self.read_var(&mut switch.value);
 
         let branches = switch
             .cases
             .into_iter()
             .map(|(val, case)| {
                 let case_id = self.program.add_node(BasicBlock::default());
-                self.program.add_edge(current_block, case_id, ());
+                let id = self.edge_id();
+                self.program.add_edge(current_block, case_id, id);
                 self.current_block = Some(case_id);
                 self.parse_scope(case);
-                if self.current_block.is_some() {
-                    self.program.add_edge(case_id, next, ());
+                if let Some(current_block) = self.current_block {
+                    let id = self.edge_id();
+                    self.program.add_edge(current_block, next, id);
                 }
                 let val = match val.as_const().expect("Switch value must be constant") {
                     core::ConstantScalarValue::Int(val, _) => unsafe {
@@ -232,12 +320,14 @@ impl Optimizer {
             .collect::<Vec<_>>();
 
         let default = self.program.add_node(BasicBlock::default());
-        self.program.add_edge(current_block, default, ());
+        let id = self.edge_id();
+        self.program.add_edge(current_block, default, id);
         self.current_block = Some(default);
         self.parse_scope(switch.scope_default);
 
-        if self.current_block.is_some() {
-            self.program.add_edge(default, next, ());
+        if let Some(current_block) = self.current_block {
+            let id = self.edge_id();
+            self.program.add_edge(current_block, next, id);
         }
 
         self.program[current_block].control_flow = ControlFlow::Switch {
@@ -253,12 +343,14 @@ impl Optimizer {
     fn parse_loop(&mut self, loop_: Loop) {
         let current_block = self.current_block.unwrap();
         let header = self.program.add_node(BasicBlock::default());
-        self.program.add_edge(current_block, header, ());
+        let id = self.edge_id();
+        self.program.add_edge(current_block, header, id);
 
         let body = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
 
-        self.program.add_edge(header, body, ());
+        let id = self.edge_id();
+        self.program.add_edge(header, body, id);
 
         self.loop_break.push_back(next);
 
@@ -268,44 +360,57 @@ impl Optimizer {
 
         self.loop_break.pop_back();
 
-        if self.current_block.is_some() {
-            self.program.add_edge(body, continue_target, ());
+        if let Some(current_block) = self.current_block {
+            let id = self.edge_id();
+            self.program.add_edge(current_block, continue_target, id);
         }
 
-        self.program.add_edge(continue_target, header, ());
+        let id = self.edge_id();
+        self.program.add_edge(continue_target, header, id);
 
         self.program[header].control_flow = ControlFlow::Loop {
+            body,
             continue_target,
             merge: next,
         };
+        self.current_block = Some(next);
     }
 
-    fn parse_for_loop(&mut self, mut range_loop: RangeLoop) {
-        let mut step = range_loop
+    fn parse_for_loop(&mut self, range_loop: RangeLoop) {
+        let step = range_loop
             .step
             .unwrap_or(Variable::ConstantScalar(ConstantScalarValue::UInt(1)));
 
-        self.read_var(&mut range_loop.start);
-        self.read_var(&mut range_loop.end);
-        self.read_var(&mut step);
-
-        let (id, depth) = match range_loop.i {
+        let i_id = match range_loop.i {
             Variable::LocalBinding { id, depth, .. } => (id, depth),
             _ => unreachable!(),
         };
         let i = range_loop.i;
+        self.program.variables.insert(i_id, i.item());
+
+        let mut assign = Operator::Assign(UnaryOperator {
+            input: range_loop.start,
+            out: i,
+        })
+        .into();
+        self.visit_operation(&mut assign, |_, _| {}, |opt, var| opt.write_var(var));
+        self.current_block_mut().ops.push(assign);
 
         let current_block = self.current_block.unwrap();
         let header = self.program.add_node(BasicBlock::default());
-        self.program.add_edge(current_block, header, ());
+        let id = self.edge_id();
+        self.program.add_edge(current_block, header, id);
 
         let break_cond = self.program.add_node(BasicBlock::default());
         let body = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
 
-        self.program.add_edge(header, break_cond, ());
-        self.program.add_edge(break_cond, next, ());
-        self.program.add_edge(break_cond, body, ());
+        let id = self.edge_id();
+        self.program.add_edge(header, break_cond, id);
+        let id = self.edge_id();
+        self.program.add_edge(break_cond, next, id);
+        let id = self.edge_id();
+        self.program.add_edge(break_cond, body, id);
 
         self.loop_break.push_back(next);
 
@@ -315,29 +420,33 @@ impl Optimizer {
 
         self.loop_break.pop_back();
 
-        if self.current_block.is_some() {
-            self.program.add_edge(body, continue_target, ());
+        if let Some(current_block) = self.current_block {
+            let id = self.edge_id();
+            self.program.add_edge(current_block, continue_target, id);
         }
 
-        self.program.add_edge(continue_target, header, ());
+        let id = self.edge_id();
+        self.program.add_edge(continue_target, header, id);
 
         self.program[header].control_flow = ControlFlow::Loop {
+            body: break_cond,
             continue_target,
             merge: next,
         };
+        self.current_block = Some(next);
 
         // For loop constructs
-        self.program[header].phi_nodes.push((id, depth));
+        self.program
+            .insert_phi(header, i_id, range_loop.start.item());
         {
             let op = match range_loop.inclusive {
                 true => Operator::LowerEqual,
                 false => Operator::Lower,
             };
-            let tmp_id = self.id();
-            let tmp = Variable::LocalBinding {
-                id: 60000 + tmp_id as u16,
+            let tmp = Variable::Local {
+                id: 60000 + i_id.0,
                 item: Item::new(Elem::Bool),
-                depth: 0,
+                depth: i_id.1,
             };
             self.program[break_cond].ops.push(
                 op(BinaryOperator {
@@ -371,11 +480,6 @@ impl Optimizer {
             _ => None,
         }
     }
-
-    fn id(&mut self) -> Ident {
-        self.id += 1;
-        self.id
-    }
 }
 
 #[cfg(test)]
@@ -394,17 +498,30 @@ mod tests {
         cond as u32
     }
 
+    #[cube]
+    fn test_while_kernel() -> u32 {
+        let mut i = 0;
+        while i < 4 {
+            i += 1;
+        }
+        i
+    }
+
     #[test]
     fn test_if() {
         let mut context = CubeContext::root(HybridAllocator::default());
         test_if_kernel::expand(&mut context);
         let opt = Optimizer::new(context.into_scope());
-        let blocks = opt
-            .program
-            .node_indices()
-            .map(|index| opt.program[index].clone())
-            .collect::<Vec<_>>();
 
-        panic!("{blocks:#?}");
+        panic!("{opt}");
+    }
+
+    #[test]
+    fn test_while() {
+        let mut context = CubeContext::root(HybridAllocator::default());
+        test_while_kernel::expand(&mut context);
+        let opt = Optimizer::new(context.into_scope());
+
+        panic!("{opt}");
     }
 }

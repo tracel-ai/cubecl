@@ -1,31 +1,41 @@
 use cubecl_core::ir::{
-    BinaryOperator, CoopMma, Operation, Operator, Select, Subcube, UnaryOperator, Variable,
+    BinaryOperator, CoopMma, Metadata, Operation, Operator, Select, Subcube, UnaryOperator,
+    Variable,
 };
 
 use super::Optimizer;
 
 impl Optimizer {
-    pub fn find_writes(&mut self, op: &mut Operation) {
+    pub fn visit_operation(
+        &mut self,
+        op: &mut Operation,
+        visit_read: impl FnMut(&mut Self, &mut Variable),
+        visit_write: impl FnMut(&mut Self, &mut Variable),
+    ) {
         match op {
-            Operation::Operator(operator) => self.find_writes_operator(operator),
-            // Metadata is SSA by default since we use once maps
-            Operation::Metadata(_) => {}
+            Operation::Operator(operator) => self.visit_operator(operator, visit_read, visit_write),
+            Operation::Metadata(meta) => self.visit_meta(meta, visit_read, visit_write),
             // Sync has no outputs
             Operation::Synchronization(_) => {}
-            Operation::Subcube(subcube) => self.find_writes_subcube(subcube),
-            Operation::CoopMma(coop_mma) => self.find_writes_cmma(coop_mma),
+            Operation::Subcube(subcube) => self.visit_subcube(subcube, visit_read, visit_write),
+            Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read, visit_write),
             Operation::Procedure(_) => todo!("Legacy"),
             Operation::Branch(_) => unreachable!(),
         }
     }
 
-    pub fn find_writes_operator(&mut self, op: &mut Operator) {
+    pub fn visit_operator(
+        &mut self,
+        op: &mut Operator,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+    ) {
         match op {
             Operator::Fma(fma_operator) => {
-                self.read_var(&mut fma_operator.a);
-                self.read_var(&mut fma_operator.b);
-                self.read_var(&mut fma_operator.c);
-                self.write_var(&mut fma_operator.out)
+                visit_read(self, &mut fma_operator.a);
+                visit_read(self, &mut fma_operator.b);
+                visit_read(self, &mut fma_operator.c);
+                visit_write(self, &mut fma_operator.out)
             }
             Operator::Add(binary_operator)
             | Operator::Sub(binary_operator)
@@ -53,7 +63,9 @@ impl Optimizer {
             | Operator::ShiftRight(binary_operator)
             | Operator::Remainder(binary_operator)
             | Operator::Dot(binary_operator)
-            | Operator::GreaterEqual(binary_operator) => self.visit_binop(binary_operator),
+            | Operator::GreaterEqual(binary_operator) => {
+                self.visit_binop(binary_operator, visit_read, visit_write)
+            }
 
             Operator::Abs(unary_operator)
             | Operator::Exp(unary_operator)
@@ -73,19 +85,21 @@ impl Optimizer {
             | Operator::Neg(unary_operator)
             | Operator::Bitcast(unary_operator)
             | Operator::Magnitude(unary_operator)
-            | Operator::Normalize(unary_operator) => self.visit_unop(unary_operator),
+            | Operator::Normalize(unary_operator) => {
+                self.visit_unop(unary_operator, visit_read, visit_write)
+            }
 
             Operator::Clamp(clamp_operator) => {
-                self.read_var(&mut clamp_operator.input);
-                self.read_var(&mut clamp_operator.min_value);
-                self.read_var(&mut clamp_operator.max_value);
-                self.write_var(&mut clamp_operator.out);
+                visit_read(self, &mut clamp_operator.input);
+                visit_read(self, &mut clamp_operator.min_value);
+                visit_read(self, &mut clamp_operator.max_value);
+                visit_write(self, &mut clamp_operator.out);
             }
             Operator::Slice(slice_operator) => {
-                self.read_var(&mut slice_operator.start);
-                self.read_var(&mut slice_operator.end);
-                self.read_var(&mut slice_operator.input);
-                self.write_var(&mut slice_operator.out);
+                visit_read(self, &mut slice_operator.start);
+                visit_read(self, &mut slice_operator.end);
+                visit_read(self, &mut slice_operator.input);
+                visit_write(self, &mut slice_operator.out);
             }
 
             // Atomics are always pointers
@@ -103,29 +117,67 @@ impl Optimizer {
         }
     }
 
-    fn find_writes_subcube(&mut self, subcube: &mut Subcube) {
+    fn visit_meta(
+        &mut self,
+        metadata: &mut Metadata,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match metadata {
+            Metadata::Stride { dim, var, out } => {
+                visit_read(self, dim);
+                visit_read(self, var);
+                visit_write(self, out);
+            }
+            Metadata::Shape { dim, var, out } => {
+                visit_read(self, dim);
+                visit_read(self, var);
+                visit_write(self, out);
+            }
+            Metadata::Length { var, out } => {
+                visit_read(self, var);
+                visit_write(self, out);
+            }
+        }
+    }
+
+    fn visit_subcube(
+        &mut self,
+        subcube: &mut Subcube,
+        visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+    ) {
         match subcube {
-            Subcube::Elect(init_operator) => self.write_var(&mut init_operator.out),
-            Subcube::Broadcast(binary_operator) => self.visit_binop(binary_operator),
+            Subcube::Elect(init_operator) => visit_write(self, &mut init_operator.out),
+            Subcube::Broadcast(binary_operator) => {
+                self.visit_binop(binary_operator, visit_read, visit_write)
+            }
             Subcube::All(unary_operator)
             | Subcube::Any(unary_operator)
             | Subcube::Sum(unary_operator)
             | Subcube::Prod(unary_operator)
             | Subcube::Min(unary_operator)
-            | Subcube::Max(unary_operator) => self.visit_unop(unary_operator),
+            | Subcube::Max(unary_operator) => {
+                self.visit_unop(unary_operator, visit_read, visit_write)
+            }
         }
     }
 
-    fn find_writes_cmma(&mut self, cmma: &mut CoopMma) {
+    fn visit_cmma(
+        &mut self,
+        cmma: &mut CoopMma,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+    ) {
         match cmma {
             CoopMma::Fill { mat, value } => {
-                self.read_var(value);
-                self.write_var(mat);
+                visit_read(self, value);
+                visit_write(self, mat);
             }
             CoopMma::Load { mat, value, stride } => {
-                self.read_var(value);
-                self.read_var(stride);
-                self.write_var(mat);
+                visit_read(self, value);
+                visit_read(self, stride);
+                visit_write(self, mat);
             }
             CoopMma::Execute {
                 mat_a,
@@ -133,10 +185,10 @@ impl Optimizer {
                 mat_c,
                 mat_d,
             } => {
-                self.read_var(mat_a);
-                self.read_var(mat_b);
-                self.read_var(mat_c);
-                self.write_var(mat_d);
+                visit_read(self, mat_a);
+                visit_read(self, mat_b);
+                visit_read(self, mat_c);
+                visit_write(self, mat_d);
             }
             CoopMma::Store {
                 output,
@@ -144,43 +196,37 @@ impl Optimizer {
                 stride,
                 ..
             } => {
-                self.read_var(mat);
-                self.read_var(stride);
-                self.write_var(output);
+                visit_read(self, mat);
+                visit_read(self, stride);
+                visit_write(self, output);
             }
         }
     }
 
-    fn visit_unop(&mut self, unop: &mut UnaryOperator) {
-        self.read_var(&mut unop.input);
-        self.write_var(&mut unop.out);
+    fn visit_unop(
+        &mut self,
+        unop: &mut UnaryOperator,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        visit_read(self, &mut unop.input);
+        visit_write(self, &mut unop.out);
     }
 
-    fn visit_binop(&mut self, binop: &mut BinaryOperator) {
-        self.read_var(&mut binop.lhs);
-        self.read_var(&mut binop.rhs);
-        self.write_var(&mut binop.out);
-    }
-
-    pub fn read_var(&mut self, var: &mut Variable) {
-        if let Some((id, depth)) = self.local_variable_id(var) {
-            *var = Variable::LocalBinding {
-                id,
-                item: var.item(),
-                depth,
-            }
-        }
+    fn visit_binop(
+        &mut self,
+        binop: &mut BinaryOperator,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        visit_read(self, &mut binop.lhs);
+        visit_write(self, &mut binop.rhs);
+        visit_write(self, &mut binop.out);
     }
 
     pub fn write_var(&mut self, var: &mut Variable) {
         if let Some(id) = self.local_variable_id(var) {
-            self.current_block().writes.insert(id);
-            self.program.variables.insert(id);
-            *var = Variable::LocalBinding {
-                id: id.0,
-                item: var.item(),
-                depth: id.1,
-            }
+            self.current_block_mut().writes.insert(id);
         }
     }
 

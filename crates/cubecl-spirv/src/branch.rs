@@ -1,5 +1,6 @@
 use cubecl_core::ir::{self as core, IfElse, Loop, RangeLoop, Select, Switch};
 use cubecl_core::ir::{Branch, If, Scope};
+use petgraph::graph::NodeIndex;
 use rspirv::{
     dr::Operand,
     spirv::{LoopControl, SelectionControl, Word},
@@ -8,6 +9,7 @@ use rspirv::{
 use crate::{
     item::{Elem, Item},
     lookups,
+    opt::ControlFlow,
     variable::Variable,
     SpirvCompiler, SpirvTarget,
 };
@@ -337,5 +339,123 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
 
         self.begin_block(Some(next)).unwrap();
+    }
+
+    pub fn compile_control_flow(&mut self, control_flow: ControlFlow) {
+        match control_flow {
+            ControlFlow::If { cond, then, merge } => self.compile_if_2(cond, then, merge),
+            ControlFlow::IfElse {
+                cond,
+                then,
+                or_else,
+                merge,
+            } => self.compile_if_else_2(cond, then, or_else, merge),
+            ControlFlow::Switch {
+                value,
+                default,
+                branches,
+                merge,
+            } => self.compile_switch_2(value, default, branches, merge),
+            ControlFlow::Loop {
+                body,
+                continue_target,
+                merge,
+            } => self.compile_loop_2(body, continue_target, merge),
+            ControlFlow::Return => {
+                self.ret().unwrap();
+                self.current_block = None;
+            }
+            ControlFlow::None => {
+                let opt = self.opt.clone();
+                let children = opt.sucessors(self.current_block.unwrap());
+                assert_eq!(
+                    children.len(),
+                    1,
+                    "None control flow should have only 1 outgoing edge"
+                );
+                let label = self.label(children[0]);
+                self.branch(label).unwrap();
+                self.compile_block(children[0]);
+            }
+        }
+    }
+
+    fn compile_if_2(&mut self, cond: core::Variable, then: NodeIndex, merge: NodeIndex) {
+        let cond = self.compile_variable(cond);
+        let then_label = self.label(then);
+        let merge_label = self.label(merge);
+        let cond_id = self.read(&cond);
+
+        self.selection_merge(merge_label, SelectionControl::NONE)
+            .unwrap();
+        self.branch_conditional(cond_id, then_label, merge_label, None)
+            .unwrap();
+        self.compile_block(then);
+        self.compile_block(merge);
+    }
+
+    fn compile_if_else_2(
+        &mut self,
+        cond: core::Variable,
+        then: NodeIndex,
+        or_else: NodeIndex,
+        merge: NodeIndex,
+    ) {
+        let cond = self.compile_variable(cond);
+        let then_label = self.label(then);
+        let else_label = self.label(or_else);
+        let merge_label = self.label(merge);
+        let cond_id = self.read(&cond);
+
+        self.selection_merge(merge_label, SelectionControl::NONE)
+            .unwrap();
+        self.branch_conditional(cond_id, then_label, else_label, None)
+            .unwrap();
+        self.compile_block(then);
+        self.compile_block(or_else);
+        self.compile_block(merge);
+    }
+
+    fn compile_switch_2(
+        &mut self,
+        value: core::Variable,
+        default: NodeIndex,
+        branches: Vec<(u32, NodeIndex)>,
+        merge: NodeIndex,
+    ) {
+        let value = self.compile_variable(value);
+        let value_id = self.read(&value);
+
+        let default_label = self.label(default);
+        let targets = branches
+            .iter()
+            .map(|(value, block)| {
+                let label = self.label(*block);
+                (Operand::LiteralBit32(*value), label)
+            })
+            .collect::<Vec<_>>();
+        let merge_label = self.label(merge);
+
+        self.selection_merge(merge_label, SelectionControl::NONE)
+            .unwrap();
+        self.switch(value_id, default_label, targets).unwrap();
+        self.compile_block(default);
+        for (_, block) in branches {
+            self.compile_block(block);
+        }
+        self.compile_block(merge);
+    }
+
+    fn compile_loop_2(&mut self, body: NodeIndex, continue_target: NodeIndex, merge: NodeIndex) {
+        let body_label = self.label(body);
+        let continue_label = self.label(continue_target);
+        let merge_label = self.label(merge);
+
+        self.loop_merge(merge_label, continue_label, LoopControl::NONE, vec![])
+            .unwrap();
+        self.branch(body_label).unwrap();
+        self.compile_block(body);
+        self.compile_block(continue_target);
+        self.compile_block(merge);
     }
 }
