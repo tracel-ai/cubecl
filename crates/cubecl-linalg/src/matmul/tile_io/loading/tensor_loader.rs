@@ -2,11 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma_matmul::num_elements;
-use crate::matmul::cmma_matmul::{into_runtime, BlockInfo, BlockInfoR};
-use crate::matmul::cube_matmul::smem::fill_shared_memory;
+use crate::matmul::cmma_matmul::BlockInfo;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tile_io::loading::RhsSmemTileReader;
-use crate::matmul::tile_io::TensorLoader;
+use crate::matmul::tile_io::loading::{tensor_to_shared_memory, RhsSmemTileReader};
+use crate::matmul::tile_io::Loader;
 
 use super::LhsSmemTileReader;
 
@@ -16,7 +15,7 @@ pub struct LhsTensorLoader<E: Numeric> {
     pub smem: SharedMemory<Line<E>>,
     pub gmem_layout: MatrixLayout,
     pub cube_offset: u32,
-    pub block_info: BlockInfoR,
+    pub block_info: BlockInfo,
 }
 
 #[derive(CubeType)]
@@ -25,7 +24,7 @@ pub struct RhsTensorLoader<E: Numeric> {
     pub smem: SharedMemory<Line<E>>,
     pub gmem_layout: MatrixLayout,
     pub cube_offset: u32,
-    pub block_info: BlockInfoR,
+    pub block_info: BlockInfo,
 }
 
 #[cube]
@@ -42,7 +41,7 @@ pub(crate) fn new_lhs_tensor_loader<E: Numeric>(
         smem,
         gmem_layout,
         cube_offset: CUBE_POS_X,
-        block_info: into_runtime(block_info),
+        block_info: block_info.runtime(),
     }
 }
 
@@ -60,13 +59,12 @@ pub(crate) fn new_rhs_tensor_loader<E: Numeric>(
         smem,
         gmem_layout,
         cube_offset: CUBE_POS_Y,
-        block_info: into_runtime(block_info),
+        block_info: block_info.runtime(),
     }
 }
 
 #[cube]
-impl<E: Numeric> TensorLoader<Line<E>> for LhsTensorLoader<E> {
-    // type Gmem = Tensor<Line<E>>;
+impl<E: Numeric> Loader<Line<E>> for LhsTensorLoader<E> {
     type TileReader = LhsSmemTileReader<E>;
 
     fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
@@ -74,7 +72,7 @@ impl<E: Numeric> TensorLoader<Line<E>> for LhsTensorLoader<E> {
         let gmem_x_offset = reader.cube_offset;
         let gmem_y_offset = k_offset;
 
-        fill_shared_memory(
+        tensor_to_shared_memory(
             &reader.gmem,
             &mut reader.smem,
             gmem_x_offset,
@@ -90,8 +88,7 @@ impl<E: Numeric> TensorLoader<Line<E>> for LhsTensorLoader<E> {
 }
 
 #[cube]
-impl<E: Numeric> TensorLoader<Line<E>> for RhsTensorLoader<E> {
-    // type Gmem = Tensor<Line<E>>;
+impl<E: Numeric> Loader<Line<E>> for RhsTensorLoader<E> {
     type TileReader = RhsSmemTileReader<E>;
 
     fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
@@ -99,7 +96,7 @@ impl<E: Numeric> TensorLoader<Line<E>> for RhsTensorLoader<E> {
         let gmem_x_offset = k_offset;
         let gmem_y_offset = reader.cube_offset;
 
-        fill_shared_memory(
+        tensor_to_shared_memory(
             &reader.gmem,
             &mut reader.smem,
             gmem_x_offset,

@@ -12,16 +12,14 @@ pub trait TileReader<E: CubePrimitive>: CubeType {
 }
 
 #[cube]
-pub trait TensorLoader<E: CubePrimitive>: CubeType + 'static + Send + Sync {
+pub trait Loader<E: CubePrimitive>: CubeType + 'static + Send + Sync {
     type TileReader: TileReader<E>;
 
-    fn load_block(tensor_loader: &mut Self, k_offset: u32) -> Self::TileReader;
+    fn load_block(loader: &mut Self, k_offset: u32) -> Self::TileReader;
 }
 
 #[cube]
 pub trait TileWriter<E: CubePrimitive>: CubeType + 'static + Send + Sync {
-    type Gmem: CubeType;
-
     fn write_with_cast<C: Numeric>(
         tile_writer: &mut Self,
         slice: &Slice<'_, C>,

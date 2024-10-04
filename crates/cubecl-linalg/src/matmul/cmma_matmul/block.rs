@@ -44,14 +44,6 @@ pub struct BlockInfo {
     pub tile_size_y: u32,
 }
 
-#[derive(CubeType, Clone, Copy)]
-pub struct BlockInfoR {
-    pub num_tiles_x: u32,
-    pub num_tiles_y: u32,
-    pub tile_size_x: u32,
-    pub tile_size_y: u32,
-}
-
 #[cube]
 pub fn num_elements(#[comptime] block_info: BlockInfo) -> u32 {
     comptime!(
@@ -62,12 +54,34 @@ pub fn num_elements(#[comptime] block_info: BlockInfo) -> u32 {
     )
 }
 
-#[cube]
-pub fn into_runtime(#[comptime] comptime: BlockInfo) -> BlockInfoR {
-    BlockInfoR {
-        num_tiles_x: comptime.num_tiles_x,
-        num_tiles_y: comptime.num_tiles_y,
-        tile_size_x: comptime.tile_size_x,
-        tile_size_y: comptime.tile_size_y,
+impl CubeType for BlockInfos {
+    type ExpandType = Self;
+}
+
+impl Init for BlockInfos {
+    fn init(self, _context: &mut CubeContext) -> Self {
+        self
+    }
+}
+
+impl IntoRuntime for BlockInfos {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        self
+    }
+}
+
+impl CubeType for BlockInfo {
+    type ExpandType = Self;
+}
+
+impl Init for BlockInfo {
+    fn init(self, _context: &mut CubeContext) -> Self {
+        self
+    }
+}
+
+impl IntoRuntime for BlockInfo {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        self
     }
 }

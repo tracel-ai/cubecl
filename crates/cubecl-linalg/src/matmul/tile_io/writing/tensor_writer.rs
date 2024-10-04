@@ -1,32 +1,30 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::{into_runtime, BlockInfo, BlockInfoR};
+use crate::matmul::cmma_matmul::BlockInfo;
 use crate::matmul::tile_io::TileWriter;
 
 #[derive(CubeType)]
-pub struct GmemTensorWriter<E: Numeric> {
+pub struct TensorWriter<E: Numeric> {
     pub gmem: Tensor<Line<E>>,
     pub cube_offsets: (u32, u32),
-    pub block_info: BlockInfoR,
+    pub block_info: BlockInfo,
 }
 
 #[cube]
 pub(crate) fn new_tensor_writer<E: Numeric>(
     gmem: Tensor<Line<E>>,
     #[comptime] block_info: BlockInfo,
-) -> GmemTensorWriter<E> {
-    GmemTensorWriter::<E> {
+) -> TensorWriter<E> {
+    TensorWriter::<E> {
         gmem,
         cube_offsets: (CUBE_POS_X, CUBE_POS_Y),
-        block_info: into_runtime(block_info),
+        block_info: block_info.runtime(),
     }
 }
 
 #[cube]
-impl<'a, E: Numeric> TileWriter<Line<E>> for GmemTensorWriter<E> {
-    type Gmem = Tensor<Line<E>>;
-
+impl<E: Numeric> TileWriter<Line<E>> for TensorWriter<E> {
     fn write_with_cast<C: Numeric>(
         tile_writer: &mut Self,
         slice: &Slice<'_, C>,

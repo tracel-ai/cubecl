@@ -4,7 +4,7 @@ use cubecl_core::server::ComputeServer;
 
 use super::cmma_matmul::BlockInfos;
 use super::matrix_layout::MatrixLayout;
-use super::tile_io::{TensorLoader, TileReader, TileWriter};
+use super::tile_io::{Loader, TileReader, TileWriter};
 
 #[cube]
 /// Execute a matmul on a whole tensor
@@ -23,8 +23,8 @@ pub trait BatchMatmul<N: Numeric> {
 /// Execute a matmul over a block, accumulating for arbitrary k-dim, using one Cube.
 pub trait CubeMatmul<
     E: Numeric,
-    Lhs: TensorLoader<Line<E>>,
-    Rhs: TensorLoader<Line<E>>,
+    Lhs: Loader<Line<E>>,
+    Rhs: Loader<Line<E>>,
     Out: TileWriter<Line<E>>,
 >: 'static + Send + Sync + TensorMatmul<E>
 {

@@ -10,13 +10,13 @@ use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::loading::{
     LhsSmemTileReader, LhsTensorLoader, RhsSmemTileReader, RhsTensorLoader,
 };
-use crate::matmul::tile_io::writing::GmemTensorWriter;
-use crate::matmul::tile_io::TensorLoader;
+use crate::matmul::tile_io::writing::TensorWriter;
+use crate::matmul::tile_io::Loader;
 use crate::matmul::{BlockMatmul, CubeMatmul, Matmul, TensorMatmul};
 
 pub struct CmmaCubeMatmul<
     Elem: Numeric,
-    BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, GmemTensorWriter<Elem>>,
+    BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, TensorWriter<Elem>>,
 > {
     _elem: PhantomData<Elem>,
     _block_matmul: PhantomData<BM>,
@@ -24,7 +24,7 @@ pub struct CmmaCubeMatmul<
 
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, GmemTensorWriter<Elem>>,
+        BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, TensorWriter<Elem>>,
     > Matmul<Elem, Elem> for CmmaCubeMatmul<Elem, BM>
 {
     fn cube_dim_resources() -> CubeDim {
@@ -42,7 +42,7 @@ impl<
 
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, GmemTensorWriter<Elem>>,
+        BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, TensorWriter<Elem>>,
     > TensorMatmul<Elem> for CmmaCubeMatmul<Elem, BM>
 {
     unsafe fn launch_unchecked<R: Runtime>(
@@ -70,14 +70,14 @@ impl<
 #[cube]
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, GmemTensorWriter<Elem>>,
-    > CubeMatmul<Elem, LhsTensorLoader<Elem>, RhsTensorLoader<Elem>, GmemTensorWriter<Elem>>
+        BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, TensorWriter<Elem>>,
+    > CubeMatmul<Elem, LhsTensorLoader<Elem>, RhsTensorLoader<Elem>, TensorWriter<Elem>>
     for CmmaCubeMatmul<Elem, BM>
 {
     fn execute(
         mut lhs_reader: LhsTensorLoader<Elem>,
         mut rhs_reader: RhsTensorLoader<Elem>,
-        mut out_writer: GmemTensorWriter<Elem>,
+        mut out_writer: TensorWriter<Elem>,
         k_range: (u32, u32),
         layouts: (MatrixLayout, MatrixLayout),
     ) {
