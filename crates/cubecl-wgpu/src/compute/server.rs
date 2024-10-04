@@ -300,7 +300,7 @@ where
         // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
         // needs to be longer than the compute pass, so we can't do this just before dispatching.
         let dispatch_resource = match count.clone() {
-            CubeCount::Dynamic(binding) => Some(self.get_resource(binding.clone())),
+            CubeCount::Dynamic(binding) => Some(self.get_resource(binding)),
             _ => None,
         };
 
