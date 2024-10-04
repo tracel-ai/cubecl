@@ -1,5 +1,8 @@
 use super::{MemoryPoolBinding, MemoryPoolHandle, SliceHandle, SliceId};
-use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use crate::{
+    memory_management::MemoryLock,
+    storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
+};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
@@ -63,10 +66,10 @@ impl SmallMemoryPool {
         &mut self,
         storage: &mut Storage,
         size: usize,
-        exclude: &[StorageId],
+        locked: Option<&MemoryLock>,
     ) -> MemoryPoolHandle {
         assert!(size <= self.buffer_storage_alignment_offset);
-        let slice = self.get_free_slice(size, exclude);
+        let slice = self.get_free_slice(size, locked);
 
         match slice {
             Some(slice) => MemoryPoolHandle {
@@ -118,13 +121,14 @@ impl SmallMemoryPool {
         self.slices.insert(slice_id, slice);
     }
 
-    fn find_free_slice(&mut self, exclude: &[StorageId]) -> Option<SliceId> {
+    fn find_free_slice(&mut self, locked: Option<&MemoryLock>) -> Option<SliceId> {
         for _ in 0..self.ring_buffer.len() {
             let storage_id = self.ring_buffer.get(self.index).unwrap();
-            if exclude.contains(storage_id) {
-                continue;
+            if let Some(locked) = locked.as_ref() {
+                if locked.is_locked(storage_id) {
+                    continue;
+                }
             }
-
             let chunk = self.chunks.get(storage_id).unwrap();
             let slice = self.slices.get(&chunk.slice.unwrap()).unwrap();
             self.index = (self.index + 1) % self.ring_buffer.len();
@@ -137,8 +141,8 @@ impl SmallMemoryPool {
 
     /// Finds a free slice that can contain the given size
     /// Returns the chunk's id and size.
-    fn get_free_slice(&mut self, size: usize, exclude: &[StorageId]) -> Option<SliceHandle> {
-        let slice_id = self.find_free_slice(exclude)?;
+    fn get_free_slice(&mut self, size: usize, locked: Option<&MemoryLock>) -> Option<SliceHandle> {
+        let slice_id = self.find_free_slice(locked)?;
 
         let slice = self.slices.get_mut(&slice_id).unwrap();
         let old_slice_size = slice.effective_size();

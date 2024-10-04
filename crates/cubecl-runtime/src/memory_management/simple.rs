@@ -1,6 +1,6 @@
 use crate::{
     memory_id_type,
-    storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
+    storage::{ComputeStorage, StorageHandle, StorageUtilization},
 };
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -10,7 +10,7 @@ use std::time;
 #[cfg(all(target_family = "wasm", feature = "std"))]
 use web_time as time;
 
-use super::{MemoryBinding, MemoryHandle, MemoryManagement};
+use super::{MemoryBinding, MemoryHandle, MemoryLock, MemoryManagement};
 
 // The ChunkId allows to keep track of how many references there are to a specific chunk.
 memory_id_type!(ChunkId, ChunkHandle, ChunkBinding);
@@ -196,10 +196,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for SimpleMemoryManageme
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, removing unused slices, and chunks if permitted by deallocation strategy.
-    fn reserve(&mut self, size: usize, exclude: &[StorageId]) -> Self::Handle {
+    fn reserve(&mut self, size: usize, locked: Option<&MemoryLock>) -> Self::Handle {
         self.cleanup_slices();
 
-        let handle = self.reserve_algorithm(size, exclude);
+        let handle = self.reserve_algorithm(size, locked);
 
         if self.dealloc_strategy.should_dealloc() {
             self.cleanup_chunks();
@@ -244,9 +244,9 @@ impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {
         }
     }
 
-    fn reserve_algorithm(&mut self, size: usize, exclude: &[StorageId]) -> SimpleHandle {
+    fn reserve_algorithm(&mut self, size: usize, locked: Option<&MemoryLock>) -> SimpleHandle {
         // Looks for a large enough, existing but unused chunk of memory.
-        let chunk = self.find_free_chunk(size, exclude);
+        let chunk = self.find_free_chunk(size, locked);
 
         match chunk {
             Some(chunk) => {
@@ -265,7 +265,7 @@ impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {
 
     /// Finds the smallest of the free and large enough chunks to fit `size`
     /// Returns the chunk's id and size.
-    fn find_free_chunk(&self, size: usize, exclude: &[StorageId]) -> Option<&Chunk> {
+    fn find_free_chunk(&self, size: usize, locked: Option<&MemoryLock>) -> Option<&Chunk> {
         let mut size_diff_current = usize::MAX;
         let mut current = None;
 
@@ -275,8 +275,10 @@ impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {
                 continue;
             }
 
-            if exclude.contains(&chunk.storage.id) {
-                continue;
+            if let Some(locked) = locked {
+                if locked.is_locked(&chunk.storage.id) {
+                    continue;
+                }
             }
 
             let storage_size = chunk.storage.size();
@@ -389,7 +391,7 @@ mod tests {
 
     impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {
         fn reserve_no_sync(&mut self, size: usize) -> SimpleHandle {
-            self.reserve(size, &[])
+            self.reserve(size, None)
         }
     }
 

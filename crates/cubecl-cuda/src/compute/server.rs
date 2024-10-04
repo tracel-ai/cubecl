@@ -117,7 +117,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
 
     fn empty(&mut self, size: usize) -> server::Handle<Self> {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size, &[]);
+        let handle = ctx.memory_management.reserve(size, None);
         server::Handle::new(handle, None, None)
     }
 

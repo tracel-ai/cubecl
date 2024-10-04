@@ -8,9 +8,9 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     debug::DebugLogger,
-    memory_management::{MemoryHandle, MemoryManagement},
+    memory_management::{MemoryHandle, MemoryLock, MemoryManagement},
     server::{self, ComputeServer},
-    storage::{ComputeStorage, StorageId},
+    storage::ComputeStorage,
     ExecutionMode,
 };
 use hashbrown::HashMap;
@@ -25,10 +25,11 @@ pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
     encoder: CommandEncoder,
     current_pass: Option<ComputePass<'static>>,
     tasks_count: usize,
-    storage_in_flight: Vec<StorageId>,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     tasks_max: usize,
     logger: DebugLogger,
+
+    storage_locked: MemoryLock,
 }
 
 fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
@@ -55,7 +56,7 @@ where
             encoder: create_encoder(&device),
             current_pass: None,
             tasks_count: 0,
-            storage_in_flight: Vec::new(),
+            storage_locked: MemoryLock::default(),
             pipelines: HashMap::new(),
             tasks_max,
             logger: DebugLogger::new(),
@@ -198,7 +199,7 @@ where
         // after they have any outstanding compute work. Calling get_resource repeatedly
         // will add duplicates to this, but that is ok.
         let handle = self.memory_management.get(binding.memory.clone());
-        self.storage_in_flight.push(handle.id);
+        self.storage_locked.add_locked(handle.id);
 
         let handle = match binding.offset_start {
             Some(offset) => handle.offset_start(offset),
@@ -226,14 +227,14 @@ where
         // or copying.
         let memory = self
             .memory_management
-            .reserve(reserve_size, &self.storage_in_flight);
+            .reserve(reserve_size, Some(&self.storage_locked));
 
         if let Some(len) = NonZero::new(num_bytes as u64) {
             let resource_handle = self.memory_management.get(memory.clone().binding());
 
             // Dont re-use this handle for writing until the queue is flushed. All writes
             // happen at the start of the submission.
-            self.storage_in_flight.push(resource_handle.id);
+            self.storage_locked.add_locked(resource_handle.id);
 
             let resource = self.memory_management.storage().get(&resource_handle);
 
@@ -248,7 +249,7 @@ where
     }
 
     fn empty(&mut self, size: usize) -> server::Handle<Self> {
-        server::Handle::new(self.memory_management.reserve(size, &[]), None, None)
+        server::Handle::new(self.memory_management.reserve(size, None), None, None)
     }
 
     unsafe fn execute(
@@ -364,7 +365,7 @@ where
         self.queue.submit([encoder.finish()]);
 
         self.tasks_count = 0;
-        self.storage_in_flight.clear();
+        self.storage_locked.clear_locked();
 
         if sync_type == SyncType::Wait {
             self.device.poll(wgpu::Maintain::Wait);
