@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use crate::compiler::wgsl::ComputeShader;
+use crate::compiler::wgsl::WgslCompiler;
 
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
@@ -131,7 +131,7 @@ impl<MM> ComputeServer for WgpuServer<MM>
 where
     MM: MemoryManagement<WgpuStorage>,
 {
-    type Kernel = Box<dyn CubeTask<ComputeShader>>;
+    type Kernel = Box<dyn CubeTask<WgslCompiler>>;
     type DispatchOptions = CubeCount<Self>;
     type Storage = WgpuStorage;
     type MemoryManagement = MM;

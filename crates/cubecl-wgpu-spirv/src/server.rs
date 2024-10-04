@@ -13,7 +13,7 @@ use cubecl_runtime::{
     storage::{ComputeStorage, StorageId},
     ExecutionMode,
 };
-use cubecl_spirv::SpirvKernel;
+use cubecl_spirv::SpirvCompiler;
 use hashbrown::HashMap;
 use wgpu::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
@@ -156,7 +156,7 @@ impl<MM> ComputeServer for WgpuSpirvServer<MM>
 where
     MM: MemoryManagement<WgpuStorage>,
 {
-    type Kernel = Box<dyn CubeTask<SpirvKernel>>;
+    type Kernel = Box<dyn CubeTask<SpirvCompiler>>;
     type DispatchOptions = CubeCount<Self>;
     type Storage = WgpuStorage;
     type MemoryManagement = MM;
