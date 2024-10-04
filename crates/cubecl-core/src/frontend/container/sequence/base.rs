@@ -209,6 +209,11 @@ impl<T: CubeType> SequenceExpand<T> {
             .constant()
             .expect("Only constant are supported")
             .as_usize();
+        // println!(
+        //     "Index method expand {:?} {:?}",
+        //     index,
+        //     core::any::type_name::<Self>()
+        // );
 
         self.values.borrow()[index].clone()
     }

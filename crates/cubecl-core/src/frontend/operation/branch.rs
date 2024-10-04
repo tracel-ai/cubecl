@@ -31,6 +31,8 @@ pub fn select_many<C: CubePrimitive>(
 }
 
 pub mod select {
+    use std::num::NonZero;
+
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
@@ -43,15 +45,30 @@ pub mod select {
         let then = then.expand.consume();
         let or_else = or_else.expand.consume();
 
-        let output = context.create_local_binding(then.item());
+        let vf = cond.item().vectorization.map(NonZero::get).unwrap_or(1u8);
+        let vf = u8::max(
+            vf,
+            then.item().vectorization.map(NonZero::get).unwrap_or(1u8),
+        );
+        let vf = u8::max(
+            vf,
+            or_else
+                .item()
+                .vectorization
+                .map(NonZero::get)
+                .unwrap_or(1u8),
+        );
+
+        let output = context.create_local_binding(then.item().vectorize(NonZero::new(vf)));
         let out = *output;
 
-        context.register(Branch::Select(Select {
+        let select = Branch::Select(Select {
             cond,
             then,
             or_else,
             out,
-        }));
+        });
+        context.register(select);
 
         output.into()
     }
