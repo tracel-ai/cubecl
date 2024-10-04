@@ -25,8 +25,7 @@ pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
     encoder: CommandEncoder,
     current_pass: Option<ComputePass<'static>>,
     tasks_count: usize,
-    compute_storage_used: Vec<StorageId>,
-    copy_storage_used: Vec<StorageId>,
+    storage_in_flight: Vec<StorageId>,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     tasks_max: usize,
     logger: DebugLogger,
@@ -56,8 +55,7 @@ where
             encoder: create_encoder(&device),
             current_pass: None,
             tasks_count: 0,
-            compute_storage_used: Vec::new(),
-            copy_storage_used: Vec::new(),
+            storage_in_flight: Vec::new(),
             pipelines: HashMap::new(),
             tasks_max,
             logger: DebugLogger::new(),
@@ -200,7 +198,8 @@ where
         // after they have any outstanding compute work. Calling get_resource repeatedly
         // will add duplicates to this, but that is ok.
         let handle = self.memory_management.get(binding.memory.clone());
-        self.compute_storage_used.push(handle.id);
+        self.storage_in_flight.push(handle.id);
+
         let handle = match binding.offset_start {
             Some(offset) => handle.offset_start(offset),
             None => handle,
@@ -218,26 +217,23 @@ where
     /// This is important, otherwise the compute passes are going to be too small and we won't be able to
     /// fully utilize the GPU.
     fn create(&mut self, data: &[u8]) -> server::Handle<Self> {
-        // Reserve memory on some storage we haven't yet used this command queue for compute
-        // or copying.
-        let total_handles = [
-            self.compute_storage_used.as_slice(),
-            self.copy_storage_used.as_slice(),
-        ]
-        .concat();
-
         let num_bytes = data.len();
 
         // Handle empty tensors (must bind at minimum 4 bytes)
         let reserve_size = core::cmp::max(num_bytes, 4);
-        let memory = self.memory_management.reserve(reserve_size, &total_handles);
+
+        // Reserve memory on some storage we haven't yet used this command queue for compute
+        // or copying.
+        let memory = self
+            .memory_management
+            .reserve(reserve_size, &self.storage_in_flight);
 
         if let Some(len) = NonZero::new(num_bytes as u64) {
             let resource_handle = self.memory_management.get(memory.clone().binding());
 
             // Dont re-use this handle for writing until the queue is flushed. All writes
             // happen at the start of the submission.
-            self.copy_storage_used.push(resource_handle.id);
+            self.storage_in_flight.push(resource_handle.id);
 
             let resource = self.memory_management.storage().get(&resource_handle);
 
@@ -280,7 +276,7 @@ where
                 // Keep track of the used buffers, to disallow copying into them while
                 // they are active.
                 let storage_handle = self.memory_management.get(binding.memory.clone());
-                self.compute_storage_used.push(storage_handle.id);
+                self.storage_in_flight.push(storage_handle.id);
                 self.get_resource(binding.clone())
             })
             .collect();
@@ -374,8 +370,7 @@ where
         self.queue.submit([encoder.finish()]);
 
         self.tasks_count = 0;
-        self.compute_storage_used.clear();
-        self.copy_storage_used.clear();
+        self.storage_in_flight.clear();
 
         if sync_type == SyncType::Wait {
             self.device.poll(wgpu::Maintain::Wait);
