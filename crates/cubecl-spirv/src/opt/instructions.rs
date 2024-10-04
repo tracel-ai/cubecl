@@ -46,7 +46,6 @@ impl Optimizer {
             | Operator::NotEqual(binary_operator)
             | Operator::LowerEqual(binary_operator)
             | Operator::UncheckedIndex(binary_operator)
-            | Operator::IndexAssign(binary_operator)
             | Operator::UncheckedIndexAssign(binary_operator)
             | Operator::Modulo(binary_operator)
             | Operator::Index(binary_operator)
@@ -65,6 +64,15 @@ impl Optimizer {
             | Operator::Dot(binary_operator)
             | Operator::GreaterEqual(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read, visit_write)
+            }
+            Operator::IndexAssign(op) => {
+                let is_vec = op.out.item().vectorization.map(|it| it.get()).unwrap_or(1) > 1;
+                if let Variable::Local { id, depth, .. } = op.out {
+                    if is_vec {
+                        self.program.variables.remove(&(id, depth));
+                    }
+                }
+                self.visit_binop(op, visit_read, visit_write);
             }
 
             Operator::Abs(unary_operator)
@@ -220,7 +228,7 @@ impl Optimizer {
         mut visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
         visit_read(self, &mut binop.lhs);
-        visit_write(self, &mut binop.rhs);
+        visit_read(self, &mut binop.rhs);
         visit_write(self, &mut binop.out);
     }
 

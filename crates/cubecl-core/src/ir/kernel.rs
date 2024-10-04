@@ -209,6 +209,17 @@ impl Item {
     }
 }
 
+impl Display for Item {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.vectorization {
+            Some(vec) if vec.get() > 1 => {
+                write!(f, "vector{}<{}>", vec.get(), self.elem)
+            }
+            _ => write!(f, "{}", self.elem),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub struct Binding {

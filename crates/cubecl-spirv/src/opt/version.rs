@@ -11,6 +11,7 @@ pub struct SsaState<'a> {
     versions: HashMap<(u16, u8), u16>,
     visited_blocks: &'a mut HashSet<NodeIndex>,
     visited_edges: &'a mut HashSet<u32>,
+    max_versions: &'a mut HashMap<(u16, u8), u16>,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
@@ -28,42 +29,46 @@ pub struct PhiInstruction {
 
 impl Optimizer {
     pub fn version_program(&mut self) {
-        let versions = self.program.variables.keys().map(|key| (*key, 0)).collect();
+        let versions: HashMap<_, _> = self.program.variables.keys().map(|key| (*key, 0)).collect();
         let mut visited_blocks = HashSet::new();
         let mut visited_edges = HashSet::new();
-        let mut initial_state = SsaState {
+        let mut max_versions = versions.clone();
+        let initial_state = SsaState {
             versions,
             visited_blocks: &mut visited_blocks,
             visited_edges: &mut visited_edges,
+            max_versions: &mut max_versions,
         };
-        self.version_block(self.entry(), &mut initial_state);
+        self.version_block(self.entry(), initial_state);
     }
 
-    fn version_block(&mut self, block: NodeIndex, state: &mut SsaState<'_>) {
-        self.version_block_ops(block, state);
+    fn version_block(&mut self, block: NodeIndex, mut state: SsaState<'_>) {
+        self.version_block_ops(block, &mut state);
 
         let edges: Vec<_> = self
             .program
             .edges(block)
             .map(|it| (*it.weight(), it.target()))
             .collect();
+        let state = &mut state;
         for (edge_id, target) in edges {
             let edge_visited = state.visited_edges.contains(&edge_id);
             state.visited_edges.insert(edge_id);
             let block_visited = state.visited_blocks.contains(&target);
             state.visited_blocks.insert(block);
 
-            // let new_state = SsaState {
-            //     versions: versions.clone(),
-            //     visited_blocks,
-            //     visited_edges,
-            // };
+            let new_state = SsaState {
+                versions: state.versions.clone(),
+                visited_blocks: state.visited_blocks,
+                visited_edges: state.visited_edges,
+                max_versions: state.max_versions,
+            };
 
             if !edge_visited {
-                self.version_phi(target, block, state);
+                self.version_phi(target, block, &new_state);
             }
             if !block_visited {
-                self.version_block(target, state);
+                self.version_block(target, new_state);
             }
         }
     }
@@ -87,7 +92,9 @@ impl Optimizer {
         for phi in &mut self.program[block].phi_nodes {
             let (id, depth, _) = phi.out;
             let version = state.versions.get_mut(&(id, depth)).unwrap();
-            *version += 1;
+            let max_version = state.max_versions.get_mut(&(id, depth)).unwrap();
+            *max_version += 1;
+            *version = *max_version;
             phi.out = (id, depth, *version)
         }
 
@@ -120,7 +127,9 @@ impl Optimizer {
                     id, item, depth, ..
                 } => {
                     if let Some(version) = state.versions.get_mut(&(*id, *depth)) {
-                        *version += 1;
+                        let max_version = state.max_versions.get_mut(&(*id, *depth)).unwrap();
+                        *max_version += 1;
+                        *version = *max_version;
                         *var = Variable::Versioned {
                             id: *id,
                             item: *item,

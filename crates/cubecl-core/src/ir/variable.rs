@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::{Elem, FloatKind, IntKind, Item, Matrix};
 use serde::{Deserialize, Serialize};
 
@@ -282,6 +284,28 @@ impl Variable {
         match self {
             Variable::ConstantScalar(constant) => Some(*constant),
             _ => None,
+        }
+    }
+}
+
+impl Display for Variable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Variable::GlobalInputArray { id, .. } => write!(f, "input({id})"),
+            Variable::GlobalScalar { id, .. } => write!(f, "scalar({id})"),
+            Variable::GlobalOutputArray { id, .. } => write!(f, "output({id})"),
+            Variable::Local { id, depth, .. } => write!(f, "local({id}, {depth})"),
+            Variable::Versioned {
+                id, depth, version, ..
+            } => write!(f, "local({id}, {depth}).v{version}"),
+            Variable::LocalBinding { id, depth, .. } => write!(f, "binding({id}, {depth})"),
+            Variable::ConstantScalar(val) => write!(f, "{val:?}"),
+            Variable::ConstantArray { id, .. } => write!(f, "const_array({id})"),
+            Variable::SharedMemory { id, .. } => write!(f, "shared({id})"),
+            Variable::LocalArray { id, .. } => write!(f, "array({id})"),
+            Variable::Matrix { id, depth, .. } => write!(f, "matrix({id}, {depth})"),
+            Variable::Slice { id, .. } => write!(f, "slice({id})"),
+            builtin => write!(f, "{builtin:?}"),
         }
     }
 }

@@ -3,6 +3,7 @@ use petgraph::graph::NodeIndex;
 use std::{
     collections::HashSet,
     fmt::Debug,
+    fs,
     mem::take,
     ops::{Deref, DerefMut},
     rc::Rc,
@@ -135,6 +136,7 @@ impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
 
 impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> Module {
+        println!("Compiling");
         self.set_version(1, 6);
 
         self.init_state(kernel.clone());
@@ -150,17 +152,24 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .begin_function(void, None, FunctionControl::NONE, voidf)
             .unwrap();
 
-        self.begin_block(None).unwrap();
+        let variables = self.id();
+        self.debug_name(variables, "function vars");
+        self.begin_block(Some(variables)).unwrap();
         self.variable_block = self.selected_block().unwrap();
         self.select_block(None).unwrap(); // Pop variables so we can terminate it later once we're done
 
         let setup = self.id();
-        let body = self.id();
-        self.setup(setup, body);
+        self.debug_name(setup, "setup");
         self.opt = Optimizer::new(kernel.body).into();
-        self.compile_block(self.opt.entry());
+        let entry = self.opt.entry();
+        let body = self.label(entry);
+        self.debug_name(body, "entry");
+        self.setup(setup, body);
+        self.compile_block(entry);
 
         let opt = self.opt.clone();
+        fs::write("out/graph.txt", format!("{opt}")).unwrap();
+        println!("{opt}");
         let ret = opt.ret;
         self.compile_block(ret);
 

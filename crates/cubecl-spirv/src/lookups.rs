@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use cubecl_core::ir::KernelDefinition;
 use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
-use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, Word};
+use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};
 
 use crate::{
     item::{Elem, Item},
@@ -176,12 +176,25 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
+    pub fn get_local(&mut self, id: (u16, u8), item: &Item) -> Word {
+        if let Some(existing) = self.state.variables.get(&id) {
+            *existing
+        } else {
+            let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
+            let word = self.declare_function_variable(ty);
+            self.state.variables.insert(id, word);
+            self.debug_name(word, format!("local({}, {})", id.0, id.1));
+            word
+        }
+    }
+
     pub fn get_binding(&mut self, id: (u16, u8)) -> Word {
         if let Some(existing) = self.state.bindings.get(&id) {
             *existing
         } else {
             let word = self.id();
             self.state.bindings.insert(id, word);
+            self.debug_name(word, format!("binding({}, {})", id.0, id.1));
             word
         }
     }
@@ -196,7 +209,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         } else {
             let word = self.id();
             self.state.versioned.insert(id, word);
+            self.debug_name(word, format!("local({}, {}).v{}", id.0, id.1, id.2));
             word
         }
+    }
+
+    pub fn merge_versioned(&mut self, id: (u16, u8, u16), word: Word) {
+        self.state.versioned.insert(id, word);
     }
 }

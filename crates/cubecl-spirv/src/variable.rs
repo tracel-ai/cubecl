@@ -347,20 +347,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let const_id = self.const_u32(id as u32);
                 let index =
                     Variable::ConstantScalar(const_id, (id as u32).into(), Elem::Int(32, false));
-                let val = Variable::Raw(self.id(), item.clone());
-                self.read_indexed_unchecked(&val, &arr, &index);
-                let id = self.read(&val);
-                self.debug_name(id, format!("scalars_{elem}[{id}]"));
-                Variable::GlobalScalar(id, item.elem())
+                let read_id = self.id();
+                let var = Variable::GlobalScalar(read_id, item.elem());
+                self.debug_name(read_id, format!("scalars<{elem}>({id})"));
+                self.read_indexed_unchecked(&var, &arr, &index);
+                var
             }
             core::Variable::Local { id, item, depth } => {
                 let item = self.compile_item(item);
-                let var = self
-                    .state
-                    .variables
-                    .get(&(id, depth))
-                    .expect("Trying to use undeclared variable");
-                Variable::Local { id: *var, item }
+                let var = self.get_local((id, depth), &item);
+                Variable::Local { id: var, item }
             }
             core::Variable::Versioned {
                 id,
@@ -710,6 +706,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .as_u32(),
                 Item::Vector(*elem, *vec),
             ),
+            Variable::Versioned {
+                id,
+                item: Item::Vector(elem, vec),
+            } => IndexedVariable::Composite(
+                self.get_versioned(*id),
+                index
+                    .as_const()
+                    .expect("Index into vector must be constant")
+                    .as_u32(),
+                Item::Vector(*elem, *vec),
+            ),
             Variable::LocalBinding { .. } | Variable::Local { .. } => {
                 let index = index
                     .as_const()
@@ -804,7 +811,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn write_id(&mut self, variable: &Variable) -> Word {
         match variable {
             Variable::LocalBinding { id, .. } => self.get_binding(*id),
+            Variable::Versioned { id, .. } => self.get_versioned(*id),
             Variable::Local { .. } => self.id(),
+            Variable::GlobalScalar(id, _) => *id,
             Variable::Raw(id, _) => *id,
             Variable::ConstantScalar(_, _, _) => panic!("Can't write to constant scalar"),
             Variable::GlobalInputArray(_, _)
@@ -823,6 +832,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Local { id, .. } => self.store(*id, value, None, vec![]).unwrap(),
             Variable::Slice { ptr, .. } => self.write(ptr, value),
             Variable::LocalBinding { id, .. } => self.merge_binding(*id, value),
+            Variable::Versioned { id, .. } => self.merge_versioned(*id, value),
             _ => {}
         }
     }

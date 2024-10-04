@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::{Branch, CoopMma, Procedure, Subcube, Synchronization, Variable};
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +21,20 @@ pub enum Operation {
     Synchronization(Synchronization),
     Subcube(Subcube),
     CoopMma(CoopMma),
+}
+
+impl Display for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Operation::Operator(operator) => write!(f, "{operator}"),
+            Operation::Procedure(procedure) => write!(f, "{procedure:?}"),
+            Operation::Metadata(metadata) => write!(f, "{metadata}"),
+            Operation::Branch(branch) => write!(f, "{branch}"),
+            Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
+            Operation::Subcube(subcube) => write!(f, "{subcube}"),
+            Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
+        }
+    }
 }
 
 /// All operators that can be used in a GPU compute shader.
@@ -87,6 +103,85 @@ pub enum Operator {
     Dot(BinaryOperator),
 }
 
+impl Display for Operator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Operator::Add(op) => write!(f, "{} = {} + {}", op.out, op.lhs, op.rhs),
+            Operator::Fma(op) => write!(f, "{} = {} * {} + {}", op.out, op.a, op.b, op.c),
+            Operator::Sub(op) => write!(f, "{} = {} - {}", op.out, op.lhs, op.rhs),
+            Operator::Mul(op) => write!(f, "{} = {} * {}", op.out, op.lhs, op.rhs),
+            Operator::Div(op) => write!(f, "{} = {} / {}", op.out, op.lhs, op.rhs),
+            Operator::Abs(op) => write!(f, "{} = {}.abs()", op.out, op.input),
+            Operator::Exp(op) => write!(f, "{} = {}.exp()", op.out, op.input),
+            Operator::Log(op) => write!(f, "{} = {}.log()", op.out, op.input),
+            Operator::Log1p(op) => write!(f, "{} = {}.log_1p()", op.out, op.input),
+            Operator::Cos(op) => write!(f, "{} = {}.cos()", op.out, op.input),
+            Operator::Sin(op) => write!(f, "{} = {}.sin()", op.out, op.input),
+            Operator::Tanh(op) => write!(f, "{} = {}.tanh()", op.out, op.input),
+            Operator::Powf(op) => write!(f, "{} = {}.pow({})", op.out, op.lhs, op.rhs),
+            Operator::Sqrt(op) => write!(f, "{} = {}.sqrt()", op.out, op.input),
+            Operator::Round(op) => write!(f, "{} = {}.round()", op.out, op.input),
+            Operator::Floor(op) => write!(f, "{} = {}.floor()", op.out, op.input),
+            Operator::Ceil(op) => write!(f, "{} = {}.ceil()", op.out, op.input),
+            Operator::Erf(op) => write!(f, "{} = {}.erf()", op.out, op.input),
+            Operator::Recip(op) => write!(f, "{} = {}.recip()", op.out, op.input),
+            Operator::Equal(op) => write!(f, "{} = {} == {}", op.out, op.lhs, op.rhs),
+            Operator::NotEqual(op) => write!(f, "{} = {} != {}", op.out, op.lhs, op.rhs),
+            Operator::Lower(op) => write!(f, "{} = {} < {}", op.out, op.lhs, op.rhs),
+            Operator::Clamp(op) => write!(
+                f,
+                "{} = {}.clamp({}, {})",
+                op.out, op.input, op.min_value, op.max_value
+            ),
+            Operator::Greater(op) => write!(f, "{} = {} > {}", op.out, op.lhs, op.rhs),
+            Operator::LowerEqual(op) => write!(f, "{} = {} <= {}", op.out, op.lhs, op.rhs),
+            Operator::GreaterEqual(op) => write!(f, "{} = {} >= {}", op.out, op.lhs, op.rhs),
+            Operator::Assign(op) => write!(f, "{} = {}", op.out, op.input),
+            Operator::Modulo(op) => write!(f, "{} = {} mod {}", op.out, op.lhs, op.rhs),
+            Operator::Index(op) => write!(f, "{} = {}[{}]", op.out, op.lhs, op.rhs),
+            Operator::Slice(op) => write!(f, "{} = {}[{}..{}]", op.out, op.input, op.start, op.end),
+            Operator::UncheckedIndex(op) => write!(f, "{} = unsafe {}[{}]", op.out, op.lhs, op.rhs),
+            Operator::IndexAssign(op) => write!(f, "{}[{}] = {}", op.out, op.lhs, op.rhs),
+            Operator::UncheckedIndexAssign(op) => {
+                write!(f, "unsafe {}[{}] = {}", op.out, op.lhs, op.rhs)
+            }
+            Operator::And(op) => write!(f, "{} = {} && {}", op.out, op.lhs, op.rhs),
+            Operator::Or(op) => write!(f, "{} = {} || {}", op.out, op.lhs, op.rhs),
+            Operator::Not(op) => write!(f, "{} = !{}", op.out, op.input),
+            Operator::Neg(op) => write!(f, "{} = -{}", op.out, op.input),
+            Operator::Max(op) => write!(f, "{} = {}.max({})", op.out, op.lhs, op.rhs),
+            Operator::Min(op) => write!(f, "{} = {}.min({})", op.out, op.lhs, op.rhs),
+            Operator::BitwiseAnd(op) => write!(f, "{} = {} & {}", op.out, op.lhs, op.rhs),
+            Operator::BitwiseOr(op) => write!(f, "{} = {} | {}", op.out, op.lhs, op.rhs),
+            Operator::BitwiseXor(op) => write!(f, "{} = {} ^ {}", op.out, op.lhs, op.rhs),
+            Operator::ShiftLeft(op) => write!(f, "{} = {} << {}", op.out, op.lhs, op.rhs),
+            Operator::ShiftRight(op) => write!(f, "{} = {} >> {}", op.out, op.lhs, op.rhs),
+            Operator::Remainder(op) => write!(f, "{} = {} rem {}", op.out, op.lhs, op.rhs),
+            Operator::Bitcast(op) => write!(f, "{} = bitcast({})", op.out, op.input),
+            Operator::AtomicLoad(op) => write!(f, "{} = atomic_load({})", op.out, op.input),
+            Operator::AtomicStore(op) => write!(f, "atomic_store({}, {})", op.out, op.input),
+            Operator::AtomicSwap(op) => {
+                write!(f, "{} = atomic_swap({}, {})", op.out, op.lhs, op.rhs)
+            }
+            Operator::AtomicAdd(op) => write!(f, "{} = atomic_add({}, {})", op.out, op.lhs, op.rhs),
+            Operator::AtomicSub(op) => write!(f, "{} = atomic_sub({}, {})", op.out, op.lhs, op.rhs),
+            Operator::AtomicMax(op) => write!(f, "{} = atomic_max({}, {})", op.out, op.lhs, op.rhs),
+            Operator::AtomicMin(op) => write!(f, "{} = atomic_min({}, {})", op.out, op.lhs, op.rhs),
+            Operator::AtomicAnd(op) => write!(f, "{} = atomic_and({}, {})", op.out, op.lhs, op.rhs),
+            Operator::AtomicOr(op) => write!(f, "{} = atomic_or({}, {})", op.out, op.lhs, op.rhs),
+            Operator::AtomicXor(op) => write!(f, "{} = atomic_xor({}, {})", op.out, op.lhs, op.rhs),
+            Operator::AtomicCompareAndSwap(op) => write!(
+                f,
+                "{} = compare_and_swap({}, {}, {})",
+                op.out, op.input, op.cmp, op.val
+            ),
+            Operator::Magnitude(op) => write!(f, "{} = {}.length()", op.out, op.input),
+            Operator::Normalize(op) => write!(f, "{} = {}.normalize()", op.out, op.input),
+            Operator::Dot(op) => write!(f, "{} = {}.dot({})", op.out, op.lhs, op.rhs),
+        }
+    }
+}
+
 /// All metadata that can be access in a shader.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[allow(missing_docs)]
@@ -107,6 +202,16 @@ pub enum Metadata {
         var: Variable,
         out: Variable,
     },
+}
+
+impl Display for Metadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Metadata::Stride { dim, var, out } => write!(f, "{} = {}.strides[{}]", out, var, dim),
+            Metadata::Shape { dim, var, out } => write!(f, "{} = {}.shape[{}]", out, var, dim),
+            Metadata::Length { var, out } => write!(f, "{} = {}.len()", out, var),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

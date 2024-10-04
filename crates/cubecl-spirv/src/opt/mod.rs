@@ -16,7 +16,7 @@ use version::PhiInstruction;
 
 mod debug;
 mod instructions;
-mod pass;
+mod passes;
 mod phi_frontiers;
 mod version;
 
@@ -72,20 +72,11 @@ pub enum ControlFlow {
 
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
 pub struct BasicBlock {
-    annotations: HashSet<Annotation>,
     pub phi_nodes: Vec<PhiInstruction>,
     writes: HashSet<(u16, u8)>,
     dom_frontiers: HashSet<NodeIndex>,
     pub ops: Vec<Operation>,
     pub control_flow: ControlFlow,
-}
-
-/// Annotations to prevent merging some kinds of blocks and allowing update of others
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
-pub enum Annotation {
-    ContinueTarget,
-    /// Merge target from block x
-    Merge(NodeIndex),
 }
 
 #[derive(Default, Debug, Clone)]
@@ -146,10 +137,6 @@ impl Optimizer {
             .collect()
     }
 
-    pub fn annotate(&mut self, block: NodeIndex, annotation: Annotation) {
-        self.program[block].annotations.insert(annotation);
-    }
-
     pub fn block(&self, block: NodeIndex) -> &BasicBlock {
         &self.program[block]
     }
@@ -158,33 +145,8 @@ impl Optimizer {
         let processed = scope.process();
 
         for var in processed.variables {
-            match var {
-                Variable::Local {
-                    id,
-                    item:
-                        Item {
-                            elem,
-                            vectorization: Some(vec),
-                        },
-                    depth,
-                } if vec.get() > 1 => {
-                    let out = Variable::Local {
-                        id,
-                        item: Item::vectorized(elem, Some(vec)),
-                        depth,
-                    };
-                    let mut init = Operator::Assign(UnaryOperator {
-                        input: Variable::ConstantScalar(ConstantScalarValue::UInt(0)),
-                        out,
-                    })
-                    .into();
-                    self.visit_operation(&mut init, |_, _| {}, |opt, var| opt.write_var(var));
-                    self.current_block_mut().ops.push(init);
-                }
-                Variable::Local { id, item, depth } => {
-                    self.program.variables.insert((id, depth), item);
-                }
-                _ => {}
+            if let Variable::Local { id, item, depth } = var {
+                self.program.variables.insert((id, depth), item);
             }
         }
 
@@ -232,7 +194,6 @@ impl Optimizer {
         let current_block = self.current_block.unwrap();
         let then = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
-        self.annotate(next, Annotation::Merge(current_block));
 
         self.program[current_block].control_flow = ControlFlow::If {
             cond: if_.cond,
@@ -382,7 +343,7 @@ impl Optimizer {
             .unwrap_or(Variable::ConstantScalar(ConstantScalarValue::UInt(1)));
 
         let i_id = match range_loop.i {
-            Variable::LocalBinding { id, depth, .. } => (id, depth),
+            Variable::Local { id, depth, .. } => (id, depth),
             _ => unreachable!(),
         };
         let i = range_loop.i;
@@ -405,12 +366,18 @@ impl Optimizer {
         let body = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
 
+        // Need duplicate block because we can't have two merges to the same block
+        let break_target = self.program.add_node(BasicBlock::default());
+        let edge_id = self.edge_id();
+        self.program.add_edge(break_target, next, edge_id);
+
         let id = self.edge_id();
         self.program.add_edge(header, break_cond, id);
-        let id = self.edge_id();
-        self.program.add_edge(break_cond, next, id);
+
         let id = self.edge_id();
         self.program.add_edge(break_cond, body, id);
+        let id = self.edge_id();
+        self.program.add_edge(break_cond, break_target, id);
 
         self.loop_break.push_back(next);
 
@@ -443,7 +410,7 @@ impl Optimizer {
                 true => Operator::LowerEqual,
                 false => Operator::Lower,
             };
-            let tmp = Variable::Local {
+            let tmp = Variable::LocalBinding {
                 id: 60000 + i_id.0,
                 item: Item::new(Elem::Bool),
                 depth: i_id.1,
@@ -456,10 +423,11 @@ impl Optimizer {
                 })
                 .into(),
             );
+
             self.program[break_cond].control_flow = ControlFlow::If {
                 cond: tmp,
                 then: body,
-                merge: next,
+                merge: break_target,
             };
         }
         self.program[continue_target].ops.push(

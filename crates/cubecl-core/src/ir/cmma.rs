@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 use super::{Elem, Variable};
@@ -57,4 +59,35 @@ pub enum CoopMma {
         stride: Variable,
         layout: MatrixLayout,
     },
+}
+
+impl Display for CoopMma {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CoopMma::Fill { mat, value } => write!(f, "matrix_fill({}, {})", mat, value),
+            CoopMma::Load { mat, value, stride } => {
+                write!(f, "matrix_load({}, {}, stride: {})", mat, value, stride)
+            }
+            CoopMma::Execute {
+                mat_a,
+                mat_b,
+                mat_c,
+                mat_d,
+            } => write!(
+                f,
+                "{} = execute_cmma({}, {}, {})",
+                mat_d, mat_a, mat_b, mat_c
+            ),
+            CoopMma::Store {
+                output,
+                mat,
+                stride,
+                layout,
+            } => write!(
+                f,
+                "matrix_store({}, {}, stride: {}, layout: {:?})",
+                mat, output, stride, layout
+            ),
+        }
+    }
 }

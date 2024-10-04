@@ -33,6 +33,7 @@ impl Program {
                 .node_indices()
                 .filter(|index| self[*index].writes.contains(&var))
                 .collect();
+            println!("var {var:?} is written to in {workset:?}");
             let mut considered = workset.clone();
             let mut already_inserted = Vec::new();
 
