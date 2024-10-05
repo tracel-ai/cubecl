@@ -381,6 +381,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn static_cast(&mut self, val: ConstVal, from: &Elem, item: &Item) -> Word {
+        println!("Casting {val:?} from {from} to {item}");
         let elem_cast = match (from, item.elem()) {
             (Elem::Bool, Elem::Int(64, _)) => ConstVal::Bit64(val.as_u64()),
             (Elem::Bool, Elem::Int(_, _)) => ConstVal::Bit32(val.as_u32()),
@@ -394,6 +395,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             (Elem::Int(_, true), Elem::Float(64)) => unsafe {
                 ConstVal::Bit64((transmute::<u64, i64>(val.as_u64()) as f64).to_bits())
+            },
+            (Elem::Int(_, false), Elem::Float(_)) => {
+                ConstVal::Bit32((val.as_u64() as f32).to_bits())
+            }
+            (Elem::Int(64, true), Elem::Float(_)) => unsafe {
+                ConstVal::Bit32((transmute::<u64, i64>(val.as_u64()) as f32).to_bits())
+            },
+            (Elem::Int(_, true), Elem::Float(_)) => unsafe {
+                ConstVal::Bit32((transmute::<u32, i32>(val.as_u32()) as f32).to_bits())
             },
             (Elem::Float(64), Elem::Bool) => {
                 ConstVal::Bit32((f64::from_bits(val.as_u64()) == 1.0) as u32)

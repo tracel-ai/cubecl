@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    BinaryOperator, CoopMma, Metadata, Operation, Operator, Select, Subcube, UnaryOperator,
+    BinaryOperator, Branch, CoopMma, Metadata, Operation, Operator, Select, Subcube, UnaryOperator,
     Variable,
 };
 
@@ -9,8 +9,8 @@ impl Optimizer {
     pub fn visit_operation(
         &mut self,
         op: &mut Operation,
-        visit_read: impl FnMut(&mut Self, &mut Variable),
-        visit_write: impl FnMut(&mut Self, &mut Variable),
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
             Operation::Operator(operator) => self.visit_operator(operator, visit_read, visit_write),
@@ -20,6 +20,12 @@ impl Optimizer {
             Operation::Subcube(subcube) => self.visit_subcube(subcube, visit_read, visit_write),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read, visit_write),
             Operation::Procedure(_) => todo!("Legacy"),
+            Operation::Branch(Branch::Select(select)) => {
+                visit_read(self, &mut select.cond);
+                visit_read(self, &mut select.then);
+                visit_read(self, &mut select.or_else);
+                visit_write(self, &mut select.out);
+            }
             Operation::Branch(_) => unreachable!(),
         }
     }

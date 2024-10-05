@@ -85,6 +85,49 @@ pub enum Variable {
     AbsolutePosZ,
 }
 
+impl Variable {
+    /// Whether a variable is always immutable. Used for optimizations to determine whether it's
+    /// safe to inline/merge
+    pub fn is_immutable(&self) -> bool {
+        match self {
+            Variable::GlobalOutputArray { .. } => false,
+            Variable::Local { .. } => false,
+            Variable::SharedMemory { .. } => false,
+            Variable::Matrix { .. } => false,
+            Variable::Slice { .. } => false,
+            Variable::LocalArray { .. } => false,
+            Variable::GlobalInputArray { .. } => true,
+            Variable::GlobalScalar { .. } => true,
+            Variable::Versioned { .. } => true,
+            Variable::LocalBinding { .. } => true,
+            Variable::ConstantScalar(_) => true,
+            Variable::ConstantArray { .. } => true,
+            Variable::Rank => true,
+            Variable::UnitPos => true,
+            Variable::UnitPosX => true,
+            Variable::UnitPosY => true,
+            Variable::UnitPosZ => true,
+            Variable::CubePos => true,
+            Variable::CubePosX => true,
+            Variable::CubePosY => true,
+            Variable::CubePosZ => true,
+            Variable::CubeDim => true,
+            Variable::CubeDimX => true,
+            Variable::CubeDimY => true,
+            Variable::CubeDimZ => true,
+            Variable::CubeCount => true,
+            Variable::CubeCountX => true,
+            Variable::CubeCountY => true,
+            Variable::CubeCountZ => true,
+            Variable::SubcubeDim => true,
+            Variable::AbsolutePos => true,
+            Variable::AbsolutePosX => true,
+            Variable::AbsolutePosY => true,
+            Variable::AbsolutePosZ => true,
+        }
+    }
+}
+
 /// The scalars are stored with the highest precision possible, but they might get reduced during
 /// compilation.
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, PartialOrd)]
@@ -200,6 +243,21 @@ impl ConstantScalarValue {
     }
 }
 
+impl Display for ConstantScalarValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConstantScalarValue::Int(val, IntKind::I32) => write!(f, "{val}i32"),
+            ConstantScalarValue::Int(val, IntKind::I64) => write!(f, "{val}i64"),
+            ConstantScalarValue::Float(val, FloatKind::BF16) => write!(f, "{val}bf16"),
+            ConstantScalarValue::Float(val, FloatKind::F16) => write!(f, "{val}f16"),
+            ConstantScalarValue::Float(val, FloatKind::F32) => write!(f, "{val}f32"),
+            ConstantScalarValue::Float(val, FloatKind::F64) => write!(f, "{val}f64"),
+            ConstantScalarValue::UInt(val) => write!(f, "{val}u32"),
+            ConstantScalarValue::Bool(val) => write!(f, "{val}"),
+        }
+    }
+}
+
 impl Variable {
     pub fn index(&self) -> Option<u16> {
         match self {
@@ -294,12 +352,12 @@ impl Display for Variable {
             Variable::GlobalInputArray { id, .. } => write!(f, "input({id})"),
             Variable::GlobalScalar { id, .. } => write!(f, "scalar({id})"),
             Variable::GlobalOutputArray { id, .. } => write!(f, "output({id})"),
+            Variable::ConstantScalar(constant) => write!(f, "{constant}"),
             Variable::Local { id, depth, .. } => write!(f, "local({id}, {depth})"),
             Variable::Versioned {
                 id, depth, version, ..
             } => write!(f, "local({id}, {depth}).v{version}"),
             Variable::LocalBinding { id, depth, .. } => write!(f, "binding({id}, {depth})"),
-            Variable::ConstantScalar(val) => write!(f, "{val:?}"),
             Variable::ConstantArray { id, .. } => write!(f, "const_array({id})"),
             Variable::SharedMemory { id, .. } => write!(f, "shared({id})"),
             Variable::LocalArray { id, .. } => write!(f, "array({id})"),

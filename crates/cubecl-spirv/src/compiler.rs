@@ -3,7 +3,8 @@ use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use std::{
     collections::HashSet,
     fmt::Debug,
-    fs,
+    fs::{self, File},
+    io::Write,
     mem::take,
     ops::{Deref, DerefMut},
     rc::Rc,
@@ -14,6 +15,7 @@ use cubecl_core::{
     Compiler, ExecutionMode,
 };
 use rspirv::{
+    binary::Assemble,
     dr::{Builder, Module},
     spirv::{BuiltIn, Capability, Decoration, FunctionControl, StorageClass, Word},
 };
@@ -167,7 +169,10 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.compile_block(entry);
 
         let opt = self.opt.clone();
-        fs::write("out/graph.txt", format!("{opt}")).unwrap();
+        let mut graph = File::create("out/graph.txt").unwrap();
+        graph.write_fmt(format_args!("{opt}")).unwrap();
+        drop(graph);
+
         println!("{opt}");
         let ret = opt.ret;
         self.compile_block(ret);
@@ -205,7 +210,17 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         target.set_modes(self, main, builtins, cube_dims);
 
-        take(&mut self.builder).module()
+        let module = take(&mut self.builder).module();
+        fs::write(
+            "out/out.spv",
+            module
+                .assemble()
+                .into_iter()
+                .flat_map(|it| it.to_le_bytes())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        module
     }
 
     fn setup(&mut self, label: Word, body: Word) {
@@ -253,15 +268,18 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let label = self.label(block);
         self.begin_block(Some(label)).unwrap();
 
-        for phi in self.current_block().phi_nodes.clone() {
-            let ty = self.compile_item(phi.item).id(self);
-            let out_id = self.get_versioned(phi.out);
+        let phi = { self.current_block().phi_nodes.borrow().clone() };
+        for phi in phi {
+            let out = self.compile_variable(phi.out);
+            let ty = out.item().id(self);
+            let out_id = self.write_id(&out);
             let entries: Vec<_> = phi
                 .entries
                 .into_iter()
                 .map(|it| {
                     let label = self.label(it.block);
-                    let value = self.get_versioned(it.value);
+                    let value = self.compile_variable(it.value);
+                    let value = self.read(&value);
                     (value, label)
                 })
                 .collect();
@@ -273,7 +291,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.compile_operation(operation);
         }
 
-        let control_flow = self.current_block().control_flow.clone();
+        let control_flow = self.current_block().control_flow.borrow().clone();
         self.compile_control_flow(control_flow);
     }
 

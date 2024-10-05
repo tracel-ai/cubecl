@@ -2,6 +2,8 @@ use std::fmt::Display;
 
 use petgraph::visit::EdgeRef;
 
+use crate::ControlFlow;
+
 use super::{Optimizer, Program};
 
 impl Display for Optimizer {
@@ -22,27 +24,34 @@ impl Display for Program {
             let id = node.index();
             let bb = &self[node];
             writeln!(f, "bb{id} {{")?;
-            for phi in &bb.phi_nodes {
-                write!(
-                    f,
-                    "    local({}, {}).v{} = phi ",
-                    phi.out.0, phi.out.1, phi.out.2
-                )?;
+            let live_vars = bb
+                .liveness
+                .iter()
+                .filter(|it| *it.1)
+                .map(|it| format!("local({}, {})", it.0 .0, it.0 .1))
+                .collect::<Vec<_>>();
+            writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;
+
+            for phi in bb.phi_nodes.borrow().iter() {
+                write!(f, "    {} = phi ", phi.out)?;
                 for entry in &phi.entries {
                     write!(f, "[bb{}: ", entry.block.index())?;
-                    let (id, depth, version) = entry.value;
-                    write!(f, "local({id}, {depth}).v{version}]")?;
+                    write!(f, "{}]", entry.value)?;
                 }
                 f.write_str(";\n")?;
             }
+            if !bb.phi_nodes.borrow().is_empty() {
+                writeln!(f)?;
+            }
+
             for op in bb.ops.borrow().values() {
                 writeln!(f, "    {op};")?;
             }
-            match &bb.control_flow {
-                super::ControlFlow::If { cond, then, merge } => {
+            match &*bb.control_flow.borrow() {
+                ControlFlow::If { cond, then, merge } => {
                     writeln!(f, "    {cond} ? bb{} : bb{};", then.index(), merge.index())?;
                 }
-                super::ControlFlow::IfElse {
+                ControlFlow::IfElse {
                     cond,
                     then,
                     or_else,

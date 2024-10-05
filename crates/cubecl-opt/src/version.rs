@@ -6,6 +6,8 @@ use std::{
 use cubecl_core::ir::{Item, Operation, Variable};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
+use crate::ControlFlow;
+
 use super::Optimizer;
 
 #[derive(Debug)]
@@ -16,17 +18,16 @@ pub struct SsaState<'a> {
     max_versions: &'a mut HashMap<(u16, u8), u16>,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct PhiEntry {
     pub block: NodeIndex,
-    pub value: (u16, u8, u16),
+    pub value: Variable,
 }
 
 #[derive(Debug, Clone)]
 pub struct PhiInstruction {
-    pub out: (u16, u8, u16),
+    pub out: Variable,
     pub entries: Vec<PhiEntry>,
-    pub item: Item,
 }
 
 impl Optimizer {
@@ -76,28 +77,37 @@ impl Optimizer {
     }
 
     fn version_phi(&mut self, target: NodeIndex, source: NodeIndex, state: &SsaState<'_>) {
-        let mut phi = self.program[target].phi_nodes.drain(..).collect::<Vec<_>>();
-        for node in &mut phi {
+        let phi = self.program[target].phi_nodes.clone();
+        for node in phi.borrow_mut().iter_mut() {
             let entry = node
                 .entries
                 .iter_mut()
                 .find(|it| it.block == source)
                 .unwrap();
-            let id = (entry.value.0, entry.value.1);
-            let version = state.versions[&id];
-            entry.value = (id.0, id.1, version);
+            let (id, depth, item, _) = as_versioned(entry.value);
+            let version = state.versions[&(id, depth)];
+            entry.value = Variable::Versioned {
+                id,
+                item,
+                depth,
+                version,
+            };
         }
-        self.program[target].phi_nodes = phi;
     }
 
     fn version_block_ops(&mut self, block: NodeIndex, state: &mut SsaState<'_>) {
-        for phi in &mut self.program[block].phi_nodes {
-            let (id, depth, _) = phi.out;
+        for phi in self.program[block].phi_nodes.borrow_mut().iter_mut() {
+            let (id, depth, item, _) = as_versioned(phi.out);
             let version = state.versions.get_mut(&(id, depth)).unwrap();
             let max_version = state.max_versions.get_mut(&(id, depth)).unwrap();
             *max_version += 1;
             *version = *max_version;
-            phi.out = (id, depth, *version)
+            phi.out = Variable::Versioned {
+                id,
+                item,
+                depth,
+                version: *version,
+            };
         }
 
         let mut ops = take(&mut *self.program[block].ops.borrow_mut());
@@ -106,11 +116,11 @@ impl Optimizer {
             self.version_writes(operation, state);
         }
         *self.program[block].ops.borrow_mut() = ops;
-        match &mut self.program[block].control_flow {
-            super::ControlFlow::If { cond, .. } | super::ControlFlow::IfElse { cond, .. } => {
+        match &mut *self.program[block].control_flow.borrow_mut() {
+            ControlFlow::If { cond, .. } | super::ControlFlow::IfElse { cond, .. } => {
                 version_read(cond, state)
             }
-            super::ControlFlow::Switch { value, .. } => version_read(value, state),
+            ControlFlow::Switch { value, .. } => version_read(value, state),
             _ => {}
         }
     }
@@ -143,6 +153,18 @@ impl Optimizer {
                 _ => {}
             },
         );
+    }
+}
+
+fn as_versioned(var: Variable) -> (u16, u8, Item, u16) {
+    match var {
+        Variable::Versioned {
+            id,
+            item,
+            depth,
+            version,
+        } => (id, depth, item, version),
+        _ => unreachable!(),
     }
 }
 

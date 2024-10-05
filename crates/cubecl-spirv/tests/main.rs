@@ -16,14 +16,14 @@ pub fn load_lhs_plain() {
     let lhs = handle(&client);
     let rhs = handle(&client);
 
-    let config = make_tiling2d_config(16, 8, 8);
+    let config = make_tiling2d_config(6, 14, 8);
 
     let kernel = load_tensor_test::create_dummy_kernel::<f32, WgpuRuntime>(
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         tensor_vec(&lhs, 4),
         array_vec(&rhs, 4),
-        ScalarArg::new(4),
+        ScalarArg::new(1),
         ScalarArg::new(4),
         ScalarArg::new(8),
         config,

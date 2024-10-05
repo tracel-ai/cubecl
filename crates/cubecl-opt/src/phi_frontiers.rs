@@ -1,4 +1,4 @@
-use cubecl_core::ir::Item;
+use cubecl_core::ir::{Item, Variable};
 use petgraph::{algo::dominators::simple_fast, graph::NodeIndex, visit::EdgeRef, Direction};
 
 use super::{
@@ -33,13 +33,12 @@ impl Program {
                 .node_indices()
                 .filter(|index| self[*index].writes.contains(&var))
                 .collect();
-            println!("var {var:?} is written to in {workset:?}");
             let mut considered = workset.clone();
             let mut already_inserted = Vec::new();
 
             while let Some(node) = workset.pop() {
                 for frontier in self[node].dom_frontiers.clone() {
-                    if already_inserted.contains(&frontier) {
+                    if already_inserted.contains(&frontier) || self.is_dead(frontier, var) {
                         continue;
                     }
                     self.insert_phi(frontier, var, self.variables[&var]);
@@ -54,19 +53,23 @@ impl Program {
     }
 
     pub fn insert_phi(&mut self, block: NodeIndex, id: (u16, u8), item: Item) {
-        let out_id = (id.0, id.1, 0);
+        let var = Variable::Versioned {
+            id: id.0,
+            item,
+            depth: id.1,
+            version: 0,
+        };
         let entries = self
             .edges_directed(block, Direction::Incoming)
             .map(|edge| edge.source())
             .map(|pred| PhiEntry {
                 block: pred,
-                value: (id.0, id.1, 0),
+                value: var,
             });
         let phi = PhiInstruction {
-            out: out_id,
+            out: var,
             entries: entries.collect(),
-            item,
         };
-        self[block].phi_nodes.push(phi);
+        self[block].phi_nodes.borrow_mut().push(phi);
     }
 }

@@ -5,14 +5,14 @@ use cubecl_core::ir::{
 };
 use stable_vec::StableVec;
 
-use crate::Optimizer;
+use crate::{AtomicCounter, Optimizer};
 
 use super::OptimizationPass;
 
 pub struct CompositeMerge;
 
 impl OptimizationPass for CompositeMerge {
-    fn apply_pre_ssa(&mut self, opt: &mut Optimizer) {
+    fn apply_pre_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         let blocks = opt.program.node_indices().collect::<Vec<_>>();
 
         for block in blocks {
@@ -39,27 +39,31 @@ impl OptimizationPass for CompositeMerge {
                     out: Variable::Local { id, depth, item },
                 })) = op
                 {
-                    let index = lhs.as_const().expect("Vector index must be const").as_u32();
-                    let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
-                    if vectorization > 1 {
-                        let assigns = assigns.entry((id, depth)).or_default();
-                        assigns.push((idx, index, rhs));
-                        if assigns.len() as u8 == vectorization {
-                            merge_assigns(
-                                &mut opt.program[block].ops.borrow_mut(),
-                                take(assigns),
-                                id,
-                                depth,
-                                item,
-                            );
+                    if let Some(index) = lhs.as_const() {
+                        let index = index.as_u32();
+                        let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
+                        if vectorization > 1 {
+                            let assigns = assigns.entry((id, depth)).or_default();
+                            assigns.push((idx, index, rhs));
+                            if assigns.len() as u8 == vectorization {
+                                merge_assigns(
+                                    &mut opt.program[block].ops.borrow_mut(),
+                                    take(assigns),
+                                    id,
+                                    depth,
+                                    item,
+                                );
+                                changes.inc();
+                            }
+                        } else {
+                            assert_eq!(index, 0, "Can't index into scalar");
+                            opt.program[block].ops.borrow_mut()[idx] =
+                                Operator::Assign(UnaryOperator {
+                                    input: rhs,
+                                    out: Variable::Local { id, item, depth },
+                                })
+                                .into()
                         }
-                    } else {
-                        assert_eq!(index, 0, "Can't index into scalar");
-                        opt.program[block].ops.borrow_mut()[idx] = Operator::Assign(UnaryOperator {
-                            input: rhs,
-                            out: Variable::Local { id, item, depth },
-                        })
-                        .into()
                     }
                 }
             }

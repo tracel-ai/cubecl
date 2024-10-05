@@ -1,28 +1,47 @@
 use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet, VecDeque},
-    mem::transmute,
+    collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},
     rc::Rc,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 
-use cubecl_core::ir::{
-    self as core, Branch, ConstantScalarValue, If, IfElse, Loop, RangeLoop, Switch, Variable,
-};
-use cubecl_core::ir::{BinaryOperator, Elem, Item, Operation, Operator, Scope, UnaryOperator};
-use passes::{CompositeMerge, OptimizationPass};
+use cubecl_core::ir::{self as core, Operator, Variable};
+use cubecl_core::ir::{Item, Operation, Scope};
+use passes::{CompositeMerge, EliminateUnusedVariables, InlineAssignments, OptimizationPass};
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
-use stable_vec::StableVec;
-use version::PhiInstruction;
 
+mod block;
+mod control_flow;
 mod debug;
 mod instructions;
 mod passes;
 mod phi_frontiers;
 mod version;
 
+pub use block::*;
+pub use control_flow::*;
 pub use petgraph::graph::NodeIndex;
+
+#[derive(Clone, Debug, Default)]
+pub struct AtomicCounter {
+    inner: Rc<AtomicUsize>,
+}
+
+impl AtomicCounter {
+    pub fn new(val: usize) -> Self {
+        Self {
+            inner: Rc::new(AtomicUsize::new(val)),
+        }
+    }
+
+    pub fn inc(&self) -> usize {
+        self.inner.fetch_add(1, Ordering::AcqRel)
+    }
+
+    pub fn get(&self) -> usize {
+        self.inner.load(Ordering::Acquire)
+    }
+}
 
 #[derive(Default, Debug, Clone)]
 struct Program {
@@ -46,44 +65,6 @@ impl DerefMut for Program {
 }
 
 #[derive(Default, Debug, Clone)]
-pub enum ControlFlow {
-    If {
-        cond: Variable,
-        then: NodeIndex,
-        merge: NodeIndex,
-    },
-    IfElse {
-        cond: Variable,
-        then: NodeIndex,
-        or_else: NodeIndex,
-        merge: NodeIndex,
-    },
-    Switch {
-        value: Variable,
-        default: NodeIndex,
-        branches: Vec<(u32, NodeIndex)>,
-        merge: NodeIndex,
-    },
-    Loop {
-        body: NodeIndex,
-        continue_target: NodeIndex,
-        merge: NodeIndex,
-    },
-    Return,
-    #[default]
-    None,
-}
-
-#[derive(Default, Debug, Clone)]
-pub struct BasicBlock {
-    pub phi_nodes: Vec<PhiInstruction>,
-    writes: HashSet<(u16, u8)>,
-    dom_frontiers: HashSet<NodeIndex>,
-    pub ops: Rc<RefCell<StableVec<Operation>>>,
-    pub control_flow: ControlFlow,
-}
-
-#[derive(Default, Debug, Clone)]
 pub struct Optimizer {
     program: Program,
     pub current_block: Option<NodeIndex>,
@@ -96,7 +77,9 @@ impl Optimizer {
     pub fn new(expand: Scope) -> Self {
         let mut opt = Self::default();
         opt.parse_graph(expand);
+        opt.analyze_liveness();
         opt.apply_pre_ssa_passes();
+        opt.exempt_index_assign_locals();
         opt.ssa_transform();
         opt.apply_post_ssa_passes();
         opt
@@ -115,7 +98,7 @@ impl Optimizer {
         self.program.root = entry;
         self.current_block = Some(entry);
         self.ret = self.program.add_node(BasicBlock::default());
-        self.program[self.ret].control_flow = ControlFlow::Return;
+        *self.program[self.ret].control_flow.borrow_mut() = ControlFlow::Return;
         self.parse_scope(scope);
         if let Some(current_block) = self.current_block {
             let edge_id = self.edge_id();
@@ -125,12 +108,54 @@ impl Optimizer {
 
     fn apply_pre_ssa_passes(&mut self) {
         let mut passes = vec![CompositeMerge];
-        for pass in &mut passes {
-            pass.apply_pre_ssa(self);
+        loop {
+            let counter = AtomicCounter::default();
+
+            for pass in &mut passes {
+                pass.apply_pre_ssa(self, counter.clone());
+            }
+
+            if counter.get() == 0 {
+                break;
+            }
         }
     }
 
-    fn apply_post_ssa_passes(&mut self) {}
+    fn apply_post_ssa_passes(&mut self) {
+        let mut passes: Vec<Box<dyn OptimizationPass>> = vec![
+            Box::new(InlineAssignments),
+            Box::new(EliminateUnusedVariables),
+        ];
+        loop {
+            let counter = AtomicCounter::default();
+            for pass in &mut passes {
+                pass.apply_post_ssa(self, counter.clone());
+            }
+
+            if counter.get() == 0 {
+                break;
+            }
+        }
+    }
+
+    /// Remove non-constant index vectors from SSA transformation because they currently must be
+    /// mutated
+    fn exempt_index_assign_locals(&mut self) {
+        for node in self.node_ids() {
+            let ops = self.program[node].ops.clone();
+            for op in ops.borrow().values() {
+                if let Operation::Operator(Operator::IndexAssign(op)) = op {
+                    if let Variable::Local { id, depth, .. } = &op.out {
+                        self.program.variables.remove(&(*id, *depth));
+                    }
+                }
+            }
+        }
+    }
+
+    fn node_ids(&self) -> Vec<NodeIndex> {
+        self.program.node_indices().collect()
+    }
 
     fn ssa_transform(&mut self) {
         self.program.fill_dom_frontiers();
@@ -184,286 +209,6 @@ impl Optimizer {
         }
     }
 
-    pub fn parse_control_flow(&mut self, branch: Branch) {
-        match branch {
-            Branch::If(if_) => self.parse_if(if_),
-            Branch::IfElse(if_else) => self.parse_if_else(if_else),
-            Branch::Select(mut select) => {
-                self.find_writes_select(&mut select);
-                self.current_block_mut()
-                    .ops
-                    .borrow_mut()
-                    .push(Branch::Select(select).into());
-            }
-            Branch::Switch(switch) => self.parse_switch(switch),
-            Branch::RangeLoop(range_loop) => {
-                self.parse_for_loop(range_loop);
-            }
-            Branch::Loop(loop_) => self.parse_loop(loop_),
-            Branch::Return => {
-                let current_block = self.current_block.take().unwrap();
-                let id = self.edge_id();
-                self.program.add_edge(current_block, self.ret, id);
-            }
-            Branch::Break => {
-                let current_block = self.current_block.take().unwrap();
-                let loop_break = self.loop_break.back().expect("Can't break outside loop");
-                let id = self.edge_id();
-                self.program.add_edge(current_block, *loop_break, id);
-            }
-        }
-    }
-
-    pub fn parse_if(&mut self, if_: If) {
-        let current_block = self.current_block.unwrap();
-        let then = self.program.add_node(BasicBlock::default());
-        let next = self.program.add_node(BasicBlock::default());
-
-        self.program[current_block].control_flow = ControlFlow::If {
-            cond: if_.cond,
-            then,
-            merge: next,
-        };
-
-        let id = self.edge_id();
-        self.program.add_edge(current_block, then, id);
-        let id = self.edge_id();
-        self.program.add_edge(current_block, next, id);
-
-        self.current_block = Some(then);
-        self.parse_scope(if_.scope);
-        if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, next, id);
-        }
-        self.current_block = Some(next);
-    }
-
-    pub fn parse_if_else(&mut self, if_else: IfElse) {
-        let current_block = self.current_block.unwrap();
-        let then = self.program.add_node(BasicBlock::default());
-        let or_else = self.program.add_node(BasicBlock::default());
-        let next = self.program.add_node(BasicBlock::default());
-
-        self.program[current_block].control_flow = ControlFlow::IfElse {
-            cond: if_else.cond,
-            then,
-            or_else,
-            merge: next,
-        };
-
-        let id = self.edge_id();
-        self.program.add_edge(current_block, then, id);
-        let id = self.edge_id();
-        self.program.add_edge(current_block, or_else, id);
-
-        self.current_block = Some(then);
-        self.parse_scope(if_else.scope_if);
-
-        if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, next, id);
-        }
-
-        self.current_block = Some(or_else);
-        self.parse_scope(if_else.scope_else);
-
-        if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, next, id);
-        }
-
-        self.current_block = Some(next);
-    }
-
-    pub fn parse_switch(&mut self, switch: Switch) {
-        let current_block = self.current_block.unwrap();
-        let next = self.program.add_node(BasicBlock::default());
-
-        let branches = switch
-            .cases
-            .into_iter()
-            .map(|(val, case)| {
-                let case_id = self.program.add_node(BasicBlock::default());
-                let id = self.edge_id();
-                self.program.add_edge(current_block, case_id, id);
-                self.current_block = Some(case_id);
-                self.parse_scope(case);
-                if let Some(current_block) = self.current_block {
-                    let id = self.edge_id();
-                    self.program.add_edge(current_block, next, id);
-                }
-                let val = match val.as_const().expect("Switch value must be constant") {
-                    core::ConstantScalarValue::Int(val, _) => unsafe {
-                        transmute::<i32, u32>(val as i32)
-                    },
-                    core::ConstantScalarValue::UInt(val) => val as u32,
-                    _ => unreachable!("Switch cases must be integer"),
-                };
-                (val, case_id)
-            })
-            .collect::<Vec<_>>();
-
-        let default = self.program.add_node(BasicBlock::default());
-        let id = self.edge_id();
-        self.program.add_edge(current_block, default, id);
-        self.current_block = Some(default);
-        self.parse_scope(switch.scope_default);
-
-        if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, next, id);
-        }
-
-        self.program[current_block].control_flow = ControlFlow::Switch {
-            value: switch.value,
-            default,
-            branches,
-            merge: next,
-        };
-
-        self.current_block = Some(next);
-    }
-
-    fn parse_loop(&mut self, loop_: Loop) {
-        let current_block = self.current_block.unwrap();
-        let header = self.program.add_node(BasicBlock::default());
-        let id = self.edge_id();
-        self.program.add_edge(current_block, header, id);
-
-        let body = self.program.add_node(BasicBlock::default());
-        let next = self.program.add_node(BasicBlock::default());
-
-        let id = self.edge_id();
-        self.program.add_edge(header, body, id);
-
-        self.loop_break.push_back(next);
-
-        self.current_block = Some(body);
-        self.parse_scope(loop_.scope);
-        let continue_target = self.program.add_node(BasicBlock::default());
-
-        self.loop_break.pop_back();
-
-        if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, continue_target, id);
-        }
-
-        let id = self.edge_id();
-        self.program.add_edge(continue_target, header, id);
-
-        self.program[header].control_flow = ControlFlow::Loop {
-            body,
-            continue_target,
-            merge: next,
-        };
-        self.current_block = Some(next);
-    }
-
-    fn parse_for_loop(&mut self, range_loop: RangeLoop) {
-        let step = range_loop
-            .step
-            .unwrap_or(Variable::ConstantScalar(ConstantScalarValue::UInt(1)));
-
-        let i_id = match range_loop.i {
-            Variable::Local { id, depth, .. } => (id, depth),
-            _ => unreachable!(),
-        };
-        let i = range_loop.i;
-        self.program.variables.insert(i_id, i.item());
-
-        let mut assign = Operator::Assign(UnaryOperator {
-            input: range_loop.start,
-            out: i,
-        })
-        .into();
-        self.visit_operation(&mut assign, |_, _| {}, |opt, var| opt.write_var(var));
-        self.current_block_mut().ops.borrow_mut().push(assign);
-
-        let current_block = self.current_block.unwrap();
-        let header = self.program.add_node(BasicBlock::default());
-        let id = self.edge_id();
-        self.program.add_edge(current_block, header, id);
-
-        let break_cond = self.program.add_node(BasicBlock::default());
-        let body = self.program.add_node(BasicBlock::default());
-        let next = self.program.add_node(BasicBlock::default());
-
-        // Need duplicate block because we can't have two merges to the same block
-        let break_target = self.program.add_node(BasicBlock::default());
-        let edge_id = self.edge_id();
-        self.program.add_edge(break_target, next, edge_id);
-
-        let id = self.edge_id();
-        self.program.add_edge(header, break_cond, id);
-
-        let id = self.edge_id();
-        self.program.add_edge(break_cond, body, id);
-        let id = self.edge_id();
-        self.program.add_edge(break_cond, break_target, id);
-
-        self.loop_break.push_back(next);
-
-        self.current_block = Some(body);
-        self.parse_scope(range_loop.scope);
-        let continue_target = self.program.add_node(BasicBlock::default());
-
-        self.loop_break.pop_back();
-
-        if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, continue_target, id);
-        }
-
-        let id = self.edge_id();
-        self.program.add_edge(continue_target, header, id);
-
-        self.program[header].control_flow = ControlFlow::Loop {
-            body: break_cond,
-            continue_target,
-            merge: next,
-        };
-        self.current_block = Some(next);
-
-        // For loop constructs
-        self.program
-            .insert_phi(header, i_id, range_loop.start.item());
-        {
-            let op = match range_loop.inclusive {
-                true => Operator::LowerEqual,
-                false => Operator::Lower,
-            };
-            let tmp = Variable::LocalBinding {
-                id: 60000 + i_id.0,
-                item: Item::new(Elem::Bool),
-                depth: i_id.1,
-            };
-            self.program[break_cond].ops.borrow_mut().push(
-                op(BinaryOperator {
-                    lhs: i,
-                    rhs: range_loop.end,
-                    out: tmp,
-                })
-                .into(),
-            );
-
-            self.program[break_cond].control_flow = ControlFlow::If {
-                cond: tmp,
-                then: body,
-                merge: break_target,
-            };
-        }
-        self.program[continue_target].ops.borrow_mut().push(
-            Operator::Add(BinaryOperator {
-                lhs: i,
-                rhs: step,
-                out: i,
-            })
-            .into(),
-        );
-    }
-
     pub fn local_variable_id(&mut self, variable: &core::Variable) -> Option<(u16, u8)> {
         match variable {
             core::Variable::Local { id, depth, item } if !item.elem.is_atomic() => {
@@ -473,6 +218,8 @@ impl Optimizer {
         }
     }
 }
+
+pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}
 
 #[cfg(test)]
 mod tests {
