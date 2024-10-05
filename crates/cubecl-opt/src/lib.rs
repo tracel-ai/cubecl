@@ -153,10 +153,6 @@ impl Optimizer {
             for op in ops.borrow().values() {
                 if let Operation::Operator(Operator::IndexAssign(binop)) = op {
                     if let Variable::Local { id, depth, .. } = &binop.out {
-                        println!(
-                            "Exempting ({id}, {depth}) for op {op} in bb{}",
-                            node.index()
-                        );
                         self.program.variables.remove(&(*id, *depth));
                     }
                 }

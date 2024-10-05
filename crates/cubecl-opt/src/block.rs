@@ -42,6 +42,7 @@ impl Optimizer {
             }
             match &mut *control_flow.borrow_mut() {
                 ControlFlow::If { cond, .. } => visit_read(self, cond),
+                ControlFlow::Break { cond, .. } => visit_read(self, cond),
                 ControlFlow::IfElse { cond, .. } => visit_read(self, cond),
                 ControlFlow::Switch { value, .. } => visit_read(self, value),
                 _ => {}

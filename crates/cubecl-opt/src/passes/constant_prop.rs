@@ -15,6 +15,7 @@ impl OptimizationPass for ZeroOperandSimplify {
                 let op = &mut opt.program[node].ops.borrow_mut()[idx];
                 match op {
                     Operation::Operator(Operator::Mul(bin_op)) => {
+                        // Simplify 0 * x
                         let lhs_zero = bin_op
                             .lhs
                             .as_const()
@@ -34,6 +35,27 @@ impl OptimizationPass for ZeroOperandSimplify {
                             })
                             .into();
                             changes.inc();
+                        } else {
+                            // Simplify 1 * x
+                            let lhs_one =
+                                bin_op.lhs.as_const().map(|it| it.is_one()).unwrap_or(false);
+                            let rhs_one =
+                                bin_op.rhs.as_const().map(|it| it.is_one()).unwrap_or(false);
+                            if lhs_one {
+                                *op = Operator::Assign(UnaryOperator {
+                                    input: bin_op.rhs,
+                                    out: bin_op.out,
+                                })
+                                .into();
+                                changes.inc();
+                            } else if rhs_one {
+                                *op = Operator::Assign(UnaryOperator {
+                                    input: bin_op.lhs,
+                                    out: bin_op.out,
+                                })
+                                .into();
+                                changes.inc();
+                            }
                         }
                     }
                     Operation::Operator(Operator::Add(bin_op)) => {

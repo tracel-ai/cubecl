@@ -343,6 +343,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_control_flow(&mut self, control_flow: ControlFlow) {
         match control_flow {
             ControlFlow::If { cond, then, merge } => self.compile_if_2(cond, then, merge),
+            ControlFlow::Break {
+                cond,
+                body,
+                or_break,
+            } => self.compile_break_2(cond, body, or_break),
             ControlFlow::IfElse {
                 cond,
                 then,
@@ -391,6 +396,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap();
         self.compile_block(then);
         self.compile_block(merge);
+    }
+
+    fn compile_break_2(&mut self, cond: core::Variable, body: NodeIndex, or_break: NodeIndex) {
+        let cond = self.compile_variable(cond);
+        let body_label = self.label(body);
+        let break_label = self.label(or_break);
+        let cond_id = self.read(&cond);
+
+        self.branch_conditional(cond_id, body_label, break_label, None)
+            .unwrap();
+        self.compile_block(body);
+        self.compile_block(or_break);
     }
 
     fn compile_if_else_2(

@@ -13,6 +13,11 @@ pub enum ControlFlow {
         then: NodeIndex,
         merge: NodeIndex,
     },
+    Break {
+        cond: Variable,
+        body: NodeIndex,
+        or_break: NodeIndex,
+    },
     IfElse {
         cond: Variable,
         then: NodeIndex,
@@ -242,38 +247,34 @@ impl Optimizer {
         let body = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
 
-        // Need duplicate block because we can't have two merges to the same block
-        let break_target = self.program.add_node(BasicBlock::default());
-        let edge_id = self.edge_id();
-        self.program.add_edge(break_target, next, edge_id);
-
         let id = self.edge_id();
         self.program.add_edge(header, break_cond, id);
 
         let id = self.edge_id();
         self.program.add_edge(break_cond, body, id);
         let id = self.edge_id();
-        self.program.add_edge(break_cond, break_target, id);
+        self.program.add_edge(break_cond, next, id);
 
         self.loop_break.push_back(next);
 
         self.current_block = Some(body);
         self.parse_scope(range_loop.scope);
-        let continue_target = self.program.add_node(BasicBlock::default());
 
         self.loop_break.pop_back();
 
-        if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, continue_target, id);
-        }
+        let current_block = self.current_block.expect("For loop has no loopback path");
+
+        // if let Some(current_block) = self.current_block {
+        //     let id = self.edge_id();
+        //     self.program.add_edge(current_block, continue_target, id);
+        // }
 
         let id = self.edge_id();
-        self.program.add_edge(continue_target, header, id);
+        self.program.add_edge(current_block, header, id);
 
         *self.program[header].control_flow.borrow_mut() = ControlFlow::Loop {
             body: break_cond,
-            continue_target,
+            continue_target: current_block,
             merge: next,
         };
         self.current_block = Some(next);
@@ -300,13 +301,13 @@ impl Optimizer {
                 .into(),
             );
 
-            *self.program[break_cond].control_flow.borrow_mut() = ControlFlow::If {
+            *self.program[break_cond].control_flow.borrow_mut() = ControlFlow::Break {
                 cond: tmp,
-                then: body,
-                merge: break_target,
+                body,
+                or_break: next,
             };
         }
-        self.program[continue_target].ops.borrow_mut().push(
+        self.program[current_block].ops.borrow_mut().push(
             Operator::Add(BinaryOperator {
                 lhs: i,
                 rhs: step,

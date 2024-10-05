@@ -266,6 +266,15 @@ impl ConstantScalarValue {
         }
     }
 
+    pub fn is_one(&self) -> bool {
+        match self {
+            ConstantScalarValue::Int(val, _) => *val == 1,
+            ConstantScalarValue::Float(val, _) => *val == 1.0,
+            ConstantScalarValue::UInt(val) => *val == 1,
+            ConstantScalarValue::Bool(_) => false,
+        }
+    }
+
     pub fn cast_to(&self, other: Elem) -> ConstantScalarValue {
         match (self, other) {
             (ConstantScalarValue::Int(val, _), Elem::Float(float_kind)) => {

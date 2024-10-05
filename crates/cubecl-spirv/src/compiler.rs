@@ -164,7 +164,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.opt = Optimizer::new(kernel.body).into();
         let entry = self.opt.entry();
         let body = self.label(entry);
-        self.debug_name(body, "entry");
         self.setup(setup, body);
         self.compile_block(entry);
 

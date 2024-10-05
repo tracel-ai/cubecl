@@ -51,6 +51,18 @@ impl Display for Program {
                 ControlFlow::If { cond, then, merge } => {
                     writeln!(f, "    {cond} ? bb{} : bb{};", then.index(), merge.index())?;
                 }
+                ControlFlow::Break {
+                    cond,
+                    body,
+                    or_break,
+                } => {
+                    writeln!(
+                        f,
+                        "    break {cond} body: bb{}, break: bb{};",
+                        body.index(),
+                        or_break.index()
+                    )?;
+                }
                 ControlFlow::IfElse {
                     cond,
                     then,
