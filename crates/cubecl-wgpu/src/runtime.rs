@@ -4,8 +4,8 @@ use crate::{
     AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
 use alloc::sync::Arc;
-use cubecl_core::{Feature, FeatureSet, Properties, Runtime};
-use cubecl_runtime::memory_management;
+use cubecl_core::{Feature, FeatureSet, Runtime};
+use cubecl_runtime::memory_management::{self, dynamic::MemoryConfiguration};
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
 use wgpu::{DeviceDescriptor, Limits};
 
@@ -27,20 +27,33 @@ type MemoryManagement = memory_management::dynamic::DynamicMemoryManagement<Wgpu
 type MemoryManagement = memory_management::simple::SimpleMemoryManagement<WgpuStorage>;
 
 #[cfg(not(simple_memory_management))]
-pub fn init_memory_management(device: Arc<wgpu::Device>, limits: &Limits) -> MemoryManagement {
+pub fn init_memory_management(
+    device: Arc<wgpu::Device>,
+    limits: &Limits,
+    config: MemoryConfiguration,
+) -> MemoryManagement {
+    use cubecl_runtime::memory_management::dynamic::MemoryDeviceProperties;
+
     let storage = WgpuStorage::new(device.clone());
 
-    memory_management::dynamic::DynamicMemoryManagement::new(
-        storage,
-        memory_management::dynamic::DynamicMemoryManagementOptions::preset(
-            limits.max_storage_buffer_binding_size as usize,
-            limits.min_storage_buffer_offset_alignment as usize,
-        ),
+    let mem_props = MemoryDeviceProperties {
+        max_page_size: limits.max_storage_buffer_binding_size as usize,
+        memory_alignment: limits.min_storage_buffer_offset_alignment as usize,
+    };
+
+    memory_management::dynamic::DynamicMemoryManagement::from_configuration(
+        storage, mem_props, config,
     )
 }
 
 #[cfg(simple_memory_management)]
-pub fn init_memory_management(device: Arc<wgpu::Device>, _limits: &Limits) -> MemoryManagement {
+pub fn init_memory_management(
+    device: Arc<wgpu::Device>,
+    _limits: &Limits,
+    _config: MemoryConfiguration,
+) -> MemoryManagement {
+    // Simple memory management doesn't use the device limits of memory configuration.
+
     let storage = WgpuStorage::new(device.clone());
 
     memory_management::simple::SimpleMemoryManagement::new(
@@ -78,6 +91,7 @@ impl Runtime for WgpuRuntime {
 pub struct RuntimeOptions {
     /// Control the amount of compute tasks to be aggregated into a single GPU command.
     pub tasks_max: usize,
+    pub memory_config: MemoryConfiguration,
 }
 
 impl Default for RuntimeOptions {
@@ -94,7 +108,10 @@ impl Default for RuntimeOptions {
             Err(_) => DEFAULT_MAX_TASKS,
         };
 
-        Self { tasks_max }
+        Self {
+            tasks_max,
+            ..Default::default()
+        }
     }
 }
 
@@ -144,7 +161,8 @@ pub fn create_client(
 ) -> ComputeClient<WgpuServer<MemoryManagement>, MutexComputeChannel<WgpuServer<MemoryManagement>>>
 {
     let limits = device_wgpu.limits();
-    let memory_management = init_memory_management(device_wgpu.clone(), &limits);
+    let memory_management =
+        init_memory_management(device_wgpu.clone(), &limits, options.memory_config);
     let server = WgpuServer::new(memory_management, device_wgpu, queue, options.tasks_max);
     let channel = MutexComputeChannel::new(server);
 
@@ -154,11 +172,8 @@ pub fn create_client(
     if features.contains(wgpu::Features::SUBGROUP) {
         features_cube.register(Feature::Subcube);
     }
-    let properties = Properties {
-        memory_offset_alignment: limits.min_storage_buffer_offset_alignment,
-    };
 
-    ComputeClient::new(channel, features_cube, properties)
+    ComputeClient::new(channel, features_cube)
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).

@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use crate::storage::{ComputeStorage, StorageHandle, StorageId};
 
 /// The managed tensor buffer handle that points to some memory segment.
@@ -9,9 +11,6 @@ pub trait MemoryHandle<Binding>: Clone + Send + Sync + core::fmt::Debug {
     fn binding(self) -> Binding;
 }
 
-/// Binding to a [memory handle](MemoryHandle).
-pub trait MemoryBinding: Clone + Send + Sync + core::fmt::Debug {}
-
 /// The MemoryManagement trait encapsulates strategies for (de)allocating memory.
 /// It is bound to the ComputeStorage trait, which does the actual (de)allocations.
 ///
@@ -21,7 +20,7 @@ pub trait MemoryManagement<Storage: ComputeStorage>: Send + core::fmt::Debug {
     /// The associated type that must implement [MemoryHandle].
     type Handle: MemoryHandle<Self::Binding>;
     /// The associated type that must implement [MemoryBinding]
-    type Binding: MemoryBinding;
+    type Binding: Send + Clone + Debug;
 
     /// Returns the storage from the specified binding
     fn get(&mut self, binding: Self::Binding) -> StorageHandle;

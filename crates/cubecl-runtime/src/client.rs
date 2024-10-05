@@ -14,7 +14,7 @@ pub use cubecl_common::sync_type::SyncType;
 #[derive(Debug)]
 pub struct ComputeClient<Server: ComputeServer, Channel> {
     channel: Channel,
-    settings: Arc<(Server::FeatureSet, Server::Properties)>,
+    settings: Arc<Server::FeatureSet>,
 }
 
 impl<S, C> Clone for ComputeClient<S, C>
@@ -36,14 +36,10 @@ where
     Channel: ComputeChannel<Server>,
 {
     /// Create a new client.
-    pub fn new(
-        channel: Channel,
-        features: Server::FeatureSet,
-        properties: Server::Properties,
-    ) -> Self {
+    pub fn new(channel: Channel, features: Server::FeatureSet) -> Self {
         Self {
             channel,
-            settings: Arc::new((features, properties)),
+            settings: Arc::new(features),
         }
     }
 
@@ -113,11 +109,6 @@ where
 
     /// Get the features supported by the compute server.
     pub fn features(&self) -> &Server::FeatureSet {
-        &self.settings.as_ref().0
-    }
-
-    /// Get the properties supported by the compute server.
-    pub fn properties(&self) -> &Server::Properties {
-        &self.settings.as_ref().1
+        self.settings.as_ref()
     }
 }

@@ -2,12 +2,14 @@ use std::mem::MaybeUninit;
 
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    Feature, FeatureSet, Properties, Runtime,
+    Feature, FeatureSet, Runtime,
 };
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::dynamic::{DynamicMemoryManagement, DynamicMemoryManagementOptions},
+    memory_management::dynamic::{
+        DynamicMemoryManagement, MemoryConfiguration, MemoryDeviceProperties,
+    },
     ComputeRuntime,
 };
 
@@ -23,7 +25,7 @@ pub struct CudaRuntime;
 static RUNTIME: ComputeRuntime<CudaDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
-const MEMORY_OFFSET_ALIGNMENT: u32 = 32;
+const MEMORY_OFFSET_ALIGNMENT: usize = 32;
 
 type Server = CudaServer<DynamicMemoryManagement<CudaStorage>>;
 
@@ -60,11 +62,15 @@ impl Runtime for CudaRuntime {
                 bytes.assume_init()
             };
             let storage = CudaStorage::new(stream);
-            let options = DynamicMemoryManagementOptions::preset(
-                max_memory / 4, // Max chunk size is max_memory / 4
-                MEMORY_OFFSET_ALIGNMENT as usize,
-            );
-            let memory_management = DynamicMemoryManagement::new(storage, options);
+            let properties = MemoryDeviceProperties {
+                max_page_size: max_memory / 4,
+                memory_alignment: MEMORY_OFFSET_ALIGNMENT,
+            };
+
+            // TODO: Add a way to initialize from a custom config.
+            let mem_config = MemoryConfiguration::Default;
+            let memory_management =
+                DynamicMemoryManagement::from_configuration(storage, properties, mem_config);
             CudaContext::new(memory_management, stream, ctx, arch)
         }
 
@@ -73,13 +79,7 @@ impl Runtime for CudaRuntime {
             let mut features = FeatureSet::new(&[Feature::Subcube]);
 
             register_wmma_features(&mut features, server.arch_version());
-            ComputeClient::new(
-                MutexComputeChannel::new(server),
-                features,
-                Properties {
-                    memory_offset_alignment: MEMORY_OFFSET_ALIGNMENT,
-                },
-            )
+            ComputeClient::new(MutexComputeChannel::new(server), features)
         })
     }
 

@@ -25,8 +25,6 @@ where
     type MemoryManagement: MemoryManagement<Self::Storage>;
     /// Features supported by the compute server.
     type FeatureSet: Send + Sync;
-    /// Properties of the compute server.
-    type Properties: Send + Sync;
 
     /// Given a handle, returns the owned resource as bytes.
     fn read(&mut self, binding: Binding<Self>) -> Reader;
@@ -111,7 +109,7 @@ pub struct Binding<Server: ComputeServer> {
 impl<Server: ComputeServer> Handle<Server> {
     /// If the tensor handle can be reused inplace.
     pub fn can_mut(&self) -> bool {
-        MemoryHandle::can_mut(&self.memory)
+        self.memory.can_mut()
     }
 }
 

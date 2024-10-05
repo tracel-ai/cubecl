@@ -6,8 +6,8 @@ use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
+use cubecl_core::FeatureSet;
 use cubecl_core::{prelude::*, KernelId};
-use cubecl_core::{FeatureSet, Properties};
 use cubecl_runtime::debug::DebugLogger;
 use cubecl_runtime::ExecutionMode;
 use cubecl_runtime::{
@@ -91,7 +91,6 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
     type Storage = CudaStorage;
     type MemoryManagement = MM;
     type FeatureSet = FeatureSet;
-    type Properties = Properties;
 
     fn read(&mut self, binding: server::Binding<Self>) -> Reader {
         reader_from_concrete(self.read_sync(binding))

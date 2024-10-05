@@ -10,7 +10,7 @@ use std::time;
 #[cfg(all(target_family = "wasm", feature = "std"))]
 use web_time as time;
 
-use super::{MemoryBinding, MemoryHandle, MemoryManagement};
+use super::{MemoryHandle, MemoryManagement};
 
 // The ChunkId allows to keep track of how many references there are to a specific chunk.
 memory_id_type!(ChunkId, ChunkHandle, ChunkBinding);
@@ -151,8 +151,6 @@ impl<Storage> core::fmt::Debug for SimpleMemoryManagement<Storage> {
         )
     }
 }
-
-impl MemoryBinding for SimpleBinding {}
 
 impl MemoryHandle<SimpleBinding> for SimpleHandle {
     fn can_mut(&self) -> bool {
@@ -311,7 +309,7 @@ impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {
 
         let storage = StorageHandle {
             id: chunk.storage.id,
-            utilization: StorageUtilization::Slice { offset: 0, size },
+            utilization: StorageUtilization { offset: 0, size },
         };
 
         if chunk.slices.is_empty() {
