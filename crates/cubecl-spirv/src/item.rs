@@ -381,7 +381,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn static_cast(&mut self, val: ConstVal, from: &Elem, item: &Item) -> Word {
-        println!("Casting {val:?} from {from} to {item}");
         let elem_cast = match (from, item.elem()) {
             (Elem::Bool, Elem::Int(64, _)) => ConstVal::Bit64(val.as_u64()),
             (Elem::Bool, Elem::Int(_, _)) => ConstVal::Bit32(val.as_u32()),

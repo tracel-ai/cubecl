@@ -5,6 +5,7 @@ mod expression_merge;
 mod liveness;
 
 pub use composite::*;
+pub use constant_prop::*;
 pub use dead_code::*;
 pub use expression_merge::*;
 

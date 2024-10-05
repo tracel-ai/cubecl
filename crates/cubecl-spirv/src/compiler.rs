@@ -173,7 +173,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         graph.write_fmt(format_args!("{opt}")).unwrap();
         drop(graph);
 
-        println!("{opt}");
+        //println!("{opt}");
         let ret = opt.ret;
         self.compile_block(ret);
 

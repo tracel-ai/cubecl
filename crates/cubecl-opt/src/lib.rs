@@ -7,7 +7,10 @@ use std::{
 
 use cubecl_core::ir::{self as core, Operator, Variable};
 use cubecl_core::ir::{Item, Operation, Scope};
-use passes::{CompositeMerge, EliminateUnusedVariables, InlineAssignments, OptimizationPass};
+use passes::{
+    CompositeMerge, EliminateUnusedVariables, InlineAssignments, MergeSameExpressions,
+    OptimizationPass, ZeroOperandSimplify,
+};
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
 mod block;
@@ -125,6 +128,8 @@ impl Optimizer {
         let mut passes: Vec<Box<dyn OptimizationPass>> = vec![
             Box::new(InlineAssignments),
             Box::new(EliminateUnusedVariables),
+            Box::new(ZeroOperandSimplify),
+            Box::new(MergeSameExpressions),
         ];
         loop {
             let counter = AtomicCounter::default();

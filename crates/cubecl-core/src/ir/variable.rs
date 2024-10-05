@@ -241,6 +241,15 @@ impl ConstantScalarValue {
         self.try_as_bool()
             .expect("Only bool can be made into a bool")
     }
+
+    pub fn is_zero(&self) -> bool {
+        match self {
+            ConstantScalarValue::Int(val, _) => *val == 0,
+            ConstantScalarValue::Float(val, _) => *val == 0.0,
+            ConstantScalarValue::UInt(val) => *val == 0,
+            ConstantScalarValue::Bool(_) => false,
+        }
+    }
 }
 
 impl Display for ConstantScalarValue {
