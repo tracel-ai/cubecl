@@ -102,7 +102,7 @@ pub enum MemoryConfiguration {
 }
 
 /// Properties of the device related to allocation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
     pub max_page_size: usize,

@@ -23,8 +23,8 @@ where
     type Storage: ComputeStorage;
     /// The [memory management](MemoryManagement) type defines strategies for allocation in the [storage](ComputeStorage) type.
     type MemoryManagement: MemoryManagement<Self::Storage>;
-    /// Features supported by the compute server.
-    type FeatureSet: Send + Sync;
+    /// The type of the features supported by the server.
+    type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Given a handle, returns the owned resource as bytes.
     fn read(&mut self, binding: Binding<Self>) -> Reader;

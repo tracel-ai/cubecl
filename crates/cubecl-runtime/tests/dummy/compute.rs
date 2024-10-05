@@ -1,12 +1,13 @@
 use super::DummyServer;
 use cubecl_runtime::channel::MutexComputeChannel;
 use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::memory_management::dynamic::MemoryDeviceProperties;
 use cubecl_runtime::memory_management::simple::{
     DeallocStrategy, SimpleMemoryManagement, SliceStrategy,
 };
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::{AutotuneOperationSet, LocalTuner};
-use cubecl_runtime::ComputeRuntime;
+use cubecl_runtime::{ComputeRuntime, FeatureSet};
 
 /// The dummy device.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -33,7 +34,11 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         SimpleMemoryManagement::new(storage, DeallocStrategy::Never, SliceStrategy::Never);
     let server = DummyServer::new(memory_management);
     let channel = MutexComputeChannel::new(server);
-    ComputeClient::new(channel, ())
+    let mem_properties = MemoryDeviceProperties {
+        max_page_size: 1024 * 1024 * 512,
+        memory_alignment: 32,
+    };
+    ComputeClient::new(channel, FeatureSet::new(&[], mem_properties))
 }
 
 pub fn client(device: &DummyDevice) -> DummyClient {

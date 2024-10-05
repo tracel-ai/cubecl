@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    Feature, FeatureSet, Runtime,
+    Feature, Runtime,
 };
 use cubecl_runtime::{
     channel::MutexComputeChannel,
@@ -10,7 +10,7 @@ use cubecl_runtime::{
     memory_management::dynamic::{
         DynamicMemoryManagement, MemoryConfiguration, MemoryDeviceProperties,
     },
-    ComputeRuntime,
+    ComputeRuntime, FeatureSet,
 };
 
 use crate::{
@@ -76,7 +76,11 @@ impl Runtime for CudaRuntime {
 
         RUNTIME.client(device, move || {
             let mut server = CudaServer::new(device.index, Box::new(init));
-            let mut features = FeatureSet::new(&[Feature::Subcube]);
+            let mem_properties = MemoryDeviceProperties {
+                max_page_size: 0,
+                memory_alignment: 0,
+            };
+            let mut features = FeatureSet::new(&[Feature::Subcube], mem_properties);
 
             register_wmma_features(&mut features, server.arch_version());
             ComputeClient::new(MutexComputeChannel::new(server), features)
@@ -96,7 +100,7 @@ impl Runtime for CudaRuntime {
     }
 }
 
-fn register_wmma_features(features: &mut FeatureSet, arch: u32) {
+fn register_wmma_features(features: &mut FeatureSet<Feature>, arch: u32) {
     let wmma_minimum_version = 70;
     let mut wmma = false;
 

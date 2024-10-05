@@ -19,7 +19,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     type Server: ComputeServer<
         Kernel = Box<dyn CubeTask<Self::Compiler>>,
         DispatchOptions = CubeCount<Self::Server>,
-        FeatureSet = FeatureSet,
+        Feature = Feature,
     >;
     /// The channel used to communicate with the compute server.
     type Channel: ComputeChannel<Self::Server>;
@@ -41,37 +41,8 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     fn supported_line_sizes() -> &'static [u8];
 }
 
-/// The set of [features](Feature) supported by a [runtime](Runtime).
-#[derive(Default)]
-pub struct FeatureSet {
-    set: alloc::collections::BTreeSet<Feature>,
-}
-
-impl FeatureSet {
-    pub fn new(features: &[Feature]) -> Self {
-        let mut this = Self::default();
-
-        for feature in features {
-            this.register(*feature);
-        }
-
-        this
-    }
-    /// Check if the provided [feature](Feature) is supported by the runtime.
-    pub fn enabled(&self, feature: Feature) -> bool {
-        self.set.contains(&feature)
-    }
-
-    /// Register a [feature](Feature) supported by the compute server.
-    ///
-    /// This should only be used by a [runtime](Runtime) when initializing a device.
-    pub fn register(&mut self, feature: Feature) -> bool {
-        self.set.insert(feature)
-    }
-}
-
 /// Every feature that can be supported by a [cube runtime](Runtime).
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Feature {
     /// The subcube feature enables all basic warp/subgroup operations.
     Subcube,

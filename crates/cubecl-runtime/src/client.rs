@@ -1,8 +1,5 @@
 use crate::{
-    channel::ComputeChannel,
-    server::{Binding, ComputeServer, Handle},
-    storage::ComputeStorage,
-    ExecutionMode,
+    channel::ComputeChannel, server::{Binding, ComputeServer, Handle}, storage::ComputeStorage, ExecutionMode, FeatureSet
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -14,7 +11,7 @@ pub use cubecl_common::sync_type::SyncType;
 #[derive(Debug)]
 pub struct ComputeClient<Server: ComputeServer, Channel> {
     channel: Channel,
-    settings: Arc<Server::FeatureSet>,
+    settings: Arc<FeatureSet<Server::Feature>>,
 }
 
 impl<S, C> Clone for ComputeClient<S, C>
@@ -36,7 +33,7 @@ where
     Channel: ComputeChannel<Server>,
 {
     /// Create a new client.
-    pub fn new(channel: Channel, features: Server::FeatureSet) -> Self {
+    pub fn new(channel: Channel, features: FeatureSet<Server::Feature>) -> Self {
         Self {
             channel,
             settings: Arc::new(features),
@@ -108,7 +105,7 @@ where
     }
 
     /// Get the features supported by the compute server.
-    pub fn features(&self) -> &Server::FeatureSet {
+    pub fn features(&self) -> &FeatureSet<Server::Feature> {
         self.settings.as_ref()
     }
 }

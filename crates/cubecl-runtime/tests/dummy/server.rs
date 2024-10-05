@@ -27,7 +27,7 @@ where
     type Kernel = Arc<dyn DummyKernel>;
     type Storage = BytesStorage;
     type MemoryManagement = MM;
-    type FeatureSet = ();
+    type Feature = ();
 
     fn read(&mut self, binding: Binding<Self>) -> cubecl_common::reader::Reader {
         let bytes_handle = self.memory_management.get(binding.memory);
