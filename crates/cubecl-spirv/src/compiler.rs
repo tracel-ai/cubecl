@@ -1,5 +1,5 @@
 use cubecl_core::ir::{self as core, Scope};
-use petgraph::graph::NodeIndex;
+use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use std::{
     collections::HashSet,
     fmt::Debug,
@@ -21,7 +21,6 @@ use rspirv::{
 use crate::{
     item::{Elem, Item},
     lookups::{ConstArray, LookupTables},
-    opt::{BasicBlock, Optimizer},
     target::{GLCompute, SpirvTarget},
     SpirvKernel,
 };

@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
 use cubecl_core::ir::KernelDefinition;
+use cubecl_opt::NodeIndex;
 use hashbrown::{HashMap, HashSet};
-use petgraph::graph::NodeIndex;
 use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};
 
 use crate::{

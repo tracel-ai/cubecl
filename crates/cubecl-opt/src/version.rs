@@ -5,7 +5,6 @@ use std::{
 
 use cubecl_core::ir::{Item, Operation, Variable};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
-use serde::{Deserialize, Serialize};
 
 use super::Optimizer;
 
@@ -17,13 +16,13 @@ pub struct SsaState<'a> {
     max_versions: &'a mut HashMap<(u16, u8), u16>,
 }
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct PhiEntry {
     pub block: NodeIndex,
     pub value: (u16, u8, u16),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct PhiInstruction {
     pub out: (u16, u8, u16),
     pub entries: Vec<PhiEntry>,

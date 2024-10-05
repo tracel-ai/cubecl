@@ -12,8 +12,7 @@ use cubecl_core::ir::{
 };
 use cubecl_core::ir::{BinaryOperator, Elem, Item, Operation, Operator, Scope, UnaryOperator};
 use passes::{CompositeMerge, OptimizationPass};
-use petgraph::{graph::NodeIndex, prelude::StableDiGraph, visit::EdgeRef, Direction};
-use serde::{Deserialize, Serialize};
+use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 use stable_vec::StableVec;
 use version::PhiInstruction;
 
@@ -22,6 +21,8 @@ mod instructions;
 mod passes;
 mod phi_frontiers;
 mod version;
+
+pub use petgraph::graph::NodeIndex;
 
 #[derive(Default, Debug, Clone)]
 struct Program {
@@ -44,7 +45,7 @@ impl DerefMut for Program {
     }
 }
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, Clone)]
 pub enum ControlFlow {
     If {
         cond: Variable,

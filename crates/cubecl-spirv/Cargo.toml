@@ -16,9 +16,7 @@ hashbrown = { workspace = true }
 rspirv = "0.12"
 
 # Optimizer
-petgraph = { version = "0.6", features = ["serde-1"] }
-serde = { workspace = true }
-stable-vec = { version = "0.4" }
+cubecl-opt = { path = "../cubecl-opt", version = "0.2.0" }
 
 [dev-dependencies]
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", features = [

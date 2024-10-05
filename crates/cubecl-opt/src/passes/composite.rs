@@ -1,12 +1,11 @@
-use std::mem::take;
+use std::{collections::HashMap, mem::take};
 
 use cubecl_core::ir::{
     BinaryOperator, Item, LineInitOperator, Operation, Operator, UnaryOperator, Variable,
 };
-use hashbrown::HashMap;
 use stable_vec::StableVec;
 
-use crate::opt::Optimizer;
+use crate::Optimizer;
 
 use super::OptimizationPass;
 
@@ -43,7 +42,7 @@ impl OptimizationPass for CompositeMerge {
                     let index = lhs.as_const().expect("Vector index must be const").as_u32();
                     let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
                     if vectorization > 1 {
-                        let assigns = assigns.entry((id, depth)).or_insert_with(Default::default);
+                        let assigns = assigns.entry((id, depth)).or_default();
                         assigns.push((idx, index, rhs));
                         if assigns.len() as u8 == vectorization {
                             merge_assigns(

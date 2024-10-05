@@ -1,6 +1,6 @@
 use cubecl_core::ir::{self as core, IfElse, Loop, RangeLoop, Select, Switch};
 use cubecl_core::ir::{Branch, If, Scope};
-use petgraph::graph::NodeIndex;
+use cubecl_opt::{ControlFlow, NodeIndex};
 use rspirv::{
     dr::Operand,
     spirv::{LoopControl, SelectionControl, Word},
@@ -9,7 +9,6 @@ use rspirv::{
 use crate::{
     item::{Elem, Item},
     lookups,
-    opt::ControlFlow,
     variable::Variable,
     SpirvCompiler, SpirvTarget,
 };
