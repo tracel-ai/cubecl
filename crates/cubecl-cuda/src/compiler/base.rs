@@ -597,6 +597,14 @@ impl CudaCompiler {
                 instructions.push(Instruction::Magnitude(self.compile_unary(op)))
             }
             gpu::Operator::Dot(op) => instructions.push(Instruction::Dot(self.compile_binary(op))),
+            gpu::Operator::InitLine(op) => instructions.push(Instruction::VecInit {
+                inputs: op
+                    .inputs
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                out: self.compile_variable(op.out),
+            }),
         };
     }
 

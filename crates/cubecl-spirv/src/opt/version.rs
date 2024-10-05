@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    mem::take,
+};
 
 use cubecl_core::ir::{Item, Operation, Variable};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
@@ -98,12 +101,12 @@ impl Optimizer {
             phi.out = (id, depth, *version)
         }
 
-        let mut ops = self.program[block].ops.drain(..).collect::<Vec<_>>();
-        for operation in &mut ops {
+        let mut ops = take(&mut *self.program[block].ops.borrow_mut());
+        for operation in ops.values_mut() {
             self.version_reads(operation, state);
             self.version_writes(operation, state);
         }
-        self.program[block].ops = ops;
+        *self.program[block].ops.borrow_mut() = ops;
         match &mut self.program[block].control_flow {
             super::ControlFlow::If { cond, .. } | super::ControlFlow::IfElse { cond, .. } => {
                 version_read(cond, state)

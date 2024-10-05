@@ -1,3 +1,8 @@
+mod composite;
+mod liveness;
+
+pub use composite::*;
+
 use super::Optimizer;
 
 pub trait OptimizationPass {

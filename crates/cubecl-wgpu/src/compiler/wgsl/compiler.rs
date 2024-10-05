@@ -812,6 +812,14 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(op.out),
             },
+            cube::Operator::InitLine(op) => wgsl::Instruction::VecInit {
+                inputs: op
+                    .inputs
+                    .into_iter()
+                    .map(|var| self.compile_variable(var))
+                    .collect(),
+                out: self.compile_variable(op.out),
+            },
         }
     }
 

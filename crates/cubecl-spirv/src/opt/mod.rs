@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
     mem::transmute,
     ops::{Deref, DerefMut},
@@ -10,8 +11,10 @@ use cubecl_core::ir::{
     self as core, Branch, ConstantScalarValue, If, IfElse, Loop, RangeLoop, Switch, Variable,
 };
 use cubecl_core::ir::{BinaryOperator, Elem, Item, Operation, Operator, Scope, UnaryOperator};
+use passes::{CompositeMerge, OptimizationPass};
 use petgraph::{graph::NodeIndex, prelude::StableDiGraph, visit::EdgeRef, Direction};
 use serde::{Deserialize, Serialize};
+use stable_vec::StableVec;
 use version::PhiInstruction;
 
 mod debug;
@@ -20,7 +23,7 @@ mod passes;
 mod phi_frontiers;
 mod version;
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, Clone)]
 struct Program {
     pub variables: HashMap<(u16, u8), Item>,
     pub graph: StableDiGraph<BasicBlock, u32>,
@@ -70,12 +73,12 @@ pub enum ControlFlow {
     None,
 }
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct BasicBlock {
     pub phi_nodes: Vec<PhiInstruction>,
     writes: HashSet<(u16, u8)>,
     dom_frontiers: HashSet<NodeIndex>,
-    pub ops: Vec<Operation>,
+    pub ops: Rc<RefCell<StableVec<Operation>>>,
     pub control_flow: ControlFlow,
 }
 
@@ -91,19 +94,10 @@ pub struct Optimizer {
 impl Optimizer {
     pub fn new(expand: Scope) -> Self {
         let mut opt = Self::default();
-        let entry = opt.program.add_node(BasicBlock::default());
-        opt.program.root = entry;
-        opt.current_block = Some(entry);
-        opt.ret = opt.program.add_node(BasicBlock::default());
-        opt.program[opt.ret].control_flow = ControlFlow::Return;
-        opt.parse_scope(expand);
-        if let Some(current_block) = opt.current_block {
-            let edge_id = opt.edge_id();
-            opt.program.add_edge(current_block, opt.ret, edge_id);
-        }
-        opt.program.fill_dom_frontiers();
-        opt.program.place_phi_nodes();
-        opt.version_program();
+        opt.parse_graph(expand);
+        opt.apply_pre_ssa_passes();
+        opt.ssa_transform();
+        opt.apply_post_ssa_passes();
         opt
     }
 
@@ -113,6 +107,34 @@ impl Optimizer {
 
     fn edge_id(&self) -> u32 {
         self.edge_id.fetch_add(1, Ordering::AcqRel)
+    }
+
+    fn parse_graph(&mut self, scope: Scope) {
+        let entry = self.program.add_node(BasicBlock::default());
+        self.program.root = entry;
+        self.current_block = Some(entry);
+        self.ret = self.program.add_node(BasicBlock::default());
+        self.program[self.ret].control_flow = ControlFlow::Return;
+        self.parse_scope(scope);
+        if let Some(current_block) = self.current_block {
+            let edge_id = self.edge_id();
+            self.program.add_edge(current_block, self.ret, edge_id);
+        }
+    }
+
+    fn apply_pre_ssa_passes(&mut self) {
+        let mut passes = vec![CompositeMerge];
+        for pass in &mut passes {
+            pass.apply_pre_ssa(self);
+        }
+    }
+
+    fn apply_post_ssa_passes(&mut self) {}
+
+    fn ssa_transform(&mut self) {
+        self.program.fill_dom_frontiers();
+        self.program.place_phi_nodes();
+        self.version_program();
     }
 
     pub fn current_block_mut(&mut self) -> &mut BasicBlock {
@@ -155,7 +177,7 @@ impl Optimizer {
                 Operation::Branch(branch) => self.parse_control_flow(branch),
                 mut other => {
                     self.visit_operation(&mut other, |_, _| {}, |opt, var| opt.write_var(var));
-                    self.current_block_mut().ops.push(other);
+                    self.current_block_mut().ops.borrow_mut().push(other);
                 }
             }
         }
@@ -169,6 +191,7 @@ impl Optimizer {
                 self.find_writes_select(&mut select);
                 self.current_block_mut()
                     .ops
+                    .borrow_mut()
                     .push(Branch::Select(select).into());
             }
             Branch::Switch(switch) => self.parse_switch(switch),
@@ -355,7 +378,7 @@ impl Optimizer {
         })
         .into();
         self.visit_operation(&mut assign, |_, _| {}, |opt, var| opt.write_var(var));
-        self.current_block_mut().ops.push(assign);
+        self.current_block_mut().ops.borrow_mut().push(assign);
 
         let current_block = self.current_block.unwrap();
         let header = self.program.add_node(BasicBlock::default());
@@ -415,7 +438,7 @@ impl Optimizer {
                 item: Item::new(Elem::Bool),
                 depth: i_id.1,
             };
-            self.program[break_cond].ops.push(
+            self.program[break_cond].ops.borrow_mut().push(
                 op(BinaryOperator {
                     lhs: i,
                     rhs: range_loop.end,
@@ -430,7 +453,7 @@ impl Optimizer {
                 merge: break_target,
             };
         }
-        self.program[continue_target].ops.push(
+        self.program[continue_target].ops.borrow_mut().push(
             Operator::Add(BinaryOperator {
                 lhs: i,
                 rhs: step,

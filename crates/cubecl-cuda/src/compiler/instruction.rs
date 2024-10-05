@@ -61,6 +61,10 @@ pub enum Instruction {
         inclusive: bool,
         instructions: Vec<Self>,
     },
+    VecInit {
+        inputs: Vec<Variable>,
+        out: Variable,
+    },
     Loop {
         instructions: Vec<Self>,
     },
@@ -472,6 +476,15 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
             Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
             Instruction::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::VecInit { inputs, out } => {
+                let item = out.item();
+                let inputs = inputs
+                    .iter()
+                    .map(|input| format!("{input}"))
+                    .collect::<Vec<_>>();
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {item}{{{}}};", inputs.join(","))
+            }
         }
     }
 }

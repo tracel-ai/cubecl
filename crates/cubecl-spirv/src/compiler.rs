@@ -269,7 +269,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.phi(ty, Some(out_id), entries).unwrap();
         }
 
-        for operation in self.current_block().ops.clone() {
+        let operations = self.current_block().ops.borrow().clone();
+        for (_, operation) in operations {
             self.compile_operation(operation);
         }
 

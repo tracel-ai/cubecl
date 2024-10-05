@@ -104,6 +104,8 @@ impl Operator {
             Operator::Magnitude(op) => Operator::Magnitude(op.vectorize(vectorization)),
             Operator::Normalize(op) => Operator::Normalize(op.vectorize(vectorization)),
             Operator::Dot(op) => Operator::Dot(op.vectorize(vectorization)),
+            // Already vectorized
+            Operator::InitLine(op) => Operator::InitLine(op.clone()),
         }
     }
 }

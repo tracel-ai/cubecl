@@ -233,6 +233,9 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
+                Operator::InitLine(_) => {
+                    // TODO: Sanitize based on elem
+                }
             },
             Operation::Metadata(op) => match op {
                 Metadata::Stride { dim, .. } => {

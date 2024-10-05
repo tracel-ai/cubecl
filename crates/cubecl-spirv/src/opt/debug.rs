@@ -35,7 +35,7 @@ impl Display for Program {
                 }
                 f.write_str(";\n")?;
             }
-            for op in &bb.ops {
+            for op in bb.ops.borrow().values() {
                 writeln!(f, "    {op};")?;
             }
             match &bb.control_flow {

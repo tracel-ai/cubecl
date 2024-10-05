@@ -73,6 +73,7 @@ pub enum Operator {
     Slice(SliceOperator),
     UncheckedIndex(BinaryOperator),
     IndexAssign(BinaryOperator),
+    InitLine(LineInitOperator),
     UncheckedIndexAssign(BinaryOperator),
     And(BinaryOperator),
     Or(BinaryOperator),
@@ -178,6 +179,14 @@ impl Display for Operator {
             Operator::Magnitude(op) => write!(f, "{} = {}.length()", op.out, op.input),
             Operator::Normalize(op) => write!(f, "{} = {}.normalize()", op.out, op.input),
             Operator::Dot(op) => write!(f, "{} = {}.dot({})", op.out, op.lhs, op.rhs),
+            Operator::InitLine(init) => {
+                let inits = init
+                    .inputs
+                    .iter()
+                    .map(|input| format!("{input}"))
+                    .collect::<Vec<_>>();
+                write!(f, "{} = vec({})", init.out, inits.join(", "))
+            }
         }
     }
 }
@@ -233,6 +242,13 @@ pub struct UnaryOperator {
 #[allow(missing_docs)]
 pub struct InitOperator {
     pub out: Variable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(missing_docs)]
+pub struct LineInitOperator {
+    pub out: Variable,
+    pub inputs: Vec<Variable>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

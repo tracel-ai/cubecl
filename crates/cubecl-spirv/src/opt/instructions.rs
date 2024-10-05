@@ -49,6 +49,7 @@ impl Optimizer {
             | Operator::UncheckedIndexAssign(binary_operator)
             | Operator::Modulo(binary_operator)
             | Operator::Index(binary_operator)
+            | Operator::IndexAssign(binary_operator)
             | Operator::And(binary_operator)
             | Operator::Greater(binary_operator)
             | Operator::Lower(binary_operator)
@@ -64,15 +65,6 @@ impl Optimizer {
             | Operator::Dot(binary_operator)
             | Operator::GreaterEqual(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read, visit_write)
-            }
-            Operator::IndexAssign(op) => {
-                let is_vec = op.out.item().vectorization.map(|it| it.get()).unwrap_or(1) > 1;
-                if let Variable::Local { id, depth, .. } = op.out {
-                    if is_vec {
-                        self.program.variables.remove(&(id, depth));
-                    }
-                }
-                self.visit_binop(op, visit_read, visit_write);
             }
 
             Operator::Abs(unary_operator)
@@ -108,6 +100,12 @@ impl Optimizer {
                 visit_read(self, &mut slice_operator.end);
                 visit_read(self, &mut slice_operator.input);
                 visit_write(self, &mut slice_operator.out);
+            }
+            Operator::InitLine(line_init_operator) => {
+                for input in &mut line_init_operator.inputs {
+                    visit_read(self, input)
+                }
+                visit_write(self, &mut line_init_operator.out)
             }
 
             // Atomics are always pointers

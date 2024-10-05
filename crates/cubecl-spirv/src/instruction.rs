@@ -669,6 +669,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .unwrap();
                 self.write(&out, out_id);
             }
+            Operator::InitLine(op) => {
+                let values = op
+                    .inputs
+                    .into_iter()
+                    .map(|input| self.compile_variable(input))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|it| self.read(&it))
+                    .collect::<Vec<_>>();
+                let out = self.compile_variable(op.out);
+                let out_id = self.write_id(&out);
+                let item = self.compile_item(op.out.item());
+                let ty = item.id(self);
+                self.composite_construct(ty, Some(out_id), values).unwrap();
+            }
         }
     }
 

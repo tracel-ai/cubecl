@@ -337,6 +337,10 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
+    VecInit {
+        inputs: Vec<Variable>,
+        out: Variable,
+    },
 }
 
 impl Display for Instruction {
@@ -797,6 +801,12 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 } else {
                     writeln!(f, "{out} = dot({lhs}, {rhs});")
                 }
+            }
+            Instruction::VecInit { inputs, out } => {
+                let item = out.item();
+                let inputs = inputs.iter().map(|var| var.to_string()).collect::<Vec<_>>();
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {item}({})", inputs.join(", "))
             }
         }
     }
