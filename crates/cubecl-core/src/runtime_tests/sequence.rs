@@ -1,6 +1,27 @@
 use crate as cubecl;
 use cubecl::prelude::*;
 
+#[cube]
+pub fn mapr_loop(output: &mut Array<f32>, map: &mut ConstMap<u32, i32>) {
+    if UNIT_POS != 0 {
+        return;
+    }
+
+    #[unroll]
+    for i in 0..10u32 {
+        let value = map.get(i);
+        map.insert(0u32, value);
+    }
+
+    let mut sequence = Sequence::<f32>::new();
+    sequence.push(1.0);
+    sequence.push(4.0);
+
+    for value in sequence {
+        output[0] += value;
+    }
+}
+
 #[cube(launch)]
 pub fn sequence_for_loop(output: &mut Array<f32>) {
     if UNIT_POS != 0 {
