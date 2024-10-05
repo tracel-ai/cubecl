@@ -5,9 +5,11 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_core::{Feature, FeatureSet, Runtime};
-use cubecl_runtime::memory_management::{self, dynamic::MemoryConfiguration};
+use cubecl_runtime::memory_management;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
 use wgpu::{DeviceDescriptor, Limits};
+
+pub use cubecl_runtime::memory_management::dynamic::MemoryConfiguration;
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
