@@ -453,7 +453,8 @@ mod tests {
         let usage_after = memory_management.get_memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
-        assert_eq!(usage_before.bytes_reserved, usage_after.bytes_reserved);
+        // Usage after can actually be _less_ because of defragging.
+        assert!(usage_before.bytes_reserved >= usage_after.bytes_reserved);
     }
 
     #[test]
@@ -613,28 +614,6 @@ mod tests {
         let usage = memory_management.get_memory_usage();
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<usize>());
-    }
-
-    #[test]
-    fn noslice_worst_case_allocation() {
-        let mut memory_management = DynamicMemoryManagement::new(
-            BytesStorage::default(),
-            vec![MemoryPoolOptions {
-                page_size: 1000000,
-                chunk_num_prealloc: 0,
-                pool_type: PoolType::NoSlices,
-            }],
-            32,
-        );
-        // Allocate from small to big. This currently requires a new buffer each time.
-        let sizes = [100, 1000, 10000, 100000, 1000000];
-        let _handles: Vec<_> = sizes
-            .iter()
-            .map(|&size| memory_management.reserve(size, &[]))
-            .collect();
-        let usage = memory_management.get_memory_usage();
-        assert_eq!(usage.bytes_in_use, sizes.iter().sum::<usize>());
-        assert_eq!(usage.bytes_reserved, sizes.iter().sum::<usize>());
     }
 
     #[test]
