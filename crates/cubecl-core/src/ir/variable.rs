@@ -126,6 +126,21 @@ impl Variable {
             Variable::AbsolutePosZ => true,
         }
     }
+
+    /// Is this an array type that yields [`Item`]s when indexed, or a scalar/vector that yields
+    /// [`Elem`]s when indexed?
+    pub fn is_array(&self) -> bool {
+        matches!(
+            self,
+            Variable::GlobalInputArray { .. }
+                | Variable::GlobalOutputArray { .. }
+                | Variable::ConstantArray { .. }
+                | Variable::SharedMemory { .. }
+                | Variable::LocalArray { .. }
+                | Variable::Matrix { .. }
+                | Variable::Slice { .. }
+        )
+    }
 }
 
 /// The scalars are stored with the highest precision possible, but they might get reduced during
@@ -248,6 +263,50 @@ impl ConstantScalarValue {
             ConstantScalarValue::Float(val, _) => *val == 0.0,
             ConstantScalarValue::UInt(val) => *val == 0,
             ConstantScalarValue::Bool(_) => false,
+        }
+    }
+
+    pub fn cast_to(&self, other: Elem) -> ConstantScalarValue {
+        match (self, other) {
+            (ConstantScalarValue::Int(val, _), Elem::Float(float_kind)) => {
+                ConstantScalarValue::Float(*val as f64, float_kind)
+            }
+            (ConstantScalarValue::Int(val, _), Elem::Int(int_kind)) => {
+                ConstantScalarValue::Int(*val, int_kind)
+            }
+            (ConstantScalarValue::Int(val, _), Elem::UInt) => {
+                ConstantScalarValue::UInt(*val as u64)
+            }
+            (ConstantScalarValue::Int(val, _), Elem::Bool) => ConstantScalarValue::Bool(*val == 1),
+            (ConstantScalarValue::Float(val, _), Elem::Float(float_kind)) => {
+                ConstantScalarValue::Float(*val, float_kind)
+            }
+            (ConstantScalarValue::Float(val, _), Elem::Int(int_kind)) => {
+                ConstantScalarValue::Int(*val as i64, int_kind)
+            }
+            (ConstantScalarValue::Float(val, _), Elem::UInt) => {
+                ConstantScalarValue::UInt(*val as u64)
+            }
+            (ConstantScalarValue::Float(val, _), Elem::Bool) => {
+                ConstantScalarValue::Bool(*val == 0.0)
+            }
+            (ConstantScalarValue::UInt(val), Elem::Float(float_kind)) => {
+                ConstantScalarValue::Float(*val as f64, float_kind)
+            }
+            (ConstantScalarValue::UInt(val), Elem::Int(int_kind)) => {
+                ConstantScalarValue::Int(*val as i64, int_kind)
+            }
+            (ConstantScalarValue::UInt(val), Elem::UInt) => ConstantScalarValue::UInt(*val),
+            (ConstantScalarValue::UInt(val), Elem::Bool) => ConstantScalarValue::Bool(*val == 1),
+            (ConstantScalarValue::Bool(val), Elem::Float(float_kind)) => {
+                ConstantScalarValue::Float(*val as u32 as f64, float_kind)
+            }
+            (ConstantScalarValue::Bool(val), Elem::Int(int_kind)) => {
+                ConstantScalarValue::Int(*val as i64, int_kind)
+            }
+            (ConstantScalarValue::Bool(val), Elem::UInt) => ConstantScalarValue::UInt(*val as u64),
+            (ConstantScalarValue::Bool(val), Elem::Bool) => ConstantScalarValue::Bool(*val),
+            _ => unreachable!(),
         }
     }
 }

@@ -393,14 +393,4 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.name(var, name);
         }
     }
-
-    pub fn label(&mut self, block: NodeIndex) -> Word {
-        if let Some(existing) = self.state.labels.get(&block) {
-            *existing
-        } else {
-            let word = self.id();
-            self.state.labels.insert(block, word);
-            word
-        }
-    }
 }

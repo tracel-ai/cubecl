@@ -8,8 +8,8 @@ use std::{
 use cubecl_core::ir::{self as core, Operator, Variable};
 use cubecl_core::ir::{Item, Operation, Scope};
 use passes::{
-    CompositeMerge, EliminateUnusedVariables, InlineAssignments, MergeSameExpressions,
-    OptimizationPass, ZeroOperandSimplify,
+    CompositeMerge, ConstEval, EliminateUnusedVariables, InlineAssignments, MergeSameExpressions,
+    OptimizationPass, RemoveIndexScalar, ZeroOperandSimplify,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
@@ -130,6 +130,8 @@ impl Optimizer {
             Box::new(EliminateUnusedVariables),
             Box::new(ZeroOperandSimplify),
             Box::new(MergeSameExpressions),
+            Box::new(ConstEval),
+            Box::new(RemoveIndexScalar),
         ];
         loop {
             let counter = AtomicCounter::default();
@@ -149,8 +151,12 @@ impl Optimizer {
         for node in self.node_ids() {
             let ops = self.program[node].ops.clone();
             for op in ops.borrow().values() {
-                if let Operation::Operator(Operator::IndexAssign(op)) = op {
-                    if let Variable::Local { id, depth, .. } = &op.out {
+                if let Operation::Operator(Operator::IndexAssign(binop)) = op {
+                    if let Variable::Local { id, depth, .. } = &binop.out {
+                        println!(
+                            "Exempting ({id}, {depth}) for op {op} in bb{}",
+                            node.index()
+                        );
                         self.program.variables.remove(&(*id, *depth));
                     }
                 }

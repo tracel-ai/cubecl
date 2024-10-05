@@ -77,6 +77,14 @@ fn check_op(
         },
         visit_noop,
     );
+    opt.visit_operation(&mut op, visit_noop, |_, var| {
+        if !var.is_immutable() {
+            is_mut = true;
+        }
+    });
+    if is_mut {
+        return None;
+    }
     for rhs_idx in indices.iter().skip(i + 1) {
         if rhs_eq(&op, &ops.borrow()[*rhs_idx]) {
             let rhs_out = get_out(opt, &mut ops.borrow_mut()[*rhs_idx])?;
@@ -91,7 +99,7 @@ fn check_op(
     Some(())
 }
 
-fn get_out(opt: &mut Optimizer, op: &mut Operation) -> Option<Variable> {
+pub(crate) fn get_out(opt: &mut Optimizer, op: &mut Operation) -> Option<Variable> {
     let mut out = None;
     opt.visit_operation(op, visit_noop, |_, var| out = Some(*var));
     out
@@ -175,9 +183,6 @@ fn operator_rhs_eq(lhs: &Operator, rhs: &Operator) -> bool {
             lhs.a == rhs.a && lhs.b == rhs.b && lhs.c == rhs.c
         }
         (Operator::InitLine(lhs), Operator::InitLine(rhs)) => lhs.inputs == rhs.inputs,
-        (Operator::Slice(lhs), Operator::Slice(rhs)) => {
-            lhs.input == rhs.input && lhs.start == rhs.start && lhs.end == rhs.end
-        }
         _ => false,
     }
 }

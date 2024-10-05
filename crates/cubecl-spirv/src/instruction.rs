@@ -683,6 +683,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let item = self.compile_item(op.out.item());
                 let ty = item.id(self);
                 self.composite_construct(ty, Some(out_id), values).unwrap();
+                self.write(&out, out_id);
             }
         }
     }

@@ -13,7 +13,7 @@ pub struct CompositeMerge;
 
 impl OptimizationPass for CompositeMerge {
     fn apply_pre_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        let blocks = opt.program.node_indices().collect::<Vec<_>>();
+        let blocks = opt.node_ids();
 
         for block in blocks {
             let mut assigns = HashMap::<(u16, u8), Vec<(usize, u32, Variable)>>::new();
@@ -89,4 +89,36 @@ fn merge_assigns(
         last,
         Operation::Operator(Operator::InitLine(LineInitOperator { out, inputs })),
     );
+}
+
+pub struct RemoveIndexScalar;
+
+impl OptimizationPass for RemoveIndexScalar {
+    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
+        let blocks = opt.node_ids();
+
+        for block in blocks {
+            let ops = opt.program[block].ops.clone();
+            for op in ops.borrow_mut().values_mut() {
+                if let Operation::Operator(Operator::Index(BinaryOperator { lhs, rhs, out })) = op {
+                    if !lhs.is_array() {
+                        if let Some(index) = rhs.as_const() {
+                            let index = index.as_u32();
+                            let vectorization =
+                                lhs.item().vectorization.map(|it| it.get()).unwrap_or(1);
+                            if vectorization == 1 {
+                                assert_eq!(index, 0, "Can't index into scalar");
+                                *op = Operator::Assign(UnaryOperator {
+                                    input: *lhs,
+                                    out: *out,
+                                })
+                                .into();
+                                changes.inc();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

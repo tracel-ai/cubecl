@@ -138,7 +138,7 @@ impl Display for Operator {
             Operator::LowerEqual(op) => write!(f, "{} = {} <= {}", op.out, op.lhs, op.rhs),
             Operator::GreaterEqual(op) => write!(f, "{} = {} >= {}", op.out, op.lhs, op.rhs),
             Operator::Assign(op) => write!(f, "{} = {}", op.out, op.input),
-            Operator::Modulo(op) => write!(f, "{} = {} mod {}", op.out, op.lhs, op.rhs),
+            Operator::Modulo(op) => write!(f, "{} = {} % {}", op.out, op.lhs, op.rhs),
             Operator::Index(op) => write!(f, "{} = {}[{}]", op.out, op.lhs, op.rhs),
             Operator::Slice(op) => write!(f, "{} = {}[{}..{}]", op.out, op.input, op.start, op.end),
             Operator::UncheckedIndex(op) => write!(f, "{} = unsafe {}[{}]", op.out, op.lhs, op.rhs),
