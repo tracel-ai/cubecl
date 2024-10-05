@@ -26,15 +26,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
-                let position = self.const_u32(position as u32);
+
                 let dim = self.compile_variable(dim);
                 let out = self.compile_variable(out);
                 let one = self.const_u32(1);
 
                 let dim_id = self.read(&dim);
                 let rank_2 = self.state.rank_2;
-                let index = self.i_mul(int, None, position, rank_2).unwrap();
-                let index = self.i_add(int, None, index, dim_id).unwrap();
+
+                let index = if position > 0 {
+                    let position = self.const_u32(position as u32);
+                    let index = self.i_mul(int, None, position, rank_2).unwrap();
+                    self.i_add(int, None, index, dim_id).unwrap()
+                } else {
+                    dim_id
+                };
                 let index = self.i_add(int, None, index, one).unwrap();
                 let index = Variable::Raw(index, int_ty.clone());
                 let info = Variable::Named {
@@ -54,7 +60,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
-                let position = self.const_u32(position as u32);
                 let dim = self.compile_variable(dim);
                 let out = self.compile_variable(out);
                 let one = self.const_u32(1);
@@ -62,8 +67,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let dim_id = self.read(&dim);
                 let rank = self.state.rank;
                 let rank_2 = self.state.rank_2;
-                let index = self.i_mul(int, None, position, rank_2).unwrap();
-                let index = self.i_add(int, None, index, rank).unwrap();
+                let index = if position > 0 {
+                    let position = self.const_u32(position as u32);
+                    let index = self.i_mul(int, None, position, rank_2).unwrap();
+                    self.i_add(int, None, index, rank).unwrap()
+                } else {
+                    rank
+                };
                 let index = self.i_add(int, None, index, dim_id).unwrap();
                 let index = self.i_add(int, None, index, one).unwrap();
                 let index = Variable::Raw(index, int_ty.clone());
