@@ -20,7 +20,7 @@ pub trait MemoryManagement<Storage: ComputeStorage>: Send + core::fmt::Debug {
     /// The associated type that must implement [MemoryHandle].
     type Handle: MemoryHandle<Self::Binding>;
     /// The associated type that must implement [MemoryBinding]
-    type Binding: Send + Clone + Debug;
+    type Binding: Send + Sync + Clone + Debug;
 
     /// Returns the storage from the specified binding
     fn get(&mut self, binding: Self::Binding) -> StorageHandle;
