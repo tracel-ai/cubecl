@@ -22,6 +22,8 @@ pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
     }
 }
 
+/// Same as [select] but with lines instead.
+#[allow(unused_variables)]
 pub fn select_many<C: CubePrimitive>(
     condition: Line<bool>,
     then: Line<C>,
@@ -45,19 +47,9 @@ pub mod select {
         let then = then.expand.consume();
         let or_else = or_else.expand.consume();
 
-        let vf = cond.item().vectorization.map(NonZero::get).unwrap_or(1u8);
-        let vf = u8::max(
-            vf,
-            then.item().vectorization.map(NonZero::get).unwrap_or(1u8),
-        );
-        let vf = u8::max(
-            vf,
-            or_else
-                .item()
-                .vectorization
-                .map(NonZero::get)
-                .unwrap_or(1u8),
-        );
+        let vf = cond.vectorization_factor();
+        let vf = u8::max(vf, then.vectorization_factor());
+        let vf = u8::max(vf, or_else.vectorization_factor());
 
         let output = context.create_local_binding(then.item().vectorize(NonZero::new(vf)));
         let out = *output;

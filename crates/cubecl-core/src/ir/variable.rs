@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use super::{Elem, FloatKind, IntKind, Item, Matrix};
 use serde::{Deserialize, Serialize};
 
@@ -184,6 +186,7 @@ impl ConstantScalarValue {
             .expect("Only Int and UInt kind can be made into i64.")
     }
 
+    /// Returns the value of the variable as a bool if it actually is a bool.
     pub fn try_as_bool(&self) -> Option<bool> {
         match self {
             ConstantScalarValue::Bool(val) => Some(*val),
@@ -191,6 +194,9 @@ impl ConstantScalarValue {
         }
     }
 
+    /// Returns the value of the variable as a bool.
+    ///
+    /// It will panics if the scalar isn't a bool.
     pub fn as_bool(&self) -> bool {
         self.try_as_bool()
             .expect("Only bool can be made into a bool")
@@ -198,6 +204,9 @@ impl ConstantScalarValue {
 }
 
 impl Variable {
+    pub fn vectorization_factor(&self) -> u8 {
+        self.item().vectorization.map(NonZero::get).unwrap_or(1u8)
+    }
     pub fn index(&self) -> Option<u16> {
         match self {
             Variable::GlobalInputArray { id, .. } => Some(*id),

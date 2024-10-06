@@ -2,14 +2,14 @@ use crate as cubecl;
 use cubecl::prelude::*;
 
 #[cube]
-pub fn mapr_loop(output: &mut Array<f32>, map: &mut ConstMap<u32, i32>) {
+pub fn mapr_loop(output: &mut Array<f32>, map: &mut ComptimeRegistry<u32, i32>) {
     if UNIT_POS != 0 {
         return;
     }
 
     #[unroll]
     for i in 0..10u32 {
-        let value = map.get(i);
+        let value = map.find(i);
         map.insert(0u32, value);
     }
 
