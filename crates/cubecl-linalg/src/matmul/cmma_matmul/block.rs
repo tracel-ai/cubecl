@@ -47,13 +47,18 @@ pub struct BlockInfo {
 }
 
 #[cube]
-pub fn num_elements(#[comptime] block_info: BlockInfo) -> u32 {
+pub fn total_num_elements(#[comptime] block_info: BlockInfo) -> u32 {
     comptime!(
         block_info.num_tiles_x
             * block_info.num_tiles_y
             * block_info.tile_size_x
             * block_info.tile_size_y
     )
+}
+
+#[cube]
+pub fn tile_num_elements(#[comptime] block_info: BlockInfo) -> u32 {
+    comptime!(block_info.tile_size_x * block_info.tile_size_y)
 }
 
 impl CubeType for BlockInfos {

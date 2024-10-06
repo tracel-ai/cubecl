@@ -158,6 +158,8 @@ fn write_single<E: Numeric, C: CubePrimitive>(
     write_row: u32,
     write_col: u32,
 ) {
-    let write_position = (write_row * gmem.stride(gmem.rank() - 2) + write_col) / gmem.line_size();
+    let write_position = (write_row * gmem.stride(gmem.rank() - 2)
+        + write_col * gmem.stride(gmem.rank() - 1))
+        / gmem.line_size();
     gmem[write_position] = Line::cast_from(smem_slice[read_position]);
 }

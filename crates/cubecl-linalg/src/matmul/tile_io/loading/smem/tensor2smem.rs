@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::num_elements;
 use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::cmma_matmul::{tile_num_elements, total_num_elements};
 use crate::matmul::id_map::PlaneMapper;
 use crate::matmul::tile_io::loading::smem::tiled_layout::{RowMajorTiling, TilingOrder};
 
@@ -48,7 +48,9 @@ impl Tensor2Smem for Tensor2SmemContinuous {
         gmem_col_offset: u32,
         #[comptime] block_info: BlockInfo,
     ) {
-        let num_smem_elements = comptime!(num_elements(block_info));
+        // TODO gives zeros for second column of RHS
+
+        let num_smem_elements = comptime!(total_num_elements(block_info));
         let jump_length = comptime!(Self::num_planes() * gmem.line_size() * Self::plane_dim());
 
         let unit_position_base =
@@ -75,9 +77,9 @@ pub(crate) fn apply_tiled_layout(
     unit_position: u32,
     #[comptime] block_info: BlockInfo,
 ) -> (u32, u32) {
-    let num_tile_elements = num_elements(block_info);
-    let nth_tile = unit_position / num_tile_elements;
-    let pos_within_tile = unit_position % num_tile_elements;
+    let tile_num_elements = tile_num_elements(block_info);
+    let nth_tile = unit_position / tile_num_elements;
+    let pos_within_tile = unit_position % tile_num_elements;
 
     // TODO allow col major too with generic. Should match with tile reader
     let (tile_row, tile_col) =

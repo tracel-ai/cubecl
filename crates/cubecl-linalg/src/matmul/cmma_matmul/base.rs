@@ -158,8 +158,8 @@ where
     }
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
-        let num_planes = <Self as FixedShapeMatmul<Elem, Elem>>::M / Instr::M; // TODO config
-        let plane_id = UNIT_POS_Y; // TODO some plane mapper
+        let num_planes = <Self as FixedShapeMatmul<Elem, Elem>>::M / Instr::M; // TODO id mapper
+        let plane_id = UNIT_POS_Y; // TODO id mapper
 
         let num_tile_elements = Instr::M * Instr::N;
         let start = num_tile_elements * plane_id;

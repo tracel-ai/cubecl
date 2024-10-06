@@ -89,6 +89,24 @@ macro_rules! testgen_cmma_internal_mock {
         }
 
         #[test]
+        pub fn test_cube_matmul_s32x32x16_b32x32x16() {
+            test_tensor_matmul::<
+                CmmaCubeMatmul<
+                    f32,
+                    CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x32x16>,
+                >,
+                f32,
+                TestRuntime,
+            >(
+                32,
+                32,
+                16,
+                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
         pub fn test_block_matmul_b16x32x16() {
             test_fixed_matmul::<
                 CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B16x32x16>,

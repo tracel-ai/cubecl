@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::num_elements;
+use crate::matmul::cmma_matmul::total_num_elements;
 use crate::matmul::cmma_matmul::BlockInfo;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::loading::Tensor2Smem;
@@ -34,7 +34,7 @@ pub(crate) fn new_lhs_tensor_loader<E: Numeric>(
     #[comptime] block_info: BlockInfo,
 ) -> LhsTensorLoader<E> {
     let line_size = gmem.line_size();
-    let smem = SharedMemory::new_lined(comptime!(num_elements(block_info) / line_size), line_size);
+    let smem = SharedMemory::new_lined(comptime!(total_num_elements(block_info) / line_size), line_size);
 
     LhsTensorLoader::<E> {
         gmem,
@@ -52,7 +52,7 @@ pub(crate) fn new_rhs_tensor_loader<E: Numeric>(
     #[comptime] block_info: BlockInfo,
 ) -> RhsTensorLoader<E> {
     let line_size = gmem.line_size();
-    let smem = SharedMemory::new_lined(comptime!(num_elements(block_info) / line_size), line_size);
+    let smem = SharedMemory::new_lined(comptime!(total_num_elements(block_info) / line_size), line_size);
 
     RhsTensorLoader::<E> {
         gmem,
