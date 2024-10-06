@@ -8,9 +8,9 @@ use cubecl_core::{Feature, Runtime};
 use cubecl_runtime::{memory_management, ClientProperties};
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
 use wgpu::DeviceDescriptor;
-use cubecl_runtime::memory_management::dynamic::MemoryDeviceProperties;
+use cubecl_runtime::memory_management::MemoryDeviceProperties;
 
-pub use cubecl_runtime::memory_management::dynamic::MemoryConfiguration;
+pub use cubecl_runtime::memory_management::MemoryConfiguration;
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
@@ -89,6 +89,7 @@ impl Runtime for WgpuRuntime {
 pub struct RuntimeOptions {
     /// Control the amount of compute tasks to be aggregated into a single GPU command.
     pub tasks_max: usize,
+    /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
 }
 

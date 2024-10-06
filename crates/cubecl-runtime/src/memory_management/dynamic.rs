@@ -1,6 +1,6 @@
 use super::{memory_pool::{
-    ExclusiveMemoryPool, MemoryPool, MemoryPoolOptions, PoolType, SliceBinding, SliceHandle, SlicedPool
-}, MemoryUsage};
+    ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool
+}, MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType};
 use crate::storage::{ComputeStorage, StorageHandle, StorageId};
 use alloc::vec::Vec;
 
@@ -87,27 +87,6 @@ impl MemoryPool for DynamicPool {
 pub struct DynamicMemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
     storage: Storage,
-}
-
-/// High level configuration of memory management.
-#[derive(Clone, Debug)]
-pub enum MemoryConfiguration {
-    /// Use the default preset.
-    Default,
-    /// Default preset using only exclusive pages.
-    /// This can be necessary when backends don't support sub-slices.
-    ExclusivePages,
-    /// Customize each pool individually.
-    Custom(Vec<MemoryPoolOptions>),
-}
-
-/// Properties of the device related to allocation.
-#[derive(Debug, Clone)]
-pub struct MemoryDeviceProperties {
-    /// The maximum nr. of bytes that can be allocated in one go.
-    pub max_page_size: usize,
-    /// The required memory offset alignment in bytes.
-    pub alignment: usize,
 }
 
 const MB: usize = 1024 * 1024;

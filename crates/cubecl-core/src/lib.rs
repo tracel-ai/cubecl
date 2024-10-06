@@ -7,6 +7,7 @@ extern crate derive_new;
 pub mod frontend;
 
 use cubecl_runtime::server::ComputeServer;
+pub use cubecl_runtime::memory_management::MemoryConfiguration;
 pub use frontend::cmma;
 
 /// Cube Language Internal Representation.

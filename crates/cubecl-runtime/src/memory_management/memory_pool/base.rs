@@ -49,21 +49,3 @@ pub trait MemoryPool {
     fn get_memory_usage(&self) -> MemoryUsage;
 }
 
-#[derive(Debug, Clone)]
-pub enum PoolType {
-    ExclusivePages,
-    SlicedPages { max_slice_size: usize },
-}
-
-/// Options to create a memory pool.
-#[derive(Debug, Clone)]
-pub struct MemoryPoolOptions {
-    /// What kind of pool to use.
-    pub pool_type: PoolType,
-    /// The amount of bytes used for each chunk in the memory pool.
-    pub page_size: usize,
-    /// The number of chunks allocated directly at creation.
-    ///
-    /// Useful when you know in advance how much memory you'll need.
-    pub chunk_num_prealloc: usize,
-}

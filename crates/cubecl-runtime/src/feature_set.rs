@@ -1,7 +1,5 @@
 use std::collections::BTreeSet;
-
-use crate::memory_management::dynamic::MemoryDeviceProperties;
-
+use crate::memory_management::MemoryDeviceProperties;
 
 /// The set of [features](Feature) supported by a [runtime](Runtime).
 #[derive(Debug)]

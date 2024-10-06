@@ -1,10 +1,10 @@
 use super::DummyServer;
 use cubecl_runtime::channel::MutexComputeChannel;
 use cubecl_runtime::client::ComputeClient;
-use cubecl_runtime::memory_management::dynamic::MemoryDeviceProperties;
 use cubecl_runtime::memory_management::simple::{
     DeallocStrategy, SimpleMemoryManagement, SliceStrategy,
 };
+use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::{AutotuneOperationSet, LocalTuner};
 use cubecl_runtime::{ComputeRuntime, ClientProperties};

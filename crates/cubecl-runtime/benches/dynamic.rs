@@ -2,8 +2,7 @@ use std::collections::LinkedList;
 
 use cubecl_runtime::{
     memory_management::{
-        dynamic::{DynamicMemoryManagement, MemoryConfiguration, MemoryDeviceProperties},
-        MemoryManagement,
+        dynamic::DynamicMemoryManagement, MemoryConfiguration, MemoryDeviceProperties, MemoryManagement
     },
     storage::BytesStorage,
 };
