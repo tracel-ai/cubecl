@@ -3,45 +3,71 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::cmma_matmul::num_elements;
 use crate::matmul::cmma_matmul::BlockInfo;
-use crate::matmul::cmma_old::load_shared_memory::tiled_layout::RowMajorTiling;
-use crate::matmul::cmma_old::load_shared_memory::tiled_layout::TilingOrder;
+use crate::matmul::id_map::PlaneMapper;
+use crate::matmul::tile_io::loading::smem::tiled_layout::{RowMajorTiling, TilingOrder};
 
 #[cube]
-pub(crate) fn tensor_to_shared_memory<E: Numeric>(
-    gmem: &Tensor<Line<E>>,
-    smem: &mut SharedMemory<Line<E>>,
-    gmem_row_offset: u32,
-    gmem_col_offset: u32,
-    #[comptime] block_info: BlockInfo,
-) {
-    // TODO generalize
-    let plane_dim = 32;
-    let num_load_planes = 1;
+pub trait Tensor2Smem {
+    fn tensor_to_shared_memory<E: Numeric>(
+        gmem: &Tensor<Line<E>>,
+        smem: &mut SharedMemory<Line<E>>,
+        gmem_row_offset: u32,
+        gmem_col_offset: u32,
+        #[comptime] block_info: BlockInfo,
+    );
+}
 
-    let num_smem_elements = num_elements(block_info);
-    for i in 0..num_smem_elements {
-        smem[i] = Line::cast_from(0);
+#[derive(CubeType)]
+pub struct Tensor2SmemContinuous {}
+
+#[cube]
+impl PlaneMapper for Tensor2SmemContinuous {
+    fn plane_id() -> u32 {
+        UNIT_POS_Y
     }
 
-    let line_size = gmem.line_size();
-    let jump_length = num_load_planes * line_size * plane_dim;
-    let num_iterations = num_smem_elements / jump_length;
+    fn plane_unit() -> u32 {
+        UNIT_POS_X
+    }
 
-    // TODO id system
-    let lane_id = UNIT_POS_X;
-    let plane_id = UNIT_POS_Y;
-    let unit_position_base = (plane_id * plane_dim + lane_id) * line_size;
+    fn num_planes() -> u32 {
+        CUBE_DIM_Y
+    }
 
-    // #[unroll]
-    for i in 0..num_iterations {
-        let unit_position = unit_position_base + i * jump_length;
-        let write_position = unit_position;
+    fn plane_dim() -> u32 {
+        CUBE_DIM_X
+    }
+}
 
-        let (row, col) = apply_tiled_layout(unit_position, block_info);
-        let gmem_row = row + gmem_row_offset;
-        let gmem_col = col + gmem_col_offset;
+#[cube]
+impl Tensor2Smem for Tensor2SmemContinuous {
+    fn tensor_to_shared_memory<E: Numeric>(
+        gmem: &Tensor<Line<E>>,
+        smem: &mut SharedMemory<Line<E>>,
+        gmem_row_offset: u32,
+        gmem_col_offset: u32,
+        #[comptime] block_info: BlockInfo,
+    ) {
+        let num_smem_elements = comptime!(num_elements(block_info));
+        let jump_length = comptime!(Self::num_planes() * gmem.line_size() * Self::plane_dim());
 
-        load_single(gmem, smem, gmem_row, gmem_col, write_position)
+        let unit_position_base =
+            (Self::plane_id() * Self::plane_dim() + Self::plane_unit()) * gmem.line_size();
+
+        #[unroll]
+        for i in 0..num_smem_elements / jump_length {
+            let unit_position = unit_position_base + i * jump_length;
+
+            let (row, col) = apply_tiled_layout(unit_position, block_info);
+
+            load_single(
+                gmem,
+                smem,
+                row + gmem_row_offset,
+                col + gmem_col_offset,
+                unit_position,
+            )
+        }
     }
 }
 
@@ -51,22 +77,15 @@ pub(crate) fn apply_tiled_layout(
     #[comptime] block_info: BlockInfo,
 ) -> (u32, u32) {
     let num_tile_elements = num_elements(block_info);
-    let smem_tile_width = block_info.num_tiles_y;
-    let smem_tile_height = block_info.num_tiles_x;
-
     let nth_tile = unit_position / num_tile_elements;
+    let pos_within_tile = unit_position % num_tile_elements;
 
     // TODO allow col major too with generic. Should match with tile reader
     let (tile_row, tile_col) =
-        RowMajorTiling::to_row_col(nth_tile, smem_tile_width, smem_tile_height);
+        RowMajorTiling::to_row_col(nth_tile, block_info.num_tiles_y, block_info.num_tiles_x);
 
-    let tile_stride = block_info.tile_size_y;
-    let pos_within_tile = unit_position % num_tile_elements;
-    let row_within_tile = pos_within_tile / tile_stride;
-    let col_within_tile = pos_within_tile % tile_stride;
-
-    let row = tile_row * block_info.tile_size_x + row_within_tile;
-    let col = tile_col * block_info.tile_size_y + col_within_tile;
+    let row = tile_row * block_info.tile_size_x + pos_within_tile / block_info.tile_size_y;
+    let col = tile_col * block_info.tile_size_y + pos_within_tile % block_info.tile_size_y;
 
     (row, col)
 }

@@ -9,6 +9,7 @@ pub mod cmma_matmul;
 pub mod cmma_old;
 pub mod cube_matmul;
 pub mod dummy_unit_instruction;
+mod id_map;
 pub(crate) mod launch;
 pub mod matrix_layout;
 mod tile_io;

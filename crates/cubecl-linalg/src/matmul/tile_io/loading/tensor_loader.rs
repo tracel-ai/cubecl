@@ -4,10 +4,10 @@ use cubecl_core::prelude::*;
 use crate::matmul::cmma_matmul::num_elements;
 use crate::matmul::cmma_matmul::BlockInfo;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tile_io::loading::{tensor_to_shared_memory, RhsSmemTileReader};
+use crate::matmul::tile_io::loading::Tensor2Smem;
+use crate::matmul::tile_io::loading::Tensor2SmemContinuous;
+use crate::matmul::tile_io::loading::{LhsSmemTileReader, RhsSmemTileReader};
 use crate::matmul::tile_io::Loader;
-
-use super::LhsSmemTileReader;
 
 #[derive(CubeType)]
 pub struct LhsTensorLoader<E: Numeric> {
@@ -72,7 +72,7 @@ impl<E: Numeric> Loader<Line<E>> for LhsTensorLoader<E> {
         let gmem_row_offset = reader.cube_offset;
         let gmem_col_offset = k_offset;
 
-        tensor_to_shared_memory(
+        Tensor2SmemContinuous::tensor_to_shared_memory(
             &reader.gmem,
             &mut reader.smem,
             gmem_row_offset,
@@ -96,7 +96,7 @@ impl<E: Numeric> Loader<Line<E>> for RhsTensorLoader<E> {
         let gmem_row_offset = k_offset;
         let gmem_col_offset = reader.cube_offset;
 
-        tensor_to_shared_memory(
+        Tensor2SmemContinuous::tensor_to_shared_memory(
             &reader.gmem,
             &mut reader.smem,
             gmem_row_offset,
