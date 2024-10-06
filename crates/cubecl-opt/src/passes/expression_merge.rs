@@ -24,7 +24,10 @@ fn search_loop(opt: &mut Optimizer) -> bool {
         for idx in ops {
             let op = opt.program[node].ops.borrow()[idx].clone();
             if let Operation::Operator(Operator::Assign(op)) = op {
-                if op.input.is_immutable() && op.out.is_immutable() {
+                if op.input.is_immutable()
+                    && op.out.is_immutable()
+                    && op.input.item() == op.out.item()
+                {
                     opt.visit_all(
                         |_, var| {
                             if *var == op.out {

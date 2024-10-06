@@ -33,6 +33,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let bool = self.type_bool();
         let cond = self.u_less_than(bool, None, index, len).unwrap();
 
+        let current_block = self.current_block.unwrap();
+
         let in_bounds = self.id();
         let fallback = self.id();
         let next = self.id();
@@ -49,6 +51,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.begin_block(Some(fallback)).unwrap();
         let fallback_value = item.constant(self, 0u32.into());
         self.branch(next).unwrap();
+
+        self.state.end_labels.insert(current_block, next);
 
         self.begin_block(Some(next)).unwrap();
         self.phi(
@@ -68,6 +72,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let len = self.length(arr, None);
         let bool = self.type_bool();
         let cond = self.u_less_than(bool, None, index, len).unwrap();
+        let current_block = self.current_block.unwrap();
 
         let in_bounds = self.id();
         let next = self.id();
@@ -82,6 +87,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.branch(next).unwrap();
 
         self.begin_block(Some(next)).unwrap();
+        self.state.end_labels.insert(current_block, next);
     }
 
     fn compile_select(
@@ -111,7 +117,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_control_flow(&mut self, control_flow: ControlFlow) {
         match control_flow {
-            ControlFlow::If { cond, then, merge } => self.compile_if(cond, then, merge),
             ControlFlow::Break {
                 cond,
                 body,
@@ -151,20 +156,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_block(children[0]);
             }
         }
-    }
-
-    fn compile_if(&mut self, cond: core::Variable, then: NodeIndex, merge: NodeIndex) {
-        let cond = self.compile_variable(cond);
-        let then_label = self.label(then);
-        let merge_label = self.label(merge);
-        let cond_id = self.read(&cond);
-
-        self.selection_merge(merge_label, SelectionControl::NONE)
-            .unwrap();
-        self.branch_conditional(cond_id, then_label, merge_label, None)
-            .unwrap();
-        self.compile_block(then);
-        self.compile_block(merge);
     }
 
     fn compile_break(&mut self, cond: core::Variable, body: NodeIndex, or_break: NodeIndex) {

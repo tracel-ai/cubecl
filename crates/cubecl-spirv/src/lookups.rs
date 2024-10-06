@@ -33,6 +33,7 @@ pub struct LookupTables {
     pub variables: HashMap<(u16, u8), Word>,
     pub versioned: HashMap<(u16, u8, u16), Word>,
     pub labels: HashMap<NodeIndex, Word>,
+    pub end_labels: HashMap<NodeIndex, Word>,
 
     pub slices: HashMap<(u16, u8), Slice>,
 
@@ -225,6 +226,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let word = self.id();
             self.debug_name(word, format!("bb{}", block.index()));
             self.state.labels.insert(block, word);
+            word
+        }
+    }
+
+    pub fn end_label(&mut self, block: NodeIndex) -> Word {
+        if let Some(existing) = self.state.end_labels.get(&block) {
+            *existing
+        } else {
+            let word = self.label(block);
+            self.state.end_labels.insert(block, word);
             word
         }
     }

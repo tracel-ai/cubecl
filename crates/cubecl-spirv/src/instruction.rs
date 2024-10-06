@@ -32,7 +32,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let value = self.compile_variable(op.lhs);
                 let index = self.compile_variable(op.rhs);
                 let out = self.compile_variable(op.out);
-                let out_id = out.as_binding().unwrap();
 
                 if is_atomic {
                     let checked = matches!(self.mode, ExecutionMode::Checked) && value.has_len();
@@ -40,6 +39,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         IndexedVariable::Pointer(ptr, _) => ptr,
                         _ => unreachable!("Atomic is always pointer"),
                     };
+                    let out_id = out.as_binding().unwrap();
+
                     // This isn't great but atomics can't currently be constructed so should be fine
                     self.merge_binding(out_id, ptr);
                 } else {

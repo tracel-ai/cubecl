@@ -8,11 +8,6 @@ use cubecl_core::ir::{
 
 #[derive(Default, Debug, Clone)]
 pub enum ControlFlow {
-    If {
-        cond: Variable,
-        then: NodeIndex,
-        merge: NodeIndex,
-    },
     Break {
         cond: Variable,
         body: NodeIndex,
@@ -63,7 +58,7 @@ impl Optimizer {
                 self.program.add_edge(current_block, self.ret, id);
             }
             Branch::Break => {
-                let current_block = self.current_block.take().unwrap();
+                let current_block = self.current_block.unwrap();
                 let loop_break = self.loop_break.back().expect("Can't break outside loop");
                 let id = self.edge_id();
                 self.program.add_edge(current_block, *loop_break, id);
@@ -75,12 +70,7 @@ impl Optimizer {
         let current_block = self.current_block.unwrap();
         let then = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
-
-        *self.program[current_block].control_flow.borrow_mut() = ControlFlow::If {
-            cond: if_.cond,
-            then,
-            merge: next,
-        };
+        let mut merge = next;
 
         let id = self.edge_id();
         self.program.add_edge(current_block, then, id);
@@ -92,7 +82,17 @@ impl Optimizer {
         if let Some(current_block) = self.current_block {
             let id = self.edge_id();
             self.program.add_edge(current_block, next, id);
+        } else {
+            // Returned
+            merge = self.ret;
         }
+
+        *self.program[current_block].control_flow.borrow_mut() = ControlFlow::IfElse {
+            cond: if_.cond,
+            then,
+            or_else: next,
+            merge,
+        };
         self.current_block = Some(next);
     }
 
@@ -101,13 +101,7 @@ impl Optimizer {
         let then = self.program.add_node(BasicBlock::default());
         let or_else = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
-
-        *self.program[current_block].control_flow.borrow_mut() = ControlFlow::IfElse {
-            cond: if_else.cond,
-            then,
-            or_else,
-            merge: next,
-        };
+        let mut merge = next;
 
         let id = self.edge_id();
         self.program.add_edge(current_block, then, id);
@@ -120,6 +114,9 @@ impl Optimizer {
         if let Some(current_block) = self.current_block {
             let id = self.edge_id();
             self.program.add_edge(current_block, next, id);
+        } else {
+            // Returned
+            merge = self.ret;
         }
 
         self.current_block = Some(or_else);
@@ -128,7 +125,17 @@ impl Optimizer {
         if let Some(current_block) = self.current_block {
             let id = self.edge_id();
             self.program.add_edge(current_block, next, id);
+        } else {
+            // Returned
+            merge = self.ret;
         }
+
+        *self.program[current_block].control_flow.borrow_mut() = ControlFlow::IfElse {
+            cond: if_else.cond,
+            then,
+            or_else,
+            merge,
+        };
 
         self.current_block = Some(next);
     }

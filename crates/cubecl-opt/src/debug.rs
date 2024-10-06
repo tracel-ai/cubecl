@@ -48,9 +48,6 @@ impl Display for Program {
                 writeln!(f, "    {op};")?;
             }
             match &*bb.control_flow.borrow() {
-                ControlFlow::If { cond, then, merge } => {
-                    writeln!(f, "    {cond} ? bb{} : bb{};", then.index(), merge.index())?;
-                }
                 ControlFlow::Break {
                     cond,
                     body,
