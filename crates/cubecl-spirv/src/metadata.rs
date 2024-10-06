@@ -34,12 +34,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let dim_id = self.read(&dim);
                 let rank_2 = self.state.rank_2;
 
-                let index = if position > 0 {
-                    let position = self.const_u32(position as u32);
-                    let index = self.i_mul(int, None, position, rank_2).unwrap();
-                    self.i_add(int, None, index, dim_id).unwrap()
-                } else {
-                    dim_id
+                let index = match position > 1 {
+                    true => {
+                        let position = self.const_u32(position as u32);
+                        self.i_mul(int, None, position, rank_2).unwrap()
+                    }
+                    false => rank_2,
+                };
+                let index = match position > 0 {
+                    true => self.i_add(int, None, index, dim_id).unwrap(),
+                    false => dim_id,
                 };
                 let index = self.i_add(int, None, index, one).unwrap();
                 let index = Variable::Raw(index, int_ty.clone());
@@ -67,12 +71,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let dim_id = self.read(&dim);
                 let rank = self.state.rank;
                 let rank_2 = self.state.rank_2;
-                let index = if position > 0 {
-                    let position = self.const_u32(position as u32);
-                    let index = self.i_mul(int, None, position, rank_2).unwrap();
-                    self.i_add(int, None, index, rank).unwrap()
-                } else {
-                    rank
+                let index = match position > 1 {
+                    true => {
+                        let position = self.const_u32(position as u32);
+                        self.i_mul(int, None, position, rank_2).unwrap()
+                    }
+                    false => rank_2,
+                };
+                let index = match position > 0 {
+                    true => self.i_add(int, None, index, rank).unwrap(),
+                    false => rank,
                 };
                 let index = self.i_add(int, None, index, dim_id).unwrap();
                 let index = self.i_add(int, None, index, one).unwrap();

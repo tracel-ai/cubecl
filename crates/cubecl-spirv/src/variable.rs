@@ -709,17 +709,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Versioned {
                 id,
                 item: Item::Vector(elem, vec),
-            } => {
-                println!("{index:?}");
-                IndexedVariable::Composite(
-                    self.get_versioned(*id),
-                    index
-                        .as_const()
-                        .expect("Index into vector must be constant")
-                        .as_u32(),
-                    Item::Vector(*elem, *vec),
-                )
-            }
+            } => IndexedVariable::Composite(
+                self.get_versioned(*id),
+                index
+                    .as_const()
+                    .expect("Index into vector must be constant")
+                    .as_u32(),
+                Item::Vector(*elem, *vec),
+            ),
             Variable::LocalBinding { .. } | Variable::Local { .. } => {
                 let index = index
                     .as_const()

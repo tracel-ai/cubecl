@@ -84,30 +84,36 @@ impl Optimizer {
                 .iter_mut()
                 .find(|it| it.block == source)
                 .unwrap();
-            let (id, depth, item, _) = as_versioned(entry.value);
-            let version = state.versions[&(id, depth)];
-            entry.value = Variable::Versioned {
-                id,
-                item,
-                depth,
-                version,
-            };
+            if let Some((id, depth, item, _)) = as_versioned(entry.value) {
+                if self.program.variables.contains_key(&(id, depth)) {
+                    let version = state.versions[&(id, depth)];
+                    entry.value = Variable::Versioned {
+                        id,
+                        item,
+                        depth,
+                        version,
+                    };
+                }
+            }
         }
     }
 
     fn version_block_ops(&mut self, block: NodeIndex, state: &mut SsaState<'_>) {
         for phi in self.program[block].phi_nodes.borrow_mut().iter_mut() {
-            let (id, depth, item, _) = as_versioned(phi.out);
-            let version = state.versions.get_mut(&(id, depth)).unwrap();
-            let max_version = state.max_versions.get_mut(&(id, depth)).unwrap();
-            *max_version += 1;
-            *version = *max_version;
-            phi.out = Variable::Versioned {
-                id,
-                item,
-                depth,
-                version: *version,
-            };
+            if let Some((id, depth, item, _)) = as_versioned(phi.out) {
+                if self.program.variables.contains_key(&(id, depth)) {
+                    let version = state.versions.get_mut(&(id, depth)).unwrap();
+                    let max_version = state.max_versions.get_mut(&(id, depth)).unwrap();
+                    *max_version += 1;
+                    *version = *max_version;
+                    phi.out = Variable::Versioned {
+                        id,
+                        item,
+                        depth,
+                        version: *version,
+                    };
+                }
+            }
         }
 
         let mut ops = take(&mut *self.program[block].ops.borrow_mut());
@@ -118,15 +124,15 @@ impl Optimizer {
         *self.program[block].ops.borrow_mut() = ops;
         match &mut *self.program[block].control_flow.borrow_mut() {
             ControlFlow::If { cond, .. } | super::ControlFlow::IfElse { cond, .. } => {
-                version_read(cond, state)
+                self.version_read(cond, state)
             }
-            ControlFlow::Switch { value, .. } => version_read(value, state),
+            ControlFlow::Switch { value, .. } => self.version_read(value, state),
             _ => {}
         }
     }
 
     fn version_reads(&mut self, op: &mut Operation, state: &mut SsaState<'_>) {
-        self.visit_operation(op, |_, var| version_read(var, state), |_, _| {});
+        self.visit_operation(op, |opt, var| opt.version_read(var, state), |_, _| {});
     }
 
     fn version_writes(&mut self, op: &mut Operation, state: &mut SsaState<'_>) {
@@ -154,35 +160,37 @@ impl Optimizer {
             },
         );
     }
+
+    fn version_read(&self, var: &mut Variable, state: &mut SsaState<'_>) {
+        match var {
+            Variable::Local { id, item, depth }
+            | Variable::Versioned {
+                id, item, depth, ..
+            } => {
+                if self.program.variables.contains_key(&(*id, *depth)) {
+                    if let Some(version) = state.versions.get(&(*id, *depth)) {
+                        *var = Variable::Versioned {
+                            id: *id,
+                            item: *item,
+                            depth: *depth,
+                            version: *version,
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
-fn as_versioned(var: Variable) -> (u16, u8, Item, u16) {
+fn as_versioned(var: Variable) -> Option<(u16, u8, Item, u16)> {
     match var {
         Variable::Versioned {
             id,
             item,
             depth,
             version,
-        } => (id, depth, item, version),
-        _ => unreachable!(),
-    }
-}
-
-fn version_read(var: &mut Variable, state: &mut SsaState<'_>) {
-    match var {
-        Variable::Local { id, item, depth }
-        | Variable::Versioned {
-            id, item, depth, ..
-        } => {
-            if let Some(version) = state.versions.get(&(*id, *depth)) {
-                *var = Variable::Versioned {
-                    id: *id,
-                    item: *item,
-                    depth: *depth,
-                    version: *version,
-                }
-            }
-        }
-        _ => {}
+        } => Some((id, depth, item, version)),
+        _ => None,
     }
 }

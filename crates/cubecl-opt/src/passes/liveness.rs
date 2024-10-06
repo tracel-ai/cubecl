@@ -36,6 +36,23 @@ impl Optimizer {
                 .unwrap_or(false)
         });
         let here = self.block_uses_var(block, var_id, successors);
+
+        if self.program[block]
+            .liveness
+            .get(&var_id)
+            .copied()
+            .unwrap_or(false)
+            != here
+        {
+            let incoming = self
+                .program
+                .edges_directed(block, Direction::Incoming)
+                .map(|it| it.weight());
+            for edge in incoming {
+                visited_edges.remove(edge);
+            }
+        }
+
         self.program[block].liveness.insert(var_id, here);
         let edges = self
             .program

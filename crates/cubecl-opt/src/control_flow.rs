@@ -287,11 +287,7 @@ impl Optimizer {
                 true => Operator::LowerEqual,
                 false => Operator::Lower,
             };
-            let tmp = Variable::LocalBinding {
-                id: 60000 + i_id.0,
-                item: Item::new(Elem::Bool),
-                depth: i_id.1,
-            };
+            let tmp = self.root_scope.create_local_binding(Item::new(Elem::Bool));
             self.program[break_cond].ops.borrow_mut().push(
                 op(BinaryOperator {
                     lhs: i,

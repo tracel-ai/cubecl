@@ -2,6 +2,7 @@ use cubecl_core::ir::{self as core, Scope};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use std::{
     collections::HashSet,
+    env,
     fmt::Debug,
     fs::{self, File},
     io::Write,
@@ -80,7 +81,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             variable_block: Default::default(),
             opt: Default::default(),
             current_block: Default::default(),
-            debug: true,
+            debug: env::var("CUBECL_DEBUG_LOG").is_ok(),
             visited: Default::default(),
         }
     }
@@ -137,7 +138,6 @@ impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
 
 impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> Module {
-        println!("Compiling");
         self.set_version(1, 6);
 
         self.init_state(kernel.clone());
@@ -172,7 +172,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         graph.write_fmt(format_args!("{opt}")).unwrap();
         drop(graph);
 
-        //println!("{opt}");
         let ret = opt.ret;
         self.compile_block(ret);
 
@@ -180,9 +179,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             let label = self.label(ret);
             self.branch(label).unwrap();
         }
-
-        //self.compile_scope(kernel.body, Some(body));
-        //self.ret().unwrap();
 
         // Terminate variable block
         let var_block = self.variable_block;

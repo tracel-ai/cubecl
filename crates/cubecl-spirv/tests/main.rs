@@ -34,7 +34,6 @@ pub fn load_lhs_plain() {
     fs::write("out/lhs_plain.spv", as_bytes(&kernel)).unwrap();
     fs::write("out/lhs_plain.txt", kernel.disassemble()).unwrap();
 
-    panic!()
     //let expected = include_str!("unary_bench.wgsl").replace("\r\n", "\n");
     //assert_eq!(compile(kernel), expected);
 }

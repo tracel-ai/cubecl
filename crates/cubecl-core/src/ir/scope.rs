@@ -132,12 +132,26 @@ impl Scope {
         local
     }
 
-    /// Create a new undeclared local binding, but doesn't perform the declaration.
+    /// Create a new undeclared local, but doesn't perform the declaration.
     ///
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
     pub fn create_local_undeclared(&mut self, item: Item) -> Variable {
         let index = self.new_local_index();
         let local = Variable::Local {
+            id: index,
+            item,
+            depth: self.depth,
+        };
+        self.undeclared += 1;
+        local
+    }
+
+    /// Create a new undeclared local binding, but doesn't perform the declaration.
+    ///
+    /// Useful for temporaries and other algorithms that require the control over initialization.
+    pub fn create_local_binding(&mut self, item: Item) -> Variable {
+        let index = self.new_local_index();
+        let local = Variable::LocalBinding {
             id: index,
             item,
             depth: self.depth,

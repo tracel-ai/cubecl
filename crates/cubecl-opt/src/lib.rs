@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    fs,
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
@@ -8,8 +9,8 @@ use std::{
 use cubecl_core::ir::{self as core, Operator, Variable};
 use cubecl_core::ir::{Item, Operation, Scope};
 use passes::{
-    CompositeMerge, ConstEval, EliminateUnusedVariables, InlineAssignments, MergeSameExpressions,
-    OptimizationPass, RemoveIndexScalar, ZeroOperandSimplify,
+    CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, EliminateUnusedVariables,
+    InlineAssignments, MergeSameExpressions, OptimizationPass, RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
@@ -67,25 +68,54 @@ impl DerefMut for Program {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct Optimizer {
     program: Program,
     pub current_block: Option<NodeIndex>,
     loop_break: VecDeque<NodeIndex>,
     pub ret: NodeIndex,
     edge_id: Rc<AtomicU32>,
+    root_scope: Scope,
+}
+
+impl Default for Optimizer {
+    fn default() -> Self {
+        Self {
+            program: Default::default(),
+            current_block: Default::default(),
+            loop_break: Default::default(),
+            ret: Default::default(),
+            edge_id: Default::default(),
+            root_scope: Scope::root(),
+        }
+    }
 }
 
 impl Optimizer {
     pub fn new(expand: Scope) -> Self {
-        let mut opt = Self::default();
-        opt.parse_graph(expand);
-        opt.analyze_liveness();
-        opt.apply_pre_ssa_passes();
-        opt.exempt_index_assign_locals();
-        opt.ssa_transform();
-        opt.apply_post_ssa_passes();
+        let mut opt = Self {
+            root_scope: expand.clone(),
+            ..Default::default()
+        };
+        opt.run_opt(expand);
+
         opt
+    }
+
+    fn run_opt(&mut self, expand: Scope) {
+        self.parse_graph(expand);
+        self.analyze_liveness();
+        self.apply_pre_ssa_passes();
+        self.exempt_index_assign_locals();
+        self.ssa_transform();
+        self.apply_post_ssa_passes();
+        let arrays_prop = AtomicCounter::new(0);
+        CopyPropagateArray.apply_post_ssa(self, arrays_prop.clone());
+        if arrays_prop.get() > 0 {
+            self.analyze_liveness();
+            self.ssa_transform();
+            self.apply_post_ssa_passes();
+        }
     }
 
     pub fn entry(&self) -> NodeIndex {
@@ -128,7 +158,7 @@ impl Optimizer {
         let mut passes: Vec<Box<dyn OptimizationPass>> = vec![
             Box::new(InlineAssignments),
             Box::new(EliminateUnusedVariables),
-            Box::new(ZeroOperandSimplify),
+            Box::new(ConstOperandSimplify),
             Box::new(MergeSameExpressions),
             Box::new(ConstEval),
             Box::new(RemoveIndexScalar),
@@ -168,6 +198,10 @@ impl Optimizer {
         self.program.fill_dom_frontiers();
         self.program.place_phi_nodes();
         self.version_program();
+        self.program.variables.clear();
+        for block in self.node_ids() {
+            self.program[block].writes.clear();
+        }
     }
 
     pub fn current_block_mut(&mut self) -> &mut BasicBlock {
