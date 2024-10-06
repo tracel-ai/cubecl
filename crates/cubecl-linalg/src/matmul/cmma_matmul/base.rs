@@ -71,7 +71,7 @@ where
     Block: CmmaBlockSize,
 {
     fn can_process(problem: MatmulProblem) -> bool {
-        problem.m as u32 <= Block::M && problem.n as u32 <= Block::N && problem.k as u32 <= Block::K
+        problem.m <= Block::M && problem.n <= Block::N && problem.k <= Block::K
     }
 
     fn requirements(_problem: MatmulProblem) -> Requirements {

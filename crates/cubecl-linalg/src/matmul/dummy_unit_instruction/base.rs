@@ -47,9 +47,7 @@ macro_rules! impl_matmul_instruction {
 
         impl<I: Numeric, O: Numeric> Matmul<I, O> for $name<I, O> {
             fn can_process(problem: MatmulProblem) -> bool {
-                problem.m as u32 == Self::M
-                    && problem.n as u32 == Self::N
-                    && problem.k as u32 == Self::K
+                problem.m == Self::M && problem.n == Self::N && problem.k == Self::K
             }
 
             fn requirements(_problem: MatmulProblem) -> Requirements {
