@@ -5,39 +5,39 @@ use crate::memory_management::dynamic::MemoryDeviceProperties;
 
 /// The set of [features](Feature) supported by a [runtime](Runtime).
 #[derive(Debug)]
-pub struct FeatureSet<Feature: Ord + Copy> {
+pub struct ClientProperties<Feature: Ord + Copy> {
     set: alloc::collections::BTreeSet<Feature>,
     memory: MemoryDeviceProperties
 }
 
-impl<Feature: Ord + Copy> FeatureSet<Feature> {
+impl<Feature: Ord + Copy> ClientProperties<Feature> {
     /// Create a new feature set with the given features and memory properties.
-    pub fn new(features: &[Feature], mem_props: MemoryDeviceProperties) -> Self {
+    pub fn new(features: &[Feature], memory_props: MemoryDeviceProperties) -> Self {
         let mut set = BTreeSet::new();
         for feature in features {
             set.insert(*feature);
         }
 
-        FeatureSet {
+        ClientProperties {
             set,
-            memory: mem_props
+            memory: memory_props
         }
     }
 
     /// Check if the provided [feature](Feature) is supported by the runtime.
-    pub fn enabled(&self, feature: Feature) -> bool {
+    pub fn feature_enabled(&self, feature: Feature) -> bool {
         self.set.contains(&feature)
-    }
-
-    /// The memory properties of this device.
-    pub fn memory_properties(&self) -> &MemoryDeviceProperties {
-        &self.memory
     }
 
     /// Register a [feature](Feature) supported by the compute server.
     ///
     /// This should only be used by a [runtime](Runtime) when initializing a device.
-    pub fn register(&mut self, feature: Feature) -> bool {
+    pub fn register_feature(&mut self, feature: Feature) -> bool {
         self.set.insert(feature)
+    }
+
+    /// The memory properties of this client.
+    pub fn memory_properties(&self) -> &MemoryDeviceProperties {
+        &self.memory
     }
 }

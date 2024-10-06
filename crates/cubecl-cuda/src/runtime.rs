@@ -10,7 +10,7 @@ use cubecl_runtime::{
     memory_management::dynamic::{
         DynamicMemoryManagement, MemoryConfiguration, MemoryDeviceProperties,
     },
-    ComputeRuntime, FeatureSet,
+    ComputeRuntime, ClientProperties,
 };
 
 use crate::{
@@ -37,9 +37,10 @@ impl Runtime for CudaRuntime {
     type Device = CudaDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
-        fn init(index: usize) -> CudaContext<DynamicMemoryManagement<CudaStorage>> {
+        RUNTIME.client(device, move || {
+            // To get the supported WMMA featurs, and memory properties, we have to initialize the server immediatly.
             cudarc::driver::result::init().unwrap();
-            let device_ptr = cudarc::driver::result::device::get(index as i32).unwrap();
+            let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
             let arch = unsafe {
                 let major = cudarc::driver::result::device::get_attribute(device_ptr, cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR).unwrap();
                 let minor = cudarc::driver::result::device::get_attribute(device_ptr, cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR).unwrap();
@@ -62,28 +63,20 @@ impl Runtime for CudaRuntime {
                 bytes.assume_init()
             };
             let storage = CudaStorage::new(stream);
-            let properties = MemoryDeviceProperties {
+            let mem_properties = MemoryDeviceProperties {
                 max_page_size: max_memory / 4,
-                memory_alignment: MEMORY_OFFSET_ALIGNMENT,
+                alignment: MEMORY_OFFSET_ALIGNMENT,
             };
 
             // TODO: Add a way to initialize from a custom config.
             let mem_config = MemoryConfiguration::Default;
             let memory_management =
-                DynamicMemoryManagement::from_configuration(storage, properties, mem_config);
-            CudaContext::new(memory_management, stream, ctx, arch)
-        }
-
-        RUNTIME.client(device, move || {
-            let mut server = CudaServer::new(device.index, Box::new(init));
-            let mem_properties = MemoryDeviceProperties {
-                max_page_size: 0,
-                memory_alignment: 0,
-            };
-            let mut features = FeatureSet::new(&[Feature::Subcube], mem_properties);
-
-            register_wmma_features(&mut features, server.arch_version());
-            ComputeClient::new(MutexComputeChannel::new(server), features)
+                DynamicMemoryManagement::from_configuration(storage, mem_properties.clone(), mem_config);
+            let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
+            let mut server = CudaServer::new(cuda_ctx);
+            let mut client_props = ClientProperties::new(&[Feature::Subcube], mem_properties);
+            register_wmma_features(&mut client_props, server.arch_version());
+            ComputeClient::new(MutexComputeChannel::new(server), client_props)
         })
     }
 
@@ -100,7 +93,7 @@ impl Runtime for CudaRuntime {
     }
 }
 
-fn register_wmma_features(features: &mut FeatureSet<Feature>, arch: u32) {
+fn register_wmma_features(client_props: &mut ClientProperties<Feature>, arch: u32) {
     let wmma_minimum_version = 70;
     let mut wmma = false;
 
@@ -127,7 +120,7 @@ fn register_wmma_features(features: &mut FeatureSet<Feature>, arch: u32) {
                 Elem::Float(FloatKind::F32),
             ),
         ] {
-            features.register(Feature::Cmma {
+            client_props.register_feature(Feature::Cmma {
                 a,
                 b,
                 c,
@@ -135,7 +128,7 @@ fn register_wmma_features(features: &mut FeatureSet<Feature>, arch: u32) {
                 k: 16,
                 n: 16,
             });
-            features.register(Feature::Cmma {
+            client_props.register_feature(Feature::Cmma {
                 a,
                 b,
                 c,
@@ -143,7 +136,7 @@ fn register_wmma_features(features: &mut FeatureSet<Feature>, arch: u32) {
                 k: 16,
                 n: 8,
             });
-            features.register(Feature::Cmma {
+            client_props.register_feature(Feature::Cmma {
                 a,
                 b,
                 c,

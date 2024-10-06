@@ -107,7 +107,7 @@ pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
     pub max_page_size: usize,
     /// The required memory offset alignment in bytes.
-    pub memory_alignment: usize,
+    pub alignment: usize,
 }
 
 const MB: usize = 1024 * 1024;
@@ -122,7 +122,7 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
         match config {
             MemoryConfiguration::Default => {
                 // Round chunk size to be aligned.
-                let memory_alignment = properties.memory_alignment;
+                let memory_alignment = properties.alignment;
                 let max_page = (properties.max_page_size / memory_alignment) * memory_alignment;
 
                 let mut pools = Vec::new();
@@ -156,7 +156,7 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
             }
             MemoryConfiguration::WithoutSubSlices => {
                 // Round chunk size to be aligned.
-                let memory_alignment = properties.memory_alignment;
+                let memory_alignment = properties.alignment;
                 // Use all bins up to max_page and add max_page as bin.
                 let mut sizes: Vec<_> = EXP_BIN_SIZES
                     .iter()
@@ -179,7 +179,7 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
                 Self::new(storage, pools, memory_alignment)
             }
             MemoryConfiguration::Custom(pool_settings) => {
-                Self::new(storage, pool_settings, properties.memory_alignment)
+                Self::new(storage, pool_settings, properties.alignment)
             }
         }
     }
@@ -299,7 +299,7 @@ mod tests {
             BytesStorage::default(),
             MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
-                memory_alignment: 32,
+                alignment: 32,
             },
             MemoryConfiguration::Default,
         );
@@ -435,7 +435,7 @@ mod tests {
             BytesStorage::default(),
             MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
-                memory_alignment: 32,
+                alignment: 32,
             },
             MemoryConfiguration::Default,
         );
@@ -463,7 +463,7 @@ mod tests {
             BytesStorage::default(),
             MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
-                memory_alignment: 32,
+                alignment: 32,
             },
             MemoryConfiguration::Default,
         );
@@ -492,7 +492,7 @@ mod tests {
     fn noslice_test_handle_mutability() {
         let mem_props = MemoryDeviceProperties {
             max_page_size: 128 * 1024 * 1024,
-            memory_alignment: 32,
+            alignment: 32,
         };
         let mut memory_management = DynamicMemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -622,7 +622,7 @@ mod tests {
             BytesStorage::default(),
             MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
-                memory_alignment: 32,
+                alignment: 32,
             },
             MemoryConfiguration::WithoutSubSlices,
         );

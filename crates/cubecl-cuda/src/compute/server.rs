@@ -23,24 +23,8 @@ use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct CudaServer<MM: MemoryManagement<CudaStorage>> {
-    state: CudaServerState<MM>,
+    ctx: CudaContext<MM>,
     logger: DebugLogger,
-}
-
-pub(crate) enum CudaServerState<MM: MemoryManagement<CudaStorage>> {
-    Uninitialized {
-        device_index: usize,
-        init: Box<dyn Fn(usize) -> CudaContext<MM>>,
-    },
-    Initialized {
-        ctx: CudaContext<MM>,
-    },
-}
-
-impl<MM: MemoryManagement<CudaStorage>> core::fmt::Debug for CudaServerState<MM> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Context")
-    }
 }
 
 #[derive(Debug)]
@@ -333,12 +317,9 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
 
 impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
     /// Create a new cuda server.
-    pub(crate) fn new(index: usize, init: Box<dyn Fn(usize) -> CudaContext<MM>>) -> Self {
+    pub(crate) fn new(ctx: CudaContext<MM>) -> Self {
         Self {
-            state: CudaServerState::Uninitialized {
-                device_index: index,
-                init,
-            },
+            ctx,
             logger: DebugLogger::new(),
         }
     }
@@ -348,19 +329,10 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
     }
 
     fn get_context_with_logger(&mut self) -> (&mut CudaContext<MM>, &mut DebugLogger) {
-        if let CudaServerState::Uninitialized { device_index, init } = &self.state {
-            let ctx = init(*device_index);
-
-            self.state = CudaServerState::Initialized { ctx };
-        }
-        if let CudaServerState::Initialized { ctx } = &mut self.state {
-            unsafe {
-                cudarc::driver::result::ctx::set_current(ctx.context).unwrap();
-            };
-            (ctx, &mut self.logger)
-        } else {
-            panic!("Context should be initialized");
-        }
+        unsafe {
+            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
+        };
+        (&mut self.ctx, &mut self.logger)
     }
 }
 

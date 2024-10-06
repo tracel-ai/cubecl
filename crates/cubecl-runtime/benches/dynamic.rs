@@ -16,7 +16,7 @@ fn main() {
     let config = MemoryConfiguration::Default;
     let mem_props = MemoryDeviceProperties {
         max_page_size: 2048 * MB,
-        memory_alignment: 32,
+        alignment: 32,
     };
     let mut mm = DynamicMemoryManagement::from_configuration(storage, mem_props, config);
     let mut handles = LinkedList::new();
