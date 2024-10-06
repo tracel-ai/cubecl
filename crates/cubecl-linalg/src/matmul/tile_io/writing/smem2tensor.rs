@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::{tile_num_elements, BlockInfo};
+use crate::matmul::block_info::{BlockInfo, tile_num_elements};
 use crate::matmul::id_map::PlaneMapper;
 
 #[cube]

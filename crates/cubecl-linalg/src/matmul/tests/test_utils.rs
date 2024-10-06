@@ -2,7 +2,10 @@ use bytemuck::cast_slice;
 use cubecl_core::{client::ComputeClient, server::Handle, CubeElement, Runtime};
 
 use crate::{
-    matmul::tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig},
+    matmul::{
+        requirements::MatmulProblem,
+        tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig},
+    },
     tensor::TensorHandle,
 };
 
@@ -137,13 +140,11 @@ pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
     (0..num_elements).map(|_| lcg(&mut seed)).collect()
 }
 
-pub(crate) fn matmul_cpu_reference(
-    lhs: &[f32],
-    rhs: &[f32],
-    m: usize,
-    n: usize,
-    k: usize,
-) -> Vec<f32> {
+pub(crate) fn matmul_cpu_reference(lhs: &[f32], rhs: &[f32], problem: MatmulProblem) -> Vec<f32> {
+    let m = problem.m as usize;
+    let n = problem.n as usize;
+    let k = problem.k as usize;
+
     let mut out = vec![0.; m * n];
 
     for i in 0..m {

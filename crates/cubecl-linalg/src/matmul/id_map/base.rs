@@ -1,10 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-pub trait PlaneAlgorithm {
-    fn plane_requirement() -> u32;
-}
-
 #[cube]
 pub trait PlaneMapper {
     fn plane_id() -> u32;

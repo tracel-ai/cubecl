@@ -3,11 +3,11 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::{BlockInfo, BlockInfos};
+use crate::matmul::block_info::{BlockInfo, BlockInfos};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::MatmulInstruction;
 
-use cubecl_core::server::ComputeServer;
+use crate::matmul::requirements::{MatmulProblem, Requirements};
 
 use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::{FixedShapeMatmul, Matmul};
@@ -46,12 +46,17 @@ macro_rules! impl_matmul_instruction {
         }
 
         impl<I: Numeric, O: Numeric> Matmul<I, O> for $name<I, O> {
-            fn cube_dim_resources() -> CubeDim {
-                CubeDim::new(32, 1, 1)
+            fn can_process(problem: MatmulProblem) -> bool {
+                problem.m as u32 == Self::M
+                    && problem.n as u32 == Self::N
+                    && problem.k as u32 == Self::K
             }
 
-            fn cube_count_resources<S: ComputeServer>() -> CubeCount<S> {
-                CubeCount::Static(1, 1, 1)
+            fn requirements(_problem: MatmulProblem) -> Requirements {
+                Requirements {
+                    num_planes: 1,
+                    num_cubes: 1,
+                }
             }
 
             fn block_infos() -> BlockInfos {

@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::server::ComputeServer;
 
-use super::cmma_matmul::BlockInfos;
+use super::block_info::BlockInfos;
 use super::matrix_layout::MatrixLayout;
+use super::requirements::{MatmulProblem, Requirements};
 use super::tile_io::{Loader, TileReader, TileWriter};
 
 #[cube]
@@ -61,8 +61,8 @@ pub trait BlockMatmul<
 }
 
 pub trait Matmul<I: Numeric, O: Numeric> {
-    fn cube_dim_resources() -> CubeDim;
-    fn cube_count_resources<S: ComputeServer>() -> CubeCount<S>;
+    fn can_process(problem: MatmulProblem) -> bool;
+    fn requirements(problem: MatmulProblem) -> Requirements;
 
     fn block_infos() -> BlockInfos;
 }

@@ -2,11 +2,11 @@ use std::marker::PhantomData;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::server::ComputeServer;
 
-use crate::matmul::cmma_matmul::BlockInfos;
+use crate::matmul::block_info::BlockInfos;
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::requirements::{MatmulProblem, Requirements};
 use crate::matmul::tile_io::loading::{
     LhsSmemTileReader, LhsTensorLoader, RhsSmemTileReader, RhsTensorLoader,
 };
@@ -27,13 +27,23 @@ impl<
         BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, TensorWriter<Elem>>,
     > Matmul<Elem, Elem> for CmmaCubeMatmul<Elem, BM>
 {
-    fn cube_dim_resources() -> CubeDim {
-        BM::cube_dim_resources()
+    fn can_process(problem: MatmulProblem) -> bool {
+        problem.m <= BM::M && problem.n <= BM::N
     }
 
-    fn cube_count_resources<S: ComputeServer>() -> CubeCount<S> {
-        CubeCount::Static(1, 1, 1)
+    fn requirements(problem: MatmulProblem) -> Requirements {
+        BM::requirements(problem)
     }
+    // fn inquire(m: u32, n: u32, k: u32) -> ComputeRequirements {
+    //     if m <= BM::M && n <= BM::N {
+    //         ComputeRequirements::Require(Requirements {
+    //             num_planes: BM::requirements(m, n, k), // TODO must bypass if in there
+    //             num_cubes: 1,
+    //         })
+    //     } else {
+    //         ComputeRequirements::Unable
+    //     }
+    // }
 
     fn block_infos() -> BlockInfos {
         BM::block_infos()

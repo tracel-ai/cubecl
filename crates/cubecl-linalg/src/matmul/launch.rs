@@ -5,9 +5,9 @@ use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::Loader;
 use crate::matmul::MatmulInstruction;
 
+use crate::matmul::block_info::BlockInfos;
 use crate::matmul::BlockMatmul;
 
-use super::cmma_matmul::BlockInfos;
 use super::tile_io::loading::LhsSmemTileReader;
 use super::tile_io::loading::RhsSmemTileReader;
 use super::tile_io::loading::{LhsTensorLoader, RhsTensorLoader};

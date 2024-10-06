@@ -4,11 +4,13 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::{
-    cmma_matmul::{BlockInfo, BlockInfos},
     matrix_layout::MatrixLayout,
+    requirements::{MatmulProblem, Requirements},
     tile_io::{TileReader, TileWriter},
     BlockMatmul, FixedShapeMatmul, Matmul, MatmulInstruction,
 };
+
+use crate::matmul::block_info::{BlockInfo, BlockInfos};
 
 use super::CmmaBlockSize;
 use crate::matmul::launch::block_matmul_launch;
@@ -68,16 +70,15 @@ where
     Instr: MatmulInstruction<Elem, ElemAcc>,
     Block: CmmaBlockSize,
 {
-    fn cube_dim_resources() -> CubeDim {
-        CubeDim {
-            x: 32,
-            y: Block::M / Instr::M,
-            z: 1,
-        }
+    fn can_process(problem: MatmulProblem) -> bool {
+        problem.m as u32 <= Block::M && problem.n as u32 <= Block::N && problem.k as u32 <= Block::K
     }
 
-    fn cube_count_resources<S: cubecl_core::server::ComputeServer>() -> CubeCount<S> {
-        CubeCount::Static(1, 1, 1)
+    fn requirements(_problem: MatmulProblem) -> Requirements {
+        Requirements {
+            num_planes: Block::M / Instr::M,
+            num_cubes: 1,
+        }
     }
 
     fn block_infos() -> BlockInfos {

@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::block_info::BlockInfo;
 use crate::matmul::tile_io::loading::smem_slice_to_gmem;
 use crate::matmul::tile_io::TileWriter;
 

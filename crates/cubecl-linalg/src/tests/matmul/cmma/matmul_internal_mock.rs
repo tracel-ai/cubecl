@@ -10,6 +10,7 @@ macro_rules! testgen_cmma_internal_mock {
             DummyUnitInstruction16_16_16, DummyUnitInstruction32_8_16, DummyUnitInstruction8_32_16,
         };
         use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
+        use cubecl_linalg::matmul::requirements::MatmulProblem;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::{
             test_fixed_matmul, test_tensor_matmul,
         };
@@ -26,9 +27,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                16,
-                16,
-                16,
+                MatmulProblem::new(16, 16, 16),
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
@@ -44,9 +43,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                16,
-                16,
-                128,
+                MatmulProblem::new(16, 16, 128),
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
@@ -62,9 +59,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                32,
-                16,
-                128,
+                MatmulProblem::new(32, 16, 128),
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
@@ -80,9 +75,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                16,
-                32,
-                16,
+                MatmulProblem::new(16, 32, 16),
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
@@ -98,9 +91,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                32,
-                32,
-                16,
+                MatmulProblem::new(32, 32, 16),
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
