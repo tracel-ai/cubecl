@@ -11,12 +11,12 @@ use cubecl_runtime::{
 };
 
 /// A kernel, compiled in the target language
-pub struct CompiledKernel<Repr: CompilerRepresentation> {
+pub struct CompiledKernel<C: Compiler> {
     pub name: Option<&'static str>,
     /// Source code of the kernel
     pub source: String,
     /// In-memory representation of the kernel
-    pub repr: Repr,
+    pub repr: C::Representation,
     /// Size of a cube for the compiled kernel
     pub cube_dim: CubeDim,
     /// The number of bytes used by the share memory
@@ -50,7 +50,7 @@ impl Display for KernelId {
     }
 }
 
-impl<R: CompilerRepresentation> Display for CompiledKernel<R> {
+impl<C: Compiler> Display for CompiledKernel<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("\n[START_KERNEL_COMPILATION]")?;
 
@@ -174,11 +174,11 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the
 /// provided id.
-pub trait CubeTask<Repr: CompilerRepresentation>: Send + Sync {
+pub trait CubeTask<C: Compiler>: Send + Sync {
     /// Identifier for the kernel, used for caching kernel compilation.
     fn id(&self) -> KernelId;
     /// Compile the kernel into source
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<Repr>;
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C>;
     fn name(&self) -> &'static str {
         core::any::type_name::<Self>()
     }
@@ -191,8 +191,8 @@ pub struct KernelTask<C: Compiler, K: Kernel> {
     _compiler: PhantomData<C>,
 }
 
-impl<C: Compiler, K: Kernel> CubeTask<C::Representation> for KernelTask<C, K> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C::Representation> {
+impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
         let gpu_ir = self.kernel_definition.define();
         let cube_dim = gpu_ir.cube_dim;
         let lower_level_ir = C::compile(gpu_ir, mode);
@@ -217,8 +217,8 @@ impl<C: Compiler, K: Kernel> CubeTask<C::Representation> for KernelTask<C, K> {
     }
 }
 
-impl<R: CompilerRepresentation> CubeTask<R> for Arc<dyn CubeTask<R>> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<R> {
+impl<C: Compiler> CubeTask<C> for Arc<dyn CubeTask<C>> {
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
         self.as_ref().compile(mode)
     }
 
@@ -230,8 +230,8 @@ impl<R: CompilerRepresentation> CubeTask<R> for Arc<dyn CubeTask<R>> {
     }
 }
 
-impl<R: CompilerRepresentation> CubeTask<R> for Box<dyn CubeTask<R>> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<R> {
+impl<C: Compiler> CubeTask<C> for Box<dyn CubeTask<C>> {
+    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
         self.as_ref().compile(mode)
     }
 
