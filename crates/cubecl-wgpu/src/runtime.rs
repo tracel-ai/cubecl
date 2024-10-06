@@ -109,7 +109,7 @@ impl Default for RuntimeOptions {
 
         Self {
             tasks_max,
-            ..Default::default()
+            memory_config: MemoryConfiguration::Default,
         }
     }
 }
