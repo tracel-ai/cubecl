@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self as core, Scope};
+use cubecl_core::ir as core;
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use std::{
     collections::HashSet,
@@ -20,7 +20,7 @@ use rspirv::{
 
 use crate::{
     item::{Elem, Item},
-    lookups::{ConstArray, LookupTables},
+    lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
     SpirvKernel,
 };
@@ -182,7 +182,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.end_function().unwrap();
 
         self.declare_shared_memories();
-        self.copy_const_arrays();
 
         let builtins = self
             .state
@@ -279,35 +278,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.select_block(current).unwrap();
     }
 
-    pub fn compile_scope(&mut self, mut scope: Scope, label: Option<Word>) -> Word {
-        self.declare_const_arrays(scope.const_arrays.drain(..));
-
-        let processed = scope.process();
-        let label = self.begin_block(label).unwrap();
-
-        for variable in processed.variables {
-            let item = self.compile_item(variable.item());
-            match variable {
-                core::Variable::Local { id, depth, .. } => {
-                    let ptr =
-                        Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-
-                    let var = self.declare_function_variable(ptr);
-                    self.debug_name(var, format!("local({id}, {depth})"));
-                    self.state.variables.insert((id, depth), var);
-                }
-                core::Variable::Slice { .. } => {}
-                core::Variable::Matrix { .. } => {}
-                var => todo!("{var:?}"),
-            };
-        }
-
-        for operation in processed.operations {
-            self.compile_operation(operation);
-        }
-        label
-    }
-
     // Declare variable in the first block of the function
     pub fn declare_function_variable(&mut self, ty: Word) -> Word {
         let current_block = self.selected_block();
@@ -318,31 +288,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         var
     }
 
-    fn declare_const_arrays(
-        &mut self,
-        const_arrays: impl Iterator<Item = (core::Variable, Vec<core::Variable>)>,
-    ) {
-        let const_arrays = const_arrays
-            .map(|(var, values)| {
-                let item = self.compile_item(var.item());
-                let len = values.len() as u32;
-                let arr_ty = Item::Array(Box::new(item.clone()), len).id(self);
-                let values: Vec<_> = values
-                    .into_iter()
-                    .map(|val| self.static_core(val, &item))
-                    .collect();
-                let composite_id = self.constant_composite(arr_ty, values);
-                ConstArray {
-                    id: self.id(),
-                    item,
-                    len,
-                    composite_id,
-                }
-            })
-            .collect::<Vec<_>>();
-        self.state.const_arrays.extend(const_arrays);
-    }
-
     fn declare_shared_memories(&mut self) {
         let shared_memories = self.state.shared_memories.clone();
         for (id, memory) in shared_memories {
@@ -351,24 +296,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
             self.debug_name(memory.id, format!("shared({id})"));
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-        }
-    }
-
-    fn copy_const_arrays(&mut self) {
-        let const_arrays = self.state.const_arrays.clone();
-
-        for array in const_arrays {
-            let ptr_ty = Item::Pointer(
-                StorageClass::UniformConstant,
-                Box::new(Item::Array(Box::new(array.item), array.len)),
-            )
-            .id(self);
-            self.variable(
-                ptr_ty,
-                Some(array.id),
-                StorageClass::UniformConstant,
-                Some(array.composite_id),
-            );
         }
     }
 
