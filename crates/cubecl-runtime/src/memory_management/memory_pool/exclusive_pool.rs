@@ -1,7 +1,7 @@
 use super::{
-    calculate_padding, MemoryPool, MemoryUsage, Slice, SliceBinding, SliceHandle, SliceId,
+    calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle, SliceId,
 };
-use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use crate::{memory_management::MemoryUsage, storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization}};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 

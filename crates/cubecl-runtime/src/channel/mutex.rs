@@ -70,4 +70,8 @@ where
     fn sync(&self, sync_type: SyncType) {
         self.server.lock().sync(sync_type)
     }
+    
+    fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
+        self.server.lock().memory_usage()
+    }
 }

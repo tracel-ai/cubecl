@@ -1,7 +1,6 @@
-use super::memory_pool::{
-    MemoryPool, MemoryPoolOptions, MemoryUsage, PoolType, ExclusiveMemoryPool, SliceBinding,
-    SliceHandle, SlicedPool,
-};
+use super::{memory_pool::{
+    ExclusiveMemoryPool, MemoryPool, MemoryPoolOptions, PoolType, SliceBinding, SliceHandle, SlicedPool
+}, MemoryUsage};
 use crate::storage::{ComputeStorage, StorageHandle, StorageId};
 use alloc::vec::Vec;
 
@@ -271,20 +270,24 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for DynamicMemoryManagem
     fn storage(&mut self) -> &mut Storage {
         &mut self.storage
     }
-}
 
-impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
-    /// Get a report of the current memory usage.
-    pub fn get_memory_usage(&self) -> MemoryUsage {
+    fn memory_usage(&self) -> MemoryUsage {
         self.pools
             .iter()
             .map(|x| x.get_memory_usage())
-            .fold(MemoryUsage::default(), |m1, m2| m1.combine(m2))
+            .fold(MemoryUsage {
+                number_allocs: 0,
+                bytes_in_use: 0,
+                bytes_padding: 0,
+                bytes_reserved: 0,
+            }, |m1, m2| m1.combine(m2))
     }
+}
 
+impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
     /// Print out a report of the current memory usage.
     pub fn print_memory_usage(&self) {
-        log::info!("{}", self.get_memory_usage());
+        log::info!("{}", self.memory_usage());
     }
 }
 
@@ -329,7 +332,7 @@ mod tests {
         let _handle = memory_management.reserve(alloc_size, &[]);
         let _new_handle = memory_management.reserve(alloc_size, &[]);
 
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
         assert_eq!(usage.bytes_reserved, page_size);
@@ -355,7 +358,7 @@ mod tests {
         drop(_handle);
         let _new_handle = memory_management.reserve(alloc_size, &[]);
 
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
         assert_eq!(usage.bytes_in_use, alloc_size);
         assert_eq!(usage.bytes_reserved, page_size);
@@ -379,7 +382,7 @@ mod tests {
         let _handle = memory_management.reserve(alloc_size, &[]);
         let _new_handle = memory_management.reserve(alloc_size, &[]);
 
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
         assert_eq!(usage.bytes_reserved, page_size * 2);
@@ -400,7 +403,7 @@ mod tests {
         let alloc_size = 40;
         let _handle = memory_management.reserve(alloc_size, &[]);
         let _new_handle = memory_management.reserve(alloc_size, &[]);
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
         // Each slice should be aligned to 60 bytes, so 20 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
     }
@@ -423,7 +426,7 @@ mod tests {
         let alloc_sizes = [50, 150, 250, 350];
         let _handles = alloc_sizes.map(|s| memory_management.reserve(s, &[]));
 
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
 
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<usize>());
@@ -444,14 +447,14 @@ mod tests {
         let handles: Vec<_> = (0..5)
             .map(|i| memory_management.reserve(1000 * (i + 1), &[]))
             .collect();
-        let usage_before = memory_management.get_memory_usage();
+        let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
             .map(|i| memory_management.reserve(1000 * (i + 1), &[]))
             .collect();
-        let usage_after = memory_management.get_memory_usage();
+        let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
         // Usage after can actually be _less_ because of defragging.
@@ -474,7 +477,7 @@ mod tests {
             .iter()
             .map(|&size| memory_management.reserve(size, &[]))
             .collect();
-        let usage_before = memory_management.get_memory_usage();
+        let usage_before = memory_management.memory_usage();
         // Deallocate every other allocation
         for i in (0..handles.len()).step_by(2) {
             drop(handles[i].clone());
@@ -483,7 +486,7 @@ mod tests {
         for &size in &sizes[0..sizes.len() / 2] {
             memory_management.reserve(size, &[]);
         }
-        let usage_after = memory_management.get_memory_usage();
+        let usage_after = memory_management.memory_usage();
         // Check that we haven't increased our memory usage significantly
         assert!(usage_after.bytes_reserved <= (usage_before.bytes_reserved as f64 * 1.1) as usize);
     }
@@ -525,7 +528,7 @@ mod tests {
         let _handle = memory_management.reserve(alloc_size, &[]);
         let _new_handle = memory_management.reserve(alloc_size, &[]);
 
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
         assert_eq!(usage.bytes_reserved, page_size * 2);
@@ -549,7 +552,7 @@ mod tests {
         drop(_handle);
         let _new_handle = memory_management.reserve(alloc_size, &[]);
 
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
         assert_eq!(usage.bytes_in_use, alloc_size);
         assert_eq!(usage.bytes_reserved, alloc_size);
@@ -571,7 +574,7 @@ mod tests {
         let alloc_size = 768;
         let _handle = memory_management.reserve(alloc_size, &[]);
         let _new_handle = memory_management.reserve(alloc_size, &[]);
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
         assert_eq!(usage.bytes_reserved, page_size * 2);
@@ -592,7 +595,7 @@ mod tests {
         let alloc_size = 40;
         let _handle = memory_management.reserve(alloc_size, &[]);
         let _new_handle = memory_management.reserve(alloc_size, &[]);
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
         // Each slice should be aligned to 60 bytes, so 20 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
     }
@@ -612,7 +615,7 @@ mod tests {
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
         let _handles = alloc_sizes.map(|s| memory_management.reserve(s, &[]));
-        let usage = memory_management.get_memory_usage();
+        let usage = memory_management.memory_usage();
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<usize>());
     }
@@ -631,14 +634,14 @@ mod tests {
         let handles: Vec<_> = (0..5)
             .map(|i| memory_management.reserve(1000 * (i + 1), &[]))
             .collect();
-        let usage_before = memory_management.get_memory_usage();
+        let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
             .map(|i| memory_management.reserve(1000 * (i + 1), &[]))
             .collect();
-        let usage_after = memory_management.get_memory_usage();
+        let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
         assert_eq!(usage_before.bytes_reserved, usage_after.bytes_reserved);

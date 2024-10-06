@@ -1,5 +1,5 @@
 use crate::{
-    channel::ComputeChannel, server::{Binding, ComputeServer, Handle}, storage::ComputeStorage, ExecutionMode, ClientProperties
+    channel::ComputeChannel, memory_management::MemoryUsage, server::{Binding, ComputeServer, Handle}, storage::ComputeStorage, ClientProperties, ExecutionMode
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -107,5 +107,10 @@ where
     /// Get the features supported by the compute server.
     pub fn properties(&self) -> &ClientProperties<Server::Feature> {
         self.properties.as_ref()
+    }
+
+    /// Get the current memory usage of this client.
+    pub fn memory_usage(&self) -> MemoryUsage {
+        self.channel.memory_usage()
     }
 }

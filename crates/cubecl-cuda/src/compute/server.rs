@@ -9,6 +9,7 @@ use cubecl_core::ir::CubeDim;
 use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
 use cubecl_runtime::debug::DebugLogger;
+use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::ExecutionMode;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -201,6 +202,10 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         ctx.memory_management
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
+    
+    fn memory_usage(&self) -> MemoryUsage {
+        self.ctx.memory_usage()
+    }
 }
 
 impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
@@ -312,6 +317,10 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             )
             .unwrap();
         };
+    }
+
+    fn memory_usage(&self) -> MemoryUsage {
+        self.memory_management.memory_usage()
     }
 }
 

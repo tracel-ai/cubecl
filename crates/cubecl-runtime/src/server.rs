@@ -1,5 +1,5 @@
 use crate::{
-    memory_management::{MemoryHandle, MemoryManagement},
+    memory_management::{MemoryHandle, MemoryManagement, MemoryUsage},
     storage::ComputeStorage,
     ExecutionMode,
 };
@@ -59,6 +59,9 @@ where
 
     /// Wait for the completion of every task in the server.
     fn sync(&mut self, command: SyncType);
+
+    /// The current memory usage of the server.
+    fn memory_usage(&self) -> MemoryUsage;
 }
 
 /// Server handle containing the [memory handle](MemoryManagement::Handle).

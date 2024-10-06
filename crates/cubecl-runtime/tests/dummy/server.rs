@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use cubecl_common::{reader::reader_from_concrete, sync_type::SyncType};
+use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::ComputeStorage;
 use cubecl_runtime::{
     memory_management::{simple::SimpleMemoryManagement, MemoryManagement},
@@ -74,5 +75,9 @@ where
 
     fn sync(&mut self, _: SyncType) {
         // Nothing to do with dummy backend.
+    }
+    
+    fn memory_usage(&self) -> MemoryUsage {
+        self.memory_management.memory_usage()
     }
 }

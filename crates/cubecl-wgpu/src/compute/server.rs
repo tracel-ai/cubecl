@@ -392,4 +392,8 @@ where
         // Cleanup allocations and deallocations.
         self.memory_management.storage().perform_deallocations();
     }
+    
+    fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
+        self.memory_management.memory_usage()
+    }
 }

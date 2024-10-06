@@ -224,6 +224,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for SimpleMemoryManageme
     fn storage(&mut self) -> &mut Storage {
         &mut self.storage
     }
+    
+    fn memory_usage(&self) -> super::MemoryUsage {
+        // Simple memory management will be deleted in the future.
+        todo!()
+    }
 }
 
 impl<Storage: ComputeStorage> SimpleMemoryManagement<Storage> {

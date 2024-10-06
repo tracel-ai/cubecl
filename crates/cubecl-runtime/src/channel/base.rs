@@ -39,4 +39,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
 
     /// Perform some synchronization of commands on the server.
     fn sync(&self, sync_type: SyncType);
+
+    /// Get the current memory usage of the server.
+    fn memory_usage(&self) -> crate::memory_management::MemoryUsage;
 }

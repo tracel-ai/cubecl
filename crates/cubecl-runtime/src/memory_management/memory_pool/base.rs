@@ -1,7 +1,5 @@
-use std::fmt::Display;
-
 use super::{SliceBinding, SliceHandle, SliceId};
-use crate::storage::{ComputeStorage, StorageHandle, StorageId};
+use crate::{memory_management::MemoryUsage, storage::{ComputeStorage, StorageHandle, StorageId}};
 
 #[derive(new, Debug)]
 pub(crate) struct Slice {
@@ -30,41 +28,6 @@ pub(crate) fn calculate_padding(size: usize, buffer_alignment: usize) -> usize {
         buffer_alignment - remainder
     } else {
         0
-    }
-}
-
-#[derive(Default)]
-pub struct MemoryUsage {
-    pub number_allocs: usize,
-    pub bytes_in_use: usize,
-    pub bytes_padding: usize,
-    pub bytes_reserved: usize,
-}
-
-impl MemoryUsage {
-    pub fn combine(&self, other: MemoryUsage) -> MemoryUsage {
-        MemoryUsage {
-            number_allocs: self.number_allocs + other.number_allocs,
-            bytes_in_use: self.bytes_in_use + other.bytes_in_use,
-            bytes_padding: self.bytes_padding + other.bytes_padding,
-            bytes_reserved: self.bytes_reserved + other.bytes_reserved,
-        }
-    }
-}
-
-impl Display for MemoryUsage {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // In the future it'd be nice if MemoryUsage also held some stats about say,
-        // the 5 biggest allocations, to show when you an OOM.
-        let usage_percentage = (self.bytes_in_use as f32 / self.bytes_reserved as f32) * 100.0;
-        let padding_percentage = (self.bytes_padding as f32 / self.bytes_in_use as f32) * 100.0;
-        writeln!(f, "Memory Usage Report:")?;
-        writeln!(f, "  Number of allocations: {}", self.number_allocs)?;
-        writeln!(f, "  Bytes in use: {} bytes", self.bytes_in_use)?;
-        writeln!(f, "  Bytes used for padding: {} bytes", self.bytes_padding)?;
-        writeln!(f, "  Total bytes reserved: {} bytes", self.bytes_reserved)?;
-        writeln!(f, "  Usage efficiency: {:.2}%", usage_percentage)?;
-        writeln!(f, "  Padding overhead: {:.2}%", padding_percentage)
     }
 }
 
