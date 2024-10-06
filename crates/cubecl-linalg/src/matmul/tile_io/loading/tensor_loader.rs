@@ -69,14 +69,14 @@ impl<E: Numeric> Loader<Line<E>> for LhsTensorLoader<E> {
 
     fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
         // Assuming RowMajor layout
-        let gmem_x_offset = reader.cube_offset;
-        let gmem_y_offset = k_offset;
+        let gmem_row_offset = reader.cube_offset;
+        let gmem_col_offset = k_offset;
 
         tensor_to_shared_memory(
             &reader.gmem,
             &mut reader.smem,
-            gmem_x_offset,
-            gmem_y_offset,
+            gmem_row_offset,
+            gmem_col_offset,
             reader.block_info,
         );
 
@@ -93,14 +93,14 @@ impl<E: Numeric> Loader<Line<E>> for RhsTensorLoader<E> {
 
     fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
         // Assuming RowMajor layout
-        let gmem_x_offset = k_offset;
-        let gmem_y_offset = reader.cube_offset;
+        let gmem_row_offset = k_offset;
+        let gmem_col_offset = reader.cube_offset;
 
         tensor_to_shared_memory(
             &reader.gmem,
             &mut reader.smem,
-            gmem_x_offset,
-            gmem_y_offset,
+            gmem_row_offset,
+            gmem_col_offset,
             reader.block_info,
         );
 

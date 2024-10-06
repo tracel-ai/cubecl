@@ -37,7 +37,6 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 }
 
 #[cube(launch_unchecked)]
-/// TODO simplify using smem loading
 pub(crate) fn block_matmul_launch<
     BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, ArrayWriter<Elem>>,
     Elem: Numeric,

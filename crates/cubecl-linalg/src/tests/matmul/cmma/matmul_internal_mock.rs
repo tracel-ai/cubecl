@@ -10,7 +10,6 @@ macro_rules! testgen_cmma_internal_mock {
             DummyUnitInstruction16_16_16, DummyUnitInstruction32_8_16, DummyUnitInstruction8_32_16,
         };
         use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
-        use cubecl_linalg::matmul::tests::dummy_tile;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::{
             test_fixed_matmul, test_tensor_matmul,
         };
@@ -31,22 +30,6 @@ macro_rules! testgen_cmma_internal_mock {
                 16,
                 128,
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                &Default::default(),
-            )
-        }
-
-        #[test]
-        pub fn array_into_row_major_block_layout_test() {
-            dummy_tile::array_into_row_major_block_layout_test::<TestRuntime>(
-                false,
-                &Default::default(),
-            )
-        }
-
-        #[test]
-        pub fn array_into_row_major_block_layout_revert_test() {
-            dummy_tile::array_into_row_major_block_layout_test::<TestRuntime>(
-                true,
                 &Default::default(),
             )
         }

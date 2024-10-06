@@ -29,8 +29,6 @@ pub trait CubeMatmul<
 >: 'static + Send + Sync + TensorMatmul<E>
 {
     fn execute(
-        // lhs: &Tensor<Line<E>>,
-        // rhs: &Tensor<Line<E>>,
         lhs_reader: Lhs,
         rhs_reader: Rhs,
         out_writer: Out,

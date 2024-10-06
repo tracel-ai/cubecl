@@ -25,9 +25,11 @@ impl<E: Numeric> TileReader<Line<E>> for LhsSmemTileReader<E> {
         _accumulator_offset: u32,
     ) -> &Slice<'_, Line<E>> {
         let num_tile_elements = reader.block_info.tile_size_x * reader.block_info.tile_size_y;
-        let num_tile_offset = compute_plane_offset * reader.block_info.num_tiles_y + buffer_offset;
 
+        // TODO this assumes row major tiling order. Should match with tensor loader
+        let num_tile_offset = compute_plane_offset * reader.block_info.num_tiles_y + buffer_offset;
         let start = num_tile_offset * num_tile_elements;
+
         reader.smem.slice(start, start + num_tile_elements)
     }
 }
