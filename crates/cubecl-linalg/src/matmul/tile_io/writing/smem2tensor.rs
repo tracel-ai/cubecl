@@ -1,91 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::cmma_matmul::{tile_num_elements, BlockInfo};
 use crate::matmul::id_map::PlaneMapper;
-
-// #[cube]
-// fn write_to_output<F: Float>(
-//     out: &mut Tensor<F>,
-//     accumulators: Sequence<cmma::Matrix<F>>,
-// ) {
-//     let num_accumulators = comptime_info.num_accumulators;
-//     let num_compute_planes = comptime_info.num_compute_planes;
-//     let plane_id = runtime_info.compute_ids.plane;
-
-//     let smem_stride = comptime_info.tile_size_m * comptime_info.tile_size_n;
-//     let smem_size = num_compute_planes * smem_stride;
-
-//     let acc_sm = SharedMemory::<F>::new(smem_size);
-
-//     let slice_offset = plane_id * smem_stride;
-//     let slice = acc_sm.slice_mut_unsafe(slice_offset, slice_offset + smem_stride);
-
-//     #[unroll]
-//     for n in 0..num_accumulators {
-//         cmma::store(
-//             slice,
-//             accumulators.index(n),
-//             comptime_info.tile_size_n,
-//             cmma::MatrixLayout::RowMajor,
-//         );
-
-//         shared_memory_to_output(out, plane_id, acc_sm, n, runtime_info, comptime_info);
-//     }
-// }
-
-// #[cube]
-// pub(crate) fn shared_memory_to_output<F: Float>(
-//     out: &mut Tensor<F>,
-//     smem_position: u32,
-//     accumulator_sm: SharedMemory<F>,
-//     n_iter: u32,
-//     runtime_info: RuntimeCmmaInfo,
-//     #[comptime] comptime_info: ComptimeCmmaInfo,
-// ) {
-//     let check_m_bounds = comptime_info.check_m_bounds;
-//     let check_n_bounds = comptime_info.check_n_bounds;
-
-//     if check_m_bounds {
-//         if check_n_bounds {
-//             write_tile::<F, WholeCheckBlockIO>(
-//                 out,
-//                 smem_position,
-//                 accumulator_sm,
-//                 n_iter,
-//                 runtime_info,
-//                 comptime_info,
-//             );
-//         } else {
-//             write_tile::<F, VerticalCheckBlockIO>(
-//                 out,
-//                 smem_position,
-//                 accumulator_sm,
-//                 n_iter,
-//                 runtime_info,
-//                 comptime_info,
-//             );
-//         }
-//     } else if check_n_bounds {
-//         write_tile::<F, HorizontalCheckBlockIO>(
-//             out,
-//             smem_position,
-//             accumulator_sm,
-//             n_iter,
-//             runtime_info,
-//             comptime_info,
-//         );
-//     } else {
-//         write_tile::<F, UncheckedBlockIO>(
-//             out,
-//             smem_position,
-//             accumulator_sm,
-//             n_iter,
-//             runtime_info,
-//             comptime_info,
-//         );
-//     }
-// }
 
 #[cube]
 pub trait Smem2Tensor {
@@ -135,7 +52,7 @@ impl Smem2Tensor for Smem2TensorSimple {
         let col_tile_begin = (cube_offsets.1 + accumulator_offset) * block_info.tile_size_y;
 
         let unit_jump = Self::plane_dim() * gmem.line_size();
-        let num_unit_writes = block_info.tile_size_x * block_info.tile_size_y / unit_jump;
+        let num_unit_writes = tile_num_elements(block_info) / unit_jump;
 
         for i in 0..num_unit_writes {
             let unit_write = Self::plane_unit() * gmem.line_size() + i * unit_jump;

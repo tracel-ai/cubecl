@@ -48,8 +48,6 @@ impl Tensor2Smem for Tensor2SmemContinuous {
         gmem_col_offset: u32,
         #[comptime] block_info: BlockInfo,
     ) {
-        // TODO gives zeros for second column of RHS
-
         let num_smem_elements = comptime!(total_num_elements(block_info));
         let jump_length = comptime!(Self::num_planes() * gmem.line_size() * Self::plane_dim());
 
