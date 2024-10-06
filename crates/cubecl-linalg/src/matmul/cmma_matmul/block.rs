@@ -19,15 +19,17 @@ macro_rules! create_cmma_block {
     };
 }
 
-create_cmma_block!(S128_128_16, 128, 128, 16);
-create_cmma_block!(S16_16_16, 16, 16, 16);
-create_cmma_block!(S32_8_16, 32, 8, 16);
-create_cmma_block!(S8_32_16, 8, 32, 16);
-create_cmma_block!(S32_16_16, 32, 16, 16);
-create_cmma_block!(S128_16_16, 128, 16, 16);
-create_cmma_block!(S32_32_16, 32, 32, 16);
-create_cmma_block!(S64_64_16, 64, 64, 16);
-create_cmma_block!(S32_32_32, 32, 32, 32);
+create_cmma_block!(B128_128_16, 128, 128, 16);
+create_cmma_block!(B16_16_16, 16, 16, 16);
+create_cmma_block!(B32_8_16, 32, 8, 16);
+create_cmma_block!(B8_32_16, 8, 32, 16);
+create_cmma_block!(B32_16_16, 32, 16, 16);
+create_cmma_block!(B128_16_16, 128, 16, 16);
+create_cmma_block!(B32_32_16, 32, 32, 16);
+create_cmma_block!(B64_64_16, 64, 64, 16);
+create_cmma_block!(B32_32_32, 32, 32, 32);
+create_cmma_block!(B64_64_32, 64, 64, 32);
+create_cmma_block!(B16_32_16, 16, 32, 16);
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct BlockInfos {

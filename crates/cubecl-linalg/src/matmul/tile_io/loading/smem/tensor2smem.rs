@@ -54,7 +54,6 @@ impl Tensor2Smem for Tensor2SmemContinuous {
         let unit_position_base =
             (Self::plane_id() * Self::plane_dim() + Self::plane_unit()) * gmem.line_size();
 
-        #[unroll]
         for i in 0..num_smem_elements / jump_length {
             let unit_position = unit_position_base + i * jump_length;
 
