@@ -16,7 +16,7 @@ pub struct CompiledKernel<C: Compiler> {
     /// Source code of the kernel
     pub source: String,
     /// In-memory representation of the kernel
-    pub repr: C::Representation,
+    pub repr: Option<C::Representation>,
     /// Size of a cube for the compiled kernel
     pub cube_dim: CubeDim,
     /// The number of bytes used by the share memory
@@ -201,7 +201,7 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
         CompiledKernel {
             name: Some(core::any::type_name::<K>()),
             source: lower_level_ir.to_string(),
-            repr: lower_level_ir,
+            repr: Some(lower_level_ir),
             cube_dim,
             shared_mem_bytes,
             debug_info: None,
