@@ -16,7 +16,7 @@ use hashbrown::HashMap;
 /// - `slices`: A hashmap storing the slices by their IDs.
 /// - `ring_buffer`: A vector used as a ring buffer to manage page reuse.
 /// - `index`: The current position in the ring buffer.
-pub struct SimpleMemoryPool {
+pub struct ExclusiveMemoryPool {
     pages: HashMap<StorageId, MemoryPage>,
     slices: HashMap<SliceId, Slice>,
     ring_buffer: Vec<StorageId>,
@@ -29,7 +29,7 @@ struct MemoryPage {
     slice_id: SliceId,
 }
 
-impl MemoryPool for SimpleMemoryPool {
+impl MemoryPool for ExclusiveMemoryPool {
     /// Returns the resource from the storage, for the specified handle.
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         self.slices.get(binding.id()).map(|s| &s.storage)
@@ -100,7 +100,7 @@ impl MemoryPool for SimpleMemoryPool {
     }
 }
 
-impl SimpleMemoryPool {
+impl ExclusiveMemoryPool {
     pub(crate) fn new(page_size: usize, alignment: usize) -> Self {
         // Pages should be allocated to be aligned.
         assert_eq!(page_size % alignment, 0);

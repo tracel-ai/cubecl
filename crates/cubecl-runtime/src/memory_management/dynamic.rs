@@ -1,5 +1,5 @@
 use super::memory_pool::{
-    MemoryPool, MemoryPoolOptions, MemoryUsage, PoolType, SimpleMemoryPool, SliceBinding,
+    MemoryPool, MemoryPoolOptions, MemoryUsage, PoolType, ExclusiveMemoryPool, SliceBinding,
     SliceHandle, SlicedPool,
 };
 use crate::storage::{ComputeStorage, StorageHandle, StorageId};
@@ -9,7 +9,7 @@ use super::MemoryManagement;
 
 enum DynamicPool {
     Sliced(SlicedPool),
-    Simple(SimpleMemoryPool),
+    Simple(ExclusiveMemoryPool),
 }
 
 // Bin sizes as per https://github.com/sebbbi/OffsetAllocator/blob/main/README.md
@@ -95,8 +95,9 @@ pub struct DynamicMemoryManagement<Storage> {
 pub enum MemoryConfiguration {
     /// Use the default preset.
     Default,
-    /// Default preset for allocating _without_ any slices.
-    WithoutSubSlices,
+    /// Default preset using only exclusive pages.
+    /// This can be necessary when backends don't support sub-slices.
+    ExclusivePages,
     /// Customize each pool individually.
     Custom(Vec<MemoryPoolOptions>),
 }
@@ -129,7 +130,7 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
                 pools.push(MemoryPoolOptions {
                     page_size: max_page,
                     chunk_num_prealloc: 0,
-                    pool_type: PoolType::Slices(max_page),
+                    pool_type: PoolType::SlicedPages { max_slice_size: max_page },
                 });
 
                 let mut current = max_page;
@@ -142,7 +143,7 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
                         page_size: current,
                         chunk_num_prealloc: 0,
                         // Creating max slices lower than the chunk size reduces fragmentation.
-                        pool_type: PoolType::Slices(current / 2usize.pow(pools.len() as u32)),
+                        pool_type: PoolType::SlicedPages { max_slice_size: current / 2usize.pow(pools.len() as u32) },
                     });
                 }
                 // Add in a pool for allocations that are smaller than the min alignment,
@@ -150,11 +151,11 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
                 pools.push(MemoryPoolOptions {
                     page_size: memory_alignment,
                     chunk_num_prealloc: 0,
-                    pool_type: PoolType::NoSlices,
+                    pool_type: PoolType::ExclusivePages,
                 });
                 Self::new(storage, pools, memory_alignment)
             }
-            MemoryConfiguration::WithoutSubSlices => {
+            MemoryConfiguration::ExclusivePages => {
                 // Round chunk size to be aligned.
                 let memory_alignment = properties.alignment;
                 // Use all bins up to max_page and add max_page as bin.
@@ -172,7 +173,7 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
                     .map(|&s| MemoryPoolOptions {
                         page_size: s,
                         chunk_num_prealloc: 0,
-                        pool_type: PoolType::NoSlices,
+                        pool_type: PoolType::ExclusivePages,
                     })
                     .collect();
 
@@ -194,12 +195,12 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
             .iter()
             .map(|option| {
                 let mut pool = match option.pool_type {
-                    PoolType::Slices(max_slice) => DynamicPool::Sliced(SlicedPool::new(
+                    PoolType::SlicedPages { max_slice_size: max_slice } => DynamicPool::Sliced(SlicedPool::new(
                         option.page_size,
                         max_slice,
                         memory_alignment,
                     )),
-                    PoolType::NoSlices => DynamicPool::Simple(SimpleMemoryPool::new(
+                    PoolType::ExclusivePages => DynamicPool::Simple(ExclusiveMemoryPool::new(
                         option.page_size,
                         memory_alignment,
                     )),
@@ -319,7 +320,7 @@ mod tests {
             vec![MemoryPoolOptions {
                 page_size,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::Slices(page_size),
+                pool_type: PoolType::SlicedPages { max_slice_size: page_size },
             }],
             32,
         );
@@ -344,7 +345,7 @@ mod tests {
             vec![MemoryPoolOptions {
                 page_size,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::Slices(page_size),
+                pool_type: PoolType::SlicedPages { max_slice_size: page_size },
             }],
             32,
         );
@@ -369,7 +370,7 @@ mod tests {
             vec![MemoryPoolOptions {
                 page_size,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::Slices(page_size),
+                pool_type: PoolType::SlicedPages { max_slice_size: page_size },
             }],
             32,
         );
@@ -392,7 +393,7 @@ mod tests {
             vec![MemoryPoolOptions {
                 page_size,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::Slices(page_size),
+                pool_type: PoolType::SlicedPages { max_slice_size: page_size },
             }],
             50,
         );
@@ -413,7 +414,7 @@ mod tests {
             .map(|&size| MemoryPoolOptions {
                 page_size: size,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::Slices(size),
+                pool_type: PoolType::SlicedPages { max_slice_size: size },
             })
             .collect();
         let mut memory_management =
@@ -497,7 +498,7 @@ mod tests {
         let mut memory_management = DynamicMemoryManagement::from_configuration(
             BytesStorage::default(),
             mem_props,
-            MemoryConfiguration::WithoutSubSlices,
+            MemoryConfiguration::ExclusivePages,
         );
         let handle = memory_management.reserve(10, &[]);
         let other_ref = handle.clone();
@@ -515,7 +516,7 @@ mod tests {
             vec![MemoryPoolOptions {
                 page_size,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::NoSlices,
+                pool_type: PoolType::ExclusivePages,
             }],
             32,
         );
@@ -538,7 +539,7 @@ mod tests {
             vec![MemoryPoolOptions {
                 page_size: 512,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::NoSlices,
+                pool_type: PoolType::ExclusivePages,
             }],
             32,
         );
@@ -562,7 +563,7 @@ mod tests {
             vec![MemoryPoolOptions {
                 page_size,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::NoSlices,
+                pool_type: PoolType::ExclusivePages,
             }],
             32,
         );
@@ -584,7 +585,7 @@ mod tests {
             vec![MemoryPoolOptions {
                 page_size,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::NoSlices,
+                pool_type: PoolType::ExclusivePages,
             }],
             50,
         );
@@ -603,7 +604,7 @@ mod tests {
             .map(|&size| MemoryPoolOptions {
                 page_size: size,
                 chunk_num_prealloc: 0,
-                pool_type: PoolType::Slices(size),
+                pool_type: PoolType::SlicedPages { max_slice_size: size },
             })
             .collect();
         let mut memory_management =
@@ -624,7 +625,7 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
             },
-            MemoryConfiguration::WithoutSubSlices,
+            MemoryConfiguration::ExclusivePages,
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
