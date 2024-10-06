@@ -102,11 +102,9 @@ fn load_single<EG: Numeric, ES: Numeric>(
     read_col: u32,
     write_position: u32,
 ) {
-    let line_size = gmem.line_size();
-
     let read_pos = (read_row * gmem.stride(gmem.rank() - 2)
         + read_col * gmem.stride(gmem.rank() - 1))
-        / line_size;
+        / gmem.line_size();
 
     smem[write_position] = Line::cast_from(gmem[read_pos]);
 }

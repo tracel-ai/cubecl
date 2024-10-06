@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma_matmul::BlockInfo;
+use crate::matmul::tile_io::writing::smem2tensor::{Smem2Tensor, Smem2TensorSimple};
 use crate::matmul::tile_io::TileWriter;
 
 #[derive(CubeType)]
@@ -31,14 +32,25 @@ impl<E: Numeric> TileWriter<Line<E>> for TensorWriter<E> {
         compute_plane_offset: u32,
         accumulator_offset: u32,
     ) {
-        let num_tile_elements =
-            tile_writer.block_info.tile_size_x * tile_writer.block_info.tile_size_y;
-        let num_tile_offset =
-            compute_plane_offset * tile_writer.block_info.num_tiles_y + accumulator_offset;
+        // let num_tile_elements =
+        //     tile_writer.block_info.tile_size_x * tile_writer.block_info.tile_size_y;
 
-        let write_offset = num_tile_offset * num_tile_elements;
-        for i in 0..num_tile_elements {
-            tile_writer.gmem[i + write_offset] = Line::new(E::cast_from(slice[i]));
-        }
+        // // row and col offsets instead?
+        // let num_tile_offset =
+        //     compute_plane_offset * tile_writer.block_info.num_tiles_y + accumulator_offset;
+
+        // let write_offset = num_tile_offset * num_tile_elements;
+        // for i in 0..num_tile_elements {
+        //     tile_writer.gmem[i + write_offset] = Line::new(E::cast_from(slice[i]));
+        // }
+
+        Smem2TensorSimple::smem_to_tensor(
+            &mut tile_writer.gmem,
+            slice,
+            compute_plane_offset,
+            accumulator_offset,
+            tile_writer.cube_offsets,
+            tile_writer.block_info,
+        );
     }
 }
