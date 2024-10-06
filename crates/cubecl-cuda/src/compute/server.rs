@@ -202,7 +202,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         ctx.memory_management
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
-    
+
     fn memory_usage(&self) -> MemoryUsage {
         self.ctx.memory_usage()
     }

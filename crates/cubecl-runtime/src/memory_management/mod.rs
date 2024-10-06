@@ -9,16 +9,15 @@ pub mod dynamic;
 /// Simple memory management strategy.
 pub mod simple;
 
-
 /// The type of memory pool to use.
 #[derive(Debug, Clone)]
 pub enum PoolType {
     /// Use a memory where every allocation is a separate page.
     ExclusivePages,
     /// Use a memory where each allocation is a slice of a bigger allocation.
-    SlicedPages { 
+    SlicedPages {
         /// The maxiumum size of a slice to allocate in the pool.
-        max_slice_size: usize 
+        max_slice_size: usize,
     },
 }
 

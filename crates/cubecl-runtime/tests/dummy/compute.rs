@@ -7,7 +7,7 @@ use cubecl_runtime::memory_management::simple::{
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::{AutotuneOperationSet, LocalTuner};
-use cubecl_runtime::{ComputeRuntime, ClientProperties};
+use cubecl_runtime::{ClientProperties, ComputeRuntime};
 
 /// The dummy device.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]

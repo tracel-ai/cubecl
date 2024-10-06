@@ -8,7 +8,10 @@ use cubecl_core::{
     ir::{Elem, FloatKind},
     Feature, Runtime,
 };
-use cubecl_runtime::{memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties}, ClientProperties, ComputeRuntime};
+use cubecl_runtime::{
+    memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties},
+    ClientProperties, ComputeRuntime,
+};
 use cubecl_spirv::{GLCompute, SpirvCompiler};
 use cubecl_wgpu::{
     create_wgpu_setup, init_async, init_memory_management, AutoGraphicsApi, RuntimeOptions, Vulkan,
@@ -79,7 +82,11 @@ pub fn create_client(
         alignment: limits.min_storage_buffer_offset_alignment as usize,
     };
 
-    let memory_management = init_memory_management(device_wgpu.clone(), mem_props.clone(), options.memory_config);
+    let memory_management = init_memory_management(
+        device_wgpu.clone(),
+        mem_props.clone(),
+        options.memory_config,
+    );
     let server = WgpuSpirvServer::new(memory_management, device_wgpu, queue, options.tasks_max);
     let channel = MutexComputeChannel::new(server);
 

@@ -1,11 +1,11 @@
-use std::collections::BTreeSet;
 use crate::memory_management::MemoryDeviceProperties;
+use std::collections::BTreeSet;
 
 /// The set of [features](Feature) supported by a [runtime](Runtime).
 #[derive(Debug)]
 pub struct ClientProperties<Feature: Ord + Copy> {
     set: alloc::collections::BTreeSet<Feature>,
-    memory: MemoryDeviceProperties
+    memory: MemoryDeviceProperties,
 }
 
 impl<Feature: Ord + Copy> ClientProperties<Feature> {
@@ -18,7 +18,7 @@ impl<Feature: Ord + Copy> ClientProperties<Feature> {
 
         ClientProperties {
             set,
-            memory: memory_props
+            memory: memory_props,
         }
     }
 

@@ -3,7 +3,10 @@ use std::{sync::Arc, thread};
 
 use super::ComputeChannel;
 use crate::{
-    memory_management::MemoryUsage, server::{Binding, ComputeServer, Handle}, storage::ComputeStorage, ExecutionMode
+    memory_management::MemoryUsage,
+    server::{Binding, ComputeServer, Handle},
+    storage::ComputeStorage,
+    ExecutionMode,
 };
 
 /// Create a channel using a [multi-producer, single-consumer channel to communicate with
@@ -85,7 +88,7 @@ where
                         }
                         Message::GetMemoryUsage(callback) => {
                             callback.send(server.memory_usage()).await.unwrap();
-                        },
+                        }
                     };
                 }
             });
@@ -175,7 +178,7 @@ where
             .unwrap();
         handle_response(response.recv_blocking())
     }
-    
+
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
         let (callback, response) = async_channel::unbounded();
         self.state

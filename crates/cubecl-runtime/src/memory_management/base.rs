@@ -3,13 +3,13 @@ use core::fmt::Debug;
 use crate::storage::{ComputeStorage, StorageHandle, StorageId};
 
 /// Amount of memory in use by this allocator
-/// and statistics on how much memory is reserved and 
+/// and statistics on how much memory is reserved and
 /// wasted in total.
 pub struct MemoryUsage {
     /// The number of allocations currently active.
     pub number_allocs: usize,
     /// The number of bytes that are currently actually in use.
-    /// 
+    ///
     /// This doesn't include any padding or other memory that needs to be
     /// reserved, and is the minimum amount of memory that could possible
     /// be allocated.
@@ -17,7 +17,7 @@ pub struct MemoryUsage {
     /// The amount of bytes used for padding memory in currently active allocations.
     pub bytes_padding: usize,
     /// The total amount of memory reserved on the device.
-    /// 
+    ///
     /// This will be at least as much as bytes_in_use but in practice will
     /// be higher, as allocations reserve memory for future allocations
     /// and for padding.

@@ -3,9 +3,7 @@ use std::num::NonZero;
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
-use cubecl_core::{
-    compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId
-};
+use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
     memory_management::{MemoryHandle, MemoryManagement, MemoryUsage},
@@ -88,8 +86,9 @@ where
 
         let compile = self.logger.debug(compile);
 
-
-        let repr = compile.repr.expect("Need compiled repr to assemble to spirv");
+        let repr = compile
+            .repr
+            .expect("Need compiled repr to assemble to spirv");
 
         let num_bindings = repr.num_bindings as u32;
         let bindings = (0..num_bindings)
@@ -422,7 +421,7 @@ where
         // Cleanup allocations and deallocations.
         self.memory_management.storage().perform_deallocations();
     }
-    
+
     fn memory_usage(&self) -> MemoryUsage {
         self.memory_management.memory_usage()
     }

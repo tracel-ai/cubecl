@@ -1,10 +1,14 @@
 use std::mem::MaybeUninit;
 
 use cubecl_core::{
-    ir::{Elem, FloatKind}, Feature, MemoryConfiguration, Runtime
+    ir::{Elem, FloatKind},
+    Feature, MemoryConfiguration, Runtime,
 };
 use cubecl_runtime::{
-    channel::MutexComputeChannel, client::ComputeClient, memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties}, ClientProperties, ComputeRuntime
+    channel::MutexComputeChannel,
+    client::ComputeClient,
+    memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties},
+    ClientProperties, ComputeRuntime,
 };
 
 use crate::{
@@ -26,8 +30,7 @@ pub struct CudaRuntime;
 type Server = CudaServer<DynamicMemoryManagement<CudaStorage>>;
 type Channel = MutexComputeChannel<Server>;
 
-static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> =
-    ComputeRuntime::new();
+static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::new();
 
 const MEMORY_OFFSET_ALIGNMENT: usize = 32;
 
@@ -43,8 +46,16 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     cudarc::driver::result::init().unwrap();
     let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
     let arch = unsafe {
-        let major = cudarc::driver::result::device::get_attribute(device_ptr, cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR).unwrap();
-        let minor = cudarc::driver::result::device::get_attribute(device_ptr, cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR).unwrap();
+        let major = cudarc::driver::result::device::get_attribute(
+            device_ptr,
+            cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
+        )
+        .unwrap();
+        let minor = cudarc::driver::result::device::get_attribute(
+            device_ptr,
+            cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
+        )
+        .unwrap();
         major * 10 + minor
     } as u32;
 
@@ -69,8 +80,11 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
 
-    let memory_management =
-        DynamicMemoryManagement::from_configuration(storage, mem_properties.clone(), options.memory_config);
+    let memory_management = DynamicMemoryManagement::from_configuration(
+        storage,
+        mem_properties.clone(),
+        options.memory_config,
+    );
     let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
     let mut server = CudaServer::new(cuda_ctx);
     let mut client_props = ClientProperties::new(&[Feature::Subcube], mem_properties);

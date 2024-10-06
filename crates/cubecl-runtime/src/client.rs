@@ -1,5 +1,9 @@
 use crate::{
-    channel::ComputeChannel, memory_management::MemoryUsage, server::{Binding, ComputeServer, Handle}, storage::ComputeStorage, ClientProperties, ExecutionMode
+    channel::ComputeChannel,
+    memory_management::MemoryUsage,
+    server::{Binding, ComputeServer, Handle},
+    storage::ComputeStorage,
+    ClientProperties, ExecutionMode,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;

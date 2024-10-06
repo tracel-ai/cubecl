@@ -1,5 +1,8 @@
 use super::{SliceBinding, SliceHandle, SliceId};
-use crate::{memory_management::MemoryUsage, storage::{ComputeStorage, StorageHandle, StorageId}};
+use crate::{
+    memory_management::MemoryUsage,
+    storage::{ComputeStorage, StorageHandle, StorageId},
+};
 
 #[derive(new, Debug)]
 pub(crate) struct Slice {
@@ -48,4 +51,3 @@ pub trait MemoryPool {
 
     fn get_memory_usage(&self) -> MemoryUsage;
 }
-

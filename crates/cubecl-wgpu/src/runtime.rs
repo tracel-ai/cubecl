@@ -5,10 +5,10 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_core::{Feature, Runtime};
-use cubecl_runtime::{memory_management, ClientProperties};
-use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
-use wgpu::DeviceDescriptor;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
+use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
+use cubecl_runtime::{memory_management, ClientProperties};
+use wgpu::DeviceDescriptor;
 
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 
@@ -35,7 +35,6 @@ pub fn init_memory_management(
     mem_props: MemoryDeviceProperties,
     config: MemoryConfiguration,
 ) -> MemoryManagement {
-
     let storage = WgpuStorage::new(device.clone());
 
     memory_management::dynamic::DynamicMemoryManagement::from_configuration(
@@ -50,7 +49,6 @@ pub fn init_memory_management(
     _config: MemoryConfiguration,
 ) -> MemoryManagement {
     // Simple memory management doesn't use the device limits of memory configuration.
-
 
     let storage = WgpuStorage::new(device.clone());
 
@@ -165,8 +163,11 @@ pub fn create_client(
         alignment: limits.min_storage_buffer_offset_alignment as usize,
     };
 
-    let memory_management =
-        init_memory_management(device_wgpu.clone(), mem_props.clone(), options.memory_config);
+    let memory_management = init_memory_management(
+        device_wgpu.clone(),
+        mem_props.clone(),
+        options.memory_config,
+    );
     let server = WgpuServer::new(memory_management, device_wgpu, queue, options.tasks_max);
     let channel = MutexComputeChannel::new(server);
 
