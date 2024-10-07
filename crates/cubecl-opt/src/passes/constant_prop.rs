@@ -1,4 +1,4 @@
-use cubecl_core::ir::{ConstantScalarValue, Operation, Operator, UnaryOperator, Variable};
+use cubecl_core::ir::{Branch, ConstantScalarValue, Operation, Operator, UnaryOperator, Variable};
 
 use crate::{AtomicCounter, Optimizer};
 
@@ -15,104 +15,103 @@ impl OptimizationPass for ConstOperandSimplify {
                 let op = &mut opt.program[node].ops.borrow_mut()[idx];
                 match op {
                     Operation::Operator(Operator::Mul(bin_op)) => {
-                        // Simplify 0 * x
-                        let lhs_zero = bin_op
-                            .lhs
-                            .as_const()
-                            .map(|it| it.is_zero())
-                            .unwrap_or(false);
-                        let rhs_zero = bin_op
-                            .rhs
-                            .as_const()
-                            .map(|it| it.is_zero())
-                            .unwrap_or(false);
-                        if lhs_zero || rhs_zero {
-                            let zero = ConstantScalarValue::UInt(0);
-                            let input = Variable::ConstantScalar(zero);
-                            *op = Operator::Assign(UnaryOperator {
-                                input,
-                                out: bin_op.out,
-                            })
-                            .into();
-                            changes.inc();
-                        } else {
-                            // Simplify 1 * x
-                            let lhs_one =
-                                bin_op.lhs.as_const().map(|it| it.is_one()).unwrap_or(false);
-                            let rhs_one =
-                                bin_op.rhs.as_const().map(|it| it.is_one()).unwrap_or(false);
-                            if lhs_one {
-                                *op = Operator::Assign(UnaryOperator {
-                                    input: bin_op.rhs,
-                                    out: bin_op.out,
-                                })
-                                .into();
-                                changes.inc();
-                            } else if rhs_one {
-                                *op = Operator::Assign(UnaryOperator {
-                                    input: bin_op.lhs,
-                                    out: bin_op.out,
-                                })
-                                .into();
-                                changes.inc();
+                        let value = match (bin_op.lhs.as_const(), bin_op.rhs.as_const()) {
+                            // 0 * x == 0, x * 0 == 0
+                            (Some(val), _) | (_, Some(val)) if val.is_zero() => {
+                                Some(Variable::ConstantScalar(val))
                             }
+                            // 1 * x == x
+                            (Some(lhs), _) if lhs.is_one() => Some(bin_op.rhs),
+                            // x * 1 == x
+                            (_, Some(rhs)) if rhs.is_one() => Some(bin_op.lhs),
+                            _ => None,
+                        };
+                        if let Some(value) = value {
+                            *op = assign(bin_op.out, value);
+                            changes.inc();
                         }
                     }
                     Operation::Operator(Operator::Add(bin_op)) => {
-                        let lhs_zero = bin_op
-                            .lhs
-                            .as_const()
-                            .map(|it| it.is_zero())
-                            .unwrap_or(false);
-                        let rhs_zero = bin_op
-                            .rhs
-                            .as_const()
-                            .map(|it| it.is_zero())
-                            .unwrap_or(false);
-                        if lhs_zero {
-                            *op = Operator::Assign(UnaryOperator {
-                                input: bin_op.rhs,
-                                out: bin_op.out,
-                            })
-                            .into();
-                            changes.inc();
-                        } else if rhs_zero {
-                            *op = Operator::Assign(UnaryOperator {
-                                input: bin_op.lhs,
-                                out: bin_op.out,
-                            })
-                            .into();
+                        let value = match (bin_op.lhs.as_const(), bin_op.rhs.as_const()) {
+                            // x + 0 == x
+                            (Some(lhs), _) if lhs.is_zero() => Some(bin_op.rhs),
+                            // 0 + x == x
+                            (_, Some(rhs)) if rhs.is_zero() => Some(bin_op.lhs),
+                            _ => None,
+                        };
+                        if let Some(value) = value {
+                            *op = assign(bin_op.out, value);
                             changes.inc();
                         }
                     }
                     Operation::Operator(Operator::Sub(bin_op)) => {
-                        let rhs_zero = bin_op
-                            .rhs
-                            .as_const()
-                            .map(|it| it.is_zero())
-                            .unwrap_or(false);
+                        let rhs = bin_op.rhs.as_const();
+                        let rhs_zero = rhs.map(|it| it.is_zero()).unwrap_or(false);
+                        // x - 0 == x
                         if rhs_zero {
-                            *op = Operator::Assign(UnaryOperator {
-                                input: bin_op.lhs,
-                                out: bin_op.out,
-                            })
-                            .into();
+                            *op = assign(bin_op.out, bin_op.lhs);
                             changes.inc();
                         }
                     }
                     Operation::Operator(Operator::Div(bin_op)) => {
-                        let lhs_zero = bin_op
-                            .lhs
-                            .as_const()
-                            .map(|it| it.is_zero())
-                            .unwrap_or(false);
+                        let lhs = bin_op.lhs.as_const();
+                        let lhs_zero = lhs.map(|it| it.is_zero()).unwrap_or(false);
                         let rhs_one = bin_op.rhs.as_const().map(|it| it.is_one()).unwrap_or(false);
+                        // x / 1 == x, 0 / x == 0
                         if rhs_one || lhs_zero {
-                            *op = Operator::Assign(UnaryOperator {
-                                input: bin_op.lhs,
-                                out: bin_op.out,
-                            })
-                            .into();
+                            *op = assign(bin_op.out, bin_op.lhs);
+                            changes.inc();
+                        }
+                    }
+                    Operation::Operator(Operator::Or(bin_op)) => {
+                        let lhs = bin_op.lhs.as_const();
+                        let rhs = bin_op.rhs.as_const();
+                        let assign_val = match (lhs, rhs) {
+                            // true || x == true, x || true == true
+                            (Some(ConstantScalarValue::Bool(true)), _)
+                            | (_, Some(ConstantScalarValue::Bool(true))) => {
+                                Some(Variable::ConstantScalar(ConstantScalarValue::Bool(true)))
+                            }
+                            // false || x == x
+                            (Some(ConstantScalarValue::Bool(false)), _) => Some(bin_op.rhs),
+                            // x || false == x
+                            (_, Some(ConstantScalarValue::Bool(false))) => Some(bin_op.lhs),
+                            _ => None,
+                        };
+                        if let Some(assign_val) = assign_val {
+                            *op = assign(bin_op.out, assign_val);
+                            changes.inc();
+                        }
+                    }
+                    Operation::Operator(Operator::And(bin_op)) => {
+                        let lhs = bin_op.lhs.as_const();
+                        let rhs = bin_op.rhs.as_const();
+                        let assign_val = match (lhs, rhs) {
+                            // true && x == x
+                            (Some(ConstantScalarValue::Bool(true)), _) => Some(bin_op.rhs),
+                            // x && true == x
+                            (_, Some(ConstantScalarValue::Bool(true))) => Some(bin_op.lhs),
+                            // false && x == false, x && false == false
+                            (Some(ConstantScalarValue::Bool(false)), _)
+                            | (_, Some(ConstantScalarValue::Bool(false))) => {
+                                Some(Variable::ConstantScalar(ConstantScalarValue::Bool(false)))
+                            }
+                            _ => None,
+                        };
+                        if let Some(assign_val) = assign_val {
+                            *op = assign(bin_op.out, assign_val);
+                            changes.inc();
+                        }
+                    }
+                    Operation::Branch(Branch::Select(select)) => {
+                        if let Some(cond) = select.cond.as_const() {
+                            let value = match cond.as_bool() {
+                                // select(true, a, b) == a
+                                true => select.then,
+                                // select(false, a, b) == b
+                                false => select.or_else,
+                            };
+                            *op = assign(select.out, value);
                             changes.inc();
                         }
                     }
@@ -121,6 +120,10 @@ impl OptimizationPass for ConstOperandSimplify {
             }
         }
     }
+}
+
+fn assign(out: Variable, value: Variable) -> Operation {
+    Operation::Operator(Operator::Assign(UnaryOperator { input: value, out }))
 }
 
 pub struct ConstEval;
