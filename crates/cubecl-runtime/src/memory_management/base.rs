@@ -1,6 +1,6 @@
 use core::fmt::Debug;
-
-use crate::storage::{ComputeStorage, StorageHandle, StorageId};
+use crate::storage::{ComputeStorage, StorageHandle};
+use super::MemoryLock;
 
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and

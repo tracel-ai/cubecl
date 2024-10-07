@@ -6,7 +6,7 @@ use cubecl_common::{reader::Reader, sync_type::SyncType};
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
-    memory_management::{MemoryHandle, MemoryManagement, MemoryUsage},
+    memory_management::{MemoryHandle, MemoryLock, MemoryManagement, MemoryUsage},
     server::{self, ComputeServer},
     storage::{ComputeStorage, StorageId},
     ExecutionMode,

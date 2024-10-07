@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use cubecl_common::{reader::reader_from_concrete, sync_type::SyncType};
 use cubecl_runtime::memory_management::MemoryUsage;
-use cubecl_runtime::storage::ComputeStorage;
+use cubecl_runtime::storage::{BindingResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::{simple::SimpleMemoryManagement, MemoryManagement},
     server::{Binding, ComputeServer, Handle},

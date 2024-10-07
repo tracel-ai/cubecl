@@ -1,7 +1,7 @@
 use super::index::SearchIndex;
 use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::memory_management::memory_pool::calculate_padding;
-use crate::memory_management::MemoryUsage;
+use crate::memory_management::{MemoryLock, MemoryUsage};
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -94,9 +94,9 @@ impl MemoryPool for SlicedPool {
         &mut self,
         storage: &mut Storage,
         size: usize,
-        exclude: &[StorageId],
+        locked: Option<&MemoryLock>,
     ) -> SliceHandle {
-        let slice = self.get_free_slice(size, exclude);
+        let slice = self.get_free_slice(size, locked);
 
         match slice {
             Some(slice) => slice.clone(),
@@ -176,7 +176,7 @@ impl SlicedPool {
     }
 
     /// Finds a free slice that can contain the given size
-    fn get_free_slice(&mut self, size: usize, exclude: &[StorageId]) -> Option<SliceHandle> {
+    fn get_free_slice(&mut self, size: usize, locked: Option<&MemoryLock>) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
@@ -184,7 +184,7 @@ impl SlicedPool {
             effective_size,
             &mut self.pages,
             &mut self.slices,
-            exclude,
+            locked,
         )?;
 
         let slice = self.slices.get_mut(&slice_id).unwrap();

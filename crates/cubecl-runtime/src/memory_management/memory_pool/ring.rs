@@ -40,7 +40,7 @@ impl RingBuffer {
     ) -> Option<SliceId> {
         let max_second = self.cursor_chunk;
         let result =
-            self.find_free_slice_in_all_chunks(size, pages, slices, self.queue.len(), exclude);
+            self.find_free_slice_in_all_chunks(size, pages, slices, self.queue.len(), locked);
 
         if result.is_some() {
             return result;
@@ -48,7 +48,7 @@ impl RingBuffer {
 
         self.cursor_chunk = 0;
         self.cursor_slice = 0;
-        self.find_free_slice_in_all_chunks(size, pages, slices, max_second, exclude)
+        self.find_free_slice_in_all_chunks(size, pages, slices, max_second, locked)
     }
 
     fn find_free_slice_in_chunk(
@@ -270,7 +270,7 @@ mod tests {
         let mut pages = HashMap::from([(storage_id_1, page_1), (storage_id_2, page_2)]);
 
         let slice = ring
-            .find_free_slice(150, &mut pages, &mut slices, &[])
+            .find_free_slice(150, &mut pages, &mut slices, None)
             .unwrap();
 
         assert_eq!(slices.get(&slice).unwrap().effective_size(), 150);

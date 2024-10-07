@@ -1,7 +1,7 @@
 use super::{SliceBinding, SliceHandle, SliceId};
 use crate::{
-    memory_management::MemoryUsage,
-    storage::{ComputeStorage, StorageHandle, StorageId},
+    memory_management::{MemoryLock, MemoryUsage},
+    storage::{ComputeStorage, StorageHandle}
 };
 
 #[derive(new, Debug)]
@@ -43,7 +43,7 @@ pub trait MemoryPool {
         &mut self,
         storage: &mut Storage,
         size: usize,
-        exclude: &[StorageId],
+        locked: Option<&MemoryLock>,
     ) -> SliceHandle;
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: usize)

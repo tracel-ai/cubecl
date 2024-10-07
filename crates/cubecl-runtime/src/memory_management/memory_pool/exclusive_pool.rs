@@ -1,6 +1,6 @@
 use super::{calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::{
-    memory_management::MemoryUsage,
+    memory_management::{MemoryLock, MemoryUsage},
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
 use alloc::vec::Vec;
@@ -44,7 +44,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         &mut self,
         storage: &mut Storage,
         size: usize,
-        exclude: &[StorageId],
+        exclude: Option<&MemoryLock>,
     ) -> SliceHandle {
         let page = self.get_free_page(exclude);
         let slice_id = if let Some(page) = page {
@@ -117,11 +117,13 @@ impl ExclusiveMemoryPool {
 
     /// Finds a free page that can contain the given size
     /// Returns a slice on that page if sucessfull.
-    fn get_free_page(&mut self, exclude: &[StorageId]) -> Option<&MemoryPage> {
+    fn get_free_page(&mut self, locked: Option<&MemoryLock>) -> Option<&MemoryPage> {
         for _ in 0..self.ring_buffer.len() {
             let storage_id = &self.ring_buffer[self.index];
-            if exclude.contains(storage_id) {
-                continue;
+            if let Some(locked) = locked.as_ref() {
+                if locked.is_locked(storage_id) {
+                    continue;
+                }
             }
 
             let page = self.pages.get(storage_id).unwrap();

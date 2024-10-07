@@ -2,7 +2,6 @@ use crate::{
     channel::ComputeChannel,
     memory_management::MemoryUsage,
     server::{Binding, ComputeServer, Handle},
-    storage::ComputeStorage,
     ClientProperties, ExecutionMode,
 };
 use alloc::sync::Arc;
