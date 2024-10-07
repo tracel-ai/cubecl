@@ -289,21 +289,29 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let vf = usize::max(vf, vf_or_else);
 
                 let item_out = out.item();
-
+                let cond_elem = cond.item().elem;
                 let out = out.fmt_left();
 
-                if vf != vf_then || vf != vf_or_else || vf != vf_cond || vf != vf_out {
+                if vf > 1 {
                     writeln!(f, "{out} = {item_out} {{")?;
                     for i in 0..vf {
                         let theni = then.index(i);
                         let or_elsei = or_else.index(i);
                         let condi = cond.index(i);
+                        let condi = EnsureBoolArg {
+                            var: &condi,
+                            elem: &cond_elem,
+                        };
 
                         writeln!(f, "({condi}) ? {theni} : {or_elsei},")?;
                     }
 
                     writeln!(f, "}};")
                 } else {
+                    let cond = EnsureBoolArg {
+                        var: &cond,
+                        elem: &cond_elem,
+                    };
                     writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
                 }
             }
@@ -685,5 +693,20 @@ impl Dot {
 
         let out = out.fmt_left();
         writeln!(f, "{out} = {};", muls.join(" + "))
+    }
+}
+
+struct EnsureBoolArg<'a, V: Display> {
+    var: &'a V,
+    elem: &'a Elem,
+}
+
+impl<'a, V: Display> Display for EnsureBoolArg<'a, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.elem != &Elem::Bool {
+            write!(f, "bool({})", self.var)
+        } else {
+            write!(f, "{}", self.var)
+        }
     }
 }
