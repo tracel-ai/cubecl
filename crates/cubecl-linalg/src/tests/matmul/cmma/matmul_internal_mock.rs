@@ -34,6 +34,35 @@ macro_rules! testgen_cmma_internal_mock {
         }
 
         #[test]
+        pub fn test_cube_matmul_s16x16x16_b16x16x16_col_major() {
+            test_tensor_matmul::<
+                CmmaCubeMatmul<
+                    f32,
+                    CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B16x16x16>,
+                >,
+                f32,
+                TestRuntime,
+            >(
+                MatmulProblem::new(16, 16, 16),
+                (MatrixLayout::ColMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
+        pub fn test_cube_matmul_b16x16x16_col_major() {
+            test_fixed_matmul::<
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B16x16x16>,
+                f32,
+                f32,
+                TestRuntime,
+            >(
+                (MatrixLayout::ColMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
         pub fn test_cube_matmul_s16x16x128_b16x16x16() {
             test_tensor_matmul::<
                 CmmaCubeMatmul<
@@ -60,6 +89,22 @@ macro_rules! testgen_cmma_internal_mock {
                 TestRuntime,
             >(
                 MatmulProblem::new(32, 16, 128),
+                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
+        pub fn test_cube_matmul_s32x32x224_b32x32x32() {
+            test_tensor_matmul::<
+                CmmaCubeMatmul<
+                    f32,
+                    CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x32x32>,
+                >,
+                f32,
+                TestRuntime,
+            >(
+                MatmulProblem::new(32, 32, 224),
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )

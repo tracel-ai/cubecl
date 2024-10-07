@@ -4,6 +4,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::{
+    id_map::PlaneMapper,
     matrix_layout::MatrixLayout,
     requirements::{MatmulProblem, Requirements},
     tile_io::{TileReader, TileWriter},
@@ -106,6 +107,31 @@ where
 }
 
 #[cube]
+impl<Elem, ElemAcc, Instr, Block> PlaneMapper for CmmaBlockMatmul<Elem, ElemAcc, Instr, Block>
+where
+    Elem: Numeric,
+    ElemAcc: Numeric,
+    Instr: MatmulInstruction<Elem, ElemAcc>,
+    Block: CmmaBlockSize,
+{
+    fn plane_id() -> u32 {
+        UNIT_POS_Y
+    }
+
+    fn plane_unit() -> u32 {
+        UNIT_POS_X
+    }
+
+    fn num_planes() -> u32 {
+        comptime!(Block::M / Instr::M)
+    }
+
+    fn plane_dim() -> u32 {
+        CUBE_COUNT_X
+    }
+}
+
+#[cube]
 impl<Elem, ElemAcc, Instr, Block, Lhs, Rhs, Out> BlockMatmul<Elem, Lhs, Rhs, Out>
     for CmmaBlockMatmul<Elem, ElemAcc, Instr, Block>
 where
@@ -132,12 +158,12 @@ where
 
         #[unroll]
         for buffer_iter in 0..num_buffers {
-            let tile_lhs = Lhs::read(&lhs, UNIT_POS_Y, buffer_iter, 0u32);
+            let tile_lhs = Lhs::read(&lhs, Self::plane_id(), buffer_iter, 0u32);
             Instr::fill_lhs(&tile_lhs, &mut instruction_lhs);
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = Rhs::read(&rhs, UNIT_POS_Y, buffer_iter, accumulator_iter);
+                let tile_rhs = Rhs::read(&rhs, Self::plane_id(), buffer_iter, accumulator_iter);
                 Instr::fill_rhs(&tile_rhs, &mut instruction_rhs);
 
                 let accumulator = acc.index_mut(accumulator_iter);
@@ -159,34 +185,43 @@ where
     }
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
-        let num_planes = <Self as FixedShapeMatmul<Elem, Elem>>::M / Instr::M; // TODO id mapper
-        let plane_id = UNIT_POS_Y; // TODO id mapper
-
         let num_tile_elements = Instr::M * Instr::N;
-        let start = num_tile_elements * plane_id;
+        let start = num_tile_elements * Self::plane_id();
 
         let same_type =
             comptime!(std::any::TypeId::of::<Elem>() == std::any::TypeId::of::<ElemAcc>());
 
         if same_type {
-            let mut smem = SharedMemory::<Elem>::new(num_tile_elements * num_planes);
+            let mut smem =
+                SharedMemory::<Elem>::new(num_tile_elements * comptime!(Self::num_planes()));
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
                 let accumulator = acc.index(accumulator_iter);
                 let smem_slice = smem.slice_mut(start, start + num_tile_elements);
                 Instr::read_output(accumulator, smem_slice);
-                Out::write_with_cast(out, smem_slice.as_slice(), plane_id, accumulator_iter);
+                Out::write_with_cast(
+                    out,
+                    smem_slice.as_slice(),
+                    Self::plane_id(),
+                    accumulator_iter,
+                );
             }
         } else {
-            let mut smem = SharedMemory::<ElemAcc>::new(num_tile_elements * num_planes);
+            let mut smem =
+                SharedMemory::<ElemAcc>::new(num_tile_elements * comptime!(Self::num_planes()));
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
                 let accumulator = acc.index(accumulator_iter);
                 let smem_slice = smem.slice_mut(start, start + num_tile_elements);
                 Instr::read_output(accumulator, smem_slice);
-                Out::write_with_cast(out, smem_slice.as_slice(), plane_id, accumulator_iter);
+                Out::write_with_cast(
+                    out,
+                    smem_slice.as_slice(),
+                    Self::plane_id(),
+                    accumulator_iter,
+                );
             }
         }
     }

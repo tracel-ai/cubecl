@@ -14,12 +14,19 @@ use crate::matmul::{FixedShapeMatmul, Matmul};
 
 pub struct DummyUnitInstructionConfig {}
 
+#[derive(CubeType)]
+pub struct DummyMatrix<E: Numeric> {
+    pub handle: Array<E>,
+    pub shape: (u32, u32),
+    pub is_col_major: bool,
+}
+
 macro_rules! impl_matmul_instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
         /// All units in a plane do the same work in parallel
         ///
         /// Useful to mimic behaviour of CMMA when the instruction is unavailable
-        /// Likely has lots of bank conflicts
+        /// Has lots of duplication and likely lots of bank conflicts
         pub struct $name<I: Numeric, O: Numeric> {
             _input: PhantomData<I>,
             _output: PhantomData<O>,
@@ -152,13 +159,6 @@ macro_rules! impl_matmul_instruction {
 impl_matmul_instruction!(DummyUnitInstruction16_16_16, 16, 16, 16);
 impl_matmul_instruction!(DummyUnitInstruction32_8_16, 32, 8, 16);
 impl_matmul_instruction!(DummyUnitInstruction8_32_16, 8, 32, 16);
-
-#[derive(CubeType)]
-pub struct DummyMatrix<E: Numeric> {
-    pub handle: Array<E>,
-    pub shape: (u32, u32),
-    pub is_col_major: bool,
-}
 
 #[cube]
 pub(crate) fn execute<I: Numeric, O: Numeric>(

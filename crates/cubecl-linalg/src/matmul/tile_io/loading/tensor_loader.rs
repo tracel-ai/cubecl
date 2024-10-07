@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::block_info::{BlockInfo, total_num_elements};
+use crate::matmul::block_info::{total_num_elements, BlockInfo};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::loading::Tensor2Smem;
 use crate::matmul::tile_io::loading::Tensor2SmemContinuous;
@@ -74,8 +74,12 @@ impl<E: Numeric> Loader<Line<E>> for LhsTensorLoader<E> {
 
     fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
         // Assuming RowMajor layout
-        let gmem_row_offset = reader.cube_offset;
-        let gmem_col_offset = k_offset;
+        // TODO refactor
+        let is_row_major = true;
+        let (gmem_row_offset, gmem_col_offset) = match is_row_major {
+            true => (reader.cube_offset, k_offset),
+            false => (k_offset, reader.cube_offset),
+        };
 
         Tensor2SmemContinuous::tensor_to_shared_memory(
             &reader.gmem,
@@ -98,8 +102,12 @@ impl<E: Numeric> Loader<Line<E>> for RhsTensorLoader<E> {
 
     fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
         // Assuming RowMajor layout
-        let gmem_row_offset = k_offset;
-        let gmem_col_offset = reader.cube_offset;
+        // TODO refactor
+        let is_row_major = true;
+        let (gmem_row_offset, gmem_col_offset) = match is_row_major {
+            true => (k_offset, reader.cube_offset),
+            false => (reader.cube_offset, k_offset),
+        };
 
         Tensor2SmemContinuous::tensor_to_shared_memory(
             &reader.gmem,

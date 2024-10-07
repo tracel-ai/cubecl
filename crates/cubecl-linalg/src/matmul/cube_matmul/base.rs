@@ -34,16 +34,6 @@ impl<
     fn requirements(problem: MatmulProblem) -> Requirements {
         BM::requirements(problem)
     }
-    // fn inquire(m: u32, n: u32, k: u32) -> ComputeRequirements {
-    //     if m <= BM::M && n <= BM::N {
-    //         ComputeRequirements::Require(Requirements {
-    //             num_planes: BM::requirements(m, n, k), // TODO must bypass if in there
-    //             num_cubes: 1,
-    //         })
-    //     } else {
-    //         ComputeRequirements::Unable
-    //     }
-    // }
 
     fn block_infos() -> BlockInfos {
         BM::block_infos()
