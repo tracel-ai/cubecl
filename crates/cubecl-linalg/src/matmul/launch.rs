@@ -10,11 +10,10 @@ use crate::matmul::BlockMatmul;
 
 use super::tile_io::loading::LhsSmemTileReader;
 use super::tile_io::loading::RhsSmemTileReader;
-use super::tile_io::loading::{LhsTensorLoader, RhsTensorLoader};
 use super::tile_io::writing::ArrayWriter;
 use super::tile_io::writing::TensorWriter;
 use super::CubeMatmul;
-use crate::matmul::tile_io::loading::{new_lhs_tensor_loader, new_rhs_tensor_loader};
+use crate::matmul::tile_io::loading::tiled_layout::RowMajorTiling;
 use crate::matmul::tile_io::loading::{LhsArrayLoader, RhsArrayLoader};
 use crate::matmul::tile_io::writing::new_tensor_writer;
 
@@ -38,7 +37,12 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 
 #[cube(launch_unchecked)]
 pub(crate) fn block_matmul_launch<
-    BM: BlockMatmul<Elem, LhsSmemTileReader<Elem>, RhsSmemTileReader<Elem>, ArrayWriter<Elem>>,
+    BM: BlockMatmul<
+        Elem,
+        LhsSmemTileReader<Elem, RowMajorTiling>,
+        RhsSmemTileReader<Elem, RowMajorTiling>,
+        ArrayWriter<Elem>,
+    >,
     Elem: Numeric,
 >(
     lhs_data: Array<Line<Elem>>,
@@ -48,22 +52,12 @@ pub(crate) fn block_matmul_launch<
     #[comptime] block_info: BlockInfos,
 ) {
     let lhs_tile_reader = LhsArrayLoader::load_block(
-        &mut LhsArrayLoader::<Elem> {
-            gmem: lhs_data,
-            smem: SharedMemory::<Line<Elem>>::new(BM::M * BM::K),
-            gmem_layout: layouts.0.runtime(),
-            block_info: block_info.lhs.runtime(),
-        },
+        &mut LhsArrayLoader::new(lhs_data, layouts.0.runtime(), block_info.lhs.runtime()),
         0,
     );
 
     let rhs_tile_reader = RhsArrayLoader::load_block(
-        &mut RhsArrayLoader::<Elem> {
-            gmem: rhs_data,
-            smem: SharedMemory::<Line<Elem>>::new(BM::K * BM::N),
-            gmem_layout: layouts.1.runtime(),
-            block_info: block_info.rhs.runtime(),
-        },
+        &mut RhsArrayLoader::new(rhs_data, layouts.1.runtime(), block_info.rhs.runtime()),
         0,
     );
 
@@ -79,8 +73,10 @@ pub(crate) fn block_matmul_launch<
 
 #[cube(launch_unchecked)]
 pub(crate) fn cube_matmul_launch<
-    CM: CubeMatmul<Elem, LhsTensorLoader<Elem>, RhsTensorLoader<Elem>, TensorWriter<Elem>>,
+    CM: CubeMatmul<Elem, Lhs, Rhs, TensorWriter<Elem>>,
     Elem: Numeric,
+    Lhs: Loader<Line<Elem>, Gmem = Tensor<Line<Elem>>>,
+    Rhs: Loader<Line<Elem>, Gmem = Tensor<Line<Elem>>>,
 >(
     lhs_tensor: Tensor<Line<Elem>>,
     rhs_tensor: Tensor<Line<Elem>>,
@@ -90,8 +86,8 @@ pub(crate) fn cube_matmul_launch<
 ) {
     let k = lhs_tensor.shape(lhs_tensor.rank() - 1);
 
-    let lhs_loader = new_lhs_tensor_loader(lhs_tensor, layouts.0, block_info.lhs);
-    let rhs_loader = new_rhs_tensor_loader(rhs_tensor, layouts.1, block_info.rhs);
+    let lhs_loader = Lhs::new(lhs_tensor, layouts.0, block_info.lhs);
+    let rhs_loader = Rhs::new(rhs_tensor, layouts.1, block_info.rhs);
     let out = new_tensor_writer(out_tensor, block_info.out);
 
     CM::execute(lhs_loader, rhs_loader, out, (0, k), layouts);

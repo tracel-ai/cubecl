@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::{block_info::BlockInfo, matrix_layout::MatrixLayout};
+
 #[cube]
 pub trait TileReader<E: CubePrimitive>: CubeType {
     fn read(
@@ -13,8 +15,10 @@ pub trait TileReader<E: CubePrimitive>: CubeType {
 
 #[cube]
 pub trait Loader<E: CubePrimitive>: CubeType + 'static + Send + Sync {
+    type Gmem: CubeType;
     type TileReader: TileReader<E>;
 
+    fn new(gmem: Self::Gmem, layout: MatrixLayout, block_info: BlockInfo) -> Self;
     fn load_block(loader: &mut Self, k_offset: u32) -> Self::TileReader;
 }
 

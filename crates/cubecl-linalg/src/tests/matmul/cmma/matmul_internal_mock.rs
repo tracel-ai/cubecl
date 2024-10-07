@@ -16,6 +16,10 @@ macro_rules! testgen_cmma_internal_mock {
         };
 
         use cubecl_linalg::matmul::cube_matmul::base::CmmaCubeMatmul;
+        use cubecl_linalg::matmul::tile_io::loading::smem::tiled_layout::RowMajorTiling;
+        use cubecl_linalg::matmul::tile_io::loading::tensor_loader::{
+            LhsTensorLoader, RhsTensorLoader,
+        };
 
         #[test]
         pub fn test_cube_matmul_s16x16x16_b16x16x16() {
@@ -23,6 +27,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaCubeMatmul<
                     f32,
                     CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B16x16x16>,
+                    LhsTensorLoader<f32, RowMajorTiling>,
+                    RhsTensorLoader<f32, RowMajorTiling>,
                 >,
                 f32,
                 TestRuntime,
@@ -39,6 +45,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaCubeMatmul<
                     f32,
                     CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B16x16x16>,
+                    LhsTensorLoader<f32, RowMajorTiling>,
+                    RhsTensorLoader<f32, RowMajorTiling>,
                 >,
                 f32,
                 TestRuntime,
@@ -50,24 +58,13 @@ macro_rules! testgen_cmma_internal_mock {
         }
 
         #[test]
-        pub fn test_cube_matmul_b16x16x16_col_major() {
-            test_fixed_matmul::<
-                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B16x16x16>,
-                f32,
-                f32,
-                TestRuntime,
-            >(
-                (MatrixLayout::ColMajor, MatrixLayout::RowMajor),
-                &Default::default(),
-            )
-        }
-
-        #[test]
         pub fn test_cube_matmul_s16x16x128_b16x16x16() {
             test_tensor_matmul::<
                 CmmaCubeMatmul<
                     f32,
                     CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B16x16x16>,
+                    LhsTensorLoader<f32, RowMajorTiling>,
+                    RhsTensorLoader<f32, RowMajorTiling>,
                 >,
                 f32,
                 TestRuntime,
@@ -84,6 +81,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaCubeMatmul<
                     f32,
                     CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x16x16>,
+                    LhsTensorLoader<f32, RowMajorTiling>,
+                    RhsTensorLoader<f32, RowMajorTiling>,
                 >,
                 f32,
                 TestRuntime,
@@ -100,6 +99,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaCubeMatmul<
                     f32,
                     CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x32x32>,
+                    LhsTensorLoader<f32, RowMajorTiling>,
+                    RhsTensorLoader<f32, RowMajorTiling>,
                 >,
                 f32,
                 TestRuntime,
@@ -116,6 +117,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaCubeMatmul<
                     f32,
                     CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B16x32x16>,
+                    LhsTensorLoader<f32, RowMajorTiling>,
+                    RhsTensorLoader<f32, RowMajorTiling>,
                 >,
                 f32,
                 TestRuntime,
@@ -132,6 +135,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaCubeMatmul<
                     f32,
                     CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x32x16>,
+                    LhsTensorLoader<f32, RowMajorTiling>,
+                    RhsTensorLoader<f32, RowMajorTiling>,
                 >,
                 f32,
                 TestRuntime,

@@ -14,7 +14,7 @@ mod id_map;
 pub(crate) mod launch;
 pub mod matrix_layout;
 pub mod requirements;
-mod tile_io;
+pub mod tile_io;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not
 /// available.

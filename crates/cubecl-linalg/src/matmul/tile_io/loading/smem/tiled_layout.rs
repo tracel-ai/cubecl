@@ -2,7 +2,8 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 #[cube]
-pub(crate) trait TilingOrder {
+/// Its role is to ensure consistency between tensor loader and tile reader
+pub trait TilingOrder: Clone + 'static + Send + Sync {
     fn to_row_col(nth_tile: u32, smem_tile_width: u32, smem_tile_height: u32) -> (u32, u32);
     fn to_nth_tile(
         tile_row: u32,
@@ -12,8 +13,10 @@ pub(crate) trait TilingOrder {
     ) -> u32;
 }
 
-pub(crate) struct RowMajorTiling {}
-pub(crate) struct ColMajorTiling {}
+#[derive(Clone)]
+pub struct RowMajorTiling {}
+#[derive(Clone)]
+pub struct ColMajorTiling {}
 
 #[cube]
 impl TilingOrder for RowMajorTiling {
