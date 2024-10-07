@@ -279,8 +279,33 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 or_else,
                 out,
             } => {
+                let vf_then = then.item().vectorization;
+                let vf_or_else = or_else.item().vectorization;
+                let vf_out = out.item().vectorization;
+                let vf_cond = cond.item().vectorization;
+
+                let vf = usize::max(vf_cond, vf_out);
+                let vf = usize::max(vf, vf_then);
+                let vf = usize::max(vf, vf_or_else);
+
+                let item_out = out.item();
+
                 let out = out.fmt_left();
-                writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
+
+                if vf != vf_then || vf != vf_or_else || vf != vf_cond || vf != vf_out {
+                    writeln!(f, "{out} = {item_out} {{")?;
+                    for i in 0..vf {
+                        let theni = then.index(i);
+                        let or_elsei = or_else.index(i);
+                        let condi = cond.index(i);
+
+                        writeln!(f, "({condi}) ? {theni} : {or_elsei},")?;
+                    }
+
+                    writeln!(f, "}};")
+                } else {
+                    writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
+                }
             }
             Instruction::Switch {
                 value,

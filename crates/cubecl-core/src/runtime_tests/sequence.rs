@@ -2,7 +2,7 @@ use crate as cubecl;
 use cubecl::prelude::*;
 
 #[cube]
-pub fn mapr_loop(output: &mut Array<f32>, map: &mut ComptimeRegistry<u32, i32>) {
+pub fn mapr_loop(output: &mut Array<f32>, map: &mut Registry<u32, i32>) {
     if UNIT_POS != 0 {
         return;
     }
