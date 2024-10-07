@@ -35,6 +35,26 @@ impl MemoryUsage {
     }
 }
 
+fn bytes_format(bytes: usize) -> String {
+    let unit = 1000;
+
+    if bytes < unit {
+        format!("{} B", bytes)
+    } else {
+        let size = bytes as f64;
+        let exp = match size.log(1000.0).floor() as usize {
+            0 => 1,
+            e => e,
+        };
+        let unit_prefix = "KMGTPEZY".as_bytes();
+        format!(
+            "{:.2} {}B",
+            (size / unit.pow(exp as u32) as f64),
+            unit_prefix[exp - 1] as char,
+        )
+    }
+}
+
 impl std::fmt::Display for MemoryUsage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // In the future it'd be nice if MemoryUsage also held some stats about say,
@@ -42,10 +62,10 @@ impl std::fmt::Display for MemoryUsage {
         let usage_percentage = (self.bytes_in_use as f32 / self.bytes_reserved as f32) * 100.0;
         let padding_percentage = (self.bytes_padding as f32 / self.bytes_in_use as f32) * 100.0;
         writeln!(f, "Memory Usage Report:")?;
-        writeln!(f, "  Number of allocations: {}", self.number_allocs)?;
-        writeln!(f, "  Bytes in use: {} bytes", self.bytes_in_use)?;
-        writeln!(f, "  Bytes used for padding: {} bytes", self.bytes_padding)?;
-        writeln!(f, "  Total bytes reserved: {} bytes", self.bytes_reserved)?;
+        writeln!(f, "  Number of allocations: {}", bytes_format(self.number_allocs))?;
+        writeln!(f, "  Bytes in use: {}", bytes_format(self.bytes_in_use))?;
+        writeln!(f, "  Bytes used for padding: {}", bytes_format(self.bytes_padding))?;
+        writeln!(f, "  Total bytes reserved: {}", bytes_format(self.bytes_reserved))?;
         writeln!(f, "  Usage efficiency: {:.2}%", usage_percentage)?;
         writeln!(f, "  Padding overhead: {:.2}%", padding_percentage)
     }
