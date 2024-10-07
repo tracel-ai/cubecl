@@ -1,5 +1,6 @@
 use super::index::SearchIndex;
 use super::{MemoryPoolBinding, MemoryPoolHandle, RingBuffer, SliceHandle, SliceId};
+use crate::memory_management::MemoryLock;
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -180,9 +181,9 @@ impl MemoryPool {
         &mut self,
         storage: &mut Storage,
         size: usize,
-        exclude: &[StorageId],
+        locked: Option<&MemoryLock>,
     ) -> MemoryPoolHandle {
-        let slice = self.get_free_slice(size, exclude);
+        let slice = self.get_free_slice(size, locked);
 
         match slice {
             Some(slice) => MemoryPoolHandle {
@@ -281,7 +282,7 @@ impl MemoryPool {
 
     /// Finds a free slice that can contain the given size
     /// Returns the chunk's id and size.
-    fn get_free_slice(&mut self, size: usize, exclude: &[StorageId]) -> Option<SliceHandle> {
+    fn get_free_slice(&mut self, size: usize, locked: Option<&MemoryLock>) -> Option<SliceHandle> {
         if size < MIN_SIZE_NEEDED_TO_OFFSET {
             return None;
         }
@@ -293,7 +294,7 @@ impl MemoryPool {
             effective_size,
             &mut self.chunks,
             &mut self.slices,
-            exclude,
+            locked,
         )?;
 
         let slice = self.slices.get_mut(&slice_id).unwrap();

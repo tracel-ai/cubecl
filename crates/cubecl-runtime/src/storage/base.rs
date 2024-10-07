@@ -1,4 +1,7 @@
-use crate::storage_id_type;
+use crate::{
+    server::{Binding, ComputeServer},
+    storage_id_type,
+};
 
 // This ID is used to map a handle to its actual data.
 storage_id_type!(StorageId);
@@ -96,4 +99,25 @@ pub trait ComputeStorage: Send {
 
     /// Deallocates the memory pointed by the given storage id.
     fn dealloc(&mut self, id: StorageId);
+}
+
+/// Access to the underlying resource for a given binding.
+#[derive(new)]
+pub struct BindingResource<Server: ComputeServer> {
+    // This binding is here just to keep the underlying allocation alive.
+    // If the underlying allocation becomes invalid, someone else might
+    // allocate into this resource which could lead to bad behaviour.
+    #[allow(unused)]
+    binding: Binding<Server>,
+    resource: <Server::Storage as ComputeStorage>::Resource,
+}
+
+impl<Server: ComputeServer> BindingResource<Server> {
+    /// access the underlying resource. Note: The resource might be bigger
+    /// than just the original allocation for the binding. Only the part
+    /// for the original binding is guaranteed to remain, other parts
+    /// of the resource *will* be re-used.
+    pub fn resource(&self) -> &<Server::Storage as ComputeStorage>::Resource {
+        &self.resource
+    }
 }

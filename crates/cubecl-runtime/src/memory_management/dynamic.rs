@@ -1,8 +1,11 @@
-use super::memory_pool::{
-    MemoryExtensionStrategy, MemoryPool, MemoryPoolBinding, MemoryPoolHandle, RoundingStrategy,
-    SmallMemoryPool,
+use super::{
+    memory_pool::{
+        MemoryExtensionStrategy, MemoryPool, MemoryPoolBinding, MemoryPoolHandle, RoundingStrategy,
+        SmallMemoryPool,
+    },
+    MemoryLock,
 };
-use crate::storage::{ComputeStorage, StorageHandle, StorageId};
+use crate::storage::{ComputeStorage, StorageHandle};
 use alloc::vec::Vec;
 
 use super::MemoryManagement;
@@ -139,17 +142,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for DynamicMemoryManagem
         panic!("No handle found in memory pools");
     }
 
-    fn reserve(&mut self, size: usize, exclude: &[StorageId]) -> Self::Handle {
+    fn reserve(&mut self, size: usize, locked: Option<&MemoryLock>) -> Self::Handle {
         if size <= self.min_chunk_alignment_offset {
             return self
                 .small_memory_pool
-                .reserve(&mut self.storage, size, exclude);
+                .reserve(&mut self.storage, size, locked);
         }
 
         for (index, option) in self.options.iter().enumerate() {
             if size <= option.slice_max_size {
                 let pool = &mut self.pools[index];
-                return pool.reserve(&mut self.storage, size, exclude);
+                return pool.reserve(&mut self.storage, size, locked);
             }
         }
 
