@@ -1,6 +1,7 @@
 use super::{SliceBinding, SliceHandle, SliceId};
+use crate::memory_management::MemoryLock;
 use crate::{
-    memory_management::{MemoryLock, MemoryUsage},
+    memory_management::MemoryUsage,
     storage::{ComputeStorage, StorageHandle}
 };
 

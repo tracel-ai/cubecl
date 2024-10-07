@@ -1,11 +1,8 @@
 use super::{
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool},
-    MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool}, MemoryConfiguration, MemoryDeviceProperties, MemoryLock, MemoryManagement, MemoryPoolOptions, MemoryUsage, PoolType
 };
-use crate::storage::{ComputeStorage, StorageHandle, StorageId};
+use crate::storage::{ComputeStorage, StorageHandle};
 use alloc::vec::Vec;
-
-use super::{memory_lock::MemoryLock, memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool}, MemoryConfiguration, MemoryDeviceProperties, MemoryManagement, MemoryPoolOptions, MemoryUsage, PoolType};
 
 enum DynamicPool {
     Sliced(SlicedPool),

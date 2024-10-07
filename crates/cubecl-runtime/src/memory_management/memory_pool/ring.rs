@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
-use crate::storage::StorageId;
+use crate::{memory_management::MemoryLock, storage::StorageId};
 
 use super::{MemoryPage, Slice, SliceId};
 
@@ -36,7 +36,7 @@ impl RingBuffer {
         size: usize,
         pages: &mut HashMap<StorageId, MemoryPage>,
         slices: &mut HashMap<SliceId, Slice>,
-        exclude: &[StorageId],
+        locked: Option<&MemoryLock>,
     ) -> Option<SliceId> {
         let max_second = self.cursor_chunk;
         let result =
@@ -101,7 +101,7 @@ impl RingBuffer {
         pages: &mut HashMap<StorageId, MemoryPage>,
         slices: &mut HashMap<SliceId, Slice>,
         max_cursor_position: usize,
-        exclude: &[StorageId],
+        locked: Option<&MemoryLock>,
     ) -> Option<SliceId> {
         let start = self.cursor_chunk;
         let end = usize::min(self.queue.len(), max_cursor_position);
@@ -113,8 +113,10 @@ impl RingBuffer {
             }
 
             if let Some(id) = self.queue.get(chunk_index) {
-                if exclude.contains(id) {
-                    continue;
+                if let Some(locked) = locked.as_ref() {
+                    if locked.is_locked(id) {
+                        continue;
+                    }
                 }
 
                 let chunk = pages.get_mut(id).unwrap();
@@ -154,7 +156,7 @@ mod tests {
         let mut chunks = HashMap::from([(storage_id, chunk)]);
 
         let slice = ring
-            .find_free_slice(50, &mut chunks, &mut slices, &[])
+            .find_free_slice(50, &mut chunks, &mut slices, None)
             .unwrap();
 
         assert_eq!(slice, slice_ids[0]);
@@ -173,7 +175,7 @@ mod tests {
         let mut chunks = HashMap::from([(storage_id, chunk)]);
 
         let slice = ring
-            .find_free_slice(150, &mut chunks, &mut slices, &[])
+            .find_free_slice(150, &mut chunks, &mut slices, None)
             .unwrap();
 
         assert_eq!(slice, slice_ids[0]);
@@ -202,13 +204,13 @@ mod tests {
         let _slice_3 = slices.get(&slice_ids[3]).unwrap().handle.clone();
 
         let slice = ring
-            .find_free_slice(200, &mut chunks, &mut slices, &[])
+            .find_free_slice(200, &mut chunks, &mut slices, None)
             .unwrap();
 
         assert_eq!(slice, slice_ids[2]);
 
         let slice = ring
-            .find_free_slice(100, &mut chunks, &mut slices, &[])
+            .find_free_slice(100, &mut chunks, &mut slices, None)
             .unwrap();
 
         assert_eq!(slice, slice_ids[0]);
@@ -227,7 +229,7 @@ mod tests {
         let _slice_1 = slices.get(&slice_ids[0]).unwrap().handle.clone();
 
         let slice = ring
-            .find_free_slice(200, &mut chunks, &mut slices, &[])
+            .find_free_slice(200, &mut chunks, &mut slices, None)
             .unwrap();
 
         assert_eq!(slice, slice_ids[1]);
@@ -246,7 +248,7 @@ mod tests {
         let mut chunks = HashMap::from([(storage_id, chunk)]);
 
         let slice = ring
-            .find_free_slice(250, &mut chunks, &mut slices, &[])
+            .find_free_slice(250, &mut chunks, &mut slices, None)
             .unwrap();
 
         assert_eq!(slice, slice_ids[0]);
@@ -279,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn excludes_excluded_storage() {
+    fn excludes_locked_storage() {
         let mut ring = RingBuffer::new(1);
 
         let (storage_id_1, mut slice_ids, mut slices, chunk_1) = new_chunk(&[100, 100]);
@@ -294,12 +296,15 @@ mod tests {
         slices.extend(slices_2);
 
         let slice = ring
-            .find_free_slice(100, &mut chunks, &mut slices, &[])
+            .find_free_slice(100, &mut chunks, &mut slices, None)
             .unwrap();
         assert_eq!(slice, slice_ids[0]);
 
+        let mut locked = MemoryLock::default();
+        locked.add_locked(storage_id_1);
+
         let slice = ring
-            .find_free_slice(100, &mut chunks, &mut slices, &[storage_id_1])
+            .find_free_slice(100, &mut chunks, &mut slices, Some(&locked))
             .unwrap();
         assert_eq!(slice, slice_ids[2]);
     }

@@ -1,6 +1,6 @@
 use crate::{
     memory_management::{MemoryHandle, MemoryManagement, MemoryUsage},
-    storage::ComputeStorage,
+    storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
 use alloc::vec::Vec;
@@ -30,10 +30,7 @@ where
     fn read(&mut self, binding: Binding<Self>) -> Reader;
 
     /// Given a resource handle, returns the storage resource.
-    fn get_resource(
-        &mut self,
-        binding: Binding<Self>,
-    ) -> <Self::Storage as ComputeStorage>::Resource;
+    fn get_resource(&mut self, binding: Binding<Self>) -> BindingResource<Self>;
 
     /// Given a resource as bytes, stores it and returns the memory handle.
     fn create(&mut self, data: &[u8]) -> Handle<Self>;

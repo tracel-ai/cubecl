@@ -10,6 +10,7 @@ use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
 use cubecl_runtime::debug::DebugLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
+use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::ExecutionMode;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -101,7 +102,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
 
     fn empty(&mut self, size: usize) -> server::Handle<Self> {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size, &[]);
+        let handle = ctx.memory_management.reserve(size, None);
         server::Handle::new(handle, None, None)
     }
 
@@ -194,13 +195,16 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         }
     }
 
-    fn get_resource(
-        &mut self,
-        binding: server::Binding<Self>,
-    ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
+    fn get_resource(&mut self, binding: server::Binding<Self>) -> BindingResource<Self> {
         let ctx = self.get_context();
-        ctx.memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+        BindingResource::new(
+            binding.clone(),
+            ctx.memory_management.get_resource(
+                binding.memory,
+                binding.offset_start,
+                binding.offset_end,
+            ),
+        )
     }
 
     fn memory_usage(&self) -> MemoryUsage {

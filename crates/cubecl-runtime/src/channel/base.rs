@@ -1,6 +1,6 @@
 use crate::{
     server::{Binding, ComputeServer, Handle},
-    storage::ComputeStorage,
+    storage::BindingResource,
     ExecutionMode,
 };
 use alloc::vec::Vec;
@@ -13,10 +13,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     fn read(&self, binding: Binding<Server>) -> Reader;
 
     /// Given a resource handle, return the storage resource.
-    fn get_resource(
-        &self,
-        binding: Binding<Server>,
-    ) -> <Server::Storage as ComputeStorage>::Resource;
+    fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server>;
 
     /// Given a resource as bytes, stores it and returns the resource handle
     fn create(&self, data: &[u8]) -> Handle<Server>;

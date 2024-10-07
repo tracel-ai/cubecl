@@ -94,7 +94,7 @@ pub trait MemoryManagement<Storage: ComputeStorage>: Send + core::fmt::Debug {
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
-    fn reserve(&mut self, size: usize, exclude: &[StorageId]) -> Self::Handle;
+    fn reserve(&mut self, size: usize, locked: Option<&MemoryLock>) -> Self::Handle;
 
     /// Bypass the memory allocation algorithm to allocate data directly.
     ///
