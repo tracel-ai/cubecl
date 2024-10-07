@@ -7,7 +7,7 @@ use alloc::sync::Arc;
 use cubecl_core::{Feature, Runtime};
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
-use cubecl_runtime::{memory_management, ClientProperties};
+use cubecl_runtime::{memory_management, DeviceProperties};
 use wgpu::DeviceDescriptor;
 
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
@@ -172,11 +172,11 @@ pub fn create_client(
     let channel = MutexComputeChannel::new(server);
 
     let features = adapter.features();
-    let mut client_props = ClientProperties::new(&[], mem_props);
+    let mut device_props = DeviceProperties::new(&[], mem_props);
     if features.contains(wgpu::Features::SUBGROUP) {
-        client_props.register_feature(Feature::Subcube);
+        device_props.register_feature(Feature::Subcube);
     }
-    ComputeClient::new(channel, client_props)
+    ComputeClient::new(channel, device_props)
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).

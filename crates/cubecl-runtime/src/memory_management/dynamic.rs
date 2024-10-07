@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 enum DynamicPool {
     Sliced(SlicedPool),
-    Simple(ExclusiveMemoryPool),
+    Exclusive(ExclusiveMemoryPool),
 }
 
 // Bin sizes as per https://github.com/sebbbi/OffsetAllocator/blob/main/README.md
@@ -39,7 +39,7 @@ impl MemoryPool for DynamicPool {
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         match self {
             DynamicPool::Sliced(m) => m.get(binding),
-            DynamicPool::Simple(m) => m.get(binding),
+            DynamicPool::Exclusive(m) => m.get(binding),
         }
     }
 
@@ -51,7 +51,7 @@ impl MemoryPool for DynamicPool {
     ) -> SliceHandle {
         match self {
             DynamicPool::Sliced(m) => m.reserve(storage, size, locked),
-            DynamicPool::Simple(m) => m.reserve(storage, size, locked),
+            DynamicPool::Exclusive(m) => m.reserve(storage, size, locked),
         }
     }
 
@@ -62,21 +62,21 @@ impl MemoryPool for DynamicPool {
     ) -> SliceHandle {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
-            DynamicPool::Simple(m) => m.alloc(storage, size),
+            DynamicPool::Exclusive(m) => m.alloc(storage, size),
         }
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
         match self {
             DynamicPool::Sliced(m) => m.get_memory_usage(),
-            DynamicPool::Simple(m) => m.get_memory_usage(),
+            DynamicPool::Exclusive(m) => m.get_memory_usage(),
         }
     }
 
     fn max_alloc_size(&self) -> usize {
         match self {
             DynamicPool::Sliced(m) => m.max_alloc_size(),
-            DynamicPool::Simple(m) => m.max_alloc_size(),
+            DynamicPool::Exclusive(m) => m.max_alloc_size(),
         }
     }
 }
@@ -182,7 +182,7 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
                         max_slice,
                         memory_alignment,
                     )),
-                    PoolType::ExclusivePages => DynamicPool::Simple(ExclusiveMemoryPool::new(
+                    PoolType::ExclusivePages => DynamicPool::Exclusive(ExclusiveMemoryPool::new(
                         option.page_size,
                         memory_alignment,
                     )),

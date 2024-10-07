@@ -10,7 +10,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties},
-    ClientProperties, ComputeRuntime,
+    DeviceProperties, ComputeRuntime,
 };
 use cubecl_spirv::{GLCompute, SpirvCompiler};
 use cubecl_wgpu::{
@@ -102,19 +102,19 @@ pub fn create_client(
             }
         })
     };
-    let mut client_props = ClientProperties::new(&[], mem_props);
+    let mut device_props = DeviceProperties::new(&[], mem_props);
 
     if features.contains(wgpu::Features::SUBGROUP) {
-        client_props.register_feature(Feature::Subcube);
+        device_props.register_feature(Feature::Subcube);
     }
     if has_cmma {
-        register_cmma_features(&mut client_props);
+        register_cmma_features(&mut device_props);
     }
 
-    ComputeClient::new(channel, client_props)
+    ComputeClient::new(channel, device_props)
 }
 
-fn register_cmma_features(features: &mut ClientProperties<Feature>) {
+fn register_cmma_features(properties: &mut DeviceProperties<Feature>) {
     // Types fully supported.
     for (a, b, c) in [
         (
@@ -133,7 +133,7 @@ fn register_cmma_features(features: &mut ClientProperties<Feature>) {
             Elem::Float(FloatKind::F32),
         ),
     ] {
-        features.register_feature(Feature::Cmma {
+        properties.register_feature(Feature::Cmma {
             a,
             b,
             c,
@@ -141,7 +141,7 @@ fn register_cmma_features(features: &mut ClientProperties<Feature>) {
             k: 16,
             n: 16,
         });
-        features.register_feature(Feature::Cmma {
+        properties.register_feature(Feature::Cmma {
             a,
             b,
             c,
@@ -149,7 +149,7 @@ fn register_cmma_features(features: &mut ClientProperties<Feature>) {
             k: 16,
             n: 8,
         });
-        features.register_feature(Feature::Cmma {
+        properties.register_feature(Feature::Cmma {
             a,
             b,
             c,

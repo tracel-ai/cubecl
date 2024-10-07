@@ -7,7 +7,7 @@ use cubecl_runtime::memory_management::simple::{
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::{AutotuneOperationSet, LocalTuner};
-use cubecl_runtime::{ClientProperties, ComputeRuntime};
+use cubecl_runtime::{DeviceProperties, ComputeRuntime};
 
 /// The dummy device.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -38,7 +38,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         max_page_size: 1024 * 1024 * 512,
         alignment: 32,
     };
-    ComputeClient::new(channel, ClientProperties::new(&[], mem_properties))
+    ComputeClient::new(channel, DeviceProperties::new(&[], mem_properties))
 }
 
 pub fn client(device: &DummyDevice) -> DummyClient {

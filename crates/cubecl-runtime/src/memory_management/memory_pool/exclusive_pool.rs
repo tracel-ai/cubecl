@@ -11,12 +11,6 @@ use hashbrown::HashMap;
 /// - Only one slice is supported per page, due to the limitations in WGPU where each buffer should only bound with
 ///   either read only or read_write slices but not a mix of both.
 /// - The pool uses a ring buffer to efficiently manage and reuse pages.
-///
-/// Fields:
-/// - `pages`: A hashmap storing the allocated pages by their IDs.
-/// - `slices`: A hashmap storing the slices by their IDs.
-/// - `ring_buffer`: A vector used as a ring buffer to manage page reuse.
-/// - `index`: The current position in the ring buffer.
 pub struct ExclusiveMemoryPool {
     pages: HashMap<StorageId, MemoryPage>,
     slices: HashMap<SliceId, Slice>,

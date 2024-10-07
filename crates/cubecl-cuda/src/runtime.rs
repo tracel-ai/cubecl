@@ -8,7 +8,7 @@ use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties},
-    ClientProperties, ComputeRuntime,
+    DeviceProperties, ComputeRuntime,
 };
 
 use crate::{
@@ -34,8 +34,8 @@ static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::ne
 
 const MEMORY_OFFSET_ALIGNMENT: usize = 32;
 
-/// Initialize a client on the given device with the given options. This function is useful to configure the runtime options
-/// or to pick a different graphics API. On wasm, it is necessary to use [`init_async`] instead.
+/// Initialize a client on the given device with the given options. This function is useful to create a
+/// client with custom runtime options.
 pub fn init(device: &CudaDevice, options: RuntimeOptions) {
     let client = create_client(device, options);
     RUNTIME.register(device, client)
@@ -87,10 +87,10 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     );
     let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
     let mut server = CudaServer::new(cuda_ctx);
-    let mut client_props = ClientProperties::new(&[Feature::Subcube], mem_properties);
-    register_wmma_features(&mut client_props, server.arch_version());
+    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    register_wmma_features(&mut device_props, server.arch_version());
 
-    ComputeClient::new(MutexComputeChannel::new(server), client_props)
+    ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }
 
 impl Runtime for CudaRuntime {
@@ -119,7 +119,7 @@ impl Runtime for CudaRuntime {
     }
 }
 
-fn register_wmma_features(client_props: &mut ClientProperties<Feature>, arch: u32) {
+fn register_wmma_features(properties: &mut DeviceProperties<Feature>, arch: u32) {
     let wmma_minimum_version = 70;
     let mut wmma = false;
 
@@ -146,7 +146,7 @@ fn register_wmma_features(client_props: &mut ClientProperties<Feature>, arch: u3
                 Elem::Float(FloatKind::F32),
             ),
         ] {
-            client_props.register_feature(Feature::Cmma {
+            properties.register_feature(Feature::Cmma {
                 a,
                 b,
                 c,
@@ -154,7 +154,7 @@ fn register_wmma_features(client_props: &mut ClientProperties<Feature>, arch: u3
                 k: 16,
                 n: 16,
             });
-            client_props.register_feature(Feature::Cmma {
+            properties.register_feature(Feature::Cmma {
                 a,
                 b,
                 c,
@@ -162,7 +162,7 @@ fn register_wmma_features(client_props: &mut ClientProperties<Feature>, arch: u3
                 k: 16,
                 n: 8,
             });
-            client_props.register_feature(Feature::Cmma {
+            properties.register_feature(Feature::Cmma {
                 a,
                 b,
                 c,

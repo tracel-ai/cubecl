@@ -6,6 +6,10 @@ use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilizatio
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
+/// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
+///
+/// - Each 'page' allocation will contain a number of sub slices.
+/// - The pool uses a ring buffer to efficiently manage and reuse pages.
 pub(crate) struct SlicedPool {
     pages: HashMap<StorageId, MemoryPage>,
     slices: HashMap<SliceId, Slice>,

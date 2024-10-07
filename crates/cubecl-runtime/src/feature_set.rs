@@ -1,14 +1,15 @@
 use crate::memory_management::MemoryDeviceProperties;
 use std::collections::BTreeSet;
 
-/// The set of [features](Feature) supported by a [runtime](Runtime).
+/// Properties of what the device can do, like what [features](Feature) are 
+/// supported by it and what its memory properties are.
 #[derive(Debug)]
-pub struct ClientProperties<Feature: Ord + Copy> {
+pub struct DeviceProperties<Feature: Ord + Copy> {
     set: alloc::collections::BTreeSet<Feature>,
     memory: MemoryDeviceProperties,
 }
 
-impl<Feature: Ord + Copy> ClientProperties<Feature> {
+impl<Feature: Ord + Copy> DeviceProperties<Feature> {
     /// Create a new feature set with the given features and memory properties.
     pub fn new(features: &[Feature], memory_props: MemoryDeviceProperties) -> Self {
         let mut set = BTreeSet::new();
@@ -16,7 +17,7 @@ impl<Feature: Ord + Copy> ClientProperties<Feature> {
             set.insert(*feature);
         }
 
-        ClientProperties {
+        DeviceProperties {
             set,
             memory: memory_props,
         }
