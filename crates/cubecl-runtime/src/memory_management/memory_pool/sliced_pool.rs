@@ -184,12 +184,9 @@ impl SlicedPool {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
-        let slice_id = self.ring.find_free_slice(
-            effective_size,
-            &mut self.pages,
-            &mut self.slices,
-            locked,
-        )?;
+        let slice_id =
+            self.ring
+                .find_free_slice(effective_size, &mut self.pages, &mut self.slices, locked)?;
 
         let slice = self.slices.get_mut(&slice_id).unwrap();
         let old_slice_size = slice.effective_size();

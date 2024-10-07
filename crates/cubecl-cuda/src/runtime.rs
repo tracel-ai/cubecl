@@ -8,7 +8,7 @@ use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties},
-    DeviceProperties, ComputeRuntime,
+    ComputeRuntime, DeviceProperties,
 };
 
 use crate::{

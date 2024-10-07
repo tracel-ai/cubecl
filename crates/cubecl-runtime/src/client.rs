@@ -3,7 +3,6 @@ use crate::{
     memory_management::MemoryUsage,
     server::{Binding, ComputeServer, Handle},
     storage::BindingResource,
-
     DeviceProperties, ExecutionMode,
 };
 use alloc::sync::Arc;

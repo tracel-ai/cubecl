@@ -1,7 +1,7 @@
 use crate::memory_management::MemoryDeviceProperties;
 use std::collections::BTreeSet;
 
-/// Properties of what the device can do, like what [features](Feature) are 
+/// Properties of what the device can do, like what [features](Feature) are
 /// supported by it and what its memory properties are.
 #[derive(Debug)]
 pub struct DeviceProperties<Feature: Ord + Copy> {

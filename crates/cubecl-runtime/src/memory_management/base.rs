@@ -1,6 +1,6 @@
-use core::fmt::Debug;
-use crate::storage::{ComputeStorage, StorageHandle};
 use super::MemoryLock;
+use crate::storage::{ComputeStorage, StorageHandle};
+use core::fmt::Debug;
 
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
@@ -62,10 +62,22 @@ impl std::fmt::Display for MemoryUsage {
         let usage_percentage = (self.bytes_in_use as f32 / self.bytes_reserved as f32) * 100.0;
         let padding_percentage = (self.bytes_padding as f32 / self.bytes_in_use as f32) * 100.0;
         writeln!(f, "Memory Usage Report:")?;
-        writeln!(f, "  Number of allocations: {}", bytes_format(self.number_allocs))?;
+        writeln!(
+            f,
+            "  Number of allocations: {}",
+            bytes_format(self.number_allocs)
+        )?;
         writeln!(f, "  Bytes in use: {}", bytes_format(self.bytes_in_use))?;
-        writeln!(f, "  Bytes used for padding: {}", bytes_format(self.bytes_padding))?;
-        writeln!(f, "  Total bytes reserved: {}", bytes_format(self.bytes_reserved))?;
+        writeln!(
+            f,
+            "  Bytes used for padding: {}",
+            bytes_format(self.bytes_padding)
+        )?;
+        writeln!(
+            f,
+            "  Total bytes reserved: {}",
+            bytes_format(self.bytes_reserved)
+        )?;
         writeln!(f, "  Usage efficiency: {:.2}%", usage_percentage)?;
         writeln!(f, "  Padding overhead: {:.2}%", padding_percentage)
     }

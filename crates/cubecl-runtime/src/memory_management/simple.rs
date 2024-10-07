@@ -10,7 +10,7 @@ use std::time;
 #[cfg(all(target_family = "wasm", feature = "std"))]
 use web_time as time;
 
-use super::{MemoryHandle, MemoryManagement, MemoryLock};
+use super::{MemoryHandle, MemoryLock, MemoryManagement};
 
 // The ChunkId allows to keep track of how many references there are to a specific chunk.
 memory_id_type!(ChunkId, ChunkHandle, ChunkBinding);

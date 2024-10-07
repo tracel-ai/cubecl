@@ -1,5 +1,7 @@
 use super::{
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool}, MemoryConfiguration, MemoryDeviceProperties, MemoryLock, MemoryManagement, MemoryPoolOptions, MemoryUsage, PoolType
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool},
+    MemoryConfiguration, MemoryDeviceProperties, MemoryLock, MemoryManagement, MemoryPoolOptions,
+    MemoryUsage, PoolType,
 };
 use crate::storage::{ComputeStorage, StorageHandle};
 use alloc::vec::Vec;

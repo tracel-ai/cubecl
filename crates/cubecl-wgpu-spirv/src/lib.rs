@@ -10,7 +10,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties},
-    DeviceProperties, ComputeRuntime,
+    ComputeRuntime, DeviceProperties,
 };
 use cubecl_spirv::{GLCompute, SpirvCompiler};
 use cubecl_wgpu::{
