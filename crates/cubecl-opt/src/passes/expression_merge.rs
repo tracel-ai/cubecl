@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use cubecl_core::ir::{Branch, Metadata, Operation, Operator, UnaryOperator, Variable};
+use cubecl_core::ir::{Branch, Item, Metadata, Operation, Operator, UnaryOperator, Variable};
 use stable_vec::StableVec;
 
 use crate::{visit_noop, AtomicCounter, Optimizer};
@@ -26,7 +26,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
             if let Operation::Operator(Operator::Assign(op)) = op {
                 if op.input.is_immutable()
                     && op.out.is_immutable()
-                    && op.input.item() == op.out.item()
+                    && item_compatible(op.input.item(), op.out.item())
                 {
                     opt.visit_all(
                         |_, var| {
@@ -44,6 +44,12 @@ fn search_loop(opt: &mut Optimizer) -> bool {
     }
 
     false
+}
+
+fn item_compatible(lhs: Item, rhs: Item) -> bool {
+    let vectorization_lhs = lhs.vectorization.map(|it| it.get()).unwrap_or(1);
+    let vectorization_rhs = rhs.vectorization.map(|it| it.get()).unwrap_or(1);
+    vectorization_lhs == vectorization_rhs && lhs.elem() == rhs.elem()
 }
 
 pub struct MergeSameExpressions;
