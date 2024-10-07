@@ -24,12 +24,9 @@ impl Display for Program {
             let id = node.index();
             let bb = &self[node];
             writeln!(f, "bb{id} {{")?;
-            let live_vars = bb
-                .liveness
-                .iter()
-                .filter(|it| *it.1)
-                .map(|it| format!("local({}, {})", it.0 .0, it.0 .1))
-                .collect::<Vec<_>>();
+            let live_vars = bb.live_vars.iter();
+            let live_vars = live_vars.map(|it| format!("local({}, {})", it.0, it.1));
+            let live_vars = live_vars.collect::<Vec<_>>();
             writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;
 
             for phi in bb.phi_nodes.borrow().iter() {

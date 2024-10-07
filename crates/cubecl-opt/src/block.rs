@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use cubecl_core::ir::{Operation, Variable};
 use petgraph::graph::NodeIndex;
@@ -14,7 +10,7 @@ use crate::{version::PhiInstruction, ControlFlow, Optimizer, Program};
 pub struct BasicBlock {
     pub phi_nodes: Rc<RefCell<Vec<PhiInstruction>>>,
     pub(crate) writes: HashSet<(u16, u8)>,
-    pub(crate) liveness: HashMap<(u16, u8), bool>,
+    pub(crate) live_vars: HashSet<(u16, u8)>,
     pub(crate) dom_frontiers: HashSet<NodeIndex>,
     pub ops: Rc<RefCell<StableVec<Operation>>>,
     pub control_flow: Rc<RefCell<ControlFlow>>,
@@ -52,7 +48,6 @@ impl Optimizer {
 
 impl Program {
     pub fn is_dead(&self, node: NodeIndex, var: (u16, u8)) -> bool {
-        let maybe_live = self[node].liveness.get(&var).copied().unwrap_or(false);
-        !maybe_live
+        !self[node].live_vars.contains(&var)
     }
 }

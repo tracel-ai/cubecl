@@ -1,108 +1,93 @@
-use std::{
-    collections::HashSet,
-    sync::atomic::{AtomicBool, Ordering},
+use std::collections::{HashMap, HashSet};
+
+use petgraph::{
+    graph::{EdgeIndex, NodeIndex},
+    visit::EdgeRef,
+    Direction,
 };
 
-use petgraph::{graph::NodeIndex, visit::EdgeRef, Direction};
-
 use crate::{visit_noop, Optimizer};
+
+#[derive(Clone)]
+struct BlockSets {
+    gen: HashSet<(u16, u8)>,
+    kill: HashSet<(u16, u8)>,
+}
+
+struct State {
+    visited_edges: HashSet<EdgeIndex>,
+    block_sets: HashMap<NodeIndex, BlockSets>,
+}
 
 impl Optimizer {
     /// Do a conservative block level liveness analysis
     pub fn analyze_liveness(&mut self) {
-        let vars = self.program.variables.clone();
-        for var in vars.keys().copied() {
-            self.analyze_var_liveness(var);
+        let mut state = State {
+            visited_edges: HashSet::new(),
+            block_sets: HashMap::new(),
+        };
+        self.analyze_block(self.ret, &mut state);
+    }
+
+    fn analyze_block(&mut self, block: NodeIndex, state: &mut State) {
+        let BlockSets { gen, kill } = self.block_sets(block, state);
+
+        let mut live_vars = gen.clone();
+
+        for successor in self.sucessors(block) {
+            let successor = &self.program[successor].live_vars;
+            live_vars.extend(successor.difference(kill));
         }
-    }
 
-    fn analyze_var_liveness(&mut self, var: (u16, u8)) {
-        let mut visited_edges = HashSet::new();
-        let start = self.ret;
-        self.analyze_block_liveness(start, var, &mut visited_edges);
-    }
-
-    fn analyze_block_liveness(
-        &mut self,
-        block: NodeIndex,
-        var_id: (u16, u8),
-        visited_edges: &mut HashSet<u32>,
-    ) {
-        let successors = self.sucessors(block).iter().any(|successor| {
-            self.program[*successor]
-                .liveness
-                .get(&var_id)
-                .copied()
-                .unwrap_or(false)
-        });
-        let here = self.block_uses_var(block, var_id, successors);
-
-        if self.program[block]
-            .liveness
-            .get(&var_id)
-            .copied()
-            .unwrap_or(false)
-            != here
-        {
+        if live_vars != self.program[block].live_vars {
             let incoming = self
                 .program
                 .edges_directed(block, Direction::Incoming)
-                .map(|it| it.weight());
+                .map(|it| it.id());
             for edge in incoming {
-                visited_edges.remove(edge);
+                state.visited_edges.remove(&edge);
             }
         }
+        self.program[block].live_vars = live_vars;
 
-        self.program[block].liveness.insert(var_id, here);
-        let edges = self
-            .program
-            .edges_directed(block, Direction::Incoming)
-            .filter(|edge| {
-                let visited = visited_edges.contains(edge.weight());
-                visited_edges.insert(*edge.weight());
-                !visited
-            })
-            .map(|edge| edge.source())
-            .collect::<Vec<_>>();
-        for predecessor in edges {
-            self.analyze_block_liveness(predecessor, var_id, visited_edges);
+        let edges = self.program.edges_directed(block, Direction::Incoming);
+        let edges = edges.filter(|edge| state.visited_edges.insert(edge.id()));
+        let predecessors = edges.map(|edge| edge.source()).collect::<Vec<_>>();
+        for predecessor in predecessors {
+            self.analyze_block(predecessor, state);
         }
     }
 
-    fn block_uses_var(
-        &mut self,
-        block: NodeIndex,
-        var_id: (u16, u8),
-        successor_live: bool,
-    ) -> bool {
-        let live = AtomicBool::new(successor_live);
+    fn block_sets<'a>(&mut self, block: NodeIndex, state: &'a mut State) -> &'a BlockSets {
+        let block_sets = state.block_sets.entry(block);
+        block_sets.or_insert_with(|| self.calculate_block_sets(block))
+    }
+
+    fn calculate_block_sets(&mut self, block: NodeIndex) -> BlockSets {
+        let mut gen = HashSet::new();
+        let mut kill = HashSet::new();
+
         let ops = self.program[block].ops.clone();
 
         for op in ops.borrow_mut().values_mut().rev() {
             // Reads must be tracked after writes
             self.visit_operation(op, visit_noop, |opt, var| {
-                if opt
-                    .local_variable_id(var)
-                    .map(|id| id == var_id)
-                    .unwrap_or(false)
-                {
-                    live.store(false, Ordering::Release);
+                if let Some(id) = opt.local_variable_id(var) {
+                    kill.insert(id);
+                    gen.remove(&id);
                 }
             });
             self.visit_operation(
                 op,
                 |opt, var| {
-                    if opt
-                        .local_variable_id(var)
-                        .map(|id| id == var_id)
-                        .unwrap_or(false)
-                    {
-                        live.store(true, Ordering::Release);
+                    if let Some(id) = opt.local_variable_id(var) {
+                        gen.insert(id);
                     }
                 },
                 visit_noop,
             );
         }
-        live.load(Ordering::Acquire)
+
+        BlockSets { gen, kill }
     }
 }
