@@ -70,6 +70,8 @@ pub enum Operator {
     Assign(UnaryOperator),
     Modulo(BinaryOperator),
     Index(BinaryOperator),
+    Copy(CopyOperator),
+    CopyBulk(CopyBulkOperator),
     Slice(SliceOperator),
     UncheckedIndex(BinaryOperator),
     IndexAssign(BinaryOperator),
@@ -140,6 +142,16 @@ impl Display for Operator {
             Operator::Assign(op) => write!(f, "{} = {}", op.out, op.input),
             Operator::Modulo(op) => write!(f, "{} = {} % {}", op.out, op.lhs, op.rhs),
             Operator::Index(op) => write!(f, "{} = {}[{}]", op.out, op.lhs, op.rhs),
+            Operator::Copy(op) => write!(
+                f,
+                "{}[{}] = {}[{}]",
+                op.out, op.out_index, op.input, op.in_index
+            ),
+            Operator::CopyBulk(op) => write!(
+                f,
+                "memcpy({}[{}], {}[{}], {})",
+                op.out, op.input, op.in_index, op.out_index, op.len
+            ),
             Operator::Slice(op) => write!(f, "{} = {}[{}..{}]", op.out, op.input, op.start, op.end),
             Operator::UncheckedIndex(op) => write!(f, "{} = unsafe {}[{}]", op.out, op.lhs, op.rhs),
             Operator::IndexAssign(op) => write!(f, "{}[{}] = {}", op.out, op.lhs, op.rhs),
@@ -249,6 +261,25 @@ pub struct InitOperator {
 pub struct LineInitOperator {
     pub out: Variable,
     pub inputs: Vec<Variable>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(missing_docs)]
+pub struct CopyOperator {
+    pub out: Variable,
+    pub out_index: Variable,
+    pub input: Variable,
+    pub in_index: Variable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(missing_docs)]
+pub struct CopyBulkOperator {
+    pub out: Variable,
+    pub out_index: Variable,
+    pub input: Variable,
+    pub in_index: Variable,
+    pub len: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

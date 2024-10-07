@@ -605,6 +605,19 @@ impl CudaCompiler {
                     .collect(),
                 out: self.compile_variable(op.out),
             }),
+            gpu::Operator::Copy(op) => instructions.push(Instruction::Copy {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+            }),
+            gpu::Operator::CopyBulk(op) => instructions.push(Instruction::CopyBulk {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+                len: op.len,
+            }),
         };
     }
 

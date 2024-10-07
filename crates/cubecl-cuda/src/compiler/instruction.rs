@@ -166,6 +166,19 @@ pub enum Instruction {
     Magnitude(UnaryInstruction),
     Normalize(UnaryInstruction),
     Dot(BinaryInstruction),
+    Copy {
+        input: Variable,
+        in_index: Variable,
+        out: Variable,
+        out_index: Variable,
+    },
+    CopyBulk {
+        input: Variable,
+        in_index: Variable,
+        out: Variable,
+        out_index: Variable,
+        len: u32,
+    },
 }
 
 impl Display for Instruction {
@@ -217,6 +230,26 @@ impl Display for Instruction {
                 }
             }
             Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::Copy {
+                input,
+                in_index,
+                out,
+                out_index,
+            } => {
+                writeln!(f, "{out}[{out_index}] = {input}[{in_index}];")
+            }
+            Instruction::CopyBulk {
+                input,
+                in_index,
+                out,
+                out_index,
+                len,
+            } => {
+                for i in 0..*len {
+                    writeln!(f, "{out}[{out_index} + {i}] = {input}[{in_index} + {i}];")?;
+                }
+                Ok(())
+            }
             Instruction::CheckedIndexAssign(it) => {
                 IndexAssign::format(f, &it.lhs, &it.rhs, &it.out)
             }

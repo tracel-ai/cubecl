@@ -80,7 +80,7 @@ impl Item {
         id
     }
 
-    fn size(&self) -> u32 {
+    pub fn size(&self) -> u32 {
         match self {
             Item::Scalar(elem) => elem.size(),
             Item::Vector(elem, factor) => elem.size() * *factor,

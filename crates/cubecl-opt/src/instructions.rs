@@ -127,6 +127,18 @@ impl Optimizer {
             | Operator::AtomicAnd(_)
             | Operator::AtomicOr(_)
             | Operator::AtomicXor(_) => {}
+            Operator::Copy(copy_operator) => {
+                visit_read(self, &mut copy_operator.input);
+                visit_read(self, &mut copy_operator.in_index);
+                visit_read(self, &mut copy_operator.out_index);
+                visit_write(self, &mut copy_operator.out);
+            }
+            Operator::CopyBulk(copy_bulk_operator) => {
+                visit_read(self, &mut copy_bulk_operator.input);
+                visit_read(self, &mut copy_bulk_operator.in_index);
+                visit_read(self, &mut copy_bulk_operator.out_index);
+                visit_write(self, &mut copy_bulk_operator.out);
+            }
         }
     }
 

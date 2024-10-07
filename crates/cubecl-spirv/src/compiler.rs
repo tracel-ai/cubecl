@@ -6,7 +6,6 @@ use std::{
     fmt::Debug,
     mem::take,
     ops::{Deref, DerefMut},
-    rc::Rc,
 };
 
 use cubecl_core::{
@@ -34,7 +33,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     global_invocation_id: Word,
     num_workgroups: Word,
     variable_block: usize,
-    pub opt: Rc<Optimizer>,
+    pub opt: Optimizer,
     pub current_block: Option<NodeIndex>,
     pub visited: HashSet<NodeIndex>,
 
@@ -103,13 +102,14 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
 
     fn compile(kernel: KernelDefinition, mode: ExecutionMode) -> Self::Representation {
         let num_bindings = kernel.inputs.len() + kernel.outputs.len() + kernel.named.len();
-        let module = Self {
+        let (module, optimizer) = Self {
             mode,
             ..Default::default()
         }
         .compile_kernel(kernel);
         SpirvKernel {
             module,
+            optimizer,
             num_bindings,
         }
     }
@@ -134,7 +134,7 @@ impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
 }
 
 impl<Target: SpirvTarget> SpirvCompiler<Target> {
-    pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> Module {
+    pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer) {
         self.set_version(1, 6);
 
         self.init_state(kernel.clone());
@@ -158,14 +158,13 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let setup = self.id();
         self.debug_name(setup, "setup");
-        self.opt = Optimizer::new(kernel.body).into();
+        self.opt = Optimizer::new(kernel.body);
         let entry = self.opt.entry();
         let body = self.label(entry);
         self.setup(setup, body);
         self.compile_block(entry);
 
         let opt = self.opt.clone();
-
         let ret = opt.ret;
         self.compile_block(ret);
 
@@ -198,7 +197,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         target.set_modes(self, main, builtins, cube_dims);
 
-        take(&mut self.builder).module()
+        let module = take(&mut self.builder).module();
+        (module, self.opt.clone())
     }
 
     fn setup(&mut self, label: Word, body: Word) {

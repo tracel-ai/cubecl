@@ -8,8 +8,9 @@ use std::{
 use cubecl_core::ir::{self as core, Operator, Procedure, Variable};
 use cubecl_core::ir::{Item, Operation, Scope};
 use passes::{
-    CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, EliminateUnusedVariables,
-    InlineAssignments, MergeSameExpressions, OptimizationPass, RemoveIndexScalar,
+    CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
+    EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, InlineAssignments,
+    MergeSameExpressions, OptimizationPass, RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
@@ -161,6 +162,9 @@ impl Optimizer {
             Box::new(MergeSameExpressions),
             Box::new(ConstEval),
             Box::new(RemoveIndexScalar),
+            Box::new(CopyTransform),
+            Box::new(EliminateConstBranches),
+            Box::new(EliminateDeadBlocks),
         ];
         loop {
             let counter = AtomicCounter::default();

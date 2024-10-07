@@ -341,6 +341,19 @@ pub enum Instruction {
         inputs: Vec<Variable>,
         out: Variable,
     },
+    Copy {
+        input: Variable,
+        in_index: Variable,
+        out: Variable,
+        out_index: Variable,
+    },
+    CopyBulk {
+        input: Variable,
+        in_index: Variable,
+        out: Variable,
+        out_index: Variable,
+        len: u32,
+    },
 }
 
 impl Display for Instruction {
@@ -429,6 +442,50 @@ impl Display for Instruction {
                 }
                 _ => index(f, lhs, rhs, out, None),
             },
+            Instruction::Copy {
+                input,
+                in_index,
+                out,
+                out_index,
+            } => {
+                let rhs = match input {
+                    Variable::Slice { .. } => {
+                        format!("(*{input}_ptr)[{in_index} + {input}_offset]")
+                    }
+                    _ => format!("{input}[{in_index}]"),
+                };
+                let lhs = match out {
+                    Variable::Slice { .. } => {
+                        format!("(*{out}_ptr)[{out_index} + {out}_offset]")
+                    }
+                    _ => format!("{out}[{out_index}]"),
+                };
+                writeln!(f, "{lhs} = {rhs};")
+            }
+            Instruction::CopyBulk {
+                input,
+                in_index,
+                out,
+                out_index,
+                len,
+            } => {
+                for i in 0..*len {
+                    let rhs = match input {
+                        Variable::Slice { .. } => {
+                            format!("(*{input}_ptr)[{in_index} + {input}_offset + {i}]")
+                        }
+                        _ => format!("{input}[{in_index} + {i}]"),
+                    };
+                    let lhs = match out {
+                        Variable::Slice { .. } => {
+                            format!("(*{out}_ptr)[{out_index} + {out}_offset + {i}]")
+                        }
+                        _ => format!("{out}[{out_index} + {i}]"),
+                    };
+                    writeln!(f, "{lhs} = {rhs};")?;
+                }
+                Ok(())
+            }
             Instruction::Modulo { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} % {rhs};")

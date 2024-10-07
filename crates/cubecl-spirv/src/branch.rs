@@ -90,6 +90,49 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.state.end_labels.insert(current_block, next);
     }
 
+    pub fn compile_copy_bound(
+        &mut self,
+        input: &Variable,
+        out: &Variable,
+        in_index: Word,
+        out_index: Word,
+        len: Option<u32>,
+        copy: impl FnOnce(&mut Self),
+    ) {
+        let in_len = self.length(input, None);
+        let out_len = self.length(out, None);
+        let bool = self.type_bool();
+        let int = self.type_int(32, 0);
+        let in_index = match len {
+            Some(len) => self.i_add(int, None, in_index, len).unwrap(),
+            None => in_index,
+        };
+        let out_index = match len {
+            Some(len) => self.i_add(int, None, out_index, len).unwrap(),
+            None => out_index,
+        };
+        let cond_in = self.u_less_than(bool, None, in_index, in_len).unwrap();
+        let cond_out = self.u_less_than(bool, None, out_index, out_len).unwrap();
+        let cond = self.logical_and(bool, None, cond_in, cond_out).unwrap();
+
+        let current_block = self.current_block.unwrap();
+
+        let in_bounds = self.id();
+        let next = self.id();
+
+        self.selection_merge(next, SelectionControl::DONT_FLATTEN)
+            .unwrap();
+        self.branch_conditional(cond, in_bounds, next, vec![1, 0])
+            .unwrap();
+
+        self.begin_block(Some(in_bounds)).unwrap();
+        copy(self);
+        self.branch(next).unwrap();
+
+        self.begin_block(Some(next)).unwrap();
+        self.state.end_labels.insert(current_block, next);
+    }
+
     fn compile_select(
         &mut self,
         cond: core::Variable,

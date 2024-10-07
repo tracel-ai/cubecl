@@ -250,6 +250,7 @@ impl Variable {
     }
 }
 
+#[derive(Debug)]
 pub enum IndexedVariable {
     Pointer(Word, Item),
     Composite(Word, u32, Item),
@@ -805,6 +806,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .unwrap()
             }
             IndexedVariable::Scalar(var) => self.read_to(&var, out),
+        }
+    }
+
+    pub fn index_ptr(&mut self, var: &Variable, index: &Variable) -> Word {
+        match self.index(var, index, false) {
+            IndexedVariable::Pointer(ptr, _) => ptr,
+            other => unreachable!("{other:?}"),
         }
     }
 

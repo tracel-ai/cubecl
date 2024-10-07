@@ -820,6 +820,19 @@ impl WgslCompiler {
                     .collect(),
                 out: self.compile_variable(op.out),
             },
+            cube::Operator::Copy(op) => wgsl::Instruction::Copy {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+            },
+            cube::Operator::CopyBulk(op) => wgsl::Instruction::CopyBulk {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+                len: op.len,
+            },
         }
     }
 
