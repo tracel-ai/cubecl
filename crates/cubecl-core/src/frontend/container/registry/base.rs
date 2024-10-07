@@ -21,9 +21,9 @@ pub trait RegistryQuery<K>: Into<K> {}
 impl RegistryQuery<u32> for u32 {}
 impl RegistryQuery<u32> for ExpandElementTyped<u32> {}
 
-impl Into<u32> for ExpandElementTyped<u32> {
-    fn into(self) -> u32 {
-        self.constant().unwrap().as_u32()
+impl From<ExpandElementTyped<u32>> for u32 {
+    fn from(val: ExpandElementTyped<u32>) -> Self {
+        val.constant().unwrap().as_u32()
     }
 }
 

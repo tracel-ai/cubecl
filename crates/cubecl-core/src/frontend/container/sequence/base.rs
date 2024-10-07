@@ -73,7 +73,7 @@ impl<T: CubeType> Sequence<T> {
         }
     }
 
-    // TODO
+    /// Insert an item at the given index.
     #[allow(unused_variables, clippy::should_implement_trait)]
     pub fn insert<I: Index>(&mut self, index: I, value: T) {
         *self.index_mut(index) = value;
@@ -178,7 +178,7 @@ impl<T: CubeType> SequenceExpand<T> {
         self.values.borrow_mut().push(value);
     }
 
-    /// Expand method of [push](Sequence::push).
+    /// Expand method of [insert](Sequence::insert).
     pub fn __expand_insert_method(
         &self,
         _context: &mut CubeContext,
@@ -209,11 +209,6 @@ impl<T: CubeType> SequenceExpand<T> {
             .constant()
             .expect("Only constant are supported")
             .as_usize();
-        // println!(
-        //     "Index method expand {:?} {:?}",
-        //     index,
-        //     core::any::type_name::<Self>()
-        // );
 
         self.values.borrow()[index].clone()
     }
