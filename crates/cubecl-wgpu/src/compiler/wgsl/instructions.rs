@@ -812,6 +812,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
             }
             Instruction::Dot { lhs, rhs, out } => {
+                let out = out.fmt_left();
                 if lhs.item().vectorization_factor() == 1 {
                     writeln!(f, "{out} = {lhs} * {rhs};")
                 } else {

@@ -1,7 +1,7 @@
 use crate::{
     channel::ComputeChannel,
     server::{Binding, ComputeServer, Handle},
-    storage::ComputeStorage,
+    storage::BindingResource,
     ExecutionMode,
 };
 use alloc::sync::Arc;
@@ -61,10 +61,7 @@ where
     }
 
     /// Given a resource handle, returns the storage resource.
-    pub fn get_resource(
-        &self,
-        binding: Binding<Server>,
-    ) -> <Server::Storage as ComputeStorage>::Resource {
+    pub fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server> {
         self.channel.get_resource(binding)
     }
 

@@ -47,7 +47,7 @@ where
     let lhs_var = lhs.consume();
     let rhs_var = rhs.consume();
 
-    let out = context.create_local_variable(out_item);
+    let out = context.create_local_binding(out_item);
 
     let out_var = *out;
 

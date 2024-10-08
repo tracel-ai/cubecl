@@ -16,7 +16,7 @@ impl core::fmt::Debug for WgpuStorage {
 }
 
 /// The memory resource that can be allocated for wgpu.
-#[derive(new, Debug)]
+#[derive(new)]
 pub struct WgpuResource {
     /// The wgpu buffer.
     pub buffer: Arc<wgpu::Buffer>,
@@ -26,7 +26,7 @@ pub struct WgpuResource {
 
 impl WgpuResource {
     /// Return the binding view of the buffer.
-    pub fn as_binding(&self) -> wgpu::BindingResource {
+    pub fn as_wgpu_bind_resource(&self) -> wgpu::BindingResource {
         let binding = match &self.kind {
             WgpuResourceKind::Full => self.buffer.as_entire_buffer_binding(),
             WgpuResourceKind::Slice(offs, size) => wgpu::BufferBinding {
