@@ -5,12 +5,19 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use cubecl_core::ir::{self as core, Operator, Procedure, Variable};
-use cubecl_core::ir::{Item, Operation, Scope};
+use cubecl_core::{
+    ir::{self as core, Operator, Procedure, Variable},
+    CubeDim,
+};
+use cubecl_core::{
+    ir::{Item, Operation, Scope},
+    ExecutionMode,
+};
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
-    EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, InlineAssignments,
-    MergeSameExpressions, OptimizationPass, RemoveIndexScalar,
+    EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, FindConstSliceLen,
+    InBoundsToUnchecked, InlineAssignments, IntegerRangeAnalysis, MergeSameExpressions,
+    OptimizationPass, RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
@@ -47,11 +54,21 @@ impl AtomicCounter {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct Slice {
+    pub(crate) start: Variable,
+    pub(crate) end: Variable,
+    pub(crate) end_op: Option<Operation>,
+    pub(crate) const_len: Option<u32>,
+}
+
 #[derive(Default, Debug, Clone)]
 struct Program {
     pub variables: HashMap<(u16, u8), Item>,
+    pub slices: HashMap<(u16, u8), Slice>,
     pub graph: StableDiGraph<BasicBlock, ()>,
     root: NodeIndex,
+    int_ranges: HashMap<VarId, Range>,
 }
 
 impl Deref for Program {
@@ -68,6 +85,14 @@ impl DerefMut for Program {
     }
 }
 
+type VarId = (u16, u8, u16);
+
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+struct Range {
+    lower_bound: Option<i64>,
+    upper_bound: Option<i64>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Optimizer {
     program: Program,
@@ -75,6 +100,8 @@ pub struct Optimizer {
     loop_break: VecDeque<NodeIndex>,
     pub ret: NodeIndex,
     root_scope: Scope,
+    pub(crate) cube_dim: CubeDim,
+    pub(crate) mode: ExecutionMode,
 }
 
 impl Default for Optimizer {
@@ -85,14 +112,18 @@ impl Default for Optimizer {
             loop_break: Default::default(),
             ret: Default::default(),
             root_scope: Scope::root(),
+            cube_dim: Default::default(),
+            mode: Default::default(),
         }
     }
 }
 
 impl Optimizer {
-    pub fn new(expand: Scope) -> Self {
+    pub fn new(expand: Scope, cube_dim: CubeDim, mode: ExecutionMode) -> Self {
         let mut opt = Self {
             root_scope: expand.clone(),
+            cube_dim,
+            mode,
             ..Default::default()
         };
         opt.run_opt(expand);
@@ -155,10 +186,19 @@ impl Optimizer {
             Box::new(MergeSameExpressions),
             Box::new(ConstEval),
             Box::new(RemoveIndexScalar),
-            Box::new(CopyTransform),
             Box::new(EliminateConstBranches),
             Box::new(EliminateDeadBlocks),
         ];
+        let checked_passes: Vec<Box<dyn OptimizationPass>> = vec![
+            Box::new(IntegerRangeAnalysis),
+            Box::new(FindConstSliceLen),
+            Box::new(InBoundsToUnchecked),
+        ];
+        if matches!(self.mode, ExecutionMode::Checked) {
+            passes.extend(checked_passes);
+        }
+        passes.push(Box::new(CopyTransform));
+
         loop {
             let counter = AtomicCounter::default();
             for pass in &mut passes {
@@ -239,6 +279,24 @@ impl Optimizer {
             match instruction {
                 Operation::Branch(branch) => self.parse_control_flow(branch),
                 Operation::Procedure(proc) => self.compile_procedure(proc, scope.clone()),
+                Operation::Operator(Operator::Slice(slice_op)) => {
+                    let out_id = match &slice_op.out {
+                        Variable::Slice { id, depth, .. } => (*id, *depth),
+                        _ => unreachable!(),
+                    };
+                    self.program.slices.insert(
+                        out_id,
+                        Slice {
+                            start: slice_op.start,
+                            end: slice_op.end,
+                            end_op: None,
+                            const_len: None,
+                        },
+                    );
+                    let mut op = Operation::Operator(Operator::Slice(slice_op));
+                    self.visit_operation(&mut op, |_, _| {}, |opt, var| opt.write_var(var));
+                    self.current_block_mut().ops.borrow_mut().push(op);
+                }
                 mut other => {
                     self.visit_operation(&mut other, |_, _| {}, |opt, var| opt.write_var(var));
                     self.current_block_mut().ops.borrow_mut().push(other);

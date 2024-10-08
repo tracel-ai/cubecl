@@ -2,27 +2,32 @@ use std::fmt::Display;
 
 use petgraph::visit::EdgeRef;
 
-use crate::ControlFlow;
+use crate::{
+    passes::{get_out, var_id},
+    ControlFlow,
+};
 
-use super::{Optimizer, Program};
+use super::Optimizer;
 
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.program)
-    }
-}
-
-impl Display for Program {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "# Variables:")?;
-        for ((id, depth), item) in self.variables.iter() {
-            writeln!(f, "var local({id}, {depth}): {item};")?;
+        f.write_str("Slices:\n")?;
+        for (var_id, slice) in self.program.slices.iter() {
+            let end_op = slice.end_op.as_ref().map(|it| format!("{it}"));
+            writeln!(
+                f,
+                "slice{var_id:?}: {{ start: {}, end: {}, end_op: {}, const_len: {:?} }}",
+                slice.start,
+                slice.end,
+                end_op.unwrap_or("None".to_string()),
+                slice.const_len
+            )?;
         }
         f.write_str("\n\n")?;
 
-        for node in self.node_indices() {
+        for node in self.program.node_indices() {
             let id = node.index();
-            let bb = &self[node];
+            let bb = &self.program[node];
             writeln!(f, "bb{id} {{")?;
             let live_vars = bb.live_vars.iter();
             let live_vars = live_vars.map(|it| format!("local({}, {})", it.0, it.1));
@@ -41,8 +46,15 @@ impl Display for Program {
                 writeln!(f)?;
             }
 
-            for op in bb.ops.borrow().values() {
-                writeln!(f, "    {op};")?;
+            for op in bb.ops.borrow_mut().values_mut() {
+                let out = get_out(&mut self.clone(), op);
+                let id = out.and_then(|var| var_id(&var));
+                let range = id.and_then(|id| self.program.int_ranges.get(&id));
+                if let Some(range) = range {
+                    writeln!(f, "    {op}; range: {range}")?;
+                } else {
+                    writeln!(f, "    {op};")?;
+                }
             }
             match &*bb.control_flow.borrow() {
                 ControlFlow::Break {
@@ -98,7 +110,7 @@ impl Display for Program {
                 }
                 super::ControlFlow::Return => writeln!(f, "    return;")?,
                 super::ControlFlow::None => {
-                    let edge = self.edges(node).next();
+                    let edge = self.program.edges(node).next();
                     let target = edge.map(|it| it.target().index()).unwrap_or(255);
                     writeln!(f, "    branch bb{target};")?;
                 }

@@ -148,6 +148,13 @@ impl Elem {
     pub fn is_atomic(&self) -> bool {
         matches!(self, Elem::AtomicInt(_) | Elem::AtomicUInt)
     }
+
+    pub fn is_int(&self) -> bool {
+        matches!(
+            self,
+            Elem::Int(_) | Elem::AtomicInt(_) | Elem::UInt | Elem::AtomicUInt
+        )
+    }
 }
 
 impl From<Elem> for Item {

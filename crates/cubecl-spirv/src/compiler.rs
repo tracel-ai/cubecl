@@ -158,7 +158,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let setup = self.id();
         self.debug_name(setup, "setup");
-        self.opt = Optimizer::new(kernel.body);
+        self.opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
         let entry = self.opt.entry();
         let body = self.label(entry);
         self.setup(setup, body);
