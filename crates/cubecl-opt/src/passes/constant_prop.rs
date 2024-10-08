@@ -2,11 +2,13 @@ use cubecl_core::ir::{Branch, ConstantScalarValue, Operation, Operator, UnaryOpe
 
 use crate::{AtomicCounter, Optimizer};
 
-use super::{get_out, OptimizationPass};
+use super::{get_out, OptimizerPass};
 
+/// Simplifies certain expressions where one operand is constant.
+/// For example: `out = x * 1` to `out = x`
 pub struct ConstOperandSimplify;
 
-impl OptimizationPass for ConstOperandSimplify {
+impl OptimizerPass for ConstOperandSimplify {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for node in opt.program.node_indices().collect::<Vec<_>>() {
             let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
@@ -126,9 +128,12 @@ fn assign(out: Variable, value: Variable) -> Operation {
     Operation::Operator(Operator::Assign(UnaryOperator { input: value, out }))
 }
 
+/// Evaluates expressions where both operands are constant and replaces them with simple constant
+/// assignments. This can often be applied as a result of assignment merging or constant operand
+/// simplification.
 pub struct ConstEval;
 
-impl OptimizationPass for ConstEval {
+impl OptimizerPass for ConstEval {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for node in opt.node_ids() {
             let ops = opt.program[node].ops.clone();

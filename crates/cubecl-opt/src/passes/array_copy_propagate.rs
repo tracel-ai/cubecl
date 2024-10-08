@@ -4,11 +4,30 @@ use cubecl_core::ir::{Item, Operation, Operator, UnaryOperator, Variable};
 
 use crate::{AtomicCounter, Optimizer};
 
-use super::OptimizationPass;
+use super::OptimizerPass;
 
+/// Split arrays with only constant indices into a set of local intermediates. This allows the
+/// compiler to reorder them and optimize memory layout, along with enabling more inlining and
+/// expression merging.
+///
+/// # Example
+///
+/// ```ignore
+/// arr[0] = a;
+/// arr[1] = b;
+/// arr[2] = c;
+/// ```
+/// transforms to
+/// ```ignore
+/// let a1 = a;
+/// let b1 = b;
+/// let c1 = c;
+/// ```
+/// which can usually be completely merged out and inlined.
+///
 pub struct CopyPropagateArray;
 
-impl OptimizationPass for CopyPropagateArray {
+impl OptimizerPass for CopyPropagateArray {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         let arrays = find_const_arrays(opt);
 

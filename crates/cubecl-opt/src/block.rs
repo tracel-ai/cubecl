@@ -6,17 +6,26 @@ use stable_vec::StableVec;
 
 use crate::{version::PhiInstruction, ControlFlow, Optimizer, Program};
 
+/// A basic block of instructions interrupted by control flow. Phi nodes are assumed to come before
+/// any instructions. See https://en.wikipedia.org/wiki/Basic_block
 #[derive(Default, Debug, Clone)]
 pub struct BasicBlock {
+    /// The phi nodes that are required to be generated at the start of this block.
     pub phi_nodes: Rc<RefCell<Vec<PhiInstruction>>>,
+    /// The variables written to by this block. Only set during the SSA transformation.
     pub(crate) writes: HashSet<(u16, u8)>,
+    /// The live variables at the start of this block. Used for pruning phi nodes.
     pub(crate) live_vars: HashSet<(u16, u8)>,
+    /// The dominance frontiers of this block (where phi nodes must be inserted).
     pub(crate) dom_frontiers: HashSet<NodeIndex>,
+    /// A stable list of operations performed in this block.
     pub ops: Rc<RefCell<StableVec<Operation>>>,
+    /// The control flow that terminates this block.
     pub control_flow: Rc<RefCell<ControlFlow>>,
 }
 
 impl Optimizer {
+    /// Visit all operations in the program with the specified read and write visitors.
     pub fn visit_all(
         &mut self,
         mut visit_read: impl FnMut(&mut Self, &mut Variable) + Clone,
@@ -47,6 +56,8 @@ impl Optimizer {
 }
 
 impl Program {
+    /// Check whether a variable is dead at the start of this block. Note that `false` does not mean
+    /// the variable is definitely live - just that it *may* be live and must be treated as such.
     pub fn is_dead(&self, node: NodeIndex, var: (u16, u8)) -> bool {
         !self[node].live_vars.contains(&var)
     }

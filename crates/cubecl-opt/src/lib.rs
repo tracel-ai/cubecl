@@ -1,3 +1,28 @@
+//! # CubeCL Optimizer
+//!
+//! A library that parses CubeCL IR into a
+//! [control flow graph](https://en.wikipedia.org/wiki/Control-flow_graph), transforms it to
+//! [static single-assignment form](https://en.wikipedia.org/wiki/Static_single-assignment_form)
+//! and runs various optimizations on it.
+//! The order of operations is as follows:
+//!
+//! 1. Parse root scope recursively into a [control flow graph](https://en.wikipedia.org/wiki/Control-flow_graph)
+//! 2. Run optimizations that must be done before SSA transformation
+//! 3. Analyze variable liveness
+//! 4. Transfom the graph to [pruned SSA](https://en.wikipedia.org/wiki/Static_single-assignment_form#Pruned_SSA) form
+//! 5. Run post-SSA optimizations and analyses in a loop until no more improvements are found
+//! 6. Speed
+//!
+//! The output is represented as a [`petgraph`] graph of [`BasicBlock`]s terminated by [`ControlFlow`].
+//! This can then be compiled into actual executable code by walking the graph and generating all
+//! phi nodes, instructions and branches.
+//!
+//! # Representing [`PhiInstruction`] in non-SSA languages
+//!
+//! Phi instructions can be simulated by generating a mutable variable for each phi, then assigning
+//! `value` to it in each relevant `block`.
+//!
+
 use std::{
     collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},
@@ -17,7 +42,7 @@ use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
     EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, FindConstSliceLen,
     InBoundsToUnchecked, InlineAssignments, IntegerRangeAnalysis, MergeSameExpressions,
-    OptimizationPass, RemoveIndexScalar,
+    OptimizerPass, RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
@@ -32,23 +57,28 @@ mod version;
 pub use block::*;
 pub use control_flow::*;
 pub use petgraph::graph::{EdgeIndex, NodeIndex};
+pub use version::PhiInstruction;
 
+/// An atomic counter with a simplified interface.
 #[derive(Clone, Debug, Default)]
 pub struct AtomicCounter {
     inner: Rc<AtomicUsize>,
 }
 
 impl AtomicCounter {
+    /// Creates a new counter with `val` as its initial value.
     pub fn new(val: usize) -> Self {
         Self {
             inner: Rc::new(AtomicUsize::new(val)),
         }
     }
 
+    /// Increments the counter and returns the last count.
     pub fn inc(&self) -> usize {
         self.inner.fetch_add(1, Ordering::AcqRel)
     }
 
+    /// Gets the value of the counter without incrementing it.
     pub fn get(&self) -> usize {
         self.inner.load(Ordering::Acquire)
     }
@@ -65,7 +95,7 @@ pub(crate) struct Slice {
 #[derive(Default, Debug, Clone)]
 struct Program {
     pub variables: HashMap<(u16, u8), Item>,
-    pub slices: HashMap<(u16, u8), Slice>,
+    pub(crate) slices: HashMap<(u16, u8), Slice>,
     pub graph: StableDiGraph<BasicBlock, ()>,
     root: NodeIndex,
     int_ranges: HashMap<VarId, Range>,
@@ -93,14 +123,22 @@ struct Range {
     upper_bound: Option<i64>,
 }
 
+/// An optimizer that applies various analyses and optimization passes to the IR.
 #[derive(Debug, Clone)]
 pub struct Optimizer {
+    /// The overall program state
     program: Program,
-    pub current_block: Option<NodeIndex>,
+    /// The current block while parsing
+    current_block: Option<NodeIndex>,
+    /// The current loop's break target
     loop_break: VecDeque<NodeIndex>,
+    /// The single return block
     pub ret: NodeIndex,
+    /// Root scope to allocate variables on
     root_scope: Scope,
+    /// The `CubeDim` used for range analysis
     pub(crate) cube_dim: CubeDim,
+    /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
 }
 
@@ -119,6 +157,8 @@ impl Default for Optimizer {
 }
 
 impl Optimizer {
+    /// Create a new optimizer with the scope, `CubeDim` and execution mode passed into the compiler.
+    /// Parses the scope and runs several optimization and analysis loops.
     pub fn new(expand: Scope, cube_dim: CubeDim, mode: ExecutionMode) -> Self {
         let mut opt = Self {
             root_scope: expand.clone(),
@@ -131,6 +171,7 @@ impl Optimizer {
         opt
     }
 
+    /// Run all optimizations
     fn run_opt(&mut self, expand: Scope) {
         self.parse_graph(expand);
         self.analyze_liveness();
@@ -147,6 +188,7 @@ impl Optimizer {
         }
     }
 
+    /// The entry block of the program
     pub fn entry(&self) -> NodeIndex {
         self.program.root
     }
@@ -164,6 +206,7 @@ impl Optimizer {
     }
 
     fn apply_pre_ssa_passes(&mut self) {
+        // Currently only one pre-ssa pass, but might add more
         let mut passes = vec![CompositeMerge];
         loop {
             let counter = AtomicCounter::default();
@@ -179,7 +222,8 @@ impl Optimizer {
     }
 
     fn apply_post_ssa_passes(&mut self) {
-        let mut passes: Vec<Box<dyn OptimizationPass>> = vec![
+        // Passes that run regardless of execution mode
+        let mut passes: Vec<Box<dyn OptimizerPass>> = vec![
             Box::new(InlineAssignments),
             Box::new(EliminateUnusedVariables),
             Box::new(ConstOperandSimplify),
@@ -188,8 +232,10 @@ impl Optimizer {
             Box::new(RemoveIndexScalar),
             Box::new(EliminateConstBranches),
             Box::new(EliminateDeadBlocks),
+            Box::new(CopyTransform),
         ];
-        let checked_passes: Vec<Box<dyn OptimizationPass>> = vec![
+        // Passes that only run if execution mode is checked
+        let checked_passes: Vec<Box<dyn OptimizerPass>> = vec![
             Box::new(IntegerRangeAnalysis),
             Box::new(FindConstSliceLen),
             Box::new(InBoundsToUnchecked),
@@ -197,7 +243,6 @@ impl Optimizer {
         if matches!(self.mode, ExecutionMode::Checked) {
             passes.extend(checked_passes);
         }
-        passes.push(Box::new(CopyTransform));
 
         loop {
             let counter = AtomicCounter::default();
@@ -226,6 +271,7 @@ impl Optimizer {
         }
     }
 
+    /// A set of node indices for all blocks in the program
     fn node_ids(&self) -> Vec<NodeIndex> {
         self.program.node_indices().collect()
     }
@@ -240,14 +286,12 @@ impl Optimizer {
         }
     }
 
-    pub fn current_block_mut(&mut self) -> &mut BasicBlock {
+    /// Mutable reference to the current basic block
+    pub(crate) fn current_block_mut(&mut self) -> &mut BasicBlock {
         &mut self.program[self.current_block.unwrap()]
     }
 
-    pub fn current_block(&self) -> &BasicBlock {
-        &self.program[self.current_block.unwrap()]
-    }
-
+    /// List of predecessor IDs of the `block`
     pub fn predecessors(&self, block: NodeIndex) -> Vec<NodeIndex> {
         self.program
             .edges_directed(block, Direction::Incoming)
@@ -255,6 +299,7 @@ impl Optimizer {
             .collect()
     }
 
+    /// List of successor IDs of the `block`
     pub fn sucessors(&self, block: NodeIndex) -> Vec<NodeIndex> {
         self.program
             .edges_directed(block, Direction::Outgoing)
@@ -262,10 +307,12 @@ impl Optimizer {
             .collect()
     }
 
+    /// Reference to the [`BasicBlock`] with ID `block`
     pub fn block(&self, block: NodeIndex) -> &BasicBlock {
         &self.program[block]
     }
 
+    /// Recursively parse a scope into the graph
     pub fn parse_scope(&mut self, mut scope: Scope) {
         let processed = scope.process();
 
@@ -346,6 +393,7 @@ impl Optimizer {
         }
     }
 
+    /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
     pub fn local_variable_id(&mut self, variable: &core::Variable) -> Option<(u16, u8)> {
         match variable {
             core::Variable::Local { id, depth, item } if !item.elem.is_atomic() => {
@@ -356,4 +404,5 @@ impl Optimizer {
     }
 }
 
+/// A visitor that does nothing.
 pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}

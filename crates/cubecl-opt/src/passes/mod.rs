@@ -21,7 +21,7 @@ use crate::AtomicCounter;
 
 use super::Optimizer;
 
-pub trait OptimizationPass {
+pub trait OptimizerPass {
     #[allow(unused)]
     fn apply_pre_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {}
     #[allow(unused)]

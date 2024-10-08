@@ -6,6 +6,8 @@ use cubecl_core::ir::{
 use super::Optimizer;
 
 impl Optimizer {
+    /// Visit an operation with a set of read and write visitors. Each visitor will be called with
+    /// each read or written to variable.
     pub fn visit_operation(
         &mut self,
         op: &mut Operation,
@@ -31,6 +33,8 @@ impl Optimizer {
         }
     }
 
+    /// Visit an operator with a set of read and write visitors. Each visitor will be called with
+    /// each read or written to variable.
     pub fn visit_operator(
         &mut self,
         op: &mut Operator,

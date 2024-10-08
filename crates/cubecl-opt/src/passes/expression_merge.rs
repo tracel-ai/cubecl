@@ -5,11 +5,13 @@ use stable_vec::StableVec;
 
 use crate::{visit_noop, AtomicCounter, Optimizer};
 
-use super::OptimizationPass;
+use super::OptimizerPass;
 
+/// Inline constants or simple reassignments that don't change the type. This simplifies the code
+/// and makes it easier to find optimizable expressions.
 pub struct InlineAssignments;
 
-impl OptimizationPass for InlineAssignments {
+impl OptimizerPass for InlineAssignments {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         while search_loop(opt) {
             changes.inc();
@@ -52,9 +54,26 @@ fn item_compatible(lhs: Item, rhs: Item) -> bool {
     vectorization_lhs == vectorization_rhs && lhs.elem() == rhs.elem()
 }
 
+/// Merge identical and immutable expressions in the same block into a single variable.
+///
+/// # Example
+/// ```ignore
+/// let a = rank - 2;
+/// let b = rank - 1;
+/// // in some other function
+/// let x = rank - 2;
+/// ```
+/// would simplify to
+/// ```ignore
+/// let a = rank - 2;
+/// let b = rank - 1;
+/// let x = a;
+/// ```
+/// which can get further inlined by other optimization passes.
+///
 pub struct MergeSameExpressions;
 
-impl OptimizationPass for MergeSameExpressions {
+impl OptimizerPass for MergeSameExpressions {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for node in opt.node_ids() {
             let ops = opt.program[node].ops.clone();

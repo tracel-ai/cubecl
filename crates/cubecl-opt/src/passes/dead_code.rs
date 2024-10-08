@@ -9,11 +9,12 @@ use petgraph::visit::EdgeRef;
 
 use crate::{visit_noop, AtomicCounter, ControlFlow, Optimizer};
 
-use super::OptimizationPass;
+use super::OptimizerPass;
 
+/// Eliminate non-output variables that are never read in the program.
 pub struct EliminateUnusedVariables;
 
-impl OptimizationPass for EliminateUnusedVariables {
+impl OptimizerPass for EliminateUnusedVariables {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         while search_loop(opt) {
             changes.inc();
@@ -59,9 +60,10 @@ fn search_loop(opt: &mut Optimizer) -> bool {
     false
 }
 
+/// Eliminates branches that can be evaluated at compile time.
 pub struct EliminateConstBranches;
 
-impl OptimizationPass for EliminateConstBranches {
+impl OptimizerPass for EliminateConstBranches {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for block in opt.node_ids() {
             let control_flow = opt.program[block].control_flow.clone();
@@ -114,9 +116,10 @@ impl OptimizationPass for EliminateConstBranches {
     }
 }
 
+/// Eliminates dead code blocks left over from other optimizations like branch elimination.
 pub struct EliminateDeadBlocks;
 
-impl OptimizationPass for EliminateDeadBlocks {
+impl OptimizerPass for EliminateDeadBlocks {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         while search_dead_blocks(opt) {
             changes.inc();

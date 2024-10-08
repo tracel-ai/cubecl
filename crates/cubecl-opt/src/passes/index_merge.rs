@@ -4,11 +4,13 @@ use cubecl_core::ir::{CopyOperator, Operation, Operator, Variable};
 
 use crate::{AtomicCounter, Optimizer};
 
-use super::OptimizationPass;
+use super::OptimizerPass;
 
+/// Transform consecutive `Index` and `IndexAssign` operations that don't modify the value into a
+/// single `Copy` operation.
 pub struct CopyTransform;
 
-impl OptimizationPass for CopyTransform {
+impl OptimizerPass for CopyTransform {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for block in opt.node_ids() {
             let mut reads = HashMap::new();

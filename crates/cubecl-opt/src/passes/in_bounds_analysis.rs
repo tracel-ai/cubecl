@@ -2,11 +2,12 @@ use cubecl_core::ir::{Operation, Operator, Variable};
 
 use crate::{AtomicCounter, Optimizer};
 
-use super::{range_of, OptimizationPass};
+use super::{range_of, OptimizerPass};
 
+/// Try to find any constant length slices by cancelling common factors in `start` and `end`
 pub struct FindConstSliceLen;
 
-impl OptimizationPass for FindConstSliceLen {
+impl OptimizerPass for FindConstSliceLen {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for block in opt.node_ids() {
             let ops = opt.program[block].ops.clone();
@@ -35,9 +36,11 @@ impl OptimizationPass for FindConstSliceLen {
     }
 }
 
+/// Use the results from integer range analysis to find indexes that are always in bounds, then
+/// transform them to unchecked indexes.
 pub struct InBoundsToUnchecked;
 
-impl OptimizationPass for InBoundsToUnchecked {
+impl OptimizerPass for InBoundsToUnchecked {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for block in opt.node_ids() {
             let ops = opt.program[block].ops.clone();

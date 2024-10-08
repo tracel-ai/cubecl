@@ -6,37 +6,47 @@ use cubecl_core::ir::{
     Switch, UnaryOperator, Variable,
 };
 
+/// Control flow that terminates a block
 #[derive(Default, Debug, Clone)]
 pub enum ControlFlow {
+    /// A break branch, which does not have an `OpSelectionMerge` in SPIR-V since it's part of the
+    /// loop construct.
     Break {
         cond: Variable,
         body: NodeIndex,
         or_break: NodeIndex,
     },
+    /// An if or if-else branch that should be structured if applicable.
     IfElse {
         cond: Variable,
         then: NodeIndex,
         or_else: NodeIndex,
         merge: NodeIndex,
     },
+    /// A switch branch that paths based on `value`
     Switch {
         value: Variable,
         default: NodeIndex,
         branches: Vec<(u32, NodeIndex)>,
         merge: NodeIndex,
     },
+    /// A loop with a header (the block that contains this variant), a `body` and a `continue target`.
+    /// `merge` is the block that gets executed as soon as the loop terminates.
     Loop {
         body: NodeIndex,
         continue_target: NodeIndex,
         merge: NodeIndex,
     },
+    /// A return statement. This should only occur once in the program and all other returns should
+    /// instead branch to this single return block.
     Return,
+    /// No special control flow. The block must have exactly one edge that should be followed.
     #[default]
     None,
 }
 
 impl Optimizer {
-    pub fn parse_control_flow(&mut self, branch: Branch) {
+    pub(crate) fn parse_control_flow(&mut self, branch: Branch) {
         match branch {
             Branch::If(if_) => self.parse_if(if_),
             Branch::IfElse(if_else) => self.parse_if_else(if_else),
@@ -64,7 +74,7 @@ impl Optimizer {
         }
     }
 
-    pub fn parse_if(&mut self, if_: If) {
+    pub(crate) fn parse_if(&mut self, if_: If) {
         let current_block = self.current_block.unwrap();
         let then = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
@@ -91,7 +101,7 @@ impl Optimizer {
         self.current_block = Some(next);
     }
 
-    pub fn parse_if_else(&mut self, if_else: IfElse) {
+    pub(crate) fn parse_if_else(&mut self, if_else: IfElse) {
         let current_block = self.current_block.unwrap();
         let then = self.program.add_node(BasicBlock::default());
         let or_else = self.program.add_node(BasicBlock::default());
@@ -131,7 +141,7 @@ impl Optimizer {
         self.current_block = Some(next);
     }
 
-    pub fn parse_switch(&mut self, switch: Switch) {
+    pub(crate) fn parse_switch(&mut self, switch: Switch) {
         let current_block = self.current_block.unwrap();
         let next = self.program.add_node(BasicBlock::default());
 

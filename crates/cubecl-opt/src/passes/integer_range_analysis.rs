@@ -4,7 +4,7 @@ use cubecl_core::ir::{ConstantScalarValue, Elem, Operation, Operator, Variable};
 
 use crate::{AtomicCounter, Optimizer, Range};
 
-use super::OptimizationPass;
+use super::OptimizerPass;
 
 impl Range {
     fn constant(val: i64) -> Self {
@@ -22,10 +22,15 @@ impl Range {
     }
 }
 
+/// Perform analysis on the possible ranges of integer values and store the results for use in later
+/// optimization passes. Reasons for integers being bounded but not constant might be: the modulo
+/// operator (bounds it to `0..m`), or `UNIT_POS` (bounded by `CubeDim`). Bounds can be transferred
+/// between simple arithmetic, so we can determine the possible range of a good number of variables.
+/// This is currently only used in index bound analysis.
 #[derive(Default, Clone, Debug)]
 pub struct IntegerRangeAnalysis;
 
-impl OptimizationPass for IntegerRangeAnalysis {
+impl OptimizerPass for IntegerRangeAnalysis {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for block in opt.node_ids() {
             let ops = opt.program[block].ops.clone();
@@ -97,6 +102,8 @@ impl OptimizationPass for IntegerRangeAnalysis {
     }
 }
 
+/// The possible range of values of any variable, if applicable. Returns unbounded range if no range
+/// can be determined, or the type is not an integer.
 pub(crate) fn range_of(opt: &Optimizer, var: &Variable) -> Range {
     match var {
         Variable::Versioned {

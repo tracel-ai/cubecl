@@ -7,11 +7,25 @@ use stable_vec::StableVec;
 
 use crate::{AtomicCounter, Optimizer};
 
-use super::OptimizationPass;
+use super::OptimizerPass;
 
+/// Merge consecutive index assigns into a vectorized value into a single constructor call.
+/// For example, in `wgsl`:
+/// ```ignore
+/// a[0] = 1;
+/// a[1] = 2;
+/// a[2] = 3;
+/// a[4] = 4;
+/// ```
+/// would become
+/// ```
+/// a = vec4(1, 2, 3, 4);
+/// ```
+/// This is more efficient particularly in SSA form.
+///
 pub struct CompositeMerge;
 
-impl OptimizationPass for CompositeMerge {
+impl OptimizerPass for CompositeMerge {
     fn apply_pre_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         let blocks = opt.node_ids();
 
@@ -91,9 +105,11 @@ fn merge_assigns(
     );
 }
 
+/// Remove indices into scalar values that are left over from iterating over a dynamically vectorized
+/// value. This simplifies the backend by removing the need to specially handle this case.
 pub struct RemoveIndexScalar;
 
-impl OptimizationPass for RemoveIndexScalar {
+impl OptimizerPass for RemoveIndexScalar {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         let blocks = opt.node_ids();
 

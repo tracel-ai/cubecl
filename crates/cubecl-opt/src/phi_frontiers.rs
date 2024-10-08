@@ -7,6 +7,7 @@ use super::{
 };
 
 impl Program {
+    /// Find dominance frontiers for each block
     pub fn fill_dom_frontiers(&mut self) {
         let doms = simple_fast(&self.graph, self.root);
         for node in self.node_indices().collect::<Vec<_>>() {
@@ -26,6 +27,7 @@ impl Program {
         }
     }
 
+    /// Places a phi node for each live variable at each frontier
     pub fn place_phi_nodes(&mut self) {
         let keys: Vec<_> = self.variables.keys().cloned().collect();
         for var in keys {
@@ -52,6 +54,7 @@ impl Program {
         }
     }
 
+    /// Insert a phi node for variable `id` at `block`
     pub fn insert_phi(&mut self, block: NodeIndex, id: (u16, u8), item: Item) {
         let var = Variable::Versioned {
             id: id.0,

@@ -10,6 +10,7 @@ use crate::{ControlFlow, EdgeIndex, NodeIndex};
 
 use super::Optimizer;
 
+/// The state required by the SSA transform
 #[derive(Debug)]
 pub struct SsaState<'a> {
     versions: HashMap<(u16, u8), u16>,
@@ -18,20 +19,56 @@ pub struct SsaState<'a> {
     max_versions: &'a mut HashMap<(u16, u8), u16>,
 }
 
+/// An entry in the phi instruction. Contains the variable ID that should be used when coming from
+/// `block`.
 #[derive(Debug, Clone)]
 pub struct PhiEntry {
     pub block: NodeIndex,
     pub value: Variable,
 }
 
+/// A phi node that picks its value based on the `BasicBlock` that came immediately before.
+/// For more information, see https://en.wikipedia.org/wiki/Static_single-assignment_form
+///
+/// # Example
+/// ```ignore
+/// if cond {
+///     result = "heads";
+/// } else {
+///     result = "tails";
+/// }
+/// ```
+/// would translate to the following SSA graph:
+/// ```ignore
+/// bb1: {
+///     branch if cond { bb2 } else { bb3 };
+/// }
+///
+/// bb2: {
+///     let result.v1 = "heads";
+///     branch bb4;
+/// }
+///
+/// bb3: {
+///     let result.v2 = "tails";
+///     branch bb4;
+/// }
+///
+/// bb4: {
+///     let result.v3 = phi [bb2: result.v1] [bb3: result.v2];
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct PhiInstruction {
+    /// The out variable for the phi instruction
     pub out: Variable,
+    /// The set of `block`-`value` pairs for the phi instruction
     pub entries: Vec<PhiEntry>,
 }
 
 impl Optimizer {
-    pub fn version_program(&mut self) {
+    /// Version all variables in the program so they are each assigned to exactly once.
+    pub(crate) fn version_program(&mut self) {
         let versions: HashMap<_, _> = self.program.variables.keys().map(|key| (*key, 0)).collect();
         let mut visited_blocks = HashSet::new();
         let mut visited_edges = HashSet::new();
@@ -76,6 +113,7 @@ impl Optimizer {
         }
     }
 
+    /// Version the phi entry for this edge
     fn version_phi(&mut self, target: NodeIndex, source: NodeIndex, state: &SsaState<'_>) {
         let phi = self.program[target].phi_nodes.clone();
         for node in phi.borrow_mut().iter_mut() {
@@ -98,6 +136,7 @@ impl Optimizer {
         }
     }
 
+    /// Version the operations for this block
     fn version_block_ops(&mut self, block: NodeIndex, state: &mut SsaState<'_>) {
         for phi in self.program[block].phi_nodes.borrow_mut().iter_mut() {
             if let Some((id, depth, item, _)) = as_versioned(phi.out) {

@@ -9,6 +9,7 @@ use crate::{
 
 use super::Optimizer;
 
+/// Debug display for the program state.
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Slices:\n")?;
