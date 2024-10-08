@@ -3,8 +3,9 @@ use std::{sync::Arc, thread};
 
 use super::ComputeChannel;
 use crate::{
+    memory_management::MemoryUsage,
     server::{Binding, ComputeServer, Handle},
-    storage::ComputeStorage,
+    storage::BindingResource,
     ExecutionMode,
 };
 
@@ -34,10 +35,7 @@ where
     Server: ComputeServer,
 {
     Read(Binding<Server>, Callback<Vec<u8>>),
-    GetResource(
-        Binding<Server>,
-        Callback<<Server::Storage as ComputeStorage>::Resource>,
-    ),
+    GetResource(Binding<Server>, Callback<BindingResource<Server>>),
     Create(Vec<u8>, Callback<Handle<Server>>),
     Empty(usize, Callback<Handle<Server>>),
     ExecuteKernel(
@@ -45,6 +43,7 @@ where
         Vec<Binding<Server>>,
     ),
     Sync(SyncType, Callback<()>),
+    GetMemoryUsage(Callback<MemoryUsage>),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -84,6 +83,9 @@ where
                             server.sync(sync_type);
                             callback.send(()).await.unwrap();
                         }
+                        Message::GetMemoryUsage(callback) => {
+                            callback.send(server.memory_usage()).await.unwrap();
+                        }
                     };
                 }
             });
@@ -117,10 +119,7 @@ where
         })
     }
 
-    fn get_resource(
-        &self,
-        binding: Binding<Server>,
-    ) -> <Server::Storage as ComputeStorage>::Resource {
+    fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server> {
         let (callback, response) = async_channel::unbounded();
 
         self.state
@@ -170,6 +169,15 @@ where
         self.state
             .sender
             .send_blocking(Message::Sync(sync_type, callback))
+            .unwrap();
+        handle_response(response.recv_blocking())
+    }
+
+    fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
+        let (callback, response) = async_channel::unbounded();
+        self.state
+            .sender
+            .send_blocking(Message::GetMemoryUsage(callback))
             .unwrap();
         handle_response(response.recv_blocking())
     }

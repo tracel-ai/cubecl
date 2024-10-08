@@ -25,9 +25,12 @@ pub mod server;
 /// Compute Storage module.
 pub mod storage;
 
+mod feature_set;
+
 mod base;
 pub use base::*;
 pub use cubecl_common::benchmark;
 
+pub use feature_set::*;
 /// Debugging utilities.
 pub mod debug;

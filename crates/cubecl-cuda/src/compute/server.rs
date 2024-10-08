@@ -6,9 +6,11 @@ use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
+use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
-use cubecl_core::{FeatureSet, Properties};
 use cubecl_runtime::debug::DebugLogger;
+use cubecl_runtime::memory_management::MemoryUsage;
+use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::ExecutionMode;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -23,24 +25,8 @@ use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct CudaServer<MM: MemoryManagement<CudaStorage>> {
-    state: CudaServerState<MM>,
+    ctx: CudaContext<MM>,
     logger: DebugLogger,
-}
-
-pub(crate) enum CudaServerState<MM: MemoryManagement<CudaStorage>> {
-    Uninitialized {
-        device_index: usize,
-        init: Box<dyn Fn(usize) -> CudaContext<MM>>,
-    },
-    Initialized {
-        ctx: CudaContext<MM>,
-    },
-}
-
-impl<MM: MemoryManagement<CudaStorage>> core::fmt::Debug for CudaServerState<MM> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Context")
-    }
 }
 
 #[derive(Debug)]
@@ -90,8 +76,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
     type DispatchOptions = CubeCount<Self>;
     type Storage = CudaStorage;
     type MemoryManagement = MM;
-    type FeatureSet = FeatureSet;
-    type Properties = Properties;
+    type Feature = Feature;
 
     fn read(&mut self, binding: server::Binding<Self>) -> Reader {
         reader_from_concrete(self.read_sync(binding))
@@ -117,7 +102,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
 
     fn empty(&mut self, size: usize) -> server::Handle<Self> {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size, &[]);
+        let handle = ctx.memory_management.reserve(size, None);
         server::Handle::new(handle, None, None)
     }
 
@@ -210,13 +195,20 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         }
     }
 
-    fn get_resource(
-        &mut self,
-        binding: server::Binding<Self>,
-    ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
+    fn get_resource(&mut self, binding: server::Binding<Self>) -> BindingResource<Self> {
         let ctx = self.get_context();
-        ctx.memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+        BindingResource::new(
+            binding.clone(),
+            ctx.memory_management.get_resource(
+                binding.memory,
+                binding.offset_start,
+                binding.offset_end,
+            ),
+        )
+    }
+
+    fn memory_usage(&self) -> MemoryUsage {
+        self.ctx.memory_usage()
     }
 }
 
@@ -330,16 +322,17 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
             .unwrap();
         };
     }
+
+    fn memory_usage(&self) -> MemoryUsage {
+        self.memory_management.memory_usage()
+    }
 }
 
 impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
     /// Create a new cuda server.
-    pub(crate) fn new(index: usize, init: Box<dyn Fn(usize) -> CudaContext<MM>>) -> Self {
+    pub(crate) fn new(ctx: CudaContext<MM>) -> Self {
         Self {
-            state: CudaServerState::Uninitialized {
-                device_index: index,
-                init,
-            },
+            ctx,
             logger: DebugLogger::new(),
         }
     }
@@ -349,19 +342,10 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
     }
 
     fn get_context_with_logger(&mut self) -> (&mut CudaContext<MM>, &mut DebugLogger) {
-        if let CudaServerState::Uninitialized { device_index, init } = &self.state {
-            let ctx = init(*device_index);
-
-            self.state = CudaServerState::Initialized { ctx };
-        }
-        if let CudaServerState::Initialized { ctx } = &mut self.state {
-            unsafe {
-                cudarc::driver::result::ctx::set_current(ctx.context).unwrap();
-            };
-            (ctx, &mut self.logger)
-        } else {
-            panic!("Context should be initialized");
-        }
+        unsafe {
+            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
+        };
+        (&mut self.ctx, &mut self.logger)
     }
 }
 

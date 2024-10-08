@@ -16,7 +16,7 @@ impl core::fmt::Debug for WgpuStorage {
 }
 
 /// The memory resource that can be allocated for wgpu.
-#[derive(new, Debug)]
+#[derive(new)]
 pub struct WgpuResource {
     /// The wgpu buffer.
     pub buffer: Arc<wgpu::Buffer>,
@@ -26,7 +26,7 @@ pub struct WgpuResource {
 
 impl WgpuResource {
     /// Return the binding view of the buffer.
-    pub fn as_binding(&self) -> wgpu::BindingResource {
+    pub fn as_wgpu_bind_resource(&self) -> wgpu::BindingResource {
         let binding = match &self.kind {
             WgpuResourceKind::Full => self.buffer.as_entire_buffer_binding(),
             WgpuResourceKind::Slice(offs, size) => wgpu::BufferBinding {
@@ -90,16 +90,13 @@ impl ComputeStorage for WgpuStorage {
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let buffer = self.memory.get(&handle.id).unwrap();
-
-        match handle.utilization {
-            StorageUtilization::Full(_) => {
-                WgpuResource::new(buffer.clone(), WgpuResourceKind::Full)
-            }
-            StorageUtilization::Slice { offset, size } => WgpuResource::new(
-                buffer.clone(),
-                WgpuResourceKind::Slice(offset as u64, NonZeroU64::new(size as u64).unwrap()),
+        WgpuResource::new(
+            buffer.clone(),
+            WgpuResourceKind::Slice(
+                handle.offset() as u64,
+                NonZeroU64::new(handle.size() as u64).unwrap(),
             ),
-        }
+        )
     }
 
     fn alloc(&mut self, size: usize) -> StorageHandle {
@@ -115,8 +112,7 @@ impl ComputeStorage for WgpuStorage {
         }));
 
         self.memory.insert(id, buffer);
-
-        StorageHandle::new(id, StorageUtilization::Full(size))
+        StorageHandle::new(id, StorageUtilization { offset: 0, size })
     }
 
     fn dealloc(&mut self, id: StorageId) {

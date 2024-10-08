@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::frontend::{
     branch::Iterable, indexation::Index, CubeContext, CubeType, ExpandElementTyped, Init,
     IntoRuntime,
@@ -12,7 +14,7 @@ use std::{cell::RefCell, rc::Rc};
 /// All methods [push](Sequence::push), [index](Sequence::index) and
 /// [into_iter](Sequence::into_iter) are executed _during_ compilation and don't add any overhead
 /// on the generated kernel.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sequence<T: CubeType> {
     values: Vec<T>,
 }
@@ -69,6 +71,12 @@ impl<T: CubeType> Sequence<T> {
         SequenceExpand {
             values: Rc::new(RefCell::new(Vec::new())),
         }
+    }
+
+    /// Insert an item at the given index.
+    #[allow(unused_variables, clippy::should_implement_trait)]
+    pub fn insert<I: Index>(&mut self, index: I, value: T) {
+        *self.index_mut(index) = value;
     }
 
     /// Expand function of [push](Self::push).
@@ -170,6 +178,27 @@ impl<T: CubeType> SequenceExpand<T> {
         self.values.borrow_mut().push(value);
     }
 
+    /// Expand method of [insert](Sequence::insert).
+    pub fn __expand_insert_method(
+        &self,
+        _context: &mut CubeContext,
+        index: ExpandElementTyped<u32>,
+        value: T::ExpandType,
+    ) {
+        let index = index
+            .constant()
+            .expect("Only constant are supported")
+            .as_usize();
+
+        let mut values = self.values.borrow_mut();
+
+        if values.len() == index {
+            values.push(value);
+        } else {
+            values[index] = value;
+        }
+    }
+
     /// Expand method of [index](Sequence::index).
     pub fn __expand_index_method(
         &self,
@@ -180,6 +209,7 @@ impl<T: CubeType> SequenceExpand<T> {
             .constant()
             .expect("Only constant are supported")
             .as_usize();
+
         self.values.borrow()[index].clone()
     }
 
@@ -193,6 +223,7 @@ impl<T: CubeType> SequenceExpand<T> {
             .constant()
             .expect("Only constant are supported")
             .as_usize();
+
         self.values.borrow()[index].clone()
     }
 

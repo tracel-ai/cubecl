@@ -202,7 +202,7 @@ fn test_subcube_operation<TestRuntime: Runtime, Launch>(
 ) where
     Launch: Fn(CubeCount<TestRuntime::Server>, CubeDim, TensorArg<'_, TestRuntime>),
 {
-    if !client.features().enabled(Feature::Subcube) {
+    if !client.properties().feature_enabled(Feature::Subcube) {
         // Can't execute the test.
         return;
     }

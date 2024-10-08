@@ -10,6 +10,7 @@ use crate::{
 use super::Tensor;
 
 /// Argument to be used for [tensors](Tensor) passed as arguments to kernels.
+#[derive(Debug)]
 pub enum TensorArg<'a, R: Runtime> {
     /// The tensor is passed with a tensor handle.
     Handle {
@@ -31,6 +32,16 @@ pub struct TensorHandleRef<'a, R: Runtime> {
     pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
     pub strides: &'a [usize],
     pub shape: &'a [usize],
+}
+
+impl<'a, R: Runtime> core::fmt::Debug for TensorHandleRef<'a, R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "TensorHandleRef {{ strides: {:?}, shape: {:?} }}",
+            self.strides, self.shape
+        )
+    }
 }
 
 /// Compilation argument for a [tensor](Tensor).

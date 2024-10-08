@@ -142,13 +142,6 @@ mod tests {
     }
 
     cast_test!(
-        cube_float_to_float_test,
-        float_to_float::expand,
-        Item::new(f32::as_elem()),
-        Item::new(f32::as_elem())
-    );
-
-    cast_test!(
         cube_float_to_int_test,
         float_to_int::expand,
         Item::new(f32::as_elem()),
@@ -174,13 +167,6 @@ mod tests {
         int_to_float::expand,
         Item::new(i32::as_elem()),
         Item::new(f32::as_elem())
-    );
-
-    cast_test!(
-        cube_int_to_int_test,
-        int_to_int::expand,
-        Item::new(i32::as_elem()),
-        Item::new(i32::as_elem())
     );
 
     cast_test!(
@@ -212,13 +198,6 @@ mod tests {
     );
 
     cast_test!(
-        cube_u32_to_u32_test,
-        u32_to_u32::expand,
-        Item::new(Elem::UInt),
-        Item::new(Elem::UInt)
-    );
-
-    cast_test!(
         cube_u32_to_bool_test,
         u32_to_bool::expand,
         Item::new(Elem::UInt),
@@ -244,13 +223,6 @@ mod tests {
         bool_to_u32::expand,
         Item::new(Elem::Bool),
         Item::new(Elem::UInt)
-    );
-
-    cast_test!(
-        cube_bool_to_bool_test,
-        bool_to_bool::expand,
-        Item::new(Elem::Bool),
-        Item::new(Elem::Bool)
     );
 
     fn inline_macro_ref_cast(from_item: Item, to_item: Item) -> String {

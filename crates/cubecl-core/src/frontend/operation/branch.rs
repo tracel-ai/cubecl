@@ -1,4 +1,11 @@
-use crate::prelude::CubePrimitive;
+use crate::{
+    ir::{Branch, Select},
+    prelude::*,
+};
+use crate::{
+    prelude::{CubePrimitive, Line},
+    unexpanded,
+};
 
 /// Executes both branches, *then* selects a value based on the condition. This *should* be
 /// branchless, but might depend on the compiler.
@@ -15,11 +22,20 @@ pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
     }
 }
 
+/// Same as [select] but with lines instead.
+#[allow(unused_variables)]
+pub fn select_many<C: CubePrimitive>(
+    condition: Line<bool>,
+    then: Line<C>,
+    or_else: Line<C>,
+) -> Line<C> {
+    unexpanded!()
+}
+
 pub mod select {
-    use crate::{
-        ir::{Branch, Select},
-        prelude::*,
-    };
+    use std::num::NonZero;
+
+    use super::*;
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
@@ -31,16 +47,34 @@ pub mod select {
         let then = then.expand.consume();
         let or_else = or_else.expand.consume();
 
-        let output = context.create_local_binding(then.item());
+        let vf = cond.vectorization_factor();
+        let vf = u8::max(vf, then.vectorization_factor());
+        let vf = u8::max(vf, or_else.vectorization_factor());
+
+        let output = context.create_local_binding(then.item().vectorize(NonZero::new(vf)));
         let out = *output;
 
-        context.register(Branch::Select(Select {
+        let select = Branch::Select(Select {
             cond,
             then,
             or_else,
             out,
-        }));
+        });
+        context.register(select);
 
         output.into()
+    }
+}
+
+pub mod select_many {
+    use super::*;
+
+    pub fn expand<C: CubePrimitive>(
+        context: &mut CubeContext,
+        condition: ExpandElementTyped<Line<bool>>,
+        then: ExpandElementTyped<Line<C>>,
+        or_else: ExpandElementTyped<Line<C>>,
+    ) -> ExpandElementTyped<Line<C>> {
+        select::expand(context, condition.expand.into(), then, or_else)
     }
 }
