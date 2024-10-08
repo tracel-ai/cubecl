@@ -20,48 +20,33 @@ impl core::fmt::Debug for WgpuStorage {
 pub struct WgpuResource {
     /// The wgpu buffer.
     pub buffer: Arc<wgpu::Buffer>,
-    /// How the resource is used.
-    pub kind: WgpuResourceKind,
+
+    offset: u64,
+    size: u64,
 }
 
 impl WgpuResource {
     /// Return the binding view of the buffer.
     pub fn as_wgpu_bind_resource(&self) -> wgpu::BindingResource {
-        let binding = match &self.kind {
-            WgpuResourceKind::Full => self.buffer.as_entire_buffer_binding(),
-            WgpuResourceKind::Slice(offs, size) => wgpu::BufferBinding {
-                buffer: &self.buffer,
-                offset: *offs,
-                size: Some(*size),
-            },
+        let binding = wgpu::BufferBinding {
+            buffer: &self.buffer,
+            offset: self.offset,
+            size: Some(
+                NonZeroU64::new(self.size).expect("0 size resources are not yet supported."),
+            ),
         };
         wgpu::BindingResource::Buffer(binding)
     }
 
     /// Return the buffer size.
     pub fn size(&self) -> u64 {
-        match self.kind {
-            WgpuResourceKind::Full => self.buffer.size(),
-            WgpuResourceKind::Slice(_, size) => size.get(),
-        }
+        self.size
     }
 
     /// Return the buffer offset.
     pub fn offset(&self) -> u64 {
-        match self.kind {
-            WgpuResourceKind::Full => 0,
-            WgpuResourceKind::Slice(offset, _) => offset,
-        }
+        self.offset
     }
-}
-
-/// How the resource is used, either as a slice or fully.
-#[derive(Debug)]
-pub enum WgpuResourceKind {
-    /// Represents an entire buffer.
-    Full,
-    /// A slice over a buffer.
-    Slice(wgpu::BufferAddress, wgpu::BufferSize),
 }
 
 /// Keeps actual wgpu buffer references in a hashmap with ids as key.
@@ -90,13 +75,7 @@ impl ComputeStorage for WgpuStorage {
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let buffer = self.memory.get(&handle.id).unwrap();
-        WgpuResource::new(
-            buffer.clone(),
-            WgpuResourceKind::Slice(
-                handle.offset() as u64,
-                NonZeroU64::new(handle.size() as u64).unwrap(),
-            ),
-        )
+        WgpuResource::new(buffer.clone(), handle.offset() as u64, handle.size() as u64)
     }
 
     fn alloc(&mut self, size: usize) -> StorageHandle {
