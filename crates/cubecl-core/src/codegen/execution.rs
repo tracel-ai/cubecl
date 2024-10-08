@@ -1,10 +1,10 @@
-use crate::compute::{CubeCount, KernelTask};
+use crate::compute::KernelTask;
 use crate::frontend::TensorHandleRef;
 use crate::ir::Elem;
 use crate::pod::CubeElement;
 use crate::{calculate_cube_count_elemwise, CubeDim, Kernel, Runtime};
 use cubecl_runtime::client::ComputeClient;
-use cubecl_runtime::server::{Binding, Handle};
+use cubecl_runtime::server::{Binding, CubeCount, Handle};
 
 /// The position of the input or output to calculate the number of cubes to launch.
 pub enum CubeCountSettings {

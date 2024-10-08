@@ -73,7 +73,6 @@ impl CudaServer {
 
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
-    type DispatchOptions = CubeCount;
     type Storage = CudaStorage;
     type Feature = Feature;
 
@@ -108,7 +107,7 @@ impl ComputeServer for CudaServer {
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
-        count: Self::DispatchOptions,
+        count: CubeCount,
         bindings: Vec<server::Binding>,
         mode: ExecutionMode,
     ) {

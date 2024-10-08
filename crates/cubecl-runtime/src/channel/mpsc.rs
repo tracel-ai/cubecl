@@ -4,7 +4,7 @@ use std::{sync::Arc, thread};
 use super::ComputeChannel;
 use crate::{
     memory_management::MemoryUsage,
-    server::{Binding, ComputeServer, Handle},
+    server::{Binding, ComputeServer, CubeCount, Handle},
     storage::BindingResource,
     ExecutionMode,
 };
@@ -38,10 +38,7 @@ where
     GetResource(Binding, Callback<BindingResource<Server>>),
     Create(Vec<u8>, Callback<Handle>),
     Empty(usize, Callback<Handle>),
-    ExecuteKernel(
-        (Server::Kernel, Server::DispatchOptions, ExecutionMode),
-        Vec<Binding>,
-    ),
+    ExecuteKernel((Server::Kernel, CubeCount, ExecutionMode), Vec<Binding>),
     Sync(SyncType, Callback<()>),
     GetMemoryUsage(Callback<MemoryUsage>),
 }
@@ -154,7 +151,7 @@ where
     unsafe fn execute(
         &self,
         kernel: Server::Kernel,
-        count: Server::DispatchOptions,
+        count: CubeCount,
         bindings: Vec<Binding>,
         kind: ExecutionMode,
     ) {

@@ -1,11 +1,8 @@
-use std::{
-    fmt::{Debug, Display},
-    marker::PhantomData,
-};
+use std::{fmt::Display, marker::PhantomData};
 
 use crate::{codegen::CompilerRepresentation, ir::CubeDim, Compiler, Kernel, KernelId};
 use alloc::sync::Arc;
-use cubecl_runtime::{server::Binding, ExecutionMode};
+use cubecl_runtime::ExecutionMode;
 
 /// A kernel, compiled in the target language
 pub struct CompiledKernel<C: Compiler> {
@@ -238,31 +235,5 @@ impl<C: Compiler> CubeTask<C> for Box<dyn CubeTask<C>> {
 
     fn name(&self) -> &'static str {
         self.as_ref().name()
-    }
-}
-
-/// Provides launch information specifying the number of work groups to be used by a compute shader.
-pub enum CubeCount {
-    /// Dispatch x,y,z work groups.
-    Static(u32, u32, u32),
-    /// Dispatch work groups based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
-    Dynamic(Binding),
-}
-
-impl Debug for CubeCount {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CubeCount::Static(x, y, z) => f.write_fmt(format_args!("({x}, {y}, {z})")),
-            CubeCount::Dynamic(_) => f.write_str("binding"),
-        }
-    }
-}
-
-impl Clone for CubeCount {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Static(x, y, z) => Self::Static(*x, *y, *z),
-            Self::Dynamic(handle) => Self::Dynamic(handle.clone()),
-        }
     }
 }

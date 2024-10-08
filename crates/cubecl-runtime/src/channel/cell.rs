@@ -1,5 +1,5 @@
 use super::ComputeChannel;
-use crate::server::{Binding, ComputeServer, Handle};
+use crate::server::{Binding, ComputeServer, CubeCount, Handle};
 use crate::storage::BindingResource;
 use crate::ExecutionMode;
 use alloc::sync::Arc;
@@ -64,7 +64,7 @@ where
     unsafe fn execute(
         &self,
         kernel_description: Server::Kernel,
-        count: Server::DispatchOptions,
+        count: CubeCount,
         bindings: Vec<Binding>,
         kind: ExecutionMode,
     ) {

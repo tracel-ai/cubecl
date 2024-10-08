@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::compute::{CubeCount, KernelTask};
+use crate::compute::KernelTask;
 use crate::ir::{Elem, FloatKind, IntKind};
 use crate::prelude::ArrayHandleRef;
 use crate::KernelSettings;
 use crate::{calculate_num_elems_dyn_rank, frontend::TensorHandleRef, Kernel, Runtime};
 use bytemuck::NoUninit;
 use cubecl_runtime::client::ComputeClient;
-use cubecl_runtime::server::Binding;
+use cubecl_runtime::server::{Binding, CubeCount};
 use num_traits::ToPrimitive;
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).

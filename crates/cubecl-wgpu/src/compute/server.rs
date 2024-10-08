@@ -123,7 +123,6 @@ impl WgpuServer {
 
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<WgslCompiler>>;
-    type DispatchOptions = CubeCount;
     type Storage = WgpuStorage;
     type Feature = Feature;
 
@@ -246,7 +245,7 @@ impl ComputeServer for WgpuServer {
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
-        count: Self::DispatchOptions,
+        count: CubeCount,
         bindings: Vec<server::Binding>,
         mode: ExecutionMode,
     ) {

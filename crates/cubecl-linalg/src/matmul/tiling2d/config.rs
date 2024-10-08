@@ -2,7 +2,7 @@ use cubecl_core::{
     self as cubecl,
     prelude::{CubeContext, Init},
 };
-use cubecl_core::{compute::CubeCount, ir::CubeDim, CubeType};
+use cubecl_core::{ir::CubeDim, CubeCount, CubeType};
 
 use super::base::TILE_SIZE;
 

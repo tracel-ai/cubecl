@@ -151,7 +151,6 @@ impl WgpuSpirvServer {
 
 impl ComputeServer for WgpuSpirvServer {
     type Kernel = Box<dyn CubeTask<SpirvCompiler>>;
-    type DispatchOptions = CubeCount;
     type Storage = WgpuStorage;
     type Feature = Feature;
 
@@ -274,7 +273,7 @@ impl ComputeServer for WgpuSpirvServer {
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
-        count: Self::DispatchOptions,
+        count: CubeCount,
         bindings: Vec<server::Binding>,
         mode: ExecutionMode,
     ) {

@@ -20,8 +20,6 @@ where
 {
     /// The kernel type defines the computation algorithms.
     type Kernel: Send;
-    /// Options when dispatching the kernel, eg. the number of executions.
-    type DispatchOptions: Send;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
     /// The type of the features supported by the server.
@@ -50,7 +48,7 @@ where
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
-        count: Self::DispatchOptions,
+        count: CubeCount,
         bindings: Vec<Binding>,
         kind: ExecutionMode,
     );
@@ -141,6 +139,32 @@ impl Clone for Binding {
             memory: self.memory.clone(),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
+        }
+    }
+}
+
+/// Provides launch information specifying the number of work groups to be used by a compute shader.
+pub enum CubeCount {
+    /// Dispatch x,y,z work groups.
+    Static(u32, u32, u32),
+    /// Dispatch work groups based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
+    Dynamic(Binding),
+}
+
+impl Debug for CubeCount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CubeCount::Static(x, y, z) => f.write_fmt(format_args!("({x}, {y}, {z})")),
+            CubeCount::Dynamic(_) => f.write_str("binding"),
+        }
+    }
+}
+
+impl Clone for CubeCount {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Static(x, y, z) => Self::Static(*x, *y, *z),
+            Self::Dynamic(handle) => Self::Dynamic(handle.clone()),
         }
     }
 }

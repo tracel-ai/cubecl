@@ -1,5 +1,5 @@
 use crate::{
-    server::{Binding, ComputeServer, Handle},
+    server::{Binding, ComputeServer, CubeCount, Handle},
     storage::BindingResource,
     ExecutionMode,
 };
@@ -29,7 +29,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     unsafe fn execute(
         &self,
         kernel: Server::Kernel,
-        count: Server::DispatchOptions,
+        count: CubeCount,
         bindings: Vec<Binding>,
         mode: ExecutionMode,
     );

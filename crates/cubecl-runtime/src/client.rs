@@ -1,7 +1,7 @@
 use crate::{
     channel::ComputeChannel,
     memory_management::MemoryUsage,
-    server::{Binding, ComputeServer, Handle},
+    server::{Binding, ComputeServer, CubeCount, Handle},
     storage::BindingResource,
     DeviceProperties, ExecutionMode,
 };
@@ -73,12 +73,7 @@ where
     }
 
     /// Executes the `kernel` over the given `bindings`.
-    pub fn execute(
-        &self,
-        kernel: Server::Kernel,
-        count: Server::DispatchOptions,
-        bindings: Vec<Binding>,
-    ) {
+    pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Vec<Binding>) {
         unsafe {
             self.channel
                 .execute(kernel, count, bindings, ExecutionMode::Checked)
@@ -93,7 +88,7 @@ where
     pub unsafe fn execute_unchecked(
         &self,
         kernel: Server::Kernel,
-        count: Server::DispatchOptions,
+        count: CubeCount,
         bindings: Vec<Binding>,
     ) {
         self.channel
