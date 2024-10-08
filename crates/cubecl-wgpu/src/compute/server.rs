@@ -5,9 +5,7 @@ use crate::compiler::wgsl::WgslCompiler;
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
-use cubecl_core::{
-    compute::DebugInformation, prelude::*, server::Handle, FeatureSet, KernelId, Properties,
-};
+use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
     memory_management::{MemoryHandle, MemoryLock, MemoryManagement},
@@ -134,8 +132,7 @@ where
     type DispatchOptions = CubeCount<Self>;
     type Storage = WgpuStorage;
     type MemoryManagement = MM;
-    type FeatureSet = FeatureSet;
-    type Properties = Properties;
+    type Feature = Feature;
 
     fn read(&mut self, binding: server::Binding<Self>) -> Reader {
         let rb = self.get_resource(binding);
@@ -377,5 +374,9 @@ where
 
         // Cleanup allocations and deallocations.
         self.memory_management.storage().perform_deallocations();
+    }
+
+    fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
+        self.memory_management.memory_usage()
     }
 }

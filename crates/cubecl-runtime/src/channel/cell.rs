@@ -76,6 +76,10 @@ where
     fn sync(&self, sync_type: SyncType) {
         self.server.borrow_mut().sync(sync_type)
     }
+
+    fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
+        self.server.borrow_mut().memory_usage()
+    }
 }
 
 /// This is unsafe, since no concurrency is supported by the `RefCell` channel.

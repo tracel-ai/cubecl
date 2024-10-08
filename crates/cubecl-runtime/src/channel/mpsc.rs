@@ -3,6 +3,7 @@ use std::{sync::Arc, thread};
 
 use super::ComputeChannel;
 use crate::{
+    memory_management::MemoryUsage,
     server::{Binding, ComputeServer, Handle},
     storage::BindingResource,
     ExecutionMode,
@@ -42,6 +43,7 @@ where
         Vec<Binding<Server>>,
     ),
     Sync(SyncType, Callback<()>),
+    GetMemoryUsage(Callback<MemoryUsage>),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -80,6 +82,9 @@ where
                         Message::Sync(sync_type, callback) => {
                             server.sync(sync_type);
                             callback.send(()).await.unwrap();
+                        }
+                        Message::GetMemoryUsage(callback) => {
+                            callback.send(server.memory_usage()).await.unwrap();
                         }
                     };
                 }
@@ -164,6 +169,15 @@ where
         self.state
             .sender
             .send_blocking(Message::Sync(sync_type, callback))
+            .unwrap();
+        handle_response(response.recv_blocking())
+    }
+
+    fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
+        let (callback, response) = async_channel::unbounded();
+        self.state
+            .sender
+            .send_blocking(Message::GetMemoryUsage(callback))
             .unwrap();
         handle_response(response.recv_blocking())
     }

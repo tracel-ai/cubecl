@@ -3,12 +3,10 @@ use std::num::NonZero;
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
-use cubecl_core::{
-    compute::DebugInformation, prelude::*, server::Handle, FeatureSet, KernelId, Properties,
-};
+use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
-    memory_management::{MemoryHandle, MemoryLock, MemoryManagement},
+    memory_management::{MemoryHandle, MemoryLock, MemoryManagement, MemoryUsage},
     server::{self, ComputeServer},
     storage::{BindingResource, ComputeStorage},
     ExecutionMode,
@@ -86,7 +84,11 @@ where
 
         let compile = self.logger.debug(compile);
 
-        let num_bindings = compile.repr.num_bindings as u32;
+        let repr = compile
+            .repr
+            .expect("Need compiled repr to assemble to spirv");
+
+        let num_bindings = repr.num_bindings as u32;
         let bindings = (0..num_bindings)
             .map(|i| BindGroupLayoutEntry {
                 binding: i,
@@ -113,7 +115,7 @@ where
                 push_constant_ranges: &[],
             });
 
-        let pipeline = self.compile_source(&compile.repr.assemble(), &layout);
+        let pipeline = self.compile_source(&repr.assemble(), &layout);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
@@ -158,8 +160,7 @@ where
     type DispatchOptions = CubeCount<Self>;
     type Storage = WgpuStorage;
     type MemoryManagement = MM;
-    type FeatureSet = FeatureSet;
-    type Properties = Properties;
+    type Feature = Feature;
 
     fn read(&mut self, binding: server::Binding<Self>) -> Reader {
         let br = self.get_resource(binding);
@@ -401,5 +402,9 @@ where
 
         // Cleanup allocations and deallocations.
         self.memory_management.storage().perform_deallocations();
+    }
+
+    fn memory_usage(&self) -> MemoryUsage {
+        self.memory_management.memory_usage()
     }
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use cubecl_common::{reader::reader_from_concrete, sync_type::SyncType};
+use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::{BindingResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::{simple::SimpleMemoryManagement, MemoryManagement},
@@ -27,8 +28,7 @@ where
     type Kernel = Arc<dyn DummyKernel>;
     type Storage = BytesStorage;
     type MemoryManagement = MM;
-    type FeatureSet = ();
-    type Properties = ();
+    type Feature = ();
 
     fn read(&mut self, binding: Binding<Self>) -> cubecl_common::reader::Reader {
         let bytes_handle = self.memory_management.get(binding.memory);
@@ -75,5 +75,9 @@ where
 
     fn sync(&mut self, _: SyncType) {
         // Nothing to do with dummy backend.
+    }
+
+    fn memory_usage(&self) -> MemoryUsage {
+        self.memory_management.memory_usage()
     }
 }

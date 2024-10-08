@@ -1,5 +1,5 @@
 use crate::{
-    memory_management::{MemoryHandle, MemoryManagement},
+    memory_management::{MemoryHandle, MemoryManagement, MemoryUsage},
     storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
@@ -23,10 +23,8 @@ where
     type Storage: ComputeStorage;
     /// The [memory management](MemoryManagement) type defines strategies for allocation in the [storage](ComputeStorage) type.
     type MemoryManagement: MemoryManagement<Self::Storage>;
-    /// Features supported by the compute server.
-    type FeatureSet: Send + Sync;
-    /// Properties of the compute server.
-    type Properties: Send + Sync;
+    /// The type of the features supported by the server.
+    type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Given a handle, returns the owned resource as bytes.
     fn read(&mut self, binding: Binding<Self>) -> Reader;
@@ -58,6 +56,9 @@ where
 
     /// Wait for the completion of every task in the server.
     fn sync(&mut self, command: SyncType);
+
+    /// The current memory usage of the server.
+    fn memory_usage(&self) -> MemoryUsage;
 }
 
 /// Server handle containing the [memory handle](MemoryManagement::Handle).
@@ -108,7 +109,7 @@ pub struct Binding<Server: ComputeServer> {
 impl<Server: ComputeServer> Handle<Server> {
     /// If the tensor handle can be reused inplace.
     pub fn can_mut(&self) -> bool {
-        MemoryHandle::can_mut(&self.memory)
+        self.memory.can_mut()
     }
 }
 

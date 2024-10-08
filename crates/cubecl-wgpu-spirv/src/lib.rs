@@ -6,9 +6,12 @@ use cubecl_core::{
     channel::MutexComputeChannel,
     client::ComputeClient,
     ir::{Elem, FloatKind},
-    Feature, FeatureSet, Properties, Runtime,
+    Feature, Runtime,
 };
-use cubecl_runtime::{memory_management::dynamic::DynamicMemoryManagement, ComputeRuntime};
+use cubecl_runtime::{
+    memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties},
+    ComputeRuntime, DeviceProperties,
+};
 use cubecl_spirv::{GLCompute, SpirvCompiler};
 use cubecl_wgpu::{
     create_wgpu_setup, init_async, init_memory_management, AutoGraphicsApi, RuntimeOptions, Vulkan,
@@ -74,7 +77,16 @@ pub fn create_client(
     MutexComputeChannel<WgpuSpirvServer<MemoryManagement>>,
 > {
     let limits = device_wgpu.limits();
-    let memory_management = init_memory_management(device_wgpu.clone(), &limits);
+    let mem_props = MemoryDeviceProperties {
+        max_page_size: limits.max_storage_buffer_binding_size as usize,
+        alignment: limits.min_storage_buffer_offset_alignment as usize,
+    };
+
+    let memory_management = init_memory_management(
+        device_wgpu.clone(),
+        mem_props.clone(),
+        options.memory_config,
+    );
     let server = WgpuSpirvServer::new(memory_management, device_wgpu, queue, options.tasks_max);
     let channel = MutexComputeChannel::new(server);
 
@@ -90,23 +102,19 @@ pub fn create_client(
             }
         })
     };
-    let mut features_cube = FeatureSet::default();
+    let mut device_props = DeviceProperties::new(&[], mem_props);
 
     if features.contains(wgpu::Features::SUBGROUP) {
-        features_cube.register(Feature::Subcube);
+        device_props.register_feature(Feature::Subcube);
     }
     if has_cmma {
-        register_cmma_features(&mut features_cube);
+        register_cmma_features(&mut device_props);
     }
 
-    let properties = Properties {
-        memory_offset_alignment: limits.min_storage_buffer_offset_alignment,
-    };
-
-    ComputeClient::new(channel, features_cube, properties)
+    ComputeClient::new(channel, device_props)
 }
 
-fn register_cmma_features(features: &mut FeatureSet) {
+fn register_cmma_features(properties: &mut DeviceProperties<Feature>) {
     // Types fully supported.
     for (a, b, c) in [
         (
@@ -125,7 +133,7 @@ fn register_cmma_features(features: &mut FeatureSet) {
             Elem::Float(FloatKind::F32),
         ),
     ] {
-        features.register(Feature::Cmma {
+        properties.register_feature(Feature::Cmma {
             a,
             b,
             c,
@@ -133,7 +141,7 @@ fn register_cmma_features(features: &mut FeatureSet) {
             k: 16,
             n: 16,
         });
-        features.register(Feature::Cmma {
+        properties.register_feature(Feature::Cmma {
             a,
             b,
             c,
@@ -141,7 +149,7 @@ fn register_cmma_features(features: &mut FeatureSet) {
             k: 16,
             n: 8,
         });
-        features.register(Feature::Cmma {
+        properties.register_feature(Feature::Cmma {
             a,
             b,
             c,

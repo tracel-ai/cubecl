@@ -4,10 +4,13 @@ use crate::{
     AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
 use alloc::sync::Arc;
-use cubecl_core::{Feature, FeatureSet, Properties, Runtime};
-use cubecl_runtime::memory_management;
+use cubecl_core::{Feature, Runtime};
+use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
-use wgpu::{DeviceDescriptor, Limits};
+use cubecl_runtime::{memory_management, DeviceProperties};
+use wgpu::DeviceDescriptor;
+
+pub use cubecl_runtime::memory_management::MemoryConfiguration;
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
@@ -27,20 +30,26 @@ type MemoryManagement = memory_management::dynamic::DynamicMemoryManagement<Wgpu
 type MemoryManagement = memory_management::simple::SimpleMemoryManagement<WgpuStorage>;
 
 #[cfg(not(simple_memory_management))]
-pub fn init_memory_management(device: Arc<wgpu::Device>, limits: &Limits) -> MemoryManagement {
+pub fn init_memory_management(
+    device: Arc<wgpu::Device>,
+    mem_props: MemoryDeviceProperties,
+    config: MemoryConfiguration,
+) -> MemoryManagement {
     let storage = WgpuStorage::new(device.clone());
 
-    memory_management::dynamic::DynamicMemoryManagement::new(
-        storage,
-        memory_management::dynamic::DynamicMemoryManagementOptions::preset(
-            limits.max_storage_buffer_binding_size as usize,
-            limits.min_storage_buffer_offset_alignment as usize,
-        ),
+    memory_management::dynamic::DynamicMemoryManagement::from_configuration(
+        storage, mem_props, config,
     )
 }
 
 #[cfg(simple_memory_management)]
-pub fn init_memory_management(device: Arc<wgpu::Device>, _limits: &Limits) -> MemoryManagement {
+pub fn init_memory_management(
+    device: Arc<wgpu::Device>,
+    _mem_props: MemoryDeviceProperties,
+    _config: MemoryConfiguration,
+) -> MemoryManagement {
+    // Simple memory management doesn't use the device limits of memory configuration.
+
     let storage = WgpuStorage::new(device.clone());
 
     memory_management::simple::SimpleMemoryManagement::new(
@@ -78,6 +87,8 @@ impl Runtime for WgpuRuntime {
 pub struct RuntimeOptions {
     /// Control the amount of compute tasks to be aggregated into a single GPU command.
     pub tasks_max: usize,
+    /// Configures the memory management.
+    pub memory_config: MemoryConfiguration,
 }
 
 impl Default for RuntimeOptions {
@@ -94,7 +105,10 @@ impl Default for RuntimeOptions {
             Err(_) => DEFAULT_MAX_TASKS,
         };
 
-        Self { tasks_max }
+        Self {
+            tasks_max,
+            memory_config: MemoryConfiguration::Default,
+        }
     }
 }
 
@@ -144,21 +158,25 @@ pub fn create_client(
 ) -> ComputeClient<WgpuServer<MemoryManagement>, MutexComputeChannel<WgpuServer<MemoryManagement>>>
 {
     let limits = device_wgpu.limits();
-    let memory_management = init_memory_management(device_wgpu.clone(), &limits);
+    let mem_props = MemoryDeviceProperties {
+        max_page_size: limits.max_storage_buffer_binding_size as usize,
+        alignment: limits.min_storage_buffer_offset_alignment as usize,
+    };
+
+    let memory_management = init_memory_management(
+        device_wgpu.clone(),
+        mem_props.clone(),
+        options.memory_config,
+    );
     let server = WgpuServer::new(memory_management, device_wgpu, queue, options.tasks_max);
     let channel = MutexComputeChannel::new(server);
 
     let features = adapter.features();
-    let mut features_cube = FeatureSet::default();
-
+    let mut device_props = DeviceProperties::new(&[], mem_props);
     if features.contains(wgpu::Features::SUBGROUP) {
-        features_cube.register(Feature::Subcube);
+        device_props.register_feature(Feature::Subcube);
     }
-    let properties = Properties {
-        memory_offset_alignment: limits.min_storage_buffer_offset_alignment,
-    };
-
-    ComputeClient::new(channel, features_cube, properties)
+    ComputeClient::new(channel, device_props)
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).

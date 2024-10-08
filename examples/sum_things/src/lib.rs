@@ -132,7 +132,9 @@ fn launch_subgroup<R: Runtime>(
             CubeDim::new(len as u32, 1, 1),
             ArrayArg::from_raw_parts(input, len, 1),
             ArrayArg::from_raw_parts(output, len, 1),
-            client.features().enabled(cubecl::Feature::Subcube),
+            client
+                .properties()
+                .feature_enabled(cubecl::Feature::Subcube),
             Some(len as u32),
         );
     }
@@ -202,14 +204,20 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             KernelKind::TraitSum => {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.
-                if client.features().enabled(cubecl::Feature::Subcube) {
+                if client
+                    .properties()
+                    .feature_enabled(cubecl::Feature::Subcube)
+                {
                     launch_trait::<R, SumSubcube>(&client, &input, &output, len)
                 } else {
                     launch_trait::<R, SumBasic>(&client, &input, &output, len)
                 }
             }
             KernelKind::SeriesSumThenMul => {
-                if client.features().enabled(cubecl::Feature::Subcube) {
+                if client
+                    .properties()
+                    .feature_enabled(cubecl::Feature::Subcube)
+                {
                     launch_series::<R, SumThenMul<SumSubcube>>(&client, &input, &output, len)
                 } else {
                     launch_series::<R, SumThenMul<SumBasic>>(&client, &input, &output, len)
