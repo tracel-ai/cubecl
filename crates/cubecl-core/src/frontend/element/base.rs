@@ -144,12 +144,6 @@ pub struct ExpandElementTyped<T: CubeType> {
     pub(crate) _type: PhantomData<T>,
 }
 
-impl<T: CubeType> ExpandElementTyped<T> {
-    pub fn line_size(&self) -> u8 {
-        self.expand.vectorization_factor() as u8
-    }
-}
-
 macro_rules! from_const {
     ($lit:ty) => {
         impl From<$lit> for ExpandElementTyped<$lit> {
