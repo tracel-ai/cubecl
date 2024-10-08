@@ -18,7 +18,7 @@ use super::OptimizerPass;
 /// a[4] = 4;
 /// ```
 /// would become
-/// ```
+/// ```ignore
 /// a = vec4(1, 2, 3, 4);
 /// ```
 /// This is more efficient particularly in SSA form.
