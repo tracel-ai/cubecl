@@ -20,12 +20,20 @@ pub(super) fn init_lhs<I: Numeric>(
     n: u32,
     k: u32,
 ) -> Fragment<I> {
-    Fragment::<I> {
-        matrix: cmma::Matrix::<I>::new(cmma::MatrixIdent::A, m, n, k, as_cmma_layout(layout)),
-        stride: match layout {
-            MatrixLayout::RowMajor => k,
-            MatrixLayout::ColMajor => m,
-        },
+    unsafe {
+        Fragment::<I> {
+            matrix: cmma::Matrix::<I>::uninitialized(
+                cmma::MatrixIdent::A,
+                m,
+                n,
+                k,
+                as_cmma_layout(layout),
+            ),
+            stride: match layout {
+                MatrixLayout::RowMajor => k,
+                MatrixLayout::ColMajor => m,
+            },
+        }
     }
 }
 
@@ -36,12 +44,20 @@ pub(super) fn init_rhs<I: Numeric>(
     n: u32,
     k: u32,
 ) -> Fragment<I> {
-    Fragment::<I> {
-        matrix: cmma::Matrix::<I>::new(cmma::MatrixIdent::B, m, n, k, as_cmma_layout(layout)),
-        stride: match layout {
-            MatrixLayout::RowMajor => n,
-            MatrixLayout::ColMajor => k,
-        },
+    unsafe {
+        Fragment::<I> {
+            matrix: cmma::Matrix::<I>::uninitialized(
+                cmma::MatrixIdent::B,
+                m,
+                n,
+                k,
+                as_cmma_layout(layout),
+            ),
+            stride: match layout {
+                MatrixLayout::RowMajor => n,
+                MatrixLayout::ColMajor => k,
+            },
+        }
     }
 }
 
@@ -57,17 +73,19 @@ pub(super) fn fill_rhs<C: CubePrimitive, I: Numeric>(slice: &Slice<'_, C>, rhs: 
 
 #[cube]
 pub(super) fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
-    let matrix = cmma::Matrix::<O>::new(
-        cmma::MatrixIdent::Accumulator,
-        m,
-        n,
-        k,
-        cmma::MatrixLayout::Undefined,
-    );
+    unsafe {
+        let matrix = cmma::Matrix::<O>::uninitialized(
+            cmma::MatrixIdent::Accumulator,
+            m,
+            n,
+            k,
+            cmma::MatrixLayout::Undefined,
+        );
 
-    cmma::fill(&matrix, O::from_int(0));
+        cmma::fill(&matrix, O::from_int(0));
 
-    Fragment::<O> { matrix, stride: n }
+        Fragment::<O> { matrix, stride: n }
+    }
 }
 
 #[cube]

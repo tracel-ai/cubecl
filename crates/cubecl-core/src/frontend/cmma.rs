@@ -210,7 +210,7 @@ impl<C: CubePrimitive> Matrix<C> {
         k: ExpandElementTyped<u32>,
         layout: MatrixLayout,
         value: ExpandElementTyped<C>,
-    ) -> MatrixExpand {
+    ) -> MatrixExpand<C> {
         let mat = Self::__expand_uninitialized(context, ident, m, n, k, layout);
         fill::expand(context, mat.clone(), value);
         mat
@@ -226,7 +226,7 @@ impl<C: CubePrimitive> Matrix<C> {
         layout: MatrixLayout,
         value: ExpandElementTyped<Slice<'static, C>>,
         stride: ExpandElementTyped<u32>,
-    ) -> MatrixExpand {
+    ) -> MatrixExpand<C> {
         let mat = Self::__expand_uninitialized(context, ident, m, n, k, layout);
         load::expand(context, mat.clone(), value, stride);
         mat
