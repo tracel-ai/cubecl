@@ -153,10 +153,12 @@ impl Display for Operator {
                 op.out, op.input, op.in_index, op.out_index, op.len
             ),
             Operator::Slice(op) => write!(f, "{} = {}[{}..{}]", op.out, op.input, op.start, op.end),
-            Operator::UncheckedIndex(op) => write!(f, "{} = unsafe {}[{}]", op.out, op.lhs, op.rhs),
+            Operator::UncheckedIndex(op) => {
+                write!(f, "{} = unchecked {}[{}]", op.out, op.lhs, op.rhs)
+            }
             Operator::IndexAssign(op) => write!(f, "{}[{}] = {}", op.out, op.lhs, op.rhs),
             Operator::UncheckedIndexAssign(op) => {
-                write!(f, "unsafe {}[{}] = {}", op.out, op.lhs, op.rhs)
+                write!(f, "unchecked {}[{}] = {}", op.out, op.lhs, op.rhs)
             }
             Operator::And(op) => write!(f, "{} = {} && {}", op.out, op.lhs, op.rhs),
             Operator::Or(op) => write!(f, "{} = {} || {}", op.out, op.lhs, op.rhs),
