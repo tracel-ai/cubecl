@@ -99,7 +99,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         config: MemoryConfiguration,
     ) -> Self {
         match config {
-            MemoryConfiguration::Default => {
+            MemoryConfiguration::SubSlices => {
                 // Round chunk size to be aligned.
                 let memory_alignment = properties.alignment;
                 let max_page = (properties.max_page_size / memory_alignment) * memory_alignment;
@@ -329,7 +329,7 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
             },
-            MemoryConfiguration::Default,
+            MemoryConfiguration::SubSlices,
         );
         let handle = memory_management.reserve(10, None);
         let other_ref = handle.clone();
@@ -474,7 +474,7 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
             },
-            MemoryConfiguration::Default,
+            MemoryConfiguration::SubSlices,
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
@@ -502,7 +502,7 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
             },
-            MemoryConfiguration::Default,
+            MemoryConfiguration::SubSlices,
         );
         // Allocate a mix of small and large chunks
         let sizes = [50, 1000, 100, 5000, 200, 10000, 300];

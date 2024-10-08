@@ -10,7 +10,7 @@ const MB: usize = 1024 * 1024;
 fn main() {
     let start = std::time::Instant::now();
     let storage = BytesStorage::default();
-    let config = MemoryConfiguration::Default;
+    let config = MemoryConfiguration::default();
     let mem_props = MemoryDeviceProperties {
         max_page_size: 2048 * MB,
         alignment: 32,

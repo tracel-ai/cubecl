@@ -258,10 +258,10 @@ impl Display for Location {
 
 impl Display for Visibility {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO TODO TOD O TODO
         match self {
+            #[cfg(exclusive_memory_only)]
             Visibility::Read => f.write_str("read"),
-            Visibility::ReadWrite => f.write_str("read_write"),
+            _ => f.write_str("read_write"),
         }
     }
 }
