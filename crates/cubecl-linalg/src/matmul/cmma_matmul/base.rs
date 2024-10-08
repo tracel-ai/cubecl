@@ -6,7 +6,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::{
     id_map::PlaneMapper,
     matrix_layout::MatrixLayout,
-    requirements::{MatmulProblem, Requirements},
+    problem::{MatmulProblem, Requirements},
     tile_io::{TileReader, TileWriter},
     BlockMatmul, FixedShapeMatmul, Matmul, MatmulInstruction,
 };

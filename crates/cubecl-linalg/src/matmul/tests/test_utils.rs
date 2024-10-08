@@ -3,7 +3,7 @@ use cubecl_core::{client::ComputeClient, server::Handle, CubeElement, Runtime};
 
 use crate::{
     matmul::{
-        requirements::MatmulProblem,
+        problem::MatmulProblem,
         tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig},
     },
     tensor::TensorHandle,

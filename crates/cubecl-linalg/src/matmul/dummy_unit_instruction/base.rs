@@ -7,7 +7,7 @@ use crate::matmul::block_info::{BlockInfo, BlockInfos};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::MatmulInstruction;
 
-use crate::matmul::requirements::{MatmulProblem, Requirements};
+use crate::matmul::problem::{MatmulProblem, Requirements};
 
 use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::{FixedShapeMatmul, Matmul};

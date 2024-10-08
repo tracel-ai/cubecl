@@ -6,7 +6,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::block_info::BlockInfos;
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::requirements::{MatmulProblem, Requirements};
+use crate::matmul::problem::{MatmulProblem, Requirements};
 use crate::matmul::tile_io::writing::TensorWriter;
 use crate::matmul::tile_io::Loader;
 use crate::matmul::{BlockMatmul, CubeMatmul, Matmul, TensorMatmul};

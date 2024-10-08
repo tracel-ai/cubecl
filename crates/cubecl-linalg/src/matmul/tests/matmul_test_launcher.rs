@@ -2,7 +2,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::CubeElement;
 
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::requirements::MatmulProblem;
+use crate::matmul::problem::MatmulProblem;
 use crate::matmul::FixedShapeMatmul;
 use crate::matmul::TensorMatmul;
 
@@ -21,6 +21,8 @@ where
         m: MM::M,
         n: MM::N,
         k: MM::K,
+        lhs_layout: layouts.0,
+        rhs_layout: layouts.1,
     };
 
     let lhs_size = (MM::M * MM::K) as usize;
@@ -75,11 +77,8 @@ where
     }
 }
 
-pub fn test_tensor_matmul<MM, Elem, R>(
-    problem: MatmulProblem,
-    layouts: (MatrixLayout, MatrixLayout),
-    device: &R::Device,
-) where
+pub fn test_tensor_matmul<MM, Elem, R>(problem: MatmulProblem, device: &R::Device)
+where
     Elem: Numeric + CubeElement,
     MM: TensorMatmul<Elem>,
     R: Runtime,
@@ -92,14 +91,14 @@ pub fn test_tensor_matmul<MM, Elem, R>(
     let lhs_original_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 100.).collect();
     let rhs_original_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 100.).collect();
 
-    let (lhs_data, lhs_strides) = match layouts.0 {
+    let (lhs_data, lhs_strides) = match problem.lhs_layout {
         MatrixLayout::RowMajor => (lhs_original_data.clone(), [problem.k as usize, 1]),
         MatrixLayout::ColMajor => (
             transpose::<f32>(&lhs_original_data, problem.m as usize, problem.k as usize),
             [1, problem.m as usize],
         ),
     };
-    let (rhs_data, rhs_strides) = match layouts.1 {
+    let (rhs_data, rhs_strides) = match problem.rhs_layout {
         MatrixLayout::RowMajor => (rhs_original_data.clone(), [problem.n as usize, 1]),
         MatrixLayout::ColMajor => (
             transpose::<f32>(&rhs_original_data, problem.k as usize, problem.n as usize),
@@ -144,7 +143,7 @@ pub fn test_tensor_matmul<MM, Elem, R>(
                 &[problem.m as usize, problem.n as usize],
                 1,
             ),
-            layouts,
+            (problem.lhs_layout, problem.rhs_layout),
         );
     }
 

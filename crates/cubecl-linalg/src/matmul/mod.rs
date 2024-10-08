@@ -10,10 +10,11 @@ pub mod cmma_matmul;
 pub mod cmma_old;
 pub mod cube_matmul;
 pub mod dummy_unit_instruction;
+pub mod virtual_memory;
 mod id_map;
 pub(crate) mod launch;
 pub mod matrix_layout;
-pub mod requirements;
+pub mod problem;
 pub mod tile_io;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not

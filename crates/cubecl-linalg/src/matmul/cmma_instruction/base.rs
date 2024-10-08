@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::requirements::{MatmulProblem, Requirements};
+use crate::matmul::problem::{MatmulProblem, Requirements};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use half::{bf16, f16};

@@ -16,23 +16,29 @@ use super::CubeMatmul;
 use crate::matmul::tile_io::loading::tiled_layout::RowMajorTiling;
 use crate::matmul::tile_io::loading::{LhsArrayLoader, RhsArrayLoader};
 use crate::matmul::tile_io::writing::new_tensor_writer;
+use crate::matmul::virtual_memory::ArrayGmem;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
-    lhs_slice: Array<I>,
-    rhs_slice: Array<I>,
-    mut out_slice: Array<O>,
+    lhs_array: Array<I>,
+    rhs_array: Array<I>,
+    mut out_array: Array<O>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
 ) {
+    let lhs_memory = ArrayGmem {
+        array: lhs_array,
+        layout: layouts.0,
+    };
+
     let mut lhs = M::init_lhs(layouts.0);
     let mut rhs = M::init_rhs(layouts.1);
     let mut out = M::init_output();
 
-    M::fill_lhs(lhs_slice.as_slice(), &mut lhs);
-    M::fill_rhs(rhs_slice.as_slice(), &mut rhs);
+    M::fill_lhs(lhs_array.as_slice(), &mut lhs);
+    M::fill_rhs(rhs_array.as_slice(), &mut rhs);
 
     M::execute(&lhs, &rhs, &mut out);
-    M::read_output(&out, out_slice.as_slice_mut());
+    M::read_output(&out, out_array.as_slice_mut());
 }
 
 #[cube(launch_unchecked)]

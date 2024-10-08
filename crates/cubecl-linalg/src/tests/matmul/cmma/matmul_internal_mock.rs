@@ -10,7 +10,7 @@ macro_rules! testgen_cmma_internal_mock {
             DummyUnitInstruction16_16_16, DummyUnitInstruction32_8_16, DummyUnitInstruction8_32_16,
         };
         use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
-        use cubecl_linalg::matmul::requirements::MatmulProblem;
+        use cubecl_linalg::matmul::problem::MatmulProblem;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::{
             test_fixed_matmul, test_tensor_matmul,
         };
@@ -35,8 +35,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(16, 16, 16),
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                MatmulProblem::new(16, 16, 16, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
         }
@@ -53,8 +52,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(16, 16, 16),
-                (MatrixLayout::ColMajor, MatrixLayout::ColMajor),
+                MatmulProblem::new(16, 16, 16, MatrixLayout::ColMajor, MatrixLayout::ColMajor),
                 &Default::default(),
             )
         }
@@ -71,8 +69,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(16, 16, 128),
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                MatmulProblem::new(16, 16, 128, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
         }
@@ -89,8 +86,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(32, 16, 128),
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                MatmulProblem::new(32, 16, 128, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
         }
@@ -107,8 +103,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(32, 32, 224),
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                MatmulProblem::new(32, 32, 224, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
         }
@@ -125,8 +120,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(16, 32, 16),
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                MatmulProblem::new(16, 32, 16, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
         }
@@ -143,8 +137,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(32, 32, 32),
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                MatmulProblem::new(32, 32, 32, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
         }
@@ -161,8 +154,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(32, 32, 16),
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                MatmulProblem::new(32, 32, 16, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
         }
@@ -196,7 +188,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_b32x32x32_row_col() {
             test_fixed_matmul::<
-                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x16x16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x32x32>,
                 f32,
                 f32,
                 TestRuntime,
@@ -209,7 +201,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_b32x32x32_col_row() {
             test_fixed_matmul::<
-                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x16x16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x32x32>,
                 f32,
                 f32,
                 TestRuntime,
@@ -222,7 +214,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_block_matmul_b32x32x32_col_col() {
             test_fixed_matmul::<
-                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x16x16>,
+                CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x32x32>,
                 f32,
                 f32,
                 TestRuntime,

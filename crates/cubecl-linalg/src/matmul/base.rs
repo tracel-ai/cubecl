@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use super::block_info::BlockInfos;
 use super::matrix_layout::MatrixLayout;
-use super::requirements::{MatmulProblem, Requirements};
+use super::problem::{MatmulProblem, Requirements};
 use super::tile_io::{Loader, TileReader, TileWriter};
 
 #[cube]
