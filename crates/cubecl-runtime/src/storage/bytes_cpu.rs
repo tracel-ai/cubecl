@@ -32,10 +32,7 @@ struct AllocatedBytes {
 
 impl BytesResource {
     fn get_exact_location_and_length(&self) -> (*mut u8, usize) {
-        match self.utilization {
-            StorageUtilization::Full(len) => (self.ptr, len),
-            StorageUtilization::Slice { offset, size } => unsafe { (self.ptr.add(offset), size) },
-        }
+        unsafe { (self.ptr.add(self.utilization.offset), self.utilization.size) }
     }
 
     /// Returns the resource as a mutable slice of bytes.
@@ -69,7 +66,7 @@ impl ComputeStorage for BytesStorage {
         let id = StorageId::new();
         let handle = StorageHandle {
             id,
-            utilization: StorageUtilization::Full(size),
+            utilization: StorageUtilization { offset: 0, size },
         };
 
         unsafe {
@@ -111,7 +108,7 @@ mod tests {
         let handle_1 = storage.alloc(64);
         let handle_2 = StorageHandle::new(
             handle_1.id,
-            StorageUtilization::Slice {
+            StorageUtilization {
                 offset: 24,
                 size: 8,
             },

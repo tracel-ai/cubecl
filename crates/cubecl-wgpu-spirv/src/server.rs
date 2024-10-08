@@ -3,14 +3,12 @@ use std::num::NonZero;
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_common::{reader::Reader, sync_type::SyncType};
-use cubecl_core::{
-    compute::DebugInformation, prelude::*, server::Handle, FeatureSet, KernelId, Properties,
-};
+use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
-    memory_management::{MemoryHandle, MemoryManagement},
+    memory_management::{MemoryHandle, MemoryLock, MemoryManagement, MemoryUsage},
     server::{self, ComputeServer},
-    storage::{ComputeStorage, StorageId},
+    storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
 use cubecl_spirv::SpirvCompiler;
@@ -30,8 +28,7 @@ pub struct WgpuSpirvServer<MM: MemoryManagement<WgpuStorage>> {
     encoder: CommandEncoder,
     current_pass: Option<ComputePass<'static>>,
     tasks_count: usize,
-    compute_storage_used: Vec<StorageId>,
-    copy_handles_used: Vec<(StorageId, u32)>,
+    storage_locked: MemoryLock,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     tasks_max: usize,
     logger: DebugLogger,
@@ -61,11 +58,10 @@ where
             encoder: create_encoder(&device),
             current_pass: None,
             tasks_count: 0,
-            compute_storage_used: Vec::new(),
-            copy_handles_used: Vec::new(),
             pipelines: HashMap::new(),
             tasks_max,
             logger: DebugLogger::new(),
+            storage_locked: MemoryLock::default(),
         }
     }
 
@@ -88,7 +84,11 @@ where
 
         let compile = self.logger.debug(compile);
 
-        let num_bindings = compile.repr.num_bindings as u32;
+        let repr = compile
+            .repr
+            .expect("Need compiled repr to assemble to spirv");
+
+        let num_bindings = repr.num_bindings as u32;
         let bindings = (0..num_bindings)
             .map(|i| BindGroupLayoutEntry {
                 binding: i,
@@ -115,7 +115,7 @@ where
                 push_constant_ranges: &[],
             });
 
-        let pipeline = self.compile_source(&compile.repr.assemble(), &layout);
+        let pipeline = self.compile_source(&repr.assemble(), &layout);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
@@ -160,11 +160,11 @@ where
     type DispatchOptions = CubeCount<Self>;
     type Storage = WgpuStorage;
     type MemoryManagement = MM;
-    type FeatureSet = FeatureSet;
-    type Properties = Properties;
+    type Feature = Feature;
 
     fn read(&mut self, binding: server::Binding<Self>) -> Reader {
-        let resource = self.get_resource(binding);
+        let br = self.get_resource(binding);
+        let resource = br.resource();
 
         let size = resource.size();
         let read_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -219,15 +219,23 @@ where
         })
     }
 
-    fn get_resource(
-        &mut self,
-        binding: server::Binding<Self>,
-    ) -> <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource {
-        self.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        )
+    fn get_resource(&mut self, binding: server::Binding<Self>) -> BindingResource<Self> {
+        // Keep track of any buffer that might be used in the wgpu queue, as we cannot copy into them
+        // after they have any outstanding compute work. Calling get_resource repeatedly
+        // will add duplicates to this, but that is ok.
+        let handle = self.memory_management.get(binding.memory.clone());
+        self.storage_locked.add_locked(handle.id);
+
+        let handle = match binding.offset_start {
+            Some(offset) => handle.offset_start(offset),
+            None => handle,
+        };
+        let handle = match binding.offset_end {
+            Some(offset) => handle.offset_end(offset),
+            None => handle,
+        };
+        let resource = self.memory_management.storage().get(&handle);
+        BindingResource::new(binding, resource)
     }
 
     /// When we create a new handle from existing data, we use custom allocations so that we don't
@@ -236,26 +244,23 @@ where
     /// This is important, otherwise the compute passes are going to be too small and we won't be able to
     /// fully utilize the GPU.
     fn create(&mut self, data: &[u8]) -> server::Handle<Self> {
-        // Reserve memory on some storage we haven't yet used this command queue for compute
-        // or copying.
-        let total_handles = self
-            .compute_storage_used
-            .iter()
-            .copied()
-            .chain(self.copy_handles_used.iter().map(|x| x.0))
-            .collect::<Vec<_>>();
         let num_bytes = data.len();
 
         // Handle empty tensors (must bind at minimum 4 bytes)
         let reserve_size = core::cmp::max(num_bytes, 4);
-        let memory = self.memory_management.reserve(reserve_size, &total_handles);
+
+        // Reserve memory on some storage we haven't yet used this command queue for compute
+        // or copying.
+        let memory = self
+            .memory_management
+            .reserve(reserve_size, Some(&self.storage_locked));
 
         if let Some(len) = NonZero::new(num_bytes as u64) {
             let resource_handle = self.memory_management.get(memory.clone().binding());
 
             // Dont re-use this handle for writing until the queue is flushed. All writes
-            // would happen at the start of the submission.
-            self.copy_handles_used.push((resource_handle.id, 0));
+            // happen at the start of the submission.
+            self.storage_locked.add_locked(resource_handle.id);
 
             let resource = self.memory_management.storage().get(&resource_handle);
 
@@ -270,7 +275,7 @@ where
     }
 
     fn empty(&mut self, size: usize) -> server::Handle<Self> {
-        server::Handle::new(self.memory_management.reserve(size, &[]), None, None)
+        server::Handle::new(self.memory_management.reserve(size, None), None, None)
     }
 
     unsafe fn execute(
@@ -294,21 +299,7 @@ where
         // there was a way to tie the lifetime of the resource to the memory handle.
         let resources: Vec<_> = bindings
             .iter()
-            .map(|binding| {
-                let resource_handle = self.memory_management.get(binding.memory.clone());
-                // Keep track of the storage we've used so far.
-                self.compute_storage_used.push(resource_handle.id);
-
-                let handle = match binding.offset_start {
-                    Some(offset) => resource_handle.offset_start(offset),
-                    None => resource_handle.clone(),
-                };
-                let handle = match binding.offset_end {
-                    Some(offset) => handle.offset_end(offset),
-                    None => handle,
-                };
-                self.memory_management.storage().get(&handle)
-            })
+            .map(|binding| self.get_resource(binding.clone()))
             .collect();
 
         let entries = &resources
@@ -316,7 +307,7 @@ where
             .enumerate()
             .map(|(i, r)| wgpu::BindGroupEntry {
                 binding: i as u32,
-                resource: r.as_binding(),
+                resource: r.resource().as_wgpu_bind_resource(),
             })
             .collect::<Vec<_>>();
 
@@ -335,7 +326,7 @@ where
 
         // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
         // needs to be longer than the compute pass, so we can't do this just before dispatching.
-        let dispatch_resource = match count.clone() {
+        let dispatch_br = match count.clone() {
             CubeCount::Dynamic(binding) => Some(self.get_resource(binding)),
             _ => None,
         };
@@ -362,8 +353,11 @@ where
                 pass.dispatch_workgroups(x, y, z);
             }
             CubeCount::Dynamic(_) => {
-                let resource = dispatch_resource.as_ref().unwrap();
-                pass.dispatch_workgroups_indirect(&resource.buffer, resource.offset());
+                let binding_resource = dispatch_br.as_ref().unwrap();
+                pass.dispatch_workgroups_indirect(
+                    &binding_resource.resource().buffer,
+                    binding_resource.resource().offset(),
+                );
             }
         }
 
@@ -400,18 +394,7 @@ where
         self.queue.submit([encoder.finish()]);
 
         self.tasks_count = 0;
-        self.compute_storage_used.clear();
-
-        self.copy_handles_used.retain_mut(|x| {
-            // For some unknown reason, we have to make sure
-            // a buffer isn't used more than once not just in the current
-            // submission, but also in the next one.
-            //
-            // This really needs a better explanation of why this is, or
-            // some investigation, maybe it's a wgpu bug.
-            x.1 += 1;
-            x.1 < 2
-        });
+        self.storage_locked.clear_locked();
 
         if sync_type == SyncType::Wait {
             self.device.poll(wgpu::Maintain::Wait);
@@ -419,5 +402,9 @@ where
 
         // Cleanup allocations and deallocations.
         self.memory_management.storage().perform_deallocations();
+    }
+
+    fn memory_usage(&self) -> MemoryUsage {
+        self.memory_management.memory_usage()
     }
 }

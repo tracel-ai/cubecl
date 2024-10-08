@@ -875,7 +875,7 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
             wgsl::Instruction::Powf { lhs: _, rhs, out } => {
                 register_extension(wgsl::Extension::PowfPrimitive(out.item()));
 
-                if rhs.is_always_scalar() {
+                if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
                     register_extension(wgsl::Extension::PowfScalar(out.item()));
                 } else {
                     register_extension(wgsl::Extension::Powf(out.item()));

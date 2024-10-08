@@ -1,6 +1,6 @@
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, Handle};
-use crate::storage::ComputeStorage;
+use crate::storage::BindingResource;
 use crate::ExecutionMode;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -49,10 +49,7 @@ where
         self.server.borrow_mut().read(binding)
     }
 
-    fn get_resource(
-        &self,
-        binding: Binding<Server>,
-    ) -> <Server::Storage as ComputeStorage>::Resource {
+    fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server> {
         self.server.borrow_mut().get_resource(binding)
     }
 
@@ -78,6 +75,10 @@ where
 
     fn sync(&self, sync_type: SyncType) {
         self.server.borrow_mut().sync(sync_type)
+    }
+
+    fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
+        self.server.borrow_mut().memory_usage()
     }
 }
 

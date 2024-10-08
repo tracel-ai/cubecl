@@ -14,7 +14,7 @@ pub struct CacheTestSlowOn3;
 pub struct ParameteredKernel;
 
 impl DummyKernel for DummyElementwiseAdditionSlowWrong {
-    fn compute(&self, inputs: &mut [BytesResource]) {
+    fn compute(&self, inputs: &mut [&BytesResource]) {
         // Slow and wrong on purpose, for tests
         let lhs = &inputs[0].read();
         let out = &mut inputs[2].write();
@@ -28,7 +28,7 @@ impl DummyKernel for DummyElementwiseAdditionSlowWrong {
     }
 }
 impl DummyKernel for DummyElementwiseMultiplication {
-    fn compute(&self, inputs: &mut [BytesResource]) {
+    fn compute(&self, inputs: &mut [&BytesResource]) {
         let lhs = &inputs[0].read();
         let rhs = &inputs[1].read();
         let out = &mut inputs[2].write();
@@ -41,7 +41,7 @@ impl DummyKernel for DummyElementwiseMultiplication {
     }
 }
 impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
-    fn compute(&self, inputs: &mut [BytesResource]) {
+    fn compute(&self, inputs: &mut [&BytesResource]) {
         // Slow and wrong on purpose, for tests
         let lhs = &inputs[0].read();
         let out = &mut inputs[2].write();
@@ -55,7 +55,7 @@ impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
     }
 }
 impl DummyKernel for CacheTestFastOn3 {
-    fn compute(&self, inputs: &mut [BytesResource]) {
+    fn compute(&self, inputs: &mut [&BytesResource]) {
         // This is an artificial kernel designed for testing cache only
         let lhs = &inputs[0].read();
         let out = &mut inputs[2].write();
@@ -73,7 +73,7 @@ impl DummyKernel for CacheTestFastOn3 {
 }
 
 impl DummyKernel for CacheTestSlowOn3 {
-    fn compute(&self, inputs: &mut [BytesResource]) {
+    fn compute(&self, inputs: &mut [&BytesResource]) {
         // This is an artificial kernel designed for testing cache only
         let lhs = &inputs[0].read();
         let rhs = &inputs[1].read();
@@ -92,7 +92,7 @@ impl DummyKernel for CacheTestSlowOn3 {
 }
 
 impl DummyKernel for ParameteredKernel {
-    fn compute(&self, inputs: &mut [BytesResource]) {
+    fn compute(&self, inputs: &mut [&BytesResource]) {
         // This is an artificial kernel designed for info buffer
         let lhs = &inputs[0].read();
         let rhs = &inputs[1].read();

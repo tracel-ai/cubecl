@@ -1,20 +1,18 @@
-use crate::storage_id_type;
+use crate::{
+    server::{Binding, ComputeServer},
+    storage_id_type,
+};
 
 // This ID is used to map a handle to its actual data.
 storage_id_type!(StorageId);
 
 /// Defines if data uses a full memory chunk or a slice of it.
 #[derive(Clone, Debug)]
-pub enum StorageUtilization {
-    /// Full memory chunk of specified size
-    Full(usize),
-    /// Slice of memory chunk with start index and size.
-    Slice {
-        /// The offset in bytes from the chunk start.
-        offset: usize,
-        /// The size of the slice in bytes.
-        size: usize,
-    },
+pub struct StorageUtilization {
+    /// The offset in bytes from the chunk start.
+    pub offset: usize,
+    /// The size of the slice in bytes.
+    pub size: usize,
 }
 
 /// Contains the [storage id](StorageId) of a resource and the way it is used.
@@ -29,31 +27,19 @@ pub struct StorageHandle {
 impl StorageHandle {
     /// Returns the size the handle is pointing to in memory.
     pub fn size(&self) -> usize {
-        match self.utilization {
-            StorageUtilization::Full(size) => size,
-            StorageUtilization::Slice { offset: _, size } => size,
-        }
+        self.utilization.size
     }
 
     /// Returns the size the handle is pointing to in memory.
     pub fn offset(&self) -> usize {
-        match self.utilization {
-            StorageUtilization::Full(..) => panic!("full size slice not supported anymore"),
-            StorageUtilization::Slice { offset, .. } => offset,
-        }
+        self.utilization.offset
     }
 
     /// Increase the current offset with the given value in bytes.
     pub fn offset_start(&self, offset_bytes: usize) -> Self {
-        let utilization = match self.utilization {
-            StorageUtilization::Full(size) => StorageUtilization::Slice {
-                offset: offset_bytes,
-                size: size - offset_bytes,
-            },
-            StorageUtilization::Slice { offset, size } => StorageUtilization::Slice {
-                offset: offset + offset_bytes,
-                size: size - offset_bytes,
-            },
+        let utilization = StorageUtilization {
+            offset: self.offset() + offset_bytes,
+            size: self.size() - offset_bytes,
         };
 
         Self {
@@ -64,15 +50,9 @@ impl StorageHandle {
 
     /// Reduce the size of the memory handle..
     pub fn offset_end(&self, offset_bytes: usize) -> Self {
-        let utilization = match self.utilization {
-            StorageUtilization::Full(size) => StorageUtilization::Slice {
-                offset: 0,
-                size: size - offset_bytes,
-            },
-            StorageUtilization::Slice { offset, size } => StorageUtilization::Slice {
-                offset,
-                size: size - offset_bytes,
-            },
+        let utilization = StorageUtilization {
+            offset: self.offset(),
+            size: self.size() - offset_bytes,
         };
 
         Self {
@@ -96,4 +76,25 @@ pub trait ComputeStorage: Send {
 
     /// Deallocates the memory pointed by the given storage id.
     fn dealloc(&mut self, id: StorageId);
+}
+
+/// Access to the underlying resource for a given binding.
+#[derive(new)]
+pub struct BindingResource<Server: ComputeServer> {
+    // This binding is here just to keep the underlying allocation alive.
+    // If the underlying allocation becomes invalid, someone else might
+    // allocate into this resource which could lead to bad behaviour.
+    #[allow(unused)]
+    binding: Binding<Server>,
+    resource: <Server::Storage as ComputeStorage>::Resource,
+}
+
+impl<Server: ComputeServer> BindingResource<Server> {
+    /// access the underlying resource. Note: The resource might be bigger
+    /// than just the original allocation for the binding. Only the part
+    /// for the original binding is guaranteed to remain, other parts
+    /// of the resource *will* be re-used.
+    pub fn resource(&self) -> &<Server::Storage as ComputeStorage>::Resource {
+        &self.resource
+    }
 }

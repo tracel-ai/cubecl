@@ -1,8 +1,9 @@
 use crate::{
     channel::ComputeChannel,
+    memory_management::MemoryUsage,
     server::{Binding, ComputeServer, Handle},
-    storage::ComputeStorage,
-    ExecutionMode,
+    storage::BindingResource,
+    DeviceProperties, ExecutionMode,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -14,7 +15,7 @@ pub use cubecl_common::sync_type::SyncType;
 #[derive(Debug)]
 pub struct ComputeClient<Server: ComputeServer, Channel> {
     channel: Channel,
-    settings: Arc<(Server::FeatureSet, Server::Properties)>,
+    properties: Arc<DeviceProperties<Server::Feature>>,
 }
 
 impl<S, C> Clone for ComputeClient<S, C>
@@ -25,7 +26,7 @@ where
     fn clone(&self) -> Self {
         Self {
             channel: self.channel.clone(),
-            settings: self.settings.clone(),
+            properties: self.properties.clone(),
         }
     }
 }
@@ -36,14 +37,10 @@ where
     Channel: ComputeChannel<Server>,
 {
     /// Create a new client.
-    pub fn new(
-        channel: Channel,
-        features: Server::FeatureSet,
-        properties: Server::Properties,
-    ) -> Self {
+    pub fn new(channel: Channel, properties: DeviceProperties<Server::Feature>) -> Self {
         Self {
             channel,
-            settings: Arc::new((features, properties)),
+            properties: Arc::new(properties),
         }
     }
 
@@ -61,10 +58,7 @@ where
     }
 
     /// Given a resource handle, returns the storage resource.
-    pub fn get_resource(
-        &self,
-        binding: Binding<Server>,
-    ) -> <Server::Storage as ComputeStorage>::Resource {
+    pub fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server> {
         self.channel.get_resource(binding)
     }
 
@@ -112,12 +106,12 @@ where
     }
 
     /// Get the features supported by the compute server.
-    pub fn features(&self) -> &Server::FeatureSet {
-        &self.settings.as_ref().0
+    pub fn properties(&self) -> &DeviceProperties<Server::Feature> {
+        self.properties.as_ref()
     }
 
-    /// Get the properties supported by the compute server.
-    pub fn properties(&self) -> &Server::Properties {
-        &self.settings.as_ref().1
+    /// Get the current memory usage of this client.
+    pub fn memory_usage(&self) -> MemoryUsage {
+        self.channel.memory_usage()
     }
 }
