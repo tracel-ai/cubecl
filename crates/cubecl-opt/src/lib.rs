@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},
     rc::Rc,
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use cubecl_core::ir::{self as core, Operator, Procedure, Variable};
@@ -24,7 +24,7 @@ mod version;
 
 pub use block::*;
 pub use control_flow::*;
-pub use petgraph::graph::NodeIndex;
+pub use petgraph::graph::{EdgeIndex, NodeIndex};
 
 #[derive(Clone, Debug, Default)]
 pub struct AtomicCounter {
@@ -50,12 +50,12 @@ impl AtomicCounter {
 #[derive(Default, Debug, Clone)]
 struct Program {
     pub variables: HashMap<(u16, u8), Item>,
-    pub graph: StableDiGraph<BasicBlock, u32>,
+    pub graph: StableDiGraph<BasicBlock, ()>,
     root: NodeIndex,
 }
 
 impl Deref for Program {
-    type Target = StableDiGraph<BasicBlock, u32>;
+    type Target = StableDiGraph<BasicBlock, ()>;
 
     fn deref(&self) -> &Self::Target {
         &self.graph
@@ -74,7 +74,6 @@ pub struct Optimizer {
     pub current_block: Option<NodeIndex>,
     loop_break: VecDeque<NodeIndex>,
     pub ret: NodeIndex,
-    edge_id: Rc<AtomicU32>,
     root_scope: Scope,
 }
 
@@ -85,7 +84,6 @@ impl Default for Optimizer {
             current_block: Default::default(),
             loop_break: Default::default(),
             ret: Default::default(),
-            edge_id: Default::default(),
             root_scope: Scope::root(),
         }
     }
@@ -122,10 +120,6 @@ impl Optimizer {
         self.program.root
     }
 
-    fn edge_id(&self) -> u32 {
-        self.edge_id.fetch_add(1, Ordering::AcqRel)
-    }
-
     fn parse_graph(&mut self, scope: Scope) {
         let entry = self.program.add_node(BasicBlock::default());
         self.program.root = entry;
@@ -134,8 +128,7 @@ impl Optimizer {
         *self.program[self.ret].control_flow.borrow_mut() = ControlFlow::Return;
         self.parse_scope(scope);
         if let Some(current_block) = self.current_block {
-            let edge_id = self.edge_id();
-            self.program.add_edge(current_block, self.ret, edge_id);
+            self.program.add_edge(current_block, self.ret, ());
         }
     }
 

@@ -54,14 +54,12 @@ impl Optimizer {
             Branch::Loop(loop_) => self.parse_loop(loop_),
             Branch::Return => {
                 let current_block = self.current_block.take().unwrap();
-                let id = self.edge_id();
-                self.program.add_edge(current_block, self.ret, id);
+                self.program.add_edge(current_block, self.ret, ());
             }
             Branch::Break => {
                 let current_block = self.current_block.unwrap();
                 let loop_break = self.loop_break.back().expect("Can't break outside loop");
-                let id = self.edge_id();
-                self.program.add_edge(current_block, *loop_break, id);
+                self.program.add_edge(current_block, *loop_break, ());
             }
         }
     }
@@ -72,16 +70,13 @@ impl Optimizer {
         let next = self.program.add_node(BasicBlock::default());
         let mut merge = next;
 
-        let id = self.edge_id();
-        self.program.add_edge(current_block, then, id);
-        let id = self.edge_id();
-        self.program.add_edge(current_block, next, id);
+        self.program.add_edge(current_block, then, ());
+        self.program.add_edge(current_block, next, ());
 
         self.current_block = Some(then);
         self.parse_scope(if_.scope);
         if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, next, id);
+            self.program.add_edge(current_block, next, ());
         } else {
             // Returned
             merge = self.ret;
@@ -103,17 +98,14 @@ impl Optimizer {
         let next = self.program.add_node(BasicBlock::default());
         let mut merge = next;
 
-        let id = self.edge_id();
-        self.program.add_edge(current_block, then, id);
-        let id = self.edge_id();
-        self.program.add_edge(current_block, or_else, id);
+        self.program.add_edge(current_block, then, ());
+        self.program.add_edge(current_block, or_else, ());
 
         self.current_block = Some(then);
         self.parse_scope(if_else.scope_if);
 
         if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, next, id);
+            self.program.add_edge(current_block, next, ());
         } else {
             // Returned
             merge = self.ret;
@@ -123,8 +115,7 @@ impl Optimizer {
         self.parse_scope(if_else.scope_else);
 
         if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, next, id);
+            self.program.add_edge(current_block, next, ());
         } else {
             // Returned
             merge = self.ret;
@@ -149,13 +140,11 @@ impl Optimizer {
             .into_iter()
             .map(|(val, case)| {
                 let case_id = self.program.add_node(BasicBlock::default());
-                let id = self.edge_id();
-                self.program.add_edge(current_block, case_id, id);
+                self.program.add_edge(current_block, case_id, ());
                 self.current_block = Some(case_id);
                 self.parse_scope(case);
                 if let Some(current_block) = self.current_block {
-                    let id = self.edge_id();
-                    self.program.add_edge(current_block, next, id);
+                    self.program.add_edge(current_block, next, ());
                 }
                 let val = match val.as_const().expect("Switch value must be constant") {
                     ConstantScalarValue::Int(val, _) => unsafe {
@@ -169,14 +158,12 @@ impl Optimizer {
             .collect::<Vec<_>>();
 
         let default = self.program.add_node(BasicBlock::default());
-        let id = self.edge_id();
-        self.program.add_edge(current_block, default, id);
+        self.program.add_edge(current_block, default, ());
         self.current_block = Some(default);
         self.parse_scope(switch.scope_default);
 
         if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, next, id);
+            self.program.add_edge(current_block, next, ());
         }
 
         *self.program[current_block].control_flow.borrow_mut() = ControlFlow::Switch {
@@ -192,14 +179,12 @@ impl Optimizer {
     fn parse_loop(&mut self, loop_: Loop) {
         let current_block = self.current_block.unwrap();
         let header = self.program.add_node(BasicBlock::default());
-        let id = self.edge_id();
-        self.program.add_edge(current_block, header, id);
+        self.program.add_edge(current_block, header, ());
 
         let body = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
 
-        let id = self.edge_id();
-        self.program.add_edge(header, body, id);
+        self.program.add_edge(header, body, ());
 
         self.loop_break.push_back(next);
 
@@ -210,12 +195,10 @@ impl Optimizer {
         self.loop_break.pop_back();
 
         if let Some(current_block) = self.current_block {
-            let id = self.edge_id();
-            self.program.add_edge(current_block, continue_target, id);
+            self.program.add_edge(current_block, continue_target, ());
         }
 
-        let id = self.edge_id();
-        self.program.add_edge(continue_target, header, id);
+        self.program.add_edge(continue_target, header, ());
 
         *self.program[header].control_flow.borrow_mut() = ControlFlow::Loop {
             body,
@@ -247,20 +230,16 @@ impl Optimizer {
 
         let current_block = self.current_block.unwrap();
         let header = self.program.add_node(BasicBlock::default());
-        let id = self.edge_id();
-        self.program.add_edge(current_block, header, id);
+        self.program.add_edge(current_block, header, ());
 
         let break_cond = self.program.add_node(BasicBlock::default());
         let body = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
 
-        let id = self.edge_id();
-        self.program.add_edge(header, break_cond, id);
+        self.program.add_edge(header, break_cond, ());
 
-        let id = self.edge_id();
-        self.program.add_edge(break_cond, body, id);
-        let id = self.edge_id();
-        self.program.add_edge(break_cond, next, id);
+        self.program.add_edge(break_cond, body, ());
+        self.program.add_edge(break_cond, next, ());
 
         self.loop_break.push_back(next);
 
@@ -271,13 +250,7 @@ impl Optimizer {
 
         let current_block = self.current_block.expect("For loop has no loopback path");
 
-        // if let Some(current_block) = self.current_block {
-        //     let id = self.edge_id();
-        //     self.program.add_edge(current_block, continue_target, id);
-        // }
-
-        let id = self.edge_id();
-        self.program.add_edge(current_block, header, id);
+        self.program.add_edge(current_block, header, ());
 
         *self.program[header].control_flow.borrow_mut() = ControlFlow::Loop {
             body: break_cond,

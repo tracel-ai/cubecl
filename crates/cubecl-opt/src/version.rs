@@ -4,9 +4,9 @@ use std::{
 };
 
 use cubecl_core::ir::{Item, Operation, Variable};
-use petgraph::{graph::NodeIndex, visit::EdgeRef};
+use petgraph::visit::EdgeRef;
 
-use crate::ControlFlow;
+use crate::{ControlFlow, EdgeIndex, NodeIndex};
 
 use super::Optimizer;
 
@@ -14,7 +14,7 @@ use super::Optimizer;
 pub struct SsaState<'a> {
     versions: HashMap<(u16, u8), u16>,
     visited_blocks: &'a mut HashSet<NodeIndex>,
-    visited_edges: &'a mut HashSet<u32>,
+    visited_edges: &'a mut HashSet<EdgeIndex>,
     max_versions: &'a mut HashMap<(u16, u8), u16>,
 }
 
@@ -51,7 +51,7 @@ impl Optimizer {
         let edges: Vec<_> = self
             .program
             .edges(block)
-            .map(|it| (*it.weight(), it.target()))
+            .map(|it| (it.id(), it.target()))
             .collect();
         let state = &mut state;
         for (edge_id, target) in edges {
