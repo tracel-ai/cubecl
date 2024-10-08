@@ -233,6 +233,19 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
                     sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
                 }
+                Operator::InitLine(_) => {
+                    // TODO: Sanitize based on elem
+                }
+                Operator::Copy(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
+                    sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
+                    sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
+                }
+                Operator::CopyBulk(op) => {
+                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
+                    sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
+                    sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
+                }
             },
             Operation::Metadata(op) => match op {
                 Metadata::Stride { dim, .. } => {

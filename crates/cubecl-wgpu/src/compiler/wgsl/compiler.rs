@@ -147,7 +147,10 @@ impl WgslCompiler {
             cube::Variable::GlobalScalar { id, elem } => {
                 wgsl::Variable::GlobalScalar(id, Self::compile_elem(elem), elem)
             }
-            cube::Variable::Local { id, item, depth } => wgsl::Variable::Local {
+            cube::Variable::Local { id, item, depth }
+            | cube::Variable::Versioned {
+                id, item, depth, ..
+            } => wgsl::Variable::Local {
                 id,
                 item: Self::compile_item(item),
                 depth,
@@ -808,6 +811,27 @@ impl WgslCompiler {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(op.out),
+            },
+            cube::Operator::InitLine(op) => wgsl::Instruction::VecInit {
+                inputs: op
+                    .inputs
+                    .into_iter()
+                    .map(|var| self.compile_variable(var))
+                    .collect(),
+                out: self.compile_variable(op.out),
+            },
+            cube::Operator::Copy(op) => wgsl::Instruction::Copy {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+            },
+            cube::Operator::CopyBulk(op) => wgsl::Instruction::CopyBulk {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+                len: op.len,
             },
         }
     }

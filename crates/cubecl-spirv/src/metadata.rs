@@ -26,27 +26,33 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
-                let position = self.const_u32(position as u32);
+
                 let dim = self.compile_variable(dim);
                 let out = self.compile_variable(out);
                 let one = self.const_u32(1);
 
                 let dim_id = self.read(&dim);
-                let out_id = self.write_id(&out);
                 let rank_2 = self.state.rank_2;
-                let index = self.i_mul(int, None, position, rank_2).unwrap();
-                let index = self.i_add(int, None, index, dim_id).unwrap();
-                let index = self.i_add(int, None, index, one).unwrap();
-                let index = Variable::LocalBinding {
-                    id: index,
-                    item: int_ty.clone(),
+
+                let index = match position > 1 {
+                    true => {
+                        let position = self.const_u32(position as u32);
+                        self.i_mul(int, None, position, rank_2).unwrap()
+                    }
+                    false => rank_2,
                 };
+                let index = match position > 0 {
+                    true => self.i_add(int, None, index, dim_id).unwrap(),
+                    false => dim_id,
+                };
+                let index = self.i_add(int, None, index, one).unwrap();
+                let index = Variable::Raw(index, int_ty.clone());
                 let info = Variable::Named {
                     id: self.state.named["info"],
                     item: int_ty,
                     is_array: true,
                 };
-                self.read_indexed_unchecked(out_id, &info, &index);
+                self.read_indexed_unchecked(&out, &info, &index);
             }
             Metadata::Shape { dim, var, out } => {
                 let int_ty = Item::Scalar(Elem::Int(32, false));
@@ -58,29 +64,33 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
-                let position = self.const_u32(position as u32);
                 let dim = self.compile_variable(dim);
                 let out = self.compile_variable(out);
                 let one = self.const_u32(1);
 
                 let dim_id = self.read(&dim);
-                let out_id = self.write_id(&out);
                 let rank = self.state.rank;
                 let rank_2 = self.state.rank_2;
-                let index = self.i_mul(int, None, position, rank_2).unwrap();
-                let index = self.i_add(int, None, index, rank).unwrap();
+                let index = match position > 1 {
+                    true => {
+                        let position = self.const_u32(position as u32);
+                        self.i_mul(int, None, position, rank_2).unwrap()
+                    }
+                    false => rank_2,
+                };
+                let index = match position > 0 {
+                    true => self.i_add(int, None, index, rank).unwrap(),
+                    false => rank,
+                };
                 let index = self.i_add(int, None, index, dim_id).unwrap();
                 let index = self.i_add(int, None, index, one).unwrap();
-                let index = Variable::LocalBinding {
-                    id: index,
-                    item: int_ty.clone(),
-                };
+                let index = Variable::Raw(index, int_ty.clone());
                 let info = Variable::Named {
                     id: self.state.named["info"],
                     item: int_ty,
                     is_array: true,
                 };
-                self.read_indexed_unchecked(out_id, &info, &index);
+                self.read_indexed_unchecked(&out, &info, &index);
             }
         }
     }

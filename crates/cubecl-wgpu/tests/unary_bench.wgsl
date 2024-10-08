@@ -29,8 +29,8 @@ let _0 = arrayLength(&output_0_global);
 let _1 = id < _0;
 if _1 {
 
-for (var _2: u32 = 0u; _2 < 256u; _2++) {
-let _3 = _2 % 2u;
+for (var l_2_2: u32 = 0u; l_2_2 < 256u; l_2_2++) {
+let _3 = l_2_2 % 2u;
 let _4 = _3 == 0u;
 if _4 {
 let _5 = input_0_global[id];

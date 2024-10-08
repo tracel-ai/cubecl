@@ -1,8 +1,9 @@
 use std::num::NonZero;
 
 use super::{
-    BinaryOperator, ClampOperator, CompareAndSwapOperator, FmaOperator, InitOperator, Item,
-    Operation, Operator, SliceOperator, Subcube, UnaryOperator, Variable,
+    BinaryOperator, ClampOperator, CompareAndSwapOperator, CopyBulkOperator, CopyOperator,
+    FmaOperator, InitOperator, Item, Operation, Operator, SliceOperator, Subcube, UnaryOperator,
+    Variable,
 };
 
 pub type Vectorization = Option<NonZero<u8>>;
@@ -104,6 +105,10 @@ impl Operator {
             Operator::Magnitude(op) => Operator::Magnitude(op.vectorize(vectorization)),
             Operator::Normalize(op) => Operator::Normalize(op.vectorize(vectorization)),
             Operator::Dot(op) => Operator::Dot(op.vectorize(vectorization)),
+            // Already vectorized
+            Operator::InitLine(op) => Operator::InitLine(op.clone()),
+            Operator::Copy(op) => Operator::Copy(op.vectorize(vectorization)),
+            Operator::CopyBulk(op) => Operator::CopyBulk(op.vectorize(vectorization)),
         }
     }
 }
@@ -167,6 +172,39 @@ impl InitOperator {
     }
 }
 
+impl CopyOperator {
+    pub(crate) fn vectorize(&self, vectorization: Vectorization) -> Self {
+        let input = self.input.vectorize(vectorization);
+        let in_index = self.in_index.vectorize(vectorization);
+        let out = self.out.vectorize(vectorization);
+        let out_index = self.out_index.vectorize(vectorization);
+
+        Self {
+            input,
+            in_index,
+            out,
+            out_index,
+        }
+    }
+}
+
+impl CopyBulkOperator {
+    pub(crate) fn vectorize(&self, vectorization: Vectorization) -> Self {
+        let input = self.input.vectorize(vectorization);
+        let in_index = self.in_index.vectorize(vectorization);
+        let out = self.out.vectorize(vectorization);
+        let out_index = self.out_index.vectorize(vectorization);
+
+        Self {
+            input,
+            in_index,
+            out,
+            out_index,
+            len: self.len,
+        }
+    }
+}
+
 impl Subcube {
     pub(crate) fn vectorize(&self, vectorization: Vectorization) -> Self {
         match self {
@@ -215,6 +253,17 @@ impl Variable {
                 id: *id,
                 item: item.vectorize(vectorize),
                 depth: *depth,
+            },
+            Variable::Versioned {
+                id,
+                item,
+                depth,
+                version,
+            } => Variable::Versioned {
+                id: *id,
+                item: item.vectorize(vectorize),
+                depth: *depth,
+                version: *version,
             },
             Variable::LocalBinding { id, item, depth } => Variable::LocalBinding {
                 id: *id,

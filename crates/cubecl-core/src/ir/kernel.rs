@@ -148,6 +148,13 @@ impl Elem {
     pub fn is_atomic(&self) -> bool {
         matches!(self, Elem::AtomicInt(_) | Elem::AtomicUInt)
     }
+
+    pub fn is_int(&self) -> bool {
+        matches!(
+            self,
+            Elem::Int(_) | Elem::AtomicInt(_) | Elem::UInt | Elem::AtomicUInt
+        )
+    }
 }
 
 impl From<Elem> for Item {
@@ -205,6 +212,17 @@ impl Item {
         Self {
             elem,
             vectorization,
+        }
+    }
+}
+
+impl Display for Item {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.vectorization {
+            Some(vec) if vec.get() > 1 => {
+                write!(f, "vector{}<{}>", vec.get(), self.elem)
+            }
+            _ => write!(f, "{}", self.elem),
         }
     }
 }

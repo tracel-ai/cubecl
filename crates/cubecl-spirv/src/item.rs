@@ -80,7 +80,7 @@ impl Item {
         id
     }
 
-    fn size(&self) -> u32 {
+    pub fn size(&self) -> u32 {
         match self {
             Item::Scalar(elem) => elem.size(),
             Item::Vector(elem, factor) => elem.size() * *factor,
@@ -394,6 +394,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             (Elem::Int(_, true), Elem::Float(64)) => unsafe {
                 ConstVal::Bit64((transmute::<u64, i64>(val.as_u64()) as f64).to_bits())
+            },
+            (Elem::Int(_, false), Elem::Float(_)) => {
+                ConstVal::Bit32((val.as_u64() as f32).to_bits())
+            }
+            (Elem::Int(64, true), Elem::Float(_)) => unsafe {
+                ConstVal::Bit32((transmute::<u64, i64>(val.as_u64()) as f32).to_bits())
+            },
+            (Elem::Int(_, true), Elem::Float(_)) => unsafe {
+                ConstVal::Bit32((transmute::<u32, i32>(val.as_u32()) as f32).to_bits())
             },
             (Elem::Float(64), Elem::Bool) => {
                 ConstVal::Bit32((f64::from_bits(val.as_u64()) == 1.0) as u32)

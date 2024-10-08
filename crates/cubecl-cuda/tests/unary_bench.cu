@@ -28,8 +28,8 @@ extern "C" __global__ void kernel(float_4 input_0[], float_4 input_1[],
   l_0_1 = idxGlobal < l_0_0;
   if (l_0_1) {
 
-    for (uint ssa_2_0 = uint(0); ssa_2_0 < uint(256); ++ssa_2_0) {
-      l_0_0 = ssa_2_0 % uint(2);
+    for (uint l_2_0 = uint(0); l_2_0 < uint(256); ++l_2_0) {
+      l_0_0 = l_2_0 % uint(2);
       l_0_2 = l_0_0 == uint(0);
       if (l_0_2) {
         uint l_3_0;

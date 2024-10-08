@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::{Elem, Item, Scope, Variable};
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +22,41 @@ pub enum Branch {
     Return,
     /// A break statement.
     Break,
+}
+
+impl Display for Branch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Branch::If(if_) => write!(f, "if({})", if_.cond),
+            Branch::IfElse(if_else) => write!(f, "if({})", if_else.cond),
+            Branch::Select(select) => write!(
+                f,
+                "select({}, {}, {})",
+                select.cond, select.then, select.or_else
+            ),
+            Branch::Switch(switch) => write!(
+                f,
+                "switch({}) {:?}",
+                switch.value,
+                switch
+                    .cases
+                    .iter()
+                    .map(|case| format!("{}", case.0))
+                    .collect::<Vec<_>>(),
+            ),
+            Branch::RangeLoop(range_loop) => write!(
+                f,
+                "for({} in {}{}{})",
+                range_loop.i,
+                range_loop.start,
+                if range_loop.inclusive { "..=" } else { ".." },
+                range_loop.end
+            ),
+            Branch::Loop(_) => write!(f, "loop{{}}"),
+            Branch::Return => write!(f, "return"),
+            Branch::Break => write!(f, "break"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

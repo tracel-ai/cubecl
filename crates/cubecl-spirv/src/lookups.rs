@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
 
 use cubecl_core::ir::KernelDefinition;
+use cubecl_opt::NodeIndex;
 use hashbrown::{HashMap, HashSet};
-use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, Word};
+use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};
 
 use crate::{
     item::{Elem, Item},
@@ -30,6 +31,9 @@ pub struct LookupTables {
     pub constants: HashMap<(ConstVal, Item), Word>,
     pub bindings: HashMap<(u16, u8), Word>,
     pub variables: HashMap<(u16, u8), Word>,
+    pub versioned: HashMap<(u16, u8, u16), Word>,
+    pub labels: HashMap<NodeIndex, Word>,
+    pub end_labels: HashMap<NodeIndex, Word>,
 
     pub slices: HashMap<(u16, u8), Slice>,
 
@@ -170,6 +174,69 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let id = insert(self);
             self.state.globals.insert(global, id);
             id
+        }
+    }
+
+    pub fn get_local(&mut self, id: (u16, u8), item: &Item) -> Word {
+        if let Some(existing) = self.state.variables.get(&id) {
+            *existing
+        } else {
+            let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
+            let word = self.declare_function_variable(ty);
+            self.state.variables.insert(id, word);
+            self.debug_name(word, format!("local({}, {})", id.0, id.1));
+            word
+        }
+    }
+
+    pub fn get_binding(&mut self, id: (u16, u8)) -> Word {
+        if let Some(existing) = self.state.bindings.get(&id) {
+            *existing
+        } else {
+            let word = self.id();
+            self.state.bindings.insert(id, word);
+            self.debug_name(word, format!("binding({}, {})", id.0, id.1));
+            word
+        }
+    }
+
+    pub fn merge_binding(&mut self, id: (u16, u8), word: Word) {
+        self.state.bindings.insert(id, word);
+    }
+
+    pub fn get_versioned(&mut self, id: (u16, u8, u16)) -> Word {
+        if let Some(existing) = self.state.versioned.get(&id) {
+            *existing
+        } else {
+            let word = self.id();
+            self.state.versioned.insert(id, word);
+            self.debug_name(word, format!("local({}, {}).v{}", id.0, id.1, id.2));
+            word
+        }
+    }
+
+    pub fn merge_versioned(&mut self, id: (u16, u8, u16), word: Word) {
+        self.state.versioned.insert(id, word);
+    }
+
+    pub fn label(&mut self, block: NodeIndex) -> Word {
+        if let Some(existing) = self.state.labels.get(&block) {
+            *existing
+        } else {
+            let word = self.id();
+            self.debug_name(word, format!("bb{}", block.index()));
+            self.state.labels.insert(block, word);
+            word
+        }
+    }
+
+    pub fn end_label(&mut self, block: NodeIndex) -> Word {
+        if let Some(existing) = self.state.end_labels.get(&block) {
+            *existing
+        } else {
+            let word = self.label(block);
+            self.state.end_labels.insert(block, word);
+            word
         }
     }
 }

@@ -597,6 +597,27 @@ impl CudaCompiler {
                 instructions.push(Instruction::Magnitude(self.compile_unary(op)))
             }
             gpu::Operator::Dot(op) => instructions.push(Instruction::Dot(self.compile_binary(op))),
+            gpu::Operator::InitLine(op) => instructions.push(Instruction::VecInit {
+                inputs: op
+                    .inputs
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                out: self.compile_variable(op.out),
+            }),
+            gpu::Operator::Copy(op) => instructions.push(Instruction::Copy {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+            }),
+            gpu::Operator::CopyBulk(op) => instructions.push(Instruction::CopyBulk {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+                len: op.len,
+            }),
         };
     }
 
@@ -624,6 +645,13 @@ impl CudaCompiler {
                 super::Variable::GlobalScalar(id, self.compile_elem(elem), elem)
             }
             gpu::Variable::Local { id, item, depth } => super::Variable::Local {
+                id,
+                item: self.compile_item(item),
+                depth,
+            },
+            gpu::Variable::Versioned {
+                id, item, depth, ..
+            } => super::Variable::Local {
                 id,
                 item: self.compile_item(item),
                 depth,

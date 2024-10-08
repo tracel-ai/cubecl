@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use cubecl_core::CompilerRepresentation;
+use cubecl_opt::Optimizer;
 use rspirv::{
     binary::{Assemble, Disassemble},
     dr::Module,
@@ -25,6 +26,7 @@ pub use target::*;
 #[derive(Debug, Clone)]
 pub struct SpirvKernel {
     pub module: Module,
+    pub optimizer: Optimizer,
     pub num_bindings: usize,
 }
 

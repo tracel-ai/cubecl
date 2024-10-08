@@ -375,6 +375,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         Variable::GlobalScalar { .. } => init(elem),
         Variable::ConstantScalar { .. } => init(elem),
         Variable::Local { .. } => init(elem),
+        Variable::Versioned { .. } => init(elem),
         Variable::LocalBinding { .. } => init(elem),
         // Constant should be initialized since the new variable can be mutated afterward.
         // And it is assumed those values are cloned.
