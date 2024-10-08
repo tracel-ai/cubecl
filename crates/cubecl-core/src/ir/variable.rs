@@ -120,7 +120,7 @@ impl ConstantScalarValue {
 
     /// Returns the value of the scalar as a usize.
     ///
-    /// It will panics if the scalar type is a float or a bool.
+    /// It will panic if the scalar type is a float or a bool.
     pub fn as_usize(&self) -> usize {
         self.try_as_usize()
             .expect("Only Int and UInt kind can be made into usize.")
@@ -140,7 +140,7 @@ impl ConstantScalarValue {
 
     /// Returns the value of the scalar as a u32.
     ///
-    /// It will panics if the scalar type is a float or a bool.
+    /// It will panic if the scalar type is a float or a bool.
     pub fn as_u32(&self) -> u32 {
         self.try_as_u32()
             .expect("Only Int and UInt kind can be made into u32.")
@@ -160,7 +160,7 @@ impl ConstantScalarValue {
 
     /// Returns the value of the scalar as a u64.
     ///
-    /// It will panics if the scalar type is a float or a bool.
+    /// It will panic if the scalar type is a float or a bool.
     pub fn as_u64(&self) -> u64 {
         self.try_as_u64()
             .expect("Only Int and UInt kind can be made into u64.")
@@ -180,7 +180,7 @@ impl ConstantScalarValue {
 
     /// Returns the value of the scalar as a u32.
     ///
-    /// It will panics if the scalar type is a float or a bool.
+    /// It will panic if the scalar type is a float or a bool.
     pub fn as_i64(&self) -> i64 {
         self.try_as_i64()
             .expect("Only Int and UInt kind can be made into i64.")
@@ -196,7 +196,7 @@ impl ConstantScalarValue {
 
     /// Returns the value of the variable as a bool.
     ///
-    /// It will panics if the scalar isn't a bool.
+    /// It will panic if the scalar isn't a bool.
     pub fn as_bool(&self) -> bool {
         self.try_as_bool()
             .expect("Only bool can be made into a bool")

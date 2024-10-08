@@ -44,7 +44,7 @@ impl<K: PartialOrd + Ord, V: CubeType + Clone> Registry<K, V> {
     ///
     /// # Notes
     ///
-    /// If the item isn't present the registry, the function will panic.
+    /// If the item isn't present in the registry, the function will panic.
     pub fn find<Query: RegistryQuery<K>>(&self, query: Query) -> V {
         let key = query.into();
         let map = self.map.as_ref().borrow();
