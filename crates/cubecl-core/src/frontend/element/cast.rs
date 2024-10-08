@@ -15,6 +15,10 @@ pub trait Cast: CubePrimitive {
         context: &mut CubeContext,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
+        if core::any::TypeId::of::<Self>() == core::any::TypeId::of::<From>() {
+            return value.expand.into();
+        }
+
         let new_var = context.create_local_binding(Item::vectorized(
             <Self as CubePrimitive>::as_elem(),
             value.expand.item().vectorization,

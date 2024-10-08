@@ -9,7 +9,7 @@ use crate::{
 use super::{Sequence, SequenceExpand};
 
 pub struct SequenceArg<'a, R: Runtime, T: LaunchArg> {
-    values: Vec<T::RuntimeArg<'a, R>>,
+    pub values: Vec<T::RuntimeArg<'a, R>>,
 }
 
 impl<'a, R: Runtime, T: LaunchArg> Default for SequenceArg<'a, R, T> {

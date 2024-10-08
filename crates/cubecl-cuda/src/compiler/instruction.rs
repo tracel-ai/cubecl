@@ -279,8 +279,41 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 or_else,
                 out,
             } => {
+                let vf_then = then.item().vectorization;
+                let vf_or_else = or_else.item().vectorization;
+                let vf_out = out.item().vectorization;
+                let vf_cond = cond.item().vectorization;
+
+                let vf = usize::max(vf_cond, vf_out);
+                let vf = usize::max(vf, vf_then);
+                let vf = usize::max(vf, vf_or_else);
+
+                let item_out = out.item();
+                let cond_elem = cond.item().elem;
                 let out = out.fmt_left();
-                writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
+
+                if vf > 1 {
+                    writeln!(f, "{out} = {item_out} {{")?;
+                    for i in 0..vf {
+                        let theni = then.index(i);
+                        let or_elsei = or_else.index(i);
+                        let condi = cond.index(i);
+                        let condi = EnsureBoolArg {
+                            var: &condi,
+                            elem: &cond_elem,
+                        };
+
+                        writeln!(f, "({condi}) ? {theni} : {or_elsei},")?;
+                    }
+
+                    writeln!(f, "}};")
+                } else {
+                    let cond = EnsureBoolArg {
+                        var: &cond,
+                        elem: &cond_elem,
+                    };
+                    writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
+                }
             }
             Instruction::Switch {
                 value,
@@ -660,5 +693,20 @@ impl Dot {
 
         let out = out.fmt_left();
         writeln!(f, "{out} = {};", muls.join(" + "))
+    }
+}
+
+struct EnsureBoolArg<'a, V: Display> {
+    var: &'a V,
+    elem: &'a Elem,
+}
+
+impl<'a, V: Display> Display for EnsureBoolArg<'a, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.elem != &Elem::Bool {
+            write!(f, "bool({})", self.var)
+        } else {
+            write!(f, "{}", self.var)
+        }
     }
 }
