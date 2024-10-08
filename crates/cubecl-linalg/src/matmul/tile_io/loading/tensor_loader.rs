@@ -67,7 +67,7 @@ impl<E: Numeric, T: TilingOrder> Loader<Line<E>> for LhsTensorLoader<E, T> {
             false => (k_offset, reader.cube_offset),
         };
 
-        Tensor2SmemContinuous::tensor_to_shared_memory(
+        Tensor2SmemContinuous::tensor_to_shared_memory::<E, T>(
             &reader.gmem,
             &mut reader.smem,
             gmem_row_offset,
@@ -118,7 +118,7 @@ impl<E: Numeric, T: TilingOrder> Loader<Line<E>> for RhsTensorLoader<E, T> {
             false => (reader.cube_offset, k_offset),
         };
 
-        Tensor2SmemContinuous::tensor_to_shared_memory(
+        Tensor2SmemContinuous::tensor_to_shared_memory::<E, T>(
             &reader.gmem,
             &mut reader.smem,
             gmem_row_offset,

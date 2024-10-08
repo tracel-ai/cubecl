@@ -3,11 +3,11 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::block_info::{tile_num_elements, total_num_elements, BlockInfo};
 use crate::matmul::id_map::PlaneMapper;
-use crate::matmul::tile_io::loading::smem::tiled_layout::{RowMajorTiling, TilingOrder};
+use crate::matmul::tile_io::loading::smem::tiled_layout::TilingOrder;
 
 #[cube]
 pub trait Tensor2Smem {
-    fn tensor_to_shared_memory<E: Numeric>(
+    fn tensor_to_shared_memory<E: Numeric, T: TilingOrder>(
         gmem: &Tensor<Line<E>>,
         smem: &mut SharedMemory<Line<E>>,
         gmem_row_offset: u32,
@@ -40,7 +40,7 @@ impl PlaneMapper for Tensor2SmemContinuous {
 
 #[cube]
 impl Tensor2Smem for Tensor2SmemContinuous {
-    fn tensor_to_shared_memory<E: Numeric>(
+    fn tensor_to_shared_memory<E: Numeric, T: TilingOrder>(
         gmem: &Tensor<Line<E>>,
         smem: &mut SharedMemory<Line<E>>,
         gmem_row_offset: u32,
@@ -56,7 +56,7 @@ impl Tensor2Smem for Tensor2SmemContinuous {
         for i in 0..num_smem_elements / jump_length {
             let unit_position = unit_position_base + i * jump_length;
 
-            let (row, col) = apply_tiled_layout(unit_position, block_info);
+            let (row, col) = apply_tiled_layout::<T>(unit_position, block_info);
 
             load_single(
                 gmem,
@@ -70,7 +70,7 @@ impl Tensor2Smem for Tensor2SmemContinuous {
 }
 
 #[cube]
-pub(crate) fn apply_tiled_layout(
+pub(crate) fn apply_tiled_layout<T: TilingOrder>(
     unit_position: u32,
     #[comptime] block_info: BlockInfo,
 ) -> (u32, u32) {
@@ -78,9 +78,8 @@ pub(crate) fn apply_tiled_layout(
     let nth_tile = unit_position / tile_num_elements;
     let pos_within_tile = unit_position % tile_num_elements;
 
-    // TODO allow col major too with generic. Should match with tile reader
     let (tile_row, tile_col) =
-        RowMajorTiling::to_row_col(nth_tile, block_info.num_tiles_y, block_info.num_tiles_x);
+        T::to_row_col(nth_tile, block_info.num_tiles_y, block_info.num_tiles_x);
 
     let row = tile_row * block_info.tile_size_x + pos_within_tile / block_info.tile_size_y;
     let col = tile_col * block_info.tile_size_y + pos_within_tile % block_info.tile_size_y;

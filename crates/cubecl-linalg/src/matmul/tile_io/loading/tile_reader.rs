@@ -30,13 +30,15 @@ impl<E: Numeric, T: TilingOrder> TileReader<Line<E>> for LhsSmemTileReader<E, T>
         buffer_offset: u32,
         _accumulator_offset: u32,
     ) -> &Slice<'_, Line<E>> {
+        let nth_tile = T::to_nth_tile(
+            compute_plane_offset,
+            buffer_offset,
+            reader.block_info.num_tiles_y,
+            reader.block_info.num_tiles_x,
+        );
+
         let num_tile_elements = reader.block_info.tile_size_x * reader.block_info.tile_size_y;
-
-        // TODO this assumes row major tiling order. Should match with tensor loader [to_nth_tile]
-        // use T
-        let num_tile_offset = compute_plane_offset * reader.block_info.num_tiles_y + buffer_offset;
-        let start = num_tile_offset * num_tile_elements;
-
+        let start = nth_tile * num_tile_elements;
         reader.smem.slice(start, start + num_tile_elements)
     }
 }
@@ -49,11 +51,15 @@ impl<E: Numeric, T: TilingOrder> TileReader<Line<E>> for RhsSmemTileReader<E, T>
         buffer_offset: u32,
         accumulator_offset: u32,
     ) -> &Slice<'_, Line<E>> {
-        let num_tile_elements = reader.block_info.tile_size_x * reader.block_info.tile_size_y;
-        let num_tile_offset = buffer_offset * reader.block_info.num_tiles_y + accumulator_offset;
-        // TODO use T
+        let nth_tile = T::to_nth_tile(
+            buffer_offset,
+            accumulator_offset,
+            reader.block_info.num_tiles_y,
+            reader.block_info.num_tiles_x,
+        );
 
-        let start = num_tile_offset * num_tile_elements;
+        let num_tile_elements = reader.block_info.tile_size_x * reader.block_info.tile_size_y;
+        let start = nth_tile * num_tile_elements;
         reader.smem.slice(start, start + num_tile_elements)
     }
 }

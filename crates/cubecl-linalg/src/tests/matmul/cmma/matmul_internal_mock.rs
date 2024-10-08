@@ -16,7 +16,9 @@ macro_rules! testgen_cmma_internal_mock {
         };
 
         use cubecl_linalg::matmul::cube_matmul::base::CmmaCubeMatmul;
-        use cubecl_linalg::matmul::tile_io::loading::smem::tiled_layout::RowMajorTiling;
+        use cubecl_linalg::matmul::tile_io::loading::smem::tiled_layout::{
+            ColMajorTiling, RowMajorTiling,
+        };
         use cubecl_linalg::matmul::tile_io::loading::tensor_loader::{
             LhsTensorLoader, RhsTensorLoader,
         };
@@ -124,6 +126,24 @@ macro_rules! testgen_cmma_internal_mock {
                 TestRuntime,
             >(
                 MatmulProblem::new(16, 32, 16),
+                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
+        pub fn test_cube_matmul_col_major_tiling() {
+            test_tensor_matmul::<
+                CmmaCubeMatmul<
+                    f32,
+                    CmmaBlockMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, B32x32x32>,
+                    LhsTensorLoader<f32, ColMajorTiling>,
+                    RhsTensorLoader<f32, ColMajorTiling>,
+                >,
+                f32,
+                TestRuntime,
+            >(
+                MatmulProblem::new(32, 32, 32),
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
