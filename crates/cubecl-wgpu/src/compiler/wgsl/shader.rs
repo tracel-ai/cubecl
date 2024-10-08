@@ -258,12 +258,8 @@ impl Display for Location {
 
 impl Display for Visibility {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // TODO TODO TOD O TODO
         match self {
-            // With the dynamic memory strategy we have to put everything read_write.
-            #[cfg(not(simple_memory_management))]
-            Visibility::Read => f.write_str("read_write"),
-            // With the simple memory strategy we can use the correct visibility.
-            #[cfg(simple_memory_management)]
             Visibility::Read => f.write_str("read"),
             Visibility::ReadWrite => f.write_str("read_write"),
         }

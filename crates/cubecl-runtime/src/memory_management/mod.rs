@@ -7,9 +7,8 @@ pub use base::*;
 pub use memory_lock::*;
 
 /// Dynamic memory management strategy.
-pub mod dynamic;
-/// Simple memory management strategy.
-pub mod simple;
+mod memory_manage;
+pub use memory_manage::*;
 
 /// The type of memory pool to use.
 #[derive(Debug, Clone)]

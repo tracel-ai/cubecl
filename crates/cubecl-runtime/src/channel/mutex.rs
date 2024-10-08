@@ -38,19 +38,19 @@ impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
     Server: ComputeServer,
 {
-    fn read(&self, handle: Binding<Server>) -> Reader {
+    fn read(&self, handle: Binding) -> Reader {
         self.server.lock().read(handle)
     }
 
-    fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server> {
+    fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
         self.server.lock().get_resource(binding)
     }
 
-    fn create(&self, data: &[u8]) -> Handle<Server> {
+    fn create(&self, data: &[u8]) -> Handle {
         self.server.lock().create(data)
     }
 
-    fn empty(&self, size: usize) -> Handle<Server> {
+    fn empty(&self, size: usize) -> Handle {
         self.server.lock().empty(size)
     }
 
@@ -58,7 +58,7 @@ where
         &self,
         kernel: Server::Kernel,
         count: Server::DispatchOptions,
-        handles: Vec<Binding<Server>>,
+        handles: Vec<Binding>,
         kind: ExecutionMode,
     ) {
         self.server.lock().execute(kernel, count, handles, kind)

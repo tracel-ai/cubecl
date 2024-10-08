@@ -103,8 +103,8 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
 
 fn launch_basic<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: &Handle<R::Server>,
-    output: &Handle<R::Server>,
+    input: &Handle,
+    output: &Handle,
     len: usize,
 ) {
     unsafe {
@@ -121,8 +121,8 @@ fn launch_basic<R: Runtime>(
 
 fn launch_subgroup<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: &Handle<R::Server>,
-    output: &Handle<R::Server>,
+    input: &Handle,
+    output: &Handle,
     len: usize,
 ) {
     unsafe {
@@ -142,8 +142,8 @@ fn launch_subgroup<R: Runtime>(
 
 fn launch_trait<R: Runtime, K: SumKind>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: &Handle<R::Server>,
-    output: &Handle<R::Server>,
+    input: &Handle,
+    output: &Handle,
     len: usize,
 ) {
     unsafe {
@@ -160,8 +160,8 @@ fn launch_trait<R: Runtime, K: SumKind>(
 
 fn launch_series<R: Runtime, S: CreateSeries>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: &Handle<R::Server>,
-    output: &Handle<R::Server>,
+    input: &Handle,
+    output: &Handle,
     len: usize,
 ) {
     unsafe {

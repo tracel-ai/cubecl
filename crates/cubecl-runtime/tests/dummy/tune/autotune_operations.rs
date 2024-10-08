@@ -12,7 +12,7 @@ pub struct OneKernelAutotuneOperation {
     kernel: Arc<dyn DummyKernel>,
     client: ComputeClient<DummyServer, DummyChannel>,
     shapes: Vec<Vec<usize>>,
-    bindings: Vec<Binding<DummyServer>>,
+    bindings: Vec<Binding>,
 }
 
 impl AutotuneOperation for OneKernelAutotuneOperation {

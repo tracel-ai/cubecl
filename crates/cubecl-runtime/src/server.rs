@@ -1,5 +1,8 @@
 use crate::{
-    memory_management::{MemoryHandle, MemoryManagement, MemoryUsage},
+    memory_management::{
+        memory_pool::{SliceBinding, SliceHandle},
+        MemoryHandle, MemoryUsage,
+    },
     storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
@@ -21,22 +24,20 @@ where
     type DispatchOptions: Send;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
-    /// The [memory management](MemoryManagement) type defines strategies for allocation in the [storage](ComputeStorage) type.
-    type MemoryManagement: MemoryManagement<Self::Storage>;
     /// The type of the features supported by the server.
     type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Given a handle, returns the owned resource as bytes.
-    fn read(&mut self, binding: Binding<Self>) -> Reader;
+    fn read(&mut self, binding: Binding) -> Reader;
 
     /// Given a resource handle, returns the storage resource.
-    fn get_resource(&mut self, binding: Binding<Self>) -> BindingResource<Self>;
+    fn get_resource(&mut self, binding: Binding) -> BindingResource<Self>;
 
     /// Given a resource as bytes, stores it and returns the memory handle.
-    fn create(&mut self, data: &[u8]) -> Handle<Self>;
+    fn create(&mut self, data: &[u8]) -> Handle;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
-    fn empty(&mut self, size: usize) -> Handle<Self>;
+    fn empty(&mut self, size: usize) -> Handle;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -50,7 +51,7 @@ where
         &mut self,
         kernel: Self::Kernel,
         count: Self::DispatchOptions,
-        bindings: Vec<Binding<Self>>,
+        bindings: Vec<Binding>,
         kind: ExecutionMode,
     );
 
@@ -63,16 +64,16 @@ where
 
 /// Server handle containing the [memory handle](MemoryManagement::Handle).
 #[derive(new, Debug)]
-pub struct Handle<Server: ComputeServer> {
+pub struct Handle {
     /// Memory handle.
-    pub memory: <Server::MemoryManagement as MemoryManagement<Server::Storage>>::Handle,
+    pub memory: SliceHandle,
     /// Memory offset in bytes.
     pub offset_start: Option<usize>,
     /// Memory offset in bytes.
     pub offset_end: Option<usize>,
 }
 
-impl<Server: ComputeServer> Handle<Server> {
+impl Handle {
     /// Add to the current offset in bytes.
     pub fn offset_start(mut self, offset: usize) -> Self {
         if let Some(val) = &mut self.offset_start {
@@ -97,25 +98,25 @@ impl<Server: ComputeServer> Handle<Server> {
 
 /// Binding of a [tensor handle](Handle) to execute a kernel.
 #[derive(new, Debug)]
-pub struct Binding<Server: ComputeServer> {
+pub struct Binding {
     /// Memory binding.
-    pub memory: <Server::MemoryManagement as MemoryManagement<Server::Storage>>::Binding,
+    pub memory: SliceBinding,
     /// Memory offset in bytes.
     pub offset_start: Option<usize>,
     /// Memory offset in bytes.
     pub offset_end: Option<usize>,
 }
 
-impl<Server: ComputeServer> Handle<Server> {
+impl Handle {
     /// If the tensor handle can be reused inplace.
     pub fn can_mut(&self) -> bool {
         self.memory.can_mut()
     }
 }
 
-impl<Server: ComputeServer> Handle<Server> {
+impl Handle {
     /// Convert the [handle](Handle) into a [binding](Binding).
-    pub fn binding(self) -> Binding<Server> {
+    pub fn binding(self) -> Binding {
         Binding {
             memory: MemoryHandle::binding(self.memory),
             offset_start: self.offset_start,
@@ -124,7 +125,7 @@ impl<Server: ComputeServer> Handle<Server> {
     }
 }
 
-impl<Server: ComputeServer> Clone for Handle<Server> {
+impl Clone for Handle {
     fn clone(&self) -> Self {
         Self {
             memory: self.memory.clone(),
@@ -134,7 +135,7 @@ impl<Server: ComputeServer> Clone for Handle<Server> {
     }
 }
 
-impl<Server: ComputeServer> Clone for Binding<Server> {
+impl Clone for Binding {
     fn clone(&self) -> Self {
         Self {
             memory: self.memory.clone(),

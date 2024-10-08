@@ -1,7 +1,7 @@
 use super::{
     memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool},
-    MemoryConfiguration, MemoryDeviceProperties, MemoryLock, MemoryManagement, MemoryPoolOptions,
-    MemoryUsage, PoolType,
+    MemoryConfiguration, MemoryDeviceProperties, MemoryLock, MemoryPoolOptions, MemoryUsage,
+    PoolType,
 };
 use crate::storage::{ComputeStorage, StorageHandle};
 use alloc::vec::Vec;
@@ -84,14 +84,14 @@ impl MemoryPool for DynamicPool {
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
-pub struct DynamicMemoryManagement<Storage> {
+pub struct MemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
     storage: Storage,
 }
 
 const MB: usize = 1024 * 1024;
 
-impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
+impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
         storage: Storage,
@@ -204,7 +204,7 @@ impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
     }
 }
 
-impl<Storage> core::fmt::Debug for DynamicMemoryManagement<Storage> {
+impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(
             alloc::format!(
@@ -216,11 +216,9 @@ impl<Storage> core::fmt::Debug for DynamicMemoryManagement<Storage> {
     }
 }
 
-impl<Storage: ComputeStorage> MemoryManagement<Storage> for DynamicMemoryManagement<Storage> {
-    type Handle = SliceHandle;
-    type Binding = SliceBinding;
-
-    fn get(&mut self, binding: Self::Binding) -> StorageHandle {
+impl<Storage: ComputeStorage> MemoryManagement<Storage> {
+    /// Returns the storage from the specified binding
+    pub fn get(&mut self, binding: SliceBinding) -> StorageHandle {
         self.pools
             .iter()
             .find_map(|p| p.get(&binding))
@@ -228,7 +226,27 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for DynamicMemoryManagem
             .clone()
     }
 
-    fn reserve(&mut self, size: usize, exclude: Option<&MemoryLock>) -> Self::Handle {
+    /// Returns the resource from the storage at the specified handle
+    pub fn get_resource(
+        &mut self,
+        binding: SliceBinding,
+        offset_start: Option<usize>,
+        offset_end: Option<usize>,
+    ) -> Storage::Resource {
+        let handle = self.get(binding);
+        let handle = match offset_start {
+            Some(offset) => handle.offset_start(offset),
+            None => handle,
+        };
+        let handle = match offset_end {
+            Some(offset) => handle.offset_end(offset),
+            None => handle,
+        };
+        self.storage().get(&handle)
+    }
+
+    /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
+    pub fn reserve(&mut self, size: usize, exclude: Option<&MemoryLock>) -> SliceHandle {
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
         let pool = &mut self.pools[pool_ind];
@@ -238,7 +256,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for DynamicMemoryManagem
         pool.reserve(&mut self.storage, size, exclude)
     }
 
-    fn alloc(&mut self, size: usize) -> Self::Handle {
+    /// Bypass the memory allocation algorithm to allocate data directly.
+    ///
+    /// # Notes
+    ///
+    /// Can be useful for servers that want specific control over memory.
+    pub fn alloc(&mut self, size: usize) -> SliceHandle {
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
         let pool = &mut self.pools[pool_ind];
@@ -248,15 +271,31 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for DynamicMemoryManagem
         pool.alloc(&mut self.storage, size)
     }
 
-    fn dealloc(&mut self, _binding: Self::Binding) {
+    /// Bypass the memory allocation algorithm to deallocate data directly.
+    ///
+    /// # Notes
+    ///
+    /// Can be useful for servers that want specific control over memory.
+    pub fn dealloc(&mut self, _binding: SliceBinding) {
         // Can't dealloc slices.
     }
 
-    fn storage(&mut self) -> &mut Storage {
+    /// Fetch the storage used by the memory manager.
+    ///
+    /// # Notes
+    ///
+    /// The storage should probably not be used for allocations since the handles won't be
+    /// compatible with the ones provided by the current trait. Prefer using the
+    /// [alloc](MemoryManagement::alloc) and [dealloc](MemoryManagement::dealloc) functions.
+    ///
+    /// This is useful if you need to time the deallocations based on async computation, or to
+    /// change the mode of storage for different reasons.
+    pub fn storage(&mut self) -> &mut Storage {
         &mut self.storage
     }
 
-    fn memory_usage(&self) -> MemoryUsage {
+    /// Get the current memory usage.
+    pub fn memory_usage(&self) -> MemoryUsage {
         self.pools.iter().map(|x| x.get_memory_usage()).fold(
             MemoryUsage {
                 number_allocs: 0,
@@ -269,7 +308,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> for DynamicMemoryManagem
     }
 }
 
-impl<Storage: ComputeStorage> DynamicMemoryManagement<Storage> {
+impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Print out a report of the current memory usage.
     pub fn print_memory_usage(&self) {
         log::info!("{}", self.memory_usage());
@@ -284,7 +323,7 @@ mod tests {
     // Test pools with slices.
     #[test]
     fn test_handle_mutability() {
-        let mut memory_management = DynamicMemoryManagement::from_configuration(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -303,7 +342,7 @@ mod tests {
     fn alloc_two_chunks_on_one_page() {
         let page_size = 2048;
 
-        let mut memory_management = DynamicMemoryManagement::new(
+        let mut memory_management = MemoryManagement::new(
             BytesStorage::default(),
             vec![MemoryPoolOptions {
                 page_size,
@@ -330,7 +369,7 @@ mod tests {
         // If no storage is re-used, this will allocate two pages.
         let page_size = 512;
 
-        let mut memory_management = DynamicMemoryManagement::new(
+        let mut memory_management = MemoryManagement::new(
             BytesStorage::default(),
             vec![MemoryPoolOptions {
                 page_size,
@@ -357,7 +396,7 @@ mod tests {
     fn alloc_allocs_new_storage() {
         let page_size = 1024;
 
-        let mut memory_management = DynamicMemoryManagement::new(
+        let mut memory_management = MemoryManagement::new(
             BytesStorage::default(),
             vec![MemoryPoolOptions {
                 page_size,
@@ -382,7 +421,7 @@ mod tests {
     #[test]
     fn alloc_respects_alignment_size() {
         let page_size = 500;
-        let mut memory_management = DynamicMemoryManagement::new(
+        let mut memory_management = MemoryManagement::new(
             BytesStorage::default(),
             vec![MemoryPoolOptions {
                 page_size,
@@ -415,8 +454,7 @@ mod tests {
                 },
             })
             .collect();
-        let mut memory_management =
-            DynamicMemoryManagement::new(BytesStorage::default(), pools, 10);
+        let mut memory_management = MemoryManagement::new(BytesStorage::default(), pools, 10);
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
         let _handles = alloc_sizes.map(|s| memory_management.reserve(s, None));
@@ -430,7 +468,7 @@ mod tests {
 
     #[test]
     fn allocate_deallocate_reallocate() {
-        let mut memory_management = DynamicMemoryManagement::from_configuration(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -458,7 +496,7 @@ mod tests {
 
     #[test]
     fn test_fragmentation_resistance() {
-        let mut memory_management = DynamicMemoryManagement::from_configuration(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -493,7 +531,7 @@ mod tests {
             max_page_size: 128 * 1024 * 1024,
             alignment: 32,
         };
-        let mut memory_management = DynamicMemoryManagement::from_configuration(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             mem_props,
             MemoryConfiguration::ExclusivePages,
@@ -509,7 +547,7 @@ mod tests {
     fn noslice_alloc_two_chunk() {
         let page_size = 2048;
 
-        let mut memory_management = DynamicMemoryManagement::new(
+        let mut memory_management = MemoryManagement::new(
             BytesStorage::default(),
             vec![MemoryPoolOptions {
                 page_size,
@@ -532,7 +570,7 @@ mod tests {
     #[test]
     fn noslice_alloc_reuses_storage() {
         // If no storage is re-used, this will allocate two pages.
-        let mut memory_management = DynamicMemoryManagement::new(
+        let mut memory_management = MemoryManagement::new(
             BytesStorage::default(),
             vec![MemoryPoolOptions {
                 page_size: 512,
@@ -556,7 +594,7 @@ mod tests {
     #[test]
     fn noslice_alloc_allocs_new_storage() {
         let page_size = 1024;
-        let mut memory_management = DynamicMemoryManagement::new(
+        let mut memory_management = MemoryManagement::new(
             BytesStorage::default(),
             vec![MemoryPoolOptions {
                 page_size,
@@ -578,7 +616,7 @@ mod tests {
     #[test]
     fn noslice_alloc_respects_alignment_size() {
         let page_size = 500;
-        let mut memory_management = DynamicMemoryManagement::new(
+        let mut memory_management = MemoryManagement::new(
             BytesStorage::default(),
             vec![MemoryPoolOptions {
                 page_size,
@@ -607,8 +645,7 @@ mod tests {
                 },
             })
             .collect();
-        let mut memory_management =
-            DynamicMemoryManagement::new(BytesStorage::default(), pools, 10);
+        let mut memory_management = MemoryManagement::new(BytesStorage::default(), pools, 10);
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
         let _handles = alloc_sizes.map(|s| memory_management.reserve(s, None));
@@ -619,7 +656,7 @@ mod tests {
 
     #[test]
     fn noslice_allocate_deallocate_reallocate() {
-        let mut memory_management = DynamicMemoryManagement::from_configuration(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,

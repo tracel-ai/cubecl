@@ -1,12 +1,12 @@
 use cubecl_core::{
     client::ComputeClient,
     prelude::{ArrayArg, TensorArg},
-    server, Compiler, ExecutionMode, Kernel, Runtime,
+    server::Handle,
+    Compiler, ExecutionMode, Kernel, Runtime,
 };
 use cubecl_wgpu::{WgpuDevice, WgpuRuntime};
 
 type Client = ComputeClient<<WgpuRuntime as Runtime>::Server, <WgpuRuntime as Runtime>::Channel>;
-type Handle = server::Handle<<WgpuRuntime as Runtime>::Server>;
 
 pub fn client() -> Client {
     let device = WgpuDevice::default();

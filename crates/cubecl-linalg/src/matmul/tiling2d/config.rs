@@ -2,7 +2,7 @@ use cubecl_core::{
     self as cubecl,
     prelude::{CubeContext, Init},
 };
-use cubecl_core::{compute::CubeCount, ir::CubeDim, CubeType, Runtime};
+use cubecl_core::{compute::CubeCount, ir::CubeDim, CubeType};
 
 use super::base::TILE_SIZE;
 
@@ -103,10 +103,7 @@ impl CubeTiling2dConfig {
     }
 }
 
-pub fn tiling2d_cube_count<R: Runtime>(
-    output_shape: &[usize],
-    config: &Tiling2dConfig,
-) -> CubeCount<R::Server> {
+pub fn tiling2d_cube_count(output_shape: &[usize], config: &Tiling2dConfig) -> CubeCount {
     let rank = output_shape.len();
     let num_rows = *output_shape.get(rank - 2).unwrap();
     let num_cols = *output_shape.get(rank - 1).unwrap();

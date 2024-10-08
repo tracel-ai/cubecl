@@ -20,7 +20,6 @@ default = [
     "cubecl-cuda?/default",
 ]
 linalg = ["dep:cubecl-linalg"]
-simple-memory-management = ["cubecl-wgpu?/simple-memory-management"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 

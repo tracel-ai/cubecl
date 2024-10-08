@@ -18,8 +18,8 @@ use wgpu::{CommandEncoder, ComputePass, ComputePipeline, ShaderModuleDescriptor}
 
 /// Wgpu compute server.
 #[derive(Debug)]
-pub struct WgpuServer<MM: MemoryManagement<WgpuStorage>> {
-    memory_management: MM,
+pub struct WgpuServer {
+    memory_management: MemoryManagement<WgpuStorage>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     encoder: CommandEncoder,
@@ -38,13 +38,10 @@ fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
     })
 }
 
-impl<MM> WgpuServer<MM>
-where
-    MM: MemoryManagement<WgpuStorage>,
-{
+impl WgpuServer {
     /// Create a new server.
     pub fn new(
-        memory_management: MM,
+        memory_management: MemoryManagement<WgpuStorage>,
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         tasks_max: usize,
@@ -124,17 +121,13 @@ where
     }
 }
 
-impl<MM> ComputeServer for WgpuServer<MM>
-where
-    MM: MemoryManagement<WgpuStorage>,
-{
+impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<WgslCompiler>>;
-    type DispatchOptions = CubeCount<Self>;
+    type DispatchOptions = CubeCount;
     type Storage = WgpuStorage;
-    type MemoryManagement = MM;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding<Self>) -> Reader {
+    fn read(&mut self, binding: server::Binding) -> Reader {
         let rb = self.get_resource(binding);
         let resource = rb.resource();
 
@@ -191,7 +184,7 @@ where
         })
     }
 
-    fn get_resource(&mut self, binding: server::Binding<Self>) -> BindingResource<Self> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
         // Keep track of any buffer that might be used in the wgpu queue, as we cannot copy into them
         // after they have any outstanding compute work. Calling get_resource repeatedly
         // will add duplicates to this, but that is ok.
@@ -215,7 +208,7 @@ where
     ///
     /// This is important, otherwise the compute passes are going to be too small and we won't be able to
     /// fully utilize the GPU.
-    fn create(&mut self, data: &[u8]) -> server::Handle<Self> {
+    fn create(&mut self, data: &[u8]) -> server::Handle {
         let num_bytes = data.len();
 
         // Handle empty tensors (must bind at minimum 4 bytes)
@@ -246,7 +239,7 @@ where
         Handle::new(memory, None, None)
     }
 
-    fn empty(&mut self, size: usize) -> server::Handle<Self> {
+    fn empty(&mut self, size: usize) -> server::Handle {
         server::Handle::new(self.memory_management.reserve(size, None), None, None)
     }
 
@@ -254,7 +247,7 @@ where
         &mut self,
         kernel: Self::Kernel,
         count: Self::DispatchOptions,
-        bindings: Vec<server::Binding<Self>>,
+        bindings: Vec<server::Binding>,
         mode: ExecutionMode,
     ) {
         let profile_level = self.logger.profile_level();

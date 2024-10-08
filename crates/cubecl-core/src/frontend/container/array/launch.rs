@@ -1,4 +1,4 @@
-use std::num::NonZero;
+use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
@@ -19,8 +19,9 @@ pub struct ArrayCompilationArg {
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct ArrayHandleRef<'a, R: Runtime> {
-    pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
+    pub handle: &'a cubecl_runtime::server::Handle,
     pub(crate) length: [usize; 1],
+    runtime: PhantomData<R>,
 }
 
 impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
@@ -81,7 +82,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
-        handle: &'a cubecl_runtime::server::Handle<R::Server>,
+        handle: &'a cubecl_runtime::server::Handle,
         length: usize,
         vectorization_factor: u8,
     ) -> Self {
@@ -99,12 +100,13 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
-        handle: &'a cubecl_runtime::server::Handle<R::Server>,
+        handle: &'a cubecl_runtime::server::Handle,
         length: usize,
     ) -> Self {
         Self {
             handle,
             length: [length],
+            runtime: PhantomData,
         }
     }
 
@@ -116,6 +118,7 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
             handle: self.handle,
             strides: &[1],
             shape,
+            runtime: PhantomData,
         }
     }
 }

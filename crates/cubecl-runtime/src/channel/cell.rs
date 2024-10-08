@@ -45,19 +45,19 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
-    fn read(&self, binding: Binding<Server>) -> Reader {
+    fn read(&self, binding: Binding) -> Reader {
         self.server.borrow_mut().read(binding)
     }
 
-    fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server> {
+    fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
         self.server.borrow_mut().get_resource(binding)
     }
 
-    fn create(&self, resource: &[u8]) -> Handle<Server> {
+    fn create(&self, resource: &[u8]) -> Handle {
         self.server.borrow_mut().create(resource)
     }
 
-    fn empty(&self, size: usize) -> Handle<Server> {
+    fn empty(&self, size: usize) -> Handle {
         self.server.borrow_mut().empty(size)
     }
 
@@ -65,7 +65,7 @@ where
         &self,
         kernel_description: Server::Kernel,
         count: Server::DispatchOptions,
-        bindings: Vec<Binding<Server>>,
+        bindings: Vec<Binding>,
         kind: ExecutionMode,
     ) {
         self.server

@@ -45,7 +45,7 @@ where
     }
 
     /// Given a binding, returns owned resource as bytes.
-    pub async fn read_async(&self, binding: Binding<Server>) -> Vec<u8> {
+    pub async fn read_async(&self, binding: Binding) -> Vec<u8> {
         self.channel.read(binding).await
     }
 
@@ -53,22 +53,22 @@ where
     ///
     /// # Remarks
     /// Panics if the read operation fails.
-    pub fn read(&self, binding: Binding<Server>) -> Vec<u8> {
+    pub fn read(&self, binding: Binding) -> Vec<u8> {
         cubecl_common::reader::read_sync(self.channel.read(binding))
     }
 
     /// Given a resource handle, returns the storage resource.
-    pub fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server> {
+    pub fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
         self.channel.get_resource(binding)
     }
 
     /// Given a resource, stores it and returns the resource handle.
-    pub fn create(&self, data: &[u8]) -> Handle<Server> {
+    pub fn create(&self, data: &[u8]) -> Handle {
         self.channel.create(data)
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
-    pub fn empty(&self, size: usize) -> Handle<Server> {
+    pub fn empty(&self, size: usize) -> Handle {
         self.channel.empty(size)
     }
 
@@ -77,7 +77,7 @@ where
         &self,
         kernel: Server::Kernel,
         count: Server::DispatchOptions,
-        bindings: Vec<Binding<Server>>,
+        bindings: Vec<Binding>,
     ) {
         unsafe {
             self.channel
@@ -94,7 +94,7 @@ where
         &self,
         kernel: Server::Kernel,
         count: Server::DispatchOptions,
-        bindings: Vec<Binding<Server>>,
+        bindings: Vec<Binding>,
     ) {
         self.channel
             .execute(kernel, count, bindings, ExecutionMode::Unchecked)

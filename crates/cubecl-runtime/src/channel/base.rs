@@ -10,16 +10,16 @@ use cubecl_common::{reader::Reader, sync_type::SyncType};
 /// while ensuring thread-safety
 pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send + Sync {
     /// Given a binding, returns owned resource as bytes
-    fn read(&self, binding: Binding<Server>) -> Reader;
+    fn read(&self, binding: Binding) -> Reader;
 
     /// Given a resource handle, return the storage resource.
-    fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server>;
+    fn get_resource(&self, binding: Binding) -> BindingResource<Server>;
 
     /// Given a resource as bytes, stores it and returns the resource handle
-    fn create(&self, data: &[u8]) -> Handle<Server>;
+    fn create(&self, data: &[u8]) -> Handle;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them
-    fn empty(&self, size: usize) -> Handle<Server>;
+    fn empty(&self, size: usize) -> Handle;
 
     /// Executes the `kernel` over the given `bindings`.
     ///
@@ -30,7 +30,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
         &self,
         kernel: Server::Kernel,
         count: Server::DispatchOptions,
-        bindings: Vec<Binding<Server>>,
+        bindings: Vec<Binding>,
         mode: ExecutionMode,
     );
 

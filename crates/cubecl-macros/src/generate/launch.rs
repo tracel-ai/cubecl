@@ -64,7 +64,7 @@ impl Launch {
                 #[doc = #kernel_doc]
                 pub fn launch #generics(
                     __client: &#compute_client<__R::Server, __R::Channel>,
-                    __cube_count: #cube_count<__R::Server>,
+                    __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #(#args),*
                 ) -> () {
@@ -96,7 +96,7 @@ impl Launch {
                 #[doc = #kernel_doc]
                 pub unsafe fn launch_unchecked #generics(
                     __client: &#compute_client<__R::Server, __R::Channel>,
-                    __cube_count: #cube_count<__R::Server>,
+                    __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #(#args),*
                 ) -> () {
@@ -176,7 +176,7 @@ impl Launch {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub fn create_dummy_kernel #generics(
-                    __cube_count: #cube_count<__R::Server>,
+                    __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #(#comptime_args),*
                 ) -> #kernel_name #generic_names {
