@@ -59,12 +59,9 @@ impl<E: Numeric, T: TilingOrder> Loader<Line<E>> for LhsTensorLoader<E, T> {
     }
 
     fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
-        // Assuming RowMajor layout
-        // TODO refactor
-        let is_row_major = true;
-        let (gmem_row_offset, gmem_col_offset) = match is_row_major {
-            true => (reader.cube_offset, k_offset),
-            false => (k_offset, reader.cube_offset),
+        let (gmem_row_offset, gmem_col_offset) = match comptime!(reader.gmem_layout) {
+            MatrixLayout::RowMajor => (reader.cube_offset, k_offset),
+            MatrixLayout::ColMajor => (k_offset, reader.cube_offset),
         };
 
         Tensor2SmemContinuous::tensor_to_shared_memory::<E, T>(
@@ -110,12 +107,9 @@ impl<E: Numeric, T: TilingOrder> Loader<Line<E>> for RhsTensorLoader<E, T> {
     }
 
     fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
-        // Assuming RowMajor layout
-        // TODO refactor
-        let is_row_major = true;
-        let (gmem_row_offset, gmem_col_offset) = match is_row_major {
-            true => (k_offset, reader.cube_offset),
-            false => (reader.cube_offset, k_offset),
+        let (gmem_row_offset, gmem_col_offset) = match comptime!(reader.gmem_layout) {
+            MatrixLayout::RowMajor => (k_offset, reader.cube_offset),
+            MatrixLayout::ColMajor => (reader.cube_offset, k_offset),
         };
 
         Tensor2SmemContinuous::tensor_to_shared_memory::<E, T>(
