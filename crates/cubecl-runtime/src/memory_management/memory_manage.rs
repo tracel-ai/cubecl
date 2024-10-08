@@ -89,8 +89,6 @@ pub struct MemoryManagement<Storage> {
     storage: Storage,
 }
 
-const MB: usize = 1024 * 1024;
-
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
@@ -99,6 +97,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         config: MemoryConfiguration,
     ) -> Self {
         match config {
+            #[cfg(not(exclusive_memory_only))]
             MemoryConfiguration::SubSlices => {
                 // Round chunk size to be aligned.
                 let memory_alignment = properties.alignment;
@@ -112,6 +111,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         max_slice_size: max_page,
                     },
                 });
+
+                const MB: usize = 1024 * 1024;
 
                 let mut current = max_page;
                 while current >= 32 * MB {
