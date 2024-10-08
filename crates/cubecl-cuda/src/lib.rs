@@ -8,8 +8,7 @@ mod runtime;
 
 pub mod compiler;
 pub use device::*;
-
-pub use runtime::CudaRuntime;
+pub use runtime::*;
 
 #[cfg(test)]
 mod tests {

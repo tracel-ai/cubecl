@@ -1,0 +1,23 @@
+[package]
+edition = "2021"
+license.workspace = true
+name = "cubecl-spirv"
+readme.workspace = true
+version.workspace = true
+
+[dependencies]
+cubecl-common = { path = "../cubecl-common", version = "0.2.0" }
+cubecl-core = { path = "../cubecl-core", version = "0.2.0" }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false, features = [
+    "channel-mutex",
+] }
+
+rspirv = "0.12"
+
+hashbrown = { workspace = true }
+
+[dev-dependencies]
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", features = [
+    "export_tests",
+] }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0" }

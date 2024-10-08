@@ -22,7 +22,7 @@ pub fn check_cmma_availability<R: Runtime>(
     cmma_config: &CmmaConfig,
 ) -> Result<(), UnavailabilityReason> {
     let tile_dim: TileDimension = cmma_config.tile_dimension_strategy.into();
-    if !client.features().enabled(Feature::Cmma {
+    if !client.properties().feature_enabled(Feature::Cmma {
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),
         c: Elem::Float(FloatKind::F32),

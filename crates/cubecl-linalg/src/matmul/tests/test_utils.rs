@@ -106,7 +106,7 @@ pub(crate) fn assert_equals_approx<I: CubeElement, R: Runtime>(
     Ok(())
 }
 
-pub(crate) fn make_tiling2d_config(m: usize, k: usize, n: usize) -> CubeTiling2dConfig {
+pub fn make_tiling2d_config(m: usize, k: usize, n: usize) -> CubeTiling2dConfig {
     let tiling2d_config = Tiling2dConfig {
         block_size_m: 8,
         block_size_k: 8,

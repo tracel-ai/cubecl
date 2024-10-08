@@ -107,36 +107,30 @@ impl ComputeStorage for CudaStorage {
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = self.memory.get(&handle.id).unwrap();
 
-        match handle.utilization {
-            StorageUtilization::Full(size) => CudaResource::new(
-                *ptr,
-                ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
-                CudaResourceKind::Full { size },
-            ),
-            StorageUtilization::Slice { offset, size } => {
-                let ptr = ptr + offset as u64;
-                let kind = CudaResourceKind::Slice { size, offset };
-                let key = ActiveResource::new(ptr, kind.clone());
+        let offset = handle.offset();
+        let size = handle.size();
 
-                self.activate_slices.insert(key.clone(), ptr);
+        let ptr = ptr + offset as u64;
+        let kind = CudaResourceKind::Slice { size, offset };
+        let key = ActiveResource::new(ptr, kind.clone());
 
-                // The ptr needs to stay alive until we send the task to the server.
-                let ptr = self.activate_slices.get(&key).unwrap();
+        self.activate_slices.insert(key.clone(), ptr);
 
-                CudaResource::new(
-                    *ptr,
-                    ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
-                    kind,
-                )
-            }
-        }
+        // The ptr needs to stay alive until we send the task to the server.
+        let ptr = self.activate_slices.get(&key).unwrap();
+
+        CudaResource::new(
+            *ptr,
+            ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
+            kind,
+        )
     }
 
     fn alloc(&mut self, size: usize) -> StorageHandle {
         let id = StorageId::new();
         let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size).unwrap() };
         self.memory.insert(id, ptr);
-        StorageHandle::new(id, StorageUtilization::Full(size))
+        StorageHandle::new(id, StorageUtilization { offset: 0, size })
     }
 
     fn dealloc(&mut self, id: StorageId) {

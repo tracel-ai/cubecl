@@ -10,30 +10,32 @@ use half::f16;
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
-    let a = cmma::Matrix::<f16>::new(
+    let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         16,
         16,
         16,
         cmma::MatrixLayout::RowMajor,
+        lhs.as_slice(),
+        16,
     );
-    let b = cmma::Matrix::<f16>::new(
+    let b = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::B,
         16,
         16,
         16,
         cmma::MatrixLayout::ColMajor,
+        rhs.as_slice(),
+        16,
     );
-    let c = cmma::Matrix::<f32>::new(
+    let c = cmma::Matrix::<f32>::from_value(
         cmma::MatrixIdent::Accumulator,
         16,
         16,
         16,
         cmma::MatrixLayout::Undefined,
+        0.0,
     );
-    cmma::fill::<f32>(&c, 0.0);
-    cmma::load(&a, lhs.as_slice(), 16);
-    cmma::load(&b, rhs.as_slice(), 16);
 
     cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
 
@@ -41,7 +43,7 @@ pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
 }
 
 pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    if !client.features().enabled(Feature::Cmma {
+    if !client.properties().feature_enabled(Feature::Cmma {
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),
         c: Elem::Float(FloatKind::F32),

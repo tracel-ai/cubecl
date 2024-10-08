@@ -484,7 +484,7 @@ impl Display for Instruction {
                 writeln!(f, "{out} = clamp({input}, {min}, {max});")
             }
             Instruction::Powf { lhs, rhs, out } => {
-                if rhs.is_always_scalar() {
+                if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
                     let out = out.fmt_left();
                     writeln!(f, "{out} = powf_scalar({lhs}, {rhs});")
                 } else {
@@ -639,8 +639,29 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 or_else,
                 out,
             } => {
+                let vf_then = then.item().vectorization_factor();
+                let vf_or_else = or_else.item().vectorization_factor();
+                let vf_out = out.item().vectorization_factor();
+                let vf_cond = cond.item().vectorization_factor();
+                let vf = usize::max(vf_cond, vf_out);
+                let vf = usize::max(vf, vf_then);
+                let vf = usize::max(vf, vf_or_else);
+
                 let out = out.fmt_left();
-                writeln!(f, "{out} = select({or_else}, {then}, {cond});")
+                if vf != vf_then || vf != vf_or_else || vf != vf_cond || vf != vf_out {
+                    writeln!(f, "{out} = vec{vf}(")?;
+                    for i in 0..vf {
+                        let theni = then.index(i);
+                        let or_elsei = or_else.index(i);
+                        let condi = cond.index(i);
+
+                        writeln!(f, "select({or_elsei}, {theni}, {condi}),")?;
+                    }
+
+                    writeln!(f, ");")
+                } else {
+                    writeln!(f, "{out} = select({or_else}, {then}, {cond});")
+                }
             }
             Instruction::Switch {
                 value,
@@ -791,6 +812,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
             }
             Instruction::Dot { lhs, rhs, out } => {
+                let out = out.fmt_left();
                 if lhs.item().vectorization_factor() == 1 {
                     writeln!(f, "{out} = {lhs} * {rhs};")
                 } else {

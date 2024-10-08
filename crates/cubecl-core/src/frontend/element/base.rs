@@ -381,7 +381,6 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
 
     match *elem {
         Variable::GlobalScalar { .. } => init(elem),
-        Variable::LocalScalar { .. } => init(elem),
         Variable::ConstantScalar { .. } => init(elem),
         Variable::Local { .. } => init(elem),
         Variable::LocalBinding { .. } => init(elem),

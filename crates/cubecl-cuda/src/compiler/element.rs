@@ -108,11 +108,6 @@ impl Component for Variable {
             Variable::ThreadIdxY => Item::scalar(Elem::U32),
             Variable::ThreadIdxZ => Item::scalar(Elem::U32),
             Variable::Rank => Item::scalar(Elem::U32),
-            Variable::LocalScalar {
-                id: _,
-                elem,
-                depth: _,
-            } => Item::scalar(*elem),
             Variable::BlockIdxX => Item::scalar(Elem::U32),
             Variable::BlockIdxY => Item::scalar(Elem::U32),
             Variable::BlockIdxZ => Item::scalar(Elem::U32),
@@ -154,7 +149,6 @@ pub enum Variable {
     Local { id: u16, item: Item, depth: u8 },
     ConstLocal { id: u16, item: Item, depth: u8 },
     Slice { id: u16, item: Item, depth: u8 },
-    LocalScalar { id: u16, elem: Elem, depth: u8 },
     SharedMemory(u16, Item, u32),
     LocalArray(u16, Item, u8, u32),
     IdxGlobal,
@@ -184,10 +178,9 @@ pub enum Variable {
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalInputArray(number, _) => write!(f, "input_{number}"),
-            Variable::LocalScalar { id, depth, .. } => write!(f, "s_{depth}_{id}"),
-            Variable::Local { id, depth, .. } => write!(f, "l_{depth}_{id}"),
-            Variable::ConstLocal { id, depth, .. } => write!(f, "ssa_{depth}_{id}"),
+            Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
+            Variable::Local { id, depth, .. } => f.write_fmt(format_args!("l_{depth}_{id}")),
+            Variable::ConstLocal { id, depth, .. } => f.write_fmt(format_args!("ssa_{depth}_{id}")),
             Variable::Slice { id, item: _, depth } => {
                 write!(f, "slice_{depth}_{id}")
             }
@@ -340,7 +333,6 @@ impl Variable {
         match self {
             Variable::GlobalScalar(_, _, _) => true,
             Variable::ConstantScalar(_, _) => true,
-            Variable::LocalScalar { .. } => true,
             Variable::IdxGlobal => true,
             Variable::ThreadIdxGlobal => true,
             Variable::ThreadIdxX => true,

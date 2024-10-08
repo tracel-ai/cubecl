@@ -161,11 +161,6 @@ impl WgslCompiler {
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::Variable::LocalScalar { id, elem, depth } => wgsl::Variable::LocalScalar {
-                id,
-                elem: Self::compile_elem(elem),
-                depth,
-            },
             cube::Variable::GlobalOutputArray { id, item } => {
                 wgsl::Variable::GlobalOutputArray(id, Self::compile_item(item))
             }
@@ -856,7 +851,7 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
             wgsl::Instruction::Powf { lhs: _, rhs, out } => {
                 register_extension(wgsl::Extension::PowfPrimitive(out.item()));
 
-                if rhs.is_always_scalar() {
+                if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
                     register_extension(wgsl::Extension::PowfScalar(out.item()));
                 } else {
                     register_extension(wgsl::Extension::Powf(out.item()));

@@ -13,6 +13,8 @@ use crate::{
     unexpanded,
 };
 
+use super::Line;
+
 /// A read-only contiguous list of elements
 pub struct Slice<'a, E> {
     _e: PhantomData<E>,
@@ -25,19 +27,77 @@ pub struct SliceMut<'a, E> {
     _l: &'a mut (),
 }
 
-impl<'a, E> Slice<'a, E> {
-    /// Get the length of the slice.
-    #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> u32 {
-        unexpanded!()
-    }
-}
+mod metadata {
+    use super::*;
 
-impl<'a, E> SliceMut<'a, E> {
-    /// Get the length of the slice.
-    #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> u32 {
-        unexpanded!()
+    impl<'a, E> Slice<'a, E> {
+        /// Get the length of the slice.
+        #[allow(clippy::len_without_is_empty)]
+        pub fn len(&self) -> u32 {
+            unexpanded!()
+        }
+
+        /// Returns the same slice, but with lines of length 1.
+        pub fn as_aligned(&self) -> Slice<'a, Line<E>>
+        where
+            E: CubePrimitive,
+        {
+            unexpanded!()
+        }
+    }
+
+    impl<'a, E> SliceMut<'a, E> {
+        /// Get the length of the slice.
+        #[allow(clippy::len_without_is_empty)]
+        pub fn len(&self) -> u32 {
+            unexpanded!()
+        }
+
+        /// Returns the same slice, but with lines of length 1.
+        pub fn as_aligned(&self) -> SliceMut<'a, Line<E>>
+        where
+            E: CubePrimitive,
+        {
+            unexpanded!()
+        }
+    }
+
+    impl<'a, C: CubeType> ExpandElementTyped<Slice<'a, C>> {
+        // Expand method of [len](Slice::len).
+        pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+            let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
+            elem.__expand_len_method(context)
+        }
+
+        // Expand method of [len](Slice::as_aligned).
+        pub fn __expand_as_aligned_method(
+            self,
+            _context: &mut CubeContext,
+        ) -> ExpandElementTyped<Slice<'a, Line<C>>>
+        where
+            C: CubePrimitive,
+        {
+            self.expand.into()
+        }
+    }
+
+    impl<'a, C: CubeType> ExpandElementTyped<SliceMut<'a, C>> {
+        // Expand method of [len](SliceMut::len).
+        pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+            let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
+            elem.__expand_len_method(context)
+        }
+
+        // Expand method of [len](SliceMut::as_aligned).
+        pub fn __expand_as_aligned_method(
+            self,
+            _context: &mut CubeContext,
+        ) -> ExpandElementTyped<SliceMut<'a, Line<C>>>
+        where
+            C: CubePrimitive,
+        {
+            self.expand.into()
+        }
     }
 }
 
@@ -53,14 +113,6 @@ impl<'a, C: CubeType> Init for ExpandElementTyped<Slice<'a, C>> {
     fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
         // The type can't be deeply cloned/copied.
         self
-    }
-}
-
-impl<'a, C: CubeType> ExpandElementTyped<Slice<'a, C>> {
-    // Expand method of [len](Slice::len).
-    pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-        let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
-        elem.__expand_len_method(context)
     }
 }
 

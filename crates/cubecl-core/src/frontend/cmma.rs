@@ -101,8 +101,12 @@ impl<C: CubeType> Init for MatrixExpand<C> {
 }
 
 impl<C: CubePrimitive> Matrix<C> {
-    /// Create a new matrix that is going to be used in the
+    /// Create a new uninitialized matrix that is going to be used in the
     /// [matrix-multiply and accumulate](execute()) function.
+    ///
+    /// # Safety
+    /// Must be initialized with `load` or `fill` before use. Using it without initialization is
+    /// undefined behaviour on CUDA, and completely invalid on Vulkan.
     ///
     /// You have to declare the shape used for the execution.
     /// The shape of the current matrix is determined using the [MatrixIdent].
@@ -115,11 +119,68 @@ impl<C: CubePrimitive> Matrix<C> {
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
-    pub fn new(ident: MatrixIdent, m: u32, n: u32, k: u32, layout: MatrixLayout) -> Self {
+    pub unsafe fn uninitialized(
+        ident: MatrixIdent,
+        m: u32,
+        n: u32,
+        k: u32,
+        layout: MatrixLayout,
+    ) -> Self {
         Matrix { _c: PhantomData }
     }
 
-    pub fn __expand_new(
+    /// Create a new matrix that is going to be used in the
+    /// [matrix-multiply and accumulate](execute()) function and is filled with `value`.
+    ///
+    /// You have to declare the shape used for the execution.
+    /// The shape of the current matrix is determined using the [MatrixIdent].
+    ///
+    /// * [MatrixIdent::A] Shape => (M, K)
+    /// * [MatrixIdent::B] Shape => (K, N)
+    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    ///
+    /// Not all shapes are supported, and the permitted shapes depend on the element type.
+    ///
+    /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
+    #[allow(unused_variables)]
+    pub fn from_value(
+        ident: MatrixIdent,
+        m: u32,
+        n: u32,
+        k: u32,
+        layout: MatrixLayout,
+        value: C,
+    ) -> Self {
+        Matrix { _c: PhantomData }
+    }
+
+    /// Create a new matrix that is going to be used in the
+    /// [matrix-multiply and accumulate](execute()) function and is loaded from `value` with `stride`.
+    ///
+    /// You have to declare the shape used for the execution.
+    /// The shape of the current matrix is determined using the [MatrixIdent].
+    ///
+    /// * [MatrixIdent::A] Shape => (M, K)
+    /// * [MatrixIdent::B] Shape => (K, N)
+    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    ///
+    /// Not all shapes are supported, and the permitted shapes depend on the element type.
+    ///
+    /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
+    #[allow(unused_variables)]
+    pub fn from_slice(
+        ident: MatrixIdent,
+        m: u32,
+        n: u32,
+        k: u32,
+        layout: MatrixLayout,
+        value: &Slice<'_, C>,
+        stride: u32,
+    ) -> Self {
+        Matrix { _c: PhantomData }
+    }
+
+    pub fn __expand_uninitialized(
         context: &mut CubeContext,
         ident: MatrixIdent,
         m: ExpandElementTyped<u32>,
@@ -139,6 +200,36 @@ impl<C: CubePrimitive> Matrix<C> {
             elem,
             _c: PhantomData,
         }
+    }
+
+    pub fn __expand_from_value(
+        context: &mut CubeContext,
+        ident: MatrixIdent,
+        m: ExpandElementTyped<u32>,
+        n: ExpandElementTyped<u32>,
+        k: ExpandElementTyped<u32>,
+        layout: MatrixLayout,
+        value: ExpandElementTyped<C>,
+    ) -> MatrixExpand {
+        let mat = Self::__expand_uninitialized(context, ident, m, n, k, layout);
+        fill::expand(context, mat.clone(), value);
+        mat
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn __expand_from_slice(
+        context: &mut CubeContext,
+        ident: MatrixIdent,
+        m: ExpandElementTyped<u32>,
+        n: ExpandElementTyped<u32>,
+        k: ExpandElementTyped<u32>,
+        layout: MatrixLayout,
+        value: ExpandElementTyped<Slice<'static, C>>,
+        stride: ExpandElementTyped<u32>,
+    ) -> MatrixExpand {
+        let mat = Self::__expand_uninitialized(context, ident, m, n, k, layout);
+        load::expand(context, mat.clone(), value, stride);
+        mat
     }
 }
 

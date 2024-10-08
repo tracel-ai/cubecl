@@ -67,7 +67,7 @@ impl CubeTypeStruct {
     }
 
     fn launch_new(&self) -> proc_macro2::TokenStream {
-        let args = self.fields.iter().map(TypeField::launch_field);
+        let args = self.fields.iter().map(TypeField::launch_new_arg);
         let fields = self.fields.iter().map(|field| &field.ident);
         let name = &self.name_launch;
 
@@ -166,10 +166,9 @@ impl CubeTypeStruct {
         let clone = gen(&self.fields, |name| quote!(#name: self.#name.clone()));
         let hash = gen(&self.fields, |name| quote!(self.#name.hash(state)));
         let partial_eq = gen(&self.fields, |name| quote!(self.#name.eq(&other.#name)));
-        let debug = gen(
-            &self.fields,
-            |name| quote!(f.write_fmt(format_args!("{}: {:?},", stringify!(#name), &self.#name))?;),
-        );
+        let debug = gen(&self.fields, |name| {
+            quote!(f.write_fmt(format_args!("{}: {:?},", stringify!(#name), &self.#name))?)
+        });
 
         quote! {
             #vis struct #name #generics {
@@ -212,11 +211,11 @@ impl CubeTypeStruct {
 
     fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
         let launch_arg_expand = prelude_type("LaunchArgExpand");
-        let body_input = self.fields.iter().map(TypeField::split).map(|(vis, name, ty)| {
-            quote![#vis #name: <#ty as #launch_arg_expand>::expand(&arg.#name, builder)]
+        let body_input = self.fields.iter().map(TypeField::split).map(|(_vis, name, ty)| {
+            quote![#name: <#ty as #launch_arg_expand>::expand(&arg.#name, builder)]
         });
-        let body_output = self.fields.iter().map(TypeField::split).map(|(vis, name, ty)| {
-            quote![#vis #name: <#ty as #launch_arg_expand>::expand_output(&arg.#name, builder)]
+        let body_output = self.fields.iter().map(TypeField::split).map(|(_vis, name, ty)| {
+            quote![#name: <#ty as #launch_arg_expand>::expand_output(&arg.#name, builder)]
         });
 
         let name = &self.ident;
@@ -328,6 +327,13 @@ impl TypeField {
         let name = self.ident.as_ref().unwrap();
         let ty = &self.ty;
         quote![#vis #name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
+    }
+
+    pub fn launch_new_arg(&self) -> TokenStream {
+        let launch_arg = prelude_type("LaunchArg");
+        let name = self.ident.as_ref().unwrap();
+        let ty = &self.ty;
+        quote![#name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
     }
 
     pub fn compilation_arg_field(&self) -> TokenStream {
