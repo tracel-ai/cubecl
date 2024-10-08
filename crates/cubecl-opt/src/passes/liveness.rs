@@ -1,10 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use petgraph::{
-    graph::{EdgeIndex, NodeIndex},
-    visit::EdgeRef,
-    Direction,
-};
+use petgraph::graph::NodeIndex;
 
 use crate::{visit_noop, Optimizer};
 
@@ -15,7 +11,7 @@ struct BlockSets {
 }
 
 struct State {
-    visited_edges: HashSet<EdgeIndex>,
+    worklist: VecDeque<NodeIndex>,
     block_sets: HashMap<NodeIndex, BlockSets>,
 }
 
@@ -23,10 +19,12 @@ impl Optimizer {
     /// Do a conservative block level liveness analysis
     pub fn analyze_liveness(&mut self) {
         let mut state = State {
-            visited_edges: HashSet::new(),
+            worklist: VecDeque::from(self.node_ids()),
             block_sets: HashMap::new(),
         };
-        self.analyze_block(self.ret, &mut state);
+        while let Some(block) = state.worklist.pop_front() {
+            self.analyze_block(block, &mut state);
+        }
     }
 
     fn analyze_block(&mut self, block: NodeIndex, state: &mut State) {
@@ -40,21 +38,8 @@ impl Optimizer {
         }
 
         if live_vars != self.program[block].live_vars {
-            let incoming = self
-                .program
-                .edges_directed(block, Direction::Incoming)
-                .map(|it| it.id());
-            for edge in incoming {
-                state.visited_edges.remove(&edge);
-            }
-        }
-        self.program[block].live_vars = live_vars;
-
-        let edges = self.program.edges_directed(block, Direction::Incoming);
-        let edges = edges.filter(|edge| state.visited_edges.insert(edge.id()));
-        let predecessors = edges.map(|edge| edge.source()).collect::<Vec<_>>();
-        for predecessor in predecessors {
-            self.analyze_block(predecessor, state);
+            state.worklist.extend(self.predecessors(block));
+            self.program[block].live_vars = live_vars;
         }
     }
 
