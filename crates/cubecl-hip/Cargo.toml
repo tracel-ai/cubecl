@@ -1,0 +1,42 @@
+[package]
+authors = ["nathanielsimard <nathaniel.simard.42@gmail.com>"]
+categories = ["science"]
+description = "AMD ROCm HIP runtime for CubeCL"
+edition.workspace = true
+keywords = ["gpu", "amd", "rocm", "hip"]
+license.workspace = true
+name = "cubecl-hip"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-hip"
+version.workspace = true
+
+[features]
+default = [
+  "cubecl-runtime/default",
+  "cubecl-common/default",
+  "cubecl-core/default",
+]
+std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+
+[dependencies]
+cubecl-common = { path = "../cubecl-common", version = "0.2.0" }
+cubecl-core = { path = "../cubecl-core", version = "0.2.0" }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false, features = [
+  "channel-mutex",
+] }
+cubecl-hip-sys = { workspace = true }
+
+bytemuck = { workspace = true }
+
+derive-new = { workspace = true }
+half = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+cubecl-core = { path = "../cubecl-core", version = "0.2.0", features = [
+  "export_tests",
+] }
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", features = [
+  "export_tests",
+] }
+pretty_assertions = { workspace = true }
