@@ -29,17 +29,17 @@ pub struct CmmaMatmulConfig {
     pub num_accumulators: u32,
 }
 
-impl<Elem, ElemAcc, Instr, Block> FixedShapeMatmul<Elem, Elem>
-    for CmmaBlockMatmul<Elem, ElemAcc, Instr, Block>
+impl<Elem, ElemAcc, Instr, BlockSize> FixedShapeMatmul<Elem, Elem>
+    for CmmaBlockMatmul<Elem, ElemAcc, Instr, BlockSize>
 where
     Elem: Numeric,
     ElemAcc: Numeric,
     Instr: MatmulInstruction<Elem, ElemAcc>,
-    Block: CmmaBlockSize,
+    BlockSize: CmmaBlockSize,
 {
-    const M: u32 = Block::M;
-    const N: u32 = Block::N;
-    const K: u32 = Block::K;
+    const M: u32 = BlockSize::M;
+    const N: u32 = BlockSize::N;
+    const K: u32 = BlockSize::K;
 
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -158,7 +158,8 @@ where
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = Rhs::read_tile(&rhs, Self::plane_id(), buffer_iter, accumulator_iter);
+                let tile_rhs =
+                    Rhs::read_tile(&rhs, Self::plane_id(), buffer_iter, accumulator_iter);
                 Instr::fill_rhs(tile_rhs.slice, &mut instruction_rhs);
 
                 let accumulator = acc.index_mut(accumulator_iter);

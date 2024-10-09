@@ -6,6 +6,7 @@ use crate::matmul::tile_io::Loader;
 use crate::matmul::MatmulInstruction;
 
 use crate::matmul::block_info::BlockInfos;
+use crate::matmul::data::ArrayBlock;
 use crate::matmul::data::Block;
 use crate::matmul::BlockMatmul;
 
@@ -43,9 +44,13 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 
 #[cube(launch_unchecked)]
 pub(crate) fn block_matmul_launch<
-    BM: BlockMatmul<Elem, LhsBlockReader<Elem, B>, RhsBlockReader<Elem, B>, ArrayWriter<Elem>>,
+    BM: BlockMatmul<
+        Elem,
+        LhsBlockReader<Elem, ArrayBlock<Elem>>,
+        RhsBlockReader<Elem, ArrayBlock<Elem>>,
+        ArrayWriter<Elem>,
+    >,
     Elem: Numeric,
-    B: Block<Elem, GmemView = ArrayView<Elem>>,
 >(
     lhs_data: Array<Line<Elem>>,
     rhs_data: Array<Line<Elem>>,
@@ -88,5 +93,5 @@ pub(crate) fn cube_matmul_launch<
     let rhs_loader = Rhs::new(rhs_tensor, layouts.1, block_info.rhs);
     let out = new_tensor_writer(out_tensor, block_info.out);
 
-    CM::execute(lhs_loader, rhs_loader, out, (0, k), layouts);
+    CM::execute(lhs_loader, rhs_loader, out, (0, k));
 }

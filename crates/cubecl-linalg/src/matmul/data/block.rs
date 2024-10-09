@@ -5,11 +5,11 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::block_info::{tile_num_elements, total_num_elements};
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tile_io::loading::tiled_layout::TilingOrder;
-use crate::matmul::tile_io::loading::Tensor2Smem;
+use crate::matmul::tile_io::loading::tiled_layout::{RowMajorTiling, TilingOrder};
+use crate::matmul::tile_io::loading::{array_to_shared_memory, Tensor2Smem};
 use crate::matmul::{block_info::BlockInfo, data::new_tile};
 
-use super::{GmemView, TensorView, Tile};
+use super::{ArrayView, GmemView, TensorView, Tile};
 
 #[cube]
 /// Blocks are created with a filled shared memory,
@@ -73,6 +73,64 @@ impl<E: Numeric, O: TilingOrder, TS: Tensor2Smem> Block<E> for Tensor2SmemBlock<
         let tile_stride = tile_num_elements(block.block_info);
 
         let nth_tile = O::to_nth_tile(
+            x,
+            y,
+            block.block_info.num_tiles_x,
+            block.block_info.num_tiles_y,
+        );
+
+        let start = nth_tile * tile_stride;
+        new_tile(
+            x,
+            y,
+            block.smem.slice(start, start + tile_stride),
+            block.layout,
+        )
+    }
+
+    fn layout(block: &Self) -> MatrixLayout {
+        block.layout
+    }
+}
+
+#[derive(CubeType, Clone, Copy)]
+pub struct ArrayBlock<E: Numeric> {
+    smem: SharedMemory<Line<E>>,
+    layout: MatrixLayout,
+    block_info: BlockInfo,
+}
+
+#[cube]
+impl<E: Numeric> Block<E> for ArrayBlock<E> {
+    type GmemView = ArrayView<E>;
+    type Smem = SharedMemory<Line<E>>;
+
+    fn new(
+        layout: MatrixLayout,
+        #[comptime] block_info: BlockInfo,
+        #[comptime] line_size: u32,
+    ) -> Self {
+        let smem = SharedMemory::new_lined(
+            comptime!(total_num_elements(block_info) / line_size),
+            line_size,
+        );
+
+        ArrayBlock::<E> {
+            smem,
+            layout,
+            block_info: block_info.runtime(),
+        }
+    }
+
+    fn fill(block: &mut Self, gmem: &Self::GmemView) {
+        // TODO we don't want unit_pos_y here
+        array_to_shared_memory::<E, E>(&gmem.array, &mut block.smem, UNIT_POS_Y, block.block_info)
+    }
+
+    fn get_tile(block: &Self, x: u32, y: u32) -> Tile<'_, E> {
+        let tile_stride = tile_num_elements(block.block_info);
+
+        let nth_tile = RowMajorTiling::to_nth_tile(
             x,
             y,
             block.block_info.num_tiles_x,
