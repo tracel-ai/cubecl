@@ -1,7 +1,7 @@
 mod block;
-mod tensor_view;
+mod gmem_view;
 mod tile;
 
 pub use block::*;
-pub use tensor_view::*;
+pub use gmem_view::*;
 pub use tile::*;

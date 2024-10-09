@@ -33,7 +33,7 @@ pub trait Block<E: Numeric>: CubeType + Clone + Copy + IntoRuntime + Send + Sync
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct SharedMemoryBlock<E: Numeric, O: TilingOrder, TS: Tensor2Smem> {
+pub struct Tensor2SmemBlock<E: Numeric, O: TilingOrder, TS: Tensor2Smem> {
     smem: SharedMemory<Line<E>>,
     layout: MatrixLayout,
     block_info: BlockInfo,
@@ -42,7 +42,7 @@ pub struct SharedMemoryBlock<E: Numeric, O: TilingOrder, TS: Tensor2Smem> {
 }
 
 #[cube]
-impl<E: Numeric, O: TilingOrder, TS: Tensor2Smem> Block<E> for SharedMemoryBlock<E, O, TS> {
+impl<E: Numeric, O: TilingOrder, TS: Tensor2Smem> Block<E> for Tensor2SmemBlock<E, O, TS> {
     type GmemView = TensorView<E>;
     type Smem = SharedMemory<Line<E>>;
 
@@ -56,7 +56,7 @@ impl<E: Numeric, O: TilingOrder, TS: Tensor2Smem> Block<E> for SharedMemoryBlock
             line_size,
         );
 
-        SharedMemoryBlock::<E, O, TS> {
+        Tensor2SmemBlock::<E, O, TS> {
             smem,
             layout,
             block_info: block_info.runtime(),

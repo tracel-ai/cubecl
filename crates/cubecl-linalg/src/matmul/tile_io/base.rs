@@ -21,18 +21,15 @@ pub trait BlockReader<E: Numeric>: CubeType {
 }
 
 #[cube]
-/// It knows the tensor / array
-/// It creates a tensor view using k/cube if it's a tensor loader
-/// Or an array view if it's array loader
-/// -> Associated GmemView
-/// But also associated gmem that matches it
-/// And it creates a block AT THE BEGINNING
-/// Then it fills it, creating a reader each time
 pub trait Loader<E: Numeric>: CubeType + 'static + Send + Sync {
     type GmemView: GmemView<E>;
     type BlockReader: BlockReader<E>;
 
-    fn new(gmem: Self::GmemView, block_info: BlockInfo) -> Self;
+    fn new(
+        gmem: <Self::GmemView as GmemView<E>>::Gmem,
+        #[comptime] layout: MatrixLayout,
+        #[comptime] block_info: BlockInfo,
+    ) -> Self;
     fn fill_block(loader: &mut Self) -> Self::BlockReader;
 }
 

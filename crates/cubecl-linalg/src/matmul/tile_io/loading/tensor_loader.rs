@@ -4,7 +4,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::block_info::BlockInfo;
-use crate::matmul::data::{Block, TensorView};
+use crate::matmul::data::{new_tensor_view, Block, TensorView};
+use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::Loader;
 
 use super::{LhsBlockReader, RhsBlockReader};
@@ -26,9 +27,14 @@ impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for LhsTensorL
     type GmemView = TensorView<E>;
     type BlockReader = LhsBlockReader<E, B>;
 
-    fn new(gmem_view: Self::GmemView, #[comptime] block_info: BlockInfo) -> Self {
-        let line_size = comptime!(gmem_view.tensor.line_size());
-        let block = B::new(gmem_view.layout, block_info, line_size);
+    fn new(
+        tensor: Tensor<Line<E>>,
+        #[comptime] layout: MatrixLayout,
+        #[comptime] block_info: BlockInfo,
+    ) -> Self {
+        let line_size = comptime!(tensor.line_size());
+        let block = B::new(layout, block_info, line_size);
+        let gmem_view = new_tensor_view(tensor, layout);
 
         LhsTensorLoader::<E, B> { gmem_view, block }
     }
@@ -47,9 +53,14 @@ impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for RhsTensorL
     type GmemView = TensorView<E>;
     type BlockReader = RhsBlockReader<E, B>;
 
-    fn new(gmem_view: Self::GmemView, #[comptime] block_info: BlockInfo) -> Self {
-        let line_size = comptime!(gmem_view.tensor.line_size());
-        let block = B::new(gmem_view.layout, block_info, line_size);
+    fn new(
+        tensor: Tensor<Line<E>>,
+        #[comptime] layout: MatrixLayout,
+        #[comptime] block_info: BlockInfo,
+    ) -> Self {
+        let line_size = comptime!(tensor.line_size());
+        let block = B::new(layout, block_info, line_size);
+        let gmem_view = new_tensor_view(tensor, layout);
 
         RhsTensorLoader::<E, B> { gmem_view, block }
     }

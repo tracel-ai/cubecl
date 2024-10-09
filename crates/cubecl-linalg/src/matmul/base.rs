@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use super::block_info::BlockInfos;
 use super::matrix_layout::MatrixLayout;
 use super::problem::{MatmulProblem, Requirements};
-use super::tile_io::{Loader, BlockReader, TileWriter};
+use super::tile_io::{BlockReader, Loader, TileWriter};
 
 #[cube]
 /// Execute a matmul on a whole tensor
@@ -21,12 +21,8 @@ pub trait BatchMatmul<N: Numeric> {
 
 #[cube]
 /// Execute a matmul over a block, accumulating for arbitrary k-dim, using one Cube.
-pub trait CubeMatmul<
-    E: Numeric,
-    Lhs: Loader<Line<E>>,
-    Rhs: Loader<Line<E>>,
-    Out: TileWriter<Line<E>>,
->: 'static + Send + Sync + TensorMatmul<E>
+pub trait CubeMatmul<E: Numeric, Lhs: Loader<E>, Rhs: Loader<E>, Out: TileWriter<Line<E>>>:
+    'static + Send + Sync + TensorMatmul<E>
 {
     fn execute(
         lhs_reader: Lhs,
@@ -39,8 +35,12 @@ pub trait CubeMatmul<
 
 #[cube]
 /// Execute a matmul over a fixed-size block, using one Cube.
-pub trait BlockMatmul<E: Numeric, Lhs: BlockReader<E>, Rhs: BlockReader<E>, Out: TileWriter<Line<E>>>:
-    'static + Send + Sync + FixedShapeMatmul<E, E>
+pub trait BlockMatmul<
+    E: Numeric,
+    Lhs: BlockReader<E>,
+    Rhs: BlockReader<E>,
+    Out: TileWriter<Line<E>>,
+>: 'static + Send + Sync + FixedShapeMatmul<E, E>
 {
     type Config;
     type Accumulator: CubeType;
