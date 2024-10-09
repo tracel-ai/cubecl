@@ -2,7 +2,7 @@ use crate::ir::ConstantScalarValue;
 
 use super::{
     cpa, processing::ScopeProcessing, Elem, Item, Matrix, Operation, Operator, UnaryOperator,
-    Variable, Vectorization,
+    Variable,
 };
 use serde::{Deserialize, Serialize};
 
@@ -190,32 +190,6 @@ impl Scope {
     /// Retrieve the last local variable that was created.
     pub fn last_local_index(&self) -> Option<&Variable> {
         self.locals.last()
-    }
-
-    /// Vectorize the scope using the [vectorization](Vectorization) type.
-    ///
-    /// Notes:
-    ///
-    /// Scopes created _during_ compilation (after the tracing is done) should not be vectorized.
-    pub fn vectorize(&mut self, vectorization: Vectorization) {
-        self.operations
-            .iter_mut()
-            .for_each(|op| *op = op.vectorize(vectorization));
-        self.locals
-            .iter_mut()
-            .for_each(|var| *var = var.vectorize(vectorization));
-        self.reads_global
-            .iter_mut()
-            .for_each(|(input, _, output, _position)| {
-                *input = input.vectorize(vectorization);
-                *output = output.vectorize(vectorization);
-            });
-        self.writes_global
-            .iter_mut()
-            .for_each(|(input, output, _)| {
-                *input = input.vectorize(vectorization);
-                *output = output.vectorize(vectorization);
-            });
     }
 
     /// Writes a variable to given output.

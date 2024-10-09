@@ -9,7 +9,6 @@ mod scope;
 mod subcube;
 mod synchronization;
 mod variable;
-mod vectorization;
 
 pub use branch::*;
 pub use cmma::*;
@@ -20,6 +19,17 @@ pub use scope::*;
 pub use subcube::*;
 pub use synchronization::*;
 pub use variable::*;
-pub use vectorization::*;
 
 pub(crate) use macros::cpa;
+
+use std::num::NonZero;
+pub type Vectorization = Option<NonZero<u8>>;
+
+impl Item {
+    pub(crate) fn vectorize(&self, vectorization: Vectorization) -> Item {
+        Item {
+            elem: self.elem,
+            vectorization,
+        }
+    }
+}
