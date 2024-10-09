@@ -5,9 +5,9 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_core::{Feature, Runtime};
-use cubecl_runtime::memory_management::MemoryDeviceProperties;
+use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryManagement};
+use cubecl_runtime::DeviceProperties;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
-use cubecl_runtime::{memory_management, DeviceProperties};
 use wgpu::DeviceDescriptor;
 
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
@@ -22,48 +22,22 @@ pub struct WgpuRuntime;
 static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
-type Server = WgpuServer<MemoryManagement>;
+type Server = WgpuServer;
 
-#[cfg(not(simple_memory_management))]
-type MemoryManagement = memory_management::dynamic::DynamicMemoryManagement<WgpuStorage>;
-#[cfg(simple_memory_management)]
-type MemoryManagement = memory_management::simple::SimpleMemoryManagement<WgpuStorage>;
-
-#[cfg(not(simple_memory_management))]
 pub fn init_memory_management(
     device: Arc<wgpu::Device>,
     mem_props: MemoryDeviceProperties,
     config: MemoryConfiguration,
-) -> MemoryManagement {
+) -> MemoryManagement<WgpuStorage> {
     let storage = WgpuStorage::new(device.clone());
-
-    memory_management::dynamic::DynamicMemoryManagement::from_configuration(
-        storage, mem_props, config,
-    )
-}
-
-#[cfg(simple_memory_management)]
-pub fn init_memory_management(
-    device: Arc<wgpu::Device>,
-    _mem_props: MemoryDeviceProperties,
-    _config: MemoryConfiguration,
-) -> MemoryManagement {
-    // Simple memory management doesn't use the device limits of memory configuration.
-
-    let storage = WgpuStorage::new(device.clone());
-
-    memory_management::simple::SimpleMemoryManagement::new(
-        storage,
-        memory_management::simple::DeallocStrategy::new_period_tick(32),
-        memory_management::simple::SliceStrategy::Ratio(0.8),
-    )
+    MemoryManagement::from_configuration(storage, mem_props, config)
 }
 
 impl Runtime for WgpuRuntime {
     type Compiler = wgsl::WgslCompiler;
-    type Server = WgpuServer<MemoryManagement>;
+    type Server = WgpuServer;
 
-    type Channel = MutexComputeChannel<WgpuServer<MemoryManagement>>;
+    type Channel = MutexComputeChannel<WgpuServer>;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
@@ -107,7 +81,7 @@ impl Default for RuntimeOptions {
 
         Self {
             tasks_max,
-            memory_config: MemoryConfiguration::Default,
+            memory_config: MemoryConfiguration::default(),
         }
     }
 }
@@ -155,8 +129,7 @@ pub fn create_client(
     device_wgpu: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     options: RuntimeOptions,
-) -> ComputeClient<WgpuServer<MemoryManagement>, MutexComputeChannel<WgpuServer<MemoryManagement>>>
-{
+) -> ComputeClient<WgpuServer, MutexComputeChannel<WgpuServer>> {
     let limits = device_wgpu.limits();
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as usize,

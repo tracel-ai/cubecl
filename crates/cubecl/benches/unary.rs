@@ -37,10 +37,8 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         let num_elems: usize = out.shape.iter().product();
 
         let cube_dim = CubeDim::new(16, 16, 1);
-        let cube_count = calculate_cube_count_elemwise::<R::Server>(
-            num_elems / self.vectorization as usize,
-            cube_dim,
-        );
+        let cube_count =
+            calculate_cube_count_elemwise(num_elems / self.vectorization as usize, cube_dim);
 
         execute::launch::<E, R>(
             &self.client,

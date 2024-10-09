@@ -5,7 +5,7 @@ use cubecl_runtime::server::Handle;
 
 pub(crate) fn assert_equals_approx<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    output: Handle<<R as Runtime>::Server>,
+    output: Handle,
     expected: &[f32],
     epsilon: f32,
 ) {

@@ -12,12 +12,13 @@ where
     E: CubePrimitive,
 {
     /// The buffer where the data are stored.
-    pub handle: Handle<R::Server>,
+    pub handle: Handle,
     /// The shape of the tensor.
     pub shape: Vec<usize>,
     /// The strides of the tensor.
     pub strides: Vec<usize>,
     elem: PhantomData<E>,
+    runtime: PhantomData<R>,
 }
 
 impl<R, E> core::fmt::Debug for TensorHandle<R, E>
@@ -47,6 +48,7 @@ where
             shape: self.shape.clone(),
             strides: self.strides.clone(),
             elem: PhantomData,
+            runtime: PhantomData,
         }
     }
 }
@@ -57,17 +59,18 @@ where
     E: CubePrimitive,
 {
     /// Create a new tensor.
-    pub fn new(shape: Vec<usize>, strides: Vec<usize>, handle: Handle<R::Server>) -> Self {
+    pub fn new(shape: Vec<usize>, strides: Vec<usize>, handle: Handle) -> Self {
         Self {
             shape,
             strides,
             handle,
             elem: PhantomData,
+            runtime: PhantomData,
         }
     }
 
     /// Create a new tensor with a contiguous memory layout.
-    pub fn new_contiguous(shape: Vec<usize>, handle: Handle<R::Server>) -> Self {
+    pub fn new_contiguous(shape: Vec<usize>, handle: Handle) -> Self {
         let strides = Self::contiguous_strides(&shape);
 
         Self {
@@ -75,6 +78,7 @@ where
             shape,
             strides,
             elem: PhantomData,
+            runtime: PhantomData,
         }
     }
 
@@ -88,6 +92,7 @@ where
             handle: &self.handle,
             strides: &self.strides,
             shape: &self.shape,
+            runtime: PhantomData,
         }
     }
 
@@ -140,10 +145,8 @@ where
         );
 
         let cube_dim = CubeDim::default();
-        let cube_count = calculate_cube_count_elemwise::<R::Server>(
-            num_elements / vectorization_factor as usize,
-            cube_dim,
-        );
+        let cube_count =
+            calculate_cube_count_elemwise(num_elements / vectorization_factor as usize, cube_dim);
 
         unsafe {
             init::zeros_array::launch_unchecked::<E, R>(

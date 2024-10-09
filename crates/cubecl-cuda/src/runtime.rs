@@ -7,7 +7,7 @@ use cubecl_core::{
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties},
+    memory_management::{MemoryDeviceProperties, MemoryManagement},
     ComputeRuntime, DeviceProperties,
 };
 
@@ -27,7 +27,7 @@ pub struct RuntimeOptions {
 #[derive(Debug)]
 pub struct CudaRuntime;
 
-type Server = CudaServer<DynamicMemoryManagement<CudaStorage>>;
+type Server = CudaServer;
 type Channel = MutexComputeChannel<Server>;
 
 static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::new();
@@ -80,7 +80,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
 
-    let memory_management = DynamicMemoryManagement::from_configuration(
+    let memory_management = MemoryManagement::from_configuration(
         storage,
         mem_properties.clone(),
         options.memory_config,
@@ -95,9 +95,9 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
 
 impl Runtime for CudaRuntime {
     type Compiler = CudaCompiler;
-    type Server = CudaServer<DynamicMemoryManagement<CudaStorage>>;
+    type Server = CudaServer;
 
-    type Channel = MutexComputeChannel<CudaServer<DynamicMemoryManagement<CudaStorage>>>;
+    type Channel = MutexComputeChannel<CudaServer>;
     type Device = CudaDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {

@@ -13,7 +13,6 @@ pub struct CudaStorage {
 #[derive(new, Debug, Hash, PartialEq, Eq, Clone)]
 struct ActiveResource {
     ptr: u64,
-    kind: CudaResourceKind,
 }
 
 unsafe impl Send for CudaStorage {}
@@ -58,8 +57,8 @@ pub struct CudaResource {
     /// The wgpu buffer.
     pub ptr: u64,
     pub binding: *mut std::ffi::c_void,
-    /// How the resource is used.
-    pub kind: CudaResourceKind,
+    offset: u64,
+    size: u64,
 }
 
 unsafe impl Send for CudaResource {}
@@ -69,36 +68,18 @@ pub type Binding = *mut std::ffi::c_void;
 impl CudaResource {
     /// Return the binding view of the buffer.
     pub fn as_binding(&self) -> Binding {
-        match self.kind {
-            CudaResourceKind::Full { .. } => self.binding,
-            CudaResourceKind::Slice { .. } => self.binding,
-        }
+        self.binding
     }
 
     /// Return the buffer size.
     pub fn size(&self) -> u64 {
-        match self.kind {
-            CudaResourceKind::Full { size } => size as u64,
-            CudaResourceKind::Slice { size, offset: _ } => size as u64,
-        }
+        self.size
     }
 
     /// Return the buffer offset.
     pub fn offset(&self) -> u64 {
-        match self.kind {
-            CudaResourceKind::Full { size: _ } => 0,
-            CudaResourceKind::Slice { size: _, offset } => offset as u64,
-        }
+        self.offset
     }
-}
-
-/// How the resource is used, either as a slice or fully.
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub enum CudaResourceKind {
-    /// Represents an entire buffer.
-    Full { size: usize },
-    /// A slice over a buffer.
-    Slice { size: usize, offset: usize },
 }
 
 impl ComputeStorage for CudaStorage {
@@ -107,12 +88,11 @@ impl ComputeStorage for CudaStorage {
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = self.memory.get(&handle.id).unwrap();
 
-        let offset = handle.offset();
-        let size = handle.size();
+        let offset = handle.offset() as u64;
+        let size = handle.size() as u64;
 
-        let ptr = ptr + offset as u64;
-        let kind = CudaResourceKind::Slice { size, offset };
-        let key = ActiveResource::new(ptr, kind.clone());
+        let ptr = ptr + offset;
+        let key = ActiveResource::new(ptr);
 
         self.activate_slices.insert(key.clone(), ptr);
 
@@ -122,7 +102,8 @@ impl ComputeStorage for CudaStorage {
         CudaResource::new(
             *ptr,
             ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
-            kind,
+            offset,
+            size,
         )
     }
 

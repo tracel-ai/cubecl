@@ -24,6 +24,7 @@ channel-mutex = []
 channel-cell = []
 channel-mpsc = ["dep:async-channel", "dep:pollster"] # Assume std
 storage-bytes = []
+exclusive-memory-only = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features = false }
@@ -45,7 +46,11 @@ md5 = { workspace = true }
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
-spin = { workspace = true, features = ["mutex", "spin_mutex", "portable_atomic"] }
+spin = { workspace = true, features = [
+    "mutex",
+    "spin_mutex",
+    "portable_atomic",
+] }
 
 
 [target.'cfg(target_family = "wasm")'.dependencies]

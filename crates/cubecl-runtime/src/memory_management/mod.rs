@@ -7,9 +7,8 @@ pub use base::*;
 pub use memory_lock::*;
 
 /// Dynamic memory management strategy.
-pub mod dynamic;
-/// Simple memory management strategy.
-pub mod simple;
+mod memory_manage;
+pub use memory_manage::*;
 
 /// The type of memory pool to use.
 #[derive(Debug, Clone)]
@@ -37,16 +36,30 @@ pub struct MemoryPoolOptions {
 }
 
 /// High level configuration of memory management.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub enum MemoryConfiguration {
-    /// Use the default preset.
-    #[default]
-    Default,
+    /// The default preset using sub sices.
+    #[cfg(not(exclusive_memory_only))]
+    SubSlices,
     /// Default preset using only exclusive pages.
     /// This can be necessary when backends don't support sub-slices.
     ExclusivePages,
     /// Customize each pool individually.
     Custom(Vec<MemoryPoolOptions>),
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for MemoryConfiguration {
+    fn default() -> Self {
+        #[cfg(exclusive_memory_only)]
+        {
+            MemoryConfiguration::ExclusivePages
+        }
+        #[cfg(not(exclusive_memory_only))]
+        {
+            MemoryConfiguration::SubSlices
+        }
+    }
 }
 
 /// Properties of the device related to allocation.

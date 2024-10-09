@@ -7,7 +7,6 @@ extern crate derive_new;
 pub mod frontend;
 
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::server::ComputeServer;
 pub use frontend::cmma;
 
 /// Cube Language Internal Representation.
@@ -51,10 +50,7 @@ pub trait Kernel: Send + Sync + 'static + Sized {
 
 /// Calculate the number of cubes required to execute an operation where one cube unit is
 /// assigned to one element.
-pub fn calculate_cube_count_elemwise<S: ComputeServer>(
-    num_elems: usize,
-    cube_dim: CubeDim,
-) -> CubeCount<S> {
+pub fn calculate_cube_count_elemwise(num_elems: usize, cube_dim: CubeDim) -> CubeCount {
     let num_elems_per_cube = cube_dim.num_elems();
     let cube_counts = f32::ceil(num_elems as f32 / num_elems_per_cube as f32);
     let cube_count_x = f32::ceil(f32::sqrt(cube_counts));

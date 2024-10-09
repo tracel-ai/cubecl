@@ -11,7 +11,7 @@ use cubecl_runtime::{
 
 use crate::dummy::{
     CacheTestFastOn3, CacheTestSlowOn3, DummyClient, DummyElementwiseAddition,
-    DummyElementwiseMultiplication, DummyElementwiseMultiplicationSlowWrong, DummyServer,
+    DummyElementwiseMultiplication, DummyElementwiseMultiplicationSlowWrong,
     OneKernelAutotuneOperation,
 };
 
@@ -21,16 +21,12 @@ pub struct AdditionAutotuneOperationSet {
     client: DummyClient,
     key: String,
     shapes: Vec<Vec<usize>>,
-    bindings: Vec<Binding<DummyServer>>,
+    bindings: Vec<Binding>,
 }
 
 impl AdditionAutotuneOperationSet {
     #[allow(dead_code)]
-    pub fn new(
-        client: DummyClient,
-        shapes: Vec<Vec<usize>>,
-        bindings: Vec<Binding<DummyServer>>,
-    ) -> Self {
+    pub fn new(client: DummyClient, shapes: Vec<Vec<usize>>, bindings: Vec<Binding>) -> Self {
         Self {
             client,
             key: format!("{}-{}", "add", log_shape_input_key(&shapes)),
@@ -71,16 +67,12 @@ pub struct MultiplicationAutotuneOperationSet {
     client: DummyClient,
     key: String,
     shapes: Vec<Vec<usize>>,
-    bindings: Vec<Binding<DummyServer>>,
+    bindings: Vec<Binding>,
 }
 
 impl MultiplicationAutotuneOperationSet {
     #[allow(dead_code)]
-    pub fn new(
-        client: DummyClient,
-        shapes: Vec<Vec<usize>>,
-        bindings: Vec<Binding<DummyServer>>,
-    ) -> Self {
+    pub fn new(client: DummyClient, shapes: Vec<Vec<usize>>, bindings: Vec<Binding>) -> Self {
         Self {
             client,
             key: format!("{}-{}", "mul", log_shape_input_key(&shapes)),
@@ -120,17 +112,13 @@ pub struct CacheTestAutotuneOperationSet {
     client: DummyClient,
     key: String,
     shapes: Vec<Vec<usize>>,
-    bindings: Vec<Binding<DummyServer>>,
+    bindings: Vec<Binding>,
     pub generate_random_checksum: bool,
 }
 
 impl CacheTestAutotuneOperationSet {
     #[allow(dead_code)]
-    pub fn new(
-        client: DummyClient,
-        shapes: Vec<Vec<usize>>,
-        bindings: Vec<Binding<DummyServer>>,
-    ) -> Self {
+    pub fn new(client: DummyClient, shapes: Vec<Vec<usize>>, bindings: Vec<Binding>) -> Self {
         Self {
             client,
             key: format!("{}-{}", "cache_test", log_shape_input_key(&shapes)),
