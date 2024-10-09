@@ -119,7 +119,7 @@ function!(Min, "min");
 
 pub struct IndexAssign;
 pub struct Index;
-pub struct CheckedIndex;
+pub struct CheckedIndexAssign;
 
 impl Binary for IndexAssign {
     fn format_scalar<Lhs, Rhs>(

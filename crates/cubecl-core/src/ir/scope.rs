@@ -1,9 +1,8 @@
 use crate::ir::ConstantScalarValue;
 
 use super::{
-    cpa, processing::ScopeProcessing, Elem, IndexOffsetGlobalWithLayout, Item, Matrix, Operation,
-    Operator, Procedure, ReadGlobal, ReadGlobalWithLayout, UnaryOperator, Variable, Vectorization,
-    WriteGlobal,
+    cpa, processing::ScopeProcessing, Elem, Item, Matrix, Operation, Operator, UnaryOperator,
+    Variable, Vectorization,
 };
 use serde::{Deserialize, Serialize};
 
@@ -172,14 +171,6 @@ impl Scope {
         self.read_input_strategy(index, item.into(), ReadingStrategy::OutputLayout, position)
     }
 
-    /// Add the procedure into the scope.
-    pub fn index_offset_with_output_layout(&mut self, proc: IndexOffsetGlobalWithLayout) {
-        self.index_offset_with_output_layout_position
-            .push(self.operations.len());
-        self.operations
-            .push(Procedure::IndexOffsetGlobalWithLayout(proc).into());
-    }
-
     /// Reads an input scalar to a local variable.
     ///
     /// The index refers to the scalar position for the same [element](Elem) type.
@@ -321,53 +312,7 @@ impl Scope {
             variables.push(var);
         }
 
-        for index in self.index_offset_with_output_layout_position.drain(..) {
-            if let Some(Operation::Procedure(Procedure::IndexOffsetGlobalWithLayout(proc))) =
-                self.operations.get_mut(index)
-            {
-                proc.layout = self.layout_ref.expect(
-                    "Output should be set when processing an index offset with output layout.",
-                );
-            }
-        }
-
         let mut operations = Vec::new();
-
-        if let Some((_input, global, position)) = self.writes_global.first() {
-            if self.depth == 0 {
-                operations.push(Operation::Procedure(Procedure::EarlyReturn(
-                    super::EarlyReturn {
-                        global: *global,
-                        position: *position,
-                    },
-                )))
-            }
-        }
-
-        for (input, strategy, local, position) in self.reads_global.drain(..) {
-            match strategy {
-                ReadingStrategy::OutputLayout => {
-                    let output = self.layout_ref.expect(
-                        "Output should be set when processing an input with output layout.",
-                    );
-                    operations.push(Operation::Procedure(Procedure::ReadGlobalWithLayout(
-                        ReadGlobalWithLayout {
-                            globals: vec![input],
-                            layout: output,
-                            outs: vec![local],
-                            position,
-                        },
-                    )));
-                }
-                ReadingStrategy::Plain => {
-                    operations.push(Operation::Procedure(Procedure::ReadGlobal(ReadGlobal {
-                        global: input,
-                        out: local,
-                        position,
-                    })))
-                }
-            }
-        }
 
         for (local, scalar) in self.reads_scalar.drain(..) {
             operations.push(
@@ -382,14 +327,6 @@ impl Scope {
 
         for op in self.operations.drain(..) {
             operations.push(op);
-        }
-
-        for (input, global, position) in self.writes_global.drain(..) {
-            operations.push(Operation::Procedure(Procedure::WriteGlobal(WriteGlobal {
-                input,
-                global,
-                position,
-            })))
         }
 
         ScopeProcessing {

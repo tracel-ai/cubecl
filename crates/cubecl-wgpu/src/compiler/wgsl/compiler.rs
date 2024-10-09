@@ -314,7 +314,7 @@ impl WgslCompiler {
         processing
             .operations
             .into_iter()
-            .for_each(|op| self.compile_operation(&mut instructions, op, value));
+            .for_each(|op| self.compile_operation(&mut instructions, op));
 
         instructions
     }
@@ -323,11 +323,9 @@ impl WgslCompiler {
         &mut self,
         instructions: &mut Vec<wgsl::Instruction>,
         operation: cube::Operation,
-        scope: &mut cube::Scope,
     ) {
         match operation {
             cube::Operation::Operator(op) => instructions.push(self.compile_instruction(op)),
-            cube::Operation::Procedure(proc) => self.compile_procedure(instructions, proc, scope),
             cube::Operation::Metadata(op) => instructions.push(self.compile_metadata(op)),
             cube::Operation::Branch(val) => self.compile_branch(instructions, val),
             cube::Operation::Synchronization(val) => {
@@ -442,52 +440,6 @@ impl WgslCompiler {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }
         };
-    }
-
-    fn compile_procedure(
-        &mut self,
-        instructions: &mut Vec<wgsl::Instruction>,
-        proc: cube::Procedure,
-        scope: &mut cube::Scope,
-    ) {
-        let mut compile = |scope: &mut cube::Scope| {
-            instructions.extend(self.compile_scope(scope));
-        };
-
-        match proc {
-            cube::Procedure::ReadGlobalWithLayout(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            cube::Procedure::ReadGlobal(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            cube::Procedure::WriteGlobal(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            cube::Procedure::ConditionalAssign(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            cube::Procedure::CheckedIndex(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            cube::Procedure::CheckedIndexAssign(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            cube::Procedure::IndexOffsetGlobalWithLayout(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            cube::Procedure::EarlyReturn(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-        }
     }
 
     fn compile_metadata(&mut self, metadata: cube::Metadata) -> wgsl::Instruction {

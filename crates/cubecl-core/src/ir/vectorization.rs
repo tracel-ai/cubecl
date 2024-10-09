@@ -12,7 +12,6 @@ impl Operation {
     pub(crate) fn vectorize(&self, vectorization: Vectorization) -> Self {
         match self {
             Operation::Operator(op) => Operation::Operator(op.vectorize(vectorization)),
-            Operation::Procedure(op) => Operation::Procedure(op.vectorize(vectorization)),
             Operation::Metadata(_) => panic!(
                 "Metadata can't be vectorized, they should only be generated after vectorization."
             ),

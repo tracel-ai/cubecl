@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::{Branch, CoopMma, Procedure, Subcube, Synchronization, Variable};
+use super::{Branch, CoopMma, Subcube, Synchronization, Variable};
 use serde::{Deserialize, Serialize};
 
 /// All operations that can be used in a GPU compute shader.
@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Operation {
     Operator(Operator),
-    Procedure(Procedure),
     Metadata(Metadata),
     Branch(Branch),
     Synchronization(Synchronization),
@@ -27,7 +26,6 @@ impl Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Operation::Operator(operator) => write!(f, "{operator}"),
-            Operation::Procedure(procedure) => write!(f, "{procedure:?}"),
             Operation::Metadata(metadata) => write!(f, "{metadata}"),
             Operation::Branch(branch) => write!(f, "{branch}"),
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
@@ -355,11 +353,5 @@ impl From<Synchronization> for Operation {
 impl From<Metadata> for Operation {
     fn from(val: Metadata) -> Self {
         Operation::Metadata(val)
-    }
-}
-
-impl From<Procedure> for Operation {
-    fn from(val: Procedure) -> Self {
-        Operation::Procedure(val)
     }
 }
