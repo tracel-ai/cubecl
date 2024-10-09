@@ -7,7 +7,7 @@ use crate::matmul::{
     id_map::PlaneMapper,
     matrix_layout::MatrixLayout,
     problem::{MatmulProblem, Requirements},
-    tile_io::{TileReader, TileWriter},
+    tile_io::{BlockReader, TileWriter},
     BlockMatmul, FixedShapeMatmul, Matmul, MatmulInstruction,
 };
 
@@ -139,32 +139,27 @@ where
     ElemAcc: Numeric,
     Instr: MatmulInstruction<Elem, ElemAcc>,
     Block: CmmaBlockSize,
-    Lhs: TileReader<Line<Elem>>,
-    Rhs: TileReader<Line<Elem>>,
+    Lhs: BlockReader<Elem>,
+    Rhs: BlockReader<Elem>,
     Out: TileWriter<Line<Elem>>,
 {
     type Config = CmmaMatmulConfig;
     type Accumulator = Sequence<Instr::Out>;
 
-    fn execute(
-        lhs: &Lhs,
-        rhs: &Rhs,
-        acc: &mut Self::Accumulator,
-        #[comptime] layouts: (MatrixLayout, MatrixLayout),
-    ) {
+    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator) {
         let num_buffers = Block::K / Instr::K;
-        let mut instruction_lhs = Instr::init_lhs(layouts.0);
-        let mut instruction_rhs = Instr::init_rhs(layouts.1);
+        let mut instruction_lhs = Instr::init_lhs(Lhs::slice_layout(lhs));
+        let mut instruction_rhs = Instr::init_rhs(Rhs::slice_layout(rhs));
 
         #[unroll]
         for buffer_iter in 0..num_buffers {
-            let tile_lhs = Lhs::read(&lhs, Self::plane_id(), buffer_iter, 0u32);
-            Instr::fill_lhs(&tile_lhs, &mut instruction_lhs);
+            let tile_lhs = Lhs::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32);
+            Instr::fill_lhs(tile_lhs.slice, &mut instruction_lhs);
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = Rhs::read(&rhs, Self::plane_id(), buffer_iter, accumulator_iter);
-                Instr::fill_rhs(&tile_rhs, &mut instruction_rhs);
+                let tile_rhs = Rhs::read_tile(&rhs, Self::plane_id(), buffer_iter, accumulator_iter);
+                Instr::fill_rhs(tile_rhs.slice, &mut instruction_rhs);
 
                 let accumulator = acc.index_mut(accumulator_iter);
                 Instr::execute(&instruction_lhs, &instruction_rhs, accumulator);

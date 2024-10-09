@@ -2,21 +2,20 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::block_info::{tile_num_elements, total_num_elements, BlockInfo};
+use crate::matmul::data::{GmemView, TensorView};
 use crate::matmul::id_map::PlaneMapper;
 use crate::matmul::tile_io::loading::smem::tiled_layout::TilingOrder;
 
 #[cube]
-pub trait Tensor2Smem {
-    fn tensor_to_shared_memory<E: Numeric, T: TilingOrder>(
-        gmem: &Tensor<Line<E>>,
-        smem: &mut SharedMemory<Line<E>>,
-        gmem_row_offset: u32,
-        gmem_col_offset: u32,
+pub trait Tensor2Smem: Clone + Copy + Send + Sync + 'static {
+    fn tensor_to_shared_memory<EG: Numeric, ES: Numeric, T: TilingOrder>(
+        gmem: &TensorView<EG>,
+        smem: &mut SharedMemory<Line<ES>>,
         #[comptime] block_info: BlockInfo,
     );
 }
 
-#[derive(CubeType)]
+#[derive(CubeType, Clone, Copy)]
 pub struct Tensor2SmemContinuous {}
 
 #[cube]
@@ -40,31 +39,25 @@ impl PlaneMapper for Tensor2SmemContinuous {
 
 #[cube]
 impl Tensor2Smem for Tensor2SmemContinuous {
-    fn tensor_to_shared_memory<E: Numeric, T: TilingOrder>(
-        gmem: &Tensor<Line<E>>,
-        smem: &mut SharedMemory<Line<E>>,
-        gmem_row_offset: u32,
-        gmem_col_offset: u32,
+    fn tensor_to_shared_memory<EG: Numeric, ES: Numeric, O: TilingOrder>(
+        gmem: &TensorView<EG>,
+        smem: &mut SharedMemory<Line<ES>>,
         #[comptime] block_info: BlockInfo,
     ) {
         let num_smem_elements = comptime!(total_num_elements(block_info));
-        let jump_length = comptime!(Self::num_planes() * gmem.line_size() * Self::plane_dim());
+        let jump_length =
+            comptime!(Self::num_planes() * gmem.tensor.line_size() * Self::plane_dim());
 
         let unit_position_base =
-            (Self::plane_id() * Self::plane_dim() + Self::plane_unit()) * gmem.line_size();
+            (Self::plane_id() * Self::plane_dim() + Self::plane_unit()) * gmem.tensor.line_size();
 
         for i in 0..num_smem_elements / jump_length {
             let unit_position = unit_position_base + i * jump_length;
 
-            let (row, col) = apply_tiled_layout::<T>(unit_position, block_info);
+            let (row, col) = apply_tiled_layout::<O>(unit_position, block_info);
 
-            load_single(
-                gmem,
-                smem,
-                row + gmem_row_offset,
-                col + gmem_col_offset,
-                unit_position,
-            )
+            let line = TensorView::load_single(gmem, row, col);
+            smem[unit_position] = Line::cast_from(line);
         }
     }
 }
@@ -79,30 +72,10 @@ pub(crate) fn apply_tiled_layout<T: TilingOrder>(
     let pos_within_tile = unit_position % tile_num_elements;
 
     let (tile_row, tile_col) =
-        T::to_row_col(nth_tile, block_info.num_tiles_y, block_info.num_tiles_x);
+        T::to_row_col(nth_tile, block_info.num_tiles_x, block_info.num_tiles_y);
 
     let row = tile_row * block_info.tile_size_x + pos_within_tile / block_info.tile_size_y;
     let col = tile_col * block_info.tile_size_y + pos_within_tile % block_info.tile_size_y;
 
     (row, col)
-}
-
-#[cube]
-/// Loads one line from gmem at position (read_row, read_col)
-/// and writes it as casted in smem at position write_position
-///
-/// Assumes (read_row, read_col) is within bounds
-/// Does not account for batch offset
-fn load_single<EG: Numeric, ES: Numeric>(
-    gmem: &Tensor<Line<EG>>,
-    smem: &mut SharedMemory<Line<ES>>,
-    read_row: u32,
-    read_col: u32,
-    write_position: u32,
-) {
-    let read_pos = (read_row * gmem.stride(gmem.rank() - 2)
-        + read_col * gmem.stride(gmem.rank() - 1))
-        / gmem.line_size();
-
-    smem[write_position] = Line::cast_from(gmem[read_pos]);
 }

@@ -3,127 +3,62 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::block_info::{total_num_elements, BlockInfo};
-use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tile_io::loading::Tensor2Smem;
-use crate::matmul::tile_io::loading::Tensor2SmemContinuous;
-use crate::matmul::tile_io::loading::{LhsSmemTileReader, RhsSmemTileReader};
+use crate::matmul::block_info::BlockInfo;
+use crate::matmul::data::{Block, TensorView};
 use crate::matmul::tile_io::Loader;
 
-use super::tiled_layout::TilingOrder;
+use super::{LhsBlockReader, RhsBlockReader};
 
 #[derive(CubeType)]
-pub struct LhsTensorLoader<E: Numeric, T: TilingOrder> {
-    pub gmem: Tensor<Line<E>>,
-    pub smem: SharedMemory<Line<E>>,
-    pub gmem_layout: MatrixLayout,
-    pub cube_offset: u32,
-    pub block_info: BlockInfo,
-    pub _tiling_order: PhantomData<T>,
+pub struct LhsTensorLoader<E: Numeric, B: Block<E>> {
+    pub gmem_view: TensorView<E>,
+    pub block: B,
 }
 
 #[derive(CubeType)]
-pub struct RhsTensorLoader<E: Numeric, T: TilingOrder> {
-    pub gmem: Tensor<Line<E>>,
-    pub smem: SharedMemory<Line<E>>,
-    pub gmem_layout: MatrixLayout,
-    pub cube_offset: u32,
-    pub block_info: BlockInfo,
-    pub _tiling_order: PhantomData<T>,
+pub struct RhsTensorLoader<E: Numeric, B: Block<E>> {
+    pub gmem_view: TensorView<E>,
+    pub block: B,
 }
 
 #[cube]
-impl<E: Numeric, T: TilingOrder> Loader<Line<E>> for LhsTensorLoader<E, T> {
-    type Gmem = Tensor<Line<E>>;
-    type TileReader = LhsSmemTileReader<E, T>;
+impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for LhsTensorLoader<E, B> {
+    type GmemView = TensorView<E>;
+    type BlockReader = LhsBlockReader<E, B>;
 
-    fn new(
-        gmem: Self::Gmem,
-        gmem_layout: MatrixLayout,
-        #[comptime] block_info: BlockInfo,
-    ) -> LhsTensorLoader<E, T> {
-        let line_size = gmem.line_size();
-        let smem = SharedMemory::new_lined(
-            comptime!(total_num_elements(block_info) / line_size),
-            line_size,
-        );
+    fn new(gmem_view: Self::GmemView, #[comptime] block_info: BlockInfo) -> Self {
+        let line_size = comptime!(gmem_view.tensor.line_size());
+        let block = B::new(gmem_view.layout, block_info, line_size);
 
-        LhsTensorLoader::<E, T> {
-            gmem,
-            smem,
-            gmem_layout,
-            cube_offset: CUBE_POS_X,
-            block_info: block_info.runtime(),
-            _tiling_order: PhantomData::<T>.runtime(),
-        }
+        LhsTensorLoader::<E, B> { gmem_view, block }
     }
 
-    fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
-        let (gmem_row_offset, gmem_col_offset) = match comptime!(reader.gmem_layout) {
-            MatrixLayout::RowMajor => (reader.cube_offset, k_offset),
-            MatrixLayout::ColMajor => (k_offset, reader.cube_offset),
-        };
-
-        Tensor2SmemContinuous::tensor_to_shared_memory::<E, T>(
-            &reader.gmem,
-            &mut reader.smem,
-            gmem_row_offset,
-            gmem_col_offset,
-            reader.block_info,
-        );
-
-        LhsSmemTileReader::<E, T> {
-            smem: reader.smem,
-            block_info: reader.block_info,
-            _tiling_order: PhantomData::<T>.runtime(),
+    fn fill_block(loader: &mut Self) -> Self::BlockReader {
+        B::fill(&mut loader.block, &loader.gmem_view);
+        LhsBlockReader::<E, B> {
+            block: loader.block,
+            _e: PhantomData::<E>.runtime(),
         }
     }
 }
 
 #[cube]
-impl<E: Numeric, T: TilingOrder> Loader<Line<E>> for RhsTensorLoader<E, T> {
-    type Gmem = Tensor<Line<E>>;
-    type TileReader = RhsSmemTileReader<E, T>;
+impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for RhsTensorLoader<E, B> {
+    type GmemView = TensorView<E>;
+    type BlockReader = RhsBlockReader<E, B>;
 
-    fn new(
-        gmem: Tensor<Line<E>>,
-        gmem_layout: MatrixLayout,
-        #[comptime] block_info: BlockInfo,
-    ) -> RhsTensorLoader<E, T> {
-        let line_size = gmem.line_size();
-        let smem = SharedMemory::new_lined(
-            comptime!(total_num_elements(block_info) / line_size),
-            line_size,
-        );
+    fn new(gmem_view: Self::GmemView, #[comptime] block_info: BlockInfo) -> Self {
+        let line_size = comptime!(gmem_view.tensor.line_size());
+        let block = B::new(gmem_view.layout, block_info, line_size);
 
-        RhsTensorLoader::<E, T> {
-            gmem,
-            smem,
-            gmem_layout,
-            cube_offset: CUBE_POS_Y,
-            block_info: block_info.runtime(),
-            _tiling_order: PhantomData::<T>.runtime(),
-        }
+        RhsTensorLoader::<E, B> { gmem_view, block }
     }
 
-    fn load_block(reader: &mut Self, k_offset: u32) -> Self::TileReader {
-        let (gmem_row_offset, gmem_col_offset) = match comptime!(reader.gmem_layout) {
-            MatrixLayout::RowMajor => (k_offset, reader.cube_offset),
-            MatrixLayout::ColMajor => (reader.cube_offset, k_offset),
-        };
-
-        Tensor2SmemContinuous::tensor_to_shared_memory::<E, T>(
-            &reader.gmem,
-            &mut reader.smem,
-            gmem_row_offset,
-            gmem_col_offset,
-            reader.block_info,
-        );
-
-        RhsSmemTileReader::<E, T> {
-            smem: reader.smem,
-            block_info: reader.block_info,
-            _tiling_order: PhantomData::<T>.runtime(),
+    fn fill_block(loader: &mut Self) -> Self::BlockReader {
+        B::fill(&mut loader.block, &loader.gmem_view);
+        RhsBlockReader::<E, B> {
+            block: loader.block,
+            _e: PhantomData::<E>.runtime(),
         }
     }
 }

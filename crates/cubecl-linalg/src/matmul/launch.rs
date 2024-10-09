@@ -51,12 +51,12 @@ pub(crate) fn block_matmul_launch<
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
     #[comptime] block_info: BlockInfos,
 ) {
-    let lhs_tile_reader = LhsArrayLoader::load_block(
+    let lhs_tile_reader = LhsArrayLoader::fill_block(
         &mut LhsArrayLoader::new(lhs_data, layouts.0.runtime(), block_info.lhs.runtime()),
         0,
     );
 
-    let rhs_tile_reader = RhsArrayLoader::load_block(
+    let rhs_tile_reader = RhsArrayLoader::fill_block(
         &mut RhsArrayLoader::new(rhs_data, layouts.1.runtime(), block_info.rhs.runtime()),
         0,
     );

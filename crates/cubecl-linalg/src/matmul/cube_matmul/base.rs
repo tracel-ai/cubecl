@@ -13,7 +13,7 @@ use crate::matmul::{BlockMatmul, CubeMatmul, Matmul, TensorMatmul};
 
 pub struct CmmaCubeMatmul<
     Elem: Numeric,
-    BM: BlockMatmul<Elem, Lhs::TileReader, Rhs::TileReader, TensorWriter<Elem>>,
+    BM: BlockMatmul<Elem, Lhs::BlockReader, Rhs::BlockReader, TensorWriter<Elem>>,
     Lhs: Loader<Line<Elem>>,
     Rhs: Loader<Line<Elem>>,
 > {
@@ -25,7 +25,7 @@ pub struct CmmaCubeMatmul<
 
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<Elem, Lhs::TileReader, Rhs::TileReader, TensorWriter<Elem>>,
+        BM: BlockMatmul<Elem, Lhs::BlockReader, Rhs::BlockReader, TensorWriter<Elem>>,
         Lhs: Loader<Line<Elem>>,
         Rhs: Loader<Line<Elem>>,
     > Matmul<Elem, Elem> for CmmaCubeMatmul<Elem, BM, Lhs, Rhs>
@@ -45,7 +45,7 @@ impl<
 
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<Elem, Lhs::TileReader, Rhs::TileReader, TensorWriter<Elem>>,
+        BM: BlockMatmul<Elem, Lhs::BlockReader, Rhs::BlockReader, TensorWriter<Elem>>,
         Lhs: Loader<Line<Elem>, Gmem = Tensor<Line<Elem>>>,
         Rhs: Loader<Line<Elem>, Gmem = Tensor<Line<Elem>>>,
     > TensorMatmul<Elem> for CmmaCubeMatmul<Elem, BM, Lhs, Rhs>
@@ -75,7 +75,7 @@ impl<
 #[cube]
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<Elem, Lhs::TileReader, Rhs::TileReader, TensorWriter<Elem>>,
+        BM: BlockMatmul<Elem, Lhs::BlockReader, Rhs::BlockReader, TensorWriter<Elem>>,
         Lhs: Loader<Line<Elem>, Gmem = Tensor<Line<Elem>>>,
         Rhs: Loader<Line<Elem>, Gmem = Tensor<Line<Elem>>>,
     > CubeMatmul<Elem, Lhs, Rhs, TensorWriter<Elem>> for CmmaCubeMatmul<Elem, BM, Lhs, Rhs>
@@ -97,8 +97,8 @@ impl<
             let k_offset = block_iter * k_step;
 
             BM::execute(
-                &Lhs::load_block(&mut lhs_reader, k_offset),
-                &Rhs::load_block(&mut rhs_reader, k_offset),
+                &Lhs::fill_block(&mut lhs_reader, k_offset),
+                &Rhs::fill_block(&mut rhs_reader, k_offset),
                 &mut acc,
                 layouts,
             );

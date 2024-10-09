@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use super::block_info::BlockInfos;
 use super::matrix_layout::MatrixLayout;
 use super::problem::{MatmulProblem, Requirements};
-use super::tile_io::{Loader, TileReader, TileWriter};
+use super::tile_io::{Loader, BlockReader, TileWriter};
 
 #[cube]
 /// Execute a matmul on a whole tensor
@@ -39,22 +39,13 @@ pub trait CubeMatmul<
 
 #[cube]
 /// Execute a matmul over a fixed-size block, using one Cube.
-pub trait BlockMatmul<
-    E: Numeric,
-    Lhs: TileReader<Line<E>>,
-    Rhs: TileReader<Line<E>>,
-    Out: TileWriter<Line<E>>,
->: 'static + Send + Sync + FixedShapeMatmul<E, E>
+pub trait BlockMatmul<E: Numeric, Lhs: BlockReader<E>, Rhs: BlockReader<E>, Out: TileWriter<Line<E>>>:
+    'static + Send + Sync + FixedShapeMatmul<E, E>
 {
     type Config;
     type Accumulator: CubeType;
 
-    fn execute(
-        lhs: &Lhs,
-        rhs: &Rhs,
-        acc: &mut Self::Accumulator,
-        #[comptime] layouts: (MatrixLayout, MatrixLayout),
-    );
+    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator);
 
     fn acc_init_zeros() -> Self::Accumulator;
     fn acc_read(acc: &Self::Accumulator, out: &mut Out);

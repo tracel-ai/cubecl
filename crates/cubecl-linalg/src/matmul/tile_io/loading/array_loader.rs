@@ -30,7 +30,7 @@ pub struct RhsArrayLoader<E: Numeric> {
 #[cube]
 impl<E: Numeric> Loader<Line<E>> for LhsArrayLoader<E> {
     type Gmem = Array<Line<E>>;
-    type TileReader = LhsSmemTileReader<E, RowMajorTiling>;
+    type BlockReader = LhsSmemTileReader<E, RowMajorTiling>;
 
     fn new(gmem: Self::Gmem, layout: MatrixLayout, block_info: BlockInfo) -> Self {
         LhsArrayLoader::<E> {
@@ -41,7 +41,7 @@ impl<E: Numeric> Loader<Line<E>> for LhsArrayLoader<E> {
         }
     }
 
-    fn load_block(reader: &mut Self, _k_offset: u32) -> Self::TileReader {
+    fn fill_block(reader: &mut Self, _k_offset: u32) -> Self::BlockReader {
         array_to_shared_memory(
             &reader.gmem,
             &mut reader.smem,
@@ -60,7 +60,7 @@ impl<E: Numeric> Loader<Line<E>> for LhsArrayLoader<E> {
 #[cube]
 impl<E: Numeric> Loader<Line<E>> for RhsArrayLoader<E> {
     type Gmem = Array<Line<E>>;
-    type TileReader = RhsSmemTileReader<E, RowMajorTiling>;
+    type BlockReader = RhsSmemTileReader<E, RowMajorTiling>;
 
     fn new(gmem: Self::Gmem, layout: MatrixLayout, block_info: BlockInfo) -> Self {
         RhsArrayLoader::<E> {
@@ -72,7 +72,7 @@ impl<E: Numeric> Loader<Line<E>> for RhsArrayLoader<E> {
     }
 
     // TODO bad api if k_offset not useful for all loaders
-    fn load_block(reader: &mut Self, _k_offset: u32) -> Self::TileReader {
+    fn fill_block(reader: &mut Self, _k_offset: u32) -> Self::BlockReader {
         array_to_shared_memory(
             &reader.gmem,
             &mut reader.smem,
