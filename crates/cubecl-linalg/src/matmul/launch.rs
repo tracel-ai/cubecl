@@ -7,20 +7,14 @@ use crate::matmul::MatmulInstruction;
 
 use crate::matmul::block_info::BlockInfos;
 use crate::matmul::data::ArrayBlock;
-use crate::matmul::data::Block;
 use crate::matmul::BlockMatmul;
 
-use super::data::Tensor2SmemBlock;
-use super::tile_io::loading::tiled_layout::TilingOrder;
 use super::tile_io::loading::LhsBlockReader;
 use super::tile_io::loading::RhsBlockReader;
-use super::tile_io::loading::Tensor2Smem;
 use super::tile_io::writing::ArrayWriter;
 use super::tile_io::writing::TensorWriter;
 use super::CubeMatmul;
-use crate::matmul::data::ArrayView;
 use crate::matmul::data::TensorView;
-use crate::matmul::tile_io::loading::tiled_layout::RowMajorTiling;
 use crate::matmul::tile_io::loading::{LhsArrayLoader, RhsArrayLoader};
 use crate::matmul::tile_io::writing::new_tensor_writer;
 

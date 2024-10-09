@@ -93,16 +93,15 @@ impl<
 
         let mut acc = BM::acc_init_zeros();
 
-        for block_iter in 0..num_loops {
-            let k_offset = block_iter * k_step;
-            Lhs::advance(&mut lhs_loader, k_offset);
-            Rhs::advance(&mut rhs_loader, k_offset);
-
+        for _ in 0..num_loops {
             BM::execute(
                 &Lhs::fill_block(&mut lhs_loader),
                 &Rhs::fill_block(&mut rhs_loader),
                 &mut acc,
             );
+
+            Lhs::advance(&mut lhs_loader, k_step);
+            Rhs::advance(&mut rhs_loader, k_step);
         }
 
         BM::acc_read(&acc, &mut out_writer);
