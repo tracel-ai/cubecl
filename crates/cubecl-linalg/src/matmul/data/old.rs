@@ -5,7 +5,7 @@ use crate::matmul::matrix_layout::MatrixLayout;
 
 #[cube]
 /// Behave like it's always row major layout
-/// Hides stuff like transposed layout, or sliced tile layout
+/// Hides stuff like transposed layout, or sliced tile layout, or line size
 pub trait VirtualMemory<E: CubePrimitive>: CubeType {
     fn read_single(vm: &Self, row: u32, col: u32) -> E;
     fn write_single(vm: &mut Self, row: u32, col: u32, value: E);
@@ -14,14 +14,14 @@ pub trait VirtualMemory<E: CubePrimitive>: CubeType {
 
 #[derive(CubeType)]
 pub struct TensorGmem<E: Numeric> {
-    tensor: Tensor<Line<E>>,
+    underlying: Tensor<Line<E>>,
     stride_row: u32,
     stride_col: u32,
     layout: MatrixLayout,
 }
 #[derive(CubeType)]
-pub struct ArrayGmem<E: CubePrimitive> {
-    array: Array<E>,
+pub struct ArrayGmem<E: Numeric> {
+    underlying: Array<Line<E>>,
     stride_row: u32,
     stride_col: u32,
     layout: MatrixLayout,
@@ -32,13 +32,13 @@ pub struct Smem {}
 /// Carry layout because it's comptime and stride computations aren't
 #[cube]
 fn new_tensor_gmem<E: Numeric>(
-    tensor: Tensor<Line<E>>,
+    underlying: Tensor<Line<E>>,
     #[comptime] layout: MatrixLayout,
 ) -> TensorGmem<E> {
-    let stride_row = tensor.stride(tensor.rank() - 2);
-    let stride_col = tensor.stride(tensor.rank() - 1);
+    let stride_row = underlying.stride(underlying.rank() - 2);
+    let stride_col = underlying.stride(underlying.rank() - 1);
     TensorGmem::<E> {
-        tensor,
+        underlying,
         stride_row,
         stride_col,
         layout,
@@ -48,15 +48,17 @@ fn new_tensor_gmem<E: Numeric>(
 #[cube]
 impl<E: Numeric> VirtualMemory<Line<E>> for TensorGmem<E> {
     fn read_single(gmem: &Self, row: u32, col: u32) -> Line<E> {
-        let position = (row * gmem.stride_row + col * gmem.stride_col) / gmem.tensor.line_size();
+        let position =
+            (row * gmem.stride_row + col * gmem.stride_col) / gmem.underlying.line_size();
 
-        gmem.tensor[position]
+        gmem.underlying[position]
     }
 
     fn write_single(gmem: &mut Self, row: u32, col: u32, value: Line<E>) {
-        let position = (row * gmem.stride_row + col * gmem.stride_col) / gmem.tensor.line_size();
+        let position =
+            (row * gmem.stride_row + col * gmem.stride_col) / gmem.underlying.line_size();
 
-        gmem.tensor[position] = value;
+        gmem.underlying[position] = value;
     }
 
     fn layout(vm: &Self) -> MatrixLayout {
@@ -65,8 +67,8 @@ impl<E: Numeric> VirtualMemory<Line<E>> for TensorGmem<E> {
 }
 
 #[cube]
-fn new_array_gmem<E: CubePrimitive>(
-    array: Array<E>,
+fn new_array_gmem<E: Numeric>(
+    underlying: Array<Line<E>>,
     shape: (u32, u32),
     #[comptime] layout: MatrixLayout,
 ) -> ArrayGmem<E> {
@@ -75,7 +77,7 @@ fn new_array_gmem<E: CubePrimitive>(
         MatrixLayout::ColMajor => (1, shape.0),
     };
     ArrayGmem::<E> {
-        array,
+        underlying,
         stride_row,
         stride_col,
         layout,
@@ -83,17 +85,19 @@ fn new_array_gmem<E: CubePrimitive>(
 }
 
 #[cube]
-impl<E: Numeric> VirtualMemory<Line<E>> for TensorGmem<E> {
+impl<E: Numeric> VirtualMemory<Line<E>> for ArrayGmem<E> {
     fn read_single(gmem: &Self, row: u32, col: u32) -> Line<E> {
-        let position = (row * gmem.stride_row + col * gmem.stride_col) / gmem.tensor.line_size();
+        let position =
+            (row * gmem.stride_row + col * gmem.stride_col) / gmem.underlying.line_size();
 
-        gmem.tensor[position]
+        gmem.underlying[position]
     }
 
     fn write_single(gmem: &mut Self, row: u32, col: u32, value: Line<E>) {
-        let position = (row * gmem.stride_row + col * gmem.stride_col) / gmem.tensor.line_size();
+        let position =
+            (row * gmem.stride_row + col * gmem.stride_col) / gmem.underlying.line_size();
 
-        gmem.tensor[position] = value;
+        gmem.underlying[position] = value;
     }
 
     fn layout(vm: &Self) -> MatrixLayout {

@@ -9,8 +9,8 @@ pub mod cmma_matmul;
 /// Contains algorithms for cooperative matrix multiplication.
 pub mod cmma_old;
 pub mod cube_matmul;
+pub mod data;
 pub mod dummy_unit_instruction;
-pub mod virtual_memory;
 mod id_map;
 pub(crate) mod launch;
 pub mod matrix_layout;

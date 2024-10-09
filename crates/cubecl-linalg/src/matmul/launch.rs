@@ -16,7 +16,6 @@ use super::CubeMatmul;
 use crate::matmul::tile_io::loading::tiled_layout::RowMajorTiling;
 use crate::matmul::tile_io::loading::{LhsArrayLoader, RhsArrayLoader};
 use crate::matmul::tile_io::writing::new_tensor_writer;
-use crate::matmul::virtual_memory::ArrayGmem;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
@@ -25,11 +24,6 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
     mut out_array: Array<O>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
 ) {
-    let lhs_memory = ArrayGmem {
-        array: lhs_array,
-        layout: layouts.0,
-    };
-
     let mut lhs = M::init_lhs(layouts.0);
     let mut rhs = M::init_rhs(layouts.1);
     let mut out = M::init_output();
