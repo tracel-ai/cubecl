@@ -53,8 +53,12 @@ impl<E: Numeric, B: Block<E, GmemView = ArrayView<E>>> Loader<E> for LhsArrayLoa
         }
     }
 
-    fn advance(_loader: &mut Self, _k_offset: u32) {
-        // Array loader does not support advancing
+    fn init_view(_loader: &mut Self, _cube_offset: u32, _k_start: u32) {
+        // Array loader does not support offsets
+    }
+
+    fn advance_view(_loader: &mut Self, _k_offset: u32) {
+        // Array loader does not support offsets
     }
 }
 
@@ -88,7 +92,11 @@ impl<E: Numeric, B: Block<E, GmemView = ArrayView<E>>> Loader<E> for RhsArrayLoa
         }
     }
 
-    fn advance(_loader: &mut Self, _k_offset: u32) {
-        // Array loader does not support advancing
+    fn init_view(_loader: &mut Self, _cube_offset: u32, _k_start: u32) {
+        // Array loader does not support offsets
+    }
+
+    fn advance_view(_loader: &mut Self, _k_offset: u32) {
+        // Array loader does not support offsets
     }
 }

@@ -7,6 +7,7 @@ use crate::matmul::matrix_layout::MatrixLayout;
 pub trait GmemView<E: Numeric>: CubeType {
     type Gmem: CubeType;
 
+    fn init_view(view: &mut Self, x_offset: u32, y_offset: u32);
     fn load_single(view: &Self, read_row: u32, read_col: u32) -> Line<E>;
     fn update_view(view: &mut Self, x_offset: u32, y_offset: u32);
 }
@@ -30,7 +31,7 @@ pub struct ArrayView<E: Numeric> {
 impl<E: Numeric> GmemView<E> for TensorView<E> {
     type Gmem = Tensor<Line<E>>;
 
-    fn load_single(view: &TensorView<E>, read_row: u32, read_col: u32) -> Line<E> {
+    fn load_single(view: &Self, read_row: u32, read_col: u32) -> Line<E> {
         let tensor = &view.tensor;
         let read_row = read_row + view.x_offset;
         let read_col = read_col + view.y_offset;
@@ -40,6 +41,11 @@ impl<E: Numeric> GmemView<E> for TensorView<E> {
             / tensor.line_size();
 
         tensor[read_pos]
+    }
+
+    fn init_view(view: &mut Self, x_offset: u32, y_offset: u32) {
+        view.x_offset = x_offset;
+        view.y_offset = y_offset;
     }
 
     fn update_view(view: &mut Self, x_offset: u32, y_offset: u32) {
@@ -61,7 +67,8 @@ pub fn new_tensor_view<E: Numeric>(tensor: Tensor<Line<E>>, layout: MatrixLayout
 #[cube]
 impl<E: Numeric> GmemView<E> for ArrayView<E> {
     type Gmem = Array<Line<E>>;
-    fn load_single(view: &ArrayView<E>, read_row: u32, read_col: u32) -> Line<E> {
+
+    fn load_single(view: &Self, read_row: u32, read_col: u32) -> Line<E> {
         let array = &view.array;
         let (stride_row, stride_col) = match comptime!(view.layout) {
             MatrixLayout::RowMajor => (view.shape.1, 1),
@@ -73,8 +80,12 @@ impl<E: Numeric> GmemView<E> for ArrayView<E> {
         array[read_pos]
     }
 
+    fn init_view(_view: &mut Self, _x_offset: u32, _y_offset: u32) {
+        // ArrayView does not support offsets
+    }
+
     fn update_view(_view: &mut Self, _x_offset: u32, _y_offset: u32) {
-        // ArrayView does not support update
+        // ArrayView does not support offsets
     }
 }
 

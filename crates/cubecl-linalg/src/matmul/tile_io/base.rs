@@ -33,7 +33,9 @@ pub trait Loader<E: Numeric>: CubeType + 'static + Send + Sync {
 
     fn fill_block(loader: &mut Self) -> Self::BlockReader;
 
-    fn advance(loader: &mut Self, k_offset: u32);
+    fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32);
+
+    fn advance_view(loader: &mut Self, k_offset: u32);
 }
 
 #[cube]

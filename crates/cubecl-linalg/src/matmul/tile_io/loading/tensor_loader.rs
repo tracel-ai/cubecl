@@ -47,7 +47,11 @@ impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for LhsTensorL
         }
     }
 
-    fn advance(loader: &mut Self, k_offset: u32) {
+    fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32) {
+        TensorView::init_view(&mut loader.gmem_view, cube_offset, k_start);
+    }
+
+    fn advance_view(loader: &mut Self, k_offset: u32) {
         TensorView::update_view(&mut loader.gmem_view, 0, k_offset);
     }
 }
@@ -77,7 +81,11 @@ impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for RhsTensorL
         }
     }
 
-    fn advance(loader: &mut Self, k_offset: u32) {
+    fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32) {
+        TensorView::init_view(&mut loader.gmem_view, k_start, cube_offset);
+    }
+
+    fn advance_view(loader: &mut Self, k_offset: u32) {
         TensorView::update_view(&mut loader.gmem_view, k_offset, 0);
     }
 }

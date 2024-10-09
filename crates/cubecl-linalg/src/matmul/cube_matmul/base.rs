@@ -92,6 +92,8 @@ impl<
         let num_loops = (range + k_step - 1) / k_step;
 
         let mut acc = BM::acc_init_zeros();
+        Lhs::init_view(&mut lhs_loader, CUBE_POS_X, k_range.0);
+        Rhs::init_view(&mut rhs_loader, CUBE_POS_Y, k_range.0);
 
         for _ in 0..num_loops {
             BM::execute(
@@ -100,8 +102,8 @@ impl<
                 &mut acc,
             );
 
-            Lhs::advance(&mut lhs_loader, k_step);
-            Rhs::advance(&mut rhs_loader, k_step);
+            Lhs::advance_view(&mut lhs_loader, k_step);
+            Rhs::advance_view(&mut rhs_loader, k_step);
         }
 
         BM::acc_read(&acc, &mut out_writer);
