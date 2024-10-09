@@ -35,22 +35,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let current_block = self.current_block.unwrap();
 
+        let current_label = self.end_label(current_block);
         let in_bounds = self.id();
-        let fallback = self.id();
         let next = self.id();
 
         self.selection_merge(next, SelectionControl::DONT_FLATTEN)
             .unwrap();
-        self.branch_conditional(cond, in_bounds, fallback, vec![1, 0])
+        self.branch_conditional(cond, in_bounds, next, vec![1, 0])
             .unwrap();
 
         self.begin_block(Some(in_bounds)).unwrap();
         let value = read(self);
         self.branch(next).unwrap();
 
-        self.begin_block(Some(fallback)).unwrap();
         let fallback_value = item.constant(self, 0u32.into());
-        self.branch(next).unwrap();
 
         self.state.end_labels.insert(current_block, next);
 
@@ -58,7 +56,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.phi(
             ty,
             None,
-            vec![(value, in_bounds), (fallback_value, fallback)],
+            vec![(value, in_bounds), (fallback_value, current_label)],
         )
         .unwrap()
     }
