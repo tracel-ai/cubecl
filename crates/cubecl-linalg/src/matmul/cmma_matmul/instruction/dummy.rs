@@ -1,18 +1,12 @@
-use std::marker::PhantomData;
-
+use crate::matmul::launch::matmul_instruction_launch;
+use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::problem::{MatmulProblem, Requirements};
+use crate::matmul::stage_info::{StageInfo, StageInfos};
+use crate::matmul::MatmulInstruction;
+use crate::matmul::{FixedShapeMatmul, Matmul};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::block_info::{BlockInfo, BlockInfos};
-use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::MatmulInstruction;
-
-use crate::matmul::problem::{MatmulProblem, Requirements};
-
-use crate::matmul::launch::matmul_instruction_launch;
-use crate::matmul::{FixedShapeMatmul, Matmul};
-
-pub struct DummyUnitInstructionConfig {}
+use std::marker::PhantomData;
 
 #[derive(CubeType)]
 pub struct DummyMatrix<E: Numeric> {
@@ -64,21 +58,21 @@ macro_rules! impl_matmul_instruction {
                 }
             }
 
-            fn block_infos() -> BlockInfos {
-                BlockInfos {
-                    lhs: BlockInfo {
+            fn stage_infos() -> StageInfos {
+                StageInfos {
+                    lhs: StageInfo {
                         num_tiles_x: 1,
                         num_tiles_y: 1,
                         tile_size_x: $m,
                         tile_size_y: $k,
                     },
-                    rhs: BlockInfo {
+                    rhs: StageInfo {
                         num_tiles_x: 1,
                         num_tiles_y: 1,
                         tile_size_x: $k,
                         tile_size_y: $n,
                     },
-                    out: BlockInfo {
+                    out: StageInfo {
                         num_tiles_x: 1,
                         num_tiles_y: 1,
                         tile_size_x: $m,
@@ -90,7 +84,6 @@ macro_rules! impl_matmul_instruction {
 
         #[cube]
         impl<I: Numeric, O: Numeric> MatmulInstruction<I, O> for $name<I, O> {
-            type Config = DummyUnitInstructionConfig;
             type Lhs = DummyMatrix<I>;
             type Rhs = DummyMatrix<I>;
             type Out = DummyMatrix<O>;

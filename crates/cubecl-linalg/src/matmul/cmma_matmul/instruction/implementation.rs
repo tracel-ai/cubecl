@@ -1,8 +1,7 @@
+use crate::matmul::cmma_matmul::instruction::base::Fragment;
+use crate::matmul::matrix_layout::{as_cmma_layout, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
-
-use crate::matmul::cmma_instruction::base::Fragment;
-use crate::matmul::matrix_layout::{as_cmma_layout, MatrixLayout};
 
 #[cube]
 pub(super) fn execute<I: Numeric, O: Numeric>(

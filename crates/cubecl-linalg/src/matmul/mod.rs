@@ -3,14 +3,10 @@ use cmma_old::{is_available as cmma_available, launch_ref as cmma_launch_ref};
 use cubecl_core::prelude::*;
 
 mod base;
-pub mod block_info;
-pub mod cmma_instruction;
+pub mod stage_info;
 pub mod cmma_matmul;
-/// Contains algorithms for cooperative matrix multiplication.
 pub mod cmma_old;
-pub mod cube_matmul;
 pub mod data;
-pub mod dummy_unit_instruction;
 mod id_map;
 pub(crate) mod launch;
 pub mod matrix_layout;

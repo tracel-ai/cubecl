@@ -2,13 +2,13 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::{
-    block_info::BlockInfo,
-    data::{GmemView, Tile},
+    stage_info::StageInfo,
+    data::{GlobalView, Tile},
     matrix_layout::MatrixLayout,
 };
 
 #[cube]
-pub trait BlockReader<E: Numeric>: CubeType {
+pub trait StageReader<E: Numeric>: CubeType {
     fn read_tile(
         tile_reader: &Self,
         compute_plane_offset: u32,
@@ -22,16 +22,16 @@ pub trait BlockReader<E: Numeric>: CubeType {
 
 #[cube]
 pub trait Loader<E: Numeric>: CubeType + 'static + Send + Sync {
-    type GmemView: GmemView<E>;
-    type BlockReader: BlockReader<E>;
+    type GmemView: GlobalView<E>;
+    type StageReader: StageReader<E>;
 
     fn new(
-        gmem: <Self::GmemView as GmemView<E>>::Gmem,
+        gmem: <Self::GmemView as GlobalView<E>>::Global,
         #[comptime] layout: MatrixLayout,
-        #[comptime] block_info: BlockInfo,
+        #[comptime] block_info: StageInfo,
     ) -> Self;
 
-    fn fill_block(loader: &mut Self) -> Self::BlockReader;
+    fn fill_block(loader: &mut Self) -> Self::StageReader;
 
     fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32);
 

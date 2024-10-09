@@ -1,4 +1,3 @@
-mod base;
-mod block;
-pub use base::*;
-pub use block::*;
+pub mod stage_matmul;
+pub mod instruction;
+pub mod global_matmul;

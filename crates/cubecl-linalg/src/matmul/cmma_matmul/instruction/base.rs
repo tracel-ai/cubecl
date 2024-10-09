@@ -1,23 +1,19 @@
-use std::marker::PhantomData;
-
+use super::implementation::*;
+use crate::matmul::launch::matmul_instruction_launch;
+use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::{MatmulProblem, Requirements};
+use crate::matmul::stage_info::{StageInfo, StageInfos};
+use crate::matmul::{FixedShapeMatmul, Matmul, MatmulInstruction};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use half::{bf16, f16};
-
-use crate::matmul::block_info::{BlockInfo, BlockInfos};
-use crate::matmul::launch::matmul_instruction_launch;
-use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::{FixedShapeMatmul, Matmul, MatmulInstruction};
-
-use super::implementation::*;
+use std::marker::PhantomData;
 
 pub trait CmmaValid<I: Numeric, O: Numeric> {}
+
 impl CmmaValid<f16, f16> for (f16, f16) {}
 impl CmmaValid<f16, f32> for (f16, f32) {}
 impl CmmaValid<bf16, f32> for (bf16, f32) {}
-
-pub struct CmmaInstructionConfig {}
 
 #[derive(CubeType)]
 pub struct Fragment<T: Numeric> {
@@ -70,21 +66,21 @@ macro_rules! impl_matmul_instruction {
                 }
             }
 
-            fn block_infos() -> BlockInfos {
-                BlockInfos {
-                    lhs: BlockInfo {
+            fn stage_infos() -> StageInfos {
+                StageInfos {
+                    lhs: StageInfo {
                         num_tiles_x: 1,
                         num_tiles_y: 1,
                         tile_size_x: $m,
                         tile_size_y: $k,
                     },
-                    rhs: BlockInfo {
+                    rhs: StageInfo {
                         num_tiles_x: 1,
                         num_tiles_y: 1,
                         tile_size_x: $k,
                         tile_size_y: $n,
                     },
-                    out: BlockInfo {
+                    out: StageInfo {
                         num_tiles_x: 1,
                         num_tiles_y: 1,
                         tile_size_x: $m,
@@ -99,7 +95,6 @@ macro_rules! impl_matmul_instruction {
         where
             (I, O): CmmaValid<I, O>,
         {
-            type Config = CmmaInstructionConfig;
             type Lhs = Fragment<I>;
             type Rhs = Fragment<I>;
             type Out = Fragment<O>;

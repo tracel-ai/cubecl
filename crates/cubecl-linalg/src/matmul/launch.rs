@@ -5,15 +5,15 @@ use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::Loader;
 use crate::matmul::MatmulInstruction;
 
-use crate::matmul::block_info::BlockInfos;
-use crate::matmul::data::ArrayBlock;
+use crate::matmul::stage_info::StageInfos;
+use crate::matmul::data::ArrayStage;
 use crate::matmul::BlockMatmul;
 
 use super::tile_io::loading::LhsBlockReader;
 use super::tile_io::loading::RhsBlockReader;
 use super::tile_io::writing::ArrayWriter;
 use super::tile_io::writing::TensorWriter;
-use super::CubeMatmul;
+use super::GlobalMatmul;
 use crate::matmul::data::TensorView;
 use crate::matmul::tile_io::loading::{LhsArrayLoader, RhsArrayLoader};
 use crate::matmul::tile_io::writing::new_tensor_writer;
@@ -40,8 +40,8 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 pub(crate) fn block_matmul_launch<
     BM: BlockMatmul<
         Elem,
-        LhsBlockReader<Elem, ArrayBlock<Elem>>,
-        RhsBlockReader<Elem, ArrayBlock<Elem>>,
+        LhsBlockReader<Elem, ArrayStage<Elem>>,
+        RhsBlockReader<Elem, ArrayStage<Elem>>,
         ArrayWriter<Elem>,
     >,
     Elem: Numeric,
@@ -50,7 +50,7 @@ pub(crate) fn block_matmul_launch<
     rhs_data: Array<Line<Elem>>,
     out_result: Array<Line<Elem>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
-    #[comptime] block_info: BlockInfos,
+    #[comptime] block_info: StageInfos,
 ) {
     let mut lhs_loader = LhsArrayLoader::new(lhs_data, layouts.0, block_info.lhs);
     let mut rhs_loader = RhsArrayLoader::new(rhs_data, layouts.1, block_info.rhs);
@@ -70,7 +70,7 @@ pub(crate) fn block_matmul_launch<
 
 #[cube(launch_unchecked)]
 pub(crate) fn cube_matmul_launch<
-    CM: CubeMatmul<Elem, Lhs, Rhs, TensorWriter<Elem>>,
+    CM: GlobalMatmul<Elem, Lhs, Rhs, TensorWriter<Elem>>,
     Elem: Numeric,
     Lhs: Loader<Elem, GmemView = TensorView<Elem>>,
     Rhs: Loader<Elem, GmemView = TensorView<Elem>>,
@@ -79,7 +79,7 @@ pub(crate) fn cube_matmul_launch<
     rhs_tensor: Tensor<Line<Elem>>,
     out_tensor: Tensor<Line<Elem>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
-    #[comptime] block_info: BlockInfos,
+    #[comptime] block_info: StageInfos,
 ) {
     let k = lhs_tensor.shape(lhs_tensor.rank() - 1);
 

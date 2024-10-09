@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::block_info::BlockInfo;
+use crate::matmul::stage_info::StageInfo;
 use crate::matmul::tile_io::writing::smem2tensor::{Smem2Tensor, Smem2TensorSimple};
 use crate::matmul::tile_io::TileWriter;
 
@@ -9,13 +9,13 @@ use crate::matmul::tile_io::TileWriter;
 pub struct TensorWriter<E: Numeric> {
     pub gmem: Tensor<Line<E>>,
     pub cube_offsets: (u32, u32),
-    pub block_info: BlockInfo,
+    pub block_info: StageInfo,
 }
 
 #[cube]
 pub(crate) fn new_tensor_writer<E: Numeric>(
     gmem: Tensor<Line<E>>,
-    #[comptime] block_info: BlockInfo,
+    #[comptime] block_info: StageInfo,
 ) -> TensorWriter<E> {
     TensorWriter::<E> {
         gmem,

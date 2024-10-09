@@ -1,7 +1,6 @@
+use crate::matmul::matrix_layout::MatrixLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::matrix_layout::MatrixLayout;
 
 #[derive(CubeType)]
 pub struct Tile<'a, E: Numeric> {

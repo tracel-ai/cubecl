@@ -1,10 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::block_info::BlockInfos;
 use super::matrix_layout::MatrixLayout;
 use super::problem::{MatmulProblem, Requirements};
-use super::tile_io::{BlockReader, Loader, TileWriter};
+use super::stage_info::StageInfos;
+use super::tile_io::{Loader, StageReader, TileWriter};
 
 #[cube]
 /// Execute a matmul on a whole tensor
@@ -21,7 +21,7 @@ pub trait BatchMatmul<N: Numeric> {
 
 #[cube]
 /// Execute a matmul over a block, accumulating for arbitrary k-dim, using one Cube.
-pub trait CubeMatmul<E: Numeric, Lhs: Loader<E>, Rhs: Loader<E>, Out: TileWriter<Line<E>>>:
+pub trait GlobalMatmul<E: Numeric, Lhs: Loader<E>, Rhs: Loader<E>, Out: TileWriter<Line<E>>>:
     'static + Send + Sync + TensorMatmul<E>
 {
     fn execute(lhs_loader: Lhs, rhs_loader: Rhs, out_writer: Out, k_range: (u32, u32));
@@ -31,12 +31,11 @@ pub trait CubeMatmul<E: Numeric, Lhs: Loader<E>, Rhs: Loader<E>, Out: TileWriter
 /// Execute a matmul over a fixed-size block, using one Cube.
 pub trait BlockMatmul<
     E: Numeric,
-    Lhs: BlockReader<E>,
-    Rhs: BlockReader<E>,
+    Lhs: StageReader<E>,
+    Rhs: StageReader<E>,
     Out: TileWriter<Line<E>>,
 >: 'static + Send + Sync + FixedShapeMatmul<E, E>
 {
-    type Config;
     type Accumulator: CubeType;
 
     fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator);
@@ -49,7 +48,7 @@ pub trait Matmul<I: Numeric, O: Numeric> {
     fn can_process(problem: MatmulProblem) -> bool;
     fn requirements(problem: MatmulProblem) -> Requirements;
 
-    fn block_infos() -> BlockInfos;
+    fn stage_infos() -> StageInfos;
 }
 
 pub trait TensorMatmul<E: Numeric>: Matmul<E, E> {
@@ -85,7 +84,6 @@ pub trait FixedShapeMatmul<I: Numeric, O: Numeric>: Matmul<I, O> {
 pub trait MatmulInstruction<I: Numeric, O: Numeric>:
     'static + Send + Sync + FixedShapeMatmul<I, O>
 {
-    type Config;
     type Lhs: CubeType;
     type Rhs: CubeType;
     type Out: CubeType;

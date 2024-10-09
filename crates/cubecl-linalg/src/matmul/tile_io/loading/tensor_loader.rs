@@ -3,34 +3,34 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::block_info::BlockInfo;
-use crate::matmul::data::{new_tensor_view, Block, GmemView, TensorView};
+use crate::matmul::stage_info::StageInfo;
+use crate::matmul::data::{new_tensor_view, Stage, GlobalView, TensorView};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::Loader;
 
 use super::{LhsBlockReader, RhsBlockReader};
 
 #[derive(CubeType)]
-pub struct LhsTensorLoader<E: Numeric, B: Block<E>> {
+pub struct LhsTensorLoader<E: Numeric, B: Stage<E>> {
     pub gmem_view: TensorView<E>,
     pub block: B,
 }
 
 #[derive(CubeType)]
-pub struct RhsTensorLoader<E: Numeric, B: Block<E>> {
+pub struct RhsTensorLoader<E: Numeric, B: Stage<E>> {
     pub gmem_view: TensorView<E>,
     pub block: B,
 }
 
 #[cube]
-impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for LhsTensorLoader<E, B> {
+impl<E: Numeric, B: Stage<E, GlobalView = TensorView<E>>> Loader<E> for LhsTensorLoader<E, B> {
     type GmemView = TensorView<E>;
-    type BlockReader = LhsBlockReader<E, B>;
+    type StageReader = LhsBlockReader<E, B>;
 
     fn new(
         tensor: Tensor<Line<E>>,
         #[comptime] layout: MatrixLayout,
-        #[comptime] block_info: BlockInfo,
+        #[comptime] block_info: StageInfo,
     ) -> Self {
         let line_size = comptime!(tensor.line_size());
         let block = B::new(layout, block_info, line_size);
@@ -39,7 +39,7 @@ impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for LhsTensorL
         LhsTensorLoader::<E, B> { gmem_view, block }
     }
 
-    fn fill_block(loader: &mut Self) -> Self::BlockReader {
+    fn fill_block(loader: &mut Self) -> Self::StageReader {
         B::fill(&mut loader.block, &loader.gmem_view);
         LhsBlockReader::<E, B> {
             block: loader.block,
@@ -57,14 +57,14 @@ impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for LhsTensorL
 }
 
 #[cube]
-impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for RhsTensorLoader<E, B> {
+impl<E: Numeric, B: Stage<E, GlobalView = TensorView<E>>> Loader<E> for RhsTensorLoader<E, B> {
     type GmemView = TensorView<E>;
-    type BlockReader = RhsBlockReader<E, B>;
+    type StageReader = RhsBlockReader<E, B>;
 
     fn new(
         tensor: Tensor<Line<E>>,
         #[comptime] layout: MatrixLayout,
-        #[comptime] block_info: BlockInfo,
+        #[comptime] block_info: StageInfo,
     ) -> Self {
         let line_size = comptime!(tensor.line_size());
         let block = B::new(layout, block_info, line_size);
@@ -73,7 +73,7 @@ impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for RhsTensorL
         RhsTensorLoader::<E, B> { gmem_view, block }
     }
 
-    fn fill_block(loader: &mut Self) -> Self::BlockReader {
+    fn fill_block(loader: &mut Self) -> Self::StageReader {
         B::fill(&mut loader.block, &loader.gmem_view);
         RhsBlockReader::<E, B> {
             block: loader.block,

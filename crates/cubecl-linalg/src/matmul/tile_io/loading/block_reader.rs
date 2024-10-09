@@ -3,24 +3,24 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::data::{Block, Tile};
+use crate::matmul::data::{Stage, Tile};
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tile_io::BlockReader;
+use crate::matmul::tile_io::StageReader;
 
 #[derive(CubeType)]
-pub struct LhsBlockReader<E: Numeric, B: Block<E>> {
+pub struct LhsBlockReader<E: Numeric, B: Stage<E>> {
     pub block: B,
     pub _e: PhantomData<E>,
 }
 
 #[derive(CubeType)]
-pub struct RhsBlockReader<E: Numeric, B: Block<E>> {
+pub struct RhsBlockReader<E: Numeric, B: Stage<E>> {
     pub block: B,
     pub _e: PhantomData<E>,
 }
 
 #[cube]
-impl<E: Numeric, B: Block<E>> BlockReader<E> for LhsBlockReader<E, B> {
+impl<E: Numeric, B: Stage<E>> StageReader<E> for LhsBlockReader<E, B> {
     fn read_tile(
         reader: &Self,
         compute_plane_offset: u32,
@@ -36,7 +36,7 @@ impl<E: Numeric, B: Block<E>> BlockReader<E> for LhsBlockReader<E, B> {
 }
 
 #[cube]
-impl<E: Numeric, B: Block<E>> BlockReader<E> for RhsBlockReader<E, B> {
+impl<E: Numeric, B: Stage<E>> StageReader<E> for RhsBlockReader<E, B> {
     fn read_tile(
         reader: &Self,
         _compute_plane_offset: u32,

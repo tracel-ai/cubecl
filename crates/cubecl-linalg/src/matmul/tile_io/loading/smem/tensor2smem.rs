@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::block_info::{tile_num_elements, total_num_elements, BlockInfo};
-use crate::matmul::data::{GmemView, TensorView};
+use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
+use crate::matmul::data::{GlobalView, TensorView};
 use crate::matmul::id_map::PlaneMapper;
 use crate::matmul::tile_io::loading::smem::tiled_layout::TilingOrder;
 
@@ -11,7 +11,7 @@ pub trait Tensor2Smem: Clone + Copy + Send + Sync + 'static {
     fn tensor_to_shared_memory<EG: Numeric, ES: Numeric, T: TilingOrder>(
         gmem: &TensorView<EG>,
         smem: &mut SharedMemory<Line<ES>>,
-        #[comptime] block_info: BlockInfo,
+        #[comptime] block_info: StageInfo,
     );
 }
 
@@ -42,7 +42,7 @@ impl Tensor2Smem for Tensor2SmemContinuous {
     fn tensor_to_shared_memory<EG: Numeric, ES: Numeric, O: TilingOrder>(
         gmem: &TensorView<EG>,
         smem: &mut SharedMemory<Line<ES>>,
-        #[comptime] block_info: BlockInfo,
+        #[comptime] block_info: StageInfo,
     ) {
         let num_smem_elements = comptime!(total_num_elements(block_info));
         let jump_length =
@@ -65,7 +65,7 @@ impl Tensor2Smem for Tensor2SmemContinuous {
 #[cube]
 pub(crate) fn apply_tiled_layout<T: TilingOrder>(
     unit_position: u32,
-    #[comptime] block_info: BlockInfo,
+    #[comptime] block_info: StageInfo,
 ) -> (u32, u32) {
     let tile_num_elements = tile_num_elements(block_info);
     let nth_tile = unit_position / tile_num_elements;

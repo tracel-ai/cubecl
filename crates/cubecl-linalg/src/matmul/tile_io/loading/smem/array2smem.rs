@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::block_info::BlockInfo;
+use crate::matmul::stage_info::StageInfo;
 
 #[cube]
 pub(crate) fn array_to_shared_memory<EG: Numeric, ES: Numeric>(
     gmem: &Array<Line<EG>>,
     smem: &mut SharedMemory<Line<ES>>,
     row_offset: u32,
-    block_info: BlockInfo,
+    block_info: StageInfo,
 ) {
     let stride_x = block_info.num_tiles_y * block_info.tile_size_y;
 
@@ -40,7 +40,7 @@ pub(crate) fn smem_slice_to_gmem<E: CubePrimitive, C: CubePrimitive>(
     gmem: &mut SliceMut<'_, C>,
     row_offset: u32,
     col_offset: u32,
-    block_info: BlockInfo,
+    block_info: StageInfo,
 ) {
     let stride_x = block_info.num_tiles_y * block_info.tile_size_y;
 

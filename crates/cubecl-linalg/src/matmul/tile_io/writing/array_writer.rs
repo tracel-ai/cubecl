@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::block_info::BlockInfo;
+use crate::matmul::stage_info::StageInfo;
 use crate::matmul::tile_io::loading::smem_slice_to_gmem;
 use crate::matmul::tile_io::TileWriter;
 
 #[derive(CubeType)]
 pub struct ArrayWriter<E: Numeric> {
     pub gmem: Array<Line<E>>,
-    pub block_info: BlockInfo,
+    pub block_info: StageInfo,
 }
 
 #[cube]

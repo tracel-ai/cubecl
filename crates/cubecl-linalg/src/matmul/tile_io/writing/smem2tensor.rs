@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::block_info::{BlockInfo, tile_num_elements};
+use crate::matmul::stage_info::{tile_num_elements, StageInfo};
 use crate::matmul::id_map::PlaneMapper;
 
 #[cube]
@@ -12,7 +12,7 @@ pub trait Smem2Tensor {
         compute_plane_offset: u32,
         accumulator_offset: u32,
         cube_offsets: (u32, u32),
-        #[comptime] block_info: BlockInfo,
+        #[comptime] block_info: StageInfo,
     );
 }
 
@@ -46,7 +46,7 @@ impl Smem2Tensor for Smem2TensorSimple {
         compute_plane_offset: u32,
         accumulator_offset: u32,
         cube_offsets: (u32, u32),
-        #[comptime] block_info: BlockInfo,
+        #[comptime] block_info: StageInfo,
     ) {
         let row_tile_begin = (cube_offsets.0 + compute_plane_offset) * block_info.tile_size_x;
         let col_tile_begin = (cube_offsets.1 + accumulator_offset) * block_info.tile_size_y;
