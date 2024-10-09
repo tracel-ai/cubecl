@@ -30,7 +30,10 @@ pub trait Loader<E: Numeric>: CubeType + 'static + Send + Sync {
         #[comptime] layout: MatrixLayout,
         #[comptime] block_info: BlockInfo,
     ) -> Self;
+
     fn fill_block(loader: &mut Self) -> Self::BlockReader;
+
+    fn advance(loader: &mut Self, k_offset: u32);
 }
 
 #[cube]

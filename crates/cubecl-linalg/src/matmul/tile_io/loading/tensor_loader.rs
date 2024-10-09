@@ -4,7 +4,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::block_info::BlockInfo;
-use crate::matmul::data::{new_tensor_view, Block, TensorView};
+use crate::matmul::data::{new_tensor_view, Block, GmemView, TensorView};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::tile_io::Loader;
 
@@ -46,6 +46,10 @@ impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for LhsTensorL
             _e: PhantomData::<E>.runtime(),
         }
     }
+
+    fn advance(loader: &mut Self, k_offset: u32) {
+        TensorView::update_view(&mut loader.gmem_view, 0, k_offset);
+    }
 }
 
 #[cube]
@@ -71,5 +75,9 @@ impl<E: Numeric, B: Block<E, GmemView = TensorView<E>>> Loader<E> for RhsTensorL
             block: loader.block,
             _e: PhantomData::<E>.runtime(),
         }
+    }
+
+    fn advance(loader: &mut Self, k_offset: u32) {
+        TensorView::update_view(&mut loader.gmem_view, k_offset, 0);
     }
 }

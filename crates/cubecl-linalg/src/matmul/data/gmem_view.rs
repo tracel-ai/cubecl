@@ -43,8 +43,8 @@ impl<E: Numeric> GmemView<E> for TensorView<E> {
     }
 
     fn update_view(view: &mut Self, x_offset: u32, y_offset: u32) {
-        view.x_offset = x_offset;
-        view.y_offset = y_offset;
+        view.x_offset += x_offset;
+        view.y_offset += y_offset;
     }
 }
 

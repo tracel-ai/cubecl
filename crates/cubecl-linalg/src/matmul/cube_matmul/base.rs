@@ -82,8 +82,8 @@ impl<
     > CubeMatmul<Elem, Lhs, Rhs, TensorWriter<Elem>> for CmmaCubeMatmul<Elem, BM, Lhs, Rhs>
 {
     fn execute(
-        mut lhs_reader: Lhs,
-        mut rhs_reader: Rhs,
+        mut lhs_loader: Lhs,
+        mut rhs_loader: Rhs,
         mut out_writer: TensorWriter<Elem>,
         k_range: (u32, u32),
     ) {
@@ -95,10 +95,12 @@ impl<
 
         for block_iter in 0..num_loops {
             let k_offset = block_iter * k_step;
+            Lhs::advance(&mut lhs_loader, k_offset);
+            Rhs::advance(&mut rhs_loader, k_offset);
 
             BM::execute(
-                &Lhs::fill_block(&mut lhs_reader),
-                &Rhs::fill_block(&mut rhs_reader),
+                &Lhs::fill_block(&mut lhs_loader),
+                &Rhs::fill_block(&mut rhs_loader),
                 &mut acc,
             );
         }

@@ -52,6 +52,10 @@ impl<E: Numeric, B: Block<E, GmemView = ArrayView<E>>> Loader<E> for LhsArrayLoa
             _e: PhantomData::<E>.runtime(),
         }
     }
+
+    fn advance(_loader: &mut Self, _k_offset: u32) {
+        // Array loader does not support advancing
+    }
 }
 
 #[cube]
@@ -82,6 +86,10 @@ impl<E: Numeric, B: Block<E, GmemView = ArrayView<E>>> Loader<E> for RhsArrayLoa
             block: loader.block,
             _e: PhantomData::<E>.runtime(),
         }
+    }
+
+    fn advance(_loader: &mut Self, _k_offset: u32) {
+        // Array loader does not support advancing
     }
 }
 

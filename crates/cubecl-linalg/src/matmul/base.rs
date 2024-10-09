@@ -24,7 +24,7 @@ pub trait BatchMatmul<N: Numeric> {
 pub trait CubeMatmul<E: Numeric, Lhs: Loader<E>, Rhs: Loader<E>, Out: TileWriter<Line<E>>>:
     'static + Send + Sync + TensorMatmul<E>
 {
-    fn execute(lhs_reader: Lhs, rhs_reader: Rhs, out_writer: Out, k_range: (u32, u32));
+    fn execute(lhs_loader: Lhs, rhs_loader: Rhs, out_writer: Out, k_range: (u32, u32));
 }
 
 #[cube]
