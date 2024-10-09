@@ -1,9 +1,10 @@
 use super::implementation::*;
 use crate::matmul::launch::matmul_instruction_launch;
+use crate::matmul::matmul_instruction::MatmulInstruction;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::{MatmulProblem, Requirements};
 use crate::matmul::stage_info::{StageInfo, StageInfos};
-use crate::matmul::{FixedShapeMatmul, Matmul, MatmulInstruction};
+use crate::matmul::{FixedShapeMatmul, Matmul};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use half::{bf16, f16};

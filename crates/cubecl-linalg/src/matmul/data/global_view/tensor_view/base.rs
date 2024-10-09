@@ -1,12 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::data::global_view::tensor_view::tensor2smem::SharedMemoryLoader;
+use crate::matmul::data::GlobalView;
+use crate::matmul::data::RowMajorTiling;
+use crate::matmul::data::Tensor2SmemContinuous;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
-use crate::matmul::tile_io::loading::tiled_layout::RowMajorTiling;
-use crate::matmul::tile_io::loading::{SharedMemoryLoader, Tensor2SmemContinuous};
-
-use super::GlobalView;
 
 #[derive(CubeType)]
 pub struct TensorView<E: Numeric> {
@@ -37,6 +37,7 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         shared_memory: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,
     ) {
+        // TODO allow other modes / tilings
         Tensor2SmemContinuous::load_shared_memory::<ES, RowMajorTiling>(
             view,
             shared_memory,

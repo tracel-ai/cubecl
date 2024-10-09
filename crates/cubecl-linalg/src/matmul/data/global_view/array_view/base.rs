@@ -1,11 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::data::{array_to_shared_memory, GlobalView};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
-use crate::matmul::tile_io::loading::array_to_shared_memory;
-
-use super::GlobalView;
 
 #[derive(CubeType)]
 pub struct ArrayView<E: Numeric> {
@@ -35,6 +33,7 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         shared_memory: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,
     ) {
+        // TODO use plane mapper
         array_to_shared_memory(&view.array, shared_memory, UNIT_POS_Y, stage_info)
     }
 

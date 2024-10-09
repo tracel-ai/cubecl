@@ -4,12 +4,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::data::{new_array_view, ArrayView, Stage};
+use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
-use crate::matmul::tile_io::loading::RhsBlockReader;
-use crate::matmul::tile_io::Loader;
 
-use super::LhsBlockReader;
+use super::Loader;
 
 #[derive(CubeType)]
 pub struct LhsArrayLoader<E: Numeric, B: Stage<E>> {
@@ -26,7 +25,7 @@ pub struct RhsArrayLoader<E: Numeric, B: Stage<E>> {
 #[cube]
 impl<E: Numeric, B: Stage<E>> Loader<E> for LhsArrayLoader<E, B> {
     type GlobalView = ArrayView<E>;
-    type StageReader = LhsBlockReader<E, B>;
+    type StageReader = LhsStageReader<E, B>;
 
     fn new(
         array: Array<Line<E>>,
@@ -47,8 +46,8 @@ impl<E: Numeric, B: Stage<E>> Loader<E> for LhsArrayLoader<E, B> {
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
         B::fill::<E, Self::GlobalView>(&mut loader.block, &loader.gmem_view);
-        LhsBlockReader::<E, B> {
-            block: loader.block,
+        LhsStageReader::<E, B> {
+            stage: loader.block,
             _e: PhantomData::<E>.runtime(),
         }
     }
@@ -65,7 +64,7 @@ impl<E: Numeric, B: Stage<E>> Loader<E> for LhsArrayLoader<E, B> {
 #[cube]
 impl<E: Numeric, B: Stage<E>> Loader<E> for RhsArrayLoader<E, B> {
     type GlobalView = ArrayView<E>;
-    type StageReader = RhsBlockReader<E, B>;
+    type StageReader = RhsStageReader<E, B>;
 
     fn new(
         array: Array<Line<E>>,
@@ -86,8 +85,8 @@ impl<E: Numeric, B: Stage<E>> Loader<E> for RhsArrayLoader<E, B> {
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
         B::fill::<E, Self::GlobalView>(&mut loader.block, &loader.gmem_view);
-        RhsBlockReader::<E, B> {
-            block: loader.block,
+        RhsStageReader::<E, B> {
+            stage: loader.block,
             _e: PhantomData::<E>.runtime(),
         }
     }

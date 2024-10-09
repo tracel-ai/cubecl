@@ -1,10 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::data::{GlobalView, TensorView};
+use crate::matmul::data::{GlobalView, TensorView, TilingOrder};
 use crate::matmul::id_map::PlaneMapper;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
-use crate::matmul::tile_io::loading::smem::tiled_layout::TilingOrder;
 
 #[cube]
 pub trait SharedMemoryLoader<EG: Numeric>: Clone + Copy + Send + Sync + 'static {

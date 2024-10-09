@@ -4,11 +4,27 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::data::{new_tensor_view, GlobalView, Stage, TensorView};
+use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader, StageReader};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
-use crate::matmul::tile_io::Loader;
 
-use super::{LhsBlockReader, RhsBlockReader};
+#[cube]
+pub trait Loader<E: Numeric>: CubeType + 'static + Send + Sync {
+    type GlobalView: GlobalView<E>;
+    type StageReader: StageReader<E>;
+
+    fn new(
+        gmem: <Self::GlobalView as GlobalView<E>>::Global,
+        #[comptime] layout: MatrixLayout,
+        #[comptime] block_info: StageInfo,
+    ) -> Self;
+
+    fn fill_block(loader: &mut Self) -> Self::StageReader;
+
+    fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32);
+
+    fn advance_view(loader: &mut Self, k_offset: u32);
+}
 
 #[derive(CubeType)]
 pub struct LhsTensorLoader<E: Numeric, B: Stage<E>> {
@@ -25,7 +41,7 @@ pub struct RhsTensorLoader<E: Numeric, B: Stage<E>> {
 #[cube]
 impl<E: Numeric, B: Stage<E>> Loader<E> for LhsTensorLoader<E, B> {
     type GlobalView = TensorView<E>;
-    type StageReader = LhsBlockReader<E, B>;
+    type StageReader = LhsStageReader<E, B>;
 
     fn new(
         tensor: Tensor<Line<E>>,
@@ -41,8 +57,8 @@ impl<E: Numeric, B: Stage<E>> Loader<E> for LhsTensorLoader<E, B> {
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
         B::fill::<E, Self::GlobalView>(&mut loader.block, &loader.gmem_view);
-        LhsBlockReader::<E, B> {
-            block: loader.block,
+        LhsStageReader::<E, B> {
+            stage: loader.block,
             _e: PhantomData::<E>.runtime(),
         }
     }
@@ -59,7 +75,7 @@ impl<E: Numeric, B: Stage<E>> Loader<E> for LhsTensorLoader<E, B> {
 #[cube]
 impl<E: Numeric, B: Stage<E>> Loader<E> for RhsTensorLoader<E, B> {
     type GlobalView = TensorView<E>;
-    type StageReader = RhsBlockReader<E, B>;
+    type StageReader = RhsStageReader<E, B>;
 
     fn new(
         tensor: Tensor<Line<E>>,
@@ -75,8 +91,8 @@ impl<E: Numeric, B: Stage<E>> Loader<E> for RhsTensorLoader<E, B> {
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
         B::fill::<E, Self::GlobalView>(&mut loader.block, &loader.gmem_view);
-        RhsBlockReader::<E, B> {
-            block: loader.block,
+        RhsStageReader::<E, B> {
+            stage: loader.block,
             _e: PhantomData::<E>.runtime(),
         }
     }

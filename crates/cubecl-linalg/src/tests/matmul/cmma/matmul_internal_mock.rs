@@ -2,6 +2,7 @@
 #[macro_export]
 macro_rules! testgen_cmma_internal_mock {
     () => {
+        use cubecl_linalg::matmul::cmma_matmul::global_matmul::CmmaGlobalMatmul;
         use cubecl_linalg::matmul::cmma_matmul::instruction::dummy::{
             DummyUnitInstruction16_16_16, DummyUnitInstruction32_8_16, DummyUnitInstruction8_32_16,
         };
@@ -9,21 +10,14 @@ macro_rules! testgen_cmma_internal_mock {
             B128x128x16, B128x16x16, B16x16x16, B16x32x16, B32x16x16, B32x32x16, B32x32x32,
             B32x8x16, B64x64x16, B64x64x32, B8x32x16, CmmaStageMatmul,
         };
+        use cubecl_linalg::matmul::data::SharedMemoryStage;
+        use cubecl_linalg::matmul::data::{ColMajorTiling, RowMajorTiling};
+        use cubecl_linalg::matmul::matmul_global::{LhsTensorLoader, RhsTensorLoader};
         use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
         use cubecl_linalg::matmul::problem::MatmulProblem;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::{
             test_fixed_matmul, test_tensor_matmul,
         };
-
-        use cubecl_linalg::matmul::cmma_matmul::global_matmul::CmmaGlobalMatmul;
-        use cubecl_linalg::matmul::data::SharedMemoryStage;
-        use cubecl_linalg::matmul::tile_io::loading::smem::tiled_layout::{
-            ColMajorTiling, RowMajorTiling,
-        };
-        use cubecl_linalg::matmul::tile_io::loading::tensor_loader::{
-            LhsTensorLoader, RhsTensorLoader,
-        };
-        use cubecl_linalg::matmul::tile_io::loading::Tensor2SmemContinuous;
 
         #[test]
         pub fn test_global_matmul_s16x16x16_b16x16x16() {

@@ -1,18 +1,18 @@
 use super::data::SharedMemoryStage;
-use super::tile_io::loading::LhsBlockReader;
-use super::tile_io::loading::RhsBlockReader;
-use super::tile_io::writing::ArrayWriter;
-use super::tile_io::writing::TensorWriter;
-use super::GlobalMatmul;
+use super::writing::ArrayWriter;
+use super::writing::TensorWriter;
+use crate::matmul::data::RowMajorTiling;
 use crate::matmul::data::TensorView;
+use crate::matmul::matmul_global::GlobalMatmul;
+use crate::matmul::matmul_global::Loader;
+use crate::matmul::matmul_global::{LhsArrayLoader, RhsArrayLoader};
+use crate::matmul::matmul_instruction::MatmulInstruction;
+use crate::matmul::matmul_stage::LhsStageReader;
+use crate::matmul::matmul_stage::RhsStageReader;
+use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfos;
-use crate::matmul::tile_io::loading::tiled_layout::RowMajorTiling;
-use crate::matmul::tile_io::loading::{LhsArrayLoader, RhsArrayLoader};
-use crate::matmul::tile_io::writing::new_tensor_writer;
-use crate::matmul::tile_io::Loader;
-use crate::matmul::MatmulInstruction;
-use crate::matmul::StageMatmul;
+use crate::matmul::writing::new_tensor_writer;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -38,8 +38,8 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 pub(crate) fn stage_matmul_launch<
     BM: StageMatmul<
         Elem,
-        LhsBlockReader<Elem, SharedMemoryStage<Elem, RowMajorTiling>>,
-        RhsBlockReader<Elem, SharedMemoryStage<Elem, RowMajorTiling>>,
+        LhsStageReader<Elem, SharedMemoryStage<Elem, RowMajorTiling>>,
+        RhsStageReader<Elem, SharedMemoryStage<Elem, RowMajorTiling>>,
         ArrayWriter<Elem>,
     >,
     Elem: Numeric,

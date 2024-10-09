@@ -1,11 +1,12 @@
 use crate::matmul::data::TensorView;
 use crate::matmul::launch::cube_matmul_launch;
+use crate::matmul::matmul_global::{GlobalMatmul, Loader};
+use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::{MatmulProblem, Requirements};
 use crate::matmul::stage_info::StageInfos;
-use crate::matmul::tile_io::writing::TensorWriter;
-use crate::matmul::tile_io::Loader;
-use crate::matmul::{StageMatmul, GlobalMatmul, Matmul, TensorMatmul};
+use crate::matmul::writing::TensorWriter;
+use crate::matmul::{Matmul, TensorMatmul};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;

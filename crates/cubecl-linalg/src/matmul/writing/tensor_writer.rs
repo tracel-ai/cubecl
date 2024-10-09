@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::matmul_stage::TileWriter;
 use crate::matmul::stage_info::StageInfo;
-use crate::matmul::tile_io::writing::smem2tensor::{Smem2Tensor, Smem2TensorSimple};
-use crate::matmul::tile_io::TileWriter;
+use crate::matmul::writing::smem2tensor::{Smem2Tensor, Smem2TensorSimple};
 
 #[derive(CubeType)]
 pub struct TensorWriter<E: Numeric> {

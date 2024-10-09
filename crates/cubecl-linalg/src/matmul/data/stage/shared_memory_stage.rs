@@ -1,8 +1,8 @@
 use super::base::Stage;
+use super::TilingOrder;
 use crate::matmul::data::{GlobalView, Tile};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements};
-use crate::matmul::tile_io::loading::tiled_layout::TilingOrder;
 use crate::matmul::{data::new_tile, stage_info::StageInfo};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
