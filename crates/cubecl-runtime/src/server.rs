@@ -143,11 +143,13 @@ impl Clone for Binding {
     }
 }
 
-/// Provides launch information specifying the number of work groups to be used by a compute shader.
+/// Specifieds the number of cubes to be dispatched for a kernel.
+///
+/// This translates to eg. a grid for CUDA, or to num_workgroups for wgsl.
 pub enum CubeCount {
-    /// Dispatch x,y,z work groups.
+    /// Dispatch a known count of x, y, z cubes.
     Static(u32, u32, u32),
-    /// Dispatch work groups based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
+    /// Dispatch an amount based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
     Dynamic(Binding),
 }
 
