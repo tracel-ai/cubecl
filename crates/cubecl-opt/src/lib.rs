@@ -24,7 +24,7 @@
 //!
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
@@ -41,8 +41,8 @@ use cubecl_core::{
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
     EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, FindConstSliceLen,
-    InBoundsToUnchecked, InlineAssignments, IntegerRangeAnalysis, MergeSameExpressions,
-    OptimizerPass, RemoveIndexScalar,
+    InBoundsToUnchecked, InlineAssignments, IntegerRangeAnalysis, MergeBlocks,
+    MergeSameExpressions, OptimizerPass, RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
@@ -128,6 +128,8 @@ struct Range {
 pub struct Optimizer {
     /// The overall program state
     program: Program,
+    /// The post order of the graph for traversal
+    post_order: Vec<NodeIndex>,
     /// The current block while parsing
     current_block: Option<NodeIndex>,
     /// The current loop's break target
@@ -152,6 +154,7 @@ impl Default for Optimizer {
             root_scope: Scope::root(),
             cube_dim: Default::default(),
             mode: Default::default(),
+            post_order: Default::default(),
         }
     }
 }
@@ -174,6 +177,7 @@ impl Optimizer {
     /// Run all optimizations
     fn run_opt(&mut self, expand: Scope) {
         self.parse_graph(expand);
+        self.determine_postorder(self.entry(), &mut HashSet::new());
         self.analyze_liveness();
         self.apply_pre_ssa_passes();
         self.exempt_index_assign_locals();
@@ -205,6 +209,16 @@ impl Optimizer {
         }
     }
 
+    fn determine_postorder(&mut self, block: NodeIndex, visited: &mut HashSet<NodeIndex>) {
+        for successor in self.sucessors(block) {
+            if !visited.contains(&successor) {
+                visited.insert(successor);
+                self.determine_postorder(successor, visited);
+            }
+        }
+        self.post_order.push(block);
+    }
+
     fn apply_pre_ssa_passes(&mut self) {
         // Currently only one pre-ssa pass, but might add more
         let mut passes = vec![CompositeMerge];
@@ -232,6 +246,7 @@ impl Optimizer {
             Box::new(RemoveIndexScalar),
             Box::new(EliminateConstBranches),
             Box::new(EliminateDeadBlocks),
+            Box::new(MergeBlocks),
             Box::new(CopyTransform),
         ];
         // Passes that only run if execution mode is checked
@@ -308,6 +323,7 @@ impl Optimizer {
     }
 
     /// Reference to the [`BasicBlock`] with ID `block`
+    #[track_caller]
     pub fn block(&self, block: NodeIndex) -> &BasicBlock {
         &self.program[block]
     }

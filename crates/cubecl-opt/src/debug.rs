@@ -12,6 +12,10 @@ use super::Optimizer;
 /// Debug display for the program state.
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let post_order = self.post_order.iter().map(|it| format!("bb{}", it.index()));
+        let post_order = post_order.collect::<Vec<_>>();
+        writeln!(f, "Post Order: {}", post_order.join(", "))?;
+        writeln!(f)?;
         f.write_str("Slices:\n")?;
         for (var_id, slice) in self.program.slices.iter() {
             let end_op = slice.end_op.as_ref().map(|it| format!("{it}"));
@@ -30,6 +34,9 @@ impl Display for Optimizer {
             let id = node.index();
             let bb = &self.program[node];
             writeln!(f, "bb{id} {{")?;
+            if !bb.block_use.is_empty() {
+                writeln!(f, "    Uses: {:?}", bb.block_use)?;
+            }
             let live_vars = bb.live_vars.iter();
             let live_vars = live_vars.map(|it| format!("local({}, {})", it.0, it.1));
             let live_vars = live_vars.collect::<Vec<_>>();

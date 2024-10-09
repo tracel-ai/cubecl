@@ -19,7 +19,7 @@ impl Optimizer {
     /// Do a conservative block level liveness analysis
     pub fn analyze_liveness(&mut self) {
         let mut state = State {
-            worklist: VecDeque::from(self.node_ids()),
+            worklist: VecDeque::from(self.post_order.clone()),
             block_sets: HashMap::new(),
         };
         while let Some(block) = state.worklist.pop_front() {

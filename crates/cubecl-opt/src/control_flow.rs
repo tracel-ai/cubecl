@@ -1,6 +1,6 @@
 use std::mem::transmute;
 
-use crate::{BasicBlock, NodeIndex, Optimizer};
+use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_core::ir::{
     BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Item, Loop, Operator, RangeLoop,
     Switch, UnaryOperator, Variable,
@@ -98,6 +98,7 @@ impl Optimizer {
             or_else: next,
             merge,
         };
+        self.program[merge].block_use.push(BlockUse::Merge);
         self.current_block = Some(next);
     }
 
@@ -137,6 +138,7 @@ impl Optimizer {
             or_else,
             merge,
         };
+        self.program[merge].block_use.push(BlockUse::Merge);
 
         self.current_block = Some(next);
     }
@@ -182,6 +184,7 @@ impl Optimizer {
             branches,
             merge: next,
         };
+        self.program[next].block_use.push(BlockUse::Merge);
 
         self.current_block = Some(next);
     }
@@ -201,6 +204,9 @@ impl Optimizer {
         self.current_block = Some(body);
         self.parse_scope(loop_.scope);
         let continue_target = self.program.add_node(BasicBlock::default());
+        self.program[continue_target]
+            .block_use
+            .push(BlockUse::ContinueTarget);
 
         self.loop_break.pop_back();
 
@@ -215,6 +221,7 @@ impl Optimizer {
             continue_target,
             merge: next,
         };
+        self.program[next].block_use.push(BlockUse::Merge);
         self.current_block = Some(next);
     }
 
@@ -267,6 +274,10 @@ impl Optimizer {
             continue_target: current_block,
             merge: next,
         };
+        self.program[current_block]
+            .block_use
+            .push(BlockUse::ContinueTarget);
+        self.program[next].block_use.push(BlockUse::Merge);
         self.current_block = Some(next);
 
         // For loop constructs
