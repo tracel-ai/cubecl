@@ -51,7 +51,6 @@ pub enum Instruction {
         out: Variable,
     },
     IndexAssign(BinaryInstruction),
-    CheckedIndexAssign(BinaryInstruction),
     Assign(UnaryInstruction),
     RangeLoop {
         i: Variable,
@@ -249,9 +248,6 @@ impl Display for Instruction {
                     writeln!(f, "{out}[{out_index} + {i}] = {input}[{in_index} + {i}];")?;
                 }
                 Ok(())
-            }
-            Instruction::CheckedIndexAssign(it) => {
-                IndexAssign::format(f, &it.lhs, &it.rhs, &it.out)
             }
             Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
             Instruction::RangeLoop {

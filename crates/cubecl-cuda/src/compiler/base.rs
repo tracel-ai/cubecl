@@ -1,7 +1,10 @@
 use std::{collections::HashSet, num::NonZero};
 
 use cubecl_core::{
-    ir::{self as gpu, ConstantScalarValue, Metadata, ReusingAllocator},
+    cpa,
+    ir::{
+        self as gpu, ConstantScalarValue, Elem, Item, Metadata, ReusingAllocator, Scope, Variable,
+    },
     Compiler,
 };
 use cubecl_runtime::ExecutionMode;
@@ -147,7 +150,6 @@ impl CudaCompiler {
     ) {
         match operation {
             gpu::Operation::Operator(op) => self.compile_instruction(op, instructions, scope),
-            gpu::Operation::Procedure(proc) => self.compile_procedure(instructions, proc, scope),
             gpu::Operation::Metadata(op) => instructions.push(self.compile_metadata(op)),
             gpu::Operation::Branch(val) => self.compile_branch(instructions, val),
             gpu::Operation::Synchronization(val) => match val {
@@ -341,51 +343,6 @@ impl CudaCompiler {
             }),
         };
     }
-    fn compile_procedure(
-        &mut self,
-        instructions: &mut Vec<Instruction>,
-        proc: gpu::Procedure,
-        scope: &mut gpu::Scope,
-    ) {
-        let mut compile = |scope: &mut gpu::Scope| {
-            instructions.extend(self.compile_scope(scope));
-        };
-
-        match proc {
-            gpu::Procedure::ReadGlobalWithLayout(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            gpu::Procedure::ReadGlobal(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            gpu::Procedure::WriteGlobal(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            gpu::Procedure::ConditionalAssign(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            gpu::Procedure::CheckedIndex(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            gpu::Procedure::CheckedIndexAssign(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            gpu::Procedure::IndexOffsetGlobalWithLayout(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-            gpu::Procedure::EarlyReturn(proc) => {
-                proc.expand(scope);
-                compile(scope);
-            }
-        }
-    }
 
     fn compile_instruction(
         &mut self,
@@ -435,15 +392,13 @@ impl CudaCompiler {
             gpu::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
                     if has_length(&op.out) {
-                        self.compile_procedure(
-                            instructions,
-                            gpu::Procedure::CheckedIndexAssign(gpu::CheckedIndexAssign {
-                                lhs: op.lhs,
-                                rhs: op.rhs,
-                                out: op.out,
-                            }),
-                            scope,
-                        );
+                        CheckedIndexAssign {
+                            lhs: op.lhs,
+                            rhs: op.rhs,
+                            out: op.out,
+                        }
+                        .expand(scope);
+                        instructions.extend(self.compile_scope(scope));
                         return;
                     }
                 };
@@ -834,6 +789,30 @@ impl CudaCompiler {
             gpu::Elem::AtomicUInt => super::Elem::Atomic(super::AtomicKind::U32),
             gpu::Elem::Bool => super::Elem::Bool,
         }
+    }
+}
+#[allow(missing_docs)]
+struct CheckedIndexAssign {
+    pub lhs: Variable,
+    pub rhs: Variable,
+    pub out: Variable,
+}
+
+impl CheckedIndexAssign {
+    #[allow(missing_docs)]
+    fn expand(self, scope: &mut Scope) {
+        let lhs = self.lhs;
+        let rhs = self.rhs;
+        let out = self.out;
+        let array_len = scope.create_local(Item::new(Elem::UInt));
+        let inside_bound = scope.create_local(Item::new(Elem::Bool));
+
+        cpa!(scope, array_len = len(out));
+        cpa!(scope, inside_bound = lhs < array_len);
+
+        cpa!(scope, if(inside_bound).then(|scope| {
+            cpa!(scope, unchecked(out[lhs]) = rhs);
+        }));
     }
 }
 

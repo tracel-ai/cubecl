@@ -1,7 +1,8 @@
-use super::{ConstantScalarValue, Scope, Variable, Vectorization};
+use super::{ConstantScalarValue, Scope, Variable};
 use crate::SUBCUBE_DIM_APPROX;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use std::num::NonZero;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(missing_docs)]
@@ -193,6 +194,10 @@ pub struct Item {
     pub vectorization: Vectorization,
 }
 
+pub type Vectorization = Option<NonZero<u8>>;
+
+impl Item {}
+
 impl Item {
     /// Fetch the elem of the item.
     pub fn elem(&self) -> Elem {
@@ -211,6 +216,13 @@ impl Item {
     pub fn vectorized(elem: Elem, vectorization: Vectorization) -> Self {
         Self {
             elem,
+            vectorization,
+        }
+    }
+
+    pub(crate) fn vectorize(&self, vectorization: Vectorization) -> Item {
+        Item {
+            elem: self.elem,
             vectorization,
         }
     }

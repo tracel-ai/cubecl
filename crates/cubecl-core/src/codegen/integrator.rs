@@ -51,7 +51,6 @@ enum VectorizationPartial {
 #[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct KernelSettings {
     pub mappings: Vec<InplaceMapping>,
-    vectorization_global: Option<Vectorization>,
     vectorization_partial: Vec<VectorizationPartial>,
     pub cube_dim: CubeDim,
     pub reading_strategy: Vec<(u16, ReadingStrategy)>,
@@ -96,14 +95,6 @@ impl core::fmt::Display for KernelSettings {
             }?;
         }
 
-        match self.vectorization_global {
-            Some(vectorization) => f.write_fmt(format_args!(
-                "vg{}",
-                vectorization.map(NonZero::get).unwrap_or(1)
-            ))?,
-            None => f.write_str("vn")?,
-        };
-
         for vectorization in self.vectorization_partial.iter() {
             match vectorization {
                 VectorizationPartial::Input { pos, vectorization } => f.write_fmt(format_args!(
@@ -124,13 +115,6 @@ impl core::fmt::Display for KernelSettings {
 }
 
 impl KernelSettings {
-    /// Compile the shader with vectorization enabled for all inputs and outputs.
-    #[allow(dead_code)]
-    pub fn vectorize_global(mut self, vectorization: Vectorization) -> Self {
-        self.vectorization_global = Some(vectorization);
-        self
-    }
-
     /// Compile the shader with vectorization enabled for an input.
     #[allow(dead_code)]
     pub fn vectorize_input(mut self, position: usize, vectorization: Vectorization) -> Self {
@@ -167,10 +151,6 @@ impl KernelSettings {
 
     /// Fetch the vectorization for the provided input position.
     pub fn vectorization_input(&self, position: usize) -> Vectorization {
-        if let Some(vec) = self.vectorization_global {
-            return vec;
-        }
-
         for partial in self.vectorization_partial.iter() {
             if let VectorizationPartial::Input { pos, vectorization } = partial {
                 if *pos == position {
@@ -184,10 +164,6 @@ impl KernelSettings {
 
     /// Fetch the vectorization for the provided output position.
     pub fn vectorization_output(&self, position: usize) -> Vectorization {
-        if let Some(vec) = self.vectorization_global {
-            return vec;
-        }
-
         for partial in self.vectorization_partial.iter() {
             if let VectorizationPartial::Output { pos, vectorization } = partial {
                 if *pos == position {
@@ -332,10 +308,6 @@ impl KernelIntegrator {
 
     /// Performs the compilation with the provided [settings](KernelSettings).
     pub fn integrate(mut self, mut settings: KernelSettings) -> KernelDefinition {
-        if let Some(vectorization) = settings.vectorization_global {
-            self.expansion.scope.vectorize(vectorization);
-        }
-
         self.register_inputs(&settings);
         self.register_outputs(&mut settings);
 
@@ -375,12 +347,6 @@ impl KernelIntegrator {
         for input in self.expansion.inputs.drain(..) {
             match input {
                 InputInfo::Array { item, visibility } => {
-                    let item = if let Some(vectorization) = settings.vectorization_global {
-                        item.vectorize(vectorization)
-                    } else {
-                        item
-                    };
-
                     self.input_bindings.push(Binding {
                         item: bool_item(item),
                         visibility,
@@ -424,11 +390,6 @@ impl KernelIntegrator {
                     local,
                     position,
                 } => {
-                    let item = if let Some(vectorization) = settings.vectorization_global {
-                        item.vectorize(vectorization)
-                    } else {
-                        item
-                    };
                     let item_adapted = bool_item(item);
 
                     self.output_bindings.push(Binding {
@@ -457,12 +418,6 @@ impl KernelIntegrator {
                     local,
                     position,
                 } => {
-                    let item = if let Some(vectorization) = settings.vectorization_global {
-                        item.vectorize(vectorization)
-                    } else {
-                        item
-                    };
-
                     self.expansion.scope.write_global(
                         Variable::Local {
                             id: local,
@@ -477,11 +432,6 @@ impl KernelIntegrator {
                     );
                 }
                 OutputInfo::Array { item } => {
-                    let item = if let Some(vectorization) = settings.vectorization_global {
-                        item.vectorize(vectorization)
-                    } else {
-                        item
-                    };
                     let elem_adapted = bool_item(item);
 
                     self.output_bindings.push(Binding {
