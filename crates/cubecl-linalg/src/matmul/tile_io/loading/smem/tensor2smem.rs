@@ -1,15 +1,17 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
 use crate::matmul::data::{GlobalView, TensorView};
 use crate::matmul::id_map::PlaneMapper;
+use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
 use crate::matmul::tile_io::loading::smem::tiled_layout::TilingOrder;
 
 #[cube]
-pub trait Tensor2Smem: Clone + Copy + Send + Sync + 'static {
-    fn tensor_to_shared_memory<EG: Numeric, ES: Numeric, T: TilingOrder>(
-        gmem: &TensorView<EG>,
+pub trait SharedMemoryLoader<EG: Numeric>: Clone + Copy + Send + Sync + 'static {
+    type Global: GlobalView<EG>;
+
+    fn load_shared_memory<ES: Numeric, T: TilingOrder>(
+        gmem: &Self::Global,
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] block_info: StageInfo,
     );
@@ -38,8 +40,10 @@ impl PlaneMapper for Tensor2SmemContinuous {
 }
 
 #[cube]
-impl Tensor2Smem for Tensor2SmemContinuous {
-    fn tensor_to_shared_memory<EG: Numeric, ES: Numeric, O: TilingOrder>(
+impl<EG: Numeric> SharedMemoryLoader<EG> for Tensor2SmemContinuous {
+    type Global = TensorView<EG>;
+
+    fn load_shared_memory<ES: Numeric, O: TilingOrder>(
         gmem: &TensorView<EG>,
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] block_info: StageInfo,

@@ -1,12 +1,11 @@
-use crate::matmul::stage_info::StageInfo;
 use crate::matmul::data::{GlobalView, Tile};
 use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::stage_info::StageInfo;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
 pub trait Stage<E: Numeric>: CubeType + Clone + Copy + IntoRuntime + Send + Sync + 'static {
-    type GlobalView: GlobalView<E>;
     type Underlying: CubeType;
 
     fn new(
@@ -15,7 +14,7 @@ pub trait Stage<E: Numeric>: CubeType + Clone + Copy + IntoRuntime + Send + Sync
         #[comptime] line_size: u32,
     ) -> Self;
 
-    fn fill(block: &mut Self, gmem: &Self::GlobalView);
+    fn fill<EG: Numeric, G: GlobalView<EG>>(block: &mut Self, global: &G);
 
     fn get_tile(block: &Self, x: u32, y: u32) -> Tile<'_, E>;
 

@@ -3,7 +3,6 @@ use cmma_old::{is_available as cmma_available, launch_ref as cmma_launch_ref};
 use cubecl_core::prelude::*;
 
 mod base;
-pub mod stage_info;
 pub mod cmma_matmul;
 pub mod cmma_old;
 pub mod data;
@@ -11,6 +10,7 @@ mod id_map;
 pub(crate) mod launch;
 pub mod matrix_layout;
 pub mod problem;
+pub mod stage_info;
 pub mod tile_io;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not

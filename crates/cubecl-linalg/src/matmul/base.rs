@@ -29,7 +29,7 @@ pub trait GlobalMatmul<E: Numeric, Lhs: Loader<E>, Rhs: Loader<E>, Out: TileWrit
 
 #[cube]
 /// Execute a matmul over a fixed-size block, using one Cube.
-pub trait BlockMatmul<
+pub trait StageMatmul<
     E: Numeric,
     Lhs: StageReader<E>,
     Rhs: StageReader<E>,

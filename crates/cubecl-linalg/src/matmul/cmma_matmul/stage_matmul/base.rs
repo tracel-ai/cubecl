@@ -4,14 +4,14 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::CmmaStageSize;
-use crate::matmul::launch::block_matmul_launch;
+use crate::matmul::launch::stage_matmul_launch;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
 use crate::matmul::{
     id_map::PlaneMapper,
     matrix_layout::MatrixLayout,
     problem::{MatmulProblem, Requirements},
     tile_io::{StageReader, TileWriter},
-    BlockMatmul, FixedShapeMatmul, Matmul, MatmulInstruction,
+    FixedShapeMatmul, Matmul, MatmulInstruction, StageMatmul,
 };
 
 pub struct CmmaStageMatmul<
@@ -27,7 +27,7 @@ pub struct CmmaStageMatmul<
 }
 
 #[cube]
-impl<Elem, ElemAcc, Instr, Block, Lhs, Rhs, Out> BlockMatmul<Elem, Lhs, Rhs, Out>
+impl<Elem, ElemAcc, Instr, Block, Lhs, Rhs, Out> StageMatmul<Elem, Lhs, Rhs, Out>
     for CmmaStageMatmul<Elem, ElemAcc, Instr, Block>
 where
     Elem: Numeric,
@@ -138,7 +138,7 @@ where
         out: ArrayArg<'_, R>,
         layouts: (MatrixLayout, MatrixLayout),
     ) {
-        block_matmul_launch::launch_unchecked::<Self, Elem, R>(
+        stage_matmul_launch::launch_unchecked::<Self, Elem, R>(
             &client,
             cube_count,
             cube_dim,

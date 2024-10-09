@@ -1,23 +1,23 @@
-use super::Stage;
-use crate::matmul::stage_info::{tile_num_elements, total_num_elements};
-use crate::matmul::data::{ArrayView, Tile};
+use super::base::Stage;
+use crate::matmul::data::{GlobalView, Tile};
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tile_io::loading::array_to_shared_memory;
-use crate::matmul::tile_io::loading::tiled_layout::{RowMajorTiling, TilingOrder};
-use crate::matmul::{stage_info::StageInfo, data::new_tile};
+use crate::matmul::stage_info::{tile_num_elements, total_num_elements};
+use crate::matmul::tile_io::loading::tiled_layout::TilingOrder;
+use crate::matmul::{data::new_tile, stage_info::StageInfo};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use std::marker::PhantomData;
 
 #[derive(CubeType, Clone, Copy)]
-pub struct ArrayStage<E: Numeric> {
+pub struct SharedMemoryStage<E: Numeric, O: TilingOrder> {
     smem: SharedMemory<Line<E>>,
     layout: MatrixLayout,
     block_info: StageInfo,
+    _tiling_order: PhantomData<O>,
 }
 
 #[cube]
-impl<E: Numeric> Stage<E> for ArrayStage<E> {
-    type GlobalView = ArrayView<E>;
+impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
     type Underlying = SharedMemory<Line<E>>;
 
     fn new(
@@ -30,22 +30,22 @@ impl<E: Numeric> Stage<E> for ArrayStage<E> {
             line_size,
         );
 
-        ArrayStage::<E> {
+        SharedMemoryStage::<E, O> {
             smem,
             layout,
             block_info: block_info.runtime(),
+            _tiling_order: PhantomData::<O>.runtime(),
         }
     }
 
-    fn fill(block: &mut Self, gmem: &Self::GlobalView) {
-        // TODO we don't want unit_pos_y here
-        array_to_shared_memory::<E, E>(&gmem.array, &mut block.smem, UNIT_POS_Y, block.block_info)
+    fn fill<EG: Numeric, G: GlobalView<EG>>(block: &mut Self, gmem: &G) {
+        G::load_shared_memory::<E>(gmem, &mut block.smem, block.block_info)
     }
 
     fn get_tile(block: &Self, x: u32, y: u32) -> Tile<'_, E> {
         let tile_stride = tile_num_elements(block.block_info);
 
-        let nth_tile = RowMajorTiling::to_nth_tile(
+        let nth_tile = O::to_nth_tile(
             x,
             y,
             block.block_info.num_tiles_x,

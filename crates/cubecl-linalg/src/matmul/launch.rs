@@ -1,22 +1,20 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
-use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::tile_io::Loader;
-use crate::matmul::MatmulInstruction;
-
-use crate::matmul::stage_info::StageInfos;
-use crate::matmul::data::ArrayStage;
-use crate::matmul::BlockMatmul;
-
+use super::data::SharedMemoryStage;
 use super::tile_io::loading::LhsBlockReader;
 use super::tile_io::loading::RhsBlockReader;
 use super::tile_io::writing::ArrayWriter;
 use super::tile_io::writing::TensorWriter;
 use super::GlobalMatmul;
 use crate::matmul::data::TensorView;
+use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::stage_info::StageInfos;
+use crate::matmul::tile_io::loading::tiled_layout::RowMajorTiling;
 use crate::matmul::tile_io::loading::{LhsArrayLoader, RhsArrayLoader};
 use crate::matmul::tile_io::writing::new_tensor_writer;
+use crate::matmul::tile_io::Loader;
+use crate::matmul::MatmulInstruction;
+use crate::matmul::StageMatmul;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
@@ -37,11 +35,11 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 }
 
 #[cube(launch_unchecked)]
-pub(crate) fn block_matmul_launch<
-    BM: BlockMatmul<
+pub(crate) fn stage_matmul_launch<
+    BM: StageMatmul<
         Elem,
-        LhsBlockReader<Elem, ArrayStage<Elem>>,
-        RhsBlockReader<Elem, ArrayStage<Elem>>,
+        LhsBlockReader<Elem, SharedMemoryStage<Elem, RowMajorTiling>>,
+        RhsBlockReader<Elem, SharedMemoryStage<Elem, RowMajorTiling>>,
         ArrayWriter<Elem>,
     >,
     Elem: Numeric,
@@ -72,8 +70,8 @@ pub(crate) fn block_matmul_launch<
 pub(crate) fn cube_matmul_launch<
     CM: GlobalMatmul<Elem, Lhs, Rhs, TensorWriter<Elem>>,
     Elem: Numeric,
-    Lhs: Loader<Elem, GmemView = TensorView<Elem>>,
-    Rhs: Loader<Elem, GmemView = TensorView<Elem>>,
+    Lhs: Loader<Elem, GlobalView = TensorView<Elem>>,
+    Rhs: Loader<Elem, GlobalView = TensorView<Elem>>,
 >(
     lhs_tensor: Tensor<Line<Elem>>,
     rhs_tensor: Tensor<Line<Elem>>,

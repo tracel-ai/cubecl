@@ -5,14 +5,14 @@ use crate::matmul::problem::{MatmulProblem, Requirements};
 use crate::matmul::stage_info::StageInfos;
 use crate::matmul::tile_io::writing::TensorWriter;
 use crate::matmul::tile_io::Loader;
-use crate::matmul::{BlockMatmul, GlobalMatmul, Matmul, TensorMatmul};
+use crate::matmul::{StageMatmul, GlobalMatmul, Matmul, TensorMatmul};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 pub struct CmmaGlobalMatmul<
     Elem: Numeric,
-    BM: BlockMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
+    BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
     Lhs: Loader<Elem>,
     Rhs: Loader<Elem>,
 > {
@@ -25,9 +25,9 @@ pub struct CmmaGlobalMatmul<
 #[cube]
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
-        Lhs: Loader<Elem, GmemView = TensorView<Elem>>,
-        Rhs: Loader<Elem, GmemView = TensorView<Elem>>,
+        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
+        Lhs: Loader<Elem, GlobalView = TensorView<Elem>>,
+        Rhs: Loader<Elem, GlobalView = TensorView<Elem>>,
     > GlobalMatmul<Elem, Lhs, Rhs, TensorWriter<Elem>> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs>
 {
     fn execute(
@@ -61,7 +61,7 @@ impl<
 
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
+        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
         Lhs: Loader<Elem>,
         Rhs: Loader<Elem>,
     > Matmul<Elem, Elem> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs>
@@ -81,9 +81,9 @@ impl<
 
 impl<
         Elem: Numeric,
-        BM: BlockMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
-        Lhs: Loader<Elem, GmemView = TensorView<Elem>>,
-        Rhs: Loader<Elem, GmemView = TensorView<Elem>>,
+        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
+        Lhs: Loader<Elem, GlobalView = TensorView<Elem>>,
+        Rhs: Loader<Elem, GlobalView = TensorView<Elem>>,
     > TensorMatmul<Elem> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs>
 {
     unsafe fn launch_unchecked<R: Runtime>(

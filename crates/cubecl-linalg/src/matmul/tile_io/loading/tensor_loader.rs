@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::stage_info::StageInfo;
-use crate::matmul::data::{new_tensor_view, Stage, GlobalView, TensorView};
+use crate::matmul::data::{new_tensor_view, GlobalView, Stage, TensorView};
 use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::stage_info::StageInfo;
 use crate::matmul::tile_io::Loader;
 
 use super::{LhsBlockReader, RhsBlockReader};
@@ -23,8 +23,8 @@ pub struct RhsTensorLoader<E: Numeric, B: Stage<E>> {
 }
 
 #[cube]
-impl<E: Numeric, B: Stage<E, GlobalView = TensorView<E>>> Loader<E> for LhsTensorLoader<E, B> {
-    type GmemView = TensorView<E>;
+impl<E: Numeric, B: Stage<E>> Loader<E> for LhsTensorLoader<E, B> {
+    type GlobalView = TensorView<E>;
     type StageReader = LhsBlockReader<E, B>;
 
     fn new(
@@ -40,7 +40,7 @@ impl<E: Numeric, B: Stage<E, GlobalView = TensorView<E>>> Loader<E> for LhsTenso
     }
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
-        B::fill(&mut loader.block, &loader.gmem_view);
+        B::fill::<E, Self::GlobalView>(&mut loader.block, &loader.gmem_view);
         LhsBlockReader::<E, B> {
             block: loader.block,
             _e: PhantomData::<E>.runtime(),
@@ -57,8 +57,8 @@ impl<E: Numeric, B: Stage<E, GlobalView = TensorView<E>>> Loader<E> for LhsTenso
 }
 
 #[cube]
-impl<E: Numeric, B: Stage<E, GlobalView = TensorView<E>>> Loader<E> for RhsTensorLoader<E, B> {
-    type GmemView = TensorView<E>;
+impl<E: Numeric, B: Stage<E>> Loader<E> for RhsTensorLoader<E, B> {
+    type GlobalView = TensorView<E>;
     type StageReader = RhsBlockReader<E, B>;
 
     fn new(
@@ -74,7 +74,7 @@ impl<E: Numeric, B: Stage<E, GlobalView = TensorView<E>>> Loader<E> for RhsTenso
     }
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
-        B::fill(&mut loader.block, &loader.gmem_view);
+        B::fill::<E, Self::GlobalView>(&mut loader.block, &loader.gmem_view);
         RhsBlockReader::<E, B> {
             block: loader.block,
             _e: PhantomData::<E>.runtime(),

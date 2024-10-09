@@ -2,6 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::stage_info::StageInfo;
+use crate::matmul::tile_io::loading::tiled_layout::RowMajorTiling;
+use crate::matmul::tile_io::loading::{SharedMemoryLoader, Tensor2SmemContinuous};
 
 use super::GlobalView;
 
@@ -27,6 +30,18 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
             / tensor.line_size();
 
         tensor[read_pos]
+    }
+
+    fn load_shared_memory<ES: Numeric>(
+        view: &Self,
+        shared_memory: &mut SharedMemory<Line<ES>>,
+        #[comptime] stage_info: StageInfo,
+    ) {
+        Tensor2SmemContinuous::load_shared_memory::<ES, RowMajorTiling>(
+            view,
+            shared_memory,
+            stage_info,
+        );
     }
 
     fn init_view(view: &mut Self, x_offset: u32, y_offset: u32) {

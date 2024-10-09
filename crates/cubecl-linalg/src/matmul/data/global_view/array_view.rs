@@ -2,6 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::stage_info::StageInfo;
+use crate::matmul::tile_io::loading::array_to_shared_memory;
 
 use super::GlobalView;
 
@@ -26,6 +28,14 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         let read_pos = (read_row * stride_row + read_col * stride_col) / array.line_size();
 
         array[read_pos]
+    }
+
+    fn load_shared_memory<ES: Numeric>(
+        view: &Self,
+        shared_memory: &mut SharedMemory<Line<ES>>,
+        #[comptime] stage_info: StageInfo,
+    ) {
+        array_to_shared_memory(&view.array, shared_memory, UNIT_POS_Y, stage_info)
     }
 
     fn init_view(_view: &mut Self, _x_offset: u32, _y_offset: u32) {

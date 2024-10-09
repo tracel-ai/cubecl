@@ -1,7 +1,5 @@
-mod array2smem;
 mod base;
-mod tensor2smem;
+mod shared_memory_stage;
 
-pub use array2smem::*;
 pub use base::*;
-pub use tensor2smem::*;
+pub use shared_memory_stage::*;

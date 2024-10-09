@@ -2,9 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::{
-    stage_info::StageInfo,
     data::{GlobalView, Tile},
     matrix_layout::MatrixLayout,
+    stage_info::StageInfo,
 };
 
 #[cube]
@@ -22,11 +22,11 @@ pub trait StageReader<E: Numeric>: CubeType {
 
 #[cube]
 pub trait Loader<E: Numeric>: CubeType + 'static + Send + Sync {
-    type GmemView: GlobalView<E>;
+    type GlobalView: GlobalView<E>;
     type StageReader: StageReader<E>;
 
     fn new(
-        gmem: <Self::GmemView as GlobalView<E>>::Global,
+        gmem: <Self::GlobalView as GlobalView<E>>::Global,
         #[comptime] layout: MatrixLayout,
         #[comptime] block_info: StageInfo,
     ) -> Self;
