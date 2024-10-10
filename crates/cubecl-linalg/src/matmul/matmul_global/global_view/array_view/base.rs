@@ -23,6 +23,8 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
 
     fn load_single(view: &Self, read_row: u32, read_col: u32) -> Line<E> {
         let array = &view.array;
+
+        // TODO stride computations should be done once in the new
         let (stride_row, stride_col) = match comptime!(view.layout) {
             MatrixLayout::RowMajor => (view.shape.1, 1),
             MatrixLayout::ColMajor => (1, view.shape.0),
@@ -56,6 +58,8 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
 
     fn write_single<C: CubePrimitive>(view: &mut Self, write_row: u32, write_col: u32, value: C) {
         let array = &mut view.array;
+
+        // TODO stride computations should be done once in the new
         let (stride_row, stride_col) = match comptime!(view.layout) {
             MatrixLayout::RowMajor => (view.shape.1, 1),
             MatrixLayout::ColMajor => (1, view.shape.0),

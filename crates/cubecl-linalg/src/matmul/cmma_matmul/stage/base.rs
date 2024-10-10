@@ -5,8 +5,8 @@ use cubecl_core::prelude::*;
 
 use super::CmmaStageSize;
 use crate::matmul::launch::stage_matmul_launch;
-use crate::matmul::matmul_instruction::MatmulInstruction;
 use crate::matmul::matmul_stage::{StageMatmul, StageReader, StageWriter};
+use crate::matmul::matmul_tile::MatmulInstruction;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
 use crate::matmul::{
     id_map::PlaneMapper,
@@ -43,6 +43,7 @@ where
 
     fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator) {
         let num_buffers = Block::K / Instr::K;
+
         let mut instruction_lhs = Instr::init_lhs(Lhs::slice_layout(lhs));
         let mut instruction_rhs = Instr::init_rhs(Rhs::slice_layout(rhs));
 

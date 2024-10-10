@@ -29,6 +29,7 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         let read_row = read_row + view.x_offset;
         let read_col = read_col + view.y_offset;
 
+        // TODO stride computations should be done once in the new
         let read_pos = (read_row * tensor.stride(tensor.rank() - 2)
             + read_col * tensor.stride(tensor.rank() - 1))
             / tensor.line_size();
@@ -66,6 +67,7 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         let write_row = write_row + view.x_offset;
         let write_col = write_col + view.y_offset;
 
+        // TODO stride computations should be done once in the new
         let write_position = (write_row * tensor.stride(tensor.rank() - 2)
             + write_col * tensor.stride(tensor.rank() - 1))
             / tensor.line_size();

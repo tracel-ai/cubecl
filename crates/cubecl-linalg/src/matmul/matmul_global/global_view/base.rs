@@ -4,6 +4,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::stage_info::StageInfo;
 
 #[cube]
+// TODO separate load from write, they should never be the same instance
 pub trait GlobalView<E: Numeric>: CubeType {
     type Global: CubeType;
 
@@ -15,6 +16,7 @@ pub trait GlobalView<E: Numeric>: CubeType {
         shared_memory: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,
     );
+
     fn write_single<C: CubePrimitive>(view: &mut Self, write_row: u32, write_col: u32, value: C);
     fn write_slice<C: CubePrimitive>(
         view: &mut Self,

@@ -2,20 +2,20 @@
 #[macro_export]
 macro_rules! testgen_cmma_internal {
     () => {
-        use cubecl_linalg::matmul::cmma_matmul::instruction::base::{
-            CmmaInstruction16_16_16, CmmaInstruction32_8_16, CmmaInstruction8_32_16,
+        use cubecl_linalg::matmul::cmma_matmul::stage::{
+            CmmaStageMatmul, S16x16x16, S32x8x16, S8x32x16,
         };
-        use cubecl_linalg::matmul::cmma_matmul::stage_matmul::{
-            B16x16x16, B32x8x16, B8x32x16, CmmaStageMatmul,
+        use cubecl_linalg::matmul::cmma_matmul::tile::base::{
+            CmmaInstruction16_16_16, CmmaInstruction32_8_16, CmmaInstruction8_32_16,
         };
         use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_fixed_matmul;
         use half::{bf16, f16};
 
         #[test]
-        pub fn test_block_matmul_b16x16x16_f32() {
+        pub fn test_stage_matmul_s16x16x16_f32() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f16, f32, CmmaInstruction16_16_16<f16, f32>, B16x16x16>,
+                CmmaStageMatmul<f16, f32, CmmaInstruction16_16_16<f16, f32>, S16x16x16>,
                 f16,
                 f16,
                 TestRuntime,
@@ -26,9 +26,9 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
-        pub fn test_block_matmul_b16x16x16_f16() {
+        pub fn test_stage_matmul_s16x16x16_f16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f16, f16, CmmaInstruction16_16_16<f16, f16>, B16x16x16>,
+                CmmaStageMatmul<f16, f16, CmmaInstruction16_16_16<f16, f16>, S16x16x16>,
                 f16,
                 f16,
                 TestRuntime,
@@ -39,9 +39,9 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
-        pub fn test_block_matmul_b32x8x16() {
+        pub fn test_stage_matmul_s32x8x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f16, f32, CmmaInstruction32_8_16<f16, f32>, B32x8x16>,
+                CmmaStageMatmul<f16, f32, CmmaInstruction32_8_16<f16, f32>, S32x8x16>,
                 f16,
                 f16,
                 TestRuntime,
@@ -52,9 +52,9 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
-        pub fn test_block_matmul_b8x32x16() {
+        pub fn test_stage_matmul_s8x32x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f16, f32, CmmaInstruction8_32_16<f16, f32>, B8x32x16>,
+                CmmaStageMatmul<f16, f32, CmmaInstruction8_32_16<f16, f32>, S8x32x16>,
                 f16,
                 f16,
                 TestRuntime,

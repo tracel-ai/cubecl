@@ -55,28 +55,39 @@ impl SharedMemoryLoader for Gmem2SmemContinuous {
         for i in 0..num_smem_elements / jump_length {
             let unit_position = unit_position_base + i * jump_length;
 
-            let (row, col) = apply_tiled_layout::<O>(unit_position, stage_info);
+            let tile_num_elements = tile_num_elements(stage_info);
+            let nth_tile = unit_position / tile_num_elements;
 
-            let line = G::load_single(gmem, row, col);
+            // no regards to layout
+            // may be row or col
+            // TODO should come already multiplied, or we won't know multiply by which
+            let (tile_vert, tile_hori) =
+                O::to_row_col(nth_tile, stage_info.num_tiles_x, stage_info.num_tiles_y);
+
+            let pos_within_tile = unit_position % tile_num_elements;
+
+            // may be row or col
+            let within_vert = pos_within_tile / stage_info.tile_size_y;
+            let within_hori = pos_within_tile % stage_info.tile_size_y;
+
+            // assuming tile_ multiplied
+            let vert = tile_vert + within_vert;
+            let hori = tile_hori + within_hori;
+
+            // TODO change load single, shouldnt care about layout
+            let line = G::load_single(gmem, vert, hori);
             smem[unit_position] = Line::cast_from(line);
         }
     }
 }
 
-#[cube]
-pub(crate) fn apply_tiled_layout<T: TilingOrder>(
-    unit_position: u32,
-    #[comptime] block_info: StageInfo,
-) -> (u32, u32) {
-    let tile_num_elements = tile_num_elements(block_info);
-    let nth_tile = unit_position / tile_num_elements;
-    let pos_within_tile = unit_position % tile_num_elements;
+// #[cube]
+// pub(crate) fn tile_row_col<T: TilingOrder>(
+//     unit_position: u32,
+//     #[comptime] stage_info: StageInfo,
+// ) -> (u32, u32) {
+//     let row = tile_row * stage_info.tile_size_x + pos_within_tile / stage_info.tile_size_y;
+//     let col = tile_col * stage_info.tile_size_y + pos_within_tile % stage_info.tile_size_y;
 
-    let (tile_row, tile_col) =
-        T::to_row_col(nth_tile, block_info.num_tiles_x, block_info.num_tiles_y);
-
-    let row = tile_row * block_info.tile_size_x + pos_within_tile / block_info.tile_size_y;
-    let col = tile_col * block_info.tile_size_y + pos_within_tile % block_info.tile_size_y;
-
-    (row, col)
-}
+//     (row, col)
+// }

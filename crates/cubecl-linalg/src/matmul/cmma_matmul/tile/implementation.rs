@@ -1,10 +1,10 @@
-use crate::matmul::cmma_matmul::instruction::base::Fragment;
+use crate::matmul::cmma_matmul::tile::base::Fragment;
 use crate::matmul::matrix_layout::{as_cmma_layout, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 
 #[cube]
-pub(super) fn execute<I: Numeric, O: Numeric>(
+pub(crate) fn execute<I: Numeric, O: Numeric>(
     lhs: &Fragment<I>,
     rhs: &Fragment<I>,
     out: &mut Fragment<O>,
@@ -13,7 +13,7 @@ pub(super) fn execute<I: Numeric, O: Numeric>(
 }
 
 #[cube]
-pub(super) fn init_lhs<I: Numeric>(
+pub(crate) fn init_lhs<I: Numeric>(
     #[comptime] layout: MatrixLayout,
     m: u32,
     n: u32,
@@ -37,7 +37,7 @@ pub(super) fn init_lhs<I: Numeric>(
 }
 
 #[cube]
-pub(super) fn init_rhs<I: Numeric>(
+pub(crate) fn init_rhs<I: Numeric>(
     #[comptime] layout: MatrixLayout,
     m: u32,
     n: u32,
@@ -61,17 +61,17 @@ pub(super) fn init_rhs<I: Numeric>(
 }
 
 #[cube]
-pub(super) fn fill_lhs<C: CubePrimitive, I: Numeric>(slice: &Slice<'_, C>, lhs: &mut Fragment<I>) {
+pub(crate) fn fill_lhs<C: CubePrimitive, I: Numeric>(slice: &Slice<'_, C>, lhs: &mut Fragment<I>) {
     cmma::load(&lhs.matrix, slice, lhs.stride);
 }
 
 #[cube]
-pub(super) fn fill_rhs<C: CubePrimitive, I: Numeric>(slice: &Slice<'_, C>, rhs: &mut Fragment<I>) {
+pub(crate) fn fill_rhs<C: CubePrimitive, I: Numeric>(slice: &Slice<'_, C>, rhs: &mut Fragment<I>) {
     cmma::load(&rhs.matrix, slice, rhs.stride);
 }
 
 #[cube]
-pub(super) fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
+pub(crate) fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
     unsafe {
         let matrix = cmma::Matrix::<O>::uninitialized(
             cmma::MatrixIdent::Accumulator,
@@ -88,7 +88,7 @@ pub(super) fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
 }
 
 #[cube]
-pub(super) fn read_output<O: Numeric, C: CubePrimitive>(
+pub(crate) fn read_output<O: Numeric, C: CubePrimitive>(
     out: &Fragment<O>,
     slice: &mut SliceMut<'_, C>,
 ) {

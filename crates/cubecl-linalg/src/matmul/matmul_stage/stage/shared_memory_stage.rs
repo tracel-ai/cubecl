@@ -1,8 +1,8 @@
 use super::base::Stage;
 use super::TilingOrder;
 use crate::matmul::matmul_global::GlobalView;
-use crate::matmul::matmul_instruction::new_tile;
-use crate::matmul::matmul_instruction::Tile;
+use crate::matmul::matmul_tile::new_tile;
+use crate::matmul::matmul_tile::Tile;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements};
@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 pub struct SharedMemoryStage<E: Numeric, O: TilingOrder> {
     smem: SharedMemory<Line<E>>,
     layout: MatrixLayout,
-    block_info: StageInfo,
+    stage_info: StageInfo,
     _tiling_order: PhantomData<O>,
 }
 
@@ -24,46 +24,46 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
 
     fn new(
         layout: MatrixLayout,
-        #[comptime] block_info: StageInfo,
+        #[comptime] stage_info: StageInfo,
         #[comptime] line_size: u32,
     ) -> Self {
         let smem = SharedMemory::new_lined(
-            comptime!(total_num_elements(block_info) / line_size),
+            comptime!(total_num_elements(stage_info) / line_size),
             line_size,
         );
 
         SharedMemoryStage::<E, O> {
             smem,
             layout,
-            block_info: block_info.runtime(),
+            stage_info: stage_info.runtime(),
             _tiling_order: PhantomData::<O>.runtime(),
         }
     }
 
-    fn fill<EG: Numeric, G: GlobalView<EG>>(block: &mut Self, gmem: &G) {
-        G::load_shared_memory::<E>(gmem, &mut block.smem, block.block_info)
+    fn fill<EG: Numeric, G: GlobalView<EG>>(stage: &mut Self, gmem: &G) {
+        G::load_shared_memory::<E>(gmem, &mut stage.smem, stage.stage_info)
     }
 
-    fn get_tile(block: &Self, x: u32, y: u32) -> Tile<'_, E> {
-        let tile_stride = tile_num_elements(block.block_info);
-
+    fn get_tile(stage: &Self, x: u32, y: u32) -> Tile<'_, E> {
         let nth_tile = O::to_nth_tile(
             x,
             y,
-            block.block_info.num_tiles_x,
-            block.block_info.num_tiles_y,
+            stage.stage_info.num_tiles_x,
+            stage.stage_info.num_tiles_y,
         );
 
+        let tile_stride = tile_num_elements(stage.stage_info);
         let start = nth_tile * tile_stride;
+
         new_tile(
             x,
             y,
-            block.smem.slice(start, start + tile_stride),
-            block.layout,
+            stage.smem.slice(start, start + tile_stride),
+            stage.layout,
         )
     }
 
-    fn layout(block: &Self) -> MatrixLayout {
-        block.layout
+    fn layout(stage: &Self) -> MatrixLayout {
+        stage.layout
     }
 }

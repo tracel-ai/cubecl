@@ -1,5 +1,5 @@
 use crate::matmul::launch::matmul_instruction_launch;
-use crate::matmul::matmul_instruction::MatmulInstruction;
+use crate::matmul::matmul_tile::MatmulInstruction;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::{MatmulProblem, Requirements};
 use crate::matmul::stage_info::{StageInfo, StageInfos};

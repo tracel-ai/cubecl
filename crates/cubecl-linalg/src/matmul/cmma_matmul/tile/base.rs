@@ -1,6 +1,6 @@
 use super::implementation::*;
 use crate::matmul::launch::matmul_instruction_launch;
-use crate::matmul::matmul_instruction::MatmulInstruction;
+use crate::matmul::matmul_tile::MatmulInstruction;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::{MatmulProblem, Requirements};
 use crate::matmul::stage_info::{StageInfo, StageInfos};
@@ -27,6 +27,44 @@ macro_rules! impl_matmul_instruction {
         pub struct $name<I: Numeric, O: Numeric> {
             _input: PhantomData<I>,
             _output: PhantomData<O>,
+        }
+
+        #[cube]
+        impl<I: Numeric, O: Numeric> MatmulInstruction<I, O> for $name<I, O>
+        where
+            (I, O): CmmaValid<I, O>,
+        {
+            type Lhs = Fragment<I>;
+            type Rhs = Fragment<I>;
+            type Out = Fragment<O>;
+
+            fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out) {
+                execute::<I, O>(lhs, rhs, out);
+            }
+
+            fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs {
+                init_lhs(layout, Self::M, Self::N, Self::K)
+            }
+
+            fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs {
+                init_rhs(layout, Self::M, Self::N, Self::K)
+            }
+
+            fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs) {
+                fill_lhs(slice, lhs);
+            }
+
+            fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs) {
+                fill_rhs(slice, rhs);
+            }
+
+            fn init_output() -> Self::Out {
+                init_output(Self::M, Self::N, Self::K)
+            }
+
+            fn read_output<C: CubePrimitive>(out: &Self::Out, slice: &mut SliceMut<'_, C>) {
+                read_output::<O, C>(out, slice);
+            }
         }
 
         impl<I: Numeric, O: Numeric> FixedShapeMatmul<I, O> for $name<I, O>
@@ -88,44 +126,6 @@ macro_rules! impl_matmul_instruction {
                         tile_size_y: $n,
                     },
                 }
-            }
-        }
-
-        #[cube]
-        impl<I: Numeric, O: Numeric> MatmulInstruction<I, O> for $name<I, O>
-        where
-            (I, O): CmmaValid<I, O>,
-        {
-            type Lhs = Fragment<I>;
-            type Rhs = Fragment<I>;
-            type Out = Fragment<O>;
-
-            fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out) {
-                execute::<I, O>(lhs, rhs, out);
-            }
-
-            fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs {
-                init_lhs(layout, Self::M, Self::N, Self::K)
-            }
-
-            fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs {
-                init_rhs(layout, Self::M, Self::N, Self::K)
-            }
-
-            fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs) {
-                fill_lhs(slice, lhs);
-            }
-
-            fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs) {
-                fill_rhs(slice, rhs);
-            }
-
-            fn init_output() -> Self::Out {
-                init_output(Self::M, Self::N, Self::K)
-            }
-
-            fn read_output<C: CubePrimitive>(out: &Self::Out, slice: &mut SliceMut<'_, C>) {
-                read_output::<O, C>(out, slice);
             }
         }
     };

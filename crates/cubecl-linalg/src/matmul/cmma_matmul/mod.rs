@@ -1,3 +1,3 @@
-pub mod stage_matmul;
-pub mod instruction;
-pub mod global_matmul;
+pub mod stage;
+pub mod tile;
+pub mod global;

@@ -3,7 +3,7 @@ use crate::matmul::matmul_global::GlobalMatmul;
 use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_global::{LhsArrayLoader, RhsArrayLoader};
 use crate::matmul::matmul_global::{Loader, Unloader};
-use crate::matmul::matmul_instruction::MatmulInstruction;
+use crate::matmul::matmul_tile::MatmulInstruction;
 use crate::matmul::matmul_stage::ArrayWriter;
 use crate::matmul::matmul_stage::LhsStageReader;
 use crate::matmul::matmul_stage::RhsStageReader;
