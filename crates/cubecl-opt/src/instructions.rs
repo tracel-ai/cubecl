@@ -22,7 +22,6 @@ impl Optimizer {
             Operation::Subcube(subcube) => self.visit_subcube(subcube, visit_read, visit_write),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read, visit_write),
             // Procedures get compiled out before visiting
-            Operation::Procedure(_) => {}
             Operation::Branch(Branch::Select(select)) => {
                 visit_read(self, &mut select.cond);
                 visit_read(self, &mut select.then);

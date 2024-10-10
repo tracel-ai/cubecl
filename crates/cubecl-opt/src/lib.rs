@@ -31,7 +31,7 @@ use std::{
 };
 
 use cubecl_core::{
-    ir::{self as core, Operator, Procedure, Variable},
+    ir::{self as core, Operator, Variable},
     CubeDim,
 };
 use cubecl_core::{
@@ -341,7 +341,6 @@ impl Optimizer {
         for instruction in processed.operations {
             match instruction {
                 Operation::Branch(branch) => self.parse_control_flow(branch),
-                Operation::Procedure(proc) => self.compile_procedure(proc, scope.clone()),
                 Operation::Operator(Operator::Slice(slice_op)) => {
                     let out_id = match &slice_op.out {
                         Variable::Slice { id, depth, .. } => (*id, *depth),
@@ -364,47 +363,6 @@ impl Optimizer {
                     self.visit_operation(&mut other, |_, _| {}, |opt, var| opt.write_var(var));
                     self.current_block_mut().ops.borrow_mut().push(other);
                 }
-            }
-        }
-    }
-
-    fn compile_procedure(&mut self, proc: Procedure, mut scope: Scope) {
-        let mut compile = |scope: Scope| {
-            self.parse_scope(scope);
-        };
-
-        match proc {
-            Procedure::ReadGlobalWithLayout(proc) => {
-                proc.expand(&mut scope);
-                compile(scope);
-            }
-            Procedure::ReadGlobal(proc) => {
-                proc.expand(&mut scope);
-                compile(scope);
-            }
-            Procedure::WriteGlobal(proc) => {
-                proc.expand(&mut scope);
-                compile(scope);
-            }
-            Procedure::ConditionalAssign(proc) => {
-                proc.expand(&mut scope);
-                compile(scope);
-            }
-            Procedure::CheckedIndex(proc) => {
-                proc.expand(&mut scope);
-                compile(scope);
-            }
-            Procedure::CheckedIndexAssign(proc) => {
-                proc.expand(&mut scope);
-                compile(scope);
-            }
-            Procedure::IndexOffsetGlobalWithLayout(proc) => {
-                proc.expand(&mut scope);
-                compile(scope);
-            }
-            Procedure::EarlyReturn(proc) => {
-                proc.expand(&mut scope);
-                compile(scope);
             }
         }
     }

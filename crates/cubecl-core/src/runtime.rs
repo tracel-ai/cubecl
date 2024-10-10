@@ -1,8 +1,4 @@
-use crate::{
-    codegen::Compiler,
-    compute::{CubeCount, CubeTask},
-    ir::Elem,
-};
+use crate::{codegen::Compiler, compute::CubeTask, ir::Elem};
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
 pub use cubecl_runtime::channel;
@@ -16,11 +12,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// The compiler used to compile the inner representation into tokens.
     type Compiler: Compiler;
     /// The compute server used to run kernels and perform autotuning.
-    type Server: ComputeServer<
-        Kernel = Box<dyn CubeTask<Self::Compiler>>,
-        DispatchOptions = CubeCount<Self::Server>,
-        Feature = Feature,
-    >;
+    type Server: ComputeServer<Kernel = Box<dyn CubeTask<Self::Compiler>>, Feature = Feature>;
     /// The channel used to communicate with the compute server.
     type Channel: ComputeChannel<Self::Server>;
     /// The device used to retrieve the compute client.

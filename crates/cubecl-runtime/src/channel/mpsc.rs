@@ -4,7 +4,7 @@ use std::{sync::Arc, thread};
 use super::ComputeChannel;
 use crate::{
     memory_management::MemoryUsage,
-    server::{Binding, ComputeServer, Handle},
+    server::{Binding, ComputeServer, CubeCount, Handle},
     storage::BindingResource,
     ExecutionMode,
 };
@@ -34,14 +34,11 @@ enum Message<Server>
 where
     Server: ComputeServer,
 {
-    Read(Binding<Server>, Callback<Vec<u8>>),
-    GetResource(Binding<Server>, Callback<BindingResource<Server>>),
-    Create(Vec<u8>, Callback<Handle<Server>>),
-    Empty(usize, Callback<Handle<Server>>),
-    ExecuteKernel(
-        (Server::Kernel, Server::DispatchOptions, ExecutionMode),
-        Vec<Binding<Server>>,
-    ),
+    Read(Binding, Callback<Vec<u8>>),
+    GetResource(Binding, Callback<BindingResource<Server>>),
+    Create(Vec<u8>, Callback<Handle>),
+    Empty(usize, Callback<Handle>),
+    ExecuteKernel((Server::Kernel, CubeCount, ExecutionMode), Vec<Binding>),
     Sync(SyncType, Callback<()>),
     GetMemoryUsage(Callback<MemoryUsage>),
 }
@@ -109,7 +106,7 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
-    fn read(&self, binding: Binding<Server>) -> Reader {
+    fn read(&self, binding: Binding) -> Reader {
         let sender = self.state.sender.clone();
 
         Box::pin(async move {
@@ -119,7 +116,7 @@ where
         })
     }
 
-    fn get_resource(&self, binding: Binding<Server>) -> BindingResource<Server> {
+    fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
         let (callback, response) = async_channel::unbounded();
 
         self.state
@@ -130,7 +127,7 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn create(&self, data: &[u8]) -> Handle<Server> {
+    fn create(&self, data: &[u8]) -> Handle {
         let (callback, response) = async_channel::unbounded();
 
         self.state
@@ -141,7 +138,7 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn empty(&self, size: usize) -> Handle<Server> {
+    fn empty(&self, size: usize) -> Handle {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
@@ -154,8 +151,8 @@ where
     unsafe fn execute(
         &self,
         kernel: Server::Kernel,
-        count: Server::DispatchOptions,
-        bindings: Vec<Binding<Server>>,
+        count: CubeCount,
+        bindings: Vec<Binding>,
         kind: ExecutionMode,
     ) {
         self.state

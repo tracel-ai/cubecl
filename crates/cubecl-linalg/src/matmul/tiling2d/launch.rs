@@ -121,7 +121,7 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, F: Float>(
     };
     let out_vectorization = vectorization(n);
 
-    let cube_count = tiling2d_cube_count::<R>(out.shape, &config);
+    let cube_count = tiling2d_cube_count(out.shape, &config);
     let cube_dim = tiling2d_cube_dim(&config);
     let cube_config = CubeTiling2dConfig::new(&config, m, k, n, lhs_transposed, rhs_transposed);
 

@@ -12,18 +12,18 @@ version.workspace = true
 
 [features]
 default = [
-  "cubecl-runtime/default",
-  "cubecl-common/default",
-  "cubecl-core/default",
+    "cubecl-runtime/default",
+    "cubecl-common/default",
+    "cubecl-core/default",
 ]
-simple-memory-management = []
+exclusive-memory-only = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.2.0" }
 cubecl-core = { path = "../cubecl-core", version = "0.2.0" }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false, features = [
-  "channel-mutex",
+    "channel-mutex",
 ] }
 
 bytemuck = { workspace = true }
@@ -37,10 +37,10 @@ log = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.2.0", features = [
-  "export_tests",
+    "export_tests",
 ] }
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", features = [
-  "export_tests",
+    "export_tests",
 ] }
 pretty_assertions = { workspace = true }
 
