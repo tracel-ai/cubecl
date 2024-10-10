@@ -1,4 +1,5 @@
-use crate::matmul::data::{GlobalView, Tile};
+use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::matmul_instruction::Tile;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 use cubecl_core as cubecl;

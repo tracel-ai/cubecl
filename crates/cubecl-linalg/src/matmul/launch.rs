@@ -1,14 +1,14 @@
-use super::data::SharedMemoryStage;
-use crate::matmul::data::RowMajorTiling;
-use crate::matmul::data::TensorView;
 use crate::matmul::matmul_global::ArrayUnloader;
 use crate::matmul::matmul_global::GlobalMatmul;
+use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_global::{LhsArrayLoader, RhsArrayLoader};
 use crate::matmul::matmul_global::{Loader, Unloader};
 use crate::matmul::matmul_instruction::MatmulInstruction;
 use crate::matmul::matmul_stage::ArrayWriter;
 use crate::matmul::matmul_stage::LhsStageReader;
 use crate::matmul::matmul_stage::RhsStageReader;
+use crate::matmul::matmul_stage::RowMajorTiling;
+use crate::matmul::matmul_stage::SharedMemoryStage;
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfos;

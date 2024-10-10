@@ -1,9 +1,9 @@
+use crate::matmul::id_map::PlaneMapper;
+use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::matmul_stage::TilingOrder;
+use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::data::{GlobalView, TilingOrder};
-use crate::matmul::id_map::PlaneMapper;
-use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
 
 #[cube]
 pub trait SharedMemoryLoader: Clone + Copy + Send + Sync + 'static {

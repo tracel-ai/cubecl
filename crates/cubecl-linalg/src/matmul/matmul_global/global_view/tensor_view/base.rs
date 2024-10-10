@@ -1,14 +1,12 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
-use crate::matmul::data::global_view::tensor_view::smem2tensor::Smem2Tensor;
-use crate::matmul::data::global_view::tensor_view::smem2tensor::Smem2TensorSimple;
-use crate::matmul::data::GlobalView;
-use crate::matmul::data::Gmem2SmemContinuous;
-use crate::matmul::data::RowMajorTiling;
-use crate::matmul::data::SharedMemoryLoader;
+use crate::matmul::matmul_global::global_view::tensor_view::smem2tensor::{
+    Smem2Tensor, Smem2TensorSimple,
+};
+use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::matmul_stage::{Gmem2SmemContinuous, RowMajorTiling, SharedMemoryLoader};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
 pub struct TensorView<E: Numeric> {

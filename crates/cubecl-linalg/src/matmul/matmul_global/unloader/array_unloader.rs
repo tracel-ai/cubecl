@@ -1,12 +1,11 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
-use crate::matmul::data::{new_array_view, ArrayView};
+use super::Unloader;
+use crate::matmul::matmul_global::new_array_view;
+use crate::matmul::matmul_global::ArrayView;
 use crate::matmul::matmul_stage::ArrayWriter;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
-
-use super::Unloader;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
 pub struct ArrayUnloader<E: Numeric> {

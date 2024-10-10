@@ -1,12 +1,13 @@
-use std::marker::PhantomData;
-
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
-use crate::matmul::data::{new_tensor_view, GlobalView, Stage, TensorView};
+use crate::matmul::matmul_global::new_tensor_view;
+use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::matmul_global::TensorView;
+use crate::matmul::matmul_stage::Stage;
 use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use std::marker::PhantomData;
 
 use super::Loader;
 

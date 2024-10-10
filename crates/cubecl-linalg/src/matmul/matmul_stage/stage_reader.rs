@@ -1,10 +1,9 @@
-use std::marker::PhantomData;
-
+use crate::matmul::matmul_instruction::Tile;
+use crate::matmul::matmul_stage::Stage;
+use crate::matmul::matrix_layout::MatrixLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::data::{Stage, Tile};
-use crate::matmul::matrix_layout::MatrixLayout;
+use std::marker::PhantomData;
 
 #[cube]
 pub trait StageReader<E: Numeric>: CubeType {

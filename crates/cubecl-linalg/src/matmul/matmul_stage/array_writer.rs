@@ -1,9 +1,8 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
-use crate::matmul::data::{ArrayView, GlobalView};
+use crate::matmul::matmul_global::{ArrayView, GlobalView};
 use crate::matmul::matmul_stage::StageWriter;
 use crate::matmul::stage_info::StageInfo;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
 pub struct ArrayWriter<E: Numeric> {

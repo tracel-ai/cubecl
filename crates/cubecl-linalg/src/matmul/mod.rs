@@ -5,7 +5,6 @@ use cubecl_core::prelude::*;
 mod base;
 pub mod cmma_matmul;
 pub mod cmma_old;
-pub mod data;
 mod id_map;
 pub(crate) mod launch;
 pub mod matmul_batch;

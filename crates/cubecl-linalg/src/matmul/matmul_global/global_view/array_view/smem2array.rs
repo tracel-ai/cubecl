@@ -1,8 +1,7 @@
+use crate::matmul::matmul_global::{ArrayView, GlobalView};
+use crate::matmul::stage_info::StageInfo;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::data::{ArrayView, GlobalView};
-use crate::matmul::stage_info::StageInfo;
 
 #[cube]
 pub(crate) fn smem_slice_to_gmem<E: Numeric, C: CubePrimitive>(

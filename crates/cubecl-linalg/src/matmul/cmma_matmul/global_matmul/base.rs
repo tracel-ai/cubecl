@@ -1,5 +1,5 @@
-use crate::matmul::data::TensorView;
 use crate::matmul::launch::cube_matmul_launch;
+use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader, Unloader};
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;

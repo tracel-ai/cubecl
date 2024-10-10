@@ -10,10 +10,11 @@ macro_rules! testgen_cmma_internal_mock {
             B128x128x16, B128x16x16, B16x16x16, B16x32x16, B32x16x16, B32x32x16, B32x32x32,
             B32x8x16, B64x64x16, B64x64x32, B8x32x16, CmmaStageMatmul,
         };
-        use cubecl_linalg::matmul::data::SharedMemoryStage;
-        use cubecl_linalg::matmul::data::{ColMajorTiling, RowMajorTiling};
         use cubecl_linalg::matmul::matmul_global::{
             LhsTensorLoader, RhsTensorLoader, TensorUnloader,
+        };
+        use cubecl_linalg::matmul::matmul_stage::{
+            ColMajorTiling, RowMajorTiling, SharedMemoryStage,
         };
         use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
         use cubecl_linalg::matmul::problem::MatmulProblem;

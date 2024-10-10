@@ -1,14 +1,13 @@
-use std::marker::PhantomData;
-
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
-use crate::matmul::data::{new_array_view, ArrayView, Stage};
+use super::Loader;
+use crate::matmul::matmul_global::new_array_view;
+use crate::matmul::matmul_global::ArrayView;
+use crate::matmul::matmul_stage::Stage;
 use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
-
-use super::Loader;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use std::marker::PhantomData;
 
 #[derive(CubeType)]
 pub struct LhsArrayLoader<E: Numeric, S: Stage<E>> {

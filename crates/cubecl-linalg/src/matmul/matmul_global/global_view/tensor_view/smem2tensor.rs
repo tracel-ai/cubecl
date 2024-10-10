@@ -1,11 +1,9 @@
+use super::TensorView;
+use crate::matmul::id_map::PlaneMapper;
+use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::stage_info::{tile_num_elements, StageInfo};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::data::GlobalView;
-use crate::matmul::id_map::PlaneMapper;
-use crate::matmul::stage_info::{tile_num_elements, StageInfo};
-
-use super::TensorView;
 
 #[cube]
 pub trait Smem2Tensor {

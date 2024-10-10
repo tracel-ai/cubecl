@@ -1,9 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::data::{
-    smem_slice_to_gmem, GlobalView, Gmem2SmemContinuous, RowMajorTiling, SharedMemoryLoader,
-};
+use crate::matmul::matmul_global::{smem_slice_to_gmem, GlobalView};
+use crate::matmul::matmul_stage::{Gmem2SmemContinuous, RowMajorTiling, SharedMemoryLoader};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 

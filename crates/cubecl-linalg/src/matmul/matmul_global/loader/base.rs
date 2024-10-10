@@ -1,10 +1,9 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
-use crate::matmul::data::GlobalView;
+use crate::matmul::matmul_global::GlobalView;
 use crate::matmul::matmul_stage::StageReader;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 
 #[cube]
 pub trait Loader<E: Numeric>: CubeType + 'static + Send + Sync {
