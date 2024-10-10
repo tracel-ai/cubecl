@@ -6,8 +6,8 @@ use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
-use cubecl_core::{prelude::*, KernelId};
 use cubecl_core::Feature;
+use cubecl_core::{prelude::*, KernelId};
 use cubecl_hip_sys::{hiprtcResult_HIPRTC_SUCCESS, HIP_SUCCESS};
 use cubecl_runtime::debug::DebugLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
@@ -57,7 +57,12 @@ impl HipServer {
         // TODO: Check if it is possible to make this faster
         let mut data = vec![0; resource.size() as usize];
         unsafe {
-            let status = cubecl_hip_sys::hipMemcpyDtoHAsync(data.as_mut_ptr() as *mut _, resource.ptr, resource.size() as usize, ctx.stream);
+            let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
+                data.as_mut_ptr() as *mut _,
+                resource.ptr,
+                resource.size() as usize,
+                ctx.stream,
+            );
             assert_eq!(status, HIP_SUCCESS, "Should copy data from device to host");
         };
         ctx.sync();
@@ -90,7 +95,12 @@ impl ComputeServer for HipServer {
         );
 
         unsafe {
-            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(resource.ptr, data as *const _ as *mut _, data.len(), ctx.stream);
+            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
+                resource.ptr,
+                data as *const _ as *mut _,
+                data.len(),
+                ctx.stream,
+            );
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
         handle
@@ -191,7 +201,7 @@ impl ComputeServer for HipServer {
         }
     }
 
-    fn get_resource(&mut self, binding: server::Binding,) -> BindingResource<Self> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
@@ -221,7 +231,10 @@ impl HipContext {
     fn sync(&mut self) {
         unsafe {
             let status = cubecl_hip_sys::hipStreamSynchronize(self.stream);
-            assert_eq!(status, HIP_SUCCESS, "Should successfuly synchronize stream");
+            assert_eq!(
+                status, HIP_SUCCESS,
+                "Should successfully synchronize stream"
+            );
         };
         self.memory_management.storage().flush();
     }
@@ -261,8 +274,12 @@ impl HipContext {
                 std::ptr::null(), // program name seems unnecessary
                 0,
                 std::ptr::null_mut(),
-                std::ptr::null_mut());
-            assert_eq!(status, hiprtcResult_HIPRTC_SUCCESS, "Should create the program");
+                std::ptr::null_mut(),
+            );
+            assert_eq!(
+                status, hiprtcResult_HIPRTC_SUCCESS,
+                "Should create the program"
+            );
             program
         };
         // Compile HIP program
@@ -278,7 +295,10 @@ impl HipContext {
                 );
                 let mut log_buffer = vec![0i8; log_size];
                 let status = cubecl_hip_sys::hiprtcGetProgramLog(program, log_buffer.as_mut_ptr());
-                assert_eq!(status, hiprtcResult_HIPRTC_SUCCESS, "Should retrieve the compilation log contents");
+                assert_eq!(
+                    status, hiprtcResult_HIPRTC_SUCCESS,
+                    "Should retrieve the compilation log contents"
+                );
                 let log = CStr::from_ptr(log_buffer.as_ptr());
                 let mut message = "[Compilation Error] ".to_string();
                 if log_size > 0 {
@@ -292,18 +312,27 @@ impl HipContext {
                 }
                 panic!("{message}\n[Source]  \n{}", jitc_kernel.source);
             }
-            assert_eq!(status, hiprtcResult_HIPRTC_SUCCESS, "Should compile the program");
+            assert_eq!(
+                status, hiprtcResult_HIPRTC_SUCCESS,
+                "Should compile the program"
+            );
         };
         // Get HIP compiled code from program
         let mut code_size: usize = 0;
         unsafe {
             let status = cubecl_hip_sys::hiprtcGetCodeSize(program, &mut code_size);
-            assert_eq!(status, hiprtcResult_HIPRTC_SUCCESS, "Should get size of compiled code");
+            assert_eq!(
+                status, hiprtcResult_HIPRTC_SUCCESS,
+                "Should get size of compiled code"
+            );
         }
-        let mut code = vec![0i8;code_size];
+        let mut code = vec![0i8; code_size];
         unsafe {
             let status = cubecl_hip_sys::hiprtcGetCode(program, code.as_mut_ptr());
-            assert_eq!(status, hiprtcResult_HIPRTC_SUCCESS, "Should load compiled code");
+            assert_eq!(
+                status, hiprtcResult_HIPRTC_SUCCESS,
+                "Should load compiled code"
+            );
         }
         // Create the HIP module
         let mut module: cubecl_hip_sys::hipModule_t = std::ptr::null_mut();
@@ -357,7 +386,8 @@ impl HipContext {
                 kernel.shared_mem_bytes as u32,
                 self.stream,
                 bindings.as_mut_ptr(),
-                std::ptr::null_mut());
+                std::ptr::null_mut(),
+            );
             assert_eq!(status, HIP_SUCCESS, "Should launch the kernel");
         };
     }
@@ -383,4 +413,3 @@ impl HipServer {
         (&mut self.ctx, &mut self.logger)
     }
 }
-

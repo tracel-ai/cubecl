@@ -34,7 +34,8 @@ const MEMORY_OFFSET_ALIGNMENT: usize = 32;
 fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let mut ctx: cubecl_hip_sys::hipCtx_t = 0 as cubecl_hip_sys::hipCtx_t;
     unsafe {
-        let status = cubecl_hip_sys::hipCtxCreate(&mut ctx, 0, device.index as cubecl_hip_sys::hipDevice_t);
+        let status =
+            cubecl_hip_sys::hipCtxCreate(&mut ctx, 0, device.index as cubecl_hip_sys::hipDevice_t);
         assert_eq!(status, HIP_SUCCESS, "Should create the HIP context");
     };
 
@@ -48,8 +49,14 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     let max_memory = unsafe {
         let free: usize = 0;
         let total: usize = 0;
-        let status = cubecl_hip_sys::hipMemGetInfo(&free as *const _ as *mut usize, &total as *const _ as *mut usize);
-        assert_eq!(status, HIP_SUCCESS, "Should get the available memory of the device");
+        let status = cubecl_hip_sys::hipMemGetInfo(
+            &free as *const _ as *mut usize,
+            &total as *const _ as *mut usize,
+        );
+        assert_eq!(
+            status, HIP_SUCCESS,
+            "Should get the available memory of the device"
+        );
         total
     };
     let storage = HipStorage::new(stream);
