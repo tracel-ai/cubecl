@@ -12,14 +12,8 @@ extern "C" __global__ void kernel(float output_0[], uint info[]) {
   float l_0_1;
   bool l_0_2;
   uint l_0_3;
-  bool l_0_4;
   l_0_3 = info[(1 * 2 * info[0]) + 1];
-  l_0_4 = threadIdxGlobal < l_0_3;
-  if (l_0_4) {
-    l_0_0 = output_0[threadIdxGlobal];
-  } else {
-    l_0_0 = float(0.0);
-  }
+  l_0_0 = (threadIdxGlobal < l_0_3) ? output_0[threadIdxGlobal] : float(0);
 
   l_0_1 = l_0_0;
   {

@@ -34,12 +34,6 @@ static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::ne
 
 const MEMORY_OFFSET_ALIGNMENT: usize = 32;
 
-/// Initialize a client on the given device with the given options. This function is useful to create a
-/// client with custom runtime options.
-pub fn init(device: &CudaDevice, options: RuntimeOptions) {
-    let client = create_client(device, options);
-    RUNTIME.register(device, client)
-}
 
 fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA featurs, and memory properties, we have to initialize the server immediatly.
