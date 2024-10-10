@@ -1,11 +1,10 @@
 use crate::matmul::data::TensorView;
 use crate::matmul::launch::cube_matmul_launch;
-use crate::matmul::matmul_global::{GlobalMatmul, Loader};
+use crate::matmul::matmul_global::{GlobalMatmul, Loader, Unloader};
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::{MatmulProblem, Requirements};
 use crate::matmul::stage_info::StageInfos;
-use crate::matmul::writing::TensorWriter;
 use crate::matmul::{Matmul, TensorMatmul};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -13,37 +12,35 @@ use std::marker::PhantomData;
 
 pub struct CmmaGlobalMatmul<
     Elem: Numeric,
-    BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
+    BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
     Lhs: Loader<Elem>,
     Rhs: Loader<Elem>,
+    Out: Unloader<Elem>,
 > {
     _elem: PhantomData<Elem>,
     _block_matmul: PhantomData<BM>,
     _lhs: PhantomData<Lhs>,
     _rhs: PhantomData<Rhs>,
+    _out: PhantomData<Out>,
 }
 
 #[cube]
 impl<
         Elem: Numeric,
-        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
+        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
         Lhs: Loader<Elem, GlobalView = TensorView<Elem>>,
         Rhs: Loader<Elem, GlobalView = TensorView<Elem>>,
-    > GlobalMatmul<Elem, Lhs, Rhs, TensorWriter<Elem>> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs>
+        Out: Unloader<Elem, GlobalView = TensorView<Elem>>,
+    > GlobalMatmul<Elem, Lhs, Rhs, Out> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs, Out>
 {
-    fn execute(
-        mut lhs_loader: Lhs,
-        mut rhs_loader: Rhs,
-        mut out_writer: TensorWriter<Elem>,
-        k_range: (u32, u32),
-    ) {
+    fn execute(mut lhs_loader: Lhs, mut rhs_loader: Rhs, out_unloader: Out, k_range: (u32, u32)) {
         let k_step = BM::K;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
         let mut acc = BM::acc_init_zeros();
-        Lhs::init_view(&mut lhs_loader, CUBE_POS_X, k_range.0);
-        Rhs::init_view(&mut rhs_loader, CUBE_POS_Y, k_range.0);
+        Lhs::init_view(&mut lhs_loader, CUBE_POS_X * BM::M, k_range.0);
+        Rhs::init_view(&mut rhs_loader, CUBE_POS_Y * BM::N, k_range.0);
 
         for _ in 0..num_loops {
             BM::execute(
@@ -56,16 +53,17 @@ impl<
             Rhs::advance_view(&mut rhs_loader, k_step);
         }
 
-        BM::acc_read(&acc, &mut out_writer);
+        BM::acc_read(&acc, &mut Out::unload(out_unloader));
     }
 }
 
 impl<
         Elem: Numeric,
-        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
+        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
         Lhs: Loader<Elem>,
         Rhs: Loader<Elem>,
-    > Matmul<Elem, Elem> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs>
+        Out: Unloader<Elem>,
+    > Matmul<Elem, Elem> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs, Out>
 {
     fn can_process(problem: MatmulProblem) -> bool {
         problem.m <= BM::M && problem.n <= BM::N
@@ -82,10 +80,11 @@ impl<
 
 impl<
         Elem: Numeric,
-        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, TensorWriter<Elem>>,
+        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
         Lhs: Loader<Elem, GlobalView = TensorView<Elem>>,
         Rhs: Loader<Elem, GlobalView = TensorView<Elem>>,
-    > TensorMatmul<Elem> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs>
+        Out: Unloader<Elem, GlobalView = TensorView<Elem>>,
+    > TensorMatmul<Elem> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs, Out>
 {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -96,7 +95,7 @@ impl<
         out: TensorArg<'_, R>,
         layouts: (MatrixLayout, MatrixLayout),
     ) {
-        cube_matmul_launch::launch_unchecked::<Self, Elem, Lhs, Rhs, R>(
+        cube_matmul_launch::launch_unchecked::<Self, Elem, Lhs, Rhs, Out, R>(
             &client,
             cube_count,
             cube_dim,

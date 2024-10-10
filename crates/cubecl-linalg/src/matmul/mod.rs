@@ -15,7 +15,6 @@ pub mod matmul_stage;
 pub mod matrix_layout;
 pub mod problem;
 pub mod stage_info;
-pub mod writing;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not
 /// available.

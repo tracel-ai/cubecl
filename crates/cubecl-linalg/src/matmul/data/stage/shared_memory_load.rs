@@ -1,26 +1,24 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::data::{GlobalView, TensorView, TilingOrder};
+use crate::matmul::data::{GlobalView, TilingOrder};
 use crate::matmul::id_map::PlaneMapper;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
 
 #[cube]
-pub trait SharedMemoryLoader<EG: Numeric>: Clone + Copy + Send + Sync + 'static {
-    type Global: GlobalView<EG>;
-
-    fn load_shared_memory<ES: Numeric, T: TilingOrder>(
-        gmem: &Self::Global,
+pub trait SharedMemoryLoader: Clone + Copy + Send + Sync + 'static {
+    fn load_shared_memory<EG: Numeric, ES: Numeric, G: GlobalView<EG>, O: TilingOrder>(
+        gmem: &G,
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] block_info: StageInfo,
     );
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Tensor2SmemContinuous {}
+pub struct Gmem2SmemContinuous {}
 
 #[cube]
-impl PlaneMapper for Tensor2SmemContinuous {
+impl PlaneMapper for Gmem2SmemContinuous {
     fn plane_id() -> u32 {
         UNIT_POS_Y
     }
@@ -39,27 +37,27 @@ impl PlaneMapper for Tensor2SmemContinuous {
 }
 
 #[cube]
-impl<EG: Numeric> SharedMemoryLoader<EG> for Tensor2SmemContinuous {
-    type Global = TensorView<EG>;
-
-    fn load_shared_memory<ES: Numeric, O: TilingOrder>(
-        gmem: &TensorView<EG>,
+impl SharedMemoryLoader for Gmem2SmemContinuous {
+    fn load_shared_memory<EG: Numeric, ES: Numeric, G: GlobalView<EG>, O: TilingOrder>(
+        gmem: &G,
         smem: &mut SharedMemory<Line<ES>>,
-        #[comptime] block_info: StageInfo,
+        #[comptime] stage_info: StageInfo,
     ) {
-        let num_smem_elements = comptime!(total_num_elements(block_info));
-        let jump_length =
-            comptime!(Self::num_planes() * gmem.tensor.line_size() * Self::plane_dim());
+        let line_size = G::line_size(gmem);
+        let num_smem_elements = comptime!(total_num_elements(stage_info));
+
+        // Could be comptime if we were able to fetch line_size as comptime
+        let jump_length = Self::num_planes() * line_size * Self::plane_dim();
 
         let unit_position_base =
-            (Self::plane_id() * Self::plane_dim() + Self::plane_unit()) * gmem.tensor.line_size();
+            (Self::plane_id() * Self::plane_dim() + Self::plane_unit()) * line_size;
 
         for i in 0..num_smem_elements / jump_length {
             let unit_position = unit_position_base + i * jump_length;
 
-            let (row, col) = apply_tiled_layout::<O>(unit_position, block_info);
+            let (row, col) = apply_tiled_layout::<O>(unit_position, stage_info);
 
-            let line = TensorView::load_single(gmem, row, col);
+            let line = G::load_single(gmem, row, col);
             smem[unit_position] = Line::cast_from(line);
         }
     }

@@ -1,7 +1,7 @@
-mod array_loader;
 mod base;
-mod tensor_loader;
+mod loader;
+mod unloader;
 
-pub use array_loader::*;
 pub use base::*;
-pub use tensor_loader::*;
+pub use loader::*;
+pub use unloader::*;

@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub trait TileWriter<E: CubePrimitive>: CubeType + 'static + Send + Sync {
+pub trait StageWriter<E: Numeric>: CubeType + 'static + Send + Sync {
     fn write_with_cast<C: Numeric>(
         tile_writer: &mut Self,
         slice: &Slice<'_, C>,

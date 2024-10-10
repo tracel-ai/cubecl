@@ -1,5 +1,5 @@
-mod array2smem;
 mod base;
+mod smem2array;
 
-pub(crate) use array2smem::*;
 pub use base::*;
+pub(crate) use smem2array::*;

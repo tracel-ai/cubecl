@@ -6,7 +6,7 @@ use cubecl_core::prelude::*;
 use super::CmmaStageSize;
 use crate::matmul::launch::stage_matmul_launch;
 use crate::matmul::matmul_instruction::MatmulInstruction;
-use crate::matmul::matmul_stage::{StageMatmul, StageReader, TileWriter};
+use crate::matmul::matmul_stage::{StageMatmul, StageReader, StageWriter};
 use crate::matmul::stage_info::{StageInfo, StageInfos};
 use crate::matmul::{
     id_map::PlaneMapper,
@@ -37,7 +37,7 @@ where
     Block: CmmaStageSize,
     Lhs: StageReader<Elem>,
     Rhs: StageReader<Elem>,
-    Out: TileWriter<Line<Elem>>,
+    Out: StageWriter<Elem>,
 {
     type Accumulator = Sequence<Instr::Out>;
 

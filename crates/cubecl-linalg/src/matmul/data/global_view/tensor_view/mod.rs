@@ -1,5 +1,4 @@
 mod base;
-mod tensor2smem;
+mod smem2tensor;
 
 pub use base::*;
-pub use tensor2smem::*;

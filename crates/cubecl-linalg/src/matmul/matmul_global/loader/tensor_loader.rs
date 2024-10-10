@@ -4,61 +4,45 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::data::{new_tensor_view, GlobalView, Stage, TensorView};
-use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader, StageReader};
+use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 
-#[cube]
-pub trait Loader<E: Numeric>: CubeType + 'static + Send + Sync {
-    type GlobalView: GlobalView<E>;
-    type StageReader: StageReader<E>;
+use super::Loader;
 
-    fn new(
-        gmem: <Self::GlobalView as GlobalView<E>>::Global,
-        #[comptime] layout: MatrixLayout,
-        #[comptime] block_info: StageInfo,
-    ) -> Self;
-
-    fn fill_block(loader: &mut Self) -> Self::StageReader;
-
-    fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32);
-
-    fn advance_view(loader: &mut Self, k_offset: u32);
+#[derive(CubeType)]
+pub struct LhsTensorLoader<E: Numeric, S: Stage<E>> {
+    pub gmem_view: TensorView<E>,
+    pub stage: S,
 }
 
 #[derive(CubeType)]
-pub struct LhsTensorLoader<E: Numeric, B: Stage<E>> {
+pub struct RhsTensorLoader<E: Numeric, S: Stage<E>> {
     pub gmem_view: TensorView<E>,
-    pub block: B,
-}
-
-#[derive(CubeType)]
-pub struct RhsTensorLoader<E: Numeric, B: Stage<E>> {
-    pub gmem_view: TensorView<E>,
-    pub block: B,
+    pub stage: S,
 }
 
 #[cube]
-impl<E: Numeric, B: Stage<E>> Loader<E> for LhsTensorLoader<E, B> {
+impl<E: Numeric, S: Stage<E>> Loader<E> for LhsTensorLoader<E, S> {
     type GlobalView = TensorView<E>;
-    type StageReader = LhsStageReader<E, B>;
+    type StageReader = LhsStageReader<E, S>;
 
     fn new(
         tensor: Tensor<Line<E>>,
         #[comptime] layout: MatrixLayout,
-        #[comptime] block_info: StageInfo,
+        #[comptime] stage: StageInfo,
     ) -> Self {
         let line_size = comptime!(tensor.line_size());
-        let block = B::new(layout, block_info, line_size);
+        let stage = S::new(layout, stage, line_size);
         let gmem_view = new_tensor_view(tensor, layout);
 
-        LhsTensorLoader::<E, B> { gmem_view, block }
+        LhsTensorLoader::<E, S> { gmem_view, stage }
     }
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
-        B::fill::<E, Self::GlobalView>(&mut loader.block, &loader.gmem_view);
-        LhsStageReader::<E, B> {
-            stage: loader.block,
+        S::fill::<E, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+        LhsStageReader::<E, S> {
+            stage: loader.stage,
             _e: PhantomData::<E>.runtime(),
         }
     }
@@ -73,26 +57,26 @@ impl<E: Numeric, B: Stage<E>> Loader<E> for LhsTensorLoader<E, B> {
 }
 
 #[cube]
-impl<E: Numeric, B: Stage<E>> Loader<E> for RhsTensorLoader<E, B> {
+impl<E: Numeric, S: Stage<E>> Loader<E> for RhsTensorLoader<E, S> {
     type GlobalView = TensorView<E>;
-    type StageReader = RhsStageReader<E, B>;
+    type StageReader = RhsStageReader<E, S>;
 
     fn new(
         tensor: Tensor<Line<E>>,
         #[comptime] layout: MatrixLayout,
-        #[comptime] block_info: StageInfo,
+        #[comptime] stage_info: StageInfo,
     ) -> Self {
         let line_size = comptime!(tensor.line_size());
-        let block = B::new(layout, block_info, line_size);
+        let stage = S::new(layout, stage_info, line_size);
         let gmem_view = new_tensor_view(tensor, layout);
 
-        RhsTensorLoader::<E, B> { gmem_view, block }
+        RhsTensorLoader::<E, S> { gmem_view, stage }
     }
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
-        B::fill::<E, Self::GlobalView>(&mut loader.block, &loader.gmem_view);
-        RhsStageReader::<E, B> {
-            stage: loader.block,
+        S::fill::<E, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+        RhsStageReader::<E, S> {
+            stage: loader.stage,
             _e: PhantomData::<E>.runtime(),
         }
     }

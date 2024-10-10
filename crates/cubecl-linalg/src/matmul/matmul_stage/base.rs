@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::FixedShapeMatmul;
 
-use super::{StageReader, TileWriter};
+use super::{StageReader, StageWriter};
 
 #[cube]
 /// Execute a matmul over a fixed-size block, using one Cube.
@@ -11,7 +11,7 @@ pub trait StageMatmul<
     E: Numeric,
     Lhs: StageReader<E>,
     Rhs: StageReader<E>,
-    Out: TileWriter<Line<E>>,
+    Out: StageWriter<E>,
 >: 'static + Send + Sync + FixedShapeMatmul<E, E>
 {
     type Accumulator: CubeType;

@@ -1,18 +1,17 @@
 use super::data::SharedMemoryStage;
-use super::writing::ArrayWriter;
-use super::writing::TensorWriter;
 use crate::matmul::data::RowMajorTiling;
 use crate::matmul::data::TensorView;
+use crate::matmul::matmul_global::ArrayUnloader;
 use crate::matmul::matmul_global::GlobalMatmul;
-use crate::matmul::matmul_global::Loader;
 use crate::matmul::matmul_global::{LhsArrayLoader, RhsArrayLoader};
+use crate::matmul::matmul_global::{Loader, Unloader};
 use crate::matmul::matmul_instruction::MatmulInstruction;
+use crate::matmul::matmul_stage::ArrayWriter;
 use crate::matmul::matmul_stage::LhsStageReader;
 use crate::matmul::matmul_stage::RhsStageReader;
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfos;
-use crate::matmul::writing::new_tensor_writer;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -48,42 +47,40 @@ pub(crate) fn stage_matmul_launch<
     rhs_data: Array<Line<Elem>>,
     out_result: Array<Line<Elem>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
-    #[comptime] block_info: StageInfos,
+    #[comptime] stage_infos: StageInfos,
 ) {
-    let mut lhs_loader = LhsArrayLoader::new(lhs_data, layouts.0, block_info.lhs);
-    let mut rhs_loader = RhsArrayLoader::new(rhs_data, layouts.1, block_info.rhs);
+    let mut lhs_loader = LhsArrayLoader::new(lhs_data, layouts.0, stage_infos.lhs);
+    let mut rhs_loader = RhsArrayLoader::new(rhs_data, layouts.1, stage_infos.rhs);
+    let out_unloader = ArrayUnloader::new(out_result, stage_infos.out);
 
-    let lhs_tile_reader = LhsArrayLoader::fill_block(&mut lhs_loader);
-    let rhs_tile_reader = RhsArrayLoader::fill_block(&mut rhs_loader);
-
-    let mut out_writer = ArrayWriter::<Elem> {
-        gmem: out_result,
-        block_info: block_info.out.runtime(),
-    };
+    let lhs_stage_reader = LhsArrayLoader::fill_block(&mut lhs_loader);
+    let rhs_stage_reader = RhsArrayLoader::fill_block(&mut rhs_loader);
+    let mut out_stage_reader = ArrayUnloader::unload(out_unloader);
 
     let mut acc = BM::acc_init_zeros();
-    BM::execute(&lhs_tile_reader, &rhs_tile_reader, &mut acc);
-    BM::acc_read(&acc, &mut out_writer);
+    BM::execute(&lhs_stage_reader, &rhs_stage_reader, &mut acc);
+    BM::acc_read(&acc, &mut out_stage_reader);
 }
 
 #[cube(launch_unchecked)]
 pub(crate) fn cube_matmul_launch<
-    CM: GlobalMatmul<Elem, Lhs, Rhs, TensorWriter<Elem>>,
+    CM: GlobalMatmul<Elem, Lhs, Rhs, Out>,
     Elem: Numeric,
     Lhs: Loader<Elem, GlobalView = TensorView<Elem>>,
     Rhs: Loader<Elem, GlobalView = TensorView<Elem>>,
+    Out: Unloader<Elem, GlobalView = TensorView<Elem>>,
 >(
     lhs_tensor: Tensor<Line<Elem>>,
     rhs_tensor: Tensor<Line<Elem>>,
     out_tensor: Tensor<Line<Elem>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
-    #[comptime] block_info: StageInfos,
+    #[comptime] stage_infos: StageInfos,
 ) {
     let k = lhs_tensor.shape(lhs_tensor.rank() - 1);
 
-    let lhs_loader = Lhs::new(lhs_tensor, layouts.0, block_info.lhs);
-    let rhs_loader = Rhs::new(rhs_tensor, layouts.1, block_info.rhs);
-    let out = new_tensor_writer(out_tensor, block_info.out);
+    let lhs_loader = Lhs::new(lhs_tensor, layouts.0, stage_infos.lhs);
+    let rhs_loader = Rhs::new(rhs_tensor, layouts.1, stage_infos.rhs);
+    let out_unloader = Out::new(out_tensor, stage_infos.out);
 
-    CM::execute(lhs_loader, rhs_loader, out, (0, k));
+    CM::execute(lhs_loader, rhs_loader, out_unloader, (0, k));
 }
