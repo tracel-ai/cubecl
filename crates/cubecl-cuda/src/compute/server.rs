@@ -61,12 +61,25 @@ impl CudaServer {
             binding.offset_end,
         );
 
-        // TODO: Check if it is possible to make this faster
-        let mut data = vec![0; resource.size() as usize];
+        let mut data = Self::uninit_vec(resource.size() as usize);
+
         unsafe {
             cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
         };
+
         ctx.sync();
+
+        data
+    }
+
+    #[allow(clippy::uninit_vec)]
+    fn uninit_vec(len: usize) -> Vec<u8> {
+        let mut data = Vec::with_capacity(len);
+
+        unsafe {
+            data.set_len(len);
+        };
+
         data
     }
 }
