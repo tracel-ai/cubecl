@@ -61,6 +61,10 @@ pub enum Instruction {
         inclusive: bool,
         instructions: Vec<Self>,
     },
+    VecInit {
+        inputs: Vec<Variable>,
+        out: Variable,
+    },
     Loop {
         instructions: Vec<Self>,
     },
@@ -162,6 +166,19 @@ pub enum Instruction {
     Magnitude(UnaryInstruction),
     Normalize(UnaryInstruction),
     Dot(BinaryInstruction),
+    Copy {
+        input: Variable,
+        in_index: Variable,
+        out: Variable,
+        out_index: Variable,
+    },
+    CopyBulk {
+        input: Variable,
+        in_index: Variable,
+        out: Variable,
+        out_index: Variable,
+        len: u32,
+    },
 }
 
 impl Display for Instruction {
@@ -213,6 +230,26 @@ impl Display for Instruction {
                 }
             }
             Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::Copy {
+                input,
+                in_index,
+                out,
+                out_index,
+            } => {
+                writeln!(f, "{out}[{out_index}] = {input}[{in_index}];")
+            }
+            Instruction::CopyBulk {
+                input,
+                in_index,
+                out,
+                out_index,
+                len,
+            } => {
+                for i in 0..*len {
+                    writeln!(f, "{out}[{out_index} + {i}] = {input}[{in_index} + {i}];")?;
+                }
+                Ok(())
+            }
             Instruction::CheckedIndexAssign(it) => {
                 IndexAssign::format(f, &it.lhs, &it.rhs, &it.out)
             }
@@ -279,8 +316,41 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 or_else,
                 out,
             } => {
+                let vf_then = then.item().vectorization;
+                let vf_or_else = or_else.item().vectorization;
+                let vf_out = out.item().vectorization;
+                let vf_cond = cond.item().vectorization;
+
+                let vf = usize::max(vf_cond, vf_out);
+                let vf = usize::max(vf, vf_then);
+                let vf = usize::max(vf, vf_or_else);
+
+                let item_out = out.item();
+                let cond_elem = cond.item().elem;
                 let out = out.fmt_left();
-                writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
+
+                if vf > 1 {
+                    writeln!(f, "{out} = {item_out} {{")?;
+                    for i in 0..vf {
+                        let theni = then.index(i);
+                        let or_elsei = or_else.index(i);
+                        let condi = cond.index(i);
+                        let condi = EnsureBoolArg {
+                            var: &condi,
+                            elem: &cond_elem,
+                        };
+
+                        writeln!(f, "({condi}) ? {theni} : {or_elsei},")?;
+                    }
+
+                    writeln!(f, "}};")
+                } else {
+                    let cond = EnsureBoolArg {
+                        var: &cond,
+                        elem: &cond_elem,
+                    };
+                    writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
+                }
             }
             Instruction::Switch {
                 value,
@@ -472,6 +542,15 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
             Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
             Instruction::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::VecInit { inputs, out } => {
+                let item = out.item();
+                let inputs = inputs
+                    .iter()
+                    .map(|input| format!("{input}"))
+                    .collect::<Vec<_>>();
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {item}{{{}}};", inputs.join(","))
+            }
         }
     }
 }
@@ -625,7 +704,7 @@ impl Normalize {
         f.write_str(";\n")?;
 
         if num == 1 {
-            write!(f, "{out} = {norm}\n}};")
+            writeln!(f, "{out} = {input} / {norm};")
         } else {
             write!(f, "{out} = {out_item}{{")?;
             for i in 0..num {
@@ -660,5 +739,20 @@ impl Dot {
 
         let out = out.fmt_left();
         writeln!(f, "{out} = {};", muls.join(" + "))
+    }
+}
+
+struct EnsureBoolArg<'a, V: Display> {
+    var: &'a V,
+    elem: &'a Elem,
+}
+
+impl<'a, V: Display> Display for EnsureBoolArg<'a, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.elem != &Elem::Bool {
+            write!(f, "bool({})", self.var)
+        } else {
+            write!(f, "{}", self.var)
+        }
     }
 }

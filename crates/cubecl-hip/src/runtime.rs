@@ -1,13 +1,10 @@
-use cubecl_core::{
-    ir::{Elem, FloatKind},
-    Feature, FeatureSet, Properties, Runtime,
-};
+use cubecl_core::{Feature, MemoryConfiguration, Runtime};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::dynamic::{DynamicMemoryManagement, DynamicMemoryManagementOptions},
-    ComputeRuntime,
+    memory_management::{MemoryDeviceProperties, MemoryManagement},
+    ComputeRuntime, DeviceProperties,
 };
 
 use crate::{
@@ -16,67 +13,73 @@ use crate::{
     device::HipDevice,
 };
 
+/// The values that control how a WGPU Runtime will perform its calculations.
+#[derive(Default)]
+pub struct RuntimeOptions {
+    /// Configures the memory management.
+    pub memory_config: MemoryConfiguration,
+}
+
 #[derive(Debug)]
 pub struct HipRuntime;
 
 static RUNTIME: ComputeRuntime<HipDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
-const MEMORY_OFFSET_ALIGNMENT: u32 = 32;
+type Server = HipServer;
+type Channel = MutexComputeChannel<Server>;
 
-type Server = HipServer<DynamicMemoryManagement<HipStorage>>;
+const MEMORY_OFFSET_ALIGNMENT: usize = 32;
+
+fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
+    let mut ctx: cubecl_hip_sys::hipCtx_t = 0 as cubecl_hip_sys::hipCtx_t;
+    unsafe {
+        let status = cubecl_hip_sys::hipCtxCreate(&mut ctx, 0, device.index as cubecl_hip_sys::hipDevice_t);
+        assert_eq!(status, HIP_SUCCESS, "Should create the HIP context");
+    };
+
+    let stream = unsafe {
+        let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
+        let stream_status = cubecl_hip_sys::hipStreamCreate(&mut stream);
+        assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
+        stream
+    };
+
+    let max_memory = unsafe {
+        let free: usize = 0;
+        let total: usize = 0;
+        let status = cubecl_hip_sys::hipMemGetInfo(&free as *const _ as *mut usize, &total as *const _ as *mut usize);
+        assert_eq!(status, HIP_SUCCESS, "Should get the available memory of the device");
+        total
+    };
+    let storage = HipStorage::new(stream);
+    let mem_properties = MemoryDeviceProperties {
+        max_page_size: max_memory / 4,
+        alignment: MEMORY_OFFSET_ALIGNMENT,
+    };
+    let memory_management = MemoryManagement::from_configuration(
+        storage,
+        mem_properties.clone(),
+        options.memory_config,
+    );
+    let hip_ctx = HipContext::new(memory_management, stream, ctx);
+    let server = HipServer::new(hip_ctx);
+    let device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    // TODO
+    // register_wmma_features(&mut device_props);
+
+    ComputeClient::new(MutexComputeChannel::new(server), device_props)
+}
 
 impl Runtime for HipRuntime {
     type Compiler = HipCompiler;
-    type Server = HipServer<DynamicMemoryManagement<HipStorage>>;
-
-    type Channel = MutexComputeChannel<HipServer<DynamicMemoryManagement<HipStorage>>>;
+    type Server = HipServer;
+    type Channel = MutexComputeChannel<HipServer>;
     type Device = HipDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
-        fn init(index: usize) -> HipContext<DynamicMemoryManagement<HipStorage>> {
-            let mut ctx: cubecl_hip_sys::hipCtx_t = 0 as cubecl_hip_sys::hipCtx_t;
-            unsafe {
-                let status = cubecl_hip_sys::hipCtxCreate(&mut ctx, 0, index as cubecl_hip_sys::hipDevice_t);
-                assert_eq!(status, HIP_SUCCESS, "Should create the HIP context");
-            };
-
-            let stream = unsafe {
-                let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
-                let stream_status = cubecl_hip_sys::hipStreamCreate(&mut stream);
-                assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
-                stream
-            };
-
-            let max_memory = unsafe {
-                let free: usize = 0;
-                let total: usize = 0;
-                let status = cubecl_hip_sys::hipMemGetInfo(&free as *const _ as *mut usize, &total as *const _ as *mut usize);
-                assert_eq!(status, HIP_SUCCESS, "Should get the available memory of the device");
-                total
-            };
-            let storage = HipStorage::new(stream);
-            let options = DynamicMemoryManagementOptions::preset(
-                max_memory / 4, // Max chunk size is max_memory / 4
-                MEMORY_OFFSET_ALIGNMENT as usize,
-            );
-            let memory_management = DynamicMemoryManagement::new(storage, options);
-            HipContext::new(memory_management, stream, &mut ctx)
-        }
-
         RUNTIME.client(device, move || {
-            let server = HipServer::new(device.index, Box::new(init));
-            let features = FeatureSet::new(&[Feature::Subcube]);
-
-            // TODO
-            // register_wmma_features(&mut features, server.arch_version());
-            ComputeClient::new(
-                MutexComputeChannel::new(server),
-                features,
-                Properties {
-                    memory_offset_alignment: MEMORY_OFFSET_ALIGNMENT,
-                },
-            )
+            create_client(device, RuntimeOptions::default())
         })
     }
 
@@ -93,57 +96,6 @@ impl Runtime for HipRuntime {
     }
 }
 
-fn register_wmma_features(features: &mut FeatureSet, arch: u32) {
-    let wmma_minimum_version = 70;
-    let mut wmma = false;
-
-    if arch >= wmma_minimum_version {
-        wmma = true;
-    }
-
-    if wmma {
-        // Types fully supported.
-        for (a, b, c) in [
-            (
-                Elem::Float(FloatKind::F16),
-                Elem::Float(FloatKind::F16),
-                Elem::Float(FloatKind::F16),
-            ),
-            (
-                Elem::Float(FloatKind::F16),
-                Elem::Float(FloatKind::F16),
-                Elem::Float(FloatKind::F32),
-            ),
-            (
-                Elem::Float(FloatKind::BF16),
-                Elem::Float(FloatKind::BF16),
-                Elem::Float(FloatKind::F32),
-            ),
-        ] {
-            features.register(Feature::Cmma {
-                a,
-                b,
-                c,
-                m: 16,
-                k: 16,
-                n: 16,
-            });
-            features.register(Feature::Cmma {
-                a,
-                b,
-                c,
-                m: 32,
-                k: 16,
-                n: 8,
-            });
-            features.register(Feature::Cmma {
-                a,
-                b,
-                c,
-                m: 8,
-                k: 16,
-                n: 32,
-            });
-        }
-    }
-}
+// TODO
+// fn register_wmma_features(_properties: &mut DeviceProperties<Feature>) {
+// }

@@ -13,7 +13,6 @@ pub struct HipStorage {
 #[derive(new, Debug, Hash, PartialEq, Eq, Clone)]
 struct ActiveResource {
     ptr: u64,
-    kind: HipResourceKind,
 }
 
 unsafe impl Send for HipStorage {}
@@ -54,14 +53,14 @@ impl HipStorage {
 
 pub type Binding = cubecl_hip_sys::hipDeviceptr_t;
 
-/// The memory resource that can be allocated for wgpu.
+/// The memory resource that can be allocated for the device.
 #[derive(new, Debug)]
 pub struct HipResource {
     /// The buffer.
     pub ptr: cubecl_hip_sys::hipDeviceptr_t,
     pub binding: Binding,
-    /// How the resource is used.
-    pub kind: HipResourceKind,
+    offset: u64,
+    size: u64,
 }
 
 unsafe impl Send for HipResource {}
@@ -70,65 +69,43 @@ unsafe impl Send for HipResource {}
 impl HipResource {
     /// Return the binding view of the buffer.
     pub fn as_binding(&self) -> Binding {
-        match self.kind {
-            HipResourceKind::Full { .. } => self.binding,
-            HipResourceKind::Slice { .. } => self.binding,
-        }
+        self.binding
     }
 
     /// Return the buffer size.
-    pub fn size(&self) -> usize {
-        match self.kind {
-            HipResourceKind::Full { size } => size,
-            HipResourceKind::Slice { size, offset: _ } => size,
-        }
+    pub fn size(&self) -> u64 {
+        self.size
     }
 
     /// Return the buffer offset.
-    pub fn offset(&self) -> usize {
-        match self.kind {
-            HipResourceKind::Full { size: _ } => 0,
-            HipResourceKind::Slice { size: _, offset } => offset,
-        }
+    pub fn offset(&self) -> u64 {
+        self.offset
     }
-}
-
-/// How the resource is used, either as a slice or fully.
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub enum HipResourceKind {
-    /// Represents an entire buffer.
-    Full { size: usize },
-    /// A slice over a buffer.
-    Slice { size: usize, offset: usize },
 }
 
 impl ComputeStorage for HipStorage {
     type Resource = HipResource;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let ptr = *self.memory.get(&handle.id).unwrap();
+        let ptr = *self.memory.get(&handle.id).unwrap() as u64;
 
-        match handle.utilization {
-            StorageUtilization::Full(size) => HipResource::new(
-                ptr,
-                ptr,
-                HipResourceKind::Full { size },
-            ),
-            StorageUtilization::Slice { offset, size } => {
-                let ptr: u64 = ptr as u64 + offset as u64;
-                let kind = HipResourceKind::Slice { size, offset };
-                let key = ActiveResource::new(ptr, kind.clone());
-                self.activate_slices.insert(key.clone(), ptr as *mut _);
+        let offset = handle.offset() as u64;
+        let size = handle.size() as u64;
 
-                // The ptr needs to stay alive until we send the task to the server.
-                let ptr = *self.activate_slices.get(&key).unwrap();
-                HipResource::new(
-                    ptr,
-                    ptr,
-                    kind,
-                )
-            }
-        }
+        let ptr = ptr + offset;
+        let key = ActiveResource::new(ptr);
+
+        self.activate_slices.insert(key.clone(), ptr as cubecl_hip_sys::hipDeviceptr_t);
+
+        // The ptr needs to stay alive until we send the task to the server.
+        let ptr = self.activate_slices.get(&key).unwrap();
+
+        HipResource::new(
+            *ptr,
+            ptr as *const cubecl_hip_sys::hipDeviceptr_t as *mut std::ffi::c_void,
+            offset,
+            size,
+        )
     }
 
     fn alloc(&mut self, size: usize) -> StorageHandle {
@@ -139,7 +116,7 @@ impl ComputeStorage for HipStorage {
             assert_eq!(status, HIP_SUCCESS, "Should allocate memory");
             self.memory.insert(id, dptr);
         };
-        StorageHandle::new(id, StorageUtilization::Full(size))
+        StorageHandle::new(id, StorageUtilization { offset: 0, size})
     }
 
     fn dealloc(&mut self, id: StorageId) {

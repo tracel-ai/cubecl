@@ -597,6 +597,27 @@ impl HipCompiler {
                 instructions.push(Instruction::Magnitude(self.compile_unary(op)))
             }
             gpu::Operator::Dot(op) => instructions.push(Instruction::Dot(self.compile_binary(op))),
+            gpu::Operator::InitLine(op) => instructions.push(Instruction::VecInit {
+                inputs: op
+                    .inputs
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                out: self.compile_variable(op.out),
+            }),
+            gpu::Operator::Copy(op) => instructions.push(Instruction::Copy {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+            }),
+            gpu::Operator::CopyBulk(op) => instructions.push(Instruction::CopyBulk {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(op.out),
+                out_index: self.compile_variable(op.out_index),
+                len: op.len,
+            }),
         };
     }
 
@@ -628,6 +649,13 @@ impl HipCompiler {
                 item: self.compile_item(item),
                 depth,
             },
+            gpu::Variable::Versioned {
+                id, item, depth, ..
+            } => super::Variable::Local {
+                id,
+                item: self.compile_item(item),
+                depth,
+            },
             gpu::Variable::LocalBinding { id, item, depth } => super::Variable::ConstLocal {
                 id,
                 item: self.compile_item(item),
@@ -636,11 +664,6 @@ impl HipCompiler {
             gpu::Variable::Slice { id, item, depth } => super::Variable::Slice {
                 id,
                 item: self.compile_item(item),
-                depth,
-            },
-            gpu::Variable::LocalScalar { id, elem, depth } => super::Variable::LocalScalar {
-                id,
-                elem: self.compile_elem(elem),
                 depth,
             },
             gpu::Variable::GlobalOutputArray { id, item } => {
