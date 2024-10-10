@@ -1,10 +1,9 @@
-use std::num::NonZero;
+use std::{future::Future, num::NonZero};
 
 use crate::compiler::wgsl::WgslCompiler;
 
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
-use cubecl_common::{reader::Reader, sync_type::SyncType};
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
@@ -13,6 +12,7 @@ use cubecl_runtime::{
     storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
+use futures_lite::future;
 use hashbrown::HashMap;
 use wgpu::{CommandEncoder, ComputePass, ComputePipeline, ShaderModuleDescriptor};
 
@@ -201,7 +201,7 @@ impl ComputeServer for WgpuServer {
     type Storage = WgpuStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> Reader {
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
         let rb = self.get_resource(binding);
         let resource = rb.resource();
 
@@ -224,7 +224,7 @@ impl ComputeServer for WgpuServer {
         );
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        self.sync(SyncType::Flush);
+        self.flush();
 
         let (sender, receiver) = async_channel::bounded(1);
         staging_buffer
@@ -346,7 +346,7 @@ impl ComputeServer for WgpuServer {
             .collect::<Vec<_>>();
 
         let start = if profile_level.is_some() {
-            self.sync(SyncType::Wait);
+            future::block_on(self.sync());
             Some(std::time::SystemTime::now())
         } else {
             None
@@ -399,7 +399,7 @@ impl ComputeServer for WgpuServer {
             let (name, kernel_id) = profile_info.unwrap();
 
             // Execute the task.
-            self.sync(SyncType::Wait);
+            future::block_on(self.sync());
 
             let info = match level {
                 cubecl_runtime::debug::ProfileLevel::Basic => {
@@ -416,11 +416,11 @@ impl ComputeServer for WgpuServer {
             self.logger
                 .register_profiled(info, start.unwrap().elapsed().unwrap());
         } else if self.tasks_count >= self.tasks_max {
-            self.sync(SyncType::Flush);
+            self.flush();
         }
     }
 
-    fn sync(&mut self, sync_type: SyncType) {
+    fn flush(&mut self) {
         // End the current compute pass.
         self.clear_compute_pass();
         let new_encoder = create_encoder(&self.device);
@@ -430,12 +430,30 @@ impl ComputeServer for WgpuServer {
         self.tasks_count = 0;
         self.storage_locked.clear_locked();
 
-        if sync_type == SyncType::Wait {
-            self.device.poll(wgpu::Maintain::Wait);
-        }
-
         // Cleanup allocations and deallocations.
         self.memory_management.storage().perform_deallocations();
+    }
+
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+        self.flush();
+        let (sender, receiver) = async_channel::bounded(1);
+        self.queue.on_submitted_work_done(move || {
+            sender
+                .try_send(())
+                .expect("Unable to send buffer slice result to async channel.");
+        });
+
+        let poll = self.poll.start_polling();
+
+        async move {
+            receiver
+                .recv()
+                .await
+                .expect("Unable to receive buffer slice result.");
+
+            // Drop poll handle. Important to capture it.
+            drop(poll);
+        }
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {

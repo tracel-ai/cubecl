@@ -1,8 +1,7 @@
-use std::num::NonZero;
+use std::{future::Future, num::NonZero};
 
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
-use cubecl_common::{reader::Reader, sync_type::SyncType};
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
@@ -13,6 +12,7 @@ use cubecl_runtime::{
 };
 use cubecl_spirv::SpirvCompiler;
 use cubecl_wgpu::WgpuPoll;
+use futures_lite::future;
 use hashbrown::HashMap;
 use wgpu::{
     hal::{self, vulkan},
@@ -165,7 +165,7 @@ impl ComputeServer for WgpuSpirvServer {
     type Storage = WgpuStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> Reader {
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
         let br = self.get_resource(binding);
         let resource = br.resource();
 
@@ -188,7 +188,7 @@ impl ComputeServer for WgpuSpirvServer {
         );
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        self.sync(SyncType::Flush);
+        self.flush();
         let (sender, receiver) = async_channel::bounded(1);
         staging_buffer
             .slice(..)
@@ -198,7 +198,7 @@ impl ComputeServer for WgpuSpirvServer {
                     .expect("Unable to send buffer slice result to async channel.");
             });
         let poll = self.poll.start_polling();
-        Box::pin(async move {
+        async move {
             receiver
                 .recv()
                 .await
@@ -213,7 +213,7 @@ impl ComputeServer for WgpuSpirvServer {
             };
             staging_buffer.unmap();
             result
-        })
+        }
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
@@ -309,7 +309,7 @@ impl ComputeServer for WgpuSpirvServer {
             .collect::<Vec<_>>();
 
         let start = if profile_level.is_some() {
-            self.sync(SyncType::Wait);
+            future::block_on(self.sync());
             Some(std::time::SystemTime::now())
         } else {
             None
@@ -362,7 +362,7 @@ impl ComputeServer for WgpuSpirvServer {
             let (name, kernel_id) = profile_info.unwrap();
 
             // Execute the task.
-            self.sync(SyncType::Wait);
+            future::block_on(self.sync());
 
             let info = match level {
                 cubecl_runtime::debug::ProfileLevel::Basic => {
@@ -379,11 +379,11 @@ impl ComputeServer for WgpuSpirvServer {
             self.logger
                 .register_profiled(info, start.unwrap().elapsed().unwrap());
         } else if self.tasks_count >= self.tasks_max {
-            self.sync(SyncType::Flush);
+            self.flush();
         }
     }
 
-    fn sync(&mut self, sync_type: SyncType) {
+    fn flush(&mut self) {
         // End the current compute pass.
         self.clear_compute_pass();
         let new_encoder = create_encoder(&self.device);
@@ -393,12 +393,30 @@ impl ComputeServer for WgpuSpirvServer {
         self.tasks_count = 0;
         self.storage_locked.clear_locked();
 
-        if sync_type == SyncType::Wait {
-            self.device.poll(wgpu::Maintain::Wait);
-        }
-
         // Cleanup allocations and deallocations.
         self.memory_management.storage().perform_deallocations();
+    }
+
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+        self.flush();
+        let (sender, receiver) = async_channel::bounded(1);
+        self.queue.on_submitted_work_done(move || {
+            sender
+                .try_send(())
+                .expect("Unable to send buffer slice result to async channel.");
+        });
+
+        let poll = self.poll.start_polling();
+
+        async move {
+            receiver
+                .recv()
+                .await
+                .expect("Unable to receive buffer slice result.");
+
+            // Drop poll handle. Important to capture it.
+            drop(poll);
+        }
     }
 
     fn memory_usage(&self) -> MemoryUsage {

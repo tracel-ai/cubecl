@@ -4,8 +4,6 @@ use crate::storage::BindingResource;
 use crate::ExecutionMode;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::reader::Reader;
-use cubecl_common::sync_type::SyncType;
 use spin::Mutex;
 
 /// The MutexComputeChannel ensures thread-safety by locking the server
@@ -38,8 +36,8 @@ impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
     Server: ComputeServer,
 {
-    fn read(&self, handle: Binding) -> Reader {
-        self.server.lock().read(handle)
+    async fn read(&self, handle: Binding) -> Vec<u8> {
+        self.server.lock().read(handle).await
     }
 
     fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
@@ -64,8 +62,16 @@ where
         self.server.lock().execute(kernel, count, handles, kind)
     }
 
-    fn sync(&self, sync_type: SyncType) {
-        self.server.lock().sync(sync_type)
+    fn flush(&self) {
+        self.server.lock().flush();
+    }
+
+    async fn sync(&self) {
+        let fut = {
+            let mut server = self.server.lock();
+            server.sync()
+        };
+        fut.await;
     }
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {

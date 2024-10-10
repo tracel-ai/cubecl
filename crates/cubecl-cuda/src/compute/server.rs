@@ -2,8 +2,6 @@ use crate::compiler::{format_cpp_code, CudaCompiler};
 
 use super::storage::CudaStorage;
 use super::CudaResource;
-use cubecl_common::reader::{reader_from_concrete, Reader};
-use cubecl_common::sync_type::SyncType;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
 use cubecl_core::Feature;
@@ -21,6 +19,7 @@ use cudarc::driver::sys::CUfunc_st;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::future::Future;
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -89,8 +88,9 @@ impl ComputeServer for CudaServer {
     type Storage = CudaStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> Reader {
-        reader_from_concrete(self.read_sync(binding))
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
+        let value = self.read_sync(binding);
+        async { value }
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
@@ -194,16 +194,12 @@ impl ComputeServer for CudaServer {
         }
     }
 
-    fn sync(&mut self, sync_type: SyncType) {
-        match sync_type {
-            // Synchronize the stream if waiting.
-            SyncType::Wait => {
-                let ctx = self.get_context();
-                ctx.sync();
-            }
-            // Nothing to do - all tasks are already submitted to the stream.
-            SyncType::Flush => (),
-        }
+    fn flush(&mut self) {}
+
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+        let ctx = self.get_context();
+        ctx.sync();
+        async {}
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {

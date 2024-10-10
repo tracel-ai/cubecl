@@ -1,5 +1,5 @@
 use cubecl_common::benchmark::Benchmark;
-use cubecl_common::sync_type::SyncType;
+use futures_lite::future;
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
@@ -43,6 +43,6 @@ impl<S: ComputeServer, C: ComputeChannel<S>, Out> Benchmark for TuneBenchmark<S,
 
     fn sync(&self) {
         // For benchmarks - we need to wait for all tasks to complete before returning.
-        self.client.sync(SyncType::Wait);
+        future::block_on(self.client.sync());
     }
 }

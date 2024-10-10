@@ -4,8 +4,6 @@ use crate::storage::BindingResource;
 use crate::ExecutionMode;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::reader::Reader;
-use cubecl_common::sync_type::SyncType;
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///
@@ -45,8 +43,12 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
-    fn read(&self, binding: Binding) -> Reader {
-        self.server.borrow_mut().read(binding)
+    async fn read(&self, binding: Binding) -> Vec<u8> {
+        let future = {
+            let mut server = self.server.borrow_mut();
+            server.read(binding)
+        };
+        future.await
     }
 
     fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
@@ -73,8 +75,16 @@ where
             .execute(kernel_description, count, bindings, kind)
     }
 
-    fn sync(&self, sync_type: SyncType) {
-        self.server.borrow_mut().sync(sync_type)
+    fn flush(&self) {
+        self.server.borrow_mut().flush()
+    }
+
+    async fn sync(&self) {
+        let future = {
+            let mut server = self.server.borrow_mut();
+            server.sync()
+        };
+        future.await
     }
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {

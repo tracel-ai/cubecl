@@ -2,15 +2,11 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::fmt::Display;
-use core::time::Duration;
+use core::{fmt::Display, future::Future};
+use web_time::Duration;
+use web_time::Instant;
 
 use serde::{Deserialize, Serialize};
-
-#[cfg(all(not(target_family = "wasm"), feature = "std"))]
-use std::time::Instant;
-#[cfg(all(target_family = "wasm", feature = "std"))]
-use web_time::Instant;
 
 /// Results of a benchmark run.
 #[derive(new, Debug, Default, Clone, Serialize, Deserialize)]
@@ -140,38 +136,38 @@ pub trait Benchmark {
         vec![]
     }
     /// Wait for computed to be over
-    fn sync(&self);
+    fn sync(&self) -> impl Future<Output = ()>;
     /// Run the benchmark a number of times.
-    fn run(&self) -> BenchmarkDurations {
-        #[cfg(not(feature = "std"))]
-        panic!("Attempting to run benchmark in a no-std environment");
-
-        #[cfg(feature = "std")]
-        {
+    fn run_async(&self) -> impl Future<Output = BenchmarkDurations> {
+        async move {
             // Warmup
             let args = self.prepare();
 
             self.execute(args.clone());
-            self.sync();
+            self.sync().await;
 
             let mut durations = Vec::with_capacity(self.num_samples());
 
             for _ in 0..self.num_samples() {
-                // Prepare
-                self.sync();
-
-                // Execute the benchmark
+                self.sync().await;
                 let start = Instant::now();
                 self.execute(args.clone());
-                self.sync();
+                self.sync().await;
                 let end = Instant::now();
-
                 // Register the duration
                 durations.push(end - start);
             }
 
             BenchmarkDurations { durations }
         }
+    }
+
+    /// Run the benchmark a number of times.
+    fn run(&self) -> BenchmarkDurations {
+        #[cfg(not(feature = "std"))]
+        panic!("Attempting to run benchmark in a no-std environment");
+        #[cfg(feature = "std")]
+        futures_lite::future::block_on(self.run_async())
     }
 }
 

@@ -1,6 +1,6 @@
+use std::future::Future;
 use std::sync::Arc;
 
-use cubecl_common::{reader::reader_from_concrete, sync_type::SyncType};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::storage::{BindingResource, ComputeStorage};
@@ -26,10 +26,10 @@ impl ComputeServer for DummyServer {
     type Storage = BytesStorage;
     type Feature = ();
 
-    fn read(&mut self, binding: Binding) -> cubecl_common::reader::Reader {
+    fn read(&mut self, binding: Binding) -> impl Future<Output = Vec<u8>> + 'static {
         let bytes_handle = self.memory_management.get(binding.memory);
         let bytes = self.memory_management.storage().get(&bytes_handle);
-        reader_from_concrete(bytes.read().to_vec())
+        async move { bytes.read().to_vec() }
     }
 
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {
@@ -69,8 +69,14 @@ impl ComputeServer for DummyServer {
         kernel.compute(&mut resources);
     }
 
-    fn sync(&mut self, _: SyncType) {
+    fn flush(&mut self) {
         // Nothing to do with dummy backend.
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+        // Nothing to do with dummy backend.
+        async {}
     }
 
     fn memory_usage(&self) -> MemoryUsage {

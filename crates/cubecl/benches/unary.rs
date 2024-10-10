@@ -1,11 +1,11 @@
 use cubecl::{calculate_cube_count_elemwise, frontend, prelude::*};
+use futures_lite::future;
 use std::marker::PhantomData;
 
 #[cfg(feature = "cuda")]
 use half::f16;
 
 use cubecl::benchmark::Benchmark;
-use cubecl::client::SyncType;
 use cubecl_linalg::tensor::TensorHandle;
 
 #[cube(launch)]
@@ -65,7 +65,7 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     }
 
     fn sync(&self) {
-        self.client.sync(SyncType::Wait);
+        future::block_on(self.client.sync());
     }
 }
 
