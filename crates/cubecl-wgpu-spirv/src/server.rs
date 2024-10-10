@@ -14,8 +14,9 @@ use cubecl_runtime::{
 use cubecl_spirv::SpirvCompiler;
 use hashbrown::HashMap;
 use wgpu::{
+    hal::{self, vulkan},
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
-    CommandEncoder, ComputePass, ComputePipeline, PipelineLayout, PipelineLayoutDescriptor,
+    CommandEncoder, ComputePass, ComputePipeline, Device, PipelineLayout, PipelineLayoutDescriptor,
     ShaderModuleDescriptorSpirV, ShaderStages,
 };
 
@@ -74,6 +75,13 @@ impl WgpuSpirvServer {
             return pipeline.clone();
         }
 
+        // `wgpu` currently always enables `robustness2` on Vulkan if available, so default to
+        // unchecked execution if robustness is enabled and let Vulkan handle it
+        let mode = if is_robust(&self.device) {
+            ExecutionMode::Unchecked
+        } else {
+            mode
+        };
         let mut compile = kernel.compile(mode);
         if self.logger.is_activated() {
             compile.debug_info = Some(DebugInformation::new("spv", kernel_id.clone()));
@@ -398,5 +406,18 @@ impl ComputeServer for WgpuSpirvServer {
 
     fn memory_usage(&self) -> MemoryUsage {
         self.memory_management.memory_usage()
+    }
+}
+
+fn is_robust(device: &Device) -> bool {
+    fn is_robust(device: &vulkan::Device) -> bool {
+        device
+            .enabled_device_extensions()
+            .contains(&c"VK_EXT_robustness2")
+    }
+    unsafe {
+        device
+            .as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
+            .unwrap_or(false)
     }
 }

@@ -31,7 +31,7 @@ use std::{
 };
 
 use cubecl_core::{
-    ir::{self as core, Operator, Variable},
+    ir::{self as core, Branch, Operator, Variable},
     CubeDim,
 };
 use cubecl_core::{
@@ -329,7 +329,7 @@ impl Optimizer {
     }
 
     /// Recursively parse a scope into the graph
-    pub fn parse_scope(&mut self, mut scope: Scope) {
+    pub fn parse_scope(&mut self, mut scope: Scope) -> bool {
         let processed = scope.process();
 
         for var in processed.variables {
@@ -337,6 +337,10 @@ impl Optimizer {
                 self.program.variables.insert((id, depth), item);
             }
         }
+
+        let is_break = processed
+            .operations
+            .contains(&Operation::Branch(Branch::Break));
 
         for instruction in processed.operations {
             match instruction {
@@ -365,6 +369,8 @@ impl Optimizer {
                 }
             }
         }
+
+        is_break
     }
 
     /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.

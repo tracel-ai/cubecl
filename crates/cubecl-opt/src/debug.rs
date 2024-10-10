@@ -65,18 +65,6 @@ impl Display for Optimizer {
                 }
             }
             match &*bb.control_flow.borrow() {
-                ControlFlow::Break {
-                    cond,
-                    body,
-                    or_break,
-                } => {
-                    writeln!(
-                        f,
-                        "    break {cond} body: bb{}, break: bb{};",
-                        body.index(),
-                        or_break.index()
-                    )?;
-                }
                 ControlFlow::IfElse {
                     cond,
                     then,
@@ -85,10 +73,13 @@ impl Display for Optimizer {
                 } => {
                     writeln!(
                         f,
-                        "    {cond} ? bb{} : bb{}; merge: bb{}",
+                        "    {cond} ? bb{} : bb{}; merge: {}",
                         then.index(),
                         or_else.index(),
-                        merge.index()
+                        merge
+                            .as_ref()
+                            .map(|it| format!("bb{}", it.index()))
+                            .unwrap_or("None".to_string())
                     )?;
                 }
                 super::ControlFlow::Switch {

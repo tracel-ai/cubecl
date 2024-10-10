@@ -158,11 +158,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_control_flow(&mut self, control_flow: ControlFlow) {
         match control_flow {
-            ControlFlow::Break {
-                cond,
-                body,
-                or_break,
-            } => self.compile_break(cond, body, or_break),
             ControlFlow::IfElse {
                 cond,
                 then,
@@ -199,38 +194,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    fn compile_break(&mut self, cond: core::Variable, body: NodeIndex, or_break: NodeIndex) {
-        let cond = self.compile_variable(cond);
-        let body_label = self.label(body);
-        let break_label = self.label(or_break);
-        let cond_id = self.read(&cond);
-
-        self.branch_conditional(cond_id, body_label, break_label, None)
-            .unwrap();
-        self.compile_block(body);
-        self.compile_block(or_break);
-    }
-
     fn compile_if_else(
         &mut self,
         cond: core::Variable,
         then: NodeIndex,
         or_else: NodeIndex,
-        merge: NodeIndex,
+        merge: Option<NodeIndex>,
     ) {
         let cond = self.compile_variable(cond);
         let then_label = self.label(then);
         let else_label = self.label(or_else);
-        let merge_label = self.label(merge);
         let cond_id = self.read(&cond);
 
-        self.selection_merge(merge_label, SelectionControl::NONE)
-            .unwrap();
+        if let Some(merge) = merge {
+            let merge_label = self.label(merge);
+            self.selection_merge(merge_label, SelectionControl::NONE)
+                .unwrap();
+        }
         self.branch_conditional(cond_id, then_label, else_label, None)
             .unwrap();
         self.compile_block(then);
         self.compile_block(or_else);
-        self.compile_block(merge);
+        if let Some(it) = merge {
+            self.compile_block(it);
+        }
     }
 
     fn compile_switch(
@@ -238,7 +225,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         value: core::Variable,
         default: NodeIndex,
         branches: Vec<(u32, NodeIndex)>,
-        merge: NodeIndex,
+        merge: Option<NodeIndex>,
     ) {
         let value = self.compile_variable(value);
         let value_id = self.read(&value);
@@ -251,16 +238,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 (Operand::LiteralBit32(*value), label)
             })
             .collect::<Vec<_>>();
-        let merge_label = self.label(merge);
 
-        self.selection_merge(merge_label, SelectionControl::NONE)
-            .unwrap();
+        if let Some(merge) = merge {
+            let merge_label = self.label(merge);
+            self.selection_merge(merge_label, SelectionControl::NONE)
+                .unwrap();
+        }
+
         self.switch(value_id, default_label, targets).unwrap();
         self.compile_block(default);
         for (_, block) in branches {
             self.compile_block(block);
         }
-        self.compile_block(merge);
+        if let Some(it) = merge {
+            self.compile_block(it);
+        }
     }
 
     fn compile_loop(&mut self, body: NodeIndex, continue_target: NodeIndex, merge: NodeIndex) {

@@ -84,9 +84,12 @@ impl OptimizerPass for EliminateConstBranches {
                         let edge = edges.find(|it| it.target() == then).unwrap().id();
                         opt.program.remove_edge(edge);
                     }
-                    opt.program[merge]
-                        .block_use
-                        .retain(|it| *it != BlockUse::Merge);
+                    if let Some(merge) = merge {
+                        opt.program[merge]
+                            .block_use
+                            .retain(|it| *it != BlockUse::Merge);
+                    }
+
                     *control_flow.borrow_mut() = ControlFlow::None;
                     changes.inc();
                 }
@@ -208,7 +211,11 @@ fn can_merge(opt: &mut Optimizer, block: NodeIndex, successor: NodeIndex) -> boo
     let successor = &opt.program[successor];
     let b_is_continue = block.block_use.contains(&BlockUse::ContinueTarget);
     let s_is_continue = successor.block_use.contains(&BlockUse::ContinueTarget);
+
     let is_continue = b_is_continue || s_is_continue;
+    let b_is_header = matches!(*block.control_flow.borrow(), ControlFlow::Loop { .. });
+    let s_is_header = matches!(*block.control_flow.borrow(), ControlFlow::Loop { .. });
+    let is_header = b_is_header && s_is_header;
     let b_is_merge = block
         .block_use
         .iter()
@@ -218,7 +225,7 @@ fn can_merge(opt: &mut Optimizer, block: NodeIndex, successor: NodeIndex) -> boo
         .iter()
         .any(|it| matches!(it, BlockUse::Merge));
     let both_merge = b_is_merge && s_is_merge;
-    !has_multiple_entries && !is_continue && !both_merge
+    !has_multiple_entries && !is_header && !is_continue && !both_merge
 }
 
 fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
@@ -236,10 +243,6 @@ fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
         }
 
         match &mut *opt.program[node].control_flow.borrow_mut() {
-            ControlFlow::Break { body, or_break, .. } => {
-                update(body);
-                update(or_break);
-            }
             ControlFlow::IfElse {
                 then,
                 or_else,
@@ -248,7 +251,9 @@ fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
             } => {
                 update(then);
                 update(or_else);
-                update(merge);
+                if let Some(it) = merge.as_mut() {
+                    update(it);
+                }
             }
             ControlFlow::Switch {
                 default,
@@ -257,7 +262,9 @@ fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
                 ..
             } => {
                 update(default);
-                update(merge);
+                if let Some(it) = merge.as_mut() {
+                    update(it);
+                }
 
                 for branch in branches {
                     update(&mut branch.1);
