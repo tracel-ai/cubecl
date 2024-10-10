@@ -6,10 +6,17 @@ use stable_vec::StableVec;
 
 use crate::{version::PhiInstruction, ControlFlow, Optimizer, Program};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockUse {
+    ContinueTarget,
+    Merge,
+}
+
 /// A basic block of instructions interrupted by control flow. Phi nodes are assumed to come before
 /// any instructions. See https://en.wikipedia.org/wiki/Basic_block
 #[derive(Default, Debug, Clone)]
 pub struct BasicBlock {
+    pub(crate) block_use: Vec<BlockUse>,
     /// The phi nodes that are required to be generated at the start of this block.
     pub phi_nodes: Rc<RefCell<Vec<PhiInstruction>>>,
     /// The variables written to by this block. Only set during the SSA transformation.
@@ -46,7 +53,6 @@ impl Optimizer {
                 self.visit_operation(op, visit_read.clone(), visit_write.clone());
             }
             match &mut *control_flow.borrow_mut() {
-                ControlFlow::Break { cond, .. } => visit_read(self, cond),
                 ControlFlow::IfElse { cond, .. } => visit_read(self, cond),
                 ControlFlow::Switch { value, .. } => visit_read(self, value),
                 _ => {}
