@@ -8,7 +8,7 @@ use cubecl_core::{
 use cubecl_hip::{HipDevice, HipRuntime};
 
 type Client = ComputeClient<<HipRuntime as Runtime>::Server, <HipRuntime as Runtime>::Channel>;
-type Handle = server::Handle<<HipRuntime as Runtime>::Server>;
+type Handle = server::Handle;
 
 pub fn client() -> Client {
     let device = HipDevice::new(0);
