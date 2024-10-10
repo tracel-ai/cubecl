@@ -12,11 +12,8 @@ pub(crate) fn smem_slice_to_gmem<E: Numeric, C: CubePrimitive>(
     col_tile_begin: u32,
     stage_info: StageInfo,
 ) {
-    let stride_x = stage_info.num_tiles_y * stage_info.tile_size_y;
-
     for elem_x in 0..stage_info.tile_size_x {
         let smem_elem_x = elem_x * stage_info.tile_size_y;
-        let gmem_elem_x = elem_x * stride_x;
 
         for elem_y in 0..stage_info.tile_size_y {
             let smem_offset = smem_elem_x + elem_y;
