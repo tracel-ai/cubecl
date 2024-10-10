@@ -65,7 +65,6 @@ pub struct HipResource {
 
 unsafe impl Send for HipResource {}
 
-
 impl HipResource {
     /// Return the binding view of the buffer.
     pub fn as_binding(&self) -> Binding {
@@ -95,7 +94,8 @@ impl ComputeStorage for HipStorage {
         let ptr = ptr + offset;
         let key = ActiveResource::new(ptr);
 
-        self.activate_slices.insert(key.clone(), ptr as cubecl_hip_sys::hipDeviceptr_t);
+        self.activate_slices
+            .insert(key.clone(), ptr as cubecl_hip_sys::hipDeviceptr_t);
 
         // The ptr needs to stay alive until we send the task to the server.
         let ptr = self.activate_slices.get(&key).unwrap();
@@ -116,7 +116,7 @@ impl ComputeStorage for HipStorage {
             assert_eq!(status, HIP_SUCCESS, "Should allocate memory");
             self.memory.insert(id, dptr);
         };
-        StorageHandle::new(id, StorageUtilization { offset: 0, size})
+        StorageHandle::new(id, StorageUtilization { offset: 0, size })
     }
 
     fn dealloc(&mut self, id: StorageId) {

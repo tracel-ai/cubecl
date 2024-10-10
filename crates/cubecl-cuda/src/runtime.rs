@@ -34,9 +34,8 @@ static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::ne
 
 const MEMORY_OFFSET_ALIGNMENT: usize = 32;
 
-
 fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
-    // To get the supported WMMA featurs, and memory properties, we have to initialize the server immediatly.
+    // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
     let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
     let arch = unsafe {
