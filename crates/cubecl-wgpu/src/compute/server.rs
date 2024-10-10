@@ -16,6 +16,80 @@ use cubecl_runtime::{
 use hashbrown::HashMap;
 use wgpu::{CommandEncoder, ComputePass, ComputePipeline, ShaderModuleDescriptor};
 
+#[cfg(not(target_family = "wasm"))]
+mod poll {
+    use std::thread::JoinHandle;
+
+    #[derive(Debug)]
+    pub struct WgpuPoll {
+        active_handle: std::sync::Arc<()>,
+        cancel_sender: std::sync::mpsc::Sender<()>,
+        poll_thread: JoinHandle<()>,
+    }
+
+    impl WgpuPoll {
+        pub fn new(device: std::sync::Arc<wgpu::Device>) -> Self {
+            let active_handle = std::sync::Arc::new(());
+            let thread_check = active_handle.clone();
+
+            let (cancel_sender, cancel_receiver) = std::sync::mpsc::channel();
+            let poll_thread = std::thread::spawn(move || loop {
+                // Check whether the WgpuPoll, this thread, and something else is holding
+                // a handle.
+                if std::sync::Arc::strong_count(&thread_check) > 2 {
+                    device.poll(wgpu::MaintainBase::Poll);
+                } else {
+                    std::thread::park();
+
+                    // Do not cancel thread while someone still needs to poll.
+                    if cancel_receiver.try_recv().is_ok() {
+                        break;
+                    }
+                }
+                std::thread::yield_now();
+            });
+
+            Self {
+                active_handle,
+                cancel_sender,
+                poll_thread
+            }
+        }
+
+        /// Get a handle, as long as it's alive the polling will be active.
+        pub fn start_polling(&self) -> std::sync::Arc<()> {
+            self.poll_thread.thread().unpark();
+            self.active_handle.clone()
+        }
+    }
+
+    impl Drop for WgpuPoll {
+        fn drop(&mut self) {
+            self.poll_thread.thread().unpark();
+            self.cancel_sender
+                .send(())
+                .expect("Failed to shutdown polling thread.");
+        }
+    }
+}
+
+// On Wasm, the browser handles the polling loop, so we don't need anything.
+#[cfg(target_family = "wasm")]
+mod poll {
+    #[derive(Debug)]
+    pub struct WgpuPoll {}
+    impl WgpuPoll {
+        pub fn new(device: alloc::sync::Arc<wgpu::Device>) -> Self {
+            Self {}
+        }
+        pub fn start_polling(&self) -> alloc::sync::Arc<()> {
+            alloc::sync::Arc::new(())
+        }
+    }
+}
+
+pub use poll::WgpuPoll;
+
 /// Wgpu compute server.
 #[derive(Debug)]
 pub struct WgpuServer {
@@ -28,7 +102,7 @@ pub struct WgpuServer {
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     tasks_max: usize,
     logger: DebugLogger,
-
+    poll: WgpuPoll,
     storage_locked: MemoryLock,
 }
 
@@ -57,6 +131,7 @@ impl WgpuServer {
             pipelines: HashMap::new(),
             tasks_max,
             logger: DebugLogger::new(),
+            poll: WgpuPoll::new(device.clone()),
         }
     }
 
@@ -131,7 +206,7 @@ impl ComputeServer for WgpuServer {
         let resource = rb.resource();
 
         let size = resource.size();
-        let read_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
@@ -143,7 +218,7 @@ impl ComputeServer for WgpuServer {
         self.encoder.copy_buffer_to_buffer(
             &resource.buffer,
             resource.offset(),
-            &read_buffer,
+            &staging_buffer,
             0,
             size,
         );
@@ -152,33 +227,28 @@ impl ComputeServer for WgpuServer {
         self.sync(SyncType::Flush);
 
         let (sender, receiver) = async_channel::bounded(1);
-        let slice = read_buffer.slice(..);
-        slice.map_async(wgpu::MapMode::Read, move |v| {
-            sender
-                .try_send(v)
-                .expect("Unable to send buffer slice result to async channel.");
-        });
-
-        let device = self.device.clone();
-
+        staging_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |v| {
+                sender
+                    .try_send(v)
+                    .expect("Unable to send buffer slice result to async channel.");
+            });
+        let poll = self.poll.start_polling();
         Box::pin(async move {
-            // Now wait for the GPU to finish.
-            device.poll(wgpu::Maintain::Wait);
-
-            let slice = read_buffer.slice(..);
-
             receiver
                 .recv()
                 .await
                 .expect("Unable to receive buffer slice result.")
                 .expect("Failed to map buffer");
+            // Can stop polling now.
+            drop(poll);
 
-            let data = slice.get_mapped_range();
-            let result = bytemuck::cast_slice(&data).to_vec();
-
-            drop(data);
-            read_buffer.unmap();
-
+            let result = {
+                let data = staging_buffer.slice(..).get_mapped_range();
+                bytemuck::cast_slice(&data).to_vec()
+            };
+            staging_buffer.unmap();
             result
         })
     }
