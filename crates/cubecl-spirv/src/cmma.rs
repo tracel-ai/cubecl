@@ -39,7 +39,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let stride = self.read(&stride);
         let layout = mat.layout.unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
-        let ptr = self.index_ptr(&value);
+        let ptr = self.deref_slice(&value);
 
         let out_ty = self.item(&mat);
         let ty = out_ty.id(self);
@@ -83,7 +83,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let stride = self.read(&stride);
         let layout = mat.layout.unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
-        let ptr = self.index_ptr(&out);
+        let ptr = self.deref_slice(&out);
 
         self.cooperative_matrix_store_khr(ptr, mat_obj, memory_layout, Some(stride), None, vec![])
             .unwrap();
@@ -132,7 +132,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         (id, depth, mat)
     }
 
-    pub fn index_ptr(&mut self, var: &Variable) -> Word {
+    pub fn deref_slice(&mut self, var: &Variable) -> Word {
         let zero = self.const_u32(0);
         let zero = Variable::ConstantScalar(zero, ConstVal::Bit32(0), Elem::Int(32, false));
         match self.index(var, &zero, false) {

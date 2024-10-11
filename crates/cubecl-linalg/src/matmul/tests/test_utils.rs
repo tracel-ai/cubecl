@@ -63,13 +63,13 @@ pub(crate) fn create_empty<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     x: usize,
     y: usize,
-) -> Handle<<R as Runtime>::Server> {
+) -> Handle {
     client.empty(x * y * core::mem::size_of::<f32>())
 }
 
 pub(crate) fn assert_equals<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    output: Handle<<R as Runtime>::Server>,
+    output: Handle,
     expected: &[f32],
 ) {
     let actual = client.read(output.binding());
@@ -80,7 +80,7 @@ pub(crate) fn assert_equals<R: Runtime>(
 
 pub(crate) fn assert_equals_approx<I: CubeElement, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    output: Handle<<R as Runtime>::Server>,
+    output: Handle,
     expected: &[f32],
     epsilon: f32,
 ) -> Result<(), String> {

@@ -9,6 +9,7 @@ use crate::dummy::{client, DummyDevice, DummyElementwiseAddition};
 #[cfg(autotune_persistent_cache)]
 use crate::dummy::{TUNER_DEVICE_ID, TUNER_PREFIX};
 
+use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::ComputeRuntime;
 
 #[allow(unused)]
@@ -46,7 +47,7 @@ fn execute_elementwise_addition() {
 
     client.execute(
         Arc::new(DummyElementwiseAddition),
-        (),
+        CubeCount::Static(1, 1, 1),
         vec![lhs.binding(), rhs.binding(), out.clone().binding()],
     );
 

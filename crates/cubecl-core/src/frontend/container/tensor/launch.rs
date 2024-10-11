@@ -1,4 +1,4 @@
-use std::num::NonZero;
+use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
@@ -29,9 +29,10 @@ pub enum TensorArg<'a, R: Runtime> {
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),
 /// the strides and the shape.
 pub struct TensorHandleRef<'a, R: Runtime> {
-    pub handle: &'a cubecl_runtime::server::Handle<R::Server>,
+    pub handle: &'a cubecl_runtime::server::Handle,
     pub strides: &'a [usize],
     pub shape: &'a [usize],
+    pub runtime: PhantomData<R>,
 }
 
 impl<'a, R: Runtime> core::fmt::Debug for TensorHandleRef<'a, R> {
@@ -103,7 +104,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bound reads and writes.
     pub unsafe fn from_raw_parts(
-        handle: &'a cubecl_runtime::server::Handle<R::Server>,
+        handle: &'a cubecl_runtime::server::Handle,
         strides: &'a [usize],
         shape: &'a [usize],
         factor: u8,
@@ -148,7 +149,7 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
-        handle: &'a cubecl_runtime::server::Handle<R::Server>,
+        handle: &'a cubecl_runtime::server::Handle,
         strides: &'a [usize],
         shape: &'a [usize],
     ) -> Self {
@@ -156,6 +157,7 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
             handle,
             strides,
             shape,
+            runtime: PhantomData,
         }
     }
 }

@@ -1,6 +1,8 @@
-use cubecl_core::ir::{self as core, Scope};
+use cubecl_core::ir as core;
+use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use std::{
     collections::HashSet,
+    env,
     fmt::Debug,
     mem::take,
     ops::{Deref, DerefMut},
@@ -11,13 +13,13 @@ use cubecl_core::{
     Compiler, ExecutionMode,
 };
 use rspirv::{
-    dr::{Builder, Module},
+    dr::{Builder, InsertPoint, Module},
     spirv::{BuiltIn, Capability, Decoration, FunctionControl, StorageClass, Word},
 };
 
 use crate::{
     item::{Elem, Item},
-    lookups::{ConstArray, LookupTables},
+    lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
     SpirvKernel,
 };
@@ -31,10 +33,16 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     global_invocation_id: Word,
     num_workgroups: Word,
     variable_block: usize,
+    pub opt: Optimizer,
+    pub current_block: Option<NodeIndex>,
+    pub visited: HashSet<NodeIndex>,
 
     pub capabilities: HashSet<Capability>,
     pub state: LookupTables,
 }
+
+unsafe impl<T: SpirvTarget> Send for SpirvCompiler<T> {}
+unsafe impl<T: SpirvTarget> Sync for SpirvCompiler<T> {}
 
 impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
     fn clone(&self) -> Self {
@@ -45,10 +53,13 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             global_invocation_id: self.global_invocation_id,
             num_workgroups: self.num_workgroups,
             variable_block: self.variable_block,
+            opt: self.opt.clone(),
+            current_block: self.current_block,
 
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
             debug: self.debug,
+            visited: self.visited.clone(),
         }
     }
 }
@@ -64,7 +75,10 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             capabilities: Default::default(),
             state: Default::default(),
             variable_block: Default::default(),
-            debug: true,
+            opt: Default::default(),
+            current_block: Default::default(),
+            debug: env::var("CUBECL_DEBUG_LOG").is_ok(),
+            visited: Default::default(),
         }
     }
 }
@@ -88,13 +102,14 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
 
     fn compile(kernel: KernelDefinition, mode: ExecutionMode) -> Self::Representation {
         let num_bindings = kernel.inputs.len() + kernel.outputs.len() + kernel.named.len();
-        let module = Self {
+        let (module, optimizer) = Self {
             mode,
             ..Default::default()
         }
         .compile_kernel(kernel);
         SpirvKernel {
             module,
+            optimizer,
             num_bindings,
         }
     }
@@ -119,7 +134,7 @@ impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
 }
 
 impl<Target: SpirvTarget> SpirvCompiler<Target> {
-    pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> Module {
+    pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer) {
         self.set_version(1, 6);
 
         self.init_state(kernel.clone());
@@ -135,15 +150,28 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .begin_function(void, None, FunctionControl::NONE, voidf)
             .unwrap();
 
-        self.begin_block(None).unwrap();
+        let variables = self.id();
+        self.debug_name(variables, "function vars");
+        self.begin_block(Some(variables)).unwrap();
         self.variable_block = self.selected_block().unwrap();
         self.select_block(None).unwrap(); // Pop variables so we can terminate it later once we're done
 
         let setup = self.id();
-        let body = self.id();
+        self.debug_name(setup, "setup");
+        self.opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
+        let entry = self.opt.entry();
+        let body = self.label(entry);
         self.setup(setup, body);
-        self.compile_scope(kernel.body, Some(body));
-        self.ret().unwrap();
+        self.compile_block(entry);
+
+        let opt = self.opt.clone();
+        let ret = opt.ret;
+        self.compile_block(ret);
+
+        if self.selected_block().is_some() {
+            let label = self.label(ret);
+            self.branch(label).unwrap();
+        }
 
         // Terminate variable block
         let var_block = self.variable_block;
@@ -153,7 +181,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.end_function().unwrap();
 
         self.declare_shared_memories();
-        self.copy_const_arrays();
 
         let builtins = self
             .state
@@ -170,7 +197,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         target.set_modes(self, main, builtins, cube_dims);
 
-        take(&mut self.builder).module()
+        let module = take(&mut self.builder).module();
+        (module, self.opt.clone())
     }
 
     fn setup(&mut self, label: Word, body: Word) {
@@ -193,6 +221,10 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.branch(body).unwrap();
     }
 
+    pub fn current_block(&self) -> &BasicBlock {
+        self.opt.block(self.current_block.unwrap())
+    }
+
     pub fn builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
         if let Some(existing) = self.state.used_builtins.get(&builtin) {
             existing.0
@@ -203,33 +235,47 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         }
     }
 
-    pub fn compile_scope(&mut self, mut scope: Scope, label: Option<Word>) -> Word {
-        self.declare_const_arrays(scope.const_arrays.drain(..));
-
-        let processed = scope.process();
-        let label = self.begin_block(label).unwrap();
-
-        for variable in processed.variables {
-            let item = self.compile_item(variable.item());
-            match variable {
-                core::Variable::Local { id, depth, .. } => {
-                    let ptr =
-                        Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-
-                    let var = self.declare_function_variable(ptr);
-                    self.debug_name(var, format!("local({id}, {depth})"));
-                    self.state.variables.insert((id, depth), var);
-                }
-                core::Variable::Slice { .. } => {}
-                core::Variable::Matrix { .. } => {}
-                var => todo!("{var:?}"),
-            };
+    pub fn compile_block(&mut self, block: NodeIndex) {
+        if self.visited.contains(&block) {
+            return;
         }
+        self.visited.insert(block);
 
-        for operation in processed.operations {
+        self.current_block = Some(block);
+
+        let label = self.label(block);
+        self.begin_block(Some(label)).unwrap();
+        let block_id = self.selected_block().unwrap();
+
+        let operations = self.current_block().ops.borrow().clone();
+        for (_, operation) in operations {
             self.compile_operation(operation);
         }
-        label
+
+        let control_flow = self.current_block().control_flow.borrow().clone();
+        self.compile_control_flow(control_flow);
+
+        let current = self.selected_block();
+        self.select_block(Some(block_id)).unwrap();
+        let phi = { self.opt.block(block).phi_nodes.borrow().clone() };
+        for phi in phi {
+            let out = self.compile_variable(phi.out);
+            let ty = out.item().id(self);
+            let out_id = self.write_id(&out);
+            let entries: Vec<_> = phi
+                .entries
+                .into_iter()
+                .map(|it| {
+                    let label = self.end_label(it.block);
+                    let value = self.compile_variable(it.value);
+                    let value = self.read(&value);
+                    (value, label)
+                })
+                .collect();
+            self.insert_phi(InsertPoint::Begin, ty, Some(out_id), entries)
+                .unwrap();
+        }
+        self.select_block(current).unwrap();
     }
 
     // Declare variable in the first block of the function
@@ -242,31 +288,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         var
     }
 
-    fn declare_const_arrays(
-        &mut self,
-        const_arrays: impl Iterator<Item = (core::Variable, Vec<core::Variable>)>,
-    ) {
-        let const_arrays = const_arrays
-            .map(|(var, values)| {
-                let item = self.compile_item(var.item());
-                let len = values.len() as u32;
-                let arr_ty = Item::Array(Box::new(item.clone()), len).id(self);
-                let values: Vec<_> = values
-                    .into_iter()
-                    .map(|val| self.static_core(val, &item))
-                    .collect();
-                let composite_id = self.constant_composite(arr_ty, values);
-                ConstArray {
-                    id: self.id(),
-                    item,
-                    len,
-                    composite_id,
-                }
-            })
-            .collect::<Vec<_>>();
-        self.state.const_arrays.extend(const_arrays);
-    }
-
     fn declare_shared_memories(&mut self) {
         let shared_memories = self.state.shared_memories.clone();
         for (id, memory) in shared_memories {
@@ -275,24 +296,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
             self.debug_name(memory.id, format!("shared({id})"));
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-        }
-    }
-
-    fn copy_const_arrays(&mut self) {
-        let const_arrays = self.state.const_arrays.clone();
-
-        for array in const_arrays {
-            let ptr_ty = Item::Pointer(
-                StorageClass::UniformConstant,
-                Box::new(Item::Array(Box::new(array.item), array.len)),
-            )
-            .id(self);
-            self.variable(
-                ptr_ty,
-                Some(array.id),
-                StorageClass::UniformConstant,
-                Some(array.composite_id),
-            );
         }
     }
 

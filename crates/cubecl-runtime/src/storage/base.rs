@@ -85,7 +85,7 @@ pub struct BindingResource<Server: ComputeServer> {
     // If the underlying allocation becomes invalid, someone else might
     // allocate into this resource which could lead to bad behaviour.
     #[allow(unused)]
-    binding: Binding<Server>,
+    binding: Binding,
     resource: <Server::Storage as ComputeStorage>::Resource,
 }
 

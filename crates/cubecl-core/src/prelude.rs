@@ -1,9 +1,7 @@
 pub use crate::{cube, CubeLaunch, CubeType, Kernel, RuntimeArg};
 
 pub use crate::codegen::{KernelExpansion, KernelIntegrator, KernelSettings};
-pub use crate::compute::{
-    CompiledKernel, CubeCount, CubeTask, KernelBuilder, KernelLauncher, KernelTask,
-};
+pub use crate::compute::{CompiledKernel, CubeTask, KernelBuilder, KernelLauncher, KernelTask};
 pub use crate::frontend::cmma;
 pub use crate::frontend::{branch::*, synchronization::*, vectorization_of};
 pub use crate::ir::{CubeDim, KernelDefinition};
@@ -26,6 +24,7 @@ pub use crate::frontend::{
 /// Export subcube operations.
 pub use crate::frontend::{subcube_all, subcube_max, subcube_min, subcube_prod, subcube_sum};
 pub use cubecl_runtime::client::ComputeClient;
+pub use cubecl_runtime::server::CubeCount;
 
 pub use crate::comptime;
 pub use crate::frontend::*;

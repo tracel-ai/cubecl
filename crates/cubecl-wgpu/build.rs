@@ -3,6 +3,6 @@ use cfg_aliases::cfg_aliases;
 fn main() {
     // Setup cfg aliases
     cfg_aliases! {
-        simple_memory_management: { any(feature = "simple-memory-management", target_family = "wasm") },
+        exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
     }
 }

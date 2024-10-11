@@ -82,7 +82,7 @@ pub fn test_subcube_sum<TestRuntime: Runtime>(
         &[4.0, 5.0, 7.0, 1.0],
         &[17.0, 5.0, 7.0, 1.0],
         client.clone(),
-        |cube_count: CubeCount<<TestRuntime as Runtime>::Server>, cube_dim, handle| {
+        |cube_count: CubeCount, cube_dim, handle| {
             kernel_sum::launch::<TestRuntime>(&client, cube_count, cube_dim, handle)
         },
     );
@@ -200,7 +200,7 @@ fn test_subcube_operation<TestRuntime: Runtime, Launch>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
     launch: Launch,
 ) where
-    Launch: Fn(CubeCount<TestRuntime::Server>, CubeDim, TensorArg<'_, TestRuntime>),
+    Launch: Fn(CubeCount, CubeDim, TensorArg<'_, TestRuntime>),
 {
     if !client.properties().feature_enabled(Feature::Subcube) {
         // Can't execute the test.

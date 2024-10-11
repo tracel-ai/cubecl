@@ -165,10 +165,7 @@ impl CmmaConfig {
         }
     }
 
-    pub(crate) fn cube_count<R: Runtime>(
-        &self,
-        output_shape: &[usize],
-    ) -> CubeCount<<R as Runtime>::Server> {
+    pub(crate) fn cube_count(&self, output_shape: &[usize]) -> CubeCount {
         let rank = output_shape.len();
         let num_rows = *output_shape.get(rank - 2).unwrap();
         let num_cols = *output_shape.get(rank - 1).unwrap();

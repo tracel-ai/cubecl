@@ -8,10 +8,7 @@ use cubecl_core::{
     ir::{Elem, FloatKind},
     Feature, Runtime,
 };
-use cubecl_runtime::{
-    memory_management::{dynamic::DynamicMemoryManagement, MemoryDeviceProperties},
-    ComputeRuntime, DeviceProperties,
-};
+use cubecl_runtime::{memory_management::MemoryDeviceProperties, ComputeRuntime, DeviceProperties};
 use cubecl_spirv::{GLCompute, SpirvCompiler};
 use cubecl_wgpu::{
     create_wgpu_setup, init_async, init_memory_management, AutoGraphicsApi, RuntimeOptions, Vulkan,
@@ -26,22 +23,17 @@ mod server;
 #[derive(Debug)]
 pub struct WgpuSpirvRuntime;
 
-#[cfg(not(simple_memory_management))]
-type MemoryManagement = DynamicMemoryManagement<WgpuStorage>;
-#[cfg(simple_memory_management)]
-type MemoryManagement = SimpleMemoryManagement<WgpuStorage>;
-
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
 static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
-type Server = WgpuSpirvServer<MemoryManagement>;
+type Server = WgpuSpirvServer;
 
 impl Runtime for WgpuSpirvRuntime {
     type Compiler = SpirvCompiler<GLCompute>;
-    type Server = WgpuSpirvServer<MemoryManagement>;
+    type Server = WgpuSpirvServer;
 
-    type Channel = MutexComputeChannel<WgpuSpirvServer<MemoryManagement>>;
+    type Channel = MutexComputeChannel<WgpuSpirvServer>;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
@@ -72,10 +64,7 @@ pub fn create_client(
     device_wgpu: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     options: RuntimeOptions,
-) -> ComputeClient<
-    WgpuSpirvServer<MemoryManagement>,
-    MutexComputeChannel<WgpuSpirvServer<MemoryManagement>>,
-> {
+) -> ComputeClient<WgpuSpirvServer, MutexComputeChannel<WgpuSpirvServer>> {
     let limits = device_wgpu.limits();
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as usize,

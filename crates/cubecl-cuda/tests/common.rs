@@ -8,7 +8,7 @@ use cubecl_core::{
 use cubecl_cuda::{CudaDevice, CudaRuntime};
 
 type Client = ComputeClient<<CudaRuntime as Runtime>::Server, <CudaRuntime as Runtime>::Channel>;
-type Handle = server::Handle<<CudaRuntime as Runtime>::Server>;
+type Handle = server::Handle;
 
 pub fn client() -> Client {
     let device = CudaDevice::new(0);

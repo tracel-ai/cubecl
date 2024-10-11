@@ -24,16 +24,16 @@ use std::ffi::CString;
 use std::path::PathBuf;
 
 #[derive(Debug)]
-pub struct CudaServer<MM: MemoryManagement<CudaStorage>> {
-    ctx: CudaContext<MM>,
+pub struct CudaServer {
+    ctx: CudaContext,
     logger: DebugLogger,
 }
 
 #[derive(Debug)]
-pub(crate) struct CudaContext<MM: MemoryManagement<CudaStorage>> {
+pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
-    memory_management: MM,
+    memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     pub(crate) arch: u32,
 }
@@ -45,15 +45,15 @@ struct CompiledKernel {
     func: *mut CUfunc_st,
 }
 
-unsafe impl<MM: MemoryManagement<CudaStorage>> Send for CudaServer<MM> {}
+unsafe impl Send for CudaServer {}
 
-impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
+impl CudaServer {
     pub(crate) fn arch_version(&mut self) -> u32 {
         let ctx = self.get_context();
         ctx.arch
     }
 
-    fn read_sync(&mut self, binding: server::Binding<Self>) -> Vec<u8> {
+    fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
         let ctx = self.get_context();
         let resource = ctx.memory_management.get_resource(
             binding.memory,
@@ -61,28 +61,39 @@ impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
             binding.offset_end,
         );
 
-        // TODO: Check if it is possible to make this faster
-        let mut data = vec![0; resource.size() as usize];
+        let mut data = Self::uninit_vec(resource.size() as usize);
+
         unsafe {
             cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
         };
+
         ctx.sync();
+
+        data
+    }
+
+    #[allow(clippy::uninit_vec)]
+    fn uninit_vec(len: usize) -> Vec<u8> {
+        let mut data = Vec::with_capacity(len);
+
+        unsafe {
+            data.set_len(len);
+        };
+
         data
     }
 }
 
-impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
+impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
-    type DispatchOptions = CubeCount<Self>;
     type Storage = CudaStorage;
-    type MemoryManagement = MM;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding<Self>) -> Reader {
+    fn read(&mut self, binding: server::Binding) -> Reader {
         reader_from_concrete(self.read_sync(binding))
     }
 
-    fn create(&mut self, data: &[u8]) -> server::Handle<Self> {
+    fn create(&mut self, data: &[u8]) -> server::Handle {
         let handle = self.empty(data.len());
         let ctx = self.get_context();
 
@@ -100,7 +111,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         handle
     }
 
-    fn empty(&mut self, size: usize) -> server::Handle<Self> {
+    fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
         let handle = ctx.memory_management.reserve(size, None);
         server::Handle::new(handle, None, None)
@@ -109,8 +120,8 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
-        count: Self::DispatchOptions,
-        bindings: Vec<server::Binding<Self>>,
+        count: CubeCount,
+        bindings: Vec<server::Binding>,
         mode: ExecutionMode,
     ) {
         let mut kernel_id = kernel.id();
@@ -195,7 +206,7 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
         }
     }
 
-    fn get_resource(&mut self, binding: server::Binding<Self>) -> BindingResource<Self> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
@@ -212,9 +223,9 @@ impl<MM: MemoryManagement<CudaStorage>> ComputeServer for CudaServer<MM> {
     }
 }
 
-impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
+impl CudaContext {
     pub fn new(
-        memory_management: MM,
+        memory_management: MemoryManagement<CudaStorage>,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
         arch: u32,
@@ -328,20 +339,20 @@ impl<MM: MemoryManagement<CudaStorage>> CudaContext<MM> {
     }
 }
 
-impl<MM: MemoryManagement<CudaStorage>> CudaServer<MM> {
+impl CudaServer {
     /// Create a new cuda server.
-    pub(crate) fn new(ctx: CudaContext<MM>) -> Self {
+    pub(crate) fn new(ctx: CudaContext) -> Self {
         Self {
             ctx,
             logger: DebugLogger::new(),
         }
     }
 
-    fn get_context(&mut self) -> &mut CudaContext<MM> {
+    fn get_context(&mut self) -> &mut CudaContext {
         self.get_context_with_logger().0
     }
 
-    fn get_context_with_logger(&mut self) -> (&mut CudaContext<MM>, &mut DebugLogger) {
+    fn get_context_with_logger(&mut self) -> (&mut CudaContext, &mut DebugLogger) {
         unsafe {
             cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
         };

@@ -1,16 +1,16 @@
-use crate::compute::{CubeCount, KernelTask};
+use crate::compute::KernelTask;
 use crate::frontend::TensorHandleRef;
 use crate::ir::Elem;
 use crate::pod::CubeElement;
 use crate::{calculate_cube_count_elemwise, CubeDim, Kernel, Runtime};
 use cubecl_runtime::client::ComputeClient;
-use cubecl_runtime::server::{Binding, ComputeServer, Handle};
+use cubecl_runtime::server::{Binding, CubeCount, Handle};
 
 /// The position of the input or output to calculate the number of cubes to launch.
-pub enum CubeCountSettings<S: ComputeServer> {
+pub enum CubeCountSettings {
     Input { pos: usize },
     Output { pos: usize },
-    Custom(CubeCount<S>),
+    Custom(CubeCount),
 }
 
 pub struct Execution<'h, K, R: Runtime, Scalars> {
@@ -73,7 +73,7 @@ where
     }
     /// Execute a dynamic kernel.
     #[allow(unused)]
-    pub fn execute(self, launch: CubeCountSettings<R::Server>) {
+    pub fn execute(self, launch: CubeCountSettings) {
         execute_dynamic::<R, K, f32, f32, f32>(
             self.inputs,
             self.outputs,
@@ -108,7 +108,7 @@ where
 
     /// Execute a dynamic kernel.
     #[allow(unused)]
-    pub fn execute(self, launch: CubeCountSettings<R::Server>) {
+    pub fn execute(self, launch: CubeCountSettings) {
         execute_dynamic::<R, K, E, f32, f32>(
             self.inputs,
             self.outputs,
@@ -144,7 +144,7 @@ where
     }
     /// Execute a dynamic kernel.
     #[allow(clippy::too_many_arguments)]
-    pub fn execute(self, launch: CubeCountSettings<R::Server>)
+    pub fn execute(self, launch: CubeCountSettings)
     where
         K: Kernel + 'static,
         R: Runtime,
@@ -172,7 +172,7 @@ where
 {
     /// Execute a dynamic kernel.
     #[allow(unused)]
-    pub fn execute(self, launch: CubeCountSettings<R::Server>) {
+    pub fn execute(self, launch: CubeCountSettings) {
         execute_dynamic::<R, K, E1, E2, E3>(
             self.inputs,
             self.outputs,
@@ -194,7 +194,7 @@ fn execute_dynamic<R, K, E1, E2, E3>(
     scalars_2: Option<&[E2]>,
     scalars_3: Option<&[E3]>,
     kernel: K,
-    launch: CubeCountSettings<R::Server>,
+    launch: CubeCountSettings,
     client: ComputeClient<R::Server, R::Channel>,
 ) where
     K: Kernel + 'static,
@@ -203,7 +203,7 @@ fn execute_dynamic<R, K, E1, E2, E3>(
     E2: CubeElement,
     E3: CubeElement,
 {
-    let settings = execute_settings(
+    let settings = execute_settings::<R, E1, E2, E3>(
         inputs, outputs, scalars_1, scalars_2, scalars_3, launch, &client,
     );
 
@@ -218,11 +218,11 @@ fn execute_dynamic<R, K, E1, E2, E3>(
     client.execute(kernel, settings.cube_count, handles);
 }
 
-struct ExecuteSettings<R: Runtime> {
-    handles_tensors: Vec<Binding<R::Server>>,
-    handle_info: Handle<R::Server>,
-    handles_scalars: Vec<Handle<R::Server>>,
-    cube_count: CubeCount<R::Server>,
+struct ExecuteSettings {
+    handles_tensors: Vec<Binding>,
+    handle_info: Handle,
+    handles_scalars: Vec<Handle>,
+    cube_count: CubeCount,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -232,9 +232,9 @@ fn execute_settings<'a, R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeEl
     scalars_1: Option<&[E1]>,
     scalars_2: Option<&[E2]>,
     scalars_3: Option<&[E3]>,
-    launch: CubeCountSettings<R::Server>,
+    launch: CubeCountSettings,
     client: &ComputeClient<R::Server, R::Channel>,
-) -> ExecuteSettings<R> {
+) -> ExecuteSettings {
     let mut info = Vec::new();
     let mut handles = Vec::with_capacity(inputs.len() + outputs.len() + 2);
 
@@ -313,7 +313,7 @@ fn create_scalar_handles<R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeE
     scalars_1: Option<&[E2]>,
     scalars_2: Option<&[E3]>,
     client: &ComputeClient<R::Server, R::Channel>,
-) -> Vec<Handle<R::Server>> {
+) -> Vec<Handle> {
     // It is crucial that scalars follow this order: float, int, uint
     let element_priority = |elem: Elem| match elem {
         Elem::Float(_) => 0,

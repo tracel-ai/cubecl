@@ -1,11 +1,13 @@
-use crate::compute::{CubeCount, KernelTask};
+use std::marker::PhantomData;
+
+use crate::compute::KernelTask;
 use crate::ir::{Elem, FloatKind, IntKind};
 use crate::prelude::ArrayHandleRef;
 use crate::KernelSettings;
 use crate::{calculate_num_elems_dyn_rank, frontend::TensorHandleRef, Kernel, Runtime};
 use bytemuck::NoUninit;
 use cubecl_runtime::client::ComputeClient;
-use cubecl_runtime::server::Binding;
+use cubecl_runtime::server::{Binding, CubeCount};
 use num_traits::ToPrimitive;
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
@@ -20,6 +22,7 @@ pub struct KernelLauncher<R: Runtime> {
     scalar_i32: ScalarState<i32>,
     scalar_order: Vec<Elem>,
     pub settings: KernelSettings,
+    runtime: PhantomData<R>,
 }
 
 impl<R: Runtime> KernelLauncher<R> {
@@ -78,7 +81,7 @@ impl<R: Runtime> KernelLauncher<R> {
     /// Launch the kernel.
     pub fn launch<K: Kernel>(
         self,
-        cube_count: CubeCount<R::Server>,
+        cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R::Server, R::Channel>,
     ) {
@@ -96,7 +99,7 @@ impl<R: Runtime> KernelLauncher<R> {
     /// Out-of-bounds reads and writes can happen.
     pub unsafe fn launch_unchecked<K: Kernel>(
         self,
-        cube_count: CubeCount<R::Server>,
+        cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R::Server, R::Channel>,
     ) {
@@ -113,10 +116,7 @@ impl<R: Runtime> KernelLauncher<R> {
     /// by the output tensors. Then the tensor metadata, and the scalars at the end. The scalars
     /// are registered in the same order they are added. This is why we store the scalar data type
     /// in the `scalar_order` vector, so that we can register them in the same order.
-    fn into_bindings(
-        mut self,
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Vec<Binding<R::Server>> {
+    fn into_bindings(mut self, client: &ComputeClient<R::Server, R::Channel>) -> Vec<Binding> {
         let mut bindings = Vec::new();
 
         self.tensors.register(client, &mut bindings);
@@ -159,9 +159,10 @@ pub enum TensorState<R: Runtime> {
     Empty,
     /// The registered tensors.
     Some {
-        bindings: Vec<Binding<R::Server>>,
+        bindings: Vec<Binding>,
         metadata: Vec<u32>,
         lengths: Vec<u32>,
+        runtime: PhantomData<R>,
     },
 }
 
@@ -183,6 +184,7 @@ impl<R: Runtime> TensorState<R> {
                 bindings: Vec::with_capacity(1),
                 metadata: Vec::new(),
                 lengths: Vec::new(),
+                runtime: PhantomData,
             };
         };
 
@@ -192,6 +194,7 @@ impl<R: Runtime> TensorState<R> {
                 bindings,
                 metadata,
                 lengths,
+                runtime: _,
             } => (bindings, metadata, lengths),
         };
 
@@ -268,12 +271,13 @@ impl<R: Runtime> TensorState<R> {
     fn register(
         self,
         client: &ComputeClient<R::Server, R::Channel>,
-        bindings_global: &mut Vec<Binding<R::Server>>,
+        bindings_global: &mut Vec<Binding>,
     ) {
         if let Self::Some {
             bindings,
             mut metadata,
             lengths,
+            runtime: _,
         } = self
         {
             if R::require_array_lengths() {
@@ -300,7 +304,7 @@ impl<T: NoUninit> ScalarState<T> {
     fn register<R: Runtime>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
-        bindings: &mut Vec<Binding<R::Server>>,
+        bindings: &mut Vec<Binding>,
     ) {
         match self {
             ScalarState::Empty => (),
@@ -325,6 +329,7 @@ impl<R: Runtime> Default for KernelLauncher<R> {
             scalar_i32: ScalarState::Empty,
             scalar_order: Vec::new(),
             settings: Default::default(),
+            runtime: PhantomData,
         }
     }
 }

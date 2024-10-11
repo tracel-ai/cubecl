@@ -82,8 +82,8 @@ pub fn load_tensor_test<F: Float>(
     }
 }
 
-#[cube(launch_unchecked)]
-fn load_tensor_permuted_test<F: Float>(
+#[cube(launch_unchecked, create_dummy_kernel)]
+pub fn load_tensor_permuted_test<F: Float>(
     tensor: &Tensor<Line<F>>,
     sm_out: &mut Array<Line<F>>,
     unit_row: u32,

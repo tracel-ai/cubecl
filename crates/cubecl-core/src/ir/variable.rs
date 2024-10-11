@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::num::NonZero;
 
 use super::{Elem, FloatKind, IntKind, Item, Matrix};
@@ -23,6 +24,12 @@ pub enum Variable {
         id: u16,
         item: Item,
         depth: u8,
+    },
+    Versioned {
+        id: u16,
+        item: Item,
+        depth: u8,
+        version: u16,
     },
     LocalBinding {
         id: u16,
@@ -77,6 +84,64 @@ pub enum Variable {
     AbsolutePosX,
     AbsolutePosY,
     AbsolutePosZ,
+}
+
+impl Variable {
+    /// Whether a variable is always immutable. Used for optimizations to determine whether it's
+    /// safe to inline/merge
+    pub fn is_immutable(&self) -> bool {
+        match self {
+            Variable::GlobalOutputArray { .. } => false,
+            Variable::Local { .. } => false,
+            Variable::SharedMemory { .. } => false,
+            Variable::Matrix { .. } => false,
+            Variable::Slice { .. } => false,
+            Variable::LocalArray { .. } => false,
+            Variable::GlobalInputArray { .. } => true,
+            Variable::GlobalScalar { .. } => true,
+            Variable::Versioned { .. } => true,
+            Variable::LocalBinding { .. } => true,
+            Variable::ConstantScalar(_) => true,
+            Variable::ConstantArray { .. } => true,
+            Variable::Rank => true,
+            Variable::UnitPos => true,
+            Variable::UnitPosX => true,
+            Variable::UnitPosY => true,
+            Variable::UnitPosZ => true,
+            Variable::CubePos => true,
+            Variable::CubePosX => true,
+            Variable::CubePosY => true,
+            Variable::CubePosZ => true,
+            Variable::CubeDim => true,
+            Variable::CubeDimX => true,
+            Variable::CubeDimY => true,
+            Variable::CubeDimZ => true,
+            Variable::CubeCount => true,
+            Variable::CubeCountX => true,
+            Variable::CubeCountY => true,
+            Variable::CubeCountZ => true,
+            Variable::SubcubeDim => true,
+            Variable::AbsolutePos => true,
+            Variable::AbsolutePosX => true,
+            Variable::AbsolutePosY => true,
+            Variable::AbsolutePosZ => true,
+        }
+    }
+
+    /// Is this an array type that yields [`Item`]s when indexed, or a scalar/vector that yields
+    /// [`Elem`]s when indexed?
+    pub fn is_array(&self) -> bool {
+        matches!(
+            self,
+            Variable::GlobalInputArray { .. }
+                | Variable::GlobalOutputArray { .. }
+                | Variable::ConstantArray { .. }
+                | Variable::SharedMemory { .. }
+                | Variable::LocalArray { .. }
+                | Variable::Matrix { .. }
+                | Variable::Slice { .. }
+        )
+    }
 }
 
 /// The scalars are stored with the highest precision possible, but they might get reduced during
@@ -196,6 +261,83 @@ impl ConstantScalarValue {
         self.try_as_bool()
             .expect("Only bool can be made into a bool")
     }
+
+    pub fn is_zero(&self) -> bool {
+        match self {
+            ConstantScalarValue::Int(val, _) => *val == 0,
+            ConstantScalarValue::Float(val, _) => *val == 0.0,
+            ConstantScalarValue::UInt(val) => *val == 0,
+            ConstantScalarValue::Bool(_) => false,
+        }
+    }
+
+    pub fn is_one(&self) -> bool {
+        match self {
+            ConstantScalarValue::Int(val, _) => *val == 1,
+            ConstantScalarValue::Float(val, _) => *val == 1.0,
+            ConstantScalarValue::UInt(val) => *val == 1,
+            ConstantScalarValue::Bool(_) => false,
+        }
+    }
+
+    pub fn cast_to(&self, other: Elem) -> ConstantScalarValue {
+        match (self, other) {
+            (ConstantScalarValue::Int(val, _), Elem::Float(float_kind)) => {
+                ConstantScalarValue::Float(*val as f64, float_kind)
+            }
+            (ConstantScalarValue::Int(val, _), Elem::Int(int_kind)) => {
+                ConstantScalarValue::Int(*val, int_kind)
+            }
+            (ConstantScalarValue::Int(val, _), Elem::UInt) => {
+                ConstantScalarValue::UInt(*val as u64)
+            }
+            (ConstantScalarValue::Int(val, _), Elem::Bool) => ConstantScalarValue::Bool(*val == 1),
+            (ConstantScalarValue::Float(val, _), Elem::Float(float_kind)) => {
+                ConstantScalarValue::Float(*val, float_kind)
+            }
+            (ConstantScalarValue::Float(val, _), Elem::Int(int_kind)) => {
+                ConstantScalarValue::Int(*val as i64, int_kind)
+            }
+            (ConstantScalarValue::Float(val, _), Elem::UInt) => {
+                ConstantScalarValue::UInt(*val as u64)
+            }
+            (ConstantScalarValue::Float(val, _), Elem::Bool) => {
+                ConstantScalarValue::Bool(*val == 0.0)
+            }
+            (ConstantScalarValue::UInt(val), Elem::Float(float_kind)) => {
+                ConstantScalarValue::Float(*val as f64, float_kind)
+            }
+            (ConstantScalarValue::UInt(val), Elem::Int(int_kind)) => {
+                ConstantScalarValue::Int(*val as i64, int_kind)
+            }
+            (ConstantScalarValue::UInt(val), Elem::UInt) => ConstantScalarValue::UInt(*val),
+            (ConstantScalarValue::UInt(val), Elem::Bool) => ConstantScalarValue::Bool(*val == 1),
+            (ConstantScalarValue::Bool(val), Elem::Float(float_kind)) => {
+                ConstantScalarValue::Float(*val as u32 as f64, float_kind)
+            }
+            (ConstantScalarValue::Bool(val), Elem::Int(int_kind)) => {
+                ConstantScalarValue::Int(*val as i64, int_kind)
+            }
+            (ConstantScalarValue::Bool(val), Elem::UInt) => ConstantScalarValue::UInt(*val as u64),
+            (ConstantScalarValue::Bool(val), Elem::Bool) => ConstantScalarValue::Bool(*val),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Display for ConstantScalarValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConstantScalarValue::Int(val, IntKind::I32) => write!(f, "{val}i32"),
+            ConstantScalarValue::Int(val, IntKind::I64) => write!(f, "{val}i64"),
+            ConstantScalarValue::Float(val, FloatKind::BF16) => write!(f, "{val}bf16"),
+            ConstantScalarValue::Float(val, FloatKind::F16) => write!(f, "{val}f16"),
+            ConstantScalarValue::Float(val, FloatKind::F32) => write!(f, "{val}f32"),
+            ConstantScalarValue::Float(val, FloatKind::F64) => write!(f, "{val}f64"),
+            ConstantScalarValue::UInt(val) => write!(f, "{val}u32"),
+            ConstantScalarValue::Bool(val) => write!(f, "{val}"),
+        }
+    }
 }
 
 impl Variable {
@@ -207,6 +349,7 @@ impl Variable {
             Variable::GlobalInputArray { id, .. } => Some(*id),
             Variable::GlobalScalar { id, .. } => Some(*id),
             Variable::Local { id, .. } => Some(*id),
+            Variable::Versioned { id, .. } => Some(*id),
             Variable::LocalBinding { id, .. } => Some(*id),
             Variable::Slice { id, .. } => Some(*id),
             Variable::GlobalOutputArray { id, .. } => Some(*id),
@@ -247,6 +390,7 @@ impl Variable {
             Variable::GlobalOutputArray { item, .. } => *item,
             Variable::GlobalScalar { elem, .. } => Item::new(*elem),
             Variable::Local { item, .. } => *item,
+            Variable::Versioned { item, .. } => *item,
             Variable::LocalBinding { item, .. } => *item,
             Variable::ConstantScalar(value) => Item::new(value.elem()),
             Variable::ConstantArray { item, .. } => *item,
@@ -283,6 +427,28 @@ impl Variable {
         match self {
             Variable::ConstantScalar(constant) => Some(*constant),
             _ => None,
+        }
+    }
+}
+
+impl Display for Variable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Variable::GlobalInputArray { id, .. } => write!(f, "input({id})"),
+            Variable::GlobalScalar { id, .. } => write!(f, "scalar({id})"),
+            Variable::GlobalOutputArray { id, .. } => write!(f, "output({id})"),
+            Variable::ConstantScalar(constant) => write!(f, "{constant}"),
+            Variable::Local { id, depth, .. } => write!(f, "local({id}, {depth})"),
+            Variable::Versioned {
+                id, depth, version, ..
+            } => write!(f, "local({id}, {depth}).v{version}"),
+            Variable::LocalBinding { id, depth, .. } => write!(f, "binding({id}, {depth})"),
+            Variable::ConstantArray { id, .. } => write!(f, "const_array({id})"),
+            Variable::SharedMemory { id, .. } => write!(f, "shared({id})"),
+            Variable::LocalArray { id, .. } => write!(f, "array({id})"),
+            Variable::Matrix { id, depth, .. } => write!(f, "matrix({id}, {depth})"),
+            Variable::Slice { id, .. } => write!(f, "slice({id})"),
+            builtin => write!(f, "{builtin:?}"),
         }
     }
 }

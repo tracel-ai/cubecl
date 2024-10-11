@@ -51,7 +51,6 @@ pub enum Instruction {
         out: Variable,
     },
     IndexAssign(BinaryInstruction),
-    CheckedIndexAssign(BinaryInstruction),
     Assign(UnaryInstruction),
     RangeLoop {
         i: Variable,
@@ -60,6 +59,10 @@ pub enum Instruction {
         step: Option<Variable>,
         inclusive: bool,
         instructions: Vec<Self>,
+    },
+    VecInit {
+        inputs: Vec<Variable>,
+        out: Variable,
     },
     Loop {
         instructions: Vec<Self>,
@@ -162,6 +165,19 @@ pub enum Instruction {
     Magnitude(UnaryInstruction),
     Normalize(UnaryInstruction),
     Dot(BinaryInstruction),
+    Copy {
+        input: Variable,
+        in_index: Variable,
+        out: Variable,
+        out_index: Variable,
+    },
+    CopyBulk {
+        input: Variable,
+        in_index: Variable,
+        out: Variable,
+        out_index: Variable,
+        len: u32,
+    },
 }
 
 impl Display for Instruction {
@@ -213,8 +229,25 @@ impl Display for Instruction {
                 }
             }
             Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::CheckedIndexAssign(it) => {
-                IndexAssign::format(f, &it.lhs, &it.rhs, &it.out)
+            Instruction::Copy {
+                input,
+                in_index,
+                out,
+                out_index,
+            } => {
+                writeln!(f, "{out}[{out_index}] = {input}[{in_index}];")
+            }
+            Instruction::CopyBulk {
+                input,
+                in_index,
+                out,
+                out_index,
+                len,
+            } => {
+                for i in 0..*len {
+                    writeln!(f, "{out}[{out_index} + {i}] = {input}[{in_index} + {i}];")?;
+                }
+                Ok(())
             }
             Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
             Instruction::RangeLoop {
@@ -505,6 +538,15 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
             Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
             Instruction::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::VecInit { inputs, out } => {
+                let item = out.item();
+                let inputs = inputs
+                    .iter()
+                    .map(|input| format!("{input}"))
+                    .collect::<Vec<_>>();
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {item}{{{}}};", inputs.join(","))
+            }
         }
     }
 }

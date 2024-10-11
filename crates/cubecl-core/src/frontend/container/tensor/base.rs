@@ -128,6 +128,71 @@ mod metadata {
     }
 }
 
+/// Module that contains the implementation details of the index functions.
+mod indexation {
+    use crate::{
+        ir::{BinaryOperator, Operator},
+        prelude::{CubeIndex, CubeIndexMut},
+    };
+
+    use super::*;
+
+    impl<E: CubePrimitive> Tensor<E> {
+        /// Perform an unchecked index into the array
+        ///
+        /// # Safety
+        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
+        /// always in bounds
+        pub unsafe fn index_unchecked<I: Index>(&self, _i: I) -> &E
+        where
+            Self: CubeIndex<I>,
+        {
+            unexpanded!()
+        }
+
+        /// Perform an unchecked index assignment into the array
+        ///
+        /// # Safety
+        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
+        /// always in bounds
+        pub unsafe fn index_assign_unchecked<I: Index>(&mut self, _i: I, _value: E)
+        where
+            Self: CubeIndexMut<I>,
+        {
+            unexpanded!()
+        }
+    }
+
+    impl<E: CubePrimitive> ExpandElementTyped<Tensor<E>> {
+        pub fn __expand_index_unchecked_method(
+            self,
+            context: &mut CubeContext,
+            i: ExpandElementTyped<u32>,
+        ) -> ExpandElementTyped<E> {
+            let out = context.create_local_binding(self.expand.item());
+            context.register(Operator::UncheckedIndex(BinaryOperator {
+                out: *out,
+                lhs: *self.expand,
+                rhs: i.expand.consume(),
+            }));
+            out.into()
+        }
+
+        pub fn __expand_index_assign_unchecked_method(
+            self,
+            context: &mut CubeContext,
+            i: ExpandElementTyped<u32>,
+            value: ExpandElementTyped<E>,
+        ) {
+            context.register(Operator::UncheckedIndexAssign(BinaryOperator {
+                out: *self.expand,
+                lhs: i.expand.consume(),
+                rhs: value.expand.consume(),
+            }));
+        }
+    }
+}
+
 /// Module that contains the implementation details of the line_size function.
 mod line {
     use super::*;

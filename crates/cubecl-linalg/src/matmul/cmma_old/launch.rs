@@ -96,7 +96,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     unsafe {
         cmma_launch::launch_unchecked::<F, f16, R>(
             client,
-            cmma_config.cube_count::<R>(out.shape),
+            cmma_config.cube_count(out.shape),
             cmma_config.cube_dim(),
             TensorArg::from_raw_parts(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
             TensorArg::from_raw_parts(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
