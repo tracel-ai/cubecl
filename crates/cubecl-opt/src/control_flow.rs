@@ -1,6 +1,6 @@
 use std::mem::transmute;
 
-use crate::{BasicBlock, NodeIndex, Optimizer};
+use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_core::ir::{
     BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Item, Loop, Operator, RangeLoop,
     Switch, UnaryOperator, Variable,
@@ -9,26 +9,19 @@ use cubecl_core::ir::{
 /// Control flow that terminates a block
 #[derive(Default, Debug, Clone)]
 pub enum ControlFlow {
-    /// A break branch, which does not have an `OpSelectionMerge` in SPIR-V since it's part of the
-    /// loop construct.
-    Break {
-        cond: Variable,
-        body: NodeIndex,
-        or_break: NodeIndex,
-    },
     /// An if or if-else branch that should be structured if applicable.
     IfElse {
         cond: Variable,
         then: NodeIndex,
         or_else: NodeIndex,
-        merge: NodeIndex,
+        merge: Option<NodeIndex>,
     },
     /// A switch branch that paths based on `value`
     Switch {
         value: Variable,
         default: NodeIndex,
         branches: Vec<(u32, NodeIndex)>,
-        merge: NodeIndex,
+        merge: Option<NodeIndex>,
     },
     /// A loop with a header (the block that contains this variant), a `body` and a `continue target`.
     /// `merge` is the block that gets executed as soon as the loop terminates.
@@ -67,7 +60,7 @@ impl Optimizer {
                 self.program.add_edge(current_block, self.ret, ());
             }
             Branch::Break => {
-                let current_block = self.current_block.unwrap();
+                let current_block = self.current_block.take().unwrap();
                 let loop_break = self.loop_break.back().expect("Can't break outside loop");
                 self.program.add_edge(current_block, *loop_break, ());
             }
@@ -84,7 +77,8 @@ impl Optimizer {
         self.program.add_edge(current_block, next, ());
 
         self.current_block = Some(then);
-        self.parse_scope(if_.scope);
+        let is_break = self.parse_scope(if_.scope);
+
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, next, ());
         } else {
@@ -92,12 +86,17 @@ impl Optimizer {
             merge = self.ret;
         }
 
+        let merge = if is_break { None } else { Some(merge) };
+
         *self.program[current_block].control_flow.borrow_mut() = ControlFlow::IfElse {
             cond: if_.cond,
             then,
             or_else: next,
             merge,
         };
+        if let Some(merge) = merge {
+            self.program[merge].block_use.push(BlockUse::Merge);
+        }
         self.current_block = Some(next);
     }
 
@@ -112,7 +111,7 @@ impl Optimizer {
         self.program.add_edge(current_block, or_else, ());
 
         self.current_block = Some(then);
-        self.parse_scope(if_else.scope_if);
+        let is_break = self.parse_scope(if_else.scope_if);
 
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, next, ());
@@ -122,7 +121,7 @@ impl Optimizer {
         }
 
         self.current_block = Some(or_else);
-        self.parse_scope(if_else.scope_else);
+        let is_break = self.parse_scope(if_else.scope_else) || is_break;
 
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, next, ());
@@ -131,13 +130,16 @@ impl Optimizer {
             merge = self.ret;
         }
 
+        let merge = if is_break { None } else { Some(merge) };
         *self.program[current_block].control_flow.borrow_mut() = ControlFlow::IfElse {
             cond: if_else.cond,
             then,
             or_else,
             merge,
         };
-
+        if let Some(merge) = merge {
+            self.program[merge].block_use.push(BlockUse::Merge);
+        }
         self.current_block = Some(next);
     }
 
@@ -152,7 +154,7 @@ impl Optimizer {
                 let case_id = self.program.add_node(BasicBlock::default());
                 self.program.add_edge(current_block, case_id, ());
                 self.current_block = Some(case_id);
-                self.parse_scope(case);
+                let is_break = self.parse_scope(case);
                 if let Some(current_block) = self.current_block {
                     self.program.add_edge(current_block, next, ());
                 }
@@ -163,24 +165,32 @@ impl Optimizer {
                     ConstantScalarValue::UInt(val) => val as u32,
                     _ => unreachable!("Switch cases must be integer"),
                 };
-                (val, case_id)
+                (val, case_id, is_break)
             })
+            .collect::<Vec<_>>();
+
+        let is_break = branches.iter().any(|it| it.2);
+        let branches = branches
+            .into_iter()
+            .map(|it| (it.0, it.1))
             .collect::<Vec<_>>();
 
         let default = self.program.add_node(BasicBlock::default());
         self.program.add_edge(current_block, default, ());
         self.current_block = Some(default);
-        self.parse_scope(switch.scope_default);
+        let is_break = self.parse_scope(switch.scope_default) || is_break;
 
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, next, ());
         }
 
+        let merge = if is_break { None } else { Some(next) };
+
         *self.program[current_block].control_flow.borrow_mut() = ControlFlow::Switch {
             value: switch.value,
             default,
             branches,
-            merge: next,
+            merge,
         };
 
         self.current_block = Some(next);
@@ -201,6 +211,9 @@ impl Optimizer {
         self.current_block = Some(body);
         self.parse_scope(loop_.scope);
         let continue_target = self.program.add_node(BasicBlock::default());
+        self.program[continue_target]
+            .block_use
+            .push(BlockUse::ContinueTarget);
 
         self.loop_break.pop_back();
 
@@ -215,6 +228,7 @@ impl Optimizer {
             continue_target,
             merge: next,
         };
+        self.program[next].block_use.push(BlockUse::Merge);
         self.current_block = Some(next);
     }
 
@@ -267,6 +281,10 @@ impl Optimizer {
             continue_target: current_block,
             merge: next,
         };
+        self.program[current_block]
+            .block_use
+            .push(BlockUse::ContinueTarget);
+        self.program[next].block_use.push(BlockUse::Merge);
         self.current_block = Some(next);
 
         // For loop constructs
@@ -291,10 +309,11 @@ impl Optimizer {
                 .into(),
             );
 
-            *self.program[break_cond].control_flow.borrow_mut() = ControlFlow::Break {
+            *self.program[break_cond].control_flow.borrow_mut() = ControlFlow::IfElse {
                 cond: tmp,
-                body,
-                or_break: next,
+                then: body,
+                or_else: next,
+                merge: None,
             };
         }
         self.program[current_block].ops.borrow_mut().push(

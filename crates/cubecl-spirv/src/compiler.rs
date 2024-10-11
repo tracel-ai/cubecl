@@ -159,13 +159,13 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let setup = self.id();
         self.debug_name(setup, "setup");
         self.opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
+
         let entry = self.opt.entry();
         let body = self.label(entry);
         self.setup(setup, body);
         self.compile_block(entry);
 
-        let opt = self.opt.clone();
-        let ret = opt.ret;
+        let ret = self.opt.ret;
         self.compile_block(ret);
 
         if self.selected_block().is_some() {
@@ -221,6 +221,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.branch(body).unwrap();
     }
 
+    #[track_caller]
     pub fn current_block(&self) -> &BasicBlock {
         self.opt.block(self.current_block.unwrap())
     }
@@ -240,7 +241,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             return;
         }
         self.visited.insert(block);
-
         self.current_block = Some(block);
 
         let label = self.label(block);
