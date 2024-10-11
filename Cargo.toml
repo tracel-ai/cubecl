@@ -17,7 +17,7 @@ version = "0.2.0"
 derive-new = { version = "0.6.0", default-features = false }
 log = { default-features = false, version = "0.4.22" }
 
-cubecl-hip-sys = { path = "../cubecl-hip/crates/cubecl-hip-sys", version = "~0" }
+cubecl-hip-sys = "~0.0"
 
 serde = { version = "1.0.204", default-features = false, features = [
     "derive",
