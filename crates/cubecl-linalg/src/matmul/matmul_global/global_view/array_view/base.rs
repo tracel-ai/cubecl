@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::matmul_global::{smem_slice_to_gmem, GlobalView};
-use crate::matmul::matmul_stage::{Gmem2SmemContinuous, RowMajorTiling, SharedMemoryLoader};
+use crate::matmul::matmul_stage::{Gmem2SmemContinuous, SharedMemoryLoader, XMajorTiling};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 
@@ -21,16 +21,28 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         comptime!(view.array.line_size())
     }
 
-    fn load_single(view: &Self, read_row: u32, read_col: u32) -> Line<E> {
+    fn load_coalesced(
+        view: &Self,
+        tile_x: u32,
+        tile_y: u32,
+        load_id: u32,
+        tile_width: u32,
+    ) -> Line<E> {
         let array = &view.array;
 
         // TODO stride computations should be done once in the new
-        let (stride_row, stride_col) = match comptime!(view.layout) {
+        let (stride_x, stride_y) = match comptime!(view.layout) {
             MatrixLayout::RowMajor => (view.shape.1, 1),
             MatrixLayout::ColMajor => (1, view.shape.0),
         };
 
-        let read_pos = (read_row * stride_row + read_col * stride_col) / array.line_size();
+        let (load_x, load_y) = match comptime!(view.layout) {
+            MatrixLayout::RowMajor => (load_id / tile_width, load_id % tile_width),
+            MatrixLayout::ColMajor => (load_id % tile_width, load_id / tile_width),
+        };
+
+        let read_pos =
+            ((tile_x + load_x) * stride_x + (tile_y + load_y) * stride_y) / array.line_size();
 
         array[read_pos]
     }
@@ -41,7 +53,7 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         #[comptime] stage_info: StageInfo,
     ) {
         // TODO allow other modes / tilings
-        Gmem2SmemContinuous::load_shared_memory::<E, ES, Self, RowMajorTiling>(
+        Gmem2SmemContinuous::load_shared_memory::<E, ES, Self, XMajorTiling>(
             view,
             shared_memory,
             stage_info,

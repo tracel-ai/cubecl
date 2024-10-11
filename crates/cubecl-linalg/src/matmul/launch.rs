@@ -7,7 +7,7 @@ use crate::matmul::matmul_tile::MatmulInstruction;
 use crate::matmul::matmul_stage::ArrayWriter;
 use crate::matmul::matmul_stage::LhsStageReader;
 use crate::matmul::matmul_stage::RhsStageReader;
-use crate::matmul::matmul_stage::RowMajorTiling;
+use crate::matmul::matmul_stage::XMajorTiling;
 use crate::matmul::matmul_stage::SharedMemoryStage;
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
@@ -37,8 +37,8 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 pub(crate) fn stage_matmul_launch<
     BM: StageMatmul<
         Elem,
-        LhsStageReader<Elem, SharedMemoryStage<Elem, RowMajorTiling>>,
-        RhsStageReader<Elem, SharedMemoryStage<Elem, RowMajorTiling>>,
+        LhsStageReader<Elem, SharedMemoryStage<Elem, XMajorTiling>>,
+        RhsStageReader<Elem, SharedMemoryStage<Elem, XMajorTiling>>,
         ArrayWriter<Elem>,
     >,
     Elem: Numeric,

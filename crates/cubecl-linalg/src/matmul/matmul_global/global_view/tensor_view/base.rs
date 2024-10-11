@@ -2,9 +2,10 @@ use crate::matmul::matmul_global::global_view::tensor_view::smem2tensor::{
     Smem2Tensor, Smem2TensorSimple,
 };
 use crate::matmul::matmul_global::GlobalView;
-use crate::matmul::matmul_stage::{Gmem2SmemContinuous, RowMajorTiling, SharedMemoryLoader};
+use crate::matmul::matmul_stage::{Gmem2SmemContinuous, SharedMemoryLoader, XMajorTiling};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
+use cmma::load;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -24,14 +25,29 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         comptime!(view.tensor.line_size())
     }
 
-    fn load_single(view: &Self, read_row: u32, read_col: u32) -> Line<E> {
+    fn load_coalesced(
+        view: &Self,
+        tile_x: u32,
+        tile_y: u32,
+        load_id: u32,
+        tile_width: u32,
+    ) -> Line<E> {
         let tensor = &view.tensor;
-        let read_row = read_row + view.x_offset;
-        let read_col = read_col + view.y_offset;
 
-        // TODO stride computations should be done once in the new
-        let read_pos = (read_row * tensor.stride(tensor.rank() - 2)
-            + read_col * tensor.stride(tensor.rank() - 1))
+        // TODO stride computations should be done only once in the new
+        let stride_x = tensor.stride(tensor.rank() - 2);
+        let stride_y = tensor.stride(tensor.rank() - 1);
+
+        let absolute_tile_x = tile_x + view.x_offset;
+        let absolute_tile_y = tile_y + view.y_offset;
+
+        let (load_x, load_y) = match comptime!(view.layout) {
+            MatrixLayout::RowMajor => (load_id / tile_width, load_id % tile_width),
+            MatrixLayout::ColMajor => (load_id % tile_width, load_id / tile_width),
+        };
+
+        let read_pos = ((absolute_tile_x + load_x) * stride_x
+            + (absolute_tile_y + load_y) * stride_y)
             / tensor.line_size();
 
         tensor[read_pos]
@@ -43,7 +59,7 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         #[comptime] stage_info: StageInfo,
     ) {
         // TODO allow other modes / tilings
-        Gmem2SmemContinuous::load_shared_memory::<E, ES, Self, RowMajorTiling>(
+        Gmem2SmemContinuous::load_shared_memory::<E, ES, Self, XMajorTiling>(
             view,
             shared_memory,
             stage_info,

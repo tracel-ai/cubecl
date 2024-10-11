@@ -13,9 +13,7 @@ macro_rules! testgen_cmma_internal_mock {
         use cubecl_linalg::matmul::matmul_global::{
             LhsTensorLoader, RhsTensorLoader, TensorUnloader,
         };
-        use cubecl_linalg::matmul::matmul_stage::{
-            ColMajorTiling, RowMajorTiling, SharedMemoryStage,
-        };
+        use cubecl_linalg::matmul::matmul_stage::{SharedMemoryStage, XMajorTiling, YMajorTiling};
         use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
         use cubecl_linalg::matmul::problem::MatmulProblem;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::{
@@ -28,8 +26,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
@@ -46,8 +44,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
@@ -64,8 +62,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
@@ -82,8 +80,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
@@ -100,8 +98,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x16x16>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
@@ -118,8 +116,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
@@ -136,8 +134,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x32x16>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
@@ -154,8 +152,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
@@ -172,8 +170,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x16>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
@@ -281,8 +279,8 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
-                    LhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
-                    RhsTensorLoader<f32, SharedMemoryStage<f32, RowMajorTiling>>,
+                    LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,

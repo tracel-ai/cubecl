@@ -10,7 +10,13 @@ pub trait GlobalView<E: Numeric>: CubeType {
 
     fn line_size(view: &Self) -> u32;
 
-    fn load_single(view: &Self, read_row: u32, read_col: u32) -> Line<E>;
+    fn load_coalesced(
+        view: &Self,
+        tile_x: u32,
+        tile_y: u32,
+        load_id: u32,
+        tile_size_y: u32,
+    ) -> Line<E>;
     fn load_shared_memory<ES: Numeric>(
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
