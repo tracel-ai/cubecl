@@ -15,6 +15,7 @@ pub trait GlobalView<E: Numeric>: CubeType {
         tile_x: u32,
         tile_y: u32,
         load_id: u32,
+        tile_size_x: u32,
         tile_size_y: u32,
     ) -> Line<E>;
     fn load_shared_memory<ES: Numeric>(

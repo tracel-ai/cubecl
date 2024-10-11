@@ -26,7 +26,8 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         tile_x: u32,
         tile_y: u32,
         load_id: u32,
-        tile_width: u32,
+        tile_size_x: u32,
+        tile_size_y: u32,
     ) -> Line<E> {
         let array = &view.array;
 
@@ -37,12 +38,13 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         };
 
         let (load_x, load_y) = match comptime!(view.layout) {
-            MatrixLayout::RowMajor => (load_id / tile_width, load_id % tile_width),
-            MatrixLayout::ColMajor => (load_id % tile_width, load_id / tile_width),
+            MatrixLayout::RowMajor => (load_id / tile_size_y, load_id % tile_size_y),
+            MatrixLayout::ColMajor => (load_id % tile_size_x, load_id / tile_size_x),
         };
 
-        let read_pos =
-            ((tile_x + load_x) * stride_x + (tile_y + load_y) * stride_y) / array.line_size();
+        let read_pos = ((tile_x * tile_size_x + load_x) * stride_x
+            + (tile_y * tile_size_y + load_y) * stride_y)
+            / array.line_size();
 
         array[read_pos]
     }

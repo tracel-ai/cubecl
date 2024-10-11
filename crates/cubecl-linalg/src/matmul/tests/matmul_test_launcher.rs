@@ -29,8 +29,8 @@ where
     let rhs_size = (MM::K * MM::N) as usize;
     let out_size = (MM::M * MM::N) as usize;
 
-    let lhs_original_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 100.).collect();
-    let rhs_original_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 100.).collect();
+    let lhs_original_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 1000.).collect();
+    let rhs_original_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 1000.).collect();
 
     let lhs_data = match layouts.0 {
         MatrixLayout::RowMajor => lhs_original_data.clone(),
@@ -88,8 +88,8 @@ where
     let rhs_size = problem.k * problem.n;
     let out_size = problem.m * problem.n;
 
-    let lhs_original_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 100.).collect();
-    let rhs_original_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 100.).collect();
+    let lhs_original_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 1000.).collect();
+    let rhs_original_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 1000.).collect();
 
     let (lhs_data, lhs_strides) = match problem.lhs_layout {
         MatrixLayout::RowMajor => (lhs_original_data.clone(), [problem.k as usize, 1]),

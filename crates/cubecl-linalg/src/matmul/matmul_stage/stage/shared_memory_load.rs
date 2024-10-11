@@ -64,9 +64,10 @@ impl SharedMemoryLoader for Gmem2SmemContinuous {
 
             let line = G::load_coalesced(
                 gmem,
-                tile_x * stage_info.tile_size_x,
-                tile_y * stage_info.tile_size_y,
+                tile_x,
+                tile_y,
                 pos_within_tile,
+                stage_info.tile_size_x,
                 stage_info.tile_size_y,
             );
             smem[unit_position] = Line::cast_from(line);

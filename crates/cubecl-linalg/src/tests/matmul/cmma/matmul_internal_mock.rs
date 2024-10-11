@@ -261,9 +261,9 @@ macro_rules! testgen_cmma_internal_mock {
         }
 
         #[test]
-        pub fn test_stage_matmul_playground() {
+        pub fn test_stage_matmul_i32x8x16_col_major() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
+                CmmaStageMatmul<f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32x16x16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -274,11 +274,11 @@ macro_rules! testgen_cmma_internal_mock {
         }
 
         #[test]
-        pub fn test_global_matmul_playground() {
+        pub fn test_global_matmul_complicated() {
             test_tensor_matmul::<
                 CmmaGlobalMatmul<
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
+                    CmmaStageMatmul<f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32x32x32>,
                     LhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -286,7 +286,7 @@ macro_rules! testgen_cmma_internal_mock {
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(16, 16, 16, MatrixLayout::ColMajor, MatrixLayout::ColMajor),
+                MatmulProblem::new(32, 32, 128, MatrixLayout::ColMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
         }

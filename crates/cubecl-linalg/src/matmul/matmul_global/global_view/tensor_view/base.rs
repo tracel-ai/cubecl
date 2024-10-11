@@ -5,7 +5,6 @@ use crate::matmul::matmul_global::GlobalView;
 use crate::matmul::matmul_stage::{Gmem2SmemContinuous, SharedMemoryLoader, XMajorTiling};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
-use cmma::load;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -30,7 +29,8 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         tile_x: u32,
         tile_y: u32,
         load_id: u32,
-        tile_width: u32,
+        tile_size_x: u32,
+        tile_size_y: u32,
     ) -> Line<E> {
         let tensor = &view.tensor;
 
@@ -38,12 +38,12 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         let stride_x = tensor.stride(tensor.rank() - 2);
         let stride_y = tensor.stride(tensor.rank() - 1);
 
-        let absolute_tile_x = tile_x + view.x_offset;
-        let absolute_tile_y = tile_y + view.y_offset;
+        let absolute_tile_x = tile_x * tile_size_x + view.x_offset;
+        let absolute_tile_y = tile_y * tile_size_y + view.y_offset;
 
         let (load_x, load_y) = match comptime!(view.layout) {
-            MatrixLayout::RowMajor => (load_id / tile_width, load_id % tile_width),
-            MatrixLayout::ColMajor => (load_id % tile_width, load_id / tile_width),
+            MatrixLayout::RowMajor => (load_id / tile_size_y, load_id % tile_size_y),
+            MatrixLayout::ColMajor => (load_id % tile_size_x, load_id / tile_size_x),
         };
 
         let read_pos = ((absolute_tile_x + load_x) * stride_x
