@@ -142,6 +142,32 @@ impl Variable {
                 | Variable::Slice { .. }
         )
     }
+
+    /// Determines if the value is a constant with the specified value (converted if necessary)
+    pub fn is_constant(&self, value: i64) -> bool {
+        match self {
+            Variable::ConstantScalar(ConstantScalarValue::Int(val, _)) => *val == value,
+            Variable::ConstantScalar(ConstantScalarValue::UInt(val)) => *val as i64 == value,
+            Variable::ConstantScalar(ConstantScalarValue::Float(val, _)) => *val == value as f64,
+            _ => false,
+        }
+    }
+
+    /// Determines if the value is a boolean constant with the `true` value
+    pub fn is_true(&self) -> bool {
+        match self {
+            Variable::ConstantScalar(ConstantScalarValue::Bool(val)) => *val,
+            _ => false,
+        }
+    }
+
+    /// Determines if the value is a boolean constant with the `false` value
+    pub fn is_false(&self) -> bool {
+        match self {
+            Variable::ConstantScalar(ConstantScalarValue::Bool(val)) => !(*val),
+            _ => false,
+        }
+    }
 }
 
 /// The scalars are stored with the highest precision possible, but they might get reduced during

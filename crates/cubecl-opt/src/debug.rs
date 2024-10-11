@@ -1,10 +1,11 @@
-use std::fmt::Display;
+use std::{collections::HashSet, fmt::Display};
 
 use petgraph::visit::EdgeRef;
 
 use crate::{
+    gvn::{BlockNumbers, GlobalNumberGraph},
     passes::{get_out, var_id},
-    ControlFlow,
+    AtomicCounter, ControlFlow,
 };
 
 use super::Optimizer;
@@ -30,7 +31,28 @@ impl Display for Optimizer {
         }
         f.write_str("\n\n")?;
 
+        let mut global_nums = GlobalNumberGraph::default();
+        global_nums.available_cfa(self);
+
+        let mut globs = {
+            let globals = global_nums.globals.borrow();
+            globals.values().copied().collect::<Vec<_>>()
+        };
+        globs.sort();
+        let globs = globs
+            .into_iter()
+            .map(|it| it.to_string())
+            .collect::<Vec<_>>();
+        writeln!(f, "Globals: [{}]", globs.join(", "))?;
+
         for node in self.program.node_indices() {
+            let local_nums = global_nums
+                .get(&node)
+                .cloned()
+                .unwrap_or_else(|| BlockNumbers::new(AtomicCounter::default(), Default::default()));
+            let avail_in = local_nums.avail_in;
+            let mut avail_out = local_nums.avail_out;
+
             let id = node.index();
             let bb = &self.program[node];
             writeln!(f, "bb{id} {{")?;
@@ -41,6 +63,14 @@ impl Display for Optimizer {
             let live_vars = live_vars.map(|it| format!("local({}, {})", it.0, it.1));
             let live_vars = live_vars.collect::<Vec<_>>();
             writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;
+            let avail = avail_in.classes.values().copied().collect::<HashSet<_>>();
+            let mut avail = Vec::from_iter(avail);
+            avail.sort();
+            let avail = avail
+                .into_iter()
+                .map(|it| it.to_string())
+                .collect::<Vec<_>>();
+            writeln!(f, "    Avail classes: [{}]\n", avail.join(", "))?;
 
             for phi in bb.phi_nodes.borrow().iter() {
                 write!(f, "    {} = phi ", phi.out)?;
@@ -58,11 +88,11 @@ impl Display for Optimizer {
                 let out = get_out(&mut self.clone(), op);
                 let id = out.and_then(|var| var_id(&var));
                 let range = id.and_then(|id| self.program.int_ranges.get(&id));
-                if let Some(range) = range {
-                    writeln!(f, "    {op}; range: {range}")?;
-                } else {
-                    writeln!(f, "    {op};")?;
-                }
+                let range = range.map(|it| format!(" range: {it};")).unwrap_or_default();
+                let num = avail_out.class_of_operation(op);
+                let number = num.map(|it| format!(" class: {it};")).unwrap_or_default();
+
+                writeln!(f, "    {op};{range}{number}")?;
             }
             match &*bb.control_flow.borrow() {
                 ControlFlow::IfElse {

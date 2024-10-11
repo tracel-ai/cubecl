@@ -1,4 +1,4 @@
-use std::num::NonZero;
+use std::{fs, num::NonZero};
 
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
@@ -75,6 +75,8 @@ impl WgpuSpirvServer {
             return pipeline.clone();
         }
 
+        println!("Compiling {}", kernel.name());
+
         // `wgpu` currently always enables `robustness2` on Vulkan if available, so default to
         // unchecked execution if robustness is enabled and let Vulkan handle it
         let mode = if is_robust(&self.device) {
@@ -120,6 +122,29 @@ impl WgpuSpirvServer {
                 push_constant_ranges: &[],
             });
 
+        let file_name = sanitize_filename::sanitize(
+            kernel
+                .name()
+                .split("<")
+                .next()
+                .unwrap()
+                .split("::")
+                .last()
+                .unwrap(),
+        );
+        fs::write(
+            format!("out/{}.opt.txt", file_name),
+            format!("{}", repr.optimizer),
+        )
+        .unwrap();
+        fs::write(
+            format!("out/{}.spv", file_name),
+            repr.assemble()
+                .into_iter()
+                .flat_map(|it| it.to_le_bytes())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
         let pipeline = self.compile_source(&repr.assemble(), &layout);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());

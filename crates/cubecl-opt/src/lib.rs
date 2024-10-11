@@ -49,6 +49,7 @@ use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 mod block;
 mod control_flow;
 mod debug;
+mod gvn;
 mod instructions;
 mod passes;
 mod phi_frontiers;
