@@ -34,7 +34,7 @@ macro_rules! impl_matmul_instruction {
             unsafe fn launch_unchecked<R: Runtime>(
                 client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
                 cube_dim: CubeDim,
-                cube_count: CubeCount<<R as Runtime>::Server>,
+                cube_count: CubeCount,
                 lhs: ArrayArg<'_, R>,
                 rhs: ArrayArg<'_, R>,
                 out: ArrayArg<'_, R>,

@@ -56,8 +56,7 @@ where
         true => MM::requirements(problem),
     };
     let cube_dim = CubeDim::new(32, requirements.num_planes, 1);
-    let cube_count: CubeCount<<R as Runtime>::Server> =
-        CubeCount::Static(requirements.num_cubes, 1, 1);
+    let cube_count = CubeCount::Static(requirements.num_cubes, 1, 1);
 
     unsafe {
         MM::launch_unchecked(
@@ -117,8 +116,7 @@ where
         true => MM::requirements(problem),
     };
     let cube_dim = CubeDim::new(32, requirements.num_planes, 1);
-    let cube_count: CubeCount<<R as Runtime>::Server> =
-        CubeCount::Static(requirements.num_cubes, 1, 1);
+    let cube_count = CubeCount::Static(requirements.num_cubes, 1, 1);
 
     unsafe {
         MM::launch_unchecked(
