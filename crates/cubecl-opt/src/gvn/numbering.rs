@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
+    mem::swap,
     rc::Rc,
 };
 
@@ -11,13 +12,7 @@ use float_ord::FloatOrd;
 
 use crate::AtomicCounter;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
-pub enum Constant {
-    Int(i64, IntKind),
-    Float(FloatOrd<f64>, FloatKind),
-    UInt(u64),
-    Bool(bool),
-}
+use super::{Builtin, Constant, Local, OpId};
 
 impl From<ConstantScalarValue> for Constant {
     fn from(value: ConstantScalarValue) -> Self {
@@ -33,9 +28,9 @@ impl From<ConstantScalarValue> for Constant {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
-pub enum GlobalValue {
+pub enum Expr {
     Constant(Constant),
-    Variable(u16, u8, u16),
+    Variable(Local),
     Input(u16),
     Scalar(u16, Elem),
     ConstArray(u16),
@@ -44,93 +39,14 @@ pub enum GlobalValue {
     // Metadata only
     Output(u16),
     Slice(u16, u8),
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
-pub enum OpId {
-    Add,
-    Fma,
-    Sub,
-    Mul,
-    Div,
-    Abs,
-    Exp,
-    Log,
-    Log1p,
-    Cos,
-    Sin,
-    Tanh,
-    Powf,
-    Sqrt,
-    Round,
-    Floor,
-    Ceil,
-    Erf,
-    Recip,
-    Equal,
-    NotEqual,
-    Lower,
-    Clamp,
-    Greater,
-    LowerEqual,
-    GreaterEqual,
-    Modulo,
-    Index,
-    InitLine,
-    And,
-    Or,
-    Not,
-    Neg,
-    Max,
-    Min,
-    BitwiseAnd,
-    BitwiseOr,
-    BitwiseXor,
-    ShiftLeft,
-    ShiftRight,
-    Remainder,
-    Magnitude,
-    Normalize,
-    Dot,
-
-    Length,
-    Shape,
-    Stride,
-
-    Assign,
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
-pub enum Builtin {
-    Rank,
-    UnitPos,
-    UnitPosX,
-    UnitPosY,
-    UnitPosZ,
-    CubePos,
-    CubePosX,
-    CubePosY,
-    CubePosZ,
-    CubeDim,
-    CubeDimX,
-    CubeDimY,
-    CubeDimZ,
-    CubeCount,
-    CubeCountX,
-    CubeCountY,
-    CubeCountZ,
-    SubcubeDim,
-    AbsolutePos,
-    AbsolutePosX,
-    AbsolutePosY,
-    AbsolutePosZ,
+    BlackBox(usize),
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct GlobalNumberTable {
-    pub(crate) classes: HashMap<GlobalValue, usize>,
+    pub(crate) classes: HashMap<Expr, usize>,
     pub(crate) leaders: HashMap<usize, Variable>,
-    pub(crate) global_classes: Rc<RefCell<HashMap<GlobalValue, usize>>>,
+    pub(crate) global_classes: Rc<RefCell<HashMap<Expr, usize>>>,
     class_id: AtomicCounter,
 }
 
@@ -141,13 +57,19 @@ impl PartialEq for GlobalNumberTable {
 }
 
 pub struct Instruction {
-    out: GlobalValue,
-    rhs: GlobalValue,
-    class: usize,
+    pub out: Local,
+    pub rhs: Expr,
+    pub class: usize,
+}
+
+impl Instruction {
+    pub fn new(out: Local, rhs: Expr, class: usize) -> Self {
+        Self { out, rhs, class }
+    }
 }
 
 impl GlobalNumberTable {
-    pub fn new(class_id: AtomicCounter, globals: Rc<RefCell<HashMap<GlobalValue, usize>>>) -> Self {
+    pub fn new(class_id: AtomicCounter, globals: Rc<RefCell<HashMap<Expr, usize>>>) -> Self {
         Self {
             class_id,
             global_classes: globals,
@@ -180,7 +102,7 @@ impl GlobalNumberTable {
         }
     }
 
-    fn class_of(&mut self, value: GlobalValue, out: GlobalValue) -> usize {
+    fn class_of(&mut self, value: Expr, out: Expr) -> usize {
         if let Some(existing) = self.classes.get(&value).copied() {
             self.classes.insert(out, existing);
             existing
@@ -194,11 +116,11 @@ impl GlobalNumberTable {
         }
     }
 
-    fn insert_var(&mut self, value: GlobalValue, class: usize) {
+    fn insert_var(&mut self, value: Expr, class: usize) {
         self.classes.insert(value, class);
     }
 
-    fn global_var(&mut self, value: GlobalValue) -> usize {
+    fn global_var(&mut self, value: Expr) -> usize {
         let existing = { self.global_classes.borrow().get(&value).copied() };
         if let Some(existing) = existing {
             self.classes.insert(value, existing);
@@ -222,58 +144,69 @@ impl GlobalNumberTable {
             | Variable::SharedMemory { .. }
             | Variable::LocalArray { .. }
             | Variable::Slice { .. } => None?,
-            Variable::GlobalInputArray { id, .. } => self.global_var(GlobalValue::Input(*id)),
-            Variable::GlobalScalar { id, elem } => self.global_var(GlobalValue::Scalar(*id, *elem)),
-            Variable::ConstantArray { id, .. } => self.global_var(GlobalValue::ConstArray(*id)),
+            Variable::GlobalInputArray { id, .. } => self.global_var(Expr::Input(*id)),
+            Variable::GlobalScalar { id, elem } => self.global_var(Expr::Scalar(*id, *elem)),
+            Variable::ConstantArray { id, .. } => self.global_var(Expr::ConstArray(*id)),
             Variable::Versioned {
                 id, depth, version, ..
             } => *self
                 .classes
-                .get(&GlobalValue::Variable(*id, *depth, *version))?,
+                .get(&Expr::Variable(Local(*id, *depth, *version)))?,
             Variable::LocalBinding { id, depth, .. } => {
-                *self.classes.get(&GlobalValue::Variable(*id, *depth, 0))?
+                *self.classes.get(&Expr::Variable(Local(*id, *depth, 0)))?
             }
-            Variable::ConstantScalar(val) => self.global_var(GlobalValue::Constant((*val).into())),
-            Variable::Rank => self.global_var(GlobalValue::Builtin(Builtin::Rank)),
-            Variable::UnitPos => self.global_var(GlobalValue::Builtin(Builtin::UnitPos)),
-            Variable::UnitPosX => self.global_var(GlobalValue::Builtin(Builtin::UnitPosX)),
-            Variable::UnitPosY => self.global_var(GlobalValue::Builtin(Builtin::UnitPosY)),
-            Variable::UnitPosZ => self.global_var(GlobalValue::Builtin(Builtin::UnitPosZ)),
-            Variable::CubePos => self.global_var(GlobalValue::Builtin(Builtin::CubePos)),
-            Variable::CubePosX => self.global_var(GlobalValue::Builtin(Builtin::CubePosX)),
-            Variable::CubePosY => self.global_var(GlobalValue::Builtin(Builtin::CubePosY)),
-            Variable::CubePosZ => self.global_var(GlobalValue::Builtin(Builtin::CubePosZ)),
-            Variable::CubeDim => self.global_var(GlobalValue::Builtin(Builtin::CubeDim)),
-            Variable::CubeDimX => self.global_var(GlobalValue::Builtin(Builtin::CubeDimX)),
-            Variable::CubeDimY => self.global_var(GlobalValue::Builtin(Builtin::CubeDimY)),
-            Variable::CubeDimZ => self.global_var(GlobalValue::Builtin(Builtin::CubeDimZ)),
-            Variable::CubeCount => self.global_var(GlobalValue::Builtin(Builtin::CubeCount)),
-            Variable::CubeCountX => self.global_var(GlobalValue::Builtin(Builtin::CubeCountX)),
-            Variable::CubeCountY => self.global_var(GlobalValue::Builtin(Builtin::CubeCountY)),
-            Variable::CubeCountZ => self.global_var(GlobalValue::Builtin(Builtin::CubeCountZ)),
-            Variable::SubcubeDim => self.global_var(GlobalValue::Builtin(Builtin::SubcubeDim)),
-            Variable::AbsolutePos => self.global_var(GlobalValue::Builtin(Builtin::AbsolutePos)),
-            Variable::AbsolutePosX => self.global_var(GlobalValue::Builtin(Builtin::AbsolutePosX)),
-            Variable::AbsolutePosY => self.global_var(GlobalValue::Builtin(Builtin::AbsolutePosY)),
-            Variable::AbsolutePosZ => self.global_var(GlobalValue::Builtin(Builtin::AbsolutePosZ)),
+            Variable::ConstantScalar(val) => self.global_var(Expr::Constant((*val).into())),
+            Variable::Rank => self.global_var(Expr::Builtin(Builtin::Rank)),
+            Variable::UnitPos => self.global_var(Expr::Builtin(Builtin::UnitPos)),
+            Variable::UnitPosX => self.global_var(Expr::Builtin(Builtin::UnitPosX)),
+            Variable::UnitPosY => self.global_var(Expr::Builtin(Builtin::UnitPosY)),
+            Variable::UnitPosZ => self.global_var(Expr::Builtin(Builtin::UnitPosZ)),
+            Variable::CubePos => self.global_var(Expr::Builtin(Builtin::CubePos)),
+            Variable::CubePosX => self.global_var(Expr::Builtin(Builtin::CubePosX)),
+            Variable::CubePosY => self.global_var(Expr::Builtin(Builtin::CubePosY)),
+            Variable::CubePosZ => self.global_var(Expr::Builtin(Builtin::CubePosZ)),
+            Variable::CubeDim => self.global_var(Expr::Builtin(Builtin::CubeDim)),
+            Variable::CubeDimX => self.global_var(Expr::Builtin(Builtin::CubeDimX)),
+            Variable::CubeDimY => self.global_var(Expr::Builtin(Builtin::CubeDimY)),
+            Variable::CubeDimZ => self.global_var(Expr::Builtin(Builtin::CubeDimZ)),
+            Variable::CubeCount => self.global_var(Expr::Builtin(Builtin::CubeCount)),
+            Variable::CubeCountX => self.global_var(Expr::Builtin(Builtin::CubeCountX)),
+            Variable::CubeCountY => self.global_var(Expr::Builtin(Builtin::CubeCountY)),
+            Variable::CubeCountZ => self.global_var(Expr::Builtin(Builtin::CubeCountZ)),
+            Variable::SubcubeDim => self.global_var(Expr::Builtin(Builtin::SubcubeDim)),
+            Variable::AbsolutePos => self.global_var(Expr::Builtin(Builtin::AbsolutePos)),
+            Variable::AbsolutePosX => self.global_var(Expr::Builtin(Builtin::AbsolutePosX)),
+            Variable::AbsolutePosY => self.global_var(Expr::Builtin(Builtin::AbsolutePosY)),
+            Variable::AbsolutePosZ => self.global_var(Expr::Builtin(Builtin::AbsolutePosZ)),
         };
         Some(val)
     }
 
+    fn black_box(&mut self, out: Local) -> (Expr, usize) {
+        let class = self.class_id.inc();
+        self.classes.insert(Expr::BlackBox(class), class);
+        self.classes.insert(Expr::Variable(out), class);
+        (Expr::BlackBox(class), class)
+    }
+
     pub(crate) fn instruction_of_operator(&mut self, operator: &Operator) -> Option<Instruction> {
-        match operator {
+        let val = match operator {
             Operator::Assign(op) => {
-                let input = self.class_of_var(&op.input)?;
-                let out = value_of_var(&op.out)?;
-                self.classes.insert(out.clone(), input);
-                Some(Instruction {
-                    out,
-                    rhs: GlobalValue::Operator {
+                let input = self.class_of_var(&op.input);
+                let out = as_var(&op.out);
+                let (rhs, class) = if let Some(input) = input {
+                    self.classes.insert(Expr::Variable(out), input);
+                    let expr = Expr::Operator {
                         op: OpId::Assign,
                         operands: vec![input],
-                    },
-                    class: input,
-                })
+                    };
+                    (expr, input)
+                } else {
+                    let class = self.class_id.inc();
+                    self.classes.insert(Expr::BlackBox(class), class);
+                    self.black_box(out)
+                };
+                Instruction::new(out, rhs, class)
             }
 
             // Commutative binop
@@ -289,13 +222,20 @@ impl GlobalNumberTable {
             | Operator::Max(op)
             | Operator::Min(op)
             | Operator::Dot(op) => {
-                let mut operands = vec![self.class_of_var(&op.lhs)?, self.class_of_var(&op.rhs)?];
-                operands.sort();
-                let out = value_of_var(&op.out)?;
-                let op = id_of_op(operator)?;
-                let rhs = GlobalValue::Operator { op, operands };
-                let class = self.class_of(rhs.clone(), out.clone());
-                Some(Instruction { out, rhs, class })
+                let lhs = self.class_of_var(&op.lhs);
+                let rhs = self.class_of_var(&op.rhs);
+                let out = as_var(&op.out);
+                let op = id_of_op(operator);
+                if let Some(((lhs, rhs), op)) = lhs.zip(rhs).zip(op) {
+                    let mut operands = vec![lhs, rhs];
+                    operands.sort();
+                    let rhs = Expr::Operator { op, operands };
+                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
+                    Instruction::new(out, rhs, class)
+                } else {
+                    let (rhs, class) = self.black_box(out);
+                    Instruction::new(out, rhs, class)
+                }
             }
 
             // Non-commutative binops
@@ -308,12 +248,19 @@ impl GlobalNumberTable {
             | Operator::UncheckedIndex(op)
             | Operator::ShiftLeft(op)
             | Operator::ShiftRight(op) => {
-                let operands = vec![self.class_of_var(&op.lhs)?, self.class_of_var(&op.rhs)?];
-                let out = value_of_var(&op.out)?;
-                let op = id_of_op(operator)?;
-                let rhs = GlobalValue::Operator { op, operands };
-                let class = self.class_of(rhs.clone(), out.clone());
-                Some(Instruction { out, rhs, class })
+                let lhs = self.class_of_var(&op.lhs);
+                let rhs = self.class_of_var(&op.rhs);
+                let out = as_var(&op.out);
+                let op = id_of_op(operator);
+                if let Some(((lhs, rhs), op)) = lhs.zip(rhs).zip(op) {
+                    let operands = vec![lhs, rhs];
+                    let rhs = Expr::Operator { op, operands };
+                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
+                    Instruction::new(out, rhs, class)
+                } else {
+                    let (rhs, class) = self.black_box(out);
+                    Instruction::new(out, rhs, class)
+                }
             }
 
             // Compare ops
@@ -321,26 +268,25 @@ impl GlobalNumberTable {
             | Operator::Greater(op)
             | Operator::LowerEqual(op)
             | Operator::GreaterEqual(op) => {
-                let lhs = self.class_of_var(&op.lhs)?;
-                let rhs = self.class_of_var(&op.rhs)?;
-                let out = value_of_var(&op.out)?;
-                let op = id_of_op(operator)?;
-                let inverse = cmp_inverse(&op);
-                let value = GlobalValue::Operator {
-                    op,
-                    operands: vec![lhs, rhs],
-                };
-                let inv_value = GlobalValue::Operator {
-                    op: inverse,
-                    operands: vec![rhs, lhs],
-                };
-                let class = self.class_of(value.clone(), out.clone());
-                self.classes.insert(inv_value, class);
-                Some(Instruction {
-                    out,
-                    rhs: value,
-                    class,
-                })
+                let lhs = self.class_of_var(&op.lhs);
+                let rhs = self.class_of_var(&op.rhs);
+                let out = as_var(&op.out);
+                let op = id_of_op(operator);
+                if let Some(((mut lhs, mut rhs), mut op)) = lhs.zip(rhs).zip(op) {
+                    if lhs > rhs {
+                        swap(&mut lhs, &mut rhs);
+                        op = cmp_inverse(&op);
+                    }
+                    let rhs = Expr::Operator {
+                        op,
+                        operands: vec![lhs, rhs],
+                    };
+                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
+                    Instruction::new(out, rhs, class)
+                } else {
+                    let (rhs, class) = self.black_box(out);
+                    Instruction::new(out, rhs, class)
+                }
             }
 
             // Unary ops
@@ -361,105 +307,140 @@ impl GlobalNumberTable {
             | Operator::Neg(op)
             | Operator::Magnitude(op)
             | Operator::Normalize(op) => {
-                let operands = vec![self.class_of_var(&op.input)?];
-                let out = value_of_var(&op.out)?;
-                let op = id_of_op(operator)?;
-                let rhs = GlobalValue::Operator { op, operands };
-                let class = self.class_of(rhs.clone(), out.clone());
-                Some(Instruction { out, rhs, class })
+                let input = self.class_of_var(&op.input);
+                let out = as_var(&op.out);
+                let op = id_of_op(operator);
+                if let Some((input, op)) = input.zip(op) {
+                    let operands = vec![input];
+                    let rhs = Expr::Operator { op, operands };
+                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
+                    Instruction::new(out, rhs, class)
+                } else {
+                    let (rhs, class) = self.black_box(out);
+                    Instruction::new(out, rhs, class)
+                }
             }
 
             Operator::Fma(op) => {
-                let a = self.class_of_var(&op.a)?;
-                let b = self.class_of_var(&op.b)?;
-                let c = self.class_of_var(&op.c)?;
-                let operands = vec![a, b, c];
-                let out = value_of_var(&op.out)?;
-                let op = id_of_op(operator)?;
-                let rhs = GlobalValue::Operator { op, operands };
-                let class = self.class_of(rhs.clone(), out.clone());
-                let operands = vec![b, a, c];
-                let value_2 = GlobalValue::Operator { op, operands };
-                self.classes.insert(value_2, class);
-                Some(Instruction { out, rhs, class })
+                let a = self.class_of_var(&op.a);
+                let b = self.class_of_var(&op.b);
+                let c = self.class_of_var(&op.c);
+                let out = as_var(&op.out);
+                let op = id_of_op(operator);
+                if let Some(((a, b), (c, op))) = a.zip(b).zip(c.zip(op)) {
+                    let operands = vec![a, b, c];
+                    let rhs = Expr::Operator { op, operands };
+                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
+                    let operands = vec![b, a, c];
+                    let value_2 = Expr::Operator { op, operands };
+                    self.classes.insert(value_2, class);
+                    Instruction::new(out, rhs, class)
+                } else {
+                    let (rhs, class) = self.black_box(out);
+                    Instruction::new(out, rhs, class)
+                }
             }
             Operator::Clamp(op) => {
-                let val = self.class_of_var(&op.input)?;
-                let min = self.class_of_var(&op.min_value)?;
-                let max = self.class_of_var(&op.max_value)?;
-                let out = value_of_var(&op.out)?;
-                let operands = vec![val, min, max];
-                let op = id_of_op(operator)?;
-                let rhs = GlobalValue::Operator { op, operands };
-                let class = self.class_of(rhs.clone(), out.clone());
-                Some(Instruction { out, rhs, class })
+                let val = self.class_of_var(&op.input);
+                let min = self.class_of_var(&op.min_value);
+                let max = self.class_of_var(&op.max_value);
+                let out = as_var(&op.out);
+                let op = id_of_op(operator);
+                if let Some(((val, min), (max, op))) = val.zip(min).zip(max.zip(op)) {
+                    let operands = vec![val, min, max];
+                    let rhs = Expr::Operator { op, operands };
+                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
+                    Instruction::new(out, rhs, class)
+                } else {
+                    let (rhs, class) = self.black_box(out);
+                    Instruction::new(out, rhs, class)
+                }
             }
             Operator::InitLine(op) => {
                 let operands = op.inputs.iter().map(|it| self.class_of_var(it));
-                let operands = operands.collect::<Option<_>>()?;
-                let out = value_of_var(&op.out)?;
-                let op = id_of_op(operator)?;
-                let rhs = GlobalValue::Operator { op, operands };
-                let class = self.class_of(rhs.clone(), out.clone());
-                Some(Instruction { out, rhs, class })
+                let operands = operands.collect::<Option<_>>();
+                let out = as_var(&op.out);
+                let op = id_of_op(operator);
+                if let Some((operands, op)) = operands.zip(op) {
+                    let rhs = Expr::Operator { op, operands };
+                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
+                    Instruction::new(out, rhs, class)
+                } else {
+                    let (rhs, class) = self.black_box(out);
+                    Instruction::new(out, rhs, class)
+                }
             }
-            _ => None,
-        }
+
+            Operator::AtomicSwap(op)
+            | Operator::AtomicAdd(op)
+            | Operator::AtomicSub(op)
+            | Operator::AtomicMax(op)
+            | Operator::AtomicMin(op)
+            | Operator::AtomicAnd(op)
+            | Operator::AtomicOr(op)
+            | Operator::AtomicXor(op) => {
+                let out = as_var(&op.out);
+                let (rhs, class) = self.black_box(out);
+                Instruction::new(out, rhs, class)
+            }
+
+            _ => None?,
+        };
+        Some(val)
     }
 
-    fn class_of_metadata(&mut self, metadata: &Metadata) -> Option<Instruction> {
+    fn class_of_metadata(&mut self, metadata: &Metadata) -> Instruction {
         let op = id_of_meta(metadata);
         match metadata {
             Metadata::Stride { dim, var, out } | Metadata::Shape { dim, var, out } => {
                 let val = match var {
-                    Variable::GlobalInputArray { id, .. } => GlobalValue::Input(*id),
-                    Variable::GlobalOutputArray { id, .. } => GlobalValue::Output(*id),
+                    Variable::GlobalInputArray { id, .. } => Expr::Input(*id),
+                    Variable::GlobalOutputArray { id, .. } => Expr::Output(*id),
                     _ => unreachable!("Stride/shape only exist for tensors"),
                 };
                 let var = self.global_var(val);
-                let out = value_of_var(out)?;
-                let operands = vec![var, self.class_of_var(dim)?];
-                let rhs = GlobalValue::Operator { op, operands };
-                let class = self.class_of(rhs.clone(), out.clone());
-                Some(Instruction { out, rhs, class })
+                let dim = self.class_of_var(dim);
+                let out = as_var(out);
+                if let Some(dim) = dim {
+                    let operands = vec![var, dim];
+                    let rhs = Expr::Operator { op, operands };
+                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
+                    Instruction::new(out, rhs, class)
+                } else {
+                    let (rhs, class) = self.black_box(out);
+                    Instruction::new(out, rhs, class)
+                }
             }
             Metadata::Length { var, out } => {
-                let out = value_of_var(out)?;
+                let out = as_var(out);
                 let var = match var {
-                    Variable::GlobalInputArray { id, .. } => {
-                        self.global_var(GlobalValue::Input(*id))
-                    }
-                    Variable::GlobalOutputArray { id, .. } => {
-                        self.global_var(GlobalValue::Output(*id))
-                    }
+                    Variable::GlobalInputArray { id, .. } => self.global_var(Expr::Input(*id)),
+                    Variable::GlobalOutputArray { id, .. } => self.global_var(Expr::Output(*id)),
                     Variable::GlobalScalar { id, elem } => {
-                        self.global_var(GlobalValue::Scalar(*id, *elem))
+                        self.global_var(Expr::Scalar(*id, *elem))
                     }
                     Variable::Slice { id, depth, .. } => *self
                         .classes
-                        .entry(GlobalValue::Slice(*id, *depth))
+                        .entry(Expr::Slice(*id, *depth))
                         .or_insert_with(|| self.class_id.inc()),
                     Variable::ConstantArray { length, .. }
                     | Variable::SharedMemory { length, .. }
                     | Variable::LocalArray { length, .. } => {
-                        let constant = GlobalValue::Constant(Constant::UInt(*length as u64));
+                        let constant = Expr::Constant(Constant::UInt(*length as u64));
                         let class = self.global_var(constant);
-                        self.classes.insert(out.clone(), class);
-                        return Some(Instruction {
-                            out,
-                            rhs: GlobalValue::Operator {
-                                op: OpId::Assign,
-                                operands: vec![class],
-                            },
-                            class,
-                        });
+                        self.classes.insert(Expr::Variable(out), class);
+                        let rhs = Expr::Operator {
+                            op: OpId::Assign,
+                            operands: vec![class],
+                        };
+                        return Instruction::new(out, rhs, class);
                     }
                     _ => unreachable!("Length only available on array"),
                 };
                 let operands = vec![var];
-                let rhs = GlobalValue::Operator { op, operands };
-                let class = self.class_of(rhs.clone(), out.clone());
-                Some(Instruction { out, rhs, class })
+                let rhs = Expr::Operator { op, operands };
+                let class = self.class_of(rhs.clone(), Expr::Variable(out));
+                Instruction { out, rhs, class }
             }
         }
     }
@@ -467,19 +448,19 @@ impl GlobalNumberTable {
     pub(crate) fn class_of_operation(&mut self, operation: &Operation) -> Option<Instruction> {
         match operation {
             Operation::Operator(operator) => self.instruction_of_operator(operator),
-            Operation::Metadata(metadata) => self.class_of_metadata(metadata),
+            Operation::Metadata(metadata) => Some(self.class_of_metadata(metadata)),
             _ => None,
         }
     }
 }
 
-fn value_of_var(var: &Variable) -> Option<GlobalValue> {
+pub fn as_var(var: &Variable) -> Local {
     match var {
         Variable::Versioned {
             id, depth, version, ..
-        } => Some(GlobalValue::Variable(*id, *depth, *version)),
-        Variable::LocalBinding { id, depth, .. } => Some(GlobalValue::Variable(*id, *depth, 0)),
-        _ => None,
+        } => Local(*id, *depth, *version),
+        Variable::LocalBinding { id, depth, .. } => Local(*id, *depth, 0),
+        _ => unreachable!(),
     }
 }
 

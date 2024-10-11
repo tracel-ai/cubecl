@@ -13,4 +13,5 @@ float-ord = "0.3"
 hashlink = "0.9"
 num = { version = "0.4" }
 petgraph = { version = "0.6" }
+smallvec = { version = "1", features = ["union", "const_generics"] }
 stable-vec = { version = "0.4" }

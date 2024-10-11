@@ -31,8 +31,7 @@ impl Display for Optimizer {
         }
         f.write_str("\n\n")?;
 
-        let mut global_nums = GlobalNumberGraph::default();
-        global_nums.available_cfa(self);
+        let global_nums = GlobalNumberGraph::new(self);
 
         let mut globs = {
             let globals = global_nums.globals.borrow();
@@ -90,7 +89,9 @@ impl Display for Optimizer {
                 let range = id.and_then(|id| self.program.int_ranges.get(&id));
                 let range = range.map(|it| format!(" range: {it};")).unwrap_or_default();
                 let num = avail_out.class_of_operation(op);
-                let number = num.map(|it| format!(" class: {it};")).unwrap_or_default();
+                let number = num
+                    .map(|it| format!(" class: {};", it.class))
+                    .unwrap_or_default();
 
                 writeln!(f, "    {op};{range}{number}")?;
             }
