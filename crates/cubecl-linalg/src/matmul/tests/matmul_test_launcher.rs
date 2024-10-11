@@ -58,14 +58,18 @@ where
     let cube_dim = CubeDim::new(32, requirements.num_planes, 1);
     let cube_count = CubeCount::Static(requirements.num_cubes, 1, 1);
 
+    // TODO 4
+    let input_line = 1;
+    let output_line = 4;
+
     unsafe {
         MM::launch_unchecked(
             &client,
             cube_dim,
             cube_count,
-            ArrayArg::<R>::from_raw_parts(&lhs, lhs_size, 1),
-            ArrayArg::<R>::from_raw_parts(&rhs, rhs_size, 1),
-            ArrayArg::<R>::from_raw_parts(&out, out_size, 1),
+            ArrayArg::<R>::from_raw_parts(&lhs, lhs_size, input_line),
+            ArrayArg::<R>::from_raw_parts(&rhs, rhs_size, input_line),
+            ArrayArg::<R>::from_raw_parts(&out, out_size, output_line),
             layouts,
         );
     }
