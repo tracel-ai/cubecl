@@ -6,36 +6,36 @@ use crate::matmul::matmul_stage::StageWriter;
 use crate::matmul::stage_info::StageInfo;
 
 #[derive(CubeType)]
-pub struct TensorWriter<E: Numeric> {
-    pub tensor_view: TensorView<E>,
+pub struct TensorWriter<EG: Numeric> {
+    pub tensor_view: TensorView<EG>,
     pub stage_info: StageInfo,
 }
 
 #[cube]
-pub(crate) fn new_tensor_writer<E: Numeric>(
-    tensor_view: TensorView<E>,
+pub(crate) fn new_tensor_writer<EG: Numeric>(
+    tensor_view: TensorView<EG>,
     #[comptime] block_info: StageInfo,
-) -> TensorWriter<E> {
-    TensorWriter::<E> {
+) -> TensorWriter<EG> {
+    TensorWriter::<EG> {
         tensor_view,
         stage_info: block_info.runtime(),
     }
 }
 
 #[cube]
-impl<E: Numeric> StageWriter<E> for TensorWriter<E> {
-    fn write_with_cast<C: Numeric>(
-        tile_writer: &mut Self,
-        slice: &Slice<'_, C>,
+impl<EG: Numeric> StageWriter<EG> for TensorWriter<EG> {
+    fn write_with_cast<ES: Numeric>(
+        stage_writer: &mut Self,
+        slice: &Slice<'_, ES>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
     ) {
         TensorView::write_slice(
-            &mut tile_writer.tensor_view,
+            &mut stage_writer.tensor_view,
             slice,
-            compute_plane_offset * tile_writer.stage_info.tile_size_x,
-            accumulator_offset * tile_writer.stage_info.tile_size_y,
-            tile_writer.stage_info,
+            compute_plane_offset * stage_writer.stage_info.tile_size_x,
+            accumulator_offset * stage_writer.stage_info.tile_size_y,
+            stage_writer.stage_info,
         )
     }
 }

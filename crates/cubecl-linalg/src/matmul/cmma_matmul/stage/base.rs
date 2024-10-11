@@ -16,28 +16,28 @@ use crate::matmul::{
 use crate::matmul::{FixedShapeMatmul, Matmul};
 
 pub struct CmmaStageMatmul<
-    E: Numeric,
-    A: Numeric,
-    I: MatmulInstruction<E, A>,
+    I: Numeric,
+    O: Numeric,
+    INSTR: MatmulInstruction<I, O>,
     BlockSize: CmmaStageSize,
 > {
-    _accumulator_precision: PhantomData<A>,
-    _input_precision: PhantomData<E>,
-    _instruction: PhantomData<I>,
+    _input_precision: PhantomData<I>,
+    _accumulator_precision: PhantomData<O>,
+    _instruction: PhantomData<INSTR>,
     _block_size: PhantomData<BlockSize>,
 }
 
 #[cube]
-impl<Elem, ElemAcc, Instr, Block, Lhs, Rhs, Out> StageMatmul<Elem, Lhs, Rhs, Out>
-    for CmmaStageMatmul<Elem, ElemAcc, Instr, Block>
+impl<I, O, Instr, Block, Lhs, Rhs, Out> StageMatmul<I, O, Lhs, Rhs, Out>
+    for CmmaStageMatmul<I, O, Instr, Block>
 where
-    Elem: Numeric,
-    ElemAcc: Numeric,
-    Instr: MatmulInstruction<Elem, ElemAcc>,
+    I: Numeric,
+    O: Numeric,
+    Instr: MatmulInstruction<I, O>,
     Block: CmmaStageSize,
-    Lhs: StageReader<Elem>,
-    Rhs: StageReader<Elem>,
-    Out: StageWriter<Elem>,
+    Lhs: StageReader<I>,
+    Rhs: StageReader<I>,
+    Out: StageWriter<O>,
 {
     type Accumulator = Sequence<Instr::Out>;
 
@@ -80,12 +80,11 @@ where
         let num_tile_elements = Instr::M * Instr::N;
         let start = num_tile_elements * Self::plane_id();
 
-        let same_type =
-            comptime!(std::any::TypeId::of::<Elem>() == std::any::TypeId::of::<ElemAcc>());
+        let same_type = comptime!(std::any::TypeId::of::<I>() == std::any::TypeId::of::<O>());
 
         if same_type {
             let mut smem =
-                SharedMemory::<Elem>::new(num_tile_elements * comptime!(Self::num_planes()));
+                SharedMemory::<I>::new(num_tile_elements * comptime!(Self::num_planes()));
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
@@ -101,7 +100,7 @@ where
             }
         } else {
             let mut smem =
-                SharedMemory::<ElemAcc>::new(num_tile_elements * comptime!(Self::num_planes()));
+                SharedMemory::<O>::new(num_tile_elements * comptime!(Self::num_planes()));
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
@@ -119,12 +118,11 @@ where
     }
 }
 
-impl<Elem, ElemAcc, Instr, BlockSize> FixedShapeMatmul<Elem, Elem>
-    for CmmaStageMatmul<Elem, ElemAcc, Instr, BlockSize>
+impl<I, O, Instr, BlockSize> FixedShapeMatmul<I, O> for CmmaStageMatmul<I, O, Instr, BlockSize>
 where
-    Elem: Numeric,
-    ElemAcc: Numeric,
-    Instr: MatmulInstruction<Elem, ElemAcc>,
+    I: Numeric,
+    O: Numeric,
+    Instr: MatmulInstruction<I, O>,
     BlockSize: CmmaStageSize,
 {
     const M: u32 = BlockSize::M;
@@ -140,7 +138,7 @@ where
         out: ArrayArg<'_, R>,
         layouts: (MatrixLayout, MatrixLayout),
     ) {
-        stage_matmul_launch::launch_unchecked::<Self, Elem, R>(
+        stage_matmul_launch::launch_unchecked::<I, O, Self, R>(
             &client,
             cube_count,
             cube_dim,
@@ -153,12 +151,11 @@ where
     }
 }
 
-impl<Elem, ElemAcc, Instr, Block> Matmul<Elem, Elem>
-    for CmmaStageMatmul<Elem, ElemAcc, Instr, Block>
+impl<I, O, Instr, Block> Matmul<I, O> for CmmaStageMatmul<I, O, Instr, Block>
 where
-    Elem: Numeric,
-    ElemAcc: Numeric,
-    Instr: MatmulInstruction<Elem, ElemAcc>,
+    I: Numeric,
+    O: Numeric,
+    Instr: MatmulInstruction<I, O>,
     Block: CmmaStageSize,
 {
     fn can_process(problem: MatmulProblem) -> bool {

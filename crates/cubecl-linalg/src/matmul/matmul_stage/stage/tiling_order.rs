@@ -14,8 +14,8 @@ pub struct YMajorTiling {}
 
 #[cube]
 impl TilingOrder for XMajorTiling {
-    fn to_x_y(nth_tile: u32, _num_x: u32, num_y: u32) -> (u32, u32) {
-        (nth_tile / num_y, nth_tile % num_y)
+    fn to_x_y(nth: u32, _num_x: u32, num_y: u32) -> (u32, u32) {
+        (nth / num_y, nth % num_y)
     }
 
     fn to_nth_tile(x: u32, y: u32, _num_x: u32, num_y: u32) -> u32 {

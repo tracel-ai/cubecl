@@ -5,12 +5,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub trait Unloader<E: Numeric>: CubeType + 'static + Send + Sync {
-    type GlobalView: GlobalView<E>;
-    type StageWriter: StageWriter<E>;
+pub trait Unloader<EG: Numeric>: CubeType + 'static + Send + Sync {
+    type GlobalView: GlobalView<EG>;
+    type StageWriter: StageWriter<EG>;
 
     fn new(
-        gmem: <Self::GlobalView as GlobalView<E>>::Global,
+        gmem: <Self::GlobalView as GlobalView<EG>>::Global,
         #[comptime] stage_info: StageInfo,
     ) -> Self;
 

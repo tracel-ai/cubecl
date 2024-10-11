@@ -17,7 +17,7 @@ macro_rules! testgen_cmma_internal {
             test_fixed_matmul::<
                 CmmaStageMatmul<f16, f32, CmmaInstruction16_16_16<f16, f32>, S16x16x16>,
                 f16,
-                f16,
+                f32,
                 TestRuntime,
             >(
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
@@ -43,7 +43,7 @@ macro_rules! testgen_cmma_internal {
             test_fixed_matmul::<
                 CmmaStageMatmul<f16, f32, CmmaInstruction32_8_16<f16, f32>, S32x8x16>,
                 f16,
-                f16,
+                f32,
                 TestRuntime,
             >(
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
@@ -56,7 +56,7 @@ macro_rules! testgen_cmma_internal {
             test_fixed_matmul::<
                 CmmaStageMatmul<f16, f32, CmmaInstruction8_32_16<f16, f32>, S8x32x16>,
                 f16,
-                f16,
+                f32,
                 TestRuntime,
             >(
                 (MatrixLayout::RowMajor, MatrixLayout::RowMajor),

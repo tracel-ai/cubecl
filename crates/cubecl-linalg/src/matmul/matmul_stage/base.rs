@@ -8,11 +8,12 @@ use super::{StageReader, StageWriter};
 #[cube]
 /// Execute a matmul over a fixed-size block, using one Cube.
 pub trait StageMatmul<
-    E: Numeric,
-    Lhs: StageReader<E>,
-    Rhs: StageReader<E>,
-    Out: StageWriter<E>,
->: 'static + Send + Sync + FixedShapeMatmul<E, E>
+    I: Numeric,
+    O: Numeric,
+    Lhs: StageReader<I>,
+    Rhs: StageReader<I>,
+    Out: StageWriter<O>,
+>: 'static + Send + Sync + FixedShapeMatmul<I, O>
 {
     type Accumulator: CubeType;
 

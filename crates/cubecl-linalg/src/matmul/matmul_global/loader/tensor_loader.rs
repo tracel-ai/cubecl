@@ -12,24 +12,26 @@ use std::marker::PhantomData;
 use super::Loader;
 
 #[derive(CubeType)]
-pub struct LhsTensorLoader<E: Numeric, S: Stage<E>> {
-    pub gmem_view: TensorView<E>,
+pub struct LhsTensorLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
+    pub gmem_view: TensorView<EG>,
     pub stage: S,
+    pub _e: PhantomData<ES>,
 }
 
 #[derive(CubeType)]
-pub struct RhsTensorLoader<E: Numeric, S: Stage<E>> {
-    pub gmem_view: TensorView<E>,
+pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
+    pub gmem_view: TensorView<EG>,
     pub stage: S,
+    pub _e: PhantomData<ES>,
 }
 
 #[cube]
-impl<E: Numeric, S: Stage<E>> Loader<E> for LhsTensorLoader<E, S> {
-    type GlobalView = TensorView<E>;
-    type StageReader = LhsStageReader<E, S>;
+impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsTensorLoader<EG, ES, S> {
+    type GlobalView = TensorView<EG>;
+    type StageReader = LhsStageReader<ES, S>;
 
     fn new(
-        tensor: Tensor<Line<E>>,
+        tensor: Tensor<Line<EG>>,
         #[comptime] layout: MatrixLayout,
         #[comptime] stage: StageInfo,
     ) -> Self {
@@ -37,14 +39,18 @@ impl<E: Numeric, S: Stage<E>> Loader<E> for LhsTensorLoader<E, S> {
         let stage = S::new(layout, stage, line_size);
         let gmem_view = new_tensor_view(tensor, layout);
 
-        LhsTensorLoader::<E, S> { gmem_view, stage }
+        LhsTensorLoader::<EG, ES, S> {
+            gmem_view,
+            stage,
+            _e: PhantomData::<ES>.runtime(),
+        }
     }
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
-        S::fill::<E, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
-        LhsStageReader::<E, S> {
+        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+        LhsStageReader::<ES, S> {
             stage: loader.stage,
-            _e: PhantomData::<E>.runtime(),
+            _e: PhantomData::<ES>.runtime(),
         }
     }
 
@@ -58,12 +64,12 @@ impl<E: Numeric, S: Stage<E>> Loader<E> for LhsTensorLoader<E, S> {
 }
 
 #[cube]
-impl<E: Numeric, S: Stage<E>> Loader<E> for RhsTensorLoader<E, S> {
-    type GlobalView = TensorView<E>;
-    type StageReader = RhsStageReader<E, S>;
+impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for RhsTensorLoader<EG, ES, S> {
+    type GlobalView = TensorView<EG>;
+    type StageReader = RhsStageReader<ES, S>;
 
     fn new(
-        tensor: Tensor<Line<E>>,
+        tensor: Tensor<Line<EG>>,
         #[comptime] layout: MatrixLayout,
         #[comptime] stage_info: StageInfo,
     ) -> Self {
@@ -71,14 +77,18 @@ impl<E: Numeric, S: Stage<E>> Loader<E> for RhsTensorLoader<E, S> {
         let stage = S::new(layout, stage_info, line_size);
         let gmem_view = new_tensor_view(tensor, layout);
 
-        RhsTensorLoader::<E, S> { gmem_view, stage }
+        RhsTensorLoader::<EG, ES, S> {
+            gmem_view,
+            stage,
+            _e: PhantomData::<ES>.runtime(),
+        }
     }
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
-        S::fill::<E, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
-        RhsStageReader::<E, S> {
+        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+        RhsStageReader::<ES, S> {
             stage: loader.stage,
-            _e: PhantomData::<E>.runtime(),
+            _e: PhantomData::<ES>.runtime(),
         }
     }
 

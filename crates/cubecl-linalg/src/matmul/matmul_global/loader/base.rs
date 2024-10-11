@@ -6,12 +6,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub trait Loader<E: Numeric>: CubeType + 'static + Send + Sync {
-    type GlobalView: GlobalView<E>;
-    type StageReader: StageReader<E>;
+pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
+    type GlobalView: GlobalView<EG>;
+    type StageReader: StageReader<ES>;
 
     fn new(
-        gmem: <Self::GlobalView as GlobalView<E>>::Global,
+        gmem: <Self::GlobalView as GlobalView<EG>>::Global,
         #[comptime] layout: MatrixLayout,
         #[comptime] stage_info: StageInfo,
     ) -> Self;

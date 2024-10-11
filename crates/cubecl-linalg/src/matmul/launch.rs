@@ -3,13 +3,13 @@ use crate::matmul::matmul_global::GlobalMatmul;
 use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_global::{LhsArrayLoader, RhsArrayLoader};
 use crate::matmul::matmul_global::{Loader, Unloader};
-use crate::matmul::matmul_tile::MatmulInstruction;
 use crate::matmul::matmul_stage::ArrayWriter;
 use crate::matmul::matmul_stage::LhsStageReader;
 use crate::matmul::matmul_stage::RhsStageReader;
-use crate::matmul::matmul_stage::XMajorTiling;
 use crate::matmul::matmul_stage::SharedMemoryStage;
 use crate::matmul::matmul_stage::StageMatmul;
+use crate::matmul::matmul_stage::XMajorTiling;
+use crate::matmul::matmul_tile::MatmulInstruction;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfos;
 use cubecl_core as cubecl;
@@ -35,17 +35,19 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 
 #[cube(launch_unchecked)]
 pub(crate) fn stage_matmul_launch<
+    I: Numeric,
+    O: Numeric,
     BM: StageMatmul<
-        Elem,
-        LhsStageReader<Elem, SharedMemoryStage<Elem, XMajorTiling>>,
-        RhsStageReader<Elem, SharedMemoryStage<Elem, XMajorTiling>>,
-        ArrayWriter<Elem>,
+        I,
+        O,
+        LhsStageReader<I, SharedMemoryStage<I, XMajorTiling>>,
+        RhsStageReader<I, SharedMemoryStage<I, XMajorTiling>>,
+        ArrayWriter<O>,
     >,
-    Elem: Numeric,
 >(
-    lhs_data: Array<Line<Elem>>,
-    rhs_data: Array<Line<Elem>>,
-    out_result: Array<Line<Elem>>,
+    lhs_data: Array<Line<I>>,
+    rhs_data: Array<Line<I>>,
+    out_result: Array<Line<O>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
     #[comptime] stage_infos: StageInfos,
 ) {
@@ -64,15 +66,16 @@ pub(crate) fn stage_matmul_launch<
 
 #[cube(launch_unchecked)]
 pub(crate) fn cube_matmul_launch<
-    CM: GlobalMatmul<Elem, Lhs, Rhs, Out>,
-    Elem: Numeric,
-    Lhs: Loader<Elem, GlobalView = TensorView<Elem>>,
-    Rhs: Loader<Elem, GlobalView = TensorView<Elem>>,
-    Out: Unloader<Elem, GlobalView = TensorView<Elem>>,
+    EG: Numeric,
+    ES: Numeric,
+    CM: GlobalMatmul<EG, ES, Lhs, Rhs, Out>,
+    Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
+    Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
+    Out: Unloader<EG, GlobalView = TensorView<EG>>,
 >(
-    lhs_tensor: Tensor<Line<Elem>>,
-    rhs_tensor: Tensor<Line<Elem>>,
-    out_tensor: Tensor<Line<Elem>>,
+    lhs_tensor: Tensor<Line<EG>>,
+    rhs_tensor: Tensor<Line<EG>>,
+    out_tensor: Tensor<Line<EG>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
     #[comptime] stage_infos: StageInfos,
 ) {

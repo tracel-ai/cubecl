@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::stage_info::StageInfo;
 
 #[cube]
@@ -18,7 +19,7 @@ pub trait GlobalView<E: Numeric>: CubeType {
         tile_size_x: u32,
         tile_size_y: u32,
     ) -> Line<E>;
-    fn load_shared_memory<ES: Numeric>(
+    fn load_shared_memory<ES: Numeric, O: TilingOrder>(
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,

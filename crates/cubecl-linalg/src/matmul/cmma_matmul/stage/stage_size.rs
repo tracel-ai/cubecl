@@ -19,6 +19,7 @@ macro_rules! create_cmma_stage {
 create_cmma_stage!(S8x32x16, 8, 32, 16);
 create_cmma_stage!(S16x16x16, 16, 16, 16);
 create_cmma_stage!(S16x32x16, 16, 32, 16);
+create_cmma_stage!(S16x16x32, 16, 16, 32);
 create_cmma_stage!(S32x8x16, 32, 8, 16);
 create_cmma_stage!(S32x16x16, 32, 16, 16);
 create_cmma_stage!(S32x32x16, 32, 32, 16);

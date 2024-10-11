@@ -10,24 +10,26 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 #[derive(CubeType)]
-pub struct LhsArrayLoader<E: Numeric, S: Stage<E>> {
-    pub gmem_view: ArrayView<E>,
+pub struct LhsArrayLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
+    pub gmem_view: ArrayView<EG>,
     pub stage: S,
+    pub _e: PhantomData<ES>,
 }
 
 #[derive(CubeType)]
-pub struct RhsArrayLoader<E: Numeric, S: Stage<E>> {
-    pub gmem_view: ArrayView<E>,
+pub struct RhsArrayLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
+    pub gmem_view: ArrayView<EG>,
     pub stage: S,
+    pub _e: PhantomData<ES>,
 }
 
 #[cube]
-impl<E: Numeric, S: Stage<E>> Loader<E> for LhsArrayLoader<E, S> {
-    type GlobalView = ArrayView<E>;
-    type StageReader = LhsStageReader<E, S>;
+impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsArrayLoader<EG, ES, S> {
+    type GlobalView = ArrayView<EG>;
+    type StageReader = LhsStageReader<ES, S>;
 
     fn new(
-        array: Array<Line<E>>,
+        array: Array<Line<EG>>,
         #[comptime] layout: MatrixLayout,
         #[comptime] stage_info: StageInfo,
     ) -> Self {
@@ -40,14 +42,18 @@ impl<E: Numeric, S: Stage<E>> Loader<E> for LhsArrayLoader<E, S> {
             .runtime();
         let gmem_view = new_array_view(array, layout, shape);
 
-        LhsArrayLoader::<E, S> { gmem_view, stage }
+        LhsArrayLoader::<EG, ES, S> {
+            gmem_view,
+            stage,
+            _e: PhantomData::<ES>.runtime(),
+        }
     }
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
-        S::fill::<E, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
-        LhsStageReader::<E, S> {
+        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+        LhsStageReader::<ES, S> {
             stage: loader.stage,
-            _e: PhantomData::<E>.runtime(),
+            _e: PhantomData::<ES>.runtime(),
         }
     }
 
@@ -61,12 +67,12 @@ impl<E: Numeric, S: Stage<E>> Loader<E> for LhsArrayLoader<E, S> {
 }
 
 #[cube]
-impl<E: Numeric, S: Stage<E>> Loader<E> for RhsArrayLoader<E, S> {
-    type GlobalView = ArrayView<E>;
-    type StageReader = RhsStageReader<E, S>;
+impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for RhsArrayLoader<EG, ES, S> {
+    type GlobalView = ArrayView<EG>;
+    type StageReader = RhsStageReader<ES, S>;
 
     fn new(
-        array: Array<Line<E>>,
+        array: Array<Line<EG>>,
         #[comptime] layout: MatrixLayout,
         #[comptime] stage_info: StageInfo,
     ) -> Self {
@@ -79,14 +85,18 @@ impl<E: Numeric, S: Stage<E>> Loader<E> for RhsArrayLoader<E, S> {
             .runtime();
         let gmem_view = new_array_view(array, layout, shape);
 
-        RhsArrayLoader::<E, S> { gmem_view, stage }
+        RhsArrayLoader::<EG, ES, S> {
+            gmem_view,
+            stage,
+            _e: PhantomData::<ES>.runtime(),
+        }
     }
 
     fn fill_block(loader: &mut Self) -> Self::StageReader {
-        S::fill::<E, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
-        RhsStageReader::<E, S> {
+        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+        RhsStageReader::<ES, S> {
             stage: loader.stage,
-            _e: PhantomData::<E>.runtime(),
+            _e: PhantomData::<ES>.runtime(),
         }
     }
 

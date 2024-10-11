@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::matmul_global::{smem_slice_to_gmem, GlobalView};
-use crate::matmul::matmul_stage::{Gmem2SmemContinuous, SharedMemoryLoader, XMajorTiling};
+use crate::matmul::matmul_stage::{Gmem2SmemContinuous, SharedMemoryLoader, TilingOrder};
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 
@@ -49,17 +49,13 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         array[read_pos]
     }
 
-    fn load_shared_memory<ES: Numeric>(
+    fn load_shared_memory<ES: Numeric, O: TilingOrder>(
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,
     ) {
-        // TODO allow other modes / tilings
-        Gmem2SmemContinuous::load_shared_memory::<E, ES, Self, XMajorTiling>(
-            view,
-            shared_memory,
-            stage_info,
-        );
+        // TODO allow other modes than Gmem2SmemContinuous
+        Gmem2SmemContinuous::load_shared_memory::<E, ES, Self, O>(view, shared_memory, stage_info);
     }
 
     fn init_view(_view: &mut Self, _x_offset: u32, _y_offset: u32) {

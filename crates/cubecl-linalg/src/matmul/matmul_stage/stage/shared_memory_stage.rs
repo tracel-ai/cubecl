@@ -41,7 +41,7 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
     }
 
     fn fill<EG: Numeric, G: GlobalView<EG>>(stage: &mut Self, gmem: &G) {
-        G::load_shared_memory::<E>(gmem, &mut stage.smem, stage.stage_info)
+        G::load_shared_memory::<E, O>(gmem, &mut stage.smem, stage.stage_info)
     }
 
     fn get_tile(stage: &Self, x: u32, y: u32) -> Tile<'_, E> {

@@ -11,13 +11,15 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 pub struct CmmaGlobalMatmul<
-    Elem: Numeric,
-    BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
-    Lhs: Loader<Elem>,
-    Rhs: Loader<Elem>,
-    Out: Unloader<Elem>,
+    EG: Numeric,
+    ES: Numeric,
+    BM: StageMatmul<ES, EG, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
+    Lhs: Loader<EG, ES>,
+    Rhs: Loader<EG, ES>,
+    Out: Unloader<EG>,
 > {
-    _elem: PhantomData<Elem>,
+    _eg: PhantomData<EG>,
+    _es: PhantomData<ES>,
     _block_matmul: PhantomData<BM>,
     _lhs: PhantomData<Lhs>,
     _rhs: PhantomData<Rhs>,
@@ -26,12 +28,13 @@ pub struct CmmaGlobalMatmul<
 
 #[cube]
 impl<
-        Elem: Numeric,
-        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
-        Lhs: Loader<Elem, GlobalView = TensorView<Elem>>,
-        Rhs: Loader<Elem, GlobalView = TensorView<Elem>>,
-        Out: Unloader<Elem, GlobalView = TensorView<Elem>>,
-    > GlobalMatmul<Elem, Lhs, Rhs, Out> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs, Out>
+        EG: Numeric,
+        ES: Numeric,
+        BM: StageMatmul<ES, EG, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
+        Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
+        Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
+        Out: Unloader<EG, GlobalView = TensorView<EG>>,
+    > GlobalMatmul<EG, ES, Lhs, Rhs, Out> for CmmaGlobalMatmul<EG, ES, BM, Lhs, Rhs, Out>
 {
     fn execute(mut lhs_loader: Lhs, mut rhs_loader: Rhs, out_unloader: Out, k_range: (u32, u32)) {
         let k_step = BM::K;
@@ -39,6 +42,8 @@ impl<
         let num_loops = (range + k_step - 1) / k_step;
 
         let mut acc = BM::acc_init_zeros();
+
+        // TODO cube mapper
         Lhs::init_view(&mut lhs_loader, CUBE_POS_X * BM::M, k_range.0);
         Rhs::init_view(&mut rhs_loader, CUBE_POS_Y * BM::N, k_range.0);
 
@@ -58,12 +63,13 @@ impl<
 }
 
 impl<
-        Elem: Numeric,
-        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
-        Lhs: Loader<Elem>,
-        Rhs: Loader<Elem>,
-        Out: Unloader<Elem>,
-    > Matmul<Elem, Elem> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs, Out>
+        EG: Numeric,
+        ES: Numeric,
+        BM: StageMatmul<ES, EG, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
+        Lhs: Loader<EG, ES>,
+        Rhs: Loader<EG, ES>,
+        Out: Unloader<EG>,
+    > Matmul<EG, EG> for CmmaGlobalMatmul<EG, ES, BM, Lhs, Rhs, Out>
 {
     fn can_process(problem: MatmulProblem) -> bool {
         problem.m <= BM::M && problem.n <= BM::N
@@ -79,12 +85,13 @@ impl<
 }
 
 impl<
-        Elem: Numeric,
-        BM: StageMatmul<Elem, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
-        Lhs: Loader<Elem, GlobalView = TensorView<Elem>>,
-        Rhs: Loader<Elem, GlobalView = TensorView<Elem>>,
-        Out: Unloader<Elem, GlobalView = TensorView<Elem>>,
-    > TensorMatmul<Elem> for CmmaGlobalMatmul<Elem, BM, Lhs, Rhs, Out>
+        EG: Numeric,
+        ES: Numeric,
+        BM: StageMatmul<ES, EG, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
+        Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
+        Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
+        Out: Unloader<EG, GlobalView = TensorView<EG>>,
+    > TensorMatmul<EG> for CmmaGlobalMatmul<EG, ES, BM, Lhs, Rhs, Out>
 {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -95,7 +102,7 @@ impl<
         out: TensorArg<'_, R>,
         layouts: (MatrixLayout, MatrixLayout),
     ) {
-        cube_matmul_launch::launch_unchecked::<Self, Elem, Lhs, Rhs, Out, R>(
+        cube_matmul_launch::launch_unchecked::<EG, ES, Self, Lhs, Rhs, Out, R>(
             &client,
             cube_count,
             cube_dim,

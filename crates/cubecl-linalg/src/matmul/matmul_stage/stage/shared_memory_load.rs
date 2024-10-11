@@ -74,14 +74,3 @@ impl SharedMemoryLoader for Gmem2SmemContinuous {
         }
     }
 }
-
-// #[cube]
-// pub(crate) fn tile_row_col<T: TilingOrder>(
-//     unit_position: u32,
-//     #[comptime] stage_info: StageInfo,
-// ) -> (u32, u32) {
-//     let row = tile_row * stage_info.tile_size_x + pos_within_tile / stage_info.tile_size_y;
-//     let col = tile_col * stage_info.tile_size_y + pos_within_tile % stage_info.tile_size_y;
-
-//     (row, col)
-// }

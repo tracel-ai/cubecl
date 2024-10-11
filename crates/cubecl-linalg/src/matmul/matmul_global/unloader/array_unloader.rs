@@ -8,27 +8,27 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct ArrayUnloader<E: Numeric> {
-    pub view: ArrayView<E>,
+pub struct ArrayUnloader<EG: Numeric> {
+    pub view: ArrayView<EG>,
     pub stage_info: StageInfo,
 }
 
 #[cube]
-impl<E: Numeric> Unloader<E> for ArrayUnloader<E> {
-    type GlobalView = ArrayView<E>;
-    type StageWriter = ArrayWriter<E>;
+impl<EG: Numeric> Unloader<EG> for ArrayUnloader<EG> {
+    type GlobalView = ArrayView<EG>;
+    type StageWriter = ArrayWriter<EG>;
 
-    fn new(array: Array<Line<E>>, stage_info: StageInfo) -> Self {
+    fn new(array: Array<Line<EG>>, stage_info: StageInfo) -> Self {
         let shape_from_stage = (
             stage_info.num_tiles_x * stage_info.tile_size_x,
             stage_info.num_tiles_y * stage_info.tile_size_y,
         );
         let view = new_array_view(array, MatrixLayout::RowMajor, shape_from_stage);
-        ArrayUnloader::<E> { view, stage_info }
+        ArrayUnloader::<EG> { view, stage_info }
     }
 
     fn unload(unloader: Self) -> Self::StageWriter {
-        ArrayWriter::<E> {
+        ArrayWriter::<EG> {
             array_view: unloader.view,
             stage_info: unloader.stage_info,
         }

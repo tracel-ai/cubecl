@@ -5,25 +5,25 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct ArrayWriter<E: Numeric> {
-    pub array_view: ArrayView<E>,
+pub struct ArrayWriter<EG: Numeric> {
+    pub array_view: ArrayView<EG>,
     pub stage_info: StageInfo,
 }
 
 #[cube]
-impl<E: Numeric> StageWriter<E> for ArrayWriter<E> {
-    fn write_with_cast<C: Numeric>(
-        tile_writer: &mut Self,
-        slice: &Slice<'_, C>,
+impl<EG: Numeric> StageWriter<EG> for ArrayWriter<EG> {
+    fn write_with_cast<ES: Numeric>(
+        stage_writer: &mut Self,
+        slice: &Slice<'_, ES>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
     ) {
         ArrayView::write_slice(
-            &mut tile_writer.array_view,
+            &mut stage_writer.array_view,
             slice,
-            compute_plane_offset * tile_writer.stage_info.tile_size_x,
-            accumulator_offset * tile_writer.stage_info.tile_size_y,
-            tile_writer.stage_info,
+            compute_plane_offset * stage_writer.stage_info.tile_size_x,
+            accumulator_offset * stage_writer.stage_info.tile_size_y,
+            stage_writer.stage_info,
         );
     }
 }
