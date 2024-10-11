@@ -15,7 +15,7 @@ macro_rules! testgen_cmma_internal {
         #[test]
         pub fn test_stage_matmul_s16x16x16_f32() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f16, f32, CmmaInstruction16_16_16<f16, f32>, S16x16x16>,
+                CmmaStageMatmul<f16, f32, f32, CmmaInstruction16_16_16<f16, f32>, S16x16x16>,
                 f16,
                 f32,
                 TestRuntime,
@@ -28,7 +28,7 @@ macro_rules! testgen_cmma_internal {
         #[test]
         pub fn test_stage_matmul_s16x16x16_f16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f16, f16, CmmaInstruction16_16_16<f16, f16>, S16x16x16>,
+                CmmaStageMatmul<f16, f16, f16, CmmaInstruction16_16_16<f16, f16>, S16x16x16>,
                 f16,
                 f16,
                 TestRuntime,
@@ -41,7 +41,7 @@ macro_rules! testgen_cmma_internal {
         #[test]
         pub fn test_stage_matmul_s32x8x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f16, f32, CmmaInstruction32_8_16<f16, f32>, S32x8x16>,
+                CmmaStageMatmul<f16, f32, f32, CmmaInstruction32_8_16<f16, f32>, S32x8x16>,
                 f16,
                 f32,
                 TestRuntime,
@@ -54,7 +54,7 @@ macro_rules! testgen_cmma_internal {
         #[test]
         pub fn test_stage_matmul_s8x32x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f16, f32, CmmaInstruction8_32_16<f16, f32>, S8x32x16>,
+                CmmaStageMatmul<f16, f32, f32, CmmaInstruction8_32_16<f16, f32>, S8x32x16>,
                 f16,
                 f32,
                 TestRuntime,

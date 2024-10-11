@@ -21,12 +21,41 @@ macro_rules! testgen_cmma_internal_mock {
         };
 
         #[test]
+        pub fn test_global_matmul_precisions() {
+            // PROBLEM:
+            // Obligated to accumulate in output type
+            type EG = i32;
+            type ES = i32;
+            type EA = f32;
+            type INSTR = DummyUnitInstruction16_16_16<ES, EA>;
+            type STAGE = CmmaStageMatmul<ES, EG, EA, INSTR, S16x16x16>;
+            type GLOBAL = CmmaGlobalMatmul<
+                EG,
+                ES,
+                STAGE,
+                LhsTensorLoader<EG, ES, SharedMemoryStage<ES, XMajorTiling>>,
+                RhsTensorLoader<EG, ES, SharedMemoryStage<ES, XMajorTiling>>,
+                TensorUnloader<EG>,
+            >;
+            test_tensor_matmul::<GLOBAL, EG, TestRuntime>(
+                MatmulProblem::new(16, 16, 16, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
         pub fn test_global_matmul_g16x16x16_s16x16x16() {
             test_tensor_matmul::<
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S16x16x16,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -45,7 +74,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S32x32x32,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, YMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, YMajorTiling>>,
                     TensorUnloader<f32>,
@@ -64,7 +99,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S16x16x16,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -83,7 +124,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S16x16x16,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -102,7 +149,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S16x16x16,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -121,7 +174,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x16x16>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S32x16x16,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -140,7 +199,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S32x32x32,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -159,7 +224,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x32x16>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S16x32x16,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -178,7 +249,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S32x32x32,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -197,7 +274,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x16>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S32x32x16,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -213,7 +296,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s16x32x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x32x16>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x32x16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -226,7 +309,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s16x16x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -239,7 +322,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s32x32x32_row_col() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
                 f32,
                 f32,
                 TestRuntime,
@@ -252,7 +335,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s32x32x32_col_row() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
                 f32,
                 f32,
                 TestRuntime,
@@ -265,7 +348,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s32x32x32_col_col() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
                 f32,
                 f32,
                 TestRuntime,
@@ -278,7 +361,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s32x16x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x16x16>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x16x16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -291,7 +374,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_i32x8x16_col_major() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32x16x16>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32x16x16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -307,7 +390,13 @@ macro_rules! testgen_cmma_internal_mock {
                 CmmaGlobalMatmul<
                     f32,
                     f32,
-                    CmmaStageMatmul<f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32x32x32>,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction32_8_16<f32, f32>,
+                        S32x32x32,
+                    >,
                     LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
@@ -323,7 +412,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s128x16x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S128x16x16>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S128x16x16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -336,7 +425,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s64x64x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S64x64x16>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S64x64x16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -349,7 +438,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s64x64x32() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S64x64x32>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S64x64x32>,
                 f32,
                 f32,
                 TestRuntime,
@@ -362,7 +451,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s32x32x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x16>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -375,7 +464,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s32x32x32() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
                 f32,
                 f32,
                 TestRuntime,
@@ -388,7 +477,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s32x8x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32x8x16>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32x8x16>,
                 f32,
                 f32,
                 TestRuntime,
@@ -401,7 +490,7 @@ macro_rules! testgen_cmma_internal_mock {
         #[test]
         pub fn test_stage_matmul_s8x32x16() {
             test_fixed_matmul::<
-                CmmaStageMatmul<f32, f32, DummyUnitInstruction8_32_16<f32, f32>, S8x32x16>,
+                CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction8_32_16<f32, f32>, S8x32x16>,
                 f32,
                 f32,
                 TestRuntime,

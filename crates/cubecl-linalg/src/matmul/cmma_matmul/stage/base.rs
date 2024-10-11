@@ -18,22 +18,25 @@ use crate::matmul::{FixedShapeMatmul, Matmul};
 pub struct CmmaStageMatmul<
     I: Numeric,
     O: Numeric,
-    INSTR: MatmulInstruction<I, O>,
+    Acc: Numeric,
+    INSTR: MatmulInstruction<I, Acc>,
     BlockSize: CmmaStageSize,
 > {
     _input_precision: PhantomData<I>,
-    _accumulator_precision: PhantomData<O>,
+    _output_precision: PhantomData<O>,
+    _accumulator_precision: PhantomData<Acc>,
     _instruction: PhantomData<INSTR>,
     _block_size: PhantomData<BlockSize>,
 }
 
 #[cube]
-impl<I, O, Instr, Block, Lhs, Rhs, Out> StageMatmul<I, O, Lhs, Rhs, Out>
-    for CmmaStageMatmul<I, O, Instr, Block>
+impl<I, O, Acc, Instr, Block, Lhs, Rhs, Out> StageMatmul<I, O, Lhs, Rhs, Out>
+    for CmmaStageMatmul<I, O, Acc, Instr, Block>
 where
     I: Numeric,
     O: Numeric,
-    Instr: MatmulInstruction<I, O>,
+    Acc: Numeric,
+    Instr: MatmulInstruction<I, Acc>,
     Block: CmmaStageSize,
     Lhs: StageReader<I>,
     Rhs: StageReader<I>,
@@ -118,11 +121,13 @@ where
     }
 }
 
-impl<I, O, Instr, BlockSize> FixedShapeMatmul<I, O> for CmmaStageMatmul<I, O, Instr, BlockSize>
+impl<I, O, Acc, Instr, BlockSize> FixedShapeMatmul<I, O>
+    for CmmaStageMatmul<I, O, Acc, Instr, BlockSize>
 where
     I: Numeric,
     O: Numeric,
-    Instr: MatmulInstruction<I, O>,
+    Acc: Numeric,
+    Instr: MatmulInstruction<I, Acc>,
     BlockSize: CmmaStageSize,
 {
     const M: u32 = BlockSize::M;
@@ -151,11 +156,12 @@ where
     }
 }
 
-impl<I, O, Instr, Block> Matmul<I, O> for CmmaStageMatmul<I, O, Instr, Block>
+impl<I, O, Acc, Instr, Block> Matmul<I, O> for CmmaStageMatmul<I, O, Acc, Instr, Block>
 where
     I: Numeric,
     O: Numeric,
-    Instr: MatmulInstruction<I, O>,
+    Acc: Numeric,
+    Instr: MatmulInstruction<I, Acc>,
     Block: CmmaStageSize,
 {
     fn can_process(problem: MatmulProblem) -> bool {
@@ -194,11 +200,12 @@ where
 }
 
 #[cube]
-impl<Elem, ElemAcc, Instr, Block> PlaneMapper for CmmaStageMatmul<Elem, ElemAcc, Instr, Block>
+impl<I, O, Acc, Instr, Block> PlaneMapper for CmmaStageMatmul<I, O, Acc, Instr, Block>
 where
-    Elem: Numeric,
-    ElemAcc: Numeric,
-    Instr: MatmulInstruction<Elem, ElemAcc>,
+    I: Numeric,
+    O: Numeric,
+    Acc: Numeric,
+    Instr: MatmulInstruction<I, Acc>,
     Block: CmmaStageSize,
 {
     fn plane_id() -> u32 {
