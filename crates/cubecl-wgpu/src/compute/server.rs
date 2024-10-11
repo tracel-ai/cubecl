@@ -52,7 +52,7 @@ mod poll {
             Self {
                 active_handle,
                 cancel_sender,
-                poll_thread
+                poll_thread,
             }
         }
 
