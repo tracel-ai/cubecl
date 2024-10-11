@@ -39,12 +39,12 @@ mod poll {
                 if std::sync::Arc::strong_count(&thread_check) > 2 {
                     device.poll(wgpu::MaintainBase::Poll);
                 } else {
-                    std::thread::park();
-
                     // Do not cancel thread while someone still needs to poll.
                     if cancel_receiver.try_recv().is_ok() {
                         break;
                     }
+
+                    std::thread::park();
                 }
                 std::thread::yield_now();
             });
@@ -55,20 +55,20 @@ mod poll {
                 poll_thread,
             }
         }
-
         /// Get a handle, as long as it's alive the polling will be active.
         pub fn start_polling(&self) -> std::sync::Arc<()> {
+            let handle = self.active_handle.clone();
             self.poll_thread.thread().unpark();
-            self.active_handle.clone()
+            handle
         }
     }
 
     impl Drop for WgpuPoll {
         fn drop(&mut self) {
-            self.poll_thread.thread().unpark();
             self.cancel_sender
                 .send(())
                 .expect("Failed to shutdown polling thread.");
+            self.poll_thread.thread().unpark();
         }
     }
 }
@@ -79,7 +79,7 @@ mod poll {
     #[derive(Debug)]
     pub struct WgpuPoll {}
     impl WgpuPoll {
-        pub fn new(device: alloc::sync::Arc<wgpu::Device>) -> Self {
+        pub fn new(_device: alloc::sync::Arc<wgpu::Device>) -> Self {
             Self {}
         }
         pub fn start_polling(&self) -> alloc::sync::Arc<()> {
