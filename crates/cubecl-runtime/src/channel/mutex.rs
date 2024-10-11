@@ -1,3 +1,5 @@
+use web_time::Duration;
+
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, CubeCount, Handle};
 use crate::storage::BindingResource;
@@ -66,12 +68,12 @@ where
         self.server.lock().flush();
     }
 
-    async fn sync(&self) {
+    async fn sync(&self) -> Duration {
         let fut = {
             let mut server = self.server.lock();
             server.sync()
         };
-        fut.await;
+        fut.await
     }
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {

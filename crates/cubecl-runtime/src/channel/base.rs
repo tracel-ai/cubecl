@@ -1,4 +1,5 @@
 use core::future::Future;
+use web_time::Duration;
 
 use crate::{
     server::{Binding, ComputeServer, CubeCount, Handle},
@@ -39,7 +40,9 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     fn flush(&self);
 
     /// Perform some synchronization of commands on the server.
-    fn sync(&self) -> impl Future<Output = ()> + Send;
+    ///
+    /// Returns the (approximate) total amount of GPU work done since the last sync.
+    fn sync(&self) -> impl Future<Output = Duration> + Send;
 
     /// Get the current memory usage of the server.
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage;

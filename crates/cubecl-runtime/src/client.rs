@@ -7,6 +7,7 @@ use crate::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use web_time::Duration;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
@@ -99,8 +100,8 @@ where
     }
 
     /// Wait for the completion of every task in the server.
-    pub async fn sync(&self) {
-        self.channel.sync().await;
+    pub async fn sync(&self) -> Duration {
+        self.channel.sync().await
     }
 
     /// Get the features supported by the compute server.

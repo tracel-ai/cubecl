@@ -5,6 +5,7 @@ use cubecl::benchmark::Benchmark;
 use cubecl::frontend::Float;
 use cubecl_linalg::matmul;
 use cubecl_linalg::tensor::TensorHandle;
+use futures_lite::future;
 
 impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     type Args = (TensorHandle<R, E>, TensorHandle<R, E>);
@@ -41,7 +42,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     }
 
     fn sync(&self) {
-        futures_lite::future::block_on(self.client.sync());
+        future::block_on(self.client.sync());
     }
 }
 

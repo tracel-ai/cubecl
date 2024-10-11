@@ -1,3 +1,4 @@
+use std::time::Duration;
 use std::{future::Future, num::NonZero};
 
 use super::WgpuStorage;
@@ -17,8 +18,9 @@ use hashbrown::HashMap;
 use wgpu::{
     hal::{self, vulkan},
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
-    CommandEncoder, ComputePass, ComputePipeline, Device, PipelineLayout, PipelineLayoutDescriptor,
-    ShaderModuleDescriptorSpirV, ShaderStages,
+    CommandEncoder, ComputePass, ComputePipeline, PipelineLayout, PipelineLayoutDescriptor,
+    QuerySet, QuerySetDescriptor, QueryType, ShaderModuleDescriptorSpirV, ShaderStages,
+    QUERY_SET_MAX_QUERIES,
 };
 
 /// Wgpu compute server.
@@ -35,6 +37,9 @@ pub struct WgpuSpirvServer {
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     tasks_max: usize,
     logger: DebugLogger,
+
+    query_set: QuerySet,
+    query_index: u32,
 }
 
 fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
@@ -63,6 +68,12 @@ impl WgpuSpirvServer {
             logger: DebugLogger::new(),
             storage_locked: MemoryLock::default(),
             poll: WgpuPoll::new(device.clone()),
+            query_set: device.create_query_set(&QuerySetDescriptor {
+                label: Some("burn queries"),
+                ty: QueryType::Timestamp,
+                count: QUERY_SET_MAX_QUERIES,
+            }),
+            query_index: 0,
         }
     }
 
@@ -157,6 +168,52 @@ impl WgpuSpirvServer {
 
     fn clear_compute_pass(&mut self) {
         self.current_pass = None;
+    }
+
+    fn read_wgpu_buffer(
+        &mut self,
+        buffer: &wgpu::Buffer,
+        offset: u64,
+        size: u64,
+    ) -> impl Future<Output = Vec<u8>> + 'static {
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        self.encoder
+            .copy_buffer_to_buffer(buffer, offset, &staging_buffer, 0, size);
+
+        // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
+        self.flush();
+
+        let (sender, receiver) = async_channel::bounded(1);
+        staging_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |v| {
+                sender
+                    .try_send(v)
+                    .expect("Unable to send buffer slice result to async channel.");
+            });
+        let poll = self.poll.start_polling();
+        async move {
+            receiver
+                .recv()
+                .await
+                .expect("Unable to receive buffer slice result.")
+                .expect("Failed to map buffer");
+            // Can stop polling now.
+            drop(poll);
+
+            let result = {
+                let data = staging_buffer.slice(..).get_mapped_range();
+                bytemuck::cast_slice(&data).to_vec()
+            };
+            staging_buffer.unmap();
+            result
+        }
     }
 }
 
@@ -334,12 +391,22 @@ impl ComputeServer for WgpuSpirvServer {
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
         let pass = self.current_pass.get_or_insert_with(|| {
-            self.encoder
+            let pass = self
+                .encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: None,
-                    timestamp_writes: None,
+                    timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+                        query_set: &self.query_set,
+                        beginning_of_pass_write_index: Some(self.query_index),
+                        end_of_pass_write_index: Some(self.query_index + 1),
+                    }),
                 })
-                .forget_lifetime()
+                .forget_lifetime();
+            self.query_index += 2;
+            if self.query_index >= 512 {
+                self.query_index = 2;
+            }
+            pass
         });
 
         pass.set_pipeline(&pipeline);
@@ -397,25 +464,44 @@ impl ComputeServer for WgpuSpirvServer {
         self.memory_management.storage().perform_deallocations();
     }
 
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
-        self.flush();
-        let (sender, receiver) = async_channel::bounded(1);
-        self.queue.on_submitted_work_done(move || {
-            sender
-                .try_send(())
-                .expect("Unable to send buffer slice result to async channel.");
-        });
+    /// Returns the total time of GPU work this sync completes.
+    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
+        self.clear_compute_pass();
 
-        let poll = self.poll.start_polling();
+        let fut = if self.query_index == 0 {
+            None
+        } else {
+            let size = self.query_index as u64 * size_of::<u64>() as u64;
+            let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size,
+                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
+                mapped_at_creation: false,
+            });
+            self.encoder
+                .resolve_query_set(&self.query_set, 0..self.query_index, &resolved, 0);
+
+            Some(self.read_wgpu_buffer(&resolved, 0, size))
+        };
+
+        let index = self.query_index;
+        self.query_index = 0;
+
+        let period = self.queue.get_timestamp_period() as f64 * 1e-9;
 
         async move {
-            receiver
-                .recv()
-                .await
-                .expect("Unable to receive buffer slice result.");
-
-            // Drop poll handle. Important to capture it.
-            drop(poll);
+            if let Some(fut) = fut {
+                let data = fut.await;
+                let data = data
+                    .chunks_exact(8)
+                    .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                    .collect::<Vec<_>>();
+                let data = &data[0..index as usize];
+                let delta = data.iter().max().unwrap() - data.iter().min().unwrap();
+                Duration::from_secs_f64(delta as f64 * period)
+            } else {
+                Duration::from_secs_f64(0.0)
+            }
         }
     }
 

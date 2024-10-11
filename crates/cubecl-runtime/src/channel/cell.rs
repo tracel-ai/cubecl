@@ -1,3 +1,5 @@
+use web_time::Duration;
+
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, CubeCount, Handle};
 use crate::storage::BindingResource;
@@ -79,7 +81,7 @@ where
         self.server.borrow_mut().flush()
     }
 
-    async fn sync(&self) {
+    async fn sync(&self) -> Duration {
         let future = {
             let mut server = self.server.borrow_mut();
             server.sync()

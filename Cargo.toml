@@ -34,6 +34,7 @@ rand = { version = "0.8.5", default-features = false, features = [
 ] } # std_rng is for no_std
 
 async-channel = "2.3"
+wasm-bindgen-futures = "0.4.45"
 dirs = "5.0.1"
 md5 = "0.7.0"
 futures-lite = "2.3.0"

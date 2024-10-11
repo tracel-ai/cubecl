@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::DummyServer;
 use cubecl_runtime::channel::MutexComputeChannel;
 use cubecl_runtime::client::ComputeClient;
@@ -22,7 +24,7 @@ pub static TEST_TUNER: LocalTuner<String, String> = LocalTuner::new(TUNER_PREFIX
 
 pub fn autotune_execute(
     client: &ComputeClient<DummyServer, MutexComputeChannel<DummyServer>>,
-    set: Box<dyn AutotuneOperationSet<String>>,
+    set: Arc<dyn AutotuneOperationSet<String>>,
 ) {
     TEST_TUNER.execute(&TUNER_DEVICE_ID.to_string(), client, set)
 }
@@ -38,7 +40,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         mem_properties.clone(),
         MemoryConfiguration::default(),
     );
-    let server = DummyServer::new(memory_management);
+    let server = DummyServer::new(memory_management, None);
     let channel = MutexComputeChannel::new(server);
     ComputeClient::new(channel, DeviceProperties::new(&[], mem_properties))
 }

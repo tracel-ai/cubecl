@@ -1,5 +1,6 @@
 use core::{fmt::Display, hash::Hash};
 use hashbrown::HashMap;
+use std::sync::Arc;
 
 use crate::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
@@ -28,7 +29,7 @@ macro_rules! local_tuner {
 
 pub use local_tuner;
 
-impl<AK: AutotuneKey, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK, ID> {
+impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK, ID> {
     /// Create a new local tuner.
     pub const fn new(name: &'static str) -> Self {
         Self {
@@ -44,15 +45,15 @@ impl<AK: AutotuneKey, ID: Hash + PartialEq + Eq + Clone + Display> LocalTuner<AK
     }
 
     /// Execute the best operation in the provided [autotune operation set](AutotuneOperationSet)
-    pub fn execute<S, C, Out>(
+    pub fn execute<S, C, Out: Send + 'static>(
         &self,
         id: &ID,
         client: &ComputeClient<S, C>,
-        autotune_operation_set: Box<dyn AutotuneOperationSet<AK, Out>>,
+        autotune_operation_set: Arc<dyn AutotuneOperationSet<AK, Out>>,
     ) -> Out
     where
-        S: ComputeServer,
-        C: ComputeChannel<S>,
+        S: ComputeServer + 'static,
+        C: ComputeChannel<S> + 'static,
     {
         // We avoid locking in write mode when possible.
         // (this makes us potentially check the cache twice, but allows to avoid

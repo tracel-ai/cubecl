@@ -1,5 +1,7 @@
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Instant;
+use web_time::Duration;
 
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::server::CubeCount;
@@ -19,6 +21,7 @@ use super::DummyKernel;
 #[derive(new, Debug)]
 pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
+    computation_start: Option<Instant>,
 }
 
 impl ComputeServer for DummyServer {
@@ -59,6 +62,10 @@ impl ComputeServer for DummyServer {
         bindings: Vec<Binding>,
         _mode: ExecutionMode,
     ) {
+        if self.computation_start.is_none() {
+            self.computation_start = Some(Instant::now());
+        }
+
         let bind_resources = bindings
             .into_iter()
             .map(|binding| self.get_resource(binding))
@@ -74,9 +81,14 @@ impl ComputeServer for DummyServer {
     }
 
     #[allow(clippy::manual_async_fn)]
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
         // Nothing to do with dummy backend.
-        async {}
+        let duration = self
+            .computation_start
+            .map(|f| f.elapsed())
+            .unwrap_or(Duration::from_secs_f32(0.0));
+        self.computation_start = None;
+        async move { duration }
     }
 
     fn memory_usage(&self) -> MemoryUsage {

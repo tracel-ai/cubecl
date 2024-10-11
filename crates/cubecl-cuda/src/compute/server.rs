@@ -21,6 +21,7 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub struct CudaServer {
@@ -34,6 +35,7 @@ pub(crate) struct CudaContext {
     stream: cudarc::driver::sys::CUstream,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
+    work_start_time: Option<Instant>,
     pub(crate) arch: u32,
 }
 
@@ -167,11 +169,15 @@ impl ComputeServer for CudaServer {
             })
             .collect::<Vec<_>>();
 
+        if ctx.work_start_time.is_none() {
+            ctx.work_start_time = Some(Instant::now());
+        }
+
         if let Some(level) = profile_level {
-            ctx.sync();
+            self.sync();
             let start = std::time::SystemTime::now();
             ctx.execute_task(kernel_id, count, resources);
-            ctx.sync();
+            let duration = self.sync();
 
             let (name, kernel_id) = profile_info.unwrap();
             let info = match level {
@@ -187,8 +193,7 @@ impl ComputeServer for CudaServer {
                 }
             };
 
-            self.logger
-                .register_profiled(info, start.elapsed().unwrap());
+            self.logger.register_profiled(info, duration);
         } else {
             ctx.execute_task(kernel_id, count, resources);
         }
@@ -196,10 +201,15 @@ impl ComputeServer for CudaServer {
 
     fn flush(&mut self) {}
 
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
         let ctx = self.get_context();
         ctx.sync();
-        async {}
+        let duration = ctx
+            .work_start_time
+            .map(|t| t.elapsed())
+            .unwrap_or(Duration::from_secs_f32(0.0));
+        ctx.work_start_time = None;
+        async move { duration }
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
@@ -232,6 +242,7 @@ impl CudaContext {
             module_names: HashMap::new(),
             stream,
             arch,
+            work_start_time: None,
         }
     }
 

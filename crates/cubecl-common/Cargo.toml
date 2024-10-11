@@ -19,7 +19,6 @@ std = ["rand/std"]
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
-web-time = { version = "1.1.0" }
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
@@ -28,6 +27,7 @@ rand = { workspace = true }
 serde = { workspace = true }
 spin = { workspace = true }         # using in place of use std::sync::Mutex;
 futures-lite = { workspace = true }
+web-time = { version = "1.1.0" }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }

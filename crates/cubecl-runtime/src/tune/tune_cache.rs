@@ -6,6 +6,8 @@ mod std_imports {
     pub use std::path::Path;
     pub use std::path::PathBuf;
 }
+use std::sync::Arc;
+
 #[cfg(autotune_persistent_cache)]
 use std_imports::*;
 
@@ -36,6 +38,12 @@ pub(crate) struct InMemoryCacheEntry {
     fastest_index: usize,
 }
 
+#[derive(Debug)]
+enum CacheEntry {
+    Pending,
+    Cached(InMemoryCacheEntry),
+}
+
 /// Persistent cache entry
 #[cfg(autotune_persistent_cache)]
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,7 +55,7 @@ pub(crate) struct PersistentCacheEntry {
 /// Use to find and reuse the best kernel for some input
 #[derive(Debug)]
 pub(crate) struct TuneCache<K> {
-    in_memory_cache: HashMap<K, InMemoryCacheEntry>,
+    in_memory_cache: HashMap<K, CacheEntry>,
     #[cfg(autotune_persistent_cache)]
     persistent_cache: HashMap<K, PersistentCacheEntry>,
     #[cfg(autotune_persistent_cache)]
@@ -57,11 +65,13 @@ pub(crate) struct TuneCache<K> {
 }
 
 /// Result of the cache try
-pub enum TuneCacheResult<K, Out = ()> {
+pub enum TuneCacheResult<Out = ()> {
     /// An operation is found and given
     Hit(Box<dyn AutotuneOperation<Out>>),
-    /// No operation is found and the set is given back for ownership
-    Miss(Box<dyn AutotuneOperationSet<K, Out>>),
+    /// We're waiting for cache results to come in.
+    Pending,
+    /// No operation is found yet.
+    Miss,
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
@@ -96,6 +106,9 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     pub(crate) fn find_fastest(&self, key: &K) -> Option<usize> {
         let val = self.in_memory_cache.get(key)?;
+        let CacheEntry::Cached(val) = val else {
+            return None;
+        };
 
         #[cfg(autotune_persistent_cache)]
         if val.checksum_checked {
@@ -110,52 +123,56 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     pub(crate) fn try_cache<Out>(
         &mut self,
-        autotune_operation_set: Box<dyn AutotuneOperationSet<K, Out>>,
-    ) -> TuneCacheResult<K, Out> {
+        autotune_operation_set: Arc<dyn AutotuneOperationSet<K, Out>>,
+    ) -> TuneCacheResult<Out> {
         let key = autotune_operation_set.key();
         let result = self.in_memory_cache.get_mut(&key);
 
+        let InMemoryCacheEntry {
+            #[cfg(autotune_persistent_cache)]
+            checksum_checked,
+            fastest_index,
+        } = match result {
+            Some(CacheEntry::Cached(val)) => val,
+            Some(CacheEntry::Pending) => return TuneCacheResult::Pending,
+            None => return TuneCacheResult::Miss,
+        };
+
         #[cfg(autotune_persistent_cache)]
         {
-            if let Some(InMemoryCacheEntry {
-                checksum_checked,
-                fastest_index,
-            }) = result
-            {
-                if !*checksum_checked {
-                    let checksum = autotune_operation_set.compute_checksum();
-                    let persistent_entry = self
-                        .persistent_cache
-                        .get(&key)
-                        .expect("Both caches should be in sync");
-                    if checksum != persistent_entry.checksum {
-                        return TuneCacheResult::Miss(autotune_operation_set);
-                    }
-                    *checksum_checked = true;
+            if !*checksum_checked {
+                let checksum = autotune_operation_set.compute_checksum();
+                let persistent_entry = self
+                    .persistent_cache
+                    .get(&key)
+                    .expect("Both caches should be in sync");
+                if checksum != persistent_entry.checksum {
+                    return TuneCacheResult::Miss;
                 }
-                return TuneCacheResult::Hit(autotune_operation_set.fastest(*fastest_index));
+                *checksum_checked = true;
             }
+            TuneCacheResult::Hit(autotune_operation_set.fastest(*fastest_index))
         }
 
         #[cfg(not(autotune_persistent_cache))]
         {
-            if let Some(InMemoryCacheEntry { fastest_index, .. }) = result {
-                return TuneCacheResult::Hit(autotune_operation_set.fastest(*fastest_index));
-            }
+            TuneCacheResult::Hit(autotune_operation_set.fastest(*fastest_index))
         }
-
-        TuneCacheResult::Miss(autotune_operation_set)
     }
 
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {
         self.in_memory_cache.insert(
             key,
-            InMemoryCacheEntry {
+            CacheEntry::Cached(InMemoryCacheEntry {
                 #[cfg(autotune_persistent_cache)]
                 checksum_checked: true,
                 fastest_index,
-            },
+            }),
         );
+    }
+
+    pub(crate) fn mark_pending(&mut self, key: K) {
+        self.in_memory_cache.insert(key, CacheEntry::Pending);
     }
 }
 
@@ -202,10 +219,10 @@ impl<K: AutotuneKey> TuneCache<K> {
         for (key, entry) in self.persistent_cache.iter() {
             self.in_memory_cache.insert(
                 key.clone(),
-                InMemoryCacheEntry {
+                CacheEntry::Cached(InMemoryCacheEntry {
                     checksum_checked: false,
                     fastest_index: entry.fastest_index,
-                },
+                }),
             );
         }
         Ok(())

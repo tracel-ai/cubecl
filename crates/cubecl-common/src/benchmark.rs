@@ -2,9 +2,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::{fmt::Display, future::Future};
+use core::fmt::Display;
 use web_time::Duration;
-use web_time::Instant;
 
 use serde::{Deserialize, Serialize};
 
@@ -136,38 +135,32 @@ pub trait Benchmark {
         vec![]
     }
     /// Wait for computed to be over
-    fn sync(&self) -> impl Future<Output = ()>;
-    /// Run the benchmark a number of times.
-    fn run_async(&self) -> impl Future<Output = BenchmarkDurations> {
-        async move {
-            // Warmup
-            let args = self.prepare();
-
-            self.execute(args.clone());
-            self.sync().await;
-
-            let mut durations = Vec::with_capacity(self.num_samples());
-
-            for _ in 0..self.num_samples() {
-                self.sync().await;
-                let start = Instant::now();
-                self.execute(args.clone());
-                self.sync().await;
-                let end = Instant::now();
-                // Register the duration
-                durations.push(end - start);
-            }
-
-            BenchmarkDurations { durations }
-        }
-    }
-
+    fn sync(&self);
     /// Run the benchmark a number of times.
     fn run(&self) -> BenchmarkDurations {
         #[cfg(not(feature = "std"))]
         panic!("Attempting to run benchmark in a no-std environment");
         #[cfg(feature = "std")]
-        futures_lite::future::block_on(self.run_async())
+        {
+            // Warmup
+            let args = self.prepare();
+
+            self.execute(args.clone());
+            self.sync();
+
+            let mut durations = Vec::with_capacity(self.num_samples());
+
+            for _ in 0..self.num_samples() {
+                self.sync();
+                let start = std::time::Instant::now();
+                self.execute(args.clone());
+                self.sync();
+                // Register the duration
+                durations.push(start.elapsed());
+            }
+
+            BenchmarkDurations { durations }
+        }
     }
 }
 

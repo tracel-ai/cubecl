@@ -7,7 +7,7 @@ use crate::{
     ExecutionMode,
 };
 use alloc::vec::Vec;
-use core::{fmt::Debug, future::Future};
+use core::{fmt::Debug, future::Future, time::Duration};
 
 /// The compute server is responsible for handling resources and computations over resources.
 ///
@@ -56,7 +56,9 @@ where
     fn flush(&mut self);
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self) -> impl Future<Output = ()> + Send + 'static;
+    ///
+    /// Returns the (approximate) total amount of GPU work done since the last sync.
+    fn sync(&mut self) -> impl Future<Output = Duration> + Send + 'static;
 
     /// The current memory usage of the server.
     fn memory_usage(&self) -> MemoryUsage;

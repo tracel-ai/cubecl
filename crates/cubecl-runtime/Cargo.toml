@@ -32,6 +32,7 @@ derive-new = { workspace = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
 
+web-time = { workspace = true }
 async-channel = { workspace = true, optional = true }
 futures-lite = { workspace = true, optional = true }
 
@@ -54,7 +55,7 @@ spin = { workspace = true, features = [
 
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-web-time = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

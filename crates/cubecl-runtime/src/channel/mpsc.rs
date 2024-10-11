@@ -1,3 +1,4 @@
+use core::time::Duration;
 use std::{sync::Arc, thread};
 
 use super::ComputeChannel;
@@ -39,7 +40,7 @@ where
     Empty(usize, Callback<Handle>),
     ExecuteKernel((Server::Kernel, CubeCount, ExecutionMode), Vec<Binding>),
     Flush,
-    Sync(Callback<()>),
+    Sync(Callback<Duration>),
     GetMemoryUsage(Callback<MemoryUsage>),
 }
 
@@ -77,8 +78,8 @@ where
                             server.execute(kernel.0, kernel.1, bindings, kernel.2);
                         },
                         Message::Sync(callback) => {
-                            server.sync().await;
-                            callback.send(()).await.unwrap();
+                            let duration = server.sync().await;
+                            callback.send(duration).await.unwrap();
                         }
                         Message::Flush => {
                             server.flush();
@@ -165,7 +166,7 @@ where
         self.state.sender.send_blocking(Message::Flush).unwrap()
     }
 
-    async fn sync(&self) {
+    async fn sync(&self) -> Duration {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
