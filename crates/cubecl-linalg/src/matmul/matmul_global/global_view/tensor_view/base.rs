@@ -14,6 +14,8 @@ pub struct TensorView<E: Numeric> {
     pub layout: MatrixLayout,
     pub x_offset: u32,
     pub y_offset: u32,
+    pub stride_x: u32,
+    pub stride_y: u32,
 }
 
 #[cube]
@@ -34,10 +36,6 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
     ) -> Line<E> {
         let tensor = &view.tensor;
 
-        // TODO stride computations should be done only once in the new
-        let stride_x = tensor.stride(tensor.rank() - 2);
-        let stride_y = tensor.stride(tensor.rank() - 1);
-
         let absolute_tile_x = tile_x * tile_size_x + view.x_offset;
         let absolute_tile_y = tile_y * tile_size_y + view.y_offset;
 
@@ -46,8 +44,8 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
             MatrixLayout::ColMajor => (load_id % tile_size_x, load_id / tile_size_x),
         };
 
-        let read_pos = ((absolute_tile_x + load_x) * stride_x
-            + (absolute_tile_y + load_y) * stride_y)
+        let read_pos = ((absolute_tile_x + load_x) * view.stride_x
+            + (absolute_tile_y + load_y) * view.stride_y)
             / tensor.line_size();
 
         tensor[read_pos]
@@ -79,10 +77,8 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         let write_row = write_row + view.x_offset;
         let write_col = write_col + view.y_offset;
 
-        // TODO stride computations should be done once in the new
-        let write_position = (write_row * tensor.stride(tensor.rank() - 2)
-            + write_col * tensor.stride(tensor.rank() - 1))
-            / tensor.line_size();
+        let write_position =
+            (write_row * view.stride_x + write_col * view.stride_y) / tensor.line_size();
         tensor[write_position] = Line::cast_from(value);
     }
 
@@ -99,10 +95,14 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
 
 #[cube]
 pub fn new_tensor_view<E: Numeric>(tensor: Tensor<Line<E>>, layout: MatrixLayout) -> TensorView<E> {
+    let stride_x = tensor.stride(tensor.rank() - 2);
+    let stride_y = tensor.stride(tensor.rank() - 1);
     TensorView::<E> {
         tensor,
         layout,
         x_offset: 0,
         y_offset: 0,
+        stride_x,
+        stride_y,
     }
 }
