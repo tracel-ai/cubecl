@@ -22,8 +22,6 @@ macro_rules! testgen_cmma_internal_mock {
 
         #[test]
         pub fn test_global_matmul_precisions() {
-            // PROBLEM:
-            // Obligated to accumulate in output type
             type EG = i32;
             type ES = i32;
             type EA = f32;
@@ -38,6 +36,7 @@ macro_rules! testgen_cmma_internal_mock {
                 TensorUnloader<EG>,
             >;
             test_tensor_matmul::<GLOBAL, EG, TestRuntime>(
+                // Can't accumulate more, it will fail because of i32
                 MatmulProblem::new(16, 16, 16, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
