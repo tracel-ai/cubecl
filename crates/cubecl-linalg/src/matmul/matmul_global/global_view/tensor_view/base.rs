@@ -72,7 +72,13 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
 
     /// Assumes (write_row, write_col) is within bounds
     /// Does not account for batch offset
-    fn write_single<C: CubePrimitive>(view: &mut Self, write_row: u32, write_col: u32, value: C) {
+    /// Assumes out is row major
+    fn write_coalesced<C: CubePrimitive>(
+        view: &mut Self,
+        write_row: u32,
+        write_col: u32,
+        value: C,
+    ) {
         let tensor = &mut view.tensor;
         let write_row = write_row + view.x_offset;
         let write_col = write_col + view.y_offset;

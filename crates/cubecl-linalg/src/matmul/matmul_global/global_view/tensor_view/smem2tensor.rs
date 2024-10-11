@@ -57,7 +57,7 @@ impl Smem2Tensor for Smem2TensorSimple {
             let col = col_tile_begin + unit_write % stage_info.tile_size_y;
 
             let value = tile_slice[unit_write];
-            TensorView::write_single::<C>(out, row, col, value);
+            TensorView::write_coalesced::<C>(out, row, col, value);
         }
     }
 }

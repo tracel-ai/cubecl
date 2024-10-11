@@ -62,7 +62,7 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         // ArrayView does not support offsets
     }
 
-    fn write_single<C: CubePrimitive>(view: &mut Self, write_x: u32, write_y: u32, value: C) {
+    fn write_coalesced<C: CubePrimitive>(view: &mut Self, write_x: u32, write_y: u32, value: C) {
         let array = &mut view.array;
 
         let write_pos = (write_x * view.stride_x + write_y * view.stride_y) / array.line_size();

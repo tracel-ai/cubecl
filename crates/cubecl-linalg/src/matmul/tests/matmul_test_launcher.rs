@@ -118,6 +118,10 @@ where
     let cube_dim = CubeDim::new(32, requirements.num_planes, 1);
     let cube_count = CubeCount::Static(requirements.num_cubes, 1, 1);
 
+    // TODO 4
+    let input_line = 1;
+    let output_line = 4;
+
     unsafe {
         MM::launch_unchecked(
             &client,
@@ -127,19 +131,19 @@ where
                 &lhs,
                 &lhs_strides,
                 &[problem.m as usize, problem.k as usize],
-                1,
+                input_line,
             ),
             TensorArg::<R>::from_raw_parts(
                 &rhs,
                 &rhs_strides,
                 &[problem.k as usize, problem.n as usize],
-                1,
+                input_line,
             ),
             TensorArg::<R>::from_raw_parts(
                 &out,
                 &[problem.n as usize, 1],
                 &[problem.m as usize, problem.n as usize],
-                1,
+                output_line,
             ),
             (problem.lhs_layout, problem.rhs_layout),
         );

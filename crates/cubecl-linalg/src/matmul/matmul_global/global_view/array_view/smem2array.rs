@@ -21,7 +21,7 @@ pub(crate) fn smem_slice_to_gmem<E: Numeric, C: CubePrimitive>(
             let write_col = col_tile_begin + elem_y;
 
             let value = smem_slice[smem_offset];
-            ArrayView::write_single::<C>(out, write_row, write_col, value);
+            ArrayView::write_coalesced::<C>(out, write_row, write_col, value);
         }
     }
 }
