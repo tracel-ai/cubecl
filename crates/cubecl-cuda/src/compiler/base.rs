@@ -2,14 +2,15 @@ use std::{collections::HashSet, num::NonZero};
 
 use cubecl_core::{
     cpa,
-    ir::{
-        self as gpu, ConstantScalarValue, Elem, Item, Metadata, ReusingAllocator, Scope, Variable,
-    },
+    ir::{self as gpu, ConstantScalarValue, Elem, Item, ReusingAllocator, Scope, Variable},
     Compiler,
 };
 use cubecl_runtime::ExecutionMode;
 
 use super::{Instruction, VariableSettings, WarpInstruction};
+
+pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
 
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug, Default)]
@@ -42,7 +43,9 @@ impl Compiler for CudaCompiler {
             strategy,
             ..Self::default()
         };
-        compiler.compile_shader(kernel)
+        let ir = compiler.compile_ir(kernel);
+        COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
+        ir
     }
 
     fn elem_size(elem: gpu::Elem) -> usize {
@@ -59,7 +62,7 @@ impl Compiler for CudaCompiler {
 }
 
 impl CudaCompiler {
-    fn compile_shader(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel {
+    fn compile_ir(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel {
         self.num_inputs = value.inputs.len();
         self.num_outputs = value.outputs.len();
 
@@ -366,22 +369,13 @@ impl CudaCompiler {
             }),
             gpu::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && has_length(&op.lhs) {
-                    let lhs = op.lhs;
-                    let rhs = op.rhs;
-                    let array_len = scope.create_local(gpu::Item::new(gpu::Elem::UInt));
-
-                    instructions.extend(self.compile_scope(scope));
-
-                    instructions.push(self.compile_metadata(Metadata::Length {
-                        var: lhs,
-                        out: array_len,
-                    }));
-                    instructions.push(Instruction::CheckedIndex {
-                        len: self.compile_variable(array_len),
-                        lhs: self.compile_variable(lhs),
-                        rhs: self.compile_variable(rhs),
-                        out: self.compile_variable(op.out),
-                    });
+                    CheckedIndex {
+                        lhs: op.lhs,
+                        rhs: op.rhs,
+                        out: op.out,
+                    }
+                    .expand(scope);
+                    instructions.extend(self.compile_scope(scope))
                 } else {
                     instructions.push(Instruction::Index(self.compile_binary(op)));
                 }
@@ -791,6 +785,7 @@ impl CudaCompiler {
         }
     }
 }
+
 #[allow(missing_docs)]
 struct CheckedIndexAssign {
     pub lhs: Variable,
@@ -813,6 +808,32 @@ impl CheckedIndexAssign {
         cpa!(scope, if(inside_bound).then(|scope| {
             cpa!(scope, unchecked(out[lhs]) = rhs);
         }));
+    }
+}
+
+#[allow(missing_docs)]
+struct CheckedIndex {
+    pub lhs: Variable,
+    pub rhs: Variable,
+    pub out: Variable,
+}
+
+impl CheckedIndex {
+    #[allow(missing_docs)]
+    fn expand(self, scope: &mut Scope) {
+        let lhs = self.lhs;
+        let rhs = self.rhs;
+        let out = self.out;
+
+        let array_len = scope.create_local(Item::new(Elem::UInt));
+        let inside_bound = scope.create_local(Item::new(Elem::Bool));
+        let read = scope.create_local(lhs.item());
+        let zero: Variable = 0u32.into();
+
+        cpa!(scope, array_len = len(lhs));
+        cpa!(scope, inside_bound = rhs < array_len);
+        cpa!(scope, read = unchecked(lhs[rhs]));
+        cpa!(scope, out = select(inside_bound, read, zero));
     }
 }
 
