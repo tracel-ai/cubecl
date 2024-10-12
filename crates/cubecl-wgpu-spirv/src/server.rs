@@ -12,6 +12,7 @@ use cubecl_runtime::{
     ExecutionMode,
 };
 use cubecl_spirv::SpirvCompiler;
+use cubecl_wgpu::WgpuPoll;
 use hashbrown::HashMap;
 use wgpu::{
     hal::{self, vulkan},
@@ -29,6 +30,7 @@ pub struct WgpuSpirvServer {
     encoder: CommandEncoder,
     current_pass: Option<ComputePass<'static>>,
     tasks_count: usize,
+    poll: WgpuPoll,
     storage_locked: MemoryLock,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     tasks_max: usize,
@@ -60,6 +62,7 @@ impl WgpuSpirvServer {
             tasks_max,
             logger: DebugLogger::new(),
             storage_locked: MemoryLock::default(),
+            poll: WgpuPoll::new(device.clone()),
         }
     }
 
@@ -167,7 +170,7 @@ impl ComputeServer for WgpuSpirvServer {
         let resource = br.resource();
 
         let size = resource.size();
-        let read_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
@@ -179,42 +182,36 @@ impl ComputeServer for WgpuSpirvServer {
         self.encoder.copy_buffer_to_buffer(
             &resource.buffer,
             resource.offset(),
-            &read_buffer,
+            &staging_buffer,
             0,
             size,
         );
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
         self.sync(SyncType::Flush);
-
         let (sender, receiver) = async_channel::bounded(1);
-        let slice = read_buffer.slice(..);
-        slice.map_async(wgpu::MapMode::Read, move |v| {
-            sender
-                .try_send(v)
-                .expect("Unable to send buffer slice result to async channel.");
-        });
-
-        let device = self.device.clone();
-
+        staging_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |v| {
+                sender
+                    .try_send(v)
+                    .expect("Unable to send buffer slice result to async channel.");
+            });
+        let poll = self.poll.start_polling();
         Box::pin(async move {
-            // Now wait for the GPU to finish.
-            device.poll(wgpu::Maintain::Wait);
-
-            let slice = read_buffer.slice(..);
-
             receiver
                 .recv()
                 .await
                 .expect("Unable to receive buffer slice result.")
                 .expect("Failed to map buffer");
+            // Can stop polling now.
+            drop(poll);
 
-            let data = slice.get_mapped_range();
-            let result = bytemuck::cast_slice(&data).to_vec();
-
-            drop(data);
-            read_buffer.unmap();
-
+            let result = {
+                let data = staging_buffer.slice(..).get_mapped_range();
+                bytemuck::cast_slice(&data).to_vec()
+            };
+            staging_buffer.unmap();
             result
         })
     }
