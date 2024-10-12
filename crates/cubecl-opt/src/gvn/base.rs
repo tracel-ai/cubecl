@@ -1,48 +1,32 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{Elem, FloatKind, IntKind};
+use cubecl_core::ir::{ConstantScalarValue, Elem, FloatKind, IntKind};
 use float_ord::FloatOrd;
-use petgraph::{
-    algo::dominators::{self, Dominators},
-    graph::NodeIndex,
-};
 use smallvec::SmallVec;
 
-use crate::{AtomicCounter, BasicBlock, Optimizer, PhiInstruction};
+use crate::PhiInstruction;
 
-type PhiTranslateMap = HashMap<(u32, BasicBlock), u32>;
-
+#[derive(Debug)]
 pub struct ValueTable {
-    value_numbers: HashMap<Value, u32>,
-    expression_numbers: HashMap<Expression, u32>,
-    phi_numbers: HashMap<u32, PhiInstruction>,
+    pub(crate) value_numbers: HashMap<Value, u32>,
+    pub(crate) expression_numbers: HashMap<Expression, u32>,
+    pub(crate) phi_numbers: HashMap<u32, PhiInstruction>,
 
-    expr_id: AtomicCounter,
-    value_id: AtomicCounter,
+    pub(crate) next_expr_num: u32,
+    pub(crate) next_value_num: u32,
 
-    expressions: HashMap<u32, Expression>,
-    phi_translate_table: PhiTranslateMap,
-
-    dominator_tree: Dominators<NodeIndex>,
-    post_dom_tree: Dominators<NodeIndex>,
+    pub(crate) expressions: HashMap<u32, Expression>,
 }
 
-impl ValueTable {
-    pub fn new(opt: &Optimizer) -> Self {
-        let dominator_tree = dominators::simple_fast(&opt.program.graph, opt.entry());
-        let mut rev_graph = opt.program.graph.clone();
-        rev_graph.reverse();
-        let post_dom_tree = dominators::simple_fast(&rev_graph, opt.ret);
+impl Default for ValueTable {
+    fn default() -> Self {
         Self {
             value_numbers: Default::default(),
             expression_numbers: Default::default(),
             phi_numbers: Default::default(),
-            expr_id: AtomicCounter::new(0),
-            value_id: AtomicCounter::new(1),
+            next_expr_num: 0,
+            next_value_num: 1,
             expressions: Default::default(),
-            phi_translate_table: Default::default(),
-            dominator_tree,
-            post_dom_tree,
         }
     }
 }
@@ -56,6 +40,19 @@ pub enum Constant {
     Float(FloatOrd<f64>, FloatKind),
     UInt(u64),
     Bool(bool),
+}
+
+impl From<ConstantScalarValue> for Constant {
+    fn from(value: ConstantScalarValue) -> Self {
+        match value {
+            ConstantScalarValue::Int(val, int_kind) => Constant::Int(val, int_kind),
+            ConstantScalarValue::Float(val, float_kind) => {
+                Constant::Float(FloatOrd(val), float_kind)
+            }
+            ConstantScalarValue::UInt(val) => Constant::UInt(val),
+            ConstantScalarValue::Bool(val) => Constant::Bool(val),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
@@ -72,10 +69,52 @@ pub enum Value {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
-pub struct Expression {
+pub enum Expression {
+    Instruction(Instruction),
+    Copy(u32),
+    Value(Value),
+    Volatile(Value),
+}
+
+impl Expression {
+    pub fn depends_on(&self) -> SmallVec<[u32; 4]> {
+        match self {
+            Expression::Instruction(instruction) => instruction.args.clone(),
+            Expression::Copy(val) => SmallVec::from_slice(&[*val]),
+            Expression::Volatile(_) | Expression::Value(_) => SmallVec::new(),
+        }
+    }
+}
+
+impl From<Instruction> for Expression {
+    fn from(value: Instruction) -> Self {
+        Expression::Instruction(value)
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+pub struct Instruction {
     op: OpId,
     commutative: bool,
     args: SmallVec<[u32; 4]>,
+}
+
+impl Instruction {
+    pub fn new(op: OpId, args: &[u32]) -> Self {
+        Self {
+            op,
+            commutative: false,
+            args: SmallVec::from_slice(args),
+        }
+    }
+
+    pub fn commutative(op: OpId, args: &[u32]) -> Self {
+        Self {
+            op,
+            commutative: true,
+            args: SmallVec::from_slice(args),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
@@ -124,12 +163,11 @@ pub enum OpId {
     Magnitude,
     Normalize,
     Dot,
-
+    Select,
+    Bitcast,
     Length,
     Shape,
     Stride,
-
-    Assign,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]

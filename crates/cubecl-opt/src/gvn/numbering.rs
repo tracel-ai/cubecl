@@ -1,212 +1,122 @@
 use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::{HashSet, LinkedList},
     mem::swap,
-    rc::Rc,
 };
 
 use cubecl_core::ir::{
-    ConstantScalarValue, Elem, FloatKind, IntKind, Metadata, Operation, Operator, Variable,
+    Branch, ConstantScalarValue, Metadata, Operation, Operator, Subcube, Variable,
 };
-use float_ord::FloatOrd;
 
-use crate::AtomicCounter;
+use super::{Builtin, Expression, Instruction, Local, OpId, Value, ValueTable};
 
-use super::{Builtin, Constant, Local, OpId};
-
-impl From<ConstantScalarValue> for Constant {
-    fn from(value: ConstantScalarValue) -> Self {
-        match value {
-            ConstantScalarValue::Int(val, int_kind) => Constant::Int(val, int_kind),
-            ConstantScalarValue::Float(val, float_kind) => {
-                Constant::Float(FloatOrd(val), float_kind)
-            }
-            ConstantScalarValue::UInt(val) => Constant::UInt(val),
-            ConstantScalarValue::Bool(val) => Constant::Bool(val),
+impl ValueTable {
+    pub fn maybe_insert_op(
+        &mut self,
+        op: &Operation,
+        exp_gen: &mut LinkedList<(u32, Expression)>,
+        added_exps: &mut HashSet<u32>,
+    ) -> Result<(u32, Option<Value>, Expression), Option<Value>> {
+        let expr = self.create_expr(op);
+        if let Err(Some(val)) = expr {
+            let num = self.lookup_or_add_value(val);
+            exp_gen.push_back((num, Expression::Volatile(val)));
         }
-    }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
-pub enum Expr {
-    Constant(Constant),
-    Variable(Local),
-    Input(u16),
-    Scalar(u16, Elem),
-    ConstArray(u16),
-    Operator { op: OpId, operands: Vec<usize> },
-    Builtin(Builtin),
-    // Metadata only
-    Output(u16),
-    Slice(u16, u8),
-    BlackBox(usize),
-}
-
-#[derive(Default, Clone, Debug)]
-pub struct GlobalNumberTable {
-    pub(crate) classes: HashMap<Expr, usize>,
-    pub(crate) leaders: HashMap<usize, Variable>,
-    pub(crate) global_classes: Rc<RefCell<HashMap<Expr, usize>>>,
-    class_id: AtomicCounter,
-}
-
-impl PartialEq for GlobalNumberTable {
-    fn eq(&self, other: &Self) -> bool {
-        self.classes == other.classes && self.leaders == other.leaders
-    }
-}
-
-pub struct Instruction {
-    pub out: Local,
-    pub rhs: Expr,
-    pub class: usize,
-}
-
-impl Instruction {
-    pub fn new(out: Local, rhs: Expr, class: usize) -> Self {
-        Self { out, rhs, class }
-    }
-}
-
-impl GlobalNumberTable {
-    pub fn new(class_id: AtomicCounter, globals: Rc<RefCell<HashMap<Expr, usize>>>) -> Self {
-        Self {
-            class_id,
-            global_classes: globals,
-            ..Default::default()
+        let (expr, val) = expr?;
+        let num = self.lookup_or_add_expr(expr.clone(), val);
+        if !added_exps.contains(&num) {
+            exp_gen.push_back((num, expr.clone()));
+            added_exps.insert(num);
         }
+        Ok((num, val, expr))
     }
 
-    pub(crate) fn intersection(self, other: GlobalNumberTable) -> GlobalNumberTable {
-        let this = self.classes.values().copied().collect::<HashSet<_>>();
-        let avail_other = other.classes.values().copied().collect::<HashSet<_>>();
-        let intersect = this.intersection(&avail_other).collect::<HashSet<_>>();
-        let mut classes = self
-            .classes
-            .into_iter()
-            .chain(other.classes)
-            .filter(|(_, v)| intersect.contains(v))
-            .collect::<HashMap<_, _>>();
-        classes.extend(self.global_classes.borrow().clone());
-        let leaders = self
-            .leaders
-            .into_iter()
-            .chain(other.leaders)
-            .filter(|(k, _)| intersect.contains(k))
-            .collect::<HashMap<_, _>>();
-        Self {
-            classes,
-            leaders,
-            class_id: self.class_id,
-            global_classes: self.global_classes,
-        }
-    }
-
-    fn class_of(&mut self, value: Expr, out: Expr) -> usize {
-        if let Some(existing) = self.classes.get(&value).copied() {
-            self.classes.insert(out, existing);
-            existing
+    pub fn value_of_expr(&mut self, expr: Expression) -> (u32, bool) {
+        if let Some(existing) = self.expression_numbers.get(&expr) {
+            (*existing, false)
         } else {
-            let class = self.class_id.inc();
-
-            self.classes.insert(value, class);
-            self.classes.insert(out, class);
-
-            class
+            let num = self.next_value_num;
+            self.expression_numbers.insert(expr.clone(), num);
+            self.expressions.insert(self.next_expr_num, expr);
+            self.next_value_num += 1;
+            self.next_expr_num += 1;
+            (num, true)
         }
     }
 
-    fn insert_var(&mut self, value: Expr, class: usize) {
-        self.classes.insert(value, class);
+    pub fn lookup_or_add_expr(&mut self, expr: Expression, value: Option<Value>) -> u32 {
+        let num = self.value_of_expr(expr).0;
+        if let Some(value) = value {
+            self.value_numbers.insert(value, num);
+            self.next_value_num += 1;
+        }
+        num
     }
 
-    fn global_var(&mut self, value: Expr) -> usize {
-        let existing = { self.global_classes.borrow().get(&value).copied() };
-        if let Some(existing) = existing {
-            self.classes.insert(value, existing);
-            existing
+    pub fn lookup_or_add_value(&mut self, value: Value) -> u32 {
+        if let Some(existing) = self.value_numbers.get(&value) {
+            *existing
         } else {
-            let class = self.class_id.inc();
-            self.global_classes
-                .borrow_mut()
-                .insert(value.clone(), class);
-            self.classes.insert(value, class);
-            class
+            let num = self.next_value_num;
+            self.value_numbers.insert(value, num);
+            self.next_value_num += 1;
+            num
         }
     }
 
-    pub(crate) fn class_of_var(&mut self, var: &Variable) -> Option<usize> {
-        let val = match var {
-            // May be mutable, not safe to number
-            Variable::GlobalOutputArray { .. }
-            | Variable::Matrix { .. }
-            | Variable::Local { .. }
-            | Variable::SharedMemory { .. }
-            | Variable::LocalArray { .. }
-            | Variable::Slice { .. } => None?,
-            Variable::GlobalInputArray { id, .. } => self.global_var(Expr::Input(*id)),
-            Variable::GlobalScalar { id, elem } => self.global_var(Expr::Scalar(*id, *elem)),
-            Variable::ConstantArray { id, .. } => self.global_var(Expr::ConstArray(*id)),
-            Variable::Versioned {
-                id, depth, version, ..
-            } => *self
-                .classes
-                .get(&Expr::Variable(Local(*id, *depth, *version)))?,
-            Variable::LocalBinding { id, depth, .. } => {
-                *self.classes.get(&Expr::Variable(Local(*id, *depth, 0)))?
-            }
-            Variable::ConstantScalar(val) => self.global_var(Expr::Constant((*val).into())),
-            Variable::Rank => self.global_var(Expr::Builtin(Builtin::Rank)),
-            Variable::UnitPos => self.global_var(Expr::Builtin(Builtin::UnitPos)),
-            Variable::UnitPosX => self.global_var(Expr::Builtin(Builtin::UnitPosX)),
-            Variable::UnitPosY => self.global_var(Expr::Builtin(Builtin::UnitPosY)),
-            Variable::UnitPosZ => self.global_var(Expr::Builtin(Builtin::UnitPosZ)),
-            Variable::CubePos => self.global_var(Expr::Builtin(Builtin::CubePos)),
-            Variable::CubePosX => self.global_var(Expr::Builtin(Builtin::CubePosX)),
-            Variable::CubePosY => self.global_var(Expr::Builtin(Builtin::CubePosY)),
-            Variable::CubePosZ => self.global_var(Expr::Builtin(Builtin::CubePosZ)),
-            Variable::CubeDim => self.global_var(Expr::Builtin(Builtin::CubeDim)),
-            Variable::CubeDimX => self.global_var(Expr::Builtin(Builtin::CubeDimX)),
-            Variable::CubeDimY => self.global_var(Expr::Builtin(Builtin::CubeDimY)),
-            Variable::CubeDimZ => self.global_var(Expr::Builtin(Builtin::CubeDimZ)),
-            Variable::CubeCount => self.global_var(Expr::Builtin(Builtin::CubeCount)),
-            Variable::CubeCountX => self.global_var(Expr::Builtin(Builtin::CubeCountX)),
-            Variable::CubeCountY => self.global_var(Expr::Builtin(Builtin::CubeCountY)),
-            Variable::CubeCountZ => self.global_var(Expr::Builtin(Builtin::CubeCountZ)),
-            Variable::SubcubeDim => self.global_var(Expr::Builtin(Builtin::SubcubeDim)),
-            Variable::AbsolutePos => self.global_var(Expr::Builtin(Builtin::AbsolutePos)),
-            Variable::AbsolutePosX => self.global_var(Expr::Builtin(Builtin::AbsolutePosX)),
-            Variable::AbsolutePosY => self.global_var(Expr::Builtin(Builtin::AbsolutePosY)),
-            Variable::AbsolutePosZ => self.global_var(Expr::Builtin(Builtin::AbsolutePosZ)),
-        };
-        Some(val)
+    pub fn lookup_or_add_var(&mut self, value: &Variable) -> Result<u32, Option<Value>> {
+        let value = value_of_var(value).ok_or(None)?;
+        if let Some(existing) = self.value_numbers.get(&value) {
+            Ok(*existing)
+        } else {
+            let num = self.next_value_num;
+            self.value_numbers.insert(value, num);
+            self.next_value_num += 1;
+            Ok(num)
+        }
     }
 
-    fn black_box(&mut self, out: Local) -> (Expr, usize) {
-        let class = self.class_id.inc();
-        self.classes.insert(Expr::BlackBox(class), class);
-        self.classes.insert(Expr::Variable(out), class);
-        (Expr::BlackBox(class), class)
-    }
-
-    pub(crate) fn instruction_of_operator(&mut self, operator: &Operator) -> Option<Instruction> {
-        let val = match operator {
-            Operator::Assign(op) => {
-                let input = self.class_of_var(&op.input);
-                let out = as_var(&op.out);
-                let (rhs, class) = if let Some(input) = input {
-                    self.classes.insert(Expr::Variable(out), input);
-                    let expr = Expr::Operator {
-                        op: OpId::Assign,
-                        operands: vec![input],
-                    };
-                    (expr, input)
-                } else {
-                    let class = self.class_id.inc();
-                    self.classes.insert(Expr::BlackBox(class), class);
-                    self.black_box(out)
+    fn create_expr(
+        &mut self,
+        op: &Operation,
+    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        match op {
+            Operation::Operator(operator) => self.create_expr_op(operator),
+            Operation::Metadata(metadata) => self.create_expr_meta(metadata),
+            Operation::Subcube(op) => {
+                let val = match op {
+                    Subcube::Elect(op) => value_of_var(&op.out),
+                    Subcube::Broadcast(op) => value_of_var(&op.out),
+                    Subcube::All(op)
+                    | Subcube::Any(op)
+                    | Subcube::Sum(op)
+                    | Subcube::Prod(op)
+                    | Subcube::Min(op)
+                    | Subcube::Max(op) => value_of_var(&op.out),
                 };
-                Instruction::new(out, rhs, class)
+                Err(val)
+            }
+            Operation::Branch(Branch::Select(op)) => {
+                let cond = self.lookup_or_add_var(&op.cond)?;
+                let then = self.lookup_or_add_var(&op.then)?;
+                let or_else = self.lookup_or_add_var(&op.or_else)?;
+                let expr = Instruction::new(OpId::Select, &[cond, then, or_else]);
+                Ok((expr.into(), value_of_var(&op.out)))
+            }
+            Operation::Branch(_) | Operation::Synchronization(_) | Operation::CoopMma(_) => {
+                Err(None)
+            }
+        }
+    }
+
+    fn create_expr_op(
+        &mut self,
+        operator: &Operator,
+    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        let (expr, val) = match operator {
+            Operator::Assign(op) => {
+                let out = value_of_var(&op.out);
+                let num = self.lookup_or_add_var(&op.input)?;
+                (Expression::Copy(num), out)
             }
 
             // Commutative binop
@@ -222,20 +132,15 @@ impl GlobalNumberTable {
             | Operator::Max(op)
             | Operator::Min(op)
             | Operator::Dot(op) => {
-                let lhs = self.class_of_var(&op.lhs);
-                let rhs = self.class_of_var(&op.rhs);
-                let out = as_var(&op.out);
-                let op = id_of_op(operator);
-                if let Some(((lhs, rhs), op)) = lhs.zip(rhs).zip(op) {
-                    let mut operands = vec![lhs, rhs];
-                    operands.sort();
-                    let rhs = Expr::Operator { op, operands };
-                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
-                    Instruction::new(out, rhs, class)
-                } else {
-                    let (rhs, class) = self.black_box(out);
-                    Instruction::new(out, rhs, class)
+                let mut lhs = self.lookup_or_add_var(&op.lhs)?;
+                let mut rhs = self.lookup_or_add_var(&op.rhs)?;
+                let out = value_of_var(&op.out);
+                let id = id_of_op(operator);
+                if lhs > rhs {
+                    swap(&mut lhs, &mut rhs);
                 }
+                let expr = Instruction::commutative(id, &[lhs, rhs]);
+                (expr.into(), out)
             }
 
             // Non-commutative binops
@@ -248,19 +153,12 @@ impl GlobalNumberTable {
             | Operator::UncheckedIndex(op)
             | Operator::ShiftLeft(op)
             | Operator::ShiftRight(op) => {
-                let lhs = self.class_of_var(&op.lhs);
-                let rhs = self.class_of_var(&op.rhs);
-                let out = as_var(&op.out);
-                let op = id_of_op(operator);
-                if let Some(((lhs, rhs), op)) = lhs.zip(rhs).zip(op) {
-                    let operands = vec![lhs, rhs];
-                    let rhs = Expr::Operator { op, operands };
-                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
-                    Instruction::new(out, rhs, class)
-                } else {
-                    let (rhs, class) = self.black_box(out);
-                    Instruction::new(out, rhs, class)
-                }
+                let lhs = self.lookup_or_add_var(&op.lhs)?;
+                let rhs = self.lookup_or_add_var(&op.rhs)?;
+                let out = value_of_var(&op.out);
+                let id = id_of_op(operator);
+                let expr = Instruction::new(id, &[lhs, rhs]);
+                (expr.into(), out)
             }
 
             // Compare ops
@@ -268,25 +166,16 @@ impl GlobalNumberTable {
             | Operator::Greater(op)
             | Operator::LowerEqual(op)
             | Operator::GreaterEqual(op) => {
-                let lhs = self.class_of_var(&op.lhs);
-                let rhs = self.class_of_var(&op.rhs);
-                let out = as_var(&op.out);
-                let op = id_of_op(operator);
-                if let Some(((mut lhs, mut rhs), mut op)) = lhs.zip(rhs).zip(op) {
-                    if lhs > rhs {
-                        swap(&mut lhs, &mut rhs);
-                        op = cmp_inverse(&op);
-                    }
-                    let rhs = Expr::Operator {
-                        op,
-                        operands: vec![lhs, rhs],
-                    };
-                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
-                    Instruction::new(out, rhs, class)
-                } else {
-                    let (rhs, class) = self.black_box(out);
-                    Instruction::new(out, rhs, class)
+                let mut lhs = self.lookup_or_add_var(&op.lhs)?;
+                let mut rhs = self.lookup_or_add_var(&op.rhs)?;
+                let out = value_of_var(&op.out);
+                let mut op = id_of_op(operator);
+                if lhs > rhs {
+                    swap(&mut lhs, &mut rhs);
+                    op = cmp_inverse(&op);
                 }
+                let expr = Instruction::new(op, &[lhs, rhs]);
+                (expr.into(), out)
             }
 
             // Unary ops
@@ -305,70 +194,44 @@ impl GlobalNumberTable {
             | Operator::Recip(op)
             | Operator::Not(op)
             | Operator::Neg(op)
+            | Operator::Bitcast(op)
             | Operator::Magnitude(op)
             | Operator::Normalize(op) => {
-                let input = self.class_of_var(&op.input);
-                let out = as_var(&op.out);
+                let input = self.lookup_or_add_var(&op.input)?;
+                let out = value_of_var(&op.out);
                 let op = id_of_op(operator);
-                if let Some((input, op)) = input.zip(op) {
-                    let operands = vec![input];
-                    let rhs = Expr::Operator { op, operands };
-                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
-                    Instruction::new(out, rhs, class)
-                } else {
-                    let (rhs, class) = self.black_box(out);
-                    Instruction::new(out, rhs, class)
-                }
+                let expr = Instruction::new(op, &[input]);
+                (expr.into(), out)
             }
 
             Operator::Fma(op) => {
-                let a = self.class_of_var(&op.a);
-                let b = self.class_of_var(&op.b);
-                let c = self.class_of_var(&op.c);
-                let out = as_var(&op.out);
+                let mut a = self.lookup_or_add_var(&op.a)?;
+                let mut b = self.lookup_or_add_var(&op.b)?;
+                let c = self.lookup_or_add_var(&op.c)?;
+                let out = value_of_var(&op.out);
                 let op = id_of_op(operator);
-                if let Some(((a, b), (c, op))) = a.zip(b).zip(c.zip(op)) {
-                    let operands = vec![a, b, c];
-                    let rhs = Expr::Operator { op, operands };
-                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
-                    let operands = vec![b, a, c];
-                    let value_2 = Expr::Operator { op, operands };
-                    self.classes.insert(value_2, class);
-                    Instruction::new(out, rhs, class)
-                } else {
-                    let (rhs, class) = self.black_box(out);
-                    Instruction::new(out, rhs, class)
+                if a > b {
+                    swap(&mut a, &mut b);
                 }
+                let expr = Instruction::new(op, &[a, b, c]);
+                (expr.into(), out)
             }
             Operator::Clamp(op) => {
-                let val = self.class_of_var(&op.input);
-                let min = self.class_of_var(&op.min_value);
-                let max = self.class_of_var(&op.max_value);
-                let out = as_var(&op.out);
+                let val = self.lookup_or_add_var(&op.input)?;
+                let min = self.lookup_or_add_var(&op.min_value)?;
+                let max = self.lookup_or_add_var(&op.max_value)?;
+                let out = value_of_var(&op.out);
                 let op = id_of_op(operator);
-                if let Some(((val, min), (max, op))) = val.zip(min).zip(max.zip(op)) {
-                    let operands = vec![val, min, max];
-                    let rhs = Expr::Operator { op, operands };
-                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
-                    Instruction::new(out, rhs, class)
-                } else {
-                    let (rhs, class) = self.black_box(out);
-                    Instruction::new(out, rhs, class)
-                }
+                let expr = Instruction::new(op, &[val, min, max]);
+                (expr.into(), out)
             }
             Operator::InitLine(op) => {
-                let operands = op.inputs.iter().map(|it| self.class_of_var(it));
-                let operands = operands.collect::<Option<_>>();
-                let out = as_var(&op.out);
+                let operands = op.inputs.iter().map(|it| self.lookup_or_add_var(it));
+                let operands = operands.collect::<Result<Vec<_>, _>>()?;
+                let out = value_of_var(&op.out);
                 let op = id_of_op(operator);
-                if let Some((operands, op)) = operands.zip(op) {
-                    let rhs = Expr::Operator { op, operands };
-                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
-                    Instruction::new(out, rhs, class)
-                } else {
-                    let (rhs, class) = self.black_box(out);
-                    Instruction::new(out, rhs, class)
-                }
+                let expr = Instruction::new(op, &operands);
+                (expr.into(), out)
             }
 
             Operator::AtomicSwap(op)
@@ -378,94 +241,102 @@ impl GlobalNumberTable {
             | Operator::AtomicMin(op)
             | Operator::AtomicAnd(op)
             | Operator::AtomicOr(op)
-            | Operator::AtomicXor(op) => {
-                let out = as_var(&op.out);
-                let (rhs, class) = self.black_box(out);
-                Instruction::new(out, rhs, class)
-            }
-
-            _ => None?,
+            | Operator::AtomicXor(op) => Err(value_of_var(&op.out))?,
+            Operator::AtomicLoad(op) => Err(value_of_var(&op.out))?,
+            Operator::AtomicCompareAndSwap(op) => Err(value_of_var(&op.out))?,
+            Operator::AtomicStore(_) => Err(None)?,
+            Operator::IndexAssign(_)
+            | Operator::UncheckedIndexAssign(_)
+            | Operator::Slice(_)
+            | Operator::CopyBulk(_)
+            | Operator::Copy(_) => Err(None)?,
         };
-        Some(val)
+        Ok((expr, val))
     }
 
-    fn class_of_metadata(&mut self, metadata: &Metadata) -> Instruction {
-        let op = id_of_meta(metadata);
-        match metadata {
+    fn create_expr_meta(
+        &mut self,
+        meta: &Metadata,
+    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        let op = id_of_meta(meta);
+        let (expr, val) = match meta {
             Metadata::Stride { dim, var, out } | Metadata::Shape { dim, var, out } => {
-                let val = match var {
-                    Variable::GlobalInputArray { id, .. } => Expr::Input(*id),
-                    Variable::GlobalOutputArray { id, .. } => Expr::Output(*id),
-                    _ => unreachable!("Stride/shape only exist for tensors"),
-                };
-                let var = self.global_var(val);
-                let dim = self.class_of_var(dim);
-                let out = as_var(out);
-                if let Some(dim) = dim {
-                    let operands = vec![var, dim];
-                    let rhs = Expr::Operator { op, operands };
-                    let class = self.class_of(rhs.clone(), Expr::Variable(out));
-                    Instruction::new(out, rhs, class)
-                } else {
-                    let (rhs, class) = self.black_box(out);
-                    Instruction::new(out, rhs, class)
-                }
+                let var = self.lookup_or_add_var(var)?;
+                let dim = self.lookup_or_add_var(dim)?;
+                let out = value_of_var(out);
+                let expr = Instruction::new(op, &[var, dim]);
+                (expr, out)
             }
             Metadata::Length { var, out } => {
-                let out = as_var(out);
+                let out = value_of_var(out);
                 let var = match var {
-                    Variable::GlobalInputArray { id, .. } => self.global_var(Expr::Input(*id)),
-                    Variable::GlobalOutputArray { id, .. } => self.global_var(Expr::Output(*id)),
-                    Variable::GlobalScalar { id, elem } => {
-                        self.global_var(Expr::Scalar(*id, *elem))
-                    }
-                    Variable::Slice { id, depth, .. } => *self
-                        .classes
-                        .entry(Expr::Slice(*id, *depth))
-                        .or_insert_with(|| self.class_id.inc()),
+                    Variable::GlobalInputArray { .. }
+                    | Variable::GlobalOutputArray { .. }
+                    | Variable::Slice { .. }
+                    | Variable::GlobalScalar { .. } => self.lookup_or_add_var(var)?,
                     Variable::ConstantArray { length, .. }
                     | Variable::SharedMemory { length, .. }
                     | Variable::LocalArray { length, .. } => {
-                        let constant = Expr::Constant(Constant::UInt(*length as u64));
-                        let class = self.global_var(constant);
-                        self.classes.insert(Expr::Variable(out), class);
-                        let rhs = Expr::Operator {
-                            op: OpId::Assign,
-                            operands: vec![class],
-                        };
-                        return Instruction::new(out, rhs, class);
+                        let constant =
+                            Variable::ConstantScalar(ConstantScalarValue::UInt(*length as u64));
+                        let num = self.lookup_or_add_var(&constant)?;
+                        let expr = Expression::Copy(num);
+                        return Ok((expr, out));
                     }
                     _ => unreachable!("Length only available on array"),
                 };
-                let operands = vec![var];
-                let rhs = Expr::Operator { op, operands };
-                let class = self.class_of(rhs.clone(), Expr::Variable(out));
-                Instruction { out, rhs, class }
+                let expr = Instruction::new(op, &[var]);
+                (expr, out)
             }
-        }
-    }
-
-    pub(crate) fn class_of_operation(&mut self, operation: &Operation) -> Option<Instruction> {
-        match operation {
-            Operation::Operator(operator) => self.instruction_of_operator(operator),
-            Operation::Metadata(metadata) => Some(self.class_of_metadata(metadata)),
-            _ => None,
-        }
+        };
+        Ok((expr.into(), val))
     }
 }
 
-pub fn as_var(var: &Variable) -> Local {
-    match var {
+pub fn value_of_var(var: &Variable) -> Option<Value> {
+    let val = match var {
+        Variable::GlobalInputArray { id, .. } => Value::Input(*id),
+        Variable::GlobalScalar { id, elem } => Value::Scalar(*id, *elem),
+        Variable::GlobalOutputArray { id, .. } => Value::Output(*id),
         Variable::Versioned {
             id, depth, version, ..
-        } => Local(*id, *depth, *version),
-        Variable::LocalBinding { id, depth, .. } => Local(*id, *depth, 0),
-        _ => unreachable!(),
-    }
+        } => Value::Local(Local(*id, *depth, *version)),
+        Variable::LocalBinding { id, depth, .. } => Value::Local(Local(*id, *depth, 0)),
+        Variable::ConstantScalar(val) => Value::Constant((*val).into()),
+        Variable::ConstantArray { id, .. } => Value::ConstArray(*id),
+        Variable::Local { .. }
+        | Variable::SharedMemory { .. }
+        | Variable::LocalArray { .. }
+        | Variable::Matrix { .. } => None?,
+        Variable::Slice { id, depth, .. } => Value::Slice(*id, *depth),
+        Variable::Rank => Value::Builtin(Builtin::Rank),
+        Variable::UnitPos => Value::Builtin(Builtin::UnitPos),
+        Variable::UnitPosX => Value::Builtin(Builtin::UnitPosX),
+        Variable::UnitPosY => Value::Builtin(Builtin::UnitPosY),
+        Variable::UnitPosZ => Value::Builtin(Builtin::UnitPosZ),
+        Variable::CubePos => Value::Builtin(Builtin::CubePos),
+        Variable::CubePosX => Value::Builtin(Builtin::CubePosX),
+        Variable::CubePosY => Value::Builtin(Builtin::CubePosY),
+        Variable::CubePosZ => Value::Builtin(Builtin::CubePosZ),
+        Variable::CubeDim => Value::Builtin(Builtin::CubeDim),
+        Variable::CubeDimX => Value::Builtin(Builtin::CubeDimX),
+        Variable::CubeDimY => Value::Builtin(Builtin::CubeDimY),
+        Variable::CubeDimZ => Value::Builtin(Builtin::CubeDimZ),
+        Variable::CubeCount => Value::Builtin(Builtin::CubeCount),
+        Variable::CubeCountX => Value::Builtin(Builtin::CubeCountX),
+        Variable::CubeCountY => Value::Builtin(Builtin::CubeCountY),
+        Variable::CubeCountZ => Value::Builtin(Builtin::CubeCountZ),
+        Variable::SubcubeDim => Value::Builtin(Builtin::SubcubeDim),
+        Variable::AbsolutePos => Value::Builtin(Builtin::AbsolutePos),
+        Variable::AbsolutePosX => Value::Builtin(Builtin::AbsolutePosX),
+        Variable::AbsolutePosY => Value::Builtin(Builtin::AbsolutePosY),
+        Variable::AbsolutePosZ => Value::Builtin(Builtin::AbsolutePosZ),
+    };
+    Some(val)
 }
 
-fn id_of_op(op: &Operator) -> Option<OpId> {
-    let val = match op {
+fn id_of_op(op: &Operator) -> OpId {
+    match op {
         Operator::Add(_) => OpId::Add,
         Operator::Fma(_) => OpId::Fma,
         Operator::Sub(_) => OpId::Sub,
@@ -511,9 +382,9 @@ fn id_of_op(op: &Operator) -> Option<OpId> {
         Operator::Magnitude(_) => OpId::Magnitude,
         Operator::Normalize(_) => OpId::Normalize,
         Operator::Dot(_) => OpId::Dot,
-        _ => None?,
-    };
-    Some(val)
+        Operator::Bitcast(_) => OpId::Bitcast,
+        _ => unreachable!(),
+    }
 }
 
 fn id_of_meta(meta: &Metadata) -> OpId {

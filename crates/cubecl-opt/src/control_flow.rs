@@ -5,6 +5,7 @@ use cubecl_core::ir::{
     BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Item, Loop, Operator, RangeLoop,
     Switch, UnaryOperator, Variable,
 };
+use petgraph::visit::EdgeRef;
 
 /// Control flow that terminates a block
 #[derive(Default, Debug, Clone)]
@@ -324,5 +325,77 @@ impl Optimizer {
             })
             .into(),
         );
+    }
+
+    pub(crate) fn split_critical_edges(&mut self) {
+        for block in self.node_ids() {
+            let successors = self.program.edges(block);
+            let successors = successors.map(|edge| (edge.id(), edge.target()));
+            let successors: Vec<_> = successors.collect();
+
+            if successors.len() > 1 {
+                let crit = successors
+                    .iter()
+                    .filter(|(_, b)| self.predecessors(*b).len() > 1)
+                    .collect::<Vec<_>>();
+                for (edge, successor) in crit {
+                    self.program.remove_edge(*edge);
+                    let new_block = self.program.add_node(BasicBlock::default());
+                    self.program.add_edge(block, new_block, ());
+                    self.program.add_edge(new_block, *successor, ());
+                    update_phi(self, *successor, block, new_block);
+                    update_control_flow(self, block, *successor, new_block);
+                }
+            }
+        }
+    }
+}
+
+fn update_control_flow(opt: &mut Optimizer, block: NodeIndex, from: NodeIndex, to: NodeIndex) {
+    let update = |id: &mut NodeIndex| {
+        if *id == from {
+            *id = to
+        }
+    };
+
+    match &mut *opt.program[block].control_flow.borrow_mut() {
+        ControlFlow::IfElse {
+            then,
+            or_else,
+            merge,
+            ..
+        } => {
+            update(then);
+            update(or_else);
+            if let Some(it) = merge.as_mut() {
+                update(it);
+            }
+        }
+        ControlFlow::Switch {
+            default,
+            branches,
+            merge,
+            ..
+        } => {
+            update(default);
+            if let Some(it) = merge.as_mut() {
+                update(it);
+            }
+
+            for branch in branches {
+                update(&mut branch.1);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn update_phi(opt: &mut Optimizer, block: NodeIndex, from: NodeIndex, to: NodeIndex) {
+    for phi in opt.program[block].phi_nodes.borrow_mut().iter_mut() {
+        for entry in phi.entries.iter_mut() {
+            if entry.block == from {
+                entry.block = to;
+            }
+        }
     }
 }

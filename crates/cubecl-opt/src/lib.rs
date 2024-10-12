@@ -178,6 +178,7 @@ impl Optimizer {
     /// Run all optimizations
     fn run_opt(&mut self, expand: Scope) {
         self.parse_graph(expand);
+        self.split_critical_edges();
         self.determine_postorder(self.entry(), &mut HashSet::new());
         self.analyze_liveness();
         self.apply_pre_ssa_passes();
@@ -218,6 +219,14 @@ impl Optimizer {
             }
         }
         self.post_order.push(block);
+    }
+
+    pub fn post_order(&self) -> Vec<NodeIndex> {
+        self.post_order.clone()
+    }
+
+    pub fn reverse_post_order(&self) -> Vec<NodeIndex> {
+        self.post_order.iter().rev().copied().collect()
     }
 
     fn apply_pre_ssa_passes(&mut self) {
@@ -327,6 +336,12 @@ impl Optimizer {
     #[track_caller]
     pub fn block(&self, block: NodeIndex) -> &BasicBlock {
         &self.program[block]
+    }
+
+    /// Reference to the [`BasicBlock`] with ID `block`
+    #[track_caller]
+    pub fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
+        &mut self.program[block]
     }
 
     /// Recursively parse a scope into the graph
