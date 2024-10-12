@@ -27,7 +27,7 @@ rand = { workspace = true }
 serde = { workspace = true }
 spin = { workspace = true }         # using in place of use std::sync::Mutex;
 futures-lite = { workspace = true }
-web-time = { version = "1.1.0" }
+web-time = { workspace = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }

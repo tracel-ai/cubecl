@@ -20,7 +20,6 @@ use wgpu::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     CommandEncoder, ComputePass, ComputePipeline, PipelineLayout, PipelineLayoutDescriptor,
     QuerySet, QuerySetDescriptor, QueryType, ShaderModuleDescriptorSpirV, ShaderStages,
-    QUERY_SET_MAX_QUERIES,
 };
 
 /// Wgpu compute server.
@@ -39,7 +38,7 @@ pub struct WgpuSpirvServer {
     logger: DebugLogger,
 
     query_set: QuerySet,
-    query_index: u32,
+    query_started: bool,
 }
 
 fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
@@ -71,9 +70,9 @@ impl WgpuSpirvServer {
             query_set: device.create_query_set(&QuerySetDescriptor {
                 label: Some("burn queries"),
                 ty: QueryType::Timestamp,
-                count: QUERY_SET_MAX_QUERIES,
+                count: 2,
             }),
-            query_index: 0,
+            query_started: false,
         }
     }
 
@@ -222,55 +221,11 @@ impl ComputeServer for WgpuSpirvServer {
     type Storage = WgpuStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        let br = self.get_resource(binding);
-        let resource = br.resource();
-
-        let size = resource.size();
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
+        let rb = self.get_resource(binding);
+        let resource = rb.resource();
         self.clear_compute_pass();
-
-        self.encoder.copy_buffer_to_buffer(
-            &resource.buffer,
-            resource.offset(),
-            &staging_buffer,
-            0,
-            size,
-        );
-
-        // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        self.flush();
-        let (sender, receiver) = async_channel::bounded(1);
-        staging_buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |v| {
-                sender
-                    .try_send(v)
-                    .expect("Unable to send buffer slice result to async channel.");
-            });
-        let poll = self.poll.start_polling();
-        async move {
-            receiver
-                .recv()
-                .await
-                .expect("Unable to receive buffer slice result.")
-                .expect("Failed to map buffer");
-            // Can stop polling now.
-            drop(poll);
-
-            let result = {
-                let data = staging_buffer.slice(..).get_mapped_range();
-                bytemuck::cast_slice(&data).to_vec()
-            };
-            staging_buffer.unmap();
-            result
-        }
+        self.read_wgpu_buffer(&resource.buffer, resource.offset(), resource.size())
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
@@ -365,12 +320,9 @@ impl ComputeServer for WgpuSpirvServer {
             })
             .collect::<Vec<_>>();
 
-        let start = if profile_level.is_some() {
+        if profile_level.is_some() {
             future::block_on(self.sync());
-            Some(std::time::SystemTime::now())
-        } else {
-            None
-        };
+        }
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -391,21 +343,21 @@ impl ComputeServer for WgpuSpirvServer {
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
         let pass = self.current_pass.get_or_insert_with(|| {
+            let start_write = if !self.query_started { Some(0) } else { None };
+            let end_write = Some(1);
+            self.query_started = true;
+
             let pass = self
                 .encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: None,
                     timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
                         query_set: &self.query_set,
-                        beginning_of_pass_write_index: Some(self.query_index),
-                        end_of_pass_write_index: Some(self.query_index + 1),
+                        beginning_of_pass_write_index: start_write,
+                        end_of_pass_write_index: end_write,
                     }),
                 })
                 .forget_lifetime();
-            self.query_index += 2;
-            if self.query_index >= 512 {
-                self.query_index = 2;
-            }
             pass
         });
 
@@ -429,7 +381,7 @@ impl ComputeServer for WgpuSpirvServer {
             let (name, kernel_id) = profile_info.unwrap();
 
             // Execute the task.
-            future::block_on(self.sync());
+            let duration = future::block_on(self.sync());
 
             let info = match level {
                 cubecl_runtime::debug::ProfileLevel::Basic => {
@@ -443,8 +395,7 @@ impl ComputeServer for WgpuSpirvServer {
                     format!("{name}: {kernel_id} CubeCount {count:?}")
                 }
             };
-            self.logger
-                .register_profiled(info, start.unwrap().elapsed().unwrap());
+            self.logger.register_profiled(info, duration);
         } else if self.tasks_count >= self.tasks_max {
             self.flush();
         }
@@ -468,40 +419,28 @@ impl ComputeServer for WgpuSpirvServer {
     fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
         self.clear_compute_pass();
 
-        let fut = if self.query_index == 0 {
-            None
-        } else {
-            let size = self.query_index as u64 * size_of::<u64>() as u64;
-            let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size,
-                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
-                mapped_at_creation: false,
-            });
-            self.encoder
-                .resolve_query_set(&self.query_set, 0..self.query_index, &resolved, 0);
+        let size = 2 * size_of::<u64>() as u64;
+        let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size,
+            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
+            mapped_at_creation: false,
+        });
+        self.encoder
+            .resolve_query_set(&self.query_set, 0..2, &resolved, 0);
+        let fut = self.read_wgpu_buffer(&resolved, 0, size);
 
-            Some(self.read_wgpu_buffer(&resolved, 0, size))
-        };
-
-        let index = self.query_index;
-        self.query_index = 0;
-
+        self.query_started = false;
         let period = self.queue.get_timestamp_period() as f64 * 1e-9;
 
         async move {
-            if let Some(fut) = fut {
-                let data = fut.await;
-                let data = data
-                    .chunks_exact(8)
-                    .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
-                    .collect::<Vec<_>>();
-                let data = &data[0..index as usize];
-                let delta = data.iter().max().unwrap() - data.iter().min().unwrap();
-                Duration::from_secs_f64(delta as f64 * period)
-            } else {
-                Duration::from_secs_f64(0.0)
-            }
+            let data = fut
+                .await
+                .chunks_exact(8)
+                .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                .collect::<Vec<_>>();
+            let delta = data[1] - data[0];
+            Duration::from_secs_f64(delta as f64 * period)
         }
     }
 
@@ -510,7 +449,7 @@ impl ComputeServer for WgpuSpirvServer {
     }
 }
 
-fn is_robust(device: &Device) -> bool {
+fn is_robust(device: &wgpu::Device) -> bool {
     fn is_robust(device: &vulkan::Device) -> bool {
         device
             .enabled_device_extensions()

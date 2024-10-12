@@ -193,7 +193,8 @@ impl ComputeServer for CudaServer {
                 }
             };
 
-            self.logger.register_profiled(info, start.elapsed().unwrap());
+            self.logger
+                .register_profiled(info, start.elapsed().unwrap());
         } else {
             ctx.execute_task(kernel_id, count, resources);
         }

@@ -118,25 +118,11 @@ impl<K: AutotuneKey> Tuner<K> {
                     names.push(op.name().to_string());
 
                     let res = if set.should_run(&key, i) {
-                        let tuner = TuneBenchmark::new(op, client.clone());
-
-                        #[cfg(any(target_family = "wasm", not(feature = "std")))]
-                        {
-                            Ok(tuner.sample_durations().await)
-                        }
-
-                        #[cfg(all(not(target_family = "wasm"), feature = "std"))]
-                        {
-                            use futures_lite::FutureExt;
-
-                            AssertUnwindSafe(tuner.sample_durations()).catch_unwind().await.map_err(|e| {
-                                println!("Caught error while benchmarking, falling back to next operation.");
-                                ManuallyDrop::new(e)
-                            })
-                        }
+                        Self::run_benchmark(op, &client).await
                     } else {
                         Ok(BenchmarkDurations::new(Vec::from([Duration::MAX])))
                     };
+
                     results.push(res);
                 }
 
@@ -183,5 +169,29 @@ impl<K: AutotuneKey> Tuner<K> {
         //   submitted while tuning, which might skew results.
         #[cfg(not(target_family = "wasm"))]
         futures_lite::future::block_on(fut);
+    }
+
+    async fn run_benchmark<S: ComputeServer, C: ComputeChannel<S>, Out>(
+        operation: Box<dyn AutotuneOperation<Out>>,
+        client: &ComputeClient<S, C>,
+    ) -> Result<BenchmarkDurations, BenchError> {
+        let tuner = TuneBenchmark::new(operation, client.clone());
+
+        #[cfg(any(target_family = "wasm", not(feature = "std")))]
+        {
+            Ok(tuner.sample_durations().await)
+        }
+
+        #[cfg(all(not(target_family = "wasm"), feature = "std"))]
+        {
+            use futures_lite::FutureExt;
+            AssertUnwindSafe(tuner.sample_durations())
+                .catch_unwind()
+                .await
+                .map_err(|e| {
+                    println!("Caught error while benchmarking, falling back to next operation.");
+                    ManuallyDrop::new(e)
+                })
+        }
     }
 }

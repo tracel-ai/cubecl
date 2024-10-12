@@ -19,8 +19,6 @@ use wgpu::{
     ShaderModuleDescriptor,
 };
 
-const MAX_QUERIES: u32 = 1024;
-
 #[cfg(not(target_family = "wasm"))]
 mod poll {
     use std::thread::JoinHandle;
@@ -111,7 +109,7 @@ pub struct WgpuServer {
     storage_locked: MemoryLock,
 
     query_set: QuerySet,
-    query_index: u32,
+    query_started: bool,
 }
 
 fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
@@ -143,9 +141,9 @@ impl WgpuServer {
             query_set: device.create_query_set(&QuerySetDescriptor {
                 label: Some("burn queries"),
                 ty: QueryType::Timestamp,
-                count: MAX_QUERIES,
+                count: 2,
             }),
-            query_index: 0,
+            query_started: false,
         }
     }
 
@@ -261,11 +259,10 @@ impl ComputeServer for WgpuServer {
     type Storage = WgpuStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        self.clear_compute_pass();
-
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
         let rb = self.get_resource(binding);
         let resource = rb.resource();
+        self.clear_compute_pass();
         self.read_wgpu_buffer(&resource.buffer, resource.offset(), resource.size())
     }
 
@@ -384,18 +381,9 @@ impl ComputeServer for WgpuServer {
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
         let pass = self.current_pass.get_or_insert_with(|| {
-            let start_write = if self.query_index == 0 {
-                self.query_index += 1;
-                Some(0)
-            } else {
-                None
-            };
-            let end_write = Some(self.query_index);
-            self.query_index += 1;
-            if self.query_index >= MAX_QUERIES {
-                // reset to start, but never overwrite initial query time (aka the start time).
-                self.query_index = 1;
-            }
+            let start_write = if !self.query_started { Some(0) } else { None };
+            let end_write = Some(1);
+            self.query_started = true;
 
             let pass = self
                 .encoder
@@ -469,36 +457,28 @@ impl ComputeServer for WgpuServer {
     fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
         self.clear_compute_pass();
 
-        let fut = if self.query_index == 0 {
-            None
-        } else {
-            let size = self.query_index as u64 * size_of::<u64>() as u64;
-            let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size,
-                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
-                mapped_at_creation: false,
-            });
-            self.encoder
-                .resolve_query_set(&self.query_set, 0..self.query_index, &resolved, 0);
+        let size = 2 * size_of::<u64>() as u64;
+        let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size,
+            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
+            mapped_at_creation: false,
+        });
+        self.encoder
+            .resolve_query_set(&self.query_set, 0..2, &resolved, 0);
+        let fut = self.read_wgpu_buffer(&resolved, 0, size);
 
-            Some(self.read_wgpu_buffer(&resolved, 0, size))
-        };
-
-        self.query_index = 0;
+        self.query_started = false;
         let period = self.queue.get_timestamp_period() as f64 * 1e-9;
 
         async move {
-            if let Some(fut) = fut {
-                let data = fut.await
-                    .chunks_exact(8)
-                    .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
-                    .collect::<Vec<_>>();
-                let delta = data.iter().max().unwrap() - data.iter().min().unwrap();
-                Duration::from_secs_f64(delta as f64 * period)
-            } else {
-                Duration::from_secs_f64(0.0)
-            }
+            let data = fut
+                .await
+                .chunks_exact(8)
+                .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                .collect::<Vec<_>>();
+            let delta = data[1] - data[0];
+            Duration::from_secs_f64(delta as f64 * period)
         }
     }
 
