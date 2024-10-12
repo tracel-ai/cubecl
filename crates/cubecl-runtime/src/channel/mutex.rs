@@ -39,7 +39,13 @@ where
     Server: ComputeServer,
 {
     async fn read(&self, handle: Binding) -> Vec<u8> {
-        self.server.lock().read(handle).await
+        // Nb: The order here is really important - the mutex guard has to be dropped before
+        // the future is polled. Just calling lock().read().await can deadlock.
+        let fut = {
+            let mut server = self.server.lock();
+            server.read(handle)
+        };
+        fut.await
     }
 
     fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
@@ -69,6 +75,8 @@ where
     }
 
     async fn sync(&self) -> Duration {
+        // Nb: The order here is really important - the mutex guard has to be dropped before
+        // the future is polled. Just calling lock().sync().await can deadlock.
         let fut = {
             let mut server = self.server.lock();
             server.sync()
