@@ -45,6 +45,12 @@ pub enum Instruction {
     Sub(BinaryInstruction),
     Index(BinaryInstruction),
     IndexAssign(BinaryInstruction),
+    CheckedIndex {
+        len: Variable,
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
     Assign(UnaryInstruction),
     RangeLoop {
         i: Variable,
@@ -207,6 +213,21 @@ impl Display for Instruction {
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::CheckedIndex { len, lhs, rhs, out } => {
+                let item_out = out.item();
+                if let Elem::Atomic(inner) = item_out.elem {
+                    write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
+                } else {
+                    let out = out.fmt_left();
+                    write!(f, "{out} = ({rhs} < {len}) ? ")?;
+                    Index::format_scalar(f, *lhs, *rhs, item_out)?;
+                    if item_out.vectorization == 1 {
+                        writeln!(f, " : {item_out}(0);")
+                    } else {
+                        writeln!(f, " : {item_out}{{}};")
+                    }
+                }
+            }
             Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Copy {
                 input,
