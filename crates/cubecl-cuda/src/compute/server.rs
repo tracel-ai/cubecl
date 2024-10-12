@@ -174,10 +174,10 @@ impl ComputeServer for CudaServer {
         }
 
         if let Some(level) = profile_level {
-            self.sync();
+            ctx.sync();
             let start = std::time::SystemTime::now();
             ctx.execute_task(kernel_id, count, resources);
-            let duration = self.sync();
+            ctx.sync();
 
             let (name, kernel_id) = profile_info.unwrap();
             let info = match level {
@@ -193,7 +193,7 @@ impl ComputeServer for CudaServer {
                 }
             };
 
-            self.logger.register_profiled(info, duration);
+            self.logger.register_profiled(info, start.elapsed().unwrap());
         } else {
             ctx.execute_task(kernel_id, count, resources);
         }
