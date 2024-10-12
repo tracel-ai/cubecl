@@ -264,11 +264,11 @@ impl Variable {
 
     pub fn tmp(item: Item) -> Self {
         let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let out_tmp = Variable::Tmp {
+
+        Variable::Tmp {
             id: inc as u16,
             item,
-        };
-        out_tmp
+        }
     }
 
     pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N> {

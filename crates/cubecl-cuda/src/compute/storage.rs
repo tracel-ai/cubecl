@@ -9,33 +9,33 @@ pub struct CudaStorage {
     memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
     deallocations: Vec<StorageId>,
     stream: cudarc::driver::sys::CUstream,
-    activate_slices: ActiveSlices,
+    ptr_bindings: PtrBindings,
 }
 
-struct ActiveSlices {
-    ptr_slots: Vec<cudarc::driver::sys::CUdeviceptr>,
+struct PtrBindings {
+    slots: Vec<cudarc::driver::sys::CUdeviceptr>,
     cursor: usize,
 }
 
-impl ActiveSlices {
+impl PtrBindings {
     fn new() -> Self {
         Self {
-            // We assume that a CUDA stream will never hold more than 1024 slices at the same time.
+            // We assume that a CUDA stream will never hold more than 1024 bindings at the same time.
             // Therefore, we can reuse the oldest pointer slot without having to keep track of bindings
             // lifetime.
-            ptr_slots: uninit_vec(1024),
+            slots: uninit_vec(1024),
             cursor: 0,
         }
     }
 
     fn register(&mut self, ptr: u64) -> &u64 {
-        self.ptr_slots[self.cursor] = ptr;
-        let ptr = self.ptr_slots.get(self.cursor).unwrap();
+        self.slots[self.cursor] = ptr;
+        let ptr = self.slots.get(self.cursor).unwrap();
 
         self.cursor += 1;
 
         // Reset the cursor.
-        if self.cursor >= self.ptr_slots.len() {
+        if self.cursor >= self.slots.len() {
             self.cursor = 0;
         }
 
@@ -59,7 +59,7 @@ impl CudaStorage {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             stream,
-            activate_slices: ActiveSlices::new(),
+            ptr_bindings: PtrBindings::new(),
         }
     }
 
@@ -72,10 +72,6 @@ impl CudaStorage {
                 }
             }
         }
-    }
-
-    pub fn flush(&mut self) {
-        // self.activate_slices.clear();
     }
 }
 
@@ -118,7 +114,7 @@ impl ComputeStorage for CudaStorage {
 
         let offset = handle.offset() as u64;
         let size = handle.size() as u64;
-        let ptr = self.activate_slices.register(ptr + offset);
+        let ptr = self.ptr_bindings.register(ptr + offset);
 
         CudaResource::new(
             *ptr,

@@ -232,7 +232,6 @@ impl CudaContext {
         unsafe {
             cudarc::driver::result::stream::synchronize(self.stream).unwrap();
         };
-        self.memory_management.storage().flush();
     }
 
     fn compile_kernel(
