@@ -11,6 +11,9 @@ use cubecl_runtime::ExecutionMode;
 
 use super::{Instruction, VariableSettings, WarpInstruction};
 
+pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug, Default)]
 pub struct CudaCompiler {
@@ -42,7 +45,9 @@ impl Compiler for CudaCompiler {
             strategy,
             ..Self::default()
         };
-        compiler.compile_shader(kernel)
+        let ir = compiler.compile_ir(kernel);
+        COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
+        ir
     }
 
     fn elem_size(elem: gpu::Elem) -> usize {
@@ -59,7 +64,7 @@ impl Compiler for CudaCompiler {
 }
 
 impl CudaCompiler {
-    fn compile_shader(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel {
+    fn compile_ir(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel {
         self.num_inputs = value.inputs.len();
         self.num_outputs = value.outputs.len();
 
@@ -791,6 +796,7 @@ impl CudaCompiler {
         }
     }
 }
+
 #[allow(missing_docs)]
 struct CheckedIndexAssign {
     pub lhs: Variable,

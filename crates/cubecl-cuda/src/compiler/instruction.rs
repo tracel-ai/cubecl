@@ -44,13 +44,13 @@ pub enum Instruction {
     Mul(BinaryInstruction),
     Sub(BinaryInstruction),
     Index(BinaryInstruction),
+    IndexAssign(BinaryInstruction),
     CheckedIndex {
         len: Variable,
         lhs: Variable,
         rhs: Variable,
         out: Variable,
     },
-    IndexAssign(BinaryInstruction),
     Assign(UnaryInstruction),
     RangeLoop {
         i: Variable,
