@@ -60,7 +60,7 @@ impl WgpuSpirvServer {
             tasks_count: 0,
             pipelines: HashMap::new(),
             tasks_max,
-            logger: DebugLogger::new(),
+            logger: DebugLogger::default(),
             storage_locked: MemoryLock::default(),
             poll: WgpuPoll::new(device.clone()),
         }

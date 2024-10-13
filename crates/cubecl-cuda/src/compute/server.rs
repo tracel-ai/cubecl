@@ -184,6 +184,7 @@ impl ComputeServer for CudaServer {
     }
 
     fn sync(&mut self, sync_type: SyncType) {
+        self.logger.profile_summary();
         match sync_type {
             // Synchronize the stream if waiting.
             SyncType::Wait => {
@@ -332,7 +333,7 @@ impl CudaServer {
     pub(crate) fn new(ctx: CudaContext) -> Self {
         Self {
             ctx,
-            logger: DebugLogger::new(),
+            logger: DebugLogger::default(),
         }
     }
 

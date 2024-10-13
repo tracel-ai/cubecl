@@ -130,9 +130,27 @@ impl WgpuServer {
             storage_locked: MemoryLock::default(),
             pipelines: HashMap::new(),
             tasks_max,
-            logger: DebugLogger::new(),
+            logger: DebugLogger::default(),
             poll: WgpuPoll::new(device.clone()),
         }
+    }
+
+    fn sync_state(&mut self, sync_type: SyncType) {
+        // End the current compute pass.
+        self.clear_compute_pass();
+        let new_encoder = create_encoder(&self.device);
+        let encoder = std::mem::replace(&mut self.encoder, new_encoder);
+        self.queue.submit([encoder.finish()]);
+
+        self.tasks_count = 0;
+        self.storage_locked.clear_locked();
+
+        if sync_type == SyncType::Wait {
+            self.device.poll(wgpu::Maintain::Wait);
+        }
+
+        // Cleanup allocations and deallocations.
+        self.memory_management.storage().perform_deallocations();
     }
 
     fn pipeline(
@@ -224,7 +242,7 @@ impl ComputeServer for WgpuServer {
         );
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        self.sync(SyncType::Flush);
+        self.sync_state(SyncType::Flush);
 
         let (sender, receiver) = async_channel::bounded(1);
         staging_buffer
@@ -346,7 +364,7 @@ impl ComputeServer for WgpuServer {
             .collect::<Vec<_>>();
 
         let start = if profile_level.is_some() {
-            self.sync(SyncType::Wait);
+            self.sync_state(SyncType::Wait);
             Some(std::time::SystemTime::now())
         } else {
             None
@@ -399,7 +417,7 @@ impl ComputeServer for WgpuServer {
             let (name, kernel_id) = profile_info.unwrap();
 
             // Execute the task.
-            self.sync(SyncType::Wait);
+            self.sync_state(SyncType::Wait);
 
             let info = match level {
                 cubecl_runtime::debug::ProfileLevel::Basic => {
@@ -416,26 +434,14 @@ impl ComputeServer for WgpuServer {
             self.logger
                 .register_profiled(info, start.unwrap().elapsed().unwrap());
         } else if self.tasks_count >= self.tasks_max {
-            self.sync(SyncType::Flush);
+            self.sync_state(SyncType::Flush);
         }
     }
 
     fn sync(&mut self, sync_type: SyncType) {
-        // End the current compute pass.
-        self.clear_compute_pass();
-        let new_encoder = create_encoder(&self.device);
-        let encoder = std::mem::replace(&mut self.encoder, new_encoder);
-        self.queue.submit([encoder.finish()]);
+        self.logger.profile_summary();
 
-        self.tasks_count = 0;
-        self.storage_locked.clear_locked();
-
-        if sync_type == SyncType::Wait {
-            self.device.poll(wgpu::Maintain::Wait);
-        }
-
-        // Cleanup allocations and deallocations.
-        self.memory_management.storage().perform_deallocations();
+        self.sync_state(sync_type)
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {

@@ -7,6 +7,8 @@ use std::{
     path::PathBuf,
 };
 
+use hashbrown::HashMap;
+
 #[derive(Debug)]
 /// The various debugging options available.
 pub enum DebugOptions {
@@ -28,8 +30,158 @@ pub enum ProfileLevel {
 }
 
 /// Debugging logger.
+#[derive(Debug, Default)]
+pub struct DebugLogger {
+    kind: DebugLoggerKind,
+    profiled: Profiled,
+}
+
+#[derive(Debug, Default)]
+struct Profiled {
+    durations: HashMap<String, ProfileItem>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct ProfileItem {
+    total_duration: core::time::Duration,
+    num_computed: usize,
+}
+
+impl Profiled {
+    pub fn update(&mut self, name: &String, duration: core::time::Duration) {
+        let name = if name.contains("\n") {
+            name.split("\n").next().unwrap()
+        } else {
+            name
+        };
+        if let Some(item) = self.durations.get_mut(name) {
+            item.update(duration);
+        } else {
+            self.durations.insert(
+                name.to_string(),
+                ProfileItem {
+                    total_duration: duration,
+                    num_computed: 1,
+                },
+            );
+        }
+    }
+}
+
+impl Display for Profiled {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let header_name = "Name";
+        let header_num_computed = "Num Computed";
+        let header_duration = "Duration";
+        let header_ratio = "Ratio";
+
+        let mut ratio_len = header_ratio.len();
+        let mut name_len = header_name.len();
+        let mut num_computed_len = header_num_computed.len();
+        let mut duration_len = header_duration.len();
+
+        let mut total_duration = core::time::Duration::from_secs(0);
+        let mut total_computed = 0;
+
+        let mut items: Vec<(String, String, String, core::time::Duration)> = self
+            .durations
+            .iter()
+            .map(|(key, item)| {
+                let name = key.clone();
+                let num_computed = format!("{}", item.num_computed);
+                let duration = format!("{:?}", item.total_duration);
+
+                name_len = usize::max(name_len, name.len());
+                num_computed_len = usize::max(num_computed_len, num_computed.len());
+                duration_len = usize::max(duration_len, duration.len());
+
+                total_duration += item.total_duration;
+                total_computed += item.num_computed;
+
+                (name, num_computed, duration, item.total_duration.clone())
+            })
+            .collect();
+
+        let total_duration_fmt = format!("{:?}", total_duration);
+        let total_compute_fmt = format!("{:?}", total_computed);
+        let total_ratio_fmt = "100 %";
+
+        duration_len = usize::max(duration_len, total_duration_fmt.len());
+        num_computed_len = usize::max(num_computed_len, total_compute_fmt.len());
+        ratio_len = usize::max(ratio_len, total_ratio_fmt.len());
+
+        let line_length = name_len + duration_len + num_computed_len + ratio_len + 11;
+
+        let write_line = |char: &str, f: &mut core::fmt::Formatter<'_>| {
+            writeln!(f, "|{}| ", char.repeat(line_length))
+        };
+        items.sort_by(|(_, _, _, a), (_, _, _, b)| b.cmp(&a));
+
+        write_line("⎺", f)?;
+
+        writeln!(
+            f,
+            "| {:<width_name$} | {:<width_duration$} | {:<width_num_computed$} | {:<width_ratio$} |",
+            header_name,
+            header_duration,
+            header_num_computed,
+            header_ratio,
+            width_name = name_len,
+            width_duration = duration_len,
+            width_num_computed = num_computed_len,
+            width_ratio = ratio_len,
+        )?;
+
+        write_line("⎼", f)?;
+
+        for (name, num_computed, duration, num) in items {
+            let ratio = (100 * num.as_micros()) / total_duration.as_micros();
+
+            writeln!(
+                f,
+                "| {:<width_name$} | {:<width_duration$} | {:<width_num_computed$} | {:<width_ratio$} |",
+                name,
+                duration,
+                num_computed,
+                format!("{} %", ratio),
+                width_name = name_len,
+                width_duration = duration_len,
+                width_num_computed = num_computed_len,
+                width_ratio = ratio_len,
+            )?;
+        }
+
+        write_line("⎼", f)?;
+
+        writeln!(
+                f,
+                "| {:<width_name$} | {:<width_duration$} | {:<width_num_computed$} | {:<width_ratio$} |",
+                "Total",
+                total_duration_fmt,
+                total_compute_fmt,
+                total_ratio_fmt,
+                width_name = name_len,
+                width_duration = duration_len,
+                width_num_computed = num_computed_len,
+                width_ratio = ratio_len,
+            )?;
+
+        write_line("⎯", f)?;
+
+        Ok(())
+    }
+}
+
+impl ProfileItem {
+    pub fn update(&mut self, duration: core::time::Duration) {
+        self.total_duration += duration;
+        self.num_computed += 1;
+    }
+}
+
+/// Debugging logger.
 #[derive(Debug)]
-pub enum DebugLogger {
+pub enum DebugLoggerKind {
     #[cfg(feature = "std")]
     /// Log debugging information into a file.
     File(DebugFileLogger, DebugOptions),
@@ -40,22 +192,62 @@ pub enum DebugLogger {
     None,
 }
 
-impl Default for DebugLogger {
+impl Default for DebugLoggerKind {
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl DebugLogger {
+    /// Returns the profile level, none if profiling is deactivated.
+    pub fn profile_level(&self) -> Option<ProfileLevel> {
+        self.kind.profile_level()
+    }
+    /// Register a profiled task.
+    pub fn register_profiled<Name>(&mut self, name: Name, duration: core::time::Duration)
+    where
+        Name: Display,
+    {
+        let name = name.to_string();
+        self.profiled.update(&name, duration);
+        self.kind.register_profiled(name, duration)
+    }
+    /// Returns whether the debug logger is activated.
+    pub fn is_activated(&self) -> bool {
+        !matches!(self.kind, DebugLoggerKind::None)
+    }
+    /// Log the argument to a file when the debug logger is activated.
+    pub fn debug<I>(&mut self, arg: I) -> I
+    where
+        I: Display,
+    {
+        self.kind.debug(arg)
+    }
+
+    /// Show the profiling summary if activated and reset its state.
+    pub fn profile_summary(&mut self) {
+        if self.profile_level().is_some() {
+            let mut profiled = Default::default();
+            core::mem::swap(&mut self.profiled, &mut profiled);
+
+            match &mut self.kind {
+                #[cfg(feature = "std")]
+                DebugLoggerKind::File(file, _) => {
+                    file.log(&format!("{}", profiled));
+                }
+                #[cfg(feature = "std")]
+                DebugLoggerKind::Stdout(_) => println!("{profiled}"),
+                _ => (),
+            }
+        }
+    }
+}
+
+impl DebugLoggerKind {
     #[cfg(not(feature = "std"))]
     /// Create a new debug logger.
     pub fn new() -> Self {
         Self::None
-    }
-
-    /// Returns whether the debug logger is activated.
-    pub fn is_activated(&self) -> bool {
-        !matches!(self, Self::None)
     }
 
     /// Create a new debug logger.
@@ -119,13 +311,13 @@ impl DebugLogger {
     }
 
     /// Returns the profile level, none if profiling is deactivated.
-    pub fn profile_level(&self) -> Option<ProfileLevel> {
+    fn profile_level(&self) -> Option<ProfileLevel> {
         let option = match self {
             #[cfg(feature = "std")]
-            DebugLogger::File(_, option) => option,
+            DebugLoggerKind::File(_, option) => option,
             #[cfg(feature = "std")]
-            DebugLogger::Stdout(option) => option,
-            DebugLogger::None => {
+            DebugLoggerKind::Stdout(option) => option,
+            DebugLoggerKind::None => {
                 return None;
             }
         };
@@ -136,30 +328,25 @@ impl DebugLogger {
         }
     }
 
-    /// Register a profiled task.
-    pub fn register_profiled<Name>(&mut self, name: Name, duration: core::time::Duration)
-    where
-        Name: Display,
-    {
+    fn register_profiled(&mut self, name: String, duration: core::time::Duration) {
         match self {
             #[cfg(feature = "std")]
-            DebugLogger::File(file, _) => {
+            DebugLoggerKind::File(file, _) => {
                 file.log(&format!("| {duration:<10?} | {name}"));
             }
             #[cfg(feature = "std")]
-            DebugLogger::Stdout(_) => println!("| {duration:<10?} | {name}"),
+            DebugLoggerKind::Stdout(_) => println!("| {duration:<10?} | {name}"),
             _ => (),
         }
     }
 
-    /// Log the argument to a file when the debug logger is activated.
-    pub fn debug<I>(&mut self, arg: I) -> I
+    fn debug<I>(&mut self, arg: I) -> I
     where
         I: Display,
     {
         match self {
             #[cfg(feature = "std")]
-            DebugLogger::File(file, option) => {
+            DebugLoggerKind::File(file, option) => {
                 match option {
                     DebugOptions::Debug | DebugOptions::All(_) => {
                         file.log(&arg);
@@ -169,7 +356,7 @@ impl DebugLogger {
                 arg
             }
             #[cfg(feature = "std")]
-            DebugLogger::Stdout(option) => {
+            DebugLoggerKind::Stdout(option) => {
                 match option {
                     DebugOptions::Debug | DebugOptions::All(_) => {
                         println!("{arg}");
@@ -178,7 +365,7 @@ impl DebugLogger {
                 };
                 arg
             }
-            DebugLogger::None => arg,
+            DebugLoggerKind::None => arg,
         }
     }
 }
