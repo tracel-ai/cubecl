@@ -139,7 +139,7 @@ impl WgpuServer {
             logger: DebugLogger::new(),
             poll: WgpuPoll::new(device.clone()),
             query_set: device.create_query_set(&QuerySetDescriptor {
-                label: Some("burn queries"),
+                label: Some("CubeCL profile queries"),
                 ty: QueryType::Timestamp,
                 count: 2,
             }),
