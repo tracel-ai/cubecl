@@ -1,8 +1,8 @@
 use super::base::Stage;
 use super::TilingOrder;
 use crate::matmul::matmul_global::GlobalView;
-use crate::matmul::matmul_tile::new_tile;
-use crate::matmul::matmul_tile::Tile;
+use crate::matmul::matmul_tile::new_ref_tile;
+use crate::matmul::matmul_tile::RefTile;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements};
@@ -44,7 +44,7 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
         G::load_shared_memory::<E, O>(gmem, &mut stage.smem, stage.stage_info)
     }
 
-    fn get_tile(stage: &Self, x: u32, y: u32) -> Tile<'_, E> {
+    fn get_tile(stage: &Self, x: u32, y: u32) -> RefTile<'_, E> {
         let nth_tile = O::to_nth_tile(
             x,
             y,
@@ -55,7 +55,7 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
         let tile_stride = tile_num_elements(stage.stage_info);
         let start = nth_tile * tile_stride;
 
-        new_tile(
+        new_ref_tile(
             x,
             y,
             stage.smem.slice(start, start + tile_stride),

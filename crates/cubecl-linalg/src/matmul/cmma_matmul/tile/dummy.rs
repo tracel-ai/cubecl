@@ -1,5 +1,6 @@
 use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::matmul_tile::MatmulInstruction;
+use crate::matmul::matmul_tile::OwnedTile;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::{MatmulProblem, Requirements};
 use crate::matmul::stage_info::{StageInfo, StageInfos};
@@ -7,13 +8,6 @@ use crate::matmul::{FixedShapeMatmul, Matmul};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
-
-#[derive(CubeType)]
-pub struct DummyMatrix<E: Numeric> {
-    pub handle: Array<E>,
-    pub shape: (u32, u32),
-    pub is_col_major: bool,
-}
 
 macro_rules! impl_matmul_instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
@@ -84,33 +78,29 @@ macro_rules! impl_matmul_instruction {
 
         #[cube]
         impl<I: Numeric, O: Numeric> MatmulInstruction<I, O> for $name<I, O> {
-            type Lhs = DummyMatrix<I>;
-            type Rhs = DummyMatrix<I>;
-            type Out = DummyMatrix<O>;
+            type Lhs = OwnedTile<I>;
+            type Rhs = OwnedTile<I>;
+            type Out = OwnedTile<O>;
 
             fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out) {
                 execute::<I, O>(lhs, rhs, out);
             }
 
-            fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs {
-                DummyMatrix::<I> {
+            fn init_lhs(layout: MatrixLayout) -> Self::Lhs {
+                OwnedTile::<I> {
                     handle: Array::<I>::new(Self::M * Self::K),
-                    shape: (Self::M.runtime(), Self::K.runtime()),
-                    is_col_major: match layout {
-                        MatrixLayout::RowMajor => false,
-                        MatrixLayout::ColMajor => true,
-                    },
+                    x: Self::M.runtime(),
+                    y: Self::K.runtime(),
+                    layout,
                 }
             }
 
-            fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs {
-                DummyMatrix::<I> {
+            fn init_rhs(layout: MatrixLayout) -> Self::Rhs {
+                OwnedTile::<I> {
                     handle: Array::<I>::new(Self::K * Self::N),
-                    shape: (Self::K.runtime(), Self::N.runtime()),
-                    is_col_major: match layout {
-                        MatrixLayout::RowMajor => false,
-                        MatrixLayout::ColMajor => true,
-                    },
+                    x: Self::K.runtime(),
+                    y: Self::N.runtime(),
+                    layout,
                 }
             }
 
@@ -127,10 +117,11 @@ macro_rules! impl_matmul_instruction {
             }
 
             fn init_output() -> Self::Out {
-                let mut out = DummyMatrix::<O> {
+                let mut out = OwnedTile::<O> {
                     handle: Array::<O>::new(Self::M * Self::N),
-                    shape: (Self::M.runtime(), Self::N.runtime()),
-                    is_col_major: false,
+                    x: Self::M.runtime(),
+                    y: Self::N.runtime(),
+                    layout: MatrixLayout::RowMajor.runtime(),
                 };
 
                 for i in 0..Self::M * Self::N {
@@ -155,26 +146,24 @@ impl_matmul_instruction!(DummyUnitInstruction8_32_16, 8, 32, 16);
 
 #[cube]
 pub(crate) fn execute<I: Numeric, O: Numeric>(
-    lhs: &DummyMatrix<I>,
-    rhs: &DummyMatrix<I>,
-    out: &mut DummyMatrix<O>,
+    lhs: &OwnedTile<I>,
+    rhs: &OwnedTile<I>,
+    out: &mut OwnedTile<O>,
 ) {
-    let m = lhs.shape.0;
-    let n = rhs.shape.1;
-    let k = rhs.shape.0;
+    let m = lhs.x;
+    let n = rhs.y;
+    let k = rhs.x;
 
     for i in 0..m {
         for j in 0..n {
             for k_ in 0..k {
-                let lhs_val = if lhs.is_col_major {
-                    lhs.handle[k_ * m + i]
-                } else {
-                    lhs.handle[i * k + k_]
+                let lhs_val = match comptime!(lhs.layout) {
+                    MatrixLayout::RowMajor => lhs.handle[i * k + k_],
+                    MatrixLayout::ColMajor => lhs.handle[k_ * m + i],
                 };
-                let rhs_val = if rhs.is_col_major {
-                    rhs.handle[j * k + k_]
-                } else {
-                    rhs.handle[k_ * n + j]
+                let rhs_val = match comptime!(rhs.layout) {
+                    MatrixLayout::RowMajor => rhs.handle[k_ * n + j],
+                    MatrixLayout::ColMajor => rhs.handle[j * k + k_],
                 };
 
                 out.handle[i * n + j] += O::cast_from(lhs_val * rhs_val);
