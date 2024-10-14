@@ -60,7 +60,7 @@ where
 
     // TODO 4
     let input_line = 4;
-    let output_line = 4;
+    let output_line = 1;
 
     unsafe {
         MM::launch_unchecked(
