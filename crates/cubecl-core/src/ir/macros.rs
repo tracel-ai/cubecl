@@ -119,6 +119,15 @@ macro_rules! cpa {
             cpa!(binary $lhs, $rhs, $out)
         ));
     };
+    // out = select(cond, then, or_else)
+    ($scope:expr, $out:ident = select($cond:expr, $then:expr, $or_else:expr)) => {
+        $scope.register($crate::ir::Branch::Select($crate::ir::Select{
+            cond: $cond,
+            then: $then,
+            or_else: $or_else,
+            out: $out,
+        }));
+    };
     // out = lhs << rhs
     ($scope:expr, $out: ident = $lhs:ident << $rhs:ident) => {
         cpa!($scope, $out = shift_left($lhs, $rhs))

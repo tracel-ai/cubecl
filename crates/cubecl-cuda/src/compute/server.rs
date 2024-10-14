@@ -1,7 +1,7 @@
 use crate::compiler::{format_cpp_code, CudaCompiler};
 
 use super::storage::CudaStorage;
-use super::CudaResource;
+use super::{uninit_vec, CudaResource};
 use cubecl_common::reader::{reader_from_concrete, Reader};
 use cubecl_common::sync_type::SyncType;
 use cubecl_core::compute::DebugInformation;
@@ -61,12 +61,14 @@ impl CudaServer {
             binding.offset_end,
         );
 
-        // TODO: Check if it is possible to make this faster
-        let mut data = vec![0; resource.size() as usize];
+        let mut data = uninit_vec(resource.size() as usize);
+
         unsafe {
             cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
         };
+
         ctx.sync();
+
         data
     }
 }
@@ -230,7 +232,6 @@ impl CudaContext {
         unsafe {
             cudarc::driver::result::stream::synchronize(self.stream).unwrap();
         };
-        self.memory_management.storage().flush();
     }
 
     fn compile_kernel(

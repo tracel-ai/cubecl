@@ -18,6 +18,10 @@ impl Display for Optimizer {
         let post_order = post_order.collect::<Vec<_>>();
         writeln!(f, "Post Order: {}", post_order.join(", "))?;
         writeln!(f)?;
+        let post_order = self.post_order.iter().map(|it| format!("bb{}", it.index()));
+        let post_order = post_order.collect::<Vec<_>>();
+        writeln!(f, "Post Order: {}", post_order.join(", "))?;
+        writeln!(f)?;
         f.write_str("Slices:\n")?;
         for (var_id, slice) in self.program.slices.iter() {
             let end_op = slice.end_op.as_ref().map(|it| format!("{it}"));

@@ -276,6 +276,7 @@ impl Optimizer {
             Box::new(RemoveIndexScalar),
             Box::new(EliminateConstBranches),
             Box::new(EliminateDeadBlocks),
+            Box::new(MergeBlocks),
             Box::new(CopyTransform),
         ];
         // Passes that only run if execution mode is checked

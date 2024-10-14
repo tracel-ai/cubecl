@@ -2,7 +2,7 @@ use cubecl_core::ir::{self as gpu, ConstantScalarValue};
 use half::{bf16, f16};
 use std::fmt::Display;
 
-use super::Fragment;
+use super::{Fragment, COUNTER_TMP_VAR};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum Elem {
@@ -130,6 +130,7 @@ impl Component for Variable {
             Variable::BlockIdxGlobal => Item::scalar(Elem::U32),
             Variable::BlockDimGlobal => Item::scalar(Elem::U32),
             Variable::GridDimGlobal => Item::scalar(Elem::U32),
+            Variable::Tmp { item, .. } => *item,
         }
     }
 
@@ -173,6 +174,7 @@ pub enum Variable {
     GridDimY,
     GridDimZ,
     WmmaFragment { id: u16, frag: Fragment, depth: u8 },
+    Tmp { id: u16, item: Item },
 }
 
 impl Display for Variable {
@@ -244,6 +246,7 @@ impl Display for Variable {
                 depth,
             } => write!(f, "frag_{index}_{depth}"),
             Variable::GridDimGlobal => f.write_str("gridDimGlobal"),
+            Self::Tmp { id, .. } => write!(f, "_tmp_{id}"),
         }
     }
 }
@@ -257,6 +260,15 @@ pub struct OptimizedArgs<const N: usize> {
 impl Variable {
     pub fn is_optimized(&self) -> bool {
         self.item().is_optimized()
+    }
+
+    pub fn tmp(item: Item) -> Self {
+        let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        Variable::Tmp {
+            id: inc as u16,
+            item,
+        }
     }
 
     pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N> {
@@ -364,6 +376,7 @@ impl Variable {
             Variable::BlockIdxGlobal => true,
             Variable::BlockDimGlobal => true,
             Variable::GridDimGlobal => true,
+            Variable::Tmp { .. } => false,
         }
     }
 
@@ -384,6 +397,7 @@ impl FmtLeft for Variable {
     fn fmt_left(&self) -> String {
         match self {
             Self::ConstLocal { item, .. } => format!("const {item} {self}"),
+            Variable::Tmp { item, .. } => format!("{item} {self}"),
             var => format!("{var}"),
         }
     }
@@ -393,6 +407,7 @@ impl FmtLeft for IndexedVariable {
     fn fmt_left(&self) -> String {
         match self.var {
             Variable::ConstLocal { item, .. } => format!("const {item} {self}"),
+            Variable::Tmp { item, .. } => format!("{item} {self}"),
             _ => format!("{self}"),
         }
     }
