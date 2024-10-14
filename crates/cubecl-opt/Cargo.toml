@@ -14,6 +14,3 @@ num = "0.4"
 petgraph = { version = "0.6" }
 smallvec = { version = "1", features = ["union", "const_generics"] }
 stable-vec = { version = "0.4" }
-
-[features]
-debug = []
