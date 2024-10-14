@@ -15,7 +15,7 @@ version.workspace = true
 
 [features]
 default = []
-export_tests = ["pretty_assertions", "env_logger"]
+export_tests = ["pretty_assertions"]
 std = []
 
 [dependencies]

@@ -57,8 +57,6 @@ pub struct ValueTable {
 
     pub(crate) next_expr_num: u32,
     pub(crate) next_value_num: u32,
-
-    pub(crate) expressions: HashMap<u32, Expression>,
 }
 impl ValueTable {
     pub(crate) fn insert_phi(&mut self, phi: &PhiInstruction, val: u32) {
@@ -81,7 +79,6 @@ impl Default for ValueTable {
             expression_numbers: Default::default(),
             next_expr_num: 0,
             next_value_num: 1,
-            expressions: Default::default(),
         }
     }
 }
