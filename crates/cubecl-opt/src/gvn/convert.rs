@@ -318,12 +318,7 @@ impl Expression {
 impl Value {
     pub(crate) fn as_var(&self) -> Variable {
         match self {
-            Value::Constant(val) => Variable::ConstantScalar(match val {
-                Constant::Int(val, kind) => ConstantScalarValue::Int(*val, *kind),
-                Constant::Float(val, kind) => ConstantScalarValue::Float(val.0, *kind),
-                Constant::UInt(val) => ConstantScalarValue::UInt(*val),
-                Constant::Bool(val) => ConstantScalarValue::Bool(*val),
-            }),
+            Value::Constant(val) => Variable::ConstantScalar((*val).into()),
             Value::Local(Local(id, depth, 0, item)) => Variable::LocalBinding {
                 id: *id,
                 item: *item,
