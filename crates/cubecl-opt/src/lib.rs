@@ -29,7 +29,6 @@ use std::{
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
-    u16,
 };
 
 use cubecl_core::{
