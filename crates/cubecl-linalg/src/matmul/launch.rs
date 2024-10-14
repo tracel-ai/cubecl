@@ -17,9 +17,9 @@ use cubecl_core::prelude::*;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
-    lhs_array: Array<I>,
-    rhs_array: Array<I>,
-    mut out_array: Array<O>,
+    lhs_array: Array<Line<I>>,
+    rhs_array: Array<Line<I>>,
+    mut out_array: Array<Line<O>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
 ) {
     let mut lhs = M::init_lhs(layouts.0);

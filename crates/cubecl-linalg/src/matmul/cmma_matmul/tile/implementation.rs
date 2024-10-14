@@ -88,9 +88,9 @@ pub(crate) fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
 }
 
 #[cube]
-pub(crate) fn read_output<O: Numeric, C: CubePrimitive>(
+pub(crate) fn read_output<O: Numeric, C: Numeric>(
     out: &Fragment<O>,
-    slice: &mut SliceMut<'_, C>,
+    slice: &mut SliceMut<'_, Line<C>>,
 ) {
     cmma::store(slice, &out.matrix, out.stride, cmma::MatrixLayout::RowMajor);
 }

@@ -50,11 +50,11 @@ macro_rules! impl_matmul_instruction {
                 init_rhs(layout, Self::M, Self::N, Self::K)
             }
 
-            fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs) {
+            fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs) {
                 fill_lhs(slice, lhs);
             }
 
-            fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs) {
+            fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs) {
                 fill_rhs(slice, rhs);
             }
 
@@ -62,7 +62,7 @@ macro_rules! impl_matmul_instruction {
                 init_output(Self::M, Self::N, Self::K)
             }
 
-            fn read_output<C: CubePrimitive>(out: &Self::Out, slice: &mut SliceMut<'_, C>) {
+            fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>) {
                 read_output::<O, C>(out, slice);
             }
         }

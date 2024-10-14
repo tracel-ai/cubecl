@@ -104,16 +104,18 @@ macro_rules! impl_matmul_instruction {
                 }
             }
 
-            fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs) {
-                for i in 0..Self::M * Self::K {
-                    lhs.handle[i] = I::cast_from(slice[i]);
-                }
+            fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs) {
+                asdf(slice, lhs);
+                // for i in 0..Self::M * Self::K {
+                //     lhs.handle[i] = Line::cast_from(slice[i]);
+                // }
             }
 
-            fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs) {
-                for i in 0..Self::K * Self::N {
-                    rhs.handle[i] = I::cast_from(slice[i]);
-                }
+            fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs) {
+                asdf(slice, rhs)
+                // for i in 0..Self::K * Self::N {
+                //     rhs.handle[i] = Line::cast_from(slice[i]);
+                // }
             }
 
             fn init_output() -> Self::Out {
@@ -131,9 +133,14 @@ macro_rules! impl_matmul_instruction {
                 out
             }
 
-            fn read_output<C: CubePrimitive>(out: &Self::Out, slice: &mut SliceMut<'_, C>) {
-                for i in 0..256 {
-                    slice[i] = C::cast_from(out.handle[i]);
+            fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>) {
+                let line_size = Line::size(&slice[0]);
+                for i in 0..out.x * out.y / line_size {
+                    let mut line = Line::<C>::empty(line_size);
+                    for j in 0..line_size {
+                        line[j] = C::cast_from(out.handle[i * line_size + j]);
+                    }
+                    slice[i] = line;
                 }
             }
         }
@@ -143,6 +150,32 @@ macro_rules! impl_matmul_instruction {
 impl_matmul_instruction!(DummyUnitInstruction16_16_16, 16, 16, 16);
 impl_matmul_instruction!(DummyUnitInstruction32_8_16, 32, 8, 16);
 impl_matmul_instruction!(DummyUnitInstruction8_32_16, 8, 32, 16);
+
+#[cube]
+fn asdf<E: Numeric>(slice: &Slice<'_, Line<E>>, tile: &mut OwnedTile<E>) {
+    // TODO is there better way
+    let line_size = Line::size(&slice[0]);
+
+    for i in 0..tile.x * tile.y / line_size {
+        let line = slice[i];
+        for j in 0..line_size {
+            tile.handle[i * line_size + j] = line[j];
+        }
+    }
+}
+
+// #[cube]
+// fn qwerty<E: Numeric>(tile: &mut OwnedTile<E>, slice: &SliceMut<'_, Line<E>>) {
+//     // TODO is there better way
+//     let line_size = Line::size(&slice[0]);
+
+//     for i in 0..tile.x * tile.y / line_size {
+//         let line = tile.handle[i];
+//         for j in 0..line_size {
+//             tile.handle[i * line_size + j] = Line::cast_from(line[j]);
+//         }
+//     }
+// }
 
 #[cube]
 pub(crate) fn execute<I: Numeric, O: Numeric>(

@@ -18,9 +18,9 @@ pub trait MatmulInstruction<I: Numeric, O: Numeric>:
     fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs;
     fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs;
 
-    fn fill_lhs<C: CubePrimitive>(slice: &Slice<'_, C>, lhs: &mut Self::Lhs);
-    fn fill_rhs<C: CubePrimitive>(slice: &Slice<'_, C>, rhs: &mut Self::Rhs);
+    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs);
+    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs);
 
     fn init_output() -> Self::Out;
-    fn read_output<C: CubePrimitive>(out: &Self::Out, slice: &mut SliceMut<'_, C>);
+    fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>);
 }

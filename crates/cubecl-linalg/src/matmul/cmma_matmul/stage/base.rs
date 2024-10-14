@@ -80,14 +80,16 @@ where
     }
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
-        let num_tile_elements = Instr::M * Instr::N;
+        let num_tile_elements = Instr::M * Instr::N / 4u32;
         let start = num_tile_elements * Self::plane_id();
 
         let same_type = comptime!(std::any::TypeId::of::<I>() == std::any::TypeId::of::<O>());
 
         if same_type {
-            let mut smem =
-                SharedMemory::<I>::new(num_tile_elements * comptime!(Self::num_planes()));
+            let mut smem = SharedMemory::<O>::new_lined(
+                num_tile_elements * comptime!(Self::num_planes()),
+                4u32,
+            );
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
@@ -102,8 +104,10 @@ where
                 );
             }
         } else {
-            let mut smem =
-                SharedMemory::<O>::new(num_tile_elements * comptime!(Self::num_planes()));
+            let mut smem = SharedMemory::<O>::new_lined(
+                num_tile_elements * comptime!(Self::num_planes()),
+                4u32,
+            );
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
