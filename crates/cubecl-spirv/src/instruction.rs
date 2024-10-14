@@ -380,7 +380,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_unary_op(op, |b, out_ty, ty, input, out| {
                     let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
                     let add = match out_ty.elem() {
-                        Elem::Int(_, false) => b.i_add(ty, None, input, one).unwrap(),
+                        Elem::Int(_, _) => b.i_add(ty, None, input, one).unwrap(),
                         Elem::Float(_) => b.f_add(ty, None, input, one).unwrap(),
                         _ => unreachable!(),
                     };
