@@ -34,7 +34,9 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                 // Exclude outputs
                 if !matches!(
                     var,
-                    Variable::GlobalOutputArray { .. } | Variable::Slice { .. }
+                    Variable::GlobalOutputArray { .. }
+                        | Variable::Slice { .. }
+                        | Variable::GlobalInputArray { .. }
                 ) {
                     out = Some(*var);
                 }
@@ -141,6 +143,7 @@ fn search_dead_blocks(opt: &mut Optimizer) -> bool {
                 opt.program.remove_edge(edge);
             }
             opt.program.remove_node(block);
+            opt.post_order.retain(|it| *it != block);
             return true;
         }
     }

@@ -1,50 +1,82 @@
 use std::collections::{HashMap, HashSet, LinkedList};
 
 use petgraph::{
-    algo::dominators::{self, Dominators},
+    algo::dominators::{self},
     graph::NodeIndex,
+    Graph,
 };
+use smallvec::SmallVec;
 
-use crate::Optimizer;
+use crate::{BasicBlock, Optimizer};
 
-use super::{value_of_var, Expression, Value, ValueTable};
+use super::{convert::value_of_var, Expression, GvnPass, Value, ValueTable};
 
-#[derive(Debug)]
-pub struct GvnPass {
-    table: ValueTable,
-    block_sets: HashMap<NodeIndex, BlockSets>,
-    dominators: Dominators<NodeIndex>,
-    post_doms: Dominators<NodeIndex>,
+const MAX_SET_PASSES: usize = 10;
+
+/// The set annotations for a given block
+#[derive(Debug, Clone)]
+pub struct BlockSets {
+    /// Expressions generated in this block
+    pub exp_gen: LinkedList<(u32, Expression)>,
+    /// Phi nodes that create new values in this block
+    pub phi_gen: HashMap<u32, Value>,
+    /// Temporaries that are assigned black box values (i.e. atomics, index to mutable array)
+    pub tmp_gen: HashSet<Value>,
+    /// The set of leaders for each value. This is the first temporary that contains the expression
+    /// on any given path.
+    pub leaders: HashMap<u32, Value>,
+
+    /// The set of anticipated ("requested") expressions at the output point of the block
+    pub antic_out: LinkedList<(u32, Expression)>,
+    /// The set of anticipated ("requested") expressions at the input point of the block
+    pub antic_in: LinkedList<(u32, Expression)>,
 }
 
-#[derive(Debug)]
-struct BlockSets {
-    exp_gen: LinkedList<(u32, Expression)>,
-    phi_gen: HashMap<u32, Value>,
-    tmp_gen: HashSet<Value>,
-    leaders: HashMap<u32, Value>,
-
-    antic_out: LinkedList<(u32, Expression)>,
-    antic_in: LinkedList<(u32, Expression)>,
+impl Default for GvnPass {
+    fn default() -> Self {
+        let mut dummy = Graph::<BasicBlock, ()>::new();
+        let root = dummy.add_node(BasicBlock::default());
+        Self {
+            values: Default::default(),
+            block_sets: Default::default(),
+            dominators: dominators::simple_fast(&dummy, root),
+            post_doms: dominators::simple_fast(&dummy, root),
+        }
+    }
 }
 
 impl GvnPass {
-    pub fn new(opt: &Optimizer) -> GvnPass {
-        let doms = dominators::simple_fast(&opt.program.graph, opt.entry());
-        let mut rev_graph = opt.program.graph.clone();
-        rev_graph.reverse();
-        let post_doms = dominators::simple_fast(&rev_graph, opt.ret);
-        GvnPass {
-            table: Default::default(),
-            block_sets: Default::default(),
-            dominators: doms,
-            post_doms,
-        }
-    }
-
+    /// Build set annotations for each block. Executes two steps:
+    /// 1. Forward DFA that generates the available expressions, values and leaders for each block
+    /// 2. Backward fixed-point DFA that generates the anticipated expressions/antileaders for each
+    ///     block
     pub fn build_sets(&mut self, opt: &Optimizer) {
         self.build_block_sets_fwd(opt, self.dominators.root(), HashMap::new());
-        self.build_block_sets_bckwd(opt, self.post_doms.root());
+        let mut build_passes = 0;
+        while self.build_block_sets_bckwd(opt, self.post_doms.root())
+            && build_passes < MAX_SET_PASSES
+        {
+            build_passes += 1;
+        }
+
+        let global_leaders = self.values.value_numbers.iter();
+        let global_leaders = global_leaders
+            .filter(|(k, _)| {
+                matches!(
+                    k,
+                    Value::Constant(_)
+                        | Value::Input(_, _)
+                        | Value::Scalar(_, _)
+                        | Value::ConstArray(_, _, _)
+                        | Value::Builtin(_)
+                        | Value::Output(_, _)
+                )
+            })
+            .map(|(k, v)| (*v, *k))
+            .collect::<HashMap<_, _>>();
+        for set in self.block_sets.values_mut() {
+            set.leaders.extend(global_leaders.clone());
+        }
     }
 
     fn build_block_sets_fwd(
@@ -59,14 +91,14 @@ impl GvnPass {
         let mut added_exprs = HashSet::new();
 
         for phi in opt.program[block].phi_nodes.borrow().iter() {
-            let value = value_of_var(&phi.out).unwrap();
-            let num = self.table.lookup_or_add_var(&phi.out).unwrap();
-            phi_gen.insert(num, value);
+            let (num, val) = self.values.lookup_or_add_phi(phi);
+            leaders.entry(num).or_insert(val);
+            phi_gen.entry(num).or_insert(val);
         }
 
         for op in opt.program[block].ops.borrow().values() {
             match self
-                .table
+                .values
                 .maybe_insert_op(op, &mut exp_gen, &mut added_exprs)
             {
                 Ok((num, Some(val), _)) => {
@@ -91,7 +123,10 @@ impl GvnPass {
         self.block_sets.insert(block, sets);
         let successors: Vec<_> = self.dominators.immediately_dominated_by(block).collect();
         for successor in successors {
-            self.build_block_sets_fwd(opt, successor, leaders.clone());
+            // Work around dominator bug
+            if successor != block {
+                self.build_block_sets_fwd(opt, successor, leaders.clone());
+            }
         }
     }
 
@@ -125,8 +160,14 @@ impl GvnPass {
             let child = successors[0];
             let antic_in_succ = &self.block_sets[&child].antic_in;
             let phi_gen = &self.block_sets[&child].phi_gen;
-            let result =
-                phi_translate(opt, phi_gen, antic_in_succ, child, current, &mut self.table);
+            let result = phi_translate(
+                opt,
+                phi_gen,
+                antic_in_succ,
+                child,
+                current,
+                &mut self.values,
+            );
             if self.block_sets[&current].antic_out != result {
                 changed = true;
             }
@@ -166,13 +207,16 @@ impl GvnPass {
 
         let predecessors: Vec<_> = self.post_doms.immediately_dominated_by(current).collect();
         for predecessor in predecessors {
-            changed |= self.build_block_sets_bckwd(opt, predecessor);
+            // Work around dominator bug
+            if predecessor != current {
+                changed |= self.build_block_sets_bckwd(opt, predecessor);
+            }
         }
         changed
     }
 }
 
-fn phi_translate(
+pub fn phi_translate(
     opt: &Optimizer,
     phi_gen: &HashMap<u32, Value>,
     antic: &LinkedList<(u32, Expression)>,
@@ -183,19 +227,44 @@ fn phi_translate(
     let mut result = LinkedList::new();
     let mut translated = HashMap::new();
 
-    for (val, _) in antic {
-        if let Some(val) = phi_gen.get(val) {
+    for phi in opt.block(child).phi_nodes.borrow().iter() {
+        let (num, _) = values.lookup_or_add_phi(phi);
+        let here = phi.entries.iter().find(|it| it.block == parent).unwrap();
+        let num_here = values.lookup_or_add_var(&here.value).unwrap();
+        translated.insert(num, num_here);
+    }
+
+    for (val, expr) in antic {
+        if let Some(value) = phi_gen.get(val) {
             let nodes = opt.block(child).phi_nodes.borrow();
             let phi = nodes
                 .iter()
-                .find(|it| &value_of_var(&it.out).unwrap() == val);
+                .find(|it| &value_of_var(&it.out).unwrap() == value);
+
             if let Some(phi) = phi {
                 let value_here = phi.entries.iter().find(|it| it.block == parent).unwrap();
                 let value_here = value_of_var(&value_here.value).unwrap();
                 let num_here = values.lookup_or_add_expr(Expression::Value(value_here), None);
                 result.push_back((num_here, Expression::Value(value_here)));
-                translated.insert(*val, value_here);
+                translated.insert(*val, num_here);
             }
+        } else {
+            let t = |val: &u32| *translated.get(val).unwrap_or(val);
+
+            let updated = match expr {
+                Expression::Instruction(inst) => {
+                    let args = inst.args.iter().map(t).collect::<SmallVec<[u32; 4]>>();
+                    let mut inst = inst.clone();
+                    inst.args = args;
+                    Expression::Instruction(inst)
+                }
+                Expression::Copy(val, item) => Expression::Copy(t(val), *item),
+                Expression::Phi(_) => continue,
+                other => other.clone(),
+            };
+            let updated_val = values.lookup_or_add_expr(updated.clone(), None);
+            result.push_back((updated_val, updated));
+            translated.insert(*val, updated_val);
         }
     }
     result

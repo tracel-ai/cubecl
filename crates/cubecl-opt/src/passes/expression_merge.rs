@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, mem::take};
 
 use cubecl_core::ir::{Branch, Item, Metadata, Operation, Operator, UnaryOperator, Variable};
 use stable_vec::StableVec;
@@ -21,6 +21,35 @@ impl OptimizerPass for InlineAssignments {
 
 fn search_loop(opt: &mut Optimizer) -> bool {
     for node in opt.program.node_indices().collect::<Vec<_>>() {
+        let mut removed_phi = Vec::new();
+        // Remove trivial phi nodes left from PRE
+        opt.program[node].phi_nodes.borrow_mut().retain(|it| {
+            let reference = it.entries[0].value;
+            if it.entries.iter().all(|it| it.value == reference) {
+                removed_phi.push(it.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        if !removed_phi.is_empty() {
+            let mut phi_assigns = removed_phi
+                .into_iter()
+                .map(|phi| {
+                    Operation::Operator(Operator::Assign(UnaryOperator {
+                        input: phi.entries[0].value,
+                        out: phi.out,
+                    }))
+                })
+                .collect::<StableVec<_>>();
+
+            let ops = take(&mut *opt.program[node].ops.borrow_mut());
+            phi_assigns.extend(ops.into_iter().map(|(_, v)| v));
+            *opt.program[node].ops.borrow_mut() = phi_assigns;
+            return true;
+        }
+
         let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
 
         for idx in ops {
@@ -48,7 +77,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
     false
 }
 
-fn item_compatible(lhs: Item, rhs: Item) -> bool {
+pub fn item_compatible(lhs: Item, rhs: Item) -> bool {
     let vectorization_lhs = lhs.vectorization.map(|it| it.get()).unwrap_or(1);
     let vectorization_rhs = rhs.vectorization.map(|it| it.get()).unwrap_or(1);
     vectorization_lhs == vectorization_rhs && lhs.elem() == rhs.elem()

@@ -24,10 +24,12 @@
 //!
 
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
+    u16,
 };
 
 use cubecl_core::{
@@ -38,6 +40,7 @@ use cubecl_core::{
     ir::{Item, Operation, Scope},
     ExecutionMode,
 };
+use gvn::GvnPass;
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
     EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, FindConstSliceLen,
@@ -100,6 +103,8 @@ struct Program {
     pub graph: StableDiGraph<BasicBlock, ()>,
     root: NodeIndex,
     int_ranges: HashMap<VarId, Range>,
+
+    temp_id: AtomicCounter,
 }
 
 impl Deref for Program {
@@ -143,6 +148,7 @@ pub struct Optimizer {
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
+    pub(crate) gvn: Rc<RefCell<GvnPass>>,
 }
 
 impl Default for Optimizer {
@@ -156,6 +162,7 @@ impl Default for Optimizer {
             cube_dim: Default::default(),
             mode: Default::default(),
             post_order: Default::default(),
+            gvn: Default::default(),
         }
     }
 }
@@ -185,6 +192,10 @@ impl Optimizer {
         self.exempt_index_assign_locals();
         self.ssa_transform();
         self.apply_post_ssa_passes();
+
+        // Special expensive passes that should only run once.
+        // Need more optimization rounds in between.
+
         let arrays_prop = AtomicCounter::new(0);
         CopyPropagateArray.apply_post_ssa(self, arrays_prop.clone());
         if arrays_prop.get() > 0 {
@@ -192,6 +203,16 @@ impl Optimizer {
             self.ssa_transform();
             self.apply_post_ssa_passes();
         }
+
+        let gvn_count = AtomicCounter::new(0);
+        let gvn = self.gvn.clone();
+        gvn.borrow_mut().apply_post_ssa(self, gvn_count.clone());
+
+        if gvn_count.get() > 0 {
+            self.apply_post_ssa_passes();
+        }
+
+        MergeBlocks.apply_post_ssa(self, AtomicCounter::new(0));
     }
 
     /// The entry block of the program
@@ -256,7 +277,6 @@ impl Optimizer {
             Box::new(RemoveIndexScalar),
             Box::new(EliminateConstBranches),
             Box::new(EliminateDeadBlocks),
-            Box::new(MergeBlocks),
             Box::new(CopyTransform),
         ];
         // Passes that only run if execution mode is checked
@@ -398,7 +418,66 @@ impl Optimizer {
             _ => None,
         }
     }
+
+    /// Create a temporary variable for use in the compiler. Counts backwards from u16::MAX to avoid
+    /// Collisions with existing locals, since binding counter is no longer available.
+    pub fn create_temporary(&self, item: Item) -> Variable {
+        let next_id = self.program.temp_id.inc() as u16;
+        Variable::LocalBinding {
+            id: u16::MAX - next_id,
+            item,
+            depth: u8::MAX,
+        }
+    }
 }
 
 /// A visitor that does nothing.
 pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}
+
+#[cfg(test)]
+mod test {
+    use cubecl_core::{
+        self as cubecl,
+        ir::{Elem, HybridAllocator, Item, Variable},
+        prelude::{Array, CubeContext, ExpandElement},
+    };
+    use cubecl_core::{cube, CubeDim, ExecutionMode};
+
+    use crate::Optimizer;
+
+    #[allow(unused)]
+    #[cube(launch)]
+    fn pre_kernel(x: u32, cond: u32, out: &mut Array<u32>) {
+        let mut y = 0;
+        let mut z = 0;
+        if cond == 0 {
+            y = x + 4;
+        }
+        z = x + 4;
+        out[0] = y;
+        out[1] = z;
+    }
+
+    #[test]
+    #[ignore = "no good way to assert opt is applied"]
+    fn test_pre() {
+        let mut ctx = CubeContext::root(HybridAllocator::default());
+        let x = ExpandElement::Plain(Variable::GlobalScalar {
+            id: 0,
+            elem: Elem::UInt,
+        });
+        let cond = ExpandElement::Plain(Variable::GlobalScalar {
+            id: 1,
+            elem: Elem::UInt,
+        });
+        let arr = ExpandElement::Plain(Variable::GlobalOutputArray {
+            id: 0,
+            item: Item::new(Elem::UInt),
+        });
+
+        pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());
+        let scope = ctx.into_scope();
+        let opt = Optimizer::new(scope, CubeDim::default(), ExecutionMode::Checked);
+        println!("{opt}")
+    }
+}

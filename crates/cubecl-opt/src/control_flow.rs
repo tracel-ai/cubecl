@@ -296,11 +296,7 @@ impl Optimizer {
                 true => Operator::LowerEqual,
                 false => Operator::Lower,
             };
-            let mut tmp = self.root_scope.create_local_binding(Item::new(Elem::Bool));
-            // Try to fix collisions
-            if let Variable::LocalBinding { id, .. } = &mut tmp {
-                *id += 20000
-            }
+            let tmp = self.create_temporary(Item::new(Elem::Bool));
             self.program[break_cond].ops.borrow_mut().push(
                 op(BinaryOperator {
                     lhs: i,
@@ -359,28 +355,14 @@ fn update_control_flow(opt: &mut Optimizer, block: NodeIndex, from: NodeIndex, t
     };
 
     match &mut *opt.program[block].control_flow.borrow_mut() {
-        ControlFlow::IfElse {
-            then,
-            or_else,
-            merge,
-            ..
-        } => {
+        ControlFlow::IfElse { then, or_else, .. } => {
             update(then);
             update(or_else);
-            if let Some(it) = merge.as_mut() {
-                update(it);
-            }
         }
         ControlFlow::Switch {
-            default,
-            branches,
-            merge,
-            ..
+            default, branches, ..
         } => {
             update(default);
-            if let Some(it) = merge.as_mut() {
-                update(it);
-            }
 
             for branch in branches {
                 update(&mut branch.1);

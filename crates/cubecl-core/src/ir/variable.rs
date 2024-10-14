@@ -97,7 +97,7 @@ impl Variable {
             Variable::Matrix { .. } => false,
             Variable::Slice { .. } => false,
             Variable::LocalArray { .. } => false,
-            Variable::GlobalInputArray { .. } => true,
+            Variable::GlobalInputArray { .. } => false,
             Variable::GlobalScalar { .. } => true,
             Variable::Versioned { .. } => true,
             Variable::LocalBinding { .. } => true,

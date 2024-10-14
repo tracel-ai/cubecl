@@ -35,6 +35,20 @@ impl Display for Operation {
     }
 }
 
+impl Operation {
+    pub fn out(&self) -> Option<Variable> {
+        match self {
+            Operation::Operator(operator) => operator.out(),
+            Operation::Metadata(metadata) => metadata.out(),
+            Operation::Branch(Branch::Select(op)) => Some(op.out),
+            Operation::Branch(_) => None,
+            Operation::Synchronization(_) => None,
+            Operation::Subcube(subcube) => subcube.out(),
+            Operation::CoopMma(_) => None,
+        }
+    }
+}
+
 /// All operators that can be used in a GPU compute shader.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
@@ -102,6 +116,79 @@ pub enum Operator {
     Magnitude(UnaryOperator),
     Normalize(UnaryOperator),
     Dot(BinaryOperator),
+}
+
+impl Operator {
+    pub fn out(&self) -> Option<Variable> {
+        let val = match self {
+            Operator::Add(binary_operator)
+            | Operator::Sub(binary_operator)
+            | Operator::Mul(binary_operator)
+            | Operator::Div(binary_operator)
+            | Operator::Powf(binary_operator)
+            | Operator::Equal(binary_operator)
+            | Operator::NotEqual(binary_operator)
+            | Operator::Lower(binary_operator)
+            | Operator::Greater(binary_operator)
+            | Operator::LowerEqual(binary_operator)
+            | Operator::GreaterEqual(binary_operator)
+            | Operator::Modulo(binary_operator)
+            | Operator::Index(binary_operator)
+            | Operator::UncheckedIndex(binary_operator)
+            | Operator::IndexAssign(binary_operator)
+            | Operator::UncheckedIndexAssign(binary_operator)
+            | Operator::Max(binary_operator)
+            | Operator::Min(binary_operator)
+            | Operator::BitwiseAnd(binary_operator)
+            | Operator::BitwiseOr(binary_operator)
+            | Operator::BitwiseXor(binary_operator)
+            | Operator::ShiftLeft(binary_operator)
+            | Operator::ShiftRight(binary_operator)
+            | Operator::Remainder(binary_operator)
+            | Operator::And(binary_operator)
+            | Operator::Or(binary_operator)
+            | Operator::AtomicSwap(binary_operator)
+            | Operator::AtomicAdd(binary_operator)
+            | Operator::AtomicSub(binary_operator)
+            | Operator::AtomicMax(binary_operator)
+            | Operator::AtomicMin(binary_operator)
+            | Operator::AtomicAnd(binary_operator)
+            | Operator::AtomicOr(binary_operator)
+            | Operator::AtomicXor(binary_operator)
+            | Operator::Dot(binary_operator) => binary_operator.out,
+
+            Operator::Abs(unary_operator)
+            | Operator::Exp(unary_operator)
+            | Operator::Log(unary_operator)
+            | Operator::Log1p(unary_operator)
+            | Operator::Cos(unary_operator)
+            | Operator::Sin(unary_operator)
+            | Operator::Tanh(unary_operator)
+            | Operator::Sqrt(unary_operator)
+            | Operator::Round(unary_operator)
+            | Operator::Floor(unary_operator)
+            | Operator::Ceil(unary_operator)
+            | Operator::Erf(unary_operator)
+            | Operator::Recip(unary_operator)
+            | Operator::Assign(unary_operator)
+            | Operator::Not(unary_operator)
+            | Operator::Neg(unary_operator)
+            | Operator::Bitcast(unary_operator)
+            | Operator::AtomicLoad(unary_operator)
+            | Operator::AtomicStore(unary_operator)
+            | Operator::Magnitude(unary_operator)
+            | Operator::Normalize(unary_operator) => unary_operator.out,
+
+            Operator::Clamp(clamp_operator) => clamp_operator.out,
+            Operator::Copy(copy_operator) => copy_operator.out,
+            Operator::CopyBulk(copy_bulk_operator) => copy_bulk_operator.out,
+            Operator::Slice(slice_operator) => slice_operator.out,
+            Operator::InitLine(line_init_operator) => line_init_operator.out,
+            Operator::AtomicCompareAndSwap(op) => op.out,
+            Operator::Fma(fma_operator) => fma_operator.out,
+        };
+        Some(val)
+    }
 }
 
 impl Display for Operator {
@@ -223,6 +310,17 @@ pub enum Metadata {
         var: Variable,
         out: Variable,
     },
+}
+
+impl Metadata {
+    pub fn out(&self) -> Option<Variable> {
+        let val = match self {
+            Metadata::Stride { out, .. } => *out,
+            Metadata::Shape { out, .. } => *out,
+            Metadata::Length { out, .. } => *out,
+        };
+        Some(val)
+    }
 }
 
 impl Display for Metadata {

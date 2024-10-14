@@ -4,10 +4,15 @@ use std::{
 };
 
 use cubecl_core::ir::{
-    Branch, ConstantScalarValue, Metadata, Operation, Operator, Subcube, Variable,
+    Branch, ConstantScalarValue, Elem, Item, Metadata, Operation, Operator, Subcube, Variable,
 };
 
-use super::{Builtin, Expression, Instruction, Local, OpId, Value, ValueTable};
+use crate::{passes::item_compatible, PhiInstruction};
+
+use super::{
+    convert::{id_of_meta, id_of_op, value_of_var},
+    Expression, Instruction, OpId, Value, ValueTable,
+};
 
 impl ValueTable {
     pub fn maybe_insert_op(
@@ -30,9 +35,17 @@ impl ValueTable {
         Ok((num, val, expr))
     }
 
+    pub fn lookup_op(&mut self, op: &Operation) -> Option<u32> {
+        let (expr, _) = self.create_expr(op).ok()?;
+        self.expression_numbers.get(&expr).copied()
+    }
+
     pub fn value_of_expr(&mut self, expr: Expression) -> (u32, bool) {
         if let Some(existing) = self.expression_numbers.get(&expr) {
             (*existing, false)
+        } else if let Expression::Copy(num, _) = expr {
+            self.expression_numbers.insert(expr.clone(), num);
+            (num, true)
         } else {
             let num = self.next_value_num;
             self.expression_numbers.insert(expr.clone(), num);
@@ -41,6 +54,18 @@ impl ValueTable {
             self.next_expr_num += 1;
             (num, true)
         }
+    }
+
+    pub fn lookup_or_add_phi(&mut self, phi: &PhiInstruction) -> (u32, Value) {
+        let expr = Expression::Phi(
+            phi.entries
+                .iter()
+                .map(|it| (value_of_var(&it.value).unwrap(), it.block))
+                .collect(),
+        );
+        let out = value_of_var(&phi.out).unwrap();
+        let num = self.lookup_or_add_expr(expr, Some(out));
+        (num, out)
     }
 
     pub fn lookup_or_add_expr(&mut self, expr: Expression, value: Option<Value>) -> u32 {
@@ -96,10 +121,11 @@ impl ValueTable {
                 Err(val)
             }
             Operation::Branch(Branch::Select(op)) => {
+                let item = op.out.item();
                 let cond = self.lookup_or_add_var(&op.cond)?;
                 let then = self.lookup_or_add_var(&op.then)?;
                 let or_else = self.lookup_or_add_var(&op.or_else)?;
-                let expr = Instruction::new(OpId::Select, &[cond, then, or_else]);
+                let expr = Instruction::new(OpId::Select, &[cond, then, or_else], item);
                 Ok((expr.into(), value_of_var(&op.out)))
             }
             Operation::Branch(_) | Operation::Synchronization(_) | Operation::CoopMma(_) => {
@@ -114,9 +140,16 @@ impl ValueTable {
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let (expr, val) = match operator {
             Operator::Assign(op) => {
+                let item = op.out.item();
+                let is_cast = !item_compatible(op.input.item(), op.out.item());
                 let out = value_of_var(&op.out);
                 let num = self.lookup_or_add_var(&op.input)?;
-                (Expression::Copy(num), out)
+                if is_cast {
+                    let expr = Instruction::new(OpId::Cast, &[num], item);
+                    (expr.into(), out)
+                } else {
+                    (Expression::Copy(num, item), out)
+                }
             }
 
             // Commutative binop
@@ -132,6 +165,7 @@ impl ValueTable {
             | Operator::Max(op)
             | Operator::Min(op)
             | Operator::Dot(op) => {
+                let item = op.out.item();
                 let mut lhs = self.lookup_or_add_var(&op.lhs)?;
                 let mut rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&op.out);
@@ -139,7 +173,7 @@ impl ValueTable {
                 if lhs > rhs {
                     swap(&mut lhs, &mut rhs);
                 }
-                let expr = Instruction::commutative(id, &[lhs, rhs]);
+                let expr = Instruction::commutative(id, &[lhs, rhs], item);
                 (expr.into(), out)
             }
 
@@ -149,15 +183,14 @@ impl ValueTable {
             | Operator::Powf(op)
             | Operator::Modulo(op)
             | Operator::Remainder(op)
-            | Operator::Index(op)
-            | Operator::UncheckedIndex(op)
             | Operator::ShiftLeft(op)
             | Operator::ShiftRight(op) => {
+                let item = op.out.item();
                 let lhs = self.lookup_or_add_var(&op.lhs)?;
                 let rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&op.out);
                 let id = id_of_op(operator);
-                let expr = Instruction::new(id, &[lhs, rhs]);
+                let expr = Instruction::new(id, &[lhs, rhs], item);
                 (expr.into(), out)
             }
 
@@ -166,6 +199,7 @@ impl ValueTable {
             | Operator::Greater(op)
             | Operator::LowerEqual(op)
             | Operator::GreaterEqual(op) => {
+                let item = op.out.item();
                 let mut lhs = self.lookup_or_add_var(&op.lhs)?;
                 let mut rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&op.out);
@@ -174,7 +208,7 @@ impl ValueTable {
                     swap(&mut lhs, &mut rhs);
                     op = cmp_inverse(&op);
                 }
-                let expr = Instruction::new(op, &[lhs, rhs]);
+                let expr = Instruction::new(op, &[lhs, rhs], item);
                 (expr.into(), out)
             }
 
@@ -194,17 +228,26 @@ impl ValueTable {
             | Operator::Recip(op)
             | Operator::Not(op)
             | Operator::Neg(op)
-            | Operator::Bitcast(op)
             | Operator::Magnitude(op)
             | Operator::Normalize(op) => {
                 let input = self.lookup_or_add_var(&op.input)?;
+                let item = op.out.item();
                 let out = value_of_var(&op.out);
                 let op = id_of_op(operator);
-                let expr = Instruction::new(op, &[input]);
+                let expr = Instruction::new(op, &[input], item);
+                (expr.into(), out)
+            }
+            Operator::Bitcast(op) => {
+                let item = op.out.item();
+                let input = self.lookup_or_add_var(&op.input)?;
+                let out = value_of_var(&op.out);
+                let op = id_of_op(operator);
+                let expr = Instruction::new(op, &[input], item);
                 (expr.into(), out)
             }
 
             Operator::Fma(op) => {
+                let item = op.out.item();
                 let mut a = self.lookup_or_add_var(&op.a)?;
                 let mut b = self.lookup_or_add_var(&op.b)?;
                 let c = self.lookup_or_add_var(&op.c)?;
@@ -213,24 +256,42 @@ impl ValueTable {
                 if a > b {
                     swap(&mut a, &mut b);
                 }
-                let expr = Instruction::new(op, &[a, b, c]);
+                let expr = Instruction::new(op, &[a, b, c], item);
                 (expr.into(), out)
             }
             Operator::Clamp(op) => {
+                let item = op.out.item();
                 let val = self.lookup_or_add_var(&op.input)?;
                 let min = self.lookup_or_add_var(&op.min_value)?;
                 let max = self.lookup_or_add_var(&op.max_value)?;
                 let out = value_of_var(&op.out);
                 let op = id_of_op(operator);
-                let expr = Instruction::new(op, &[val, min, max]);
+                let expr = Instruction::new(op, &[val, min, max], item);
                 (expr.into(), out)
             }
             Operator::InitLine(op) => {
+                let item = op.out.item();
                 let operands = op.inputs.iter().map(|it| self.lookup_or_add_var(it));
                 let operands = operands.collect::<Result<Vec<_>, _>>()?;
                 let out = value_of_var(&op.out);
                 let op = id_of_op(operator);
-                let expr = Instruction::new(op, &operands);
+                let expr = Instruction::new(op, &operands, item);
+                (expr.into(), out)
+            }
+
+            Operator::Index(op) | Operator::UncheckedIndex(op) => {
+                let out = value_of_var(&op.out);
+                if !op.lhs.is_immutable() {
+                    Err(out)?
+                }
+                let item = op.out.item();
+                let mut lhs = self.lookup_or_add_var(&op.lhs)?;
+                let mut rhs = self.lookup_or_add_var(&op.rhs)?;
+                let id = id_of_op(operator);
+                if lhs > rhs {
+                    swap(&mut lhs, &mut rhs);
+                }
+                let expr = Instruction::commutative(id, &[lhs, rhs], item);
                 (expr.into(), out)
             }
 
@@ -261,13 +322,15 @@ impl ValueTable {
         let op = id_of_meta(meta);
         let (expr, val) = match meta {
             Metadata::Stride { dim, var, out } | Metadata::Shape { dim, var, out } => {
+                let item = out.item();
                 let var = self.lookup_or_add_var(var)?;
                 let dim = self.lookup_or_add_var(dim)?;
                 let out = value_of_var(out);
-                let expr = Instruction::new(op, &[var, dim]);
+                let expr = Instruction::new(op, &[var, dim], item);
                 (expr, out)
             }
             Metadata::Length { var, out } => {
+                let item = out.item();
                 let out = value_of_var(out);
                 let var = match var {
                     Variable::GlobalInputArray { .. }
@@ -280,118 +343,16 @@ impl ValueTable {
                         let constant =
                             Variable::ConstantScalar(ConstantScalarValue::UInt(*length as u64));
                         let num = self.lookup_or_add_var(&constant)?;
-                        let expr = Expression::Copy(num);
+                        let expr = Expression::Copy(num, Item::new(Elem::UInt));
                         return Ok((expr, out));
                     }
                     _ => unreachable!("Length only available on array"),
                 };
-                let expr = Instruction::new(op, &[var]);
+                let expr = Instruction::new(op, &[var], item);
                 (expr, out)
             }
         };
         Ok((expr.into(), val))
-    }
-}
-
-pub fn value_of_var(var: &Variable) -> Option<Value> {
-    let val = match var {
-        Variable::GlobalInputArray { id, .. } => Value::Input(*id),
-        Variable::GlobalScalar { id, elem } => Value::Scalar(*id, *elem),
-        Variable::GlobalOutputArray { id, .. } => Value::Output(*id),
-        Variable::Versioned {
-            id, depth, version, ..
-        } => Value::Local(Local(*id, *depth, *version)),
-        Variable::LocalBinding { id, depth, .. } => Value::Local(Local(*id, *depth, 0)),
-        Variable::ConstantScalar(val) => Value::Constant((*val).into()),
-        Variable::ConstantArray { id, .. } => Value::ConstArray(*id),
-        Variable::Local { .. }
-        | Variable::SharedMemory { .. }
-        | Variable::LocalArray { .. }
-        | Variable::Matrix { .. } => None?,
-        Variable::Slice { id, depth, .. } => Value::Slice(*id, *depth),
-        Variable::Rank => Value::Builtin(Builtin::Rank),
-        Variable::UnitPos => Value::Builtin(Builtin::UnitPos),
-        Variable::UnitPosX => Value::Builtin(Builtin::UnitPosX),
-        Variable::UnitPosY => Value::Builtin(Builtin::UnitPosY),
-        Variable::UnitPosZ => Value::Builtin(Builtin::UnitPosZ),
-        Variable::CubePos => Value::Builtin(Builtin::CubePos),
-        Variable::CubePosX => Value::Builtin(Builtin::CubePosX),
-        Variable::CubePosY => Value::Builtin(Builtin::CubePosY),
-        Variable::CubePosZ => Value::Builtin(Builtin::CubePosZ),
-        Variable::CubeDim => Value::Builtin(Builtin::CubeDim),
-        Variable::CubeDimX => Value::Builtin(Builtin::CubeDimX),
-        Variable::CubeDimY => Value::Builtin(Builtin::CubeDimY),
-        Variable::CubeDimZ => Value::Builtin(Builtin::CubeDimZ),
-        Variable::CubeCount => Value::Builtin(Builtin::CubeCount),
-        Variable::CubeCountX => Value::Builtin(Builtin::CubeCountX),
-        Variable::CubeCountY => Value::Builtin(Builtin::CubeCountY),
-        Variable::CubeCountZ => Value::Builtin(Builtin::CubeCountZ),
-        Variable::SubcubeDim => Value::Builtin(Builtin::SubcubeDim),
-        Variable::AbsolutePos => Value::Builtin(Builtin::AbsolutePos),
-        Variable::AbsolutePosX => Value::Builtin(Builtin::AbsolutePosX),
-        Variable::AbsolutePosY => Value::Builtin(Builtin::AbsolutePosY),
-        Variable::AbsolutePosZ => Value::Builtin(Builtin::AbsolutePosZ),
-    };
-    Some(val)
-}
-
-fn id_of_op(op: &Operator) -> OpId {
-    match op {
-        Operator::Add(_) => OpId::Add,
-        Operator::Fma(_) => OpId::Fma,
-        Operator::Sub(_) => OpId::Sub,
-        Operator::Mul(_) => OpId::Mul,
-        Operator::Div(_) => OpId::Div,
-        Operator::Abs(_) => OpId::Abs,
-        Operator::Exp(_) => OpId::Exp,
-        Operator::Log(_) => OpId::Log,
-        Operator::Log1p(_) => OpId::Log1p,
-        Operator::Cos(_) => OpId::Cos,
-        Operator::Sin(_) => OpId::Sin,
-        Operator::Tanh(_) => OpId::Tanh,
-        Operator::Powf(_) => OpId::Powf,
-        Operator::Sqrt(_) => OpId::Sqrt,
-        Operator::Round(_) => OpId::Round,
-        Operator::Floor(_) => OpId::Floor,
-        Operator::Ceil(_) => OpId::Ceil,
-        Operator::Erf(_) => OpId::Erf,
-        Operator::Recip(_) => OpId::Recip,
-        Operator::Equal(_) => OpId::Equal,
-        Operator::NotEqual(_) => OpId::NotEqual,
-        Operator::Lower(_) => OpId::Lower,
-        Operator::Clamp(_) => OpId::Clamp,
-        Operator::Greater(_) => OpId::Greater,
-        Operator::LowerEqual(_) => OpId::LowerEqual,
-        Operator::GreaterEqual(_) => OpId::GreaterEqual,
-        Operator::Modulo(_) => OpId::Modulo,
-        Operator::Index(_) => OpId::Index,
-        Operator::UncheckedIndex(_) => OpId::Index,
-        Operator::InitLine(_) => OpId::InitLine,
-        Operator::And(_) => OpId::And,
-        Operator::Or(_) => OpId::Or,
-        Operator::Not(_) => OpId::Not,
-        Operator::Neg(_) => OpId::Neg,
-        Operator::Max(_) => OpId::Max,
-        Operator::Min(_) => OpId::Min,
-        Operator::BitwiseAnd(_) => OpId::BitwiseAnd,
-        Operator::BitwiseOr(_) => OpId::BitwiseOr,
-        Operator::BitwiseXor(_) => OpId::BitwiseXor,
-        Operator::ShiftLeft(_) => OpId::ShiftLeft,
-        Operator::ShiftRight(_) => OpId::ShiftRight,
-        Operator::Remainder(_) => OpId::Remainder,
-        Operator::Magnitude(_) => OpId::Magnitude,
-        Operator::Normalize(_) => OpId::Normalize,
-        Operator::Dot(_) => OpId::Dot,
-        Operator::Bitcast(_) => OpId::Bitcast,
-        _ => unreachable!(),
-    }
-}
-
-fn id_of_meta(meta: &Metadata) -> OpId {
-    match meta {
-        Metadata::Stride { .. } => OpId::Stride,
-        Metadata::Shape { .. } => OpId::Shape,
-        Metadata::Length { .. } => OpId::Length,
     }
 }
 
