@@ -123,29 +123,6 @@ impl WgpuSpirvServer {
                 push_constant_ranges: &[],
             });
 
-        let file_name = sanitize_filename::sanitize(
-            kernel
-                .name()
-                .split("<")
-                .next()
-                .unwrap()
-                .split("::")
-                .last()
-                .unwrap(),
-        );
-        fs::write(
-            format!("out/{}.opt.txt", file_name),
-            format!("{}", repr.optimizer),
-        )
-        .unwrap();
-        fs::write(
-            format!("out/{}.spv", file_name),
-            repr.assemble()
-                .into_iter()
-                .flat_map(|it| it.to_le_bytes())
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
         let pipeline = self.compile_source(&repr.assemble(), &layout);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());

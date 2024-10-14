@@ -24,7 +24,6 @@ cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0" }
 
 bytemuck = { workspace = true }
 pollster = { workspace = true }
-sanitize-filename = "0.5"
 wgpu = { version = "22.0.0", features = [
     "fragile-send-sync-non-atomic-wasm",
     "spirv",
