@@ -49,7 +49,6 @@ impl ValueTable {
         } else {
             let num = self.next_value_num;
             self.expression_numbers.insert(expr.clone(), num);
-            self.expressions.insert(self.next_expr_num, expr);
             self.next_value_num += 1;
             self.next_expr_num += 1;
             (num, true)

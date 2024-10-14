@@ -3,7 +3,7 @@
 //! Lecture Notes in Computer Science vol. 2985, pp. 167-184, March 2004
 //! http://dx.doi.org/10.1007/978-3-540-24723-4_12
 //!
-//! ALso see https://en.wikipedia.org/wiki/Partial-redundancy_elimination
+//! Also see https://en.wikipedia.org/wiki/Partial-redundancy_elimination
 
 /// Analysis functions for building annotated CFG
 mod analysis;
