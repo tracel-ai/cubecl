@@ -22,7 +22,6 @@ std = []
 bytemuck = { workspace = true }
 cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false }
-env_logger = { version = "0.11", optional = true }
 half = { workspace = true, features = ["bytemuck"] }
 pretty_assertions = { workspace = true, optional = true }
 
