@@ -384,7 +384,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Float(_) => b.f_add(ty, None, input, one).unwrap(),
                         _ => unreachable!(),
                     };
-                    T::exp(b, ty, add, out)
+                    T::log(b, ty, add, out)
                 });
             }
             Operator::Cos(op) => {
