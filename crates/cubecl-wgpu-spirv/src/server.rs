@@ -1,4 +1,4 @@
-use std::{fs, num::NonZero};
+use std::num::NonZero;
 
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
