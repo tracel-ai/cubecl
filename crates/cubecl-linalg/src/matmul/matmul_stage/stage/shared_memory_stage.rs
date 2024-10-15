@@ -15,6 +15,7 @@ pub struct SharedMemoryStage<E: Numeric, O: TilingOrder> {
     smem: SharedMemory<Line<E>>,
     layout: MatrixLayout,
     stage_info: StageInfo,
+    line_size: u32,
     _tiling_order: PhantomData<O>,
 }
 
@@ -36,6 +37,7 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
             smem,
             layout,
             stage_info: stage_info.runtime(),
+            line_size,
             _tiling_order: PhantomData::<O>.runtime(),
         }
     }
@@ -52,7 +54,7 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
             stage.stage_info.num_tiles_y,
         );
 
-        let tile_stride = tile_num_elements(stage.stage_info);
+        let tile_stride = tile_num_elements(stage.stage_info) / stage.line_size;
         let start = nth_tile * tile_stride;
 
         new_ref_tile(

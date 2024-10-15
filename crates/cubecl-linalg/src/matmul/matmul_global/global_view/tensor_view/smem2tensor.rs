@@ -7,9 +7,9 @@ use cubecl_core::prelude::*;
 
 #[cube]
 pub trait Smem2Tensor {
-    fn smem_to_tensor<E: Numeric, C: CubePrimitive>(
+    fn smem_to_tensor<E: Numeric, ES: Numeric>(
         out: &mut TensorView<E>,
-        smem_slice: &Slice<'_, C>,
+        smem_slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
         #[comptime] stage_info: StageInfo,
@@ -40,9 +40,9 @@ impl PlaneMapper for Smem2TensorSimple {
 
 #[cube]
 impl Smem2Tensor for Smem2TensorSimple {
-    fn smem_to_tensor<E: Numeric, C: CubePrimitive>(
+    fn smem_to_tensor<E: Numeric, ES: Numeric>(
         out: &mut TensorView<E>,
-        tile_slice: &Slice<'_, C>,
+        tile_slice: &Slice<'_, Line<ES>>,
         row_tile_begin: u32,
         col_tile_begin: u32,
         #[comptime] stage_info: StageInfo,
@@ -57,7 +57,7 @@ impl Smem2Tensor for Smem2TensorSimple {
             let col = col_tile_begin + unit_write % stage_info.tile_size_y;
 
             let value = tile_slice[unit_write];
-            TensorView::write_coalesced::<C>(out, row, col, value);
+            TensorView::write_coalesced::<ES>(out, row, col, value);
         }
     }
 }

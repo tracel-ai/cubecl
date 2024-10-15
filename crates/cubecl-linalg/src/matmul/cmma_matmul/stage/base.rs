@@ -80,47 +80,24 @@ where
     }
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
-        let num_tile_elements = Instr::M * Instr::N / 4u32;
-        let start = num_tile_elements * Self::plane_id();
+        let line_size = 4u32; // TODO seems hard to get real line size :(
+        let num_tile_lines = Instr::M * Instr::N / line_size;
+        let start = num_tile_lines * Self::plane_id();
 
-        let same_type = comptime!(std::any::TypeId::of::<I>() == std::any::TypeId::of::<O>());
+        let mut smem =
+            SharedMemory::<O>::new_lined(num_tile_lines * comptime!(Self::num_planes()), line_size);
 
-        if same_type {
-            let mut smem = SharedMemory::<O>::new_lined(
-                num_tile_elements * comptime!(Self::num_planes()),
-                4u32,
+        #[unroll]
+        for accumulator_iter in 0..acc.len() {
+            let accumulator = acc.index(accumulator_iter);
+            let smem_slice = smem.slice_mut(start, start + num_tile_lines);
+            Instr::read_output(accumulator, smem_slice);
+            Out::write(
+                out,
+                smem_slice.as_slice(),
+                Self::plane_id(),
+                accumulator_iter,
             );
-
-            #[unroll]
-            for accumulator_iter in 0..acc.len() {
-                let accumulator = acc.index(accumulator_iter);
-                let smem_slice = smem.slice_mut(start, start + num_tile_elements);
-                Instr::read_output(accumulator, smem_slice);
-                Out::write_with_cast(
-                    out,
-                    smem_slice.as_slice(),
-                    Self::plane_id(),
-                    accumulator_iter,
-                );
-            }
-        } else {
-            let mut smem = SharedMemory::<O>::new_lined(
-                num_tile_elements * comptime!(Self::num_planes()),
-                4u32,
-            );
-
-            #[unroll]
-            for accumulator_iter in 0..acc.len() {
-                let accumulator = acc.index(accumulator_iter);
-                let smem_slice = smem.slice_mut(start, start + num_tile_elements);
-                Instr::read_output(accumulator, smem_slice);
-                Out::write_with_cast(
-                    out,
-                    smem_slice.as_slice(),
-                    Self::plane_id(),
-                    accumulator_iter,
-                );
-            }
         }
     }
 }

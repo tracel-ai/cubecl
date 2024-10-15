@@ -6,7 +6,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub trait Stage<E: Numeric>: CubeType + Clone + Copy + IntoRuntime + Send + Sync + 'static {
+pub trait Stage<ES: Numeric>:
+    CubeType + Clone + Copy + IntoRuntime + Send + Sync + 'static
+{
     type Underlying: CubeType;
 
     fn new(
@@ -17,7 +19,7 @@ pub trait Stage<E: Numeric>: CubeType + Clone + Copy + IntoRuntime + Send + Sync
 
     fn fill<EG: Numeric, G: GlobalView<EG>>(stage: &mut Self, global: &G);
 
-    fn get_tile(stage: &Self, x: u32, y: u32) -> RefTile<'_, E>;
+    fn get_tile(stage: &Self, x: u32, y: u32) -> RefTile<'_, ES>;
 
     fn layout(stage: &Self) -> MatrixLayout;
 }

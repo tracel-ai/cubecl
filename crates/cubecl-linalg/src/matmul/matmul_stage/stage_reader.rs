@@ -6,38 +6,38 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 #[cube]
-pub trait StageReader<E: Numeric>: CubeType {
+pub trait StageReader<ES: Numeric>: CubeType {
     fn read_tile(
         stage_reader: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
         accumulator_offset: u32,
-    ) -> RefTile<'_, E>;
+    ) -> RefTile<'_, ES>;
 
     // Maybe delete if we don't need layout prior to slice
     fn slice_layout(stage_reader: &Self) -> MatrixLayout;
 }
 
 #[derive(CubeType)]
-pub struct LhsStageReader<E: Numeric, S: Stage<E>> {
+pub struct LhsStageReader<ES: Numeric, S: Stage<ES>> {
     pub stage: S,
-    pub _e: PhantomData<E>,
+    pub _e: PhantomData<ES>,
 }
 
 #[derive(CubeType)]
-pub struct RhsStageReader<E: Numeric, S: Stage<E>> {
+pub struct RhsStageReader<ES: Numeric, S: Stage<ES>> {
     pub stage: S,
-    pub _e: PhantomData<E>,
+    pub _e: PhantomData<ES>,
 }
 
 #[cube]
-impl<E: Numeric, S: Stage<E>> StageReader<E> for LhsStageReader<E, S> {
+impl<ES: Numeric, S: Stage<ES>> StageReader<ES> for LhsStageReader<ES, S> {
     fn read_tile(
         reader: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
         _accumulator_offset: u32,
-    ) -> RefTile<'_, E> {
+    ) -> RefTile<'_, ES> {
         S::get_tile(&reader.stage, compute_plane_offset, buffer_offset)
     }
 

@@ -128,13 +128,19 @@ macro_rules! impl_matmul_instruction {
             }
 
             fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>) {
+                // TODO This results in indexing slice for no reason
                 let line_size = Line::size(&slice[0]);
+
                 for i in 0..out.x * out.y / line_size {
-                    let mut line = Line::<C>::empty(line_size);
-                    for j in 0..line_size {
-                        line[j] = C::cast_from(out.handle[i * line_size + j]);
+                    if comptime!(line_size == 1) {
+                        slice[i] = Line::cast_from(out.handle[i]);
+                    } else {
+                        let mut line = Line::<C>::empty(line_size);
+                        for j in 0..line_size {
+                            line[j] = C::cast_from(out.handle[i * line_size + j]);
+                        }
+                        slice[i] = line;
                     }
-                    slice[i] = line;
                 }
             }
         }
@@ -147,7 +153,7 @@ impl_matmul_instruction!(DummyUnitInstruction8_32_16, 8, 32, 16);
 
 #[cube]
 fn fill<E: Numeric>(slice: &Slice<'_, Line<E>>, tile: &mut OwnedTile<E>) {
-    // TODO is there better way
+    // TODO This results in indexing slice for no reason
     let line_size = Line::size(&slice[0]);
 
     for i in 0..tile.x * tile.y / line_size {

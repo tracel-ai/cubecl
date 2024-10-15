@@ -70,7 +70,8 @@ impl SharedMemoryLoader for Gmem2SmemContinuous {
                 stage_info.tile_size_x,
                 stage_info.tile_size_y,
             );
-            smem[unit_position] = Line::cast_from(line);
+
+            smem[unit_position / line_size] = Line::cast_from(line);
         }
     }
 }

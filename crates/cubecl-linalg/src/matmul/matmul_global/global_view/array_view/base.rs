@@ -38,11 +38,10 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
             MatrixLayout::ColMajor => (load_id % tile_size_x, load_id / tile_size_x),
         };
 
-        let read_pos = ((tile_x * tile_size_x + load_x) * view.stride_x
-            + (tile_y * tile_size_y + load_y) * view.stride_y)
-            / array.line_size();
+        let read_pos = (tile_x * tile_size_x + load_x) * view.stride_x
+            + (tile_y * tile_size_y + load_y) * view.stride_y;
 
-        array[read_pos]
+        array[read_pos / array.line_size()]
     }
 
     fn load_shared_memory<ES: Numeric, O: TilingOrder>(
@@ -62,17 +61,17 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         // ArrayView does not support offsets
     }
 
-    fn write_coalesced<C: CubePrimitive>(view: &mut Self, write_x: u32, write_y: u32, value: C) {
+    fn write_coalesced<ES: Numeric>(view: &mut Self, write_x: u32, write_y: u32, value: Line<ES>) {
         let array = &mut view.array;
 
-        let write_pos = (write_x * view.stride_x + write_y * view.stride_y) / array.line_size();
+        let write_pos = write_x * view.stride_x + write_y * view.stride_y;
 
-        array[write_pos] = Line::cast_from(value);
+        array[write_pos / array.line_size()] = Line::cast_from(value);
     }
 
-    fn write_slice<C: CubePrimitive>(
+    fn write_slice<ES: Numeric>(
         view: &mut Self,
-        slice: &Slice<'_, C>,
+        slice: &Slice<'_, Line<ES>>,
         write_row: u32,
         write_col: u32,
         #[comptime] stage_info: StageInfo,

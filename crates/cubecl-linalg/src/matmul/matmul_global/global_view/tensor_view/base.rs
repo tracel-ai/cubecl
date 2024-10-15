@@ -73,11 +73,11 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
     /// Assumes (write_row, write_col) is within bounds
     /// Does not account for batch offset
     /// Assumes out is row major
-    fn write_coalesced<C: CubePrimitive>(
+    fn write_coalesced<ES: Numeric>(
         view: &mut Self,
         write_row: u32,
         write_col: u32,
-        value: C,
+        value: Line<ES>,
     ) {
         let tensor = &mut view.tensor;
         let write_row = write_row + view.x_offset;
@@ -88,9 +88,9 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         tensor[write_position] = Line::cast_from(value);
     }
 
-    fn write_slice<C: CubePrimitive>(
+    fn write_slice<ES: Numeric>(
         view: &mut Self,
-        slice: &Slice<'_, C>,
+        slice: &Slice<'_, Line<ES>>,
         write_row: u32,
         write_col: u32,
         #[comptime] stage_info: StageInfo,

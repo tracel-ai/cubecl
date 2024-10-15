@@ -25,10 +25,15 @@ pub trait GlobalView<E: Numeric>: CubeType {
         #[comptime] stage_info: StageInfo,
     );
 
-    fn write_coalesced<C: CubePrimitive>(view: &mut Self, write_row: u32, write_col: u32, value: C);
-    fn write_slice<C: CubePrimitive>(
+    fn write_coalesced<ES: Numeric>(
         view: &mut Self,
-        slice: &Slice<'_, C>,
+        write_row: u32,
+        write_col: u32,
+        value: Line<ES>,
+    );
+    fn write_slice<ES: Numeric>(
+        view: &mut Self,
+        slice: &Slice<'_, Line<ES>>,
         write_row: u32,
         write_col: u32,
         #[comptime] stage_info: StageInfo,

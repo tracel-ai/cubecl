@@ -6,7 +6,7 @@ use crate::matmul::FixedShapeMatmul;
 use super::{StageReader, StageWriter};
 
 #[cube]
-/// Execute a matmul over a fixed-size block, using one Cube.
+/// Execute a matmul over a fixed-size stage, using one Cube.
 pub trait StageMatmul<
     I: Numeric,
     O: Numeric,

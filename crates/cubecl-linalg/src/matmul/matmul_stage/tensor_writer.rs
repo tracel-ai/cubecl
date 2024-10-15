@@ -24,9 +24,9 @@ pub(crate) fn new_tensor_writer<EG: Numeric>(
 
 #[cube]
 impl<EG: Numeric> StageWriter<EG> for TensorWriter<EG> {
-    fn write_with_cast<ES: CubePrimitive>(
+    fn write<ES: Numeric>(
         stage_writer: &mut Self,
-        slice: &Slice<'_, ES>,
+        slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
     ) {
