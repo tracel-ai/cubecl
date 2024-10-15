@@ -1,7 +1,7 @@
+use cubecl_common::stub::Duration;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
-use web_time::Duration;
 
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::server::CubeCount;

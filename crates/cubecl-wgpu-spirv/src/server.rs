@@ -3,6 +3,7 @@ use std::{future::Future, num::NonZero};
 
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
+use cubecl_common::future;
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
@@ -13,7 +14,6 @@ use cubecl_runtime::{
 };
 use cubecl_spirv::SpirvCompiler;
 use cubecl_wgpu::WgpuPoll;
-use futures_lite::future;
 use hashbrown::HashMap;
 use wgpu::{
     hal::{self, vulkan},

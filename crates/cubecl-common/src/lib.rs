@@ -22,4 +22,7 @@ pub mod benchmark;
 /// notation.
 pub mod reader;
 
+/// Future utils with a compatible API for native, non-std and wasm environments.
+pub mod future;
+
 extern crate alloc;

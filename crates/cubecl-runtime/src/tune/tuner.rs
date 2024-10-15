@@ -1,11 +1,12 @@
 use async_channel::{Receiver, Sender};
+use cubecl_common::future;
 
 use core::future::Future;
 use core::{any::Any, mem::ManuallyDrop};
-use web_time::Duration;
+use cubecl_common::stub::Duration;
 
 #[cfg(all(not(target_family = "wasm"), feature = "std"))]
-use std::panic::{resume_unwind, AssertUnwindSafe};
+use std::panic::resume_unwind;
 
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -205,26 +206,12 @@ impl<K: AutotuneKey> Tuner<K> {
     ) -> Result<BenchmarkDurations, BenchError> {
         if should_run {
             let tuner = TuneBenchmark::new(operation, client.clone());
-
-            #[cfg(any(target_family = "wasm", not(feature = "std")))]
-            {
-                Ok(tuner.sample_durations().await)
-            }
-
-            #[cfg(all(not(target_family = "wasm"), feature = "std"))]
-            {
-                use futures_lite::FutureExt;
-
-                AssertUnwindSafe(tuner.sample_durations())
-                    .catch_unwind()
-                    .await
-                    .map_err(|e| {
-                        log::warn!(
-                            "Caught error while benchmarking, falling back to next operation."
-                        );
-                        ManuallyDrop::new(e)
-                    })
-            }
+            future::catch_unwind(tuner.sample_durations())
+                .await
+                .map_err(|e| {
+                    log::warn!("Caught error while benchmarking, falling back to next operation.");
+                    ManuallyDrop::new(e)
+                })
         } else {
             Ok(BenchmarkDurations::new(vec![Duration::MAX]))
         }
@@ -242,5 +229,5 @@ fn spawn_benchmark_task(future: impl Future<Output = ()> + 'static) {
     // - Tuning might be less precise, as it's possible that other operations are
     //   submitted while tuning, which might skew results.
     #[cfg(not(target_family = "wasm"))]
-    futures_lite::future::block_on(future);
+    future::block_on(future);
 }

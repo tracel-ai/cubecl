@@ -55,7 +55,7 @@ where
         let _handle = thread::spawn(move || {
             // Run the whole procedure as one blocking future. This is much simpler than trying
             // to use some multithreaded executor.
-            futures_lite::future::block_on(async {
+            cubecl_common::future::block_on(async {
                 while let Ok(message) = receiver.recv().await {
                     match message {
                         Message::Read(binding, callback) => {

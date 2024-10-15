@@ -29,7 +29,6 @@ wgpu = { version = "22.0.0", features = [
 ] }
 
 async-channel = { workspace = true }
-futures-lite = { workspace = true }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }

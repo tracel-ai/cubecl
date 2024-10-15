@@ -4,12 +4,12 @@ use crate::{
     AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
 use alloc::sync::Arc;
+use cubecl_common::future;
 use cubecl_core::{Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryManagement};
 use cubecl_runtime::DeviceProperties;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
-use futures_lite::future;
 use wgpu::DeviceDescriptor;
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.

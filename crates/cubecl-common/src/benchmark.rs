@@ -3,9 +3,9 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Display;
-use web_time::Duration;
-
 use serde::{Deserialize, Serialize};
+
+use super::stub::Duration;
 
 /// Results of a benchmark run.
 #[derive(new, Debug, Default, Clone, Serialize, Deserialize)]
