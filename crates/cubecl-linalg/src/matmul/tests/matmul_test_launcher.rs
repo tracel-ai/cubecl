@@ -9,8 +9,9 @@ use crate::matmul::TensorMatmul;
 use super::test_utils::assert_equals_approx;
 use super::test_utils::matmul_cpu_reference;
 
+// TODO should be obtained in cleaner ways
 pub const LINE_SIZE_IN: u32 = 4u32;
-pub const LINE_SIZE_OUT: u32 = 2u32;
+pub const LINE_SIZE_OUT: u32 = 4u32;
 
 pub fn test_fixed_matmul<MM, I, O, R>(layouts: (MatrixLayout, MatrixLayout), device: &R::Device)
 where

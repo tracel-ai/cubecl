@@ -62,6 +62,7 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
     }
 
     fn update_view(view: &mut Self, x_offset: u32, y_offset: u32) {
+        // TODO in practice one of them is always += 0
         view.x_offset += x_offset;
         view.y_offset += y_offset;
     }
