@@ -72,6 +72,7 @@ pretty_assertions = "1.4"
 
 # Async
 futures = { version = "0.3", default-features = false }
+embassy-futures = { version = "0.1.1" } # for no-std
 
 [profile.dev]
 opt-level = 2
