@@ -66,15 +66,17 @@ impl<K: AutotuneKey> Tuner<K> {
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
     {
-        let set = match self.tune_cache.try_cache(set) {
+        match self.tune_cache.try_cache(set.as_ref()) {
             // Cache hit -> return straight away.
-            super::TuneCacheResult::Hit(ops) => return AutotuneOperation::execute(ops),
+            super::TuneCacheResult::Hit { fastest_index } => {
+                let op = set.fastest(fastest_index);
+                return op.execute();
+            }
             // Pending -> wait for the cache to be filled.
-            super::TuneCacheResult::Pending(set) => set,
+            super::TuneCacheResult::Pending => {}
             // Never seen before -> Start autotuning.
-            super::TuneCacheResult::Miss(set) => {
+            super::TuneCacheResult::Miss => {
                 self.start_autotuning(set.as_ref(), client);
-                set
             }
         };
 
@@ -93,13 +95,13 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         // Check to see if value is now cached. If not, just use a default operation.
-        let operation = match self.tune_cache.try_cache(set) {
-            super::TuneCacheResult::Hit(ops) => ops,
-            super::TuneCacheResult::Pending(set) => set.fastest(0),
-            super::TuneCacheResult::Miss(set) => set.fastest(0),
+        let fastest_index = match self.tune_cache.try_cache(set.as_ref()) {
+            super::TuneCacheResult::Hit { fastest_index } => fastest_index,
+            _ => 0,
         };
 
-        AutotuneOperation::execute(operation)
+        let op = set.fastest(fastest_index);
+        AutotuneOperation::execute(op)
     }
 
     fn start_autotuning<

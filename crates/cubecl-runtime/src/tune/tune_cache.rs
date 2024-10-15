@@ -14,9 +14,7 @@ use std_imports::*;
 use serde::{Deserialize, Serialize};
 
 use super::AutotuneKey;
-use super::AutotuneOperation;
 use super::AutotuneOperationSet;
-use alloc::boxed::Box;
 use hashbrown::HashMap;
 
 #[cfg(autotune_persistent_cache)]
@@ -64,13 +62,16 @@ pub(crate) struct TuneCache<K> {
 }
 
 /// Result of the cache try
-pub enum TuneCacheResult<K, Out = ()> {
-    /// An operation is found and given
-    Hit(Box<dyn AutotuneOperation<Out>>),
+pub enum TuneCacheResult {
+    /// An operation is found.
+    Hit {
+        /// The index of the fastest operation to execute.
+        fastest_index: usize,
+    },
     /// We're waiting for cache results to come in.
-    Pending(Box<dyn AutotuneOperationSet<K, Out>>),
+    Pending,
     /// No operation is found yet.
-    Miss(Box<dyn AutotuneOperationSet<K, Out>>),
+    Miss,
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
@@ -122,8 +123,8 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     pub(crate) fn try_cache<Out>(
         &mut self,
-        set: Box<dyn AutotuneOperationSet<K, Out>>,
-    ) -> TuneCacheResult<K, Out> {
+        set: &dyn AutotuneOperationSet<K, Out>,
+    ) -> TuneCacheResult {
         let key = set.key();
         let result = self.in_memory_cache.get_mut(&key);
 
@@ -133,8 +134,8 @@ impl<K: AutotuneKey> TuneCache<K> {
             fastest_index,
         } = match result {
             Some(CacheEntry::Cached(val)) => val,
-            Some(CacheEntry::Pending) => return TuneCacheResult::Pending(set),
-            None => return TuneCacheResult::Miss(set),
+            Some(CacheEntry::Pending) => return TuneCacheResult::Pending,
+            None => return TuneCacheResult::Miss,
         };
 
         #[cfg(autotune_persistent_cache)]
@@ -146,16 +147,20 @@ impl<K: AutotuneKey> TuneCache<K> {
                     .get(&key)
                     .expect("Both caches should be in sync");
                 if checksum != persistent_entry.checksum {
-                    return TuneCacheResult::Miss(set);
+                    return TuneCacheResult::Miss;
                 }
                 *checksum_checked = true;
             }
-            TuneCacheResult::Hit(set.fastest(*fastest_index))
+            TuneCacheResult::Hit {
+                fastest_index: *fastest_index,
+            }
         }
 
         #[cfg(not(autotune_persistent_cache))]
         {
-            TuneCacheResult::Hit(set.fastest(*fastest_index))
+            TuneCacheResult::Hit {
+                fastest_index: *fastest_index,
+            }
         }
     }
 
