@@ -57,12 +57,7 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
         let tile_stride = tile_num_elements(stage.stage_info) / stage.line_size;
         let start = nth_tile * tile_stride;
 
-        new_ref_tile(
-            x,
-            y,
-            stage.smem.slice(start, start + tile_stride),
-            stage.layout,
-        )
+        new_ref_tile(stage.smem.slice(start, start + tile_stride), stage.layout)
     }
 
     fn layout(stage: &Self) -> MatrixLayout {

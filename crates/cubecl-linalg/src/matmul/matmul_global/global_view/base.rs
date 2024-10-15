@@ -17,6 +17,7 @@ pub trait GlobalView<E: Numeric>: CubeType {
         tile_size_x: u32,
         tile_size_y: u32,
     ) -> Line<E>;
+
     fn load_shared_memory<ES: Numeric, O: TilingOrder>(
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
@@ -29,6 +30,7 @@ pub trait GlobalView<E: Numeric>: CubeType {
         write_col: u32,
         value: Line<ES>,
     );
+
     fn write_slice<ES: Numeric>(
         view: &mut Self,
         slice: &Slice<'_, Line<ES>>,

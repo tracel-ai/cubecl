@@ -47,6 +47,8 @@ impl<
         Lhs::init_view(&mut lhs_loader, CUBE_POS_X * BM::M, k_range.0);
         Rhs::init_view(&mut rhs_loader, CUBE_POS_Y * BM::N, k_range.0);
 
+        // TODO init_view for Out or it will always start at (0,0)
+
         for _ in 0..num_loops {
             BM::execute(
                 &Lhs::fill_block(&mut lhs_loader),

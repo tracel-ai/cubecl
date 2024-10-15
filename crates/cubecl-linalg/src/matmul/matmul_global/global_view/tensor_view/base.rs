@@ -16,6 +16,8 @@ pub struct TensorView<E: Numeric> {
     pub y_offset: u32,
     pub stride_x: u32,
     pub stride_y: u32,
+    pub shape_x: u32,
+    pub shape_y: u32,
 }
 
 #[cube]
@@ -32,19 +34,24 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
     ) -> Line<EG> {
         let tensor = &view.tensor;
 
-        let absolute_tile_x = tile_x * tile_size_x + view.x_offset;
-        let absolute_tile_y = tile_y * tile_size_y + view.y_offset;
+        let view_tile_x = tile_x * tile_size_x + view.x_offset;
+        let view_tile_y = tile_y * tile_size_y + view.y_offset;
 
         let (load_x, load_y) = match comptime!(view.layout) {
             MatrixLayout::RowMajor => (load_id / tile_size_y, load_id % tile_size_y),
             MatrixLayout::ColMajor => (load_id % tile_size_x, load_id / tile_size_x),
         };
 
-        let read_pos = ((absolute_tile_x + load_x) * view.stride_x
-            + (absolute_tile_y + load_y) * view.stride_y)
-            / tensor.line_size();
+        let view_x = view_tile_x + load_x;
+        let view_y = view_tile_y + load_y;
 
-        tensor[read_pos]
+        let read_pos = (view_x * view.stride_x + view_y * view.stride_y) / tensor.line_size();
+
+        select(
+            view_x < view.shape_x && view_y < view.shape_y,
+            tensor[read_pos],
+            Line::empty(tensor.line_size()).fill(EG::from_int(0)),
+        )
     }
 
     fn load_shared_memory<ES: Numeric, O: TilingOrder>(
@@ -62,7 +69,7 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
     }
 
     fn update_view(view: &mut Self, x_offset: u32, y_offset: u32) {
-        // TODO in practice one of them is always += 0
+        // TODO in practice one of them is always += 0, so there is useless computation
         view.x_offset += x_offset;
         view.y_offset += y_offset;
     }
@@ -70,36 +77,41 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
     /// Assumes (write_row, write_col) is within bounds
     /// Does not account for batch offset
     /// Assumes out is row major
-    fn write_coalesced<ES: Numeric>(
-        view: &mut Self,
-        write_row: u32,
-        write_col: u32,
-        value: Line<ES>,
-    ) {
+    fn write_coalesced<ES: Numeric>(view: &mut Self, write_x: u32, write_y: u32, value: Line<ES>) {
         let tensor = &mut view.tensor;
-        let write_row = write_row + view.x_offset;
-        let write_col = write_col + view.y_offset;
+        let write_row = write_x + view.x_offset;
+        let write_col = write_y + view.y_offset;
 
         let write_position =
             (write_row * view.stride_x + write_col * view.stride_y) / tensor.line_size();
         tensor[write_position] = Line::cast_from(value);
+
+        // TODO ternary to avoid branching
+        if write_x >= view.shape_x || write_y >= view.shape_y {
+        } else {
+            tensor[write_position] = Line::cast_from(value);
+        }
     }
 
     fn write_slice<ES: Numeric>(
         view: &mut Self,
         slice: &Slice<'_, Line<ES>>,
-        write_row: u32,
-        write_col: u32,
+        write_x: u32,
+        write_y: u32,
         #[comptime] stage_info: StageInfo,
     ) {
-        Smem2TensorSimple::smem_to_tensor(view, slice, write_row, write_col, stage_info);
+        Smem2TensorSimple::smem_to_tensor(view, slice, write_x, write_y, stage_info);
     }
 }
 
 #[cube]
 pub fn new_tensor_view<E: Numeric>(tensor: Tensor<Line<E>>, layout: MatrixLayout) -> TensorView<E> {
-    let stride_x = tensor.stride(tensor.rank() - 2);
-    let stride_y = tensor.stride(tensor.rank() - 1);
+    let rank = tensor.rank();
+    let stride_x = tensor.stride(rank - 2);
+    let stride_y = tensor.stride(rank - 1);
+    let shape_x = tensor.shape(rank - 2);
+    let shape_y = tensor.shape(rank - 1);
+
     TensorView::<E> {
         tensor,
         layout,
@@ -107,5 +119,7 @@ pub fn new_tensor_view<E: Numeric>(tensor: Tensor<Line<E>>, layout: MatrixLayout
         y_offset: 0,
         stride_x,
         stride_y,
+        shape_x,
+        shape_y,
     }
 }

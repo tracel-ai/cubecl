@@ -9,7 +9,7 @@ use crate::matmul::TensorMatmul;
 use super::test_utils::assert_equals_approx;
 use super::test_utils::matmul_cpu_reference;
 
-// TODO should be obtained in cleaner ways
+// TODO should be config when used inside cube algo
 pub const LINE_SIZE_IN: u32 = 4u32;
 pub const LINE_SIZE_OUT: u32 = 4u32;
 

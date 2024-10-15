@@ -49,15 +49,16 @@ impl Smem2Tensor for Smem2TensorSimple {
     ) {
         let unit_jump = Self::plane_dim() * out.tensor.line_size();
         let num_unit_writes = tile_num_elements(stage_info) / unit_jump;
-        let tile_size = out.tensor.line_size();
+        let line_size = out.tensor.line_size();
 
         for i in 0..num_unit_writes {
-            let unit_write = Self::plane_unit() * tile_size + i * unit_jump;
+            let unit_write = Self::plane_unit() * line_size + i * unit_jump;
 
             let row = row_tile_begin + unit_write / stage_info.tile_size_y;
             let col = col_tile_begin + unit_write % stage_info.tile_size_y;
 
-            let value = tile_slice[unit_write / tile_size];
+            // TODO checked index
+            let value = tile_slice[unit_write / line_size];
             TensorView::write_coalesced::<ES>(out, row, col, value);
         }
     }

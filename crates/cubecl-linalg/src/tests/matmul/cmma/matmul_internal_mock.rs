@@ -21,6 +21,31 @@ macro_rules! testgen_cmma_internal_mock {
         };
 
         #[test]
+        pub fn test_global_matmul_g16x16x36_s16x16x16() {
+            test_tensor_matmul::<
+                CmmaGlobalMatmul<
+                    f32,
+                    f32,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S16x16x16,
+                    >,
+                    LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    TensorUnloader<f32>,
+                >,
+                f32,
+                TestRuntime,
+            >(
+                MatmulProblem::new(16, 16, 36, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
         pub fn test_global_matmul_precisions() {
             type EG = i32;
             type ES = i32;
@@ -393,25 +418,25 @@ macro_rules! testgen_cmma_internal_mock {
                         f32,
                         f32,
                         f32,
-                        DummyUnitInstruction32_8_16<f32, f32>,
+                        DummyUnitInstruction16_16_16<f32, f32>,
                         S32x32x32,
                     >,
-                    LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    LhsTensorLoader<f32, f32, SharedMemoryStage<f32, YMajorTiling>>,
                     RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
                     TensorUnloader<f32>,
                 >,
                 f32,
                 TestRuntime,
             >(
-                MatmulProblem::new(32, 32, 128, MatrixLayout::ColMajor, MatrixLayout::RowMajor),
+                MatmulProblem::new(32, 32, 64, MatrixLayout::ColMajor, MatrixLayout::ColMajor),
                 &Default::default(),
             )
         }
 
         #[test]
-        #[ignore]
+        #[ignore = "Should panic or not depending on line size"]
+        // Line size too large gives out of bounds
         pub fn test_stage_matmul_s128x16x16() {
-            // Should panic but only when vectorized, because too many units to fill rhs -> out of bounds
             test_fixed_matmul::<
                 CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S128x16x16>,
                 f32,
