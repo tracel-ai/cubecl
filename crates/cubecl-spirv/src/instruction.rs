@@ -410,9 +410,29 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Tanh(op) => {
                 self.compile_unary_op(op, |b, _, ty, input, out| T::tanh(b, ty, input, out))
             }
-            Operator::Powf(op) => {
-                self.compile_binary_op(op, |b, _, ty, lhs, rhs, out| T::pow(b, ty, lhs, rhs, out))
-            }
+            Operator::Powf(op) => self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
+                let bool = b.type_bool();
+                let zero = out_ty.const_u32(b, 0);
+                let one = out_ty.const_u32(b, 1);
+                let two = out_ty.const_u32(b, 2);
+                let modulo = b.f_rem(ty, None, rhs, two).unwrap();
+                let is_zero = b.f_ord_equal(bool, None, modulo, zero).unwrap();
+                let abs = b.id();
+                T::f_abs(b, ty, lhs, abs);
+                let even = b.id();
+                T::pow(b, ty, abs, rhs, even);
+                let cond2_0 = b.f_ord_equal(bool, None, modulo, one).unwrap();
+                let cond2_1 = b.f_ord_less_than(bool, None, lhs, zero).unwrap();
+                let cond2 = b.logical_and(bool, None, cond2_0, cond2_1).unwrap();
+                let neg_lhs = b.f_negate(ty, None, lhs).unwrap();
+                let pow2 = b.id();
+                T::pow(b, ty, neg_lhs, rhs, pow2);
+                let pow2_neg = b.f_negate(ty, None, pow2).unwrap();
+                let default = b.id();
+                T::pow(b, ty, lhs, rhs, default);
+                let sel1 = b.select(ty, None, cond2, pow2_neg, default).unwrap();
+                b.select(ty, Some(out), is_zero, even, sel1).unwrap();
+            }),
             Operator::Sqrt(op) => {
                 self.compile_unary_op(op, |b, _, ty, input, out| T::sqrt(b, ty, input, out))
             }

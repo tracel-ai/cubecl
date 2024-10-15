@@ -129,6 +129,10 @@ impl Item {
         })
     }
 
+    pub fn const_u32<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: u32) -> Word {
+        b.static_cast(ConstVal::Bit32(value), &Elem::Int(32, false), self)
+    }
+
     pub fn cast_to<T: SpirvTarget>(
         &self,
         b: &mut SpirvCompiler<T>,
