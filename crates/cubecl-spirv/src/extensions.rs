@@ -4,6 +4,9 @@ use crate::SpirvCompiler;
 
 use super::{GLCompute, SpirvTarget};
 
+#[allow(warnings)]
+mod GLSL_std_450;
+
 pub trait TargetExtensions<T: SpirvTarget> {
     fn round(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn f_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
@@ -31,188 +34,93 @@ pub trait TargetExtensions<T: SpirvTarget> {
 }
 
 mod glcompute {
-    #[allow(non_upper_case_globals)]
-    mod ops {
-        /// See https://registry.khronos.org/SPIR-V/specs/unified1/GLSL.std.450.html
-        use rspirv::spirv::Word;
-
-        pub const Round: Word = 1;
-        pub const FAbs: Word = 4;
-        pub const SAbs: Word = 5;
-        pub const Floor: Word = 8;
-        pub const Ceil: Word = 9;
-        pub const Sin: Word = 13;
-        pub const Cos: Word = 14;
-        pub const Tanh: Word = 21;
-        pub const Pow: Word = 26;
-        pub const Exp: Word = 27;
-        pub const Log: Word = 28;
-        pub const Sqrt: Word = 31;
-        pub const FMin: Word = 37;
-        pub const UMin: Word = 38;
-        pub const SMin: Word = 39;
-        pub const FMax: Word = 40;
-        pub const UMax: Word = 41;
-        pub const SMax: Word = 42;
-        pub const FClamp: Word = 43;
-        pub const UClamp: Word = 44;
-        pub const SClamp: Word = 45;
-        pub const Magnitude: Word = 66;
-        pub const Normalize: Word = 69;
-    }
-
     use super::*;
-    use ops::*;
+    use GLSL_std_450::GLSLstd450::{self, *};
+
+    fn ext_op<T: SpirvTarget, const N: usize>(
+        b: &mut SpirvCompiler<T>,
+        ty: Word,
+        out: Word,
+        instruction: GLSLstd450,
+        operands: [Word; N],
+    ) {
+        let ext = b.state.extensions[0];
+        let operands = operands.into_iter().map(Operand::IdRef).collect::<Vec<_>>();
+        b.ext_inst(ty, Some(out), ext, instruction as u32, operands)
+            .unwrap();
+    }
 
     impl<T: SpirvTarget> TargetExtensions<T> for GLCompute {
         fn round(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Round, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Round, [input]);
         }
 
         fn f_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, FAbs, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450FAbs, [input]);
         }
 
         fn s_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, SAbs, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450SAbs, [input]);
         }
 
         fn floor(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Floor, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Floor, [input]);
         }
 
         fn ceil(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Ceil, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Ceil, [input]);
         }
 
         fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Sin, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Sin, [input]);
         }
 
         fn cos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Cos, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Cos, [input]);
         }
 
         fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Tanh, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Tanh, [input]);
         }
 
         fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                Pow,
-                vec![Operand::IdRef(lhs), Operand::IdRef(rhs)],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450Pow, [lhs, rhs]);
         }
 
         fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Exp, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Exp, [input]);
         }
 
         fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Log, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Log, [input]);
         }
 
         fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Sqrt, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Sqrt, [input]);
         }
 
         fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                FMin,
-                vec![Operand::IdRef(lhs), Operand::IdRef(rhs)],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450FMin, [lhs, rhs]);
         }
 
         fn u_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                UMin,
-                vec![Operand::IdRef(lhs), Operand::IdRef(rhs)],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450UMin, [lhs, rhs]);
         }
 
         fn s_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                SMin,
-                vec![Operand::IdRef(lhs), Operand::IdRef(rhs)],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450SMin, [lhs, rhs]);
         }
 
         fn f_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                FMax,
-                vec![Operand::IdRef(lhs), Operand::IdRef(rhs)],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450FMax, [lhs, rhs]);
         }
 
         fn u_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                UMax,
-                vec![Operand::IdRef(lhs), Operand::IdRef(rhs)],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450UMax, [lhs, rhs]);
         }
 
         fn s_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                SMax,
-                vec![Operand::IdRef(lhs), Operand::IdRef(rhs)],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450SMax, [lhs, rhs]);
         }
 
         fn f_clamp(
@@ -223,19 +131,7 @@ mod glcompute {
             max: Word,
             out: Word,
         ) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                FClamp,
-                vec![
-                    Operand::IdRef(input),
-                    Operand::IdRef(min),
-                    Operand::IdRef(max),
-                ],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450FClamp, [input, min, max]);
         }
 
         fn u_clamp(
@@ -246,19 +142,7 @@ mod glcompute {
             max: Word,
             out: Word,
         ) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                UClamp,
-                vec![
-                    Operand::IdRef(input),
-                    Operand::IdRef(min),
-                    Operand::IdRef(max),
-                ],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450UClamp, [input, min, max]);
         }
 
         fn s_clamp(
@@ -269,31 +153,15 @@ mod glcompute {
             max: Word,
             out: Word,
         ) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(
-                ty,
-                Some(out),
-                ext,
-                SClamp,
-                vec![
-                    Operand::IdRef(input),
-                    Operand::IdRef(min),
-                    Operand::IdRef(max),
-                ],
-            )
-            .unwrap();
+            ext_op(b, ty, out, GLSLstd450SClamp, [input, min, max]);
         }
 
         fn magnitude(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Magnitude, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Length, [input]);
         }
 
         fn normalize(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            let ext = b.state.extensions[0];
-            b.ext_inst(ty, Some(out), ext, Normalize, vec![Operand::IdRef(input)])
-                .unwrap();
+            ext_op(b, ty, out, GLSLstd450Normalize, [input]);
         }
     }
 }
