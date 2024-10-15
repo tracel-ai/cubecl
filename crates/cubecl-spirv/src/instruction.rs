@@ -119,8 +119,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         let cast = self.static_cast(as_const, &input.elem(), &out.item());
                         self.copy_object(ty, Some(out_id), cast).unwrap();
                     } else {
-                        let id = self.read(&input);
-                        input.item().cast_to(self, Some(out_id), id, &out.item());
+                        input.item().cast_to(self, Some(out_id), in_id, &out.item());
                     }
                 } else {
                     self.copy_object(ty, Some(out_id), in_id).unwrap();
