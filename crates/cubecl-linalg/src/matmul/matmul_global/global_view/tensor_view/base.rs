@@ -79,16 +79,13 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
     /// Assumes out is row major
     fn write_coalesced<ES: Numeric>(view: &mut Self, write_x: u32, write_y: u32, value: Line<ES>) {
         let tensor = &mut view.tensor;
-        let write_row = write_x + view.x_offset;
-        let write_col = write_y + view.y_offset;
+        let view_x = write_x + view.x_offset;
+        let view_y = write_y + view.y_offset;
 
-        let write_position =
-            (write_row * view.stride_x + write_col * view.stride_y) / tensor.line_size();
-        tensor[write_position] = Line::cast_from(value);
+        let write_position = (view_x * view.stride_x + view_y * view.stride_y) / tensor.line_size();
 
-        // TODO ternary to avoid branching
-        if write_x >= view.shape_x || write_y >= view.shape_y {
-        } else {
+        // TODO: will need comptime checkbound condition because we can't use select for not writing
+        if write_x < view.shape_x && write_y < view.shape_y {
             tensor[write_position] = Line::cast_from(value);
         }
     }

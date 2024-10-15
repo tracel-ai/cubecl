@@ -21,6 +21,31 @@ macro_rules! testgen_cmma_internal_mock {
         };
 
         #[test]
+        pub fn test_global_matmul_g60x60x120_s64x64x32() {
+            test_tensor_matmul::<
+                CmmaGlobalMatmul<
+                    f32,
+                    f32,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S64x64x32,
+                    >,
+                    LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    TensorUnloader<f32>,
+                >,
+                f32,
+                TestRuntime,
+            >(
+                MatmulProblem::new(60, 60, 120, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
         pub fn test_global_matmul_g16x16x36_s16x16x16() {
             test_tensor_matmul::<
                 CmmaGlobalMatmul<
@@ -41,6 +66,31 @@ macro_rules! testgen_cmma_internal_mock {
                 TestRuntime,
             >(
                 MatmulProblem::new(16, 16, 36, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
+                &Default::default(),
+            )
+        }
+
+        #[test]
+        pub fn test_global_matmul_g12x12x16_s16x16x16() {
+            test_tensor_matmul::<
+                CmmaGlobalMatmul<
+                    f32,
+                    f32,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S16x16x16,
+                    >,
+                    LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    TensorUnloader<f32>,
+                >,
+                f32,
+                TestRuntime,
+            >(
+                MatmulProblem::new(12, 12, 16, MatrixLayout::RowMajor, MatrixLayout::RowMajor),
                 &Default::default(),
             )
         }
