@@ -6,7 +6,7 @@ use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
-    debug::DebugLogger,
+    debug::{DebugLogger, ProfileLevel},
     memory_management::{MemoryHandle, MemoryLock, MemoryManagement},
     server::{self, ComputeServer},
     storage::{BindingResource, ComputeStorage},
@@ -467,14 +467,14 @@ impl ComputeServer for WgpuServer {
             self.duration_profiled = duration_previous + duration;
 
             let info = match level {
-                cubecl_runtime::debug::ProfileLevel::Basic => {
+                ProfileLevel::Basic | ProfileLevel::Medium => {
                     if let Some(val) = name.split("<").next() {
                         val.split("::").last().unwrap_or(name).to_string()
                     } else {
                         name.to_string()
                     }
                 }
-                cubecl_runtime::debug::ProfileLevel::Full => {
+                ProfileLevel::Full => {
                     format!("{name}: {kernel_id} CubeCount {count:?}")
                 }
             };

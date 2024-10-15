@@ -23,8 +23,10 @@ pub enum DebugOptions {
 #[derive(Debug, Copy, Clone)]
 /// Control the amount of info being display when profiling.
 pub enum ProfileLevel {
-    /// Provide only minimal information about kernels being run.
+    /// Provide only the summary information about kernels being run.
     Basic,
+    /// Provide the summary information about kernels being run with their trace.
+    Medium,
     /// Provide more information about kernels being run.
     Full,
 }
@@ -210,7 +212,11 @@ impl DebugLogger {
     {
         let name = name.to_string();
         self.profiled.update(&name, duration);
-        self.kind.register_profiled(name, duration)
+
+        match self.kind.profile_level().unwrap_or(ProfileLevel::Basic) {
+            ProfileLevel::Basic => {}
+            _ => self.kind.register_profiled(name, duration),
+        }
     }
     /// Returns whether the debug logger is activated.
     pub fn is_activated(&self) -> bool {
@@ -270,6 +276,9 @@ impl DebugLoggerKind {
             }
             "profile" => {
                 profile = Some(ProfileLevel::Basic);
+            }
+            "profile-medium" => {
+                profile = Some(ProfileLevel::Medium);
             }
             "profile-full" => {
                 profile = Some(ProfileLevel::Full);
