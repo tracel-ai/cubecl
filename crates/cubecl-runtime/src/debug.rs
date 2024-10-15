@@ -100,7 +100,7 @@ impl Display for Profiled {
                 total_duration += item.total_duration;
                 total_computed += item.num_computed;
 
-                (name, num_computed, duration, item.total_duration.clone())
+                (name, num_computed, duration, item.total_duration)
             })
             .collect();
 
@@ -117,7 +117,7 @@ impl Display for Profiled {
         let write_line = |char: &str, f: &mut core::fmt::Formatter<'_>| {
             writeln!(f, "|{}| ", char.repeat(line_length))
         };
-        items.sort_by(|(_, _, _, a), (_, _, _, b)| b.cmp(&a));
+        items.sort_by(|(_, _, _, a), (_, _, _, b)| b.cmp(a));
 
         write_line("⎺", f)?;
 
