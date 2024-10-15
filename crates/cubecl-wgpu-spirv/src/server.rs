@@ -240,7 +240,6 @@ impl WgpuSpirvServer {
         };
 
         self.query_started = false;
-        let duration_profiled = self.duration_profiled;
 
         async move {
             if let Some((fut, period)) = fut {
@@ -250,9 +249,9 @@ impl WgpuSpirvServer {
                     .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
                     .collect::<Vec<_>>();
                 let delta = data[1] - data[0];
-                Duration::from_secs_f64(delta as f64 * period) + duration_profiled
+                Duration::from_secs_f64(delta as f64 * period)
             } else {
-                duration_profiled
+                Duration::from_secs_f64(0.0)
             }
         }
     }
@@ -363,8 +362,8 @@ impl ComputeServer for WgpuSpirvServer {
             .collect::<Vec<_>>();
 
         if profile_level.is_some() {
-            let duration = future::block_on(self.sync_queue());
-            self.duration_profiled = duration;
+            let fut = self.sync_queue();
+            self.duration_profiled += future::block_on(fut);
         }
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -381,27 +380,26 @@ impl ComputeServer for WgpuSpirvServer {
         };
 
         self.tasks_count += 1;
+        self.query_started = true;
 
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
         let pass = self.current_pass.get_or_insert_with(|| {
-            let start_write = if !self.query_started { Some(0) } else { None };
-            let end_write = Some(1);
-            self.query_started = true;
-
-            let pass = self
-                .encoder
+            self.encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: None,
                     timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
                         query_set: &self.query_set,
-                        beginning_of_pass_write_index: start_write,
-                        end_of_pass_write_index: end_write,
+                        beginning_of_pass_write_index: if !self.query_started {
+                            Some(0)
+                        } else {
+                            None
+                        },
+                        end_of_pass_write_index: Some(1),
                     }),
                 })
-                .forget_lifetime();
-            pass
+                .forget_lifetime()
         });
 
         pass.set_pipeline(&pipeline);
@@ -424,10 +422,8 @@ impl ComputeServer for WgpuSpirvServer {
             let (name, kernel_id) = profile_info.unwrap();
 
             // Execute the task.
-            let duration_previous = self.duration_profiled;
-            self.duration_profiled = Duration::from_secs(0);
             let duration = future::block_on(self.sync_queue());
-            self.duration_profiled = duration_previous + duration;
+            self.duration_profiled += duration;
 
             let info = match level {
                 ProfileLevel::Basic | ProfileLevel::Medium => {
@@ -463,10 +459,12 @@ impl ComputeServer for WgpuSpirvServer {
 
     /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
-        let future = self.sync_queue();
         self.logger.profile_summary();
+
+        let future = self.sync_queue();
+        let profiled = self.duration_profiled;
         self.duration_profiled = Duration::from_secs(0);
-        future
+        async move { future.await + profiled }
     }
 
     fn memory_usage(&self) -> MemoryUsage {
