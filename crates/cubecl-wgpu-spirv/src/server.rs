@@ -37,6 +37,7 @@ pub struct WgpuSpirvServer {
     tasks_max: usize,
     logger: DebugLogger,
 
+    duration_profiled: Duration,
     query_set: QuerySet,
     query_started: bool,
 }
@@ -73,6 +74,7 @@ impl WgpuSpirvServer {
                 count: 2,
             }),
             query_started: false,
+            duration_profiled: Duration::from_secs(0),
         }
     }
 
@@ -214,6 +216,45 @@ impl WgpuSpirvServer {
             result
         }
     }
+
+    fn sync_queue(&mut self) -> impl Future<Output = Duration> + 'static {
+        self.clear_compute_pass();
+
+        let fut = if self.query_started {
+            let size = 2 * size_of::<u64>() as u64;
+            let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size,
+                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
+                mapped_at_creation: false,
+            });
+
+            self.encoder
+                .resolve_query_set(&self.query_set, 0..2, &resolved, 0);
+
+            let period = self.queue.get_timestamp_period() as f64 * 1e-9;
+            Some((self.read_wgpu_buffer(&resolved, 0, size), period))
+        } else {
+            None
+        };
+
+        self.query_started = false;
+        let duration_profiled = self.duration_profiled;
+
+        async move {
+            if let Some((fut, period)) = fut {
+                let data = fut
+                    .await
+                    .chunks_exact(8)
+                    .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                    .collect::<Vec<_>>();
+                let delta = data[1] - data[0];
+                Duration::from_secs_f64(delta as f64 * period) + duration_profiled
+            } else {
+                duration_profiled
+            }
+        }
+    }
 }
 
 impl ComputeServer for WgpuSpirvServer {
@@ -321,7 +362,8 @@ impl ComputeServer for WgpuSpirvServer {
             .collect::<Vec<_>>();
 
         if profile_level.is_some() {
-            future::block_on(self.sync());
+            let duration = future::block_on(self.sync_queue());
+            self.duration_profiled = duration;
         }
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -381,7 +423,10 @@ impl ComputeServer for WgpuSpirvServer {
             let (name, kernel_id) = profile_info.unwrap();
 
             // Execute the task.
-            let duration = future::block_on(self.sync());
+            let duration_previous = self.duration_profiled;
+            self.duration_profiled = Duration::from_secs(0);
+            let duration = future::block_on(self.sync_queue());
+            self.duration_profiled = duration_previous + duration;
 
             let info = match level {
                 cubecl_runtime::debug::ProfileLevel::Basic => {
@@ -417,31 +462,9 @@ impl ComputeServer for WgpuSpirvServer {
 
     /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
-        self.clear_compute_pass();
-
-        let size = 2 * size_of::<u64>() as u64;
-        let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size,
-            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
-            mapped_at_creation: false,
-        });
-        self.encoder
-            .resolve_query_set(&self.query_set, 0..2, &resolved, 0);
-        let fut = self.read_wgpu_buffer(&resolved, 0, size);
-
-        self.query_started = false;
-        let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-
-        async move {
-            let data = fut
-                .await
-                .chunks_exact(8)
-                .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
-                .collect::<Vec<_>>();
-            let delta = data[1] - data[0];
-            Duration::from_secs_f64(delta as f64 * period)
-        }
+        let future = self.sync_queue();
+        self.duration_profiled = Duration::from_secs(0);
+        future
     }
 
     fn memory_usage(&self) -> MemoryUsage {

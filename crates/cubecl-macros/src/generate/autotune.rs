@@ -224,7 +224,7 @@ impl AutotuneOperations {
 
         quote! {
             fn fastest(
-                &self,
+                self: Box<Self>,
                 fastest_index: usize,
             ) -> Box<dyn #operation<#output>> {
                 match fastest_index {
