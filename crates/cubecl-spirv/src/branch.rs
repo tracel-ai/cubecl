@@ -143,12 +143,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let or_else = self.compile_variable(or_else);
         let out = self.compile_variable(out);
 
-        let then_ty = then.item();
-        let ty = then_ty.id(self);
+        let out_ty = out.item();
+        let ty = out_ty.id(self);
 
         let cond_id = self.read(&cond);
-        let then = self.read(&then);
-        let or_else = self.read_as(&or_else, &then_ty);
+        let then = self.read_as(&then, &out_ty);
+        let or_else = self.read_as(&or_else, &out_ty);
         let out_id = self.write_id(&out);
 
         self.select(ty, Some(out_id), cond_id, then, or_else)
