@@ -59,10 +59,13 @@ impl Smem2Tensor for Smem2TensorSimple {
             let row = row_tile_begin + unit_write / stage_info.tile_size_y;
             let col = col_tile_begin + unit_write % stage_info.tile_size_y;
 
-            // if comptime!(out_line_size == slice_line_size) {
-            let value = slice[unit_write / slice_line_size];
-            TensorView::write_coalesced::<ES>(out, row, col, value);
-            // }
+            if comptime!(out_line_size == slice_line_size) {
+                let value = slice[unit_write / out_line_size];
+                TensorView::write_coalesced::<ES>(out, row, col, value);
+            } else {
+                // Unsupported.
+                return;
+            }
         }
     }
 }
