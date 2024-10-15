@@ -27,10 +27,10 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-featur
 ] }
 
 bytemuck = { workspace = true }
-pollster = { workspace = true }
 wgpu = { version = "22.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
 
 async-channel = { workspace = true }
+futures-lite = { workspace = true }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }

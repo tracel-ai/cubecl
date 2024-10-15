@@ -1,10 +1,9 @@
-use std::num::NonZero;
+use std::{future::Future, num::NonZero, time::Duration};
 
 use crate::compiler::wgsl::WgslCompiler;
 
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
-use cubecl_common::{reader::Reader, sync_type::SyncType};
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::DebugLogger,
@@ -13,8 +12,12 @@ use cubecl_runtime::{
     storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
+use futures_lite::future;
 use hashbrown::HashMap;
-use wgpu::{CommandEncoder, ComputePass, ComputePipeline, ShaderModuleDescriptor};
+use wgpu::{
+    CommandEncoder, ComputePass, ComputePipeline, QuerySet, QuerySetDescriptor, QueryType,
+    ShaderModuleDescriptor,
+};
 
 #[cfg(not(target_family = "wasm"))]
 mod poll {
@@ -104,6 +107,9 @@ pub struct WgpuServer {
     logger: DebugLogger,
     poll: WgpuPoll,
     storage_locked: MemoryLock,
+
+    query_set: QuerySet,
+    query_started: bool,
 }
 
 fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
@@ -132,25 +138,13 @@ impl WgpuServer {
             tasks_max,
             logger: DebugLogger::default(),
             poll: WgpuPoll::new(device.clone()),
+            query_set: device.create_query_set(&QuerySetDescriptor {
+                label: Some("CubeCL profile queries"),
+                ty: QueryType::Timestamp,
+                count: 2,
+            }),
+            query_started: false,
         }
-    }
-
-    fn sync_state(&mut self, sync_type: SyncType) {
-        // End the current compute pass.
-        self.clear_compute_pass();
-        let new_encoder = create_encoder(&self.device);
-        let encoder = std::mem::replace(&mut self.encoder, new_encoder);
-        self.queue.submit([encoder.finish()]);
-
-        self.tasks_count = 0;
-        self.storage_locked.clear_locked();
-
-        if sync_type == SyncType::Wait {
-            self.device.poll(wgpu::Maintain::Wait);
-        }
-
-        // Cleanup allocations and deallocations.
-        self.memory_management.storage().perform_deallocations();
     }
 
     fn pipeline(
@@ -212,18 +206,13 @@ impl WgpuServer {
     fn clear_compute_pass(&mut self) {
         self.current_pass = None;
     }
-}
 
-impl ComputeServer for WgpuServer {
-    type Kernel = Box<dyn CubeTask<WgslCompiler>>;
-    type Storage = WgpuStorage;
-    type Feature = Feature;
-
-    fn read(&mut self, binding: server::Binding) -> Reader {
-        let rb = self.get_resource(binding);
-        let resource = rb.resource();
-
-        let size = resource.size();
+    fn read_wgpu_buffer(
+        &mut self,
+        buffer: &wgpu::Buffer,
+        offset: u64,
+        size: u64,
+    ) -> impl Future<Output = Vec<u8>> + 'static {
         let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size,
@@ -231,18 +220,11 @@ impl ComputeServer for WgpuServer {
             mapped_at_creation: false,
         });
 
-        self.clear_compute_pass();
-
-        self.encoder.copy_buffer_to_buffer(
-            &resource.buffer,
-            resource.offset(),
-            &staging_buffer,
-            0,
-            size,
-        );
+        self.encoder
+            .copy_buffer_to_buffer(buffer, offset, &staging_buffer, 0, size);
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        self.sync_state(SyncType::Flush);
+        self.flush();
 
         let (sender, receiver) = async_channel::bounded(1);
         staging_buffer
@@ -253,7 +235,7 @@ impl ComputeServer for WgpuServer {
                     .expect("Unable to send buffer slice result to async channel.");
             });
         let poll = self.poll.start_polling();
-        Box::pin(async move {
+        async move {
             receiver
                 .recv()
                 .await
@@ -268,7 +250,20 @@ impl ComputeServer for WgpuServer {
             };
             staging_buffer.unmap();
             result
-        })
+        }
+    }
+}
+
+impl ComputeServer for WgpuServer {
+    type Kernel = Box<dyn CubeTask<WgslCompiler>>;
+    type Storage = WgpuStorage;
+    type Feature = Feature;
+
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
+        let rb = self.get_resource(binding);
+        let resource = rb.resource();
+        self.clear_compute_pass();
+        self.read_wgpu_buffer(&resource.buffer, resource.offset(), resource.size())
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
@@ -363,12 +358,9 @@ impl ComputeServer for WgpuServer {
             })
             .collect::<Vec<_>>();
 
-        let start = if profile_level.is_some() {
-            self.sync_state(SyncType::Wait);
-            Some(std::time::SystemTime::now())
-        } else {
-            None
-        };
+        if profile_level.is_some() {
+            future::block_on(self.sync());
+        }
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -389,12 +381,22 @@ impl ComputeServer for WgpuServer {
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
         let pass = self.current_pass.get_or_insert_with(|| {
-            self.encoder
+            let start_write = if !self.query_started { Some(0) } else { None };
+            let end_write = Some(1);
+            self.query_started = true;
+
+            let pass = self
+                .encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: None,
-                    timestamp_writes: None,
+                    timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+                        query_set: &self.query_set,
+                        beginning_of_pass_write_index: start_write,
+                        end_of_pass_write_index: end_write,
+                    }),
                 })
-                .forget_lifetime()
+                .forget_lifetime();
+            pass
         });
 
         pass.set_pipeline(&pipeline);
@@ -417,7 +419,7 @@ impl ComputeServer for WgpuServer {
             let (name, kernel_id) = profile_info.unwrap();
 
             // Execute the task.
-            self.sync_state(SyncType::Wait);
+            let duration = future::block_on(self.sync());
 
             let info = match level {
                 cubecl_runtime::debug::ProfileLevel::Basic => {
@@ -431,17 +433,55 @@ impl ComputeServer for WgpuServer {
                     format!("{name}: {kernel_id} CubeCount {count:?}")
                 }
             };
-            self.logger
-                .register_profiled(info, start.unwrap().elapsed().unwrap());
+            self.logger.register_profiled(info, duration);
         } else if self.tasks_count >= self.tasks_max {
-            self.sync_state(SyncType::Flush);
+            self.flush();
         }
     }
 
-    fn sync(&mut self, sync_type: SyncType) {
+    fn flush(&mut self) {
+        // End the current compute pass.
+        self.clear_compute_pass();
+        let new_encoder = create_encoder(&self.device);
+        let encoder = std::mem::replace(&mut self.encoder, new_encoder);
+        self.queue.submit([encoder.finish()]);
+
+        self.tasks_count = 0;
+        self.storage_locked.clear_locked();
+
+        // Cleanup allocations and deallocations.
+        self.memory_management.storage().perform_deallocations();
+    }
+
+    /// Returns the total time of GPU work this sync completes.
+    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
         self.logger.profile_summary();
 
-        self.sync_state(sync_type)
+        self.clear_compute_pass();
+
+        let size = 2 * size_of::<u64>() as u64;
+        let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size,
+            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
+            mapped_at_creation: false,
+        });
+        self.encoder
+            .resolve_query_set(&self.query_set, 0..2, &resolved, 0);
+        let fut = self.read_wgpu_buffer(&resolved, 0, size);
+
+        self.query_started = false;
+        let period = self.queue.get_timestamp_period() as f64 * 1e-9;
+
+        async move {
+            let data = fut
+                .await
+                .chunks_exact(8)
+                .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                .collect::<Vec<_>>();
+            let delta = data[1] - data[0];
+            Duration::from_secs_f64(delta as f64 * period)
+        }
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {

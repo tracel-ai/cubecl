@@ -1,7 +1,7 @@
 use cubecl_runtime::storage::BytesResource;
 
 /// The DummyKernel trait should be implemented for every supported operation
-pub trait DummyKernel: Sync + Send {
+pub trait DummyKernel: Sync + Send + 'static {
     fn compute(&self, resources: &mut [&BytesResource]);
 }
 

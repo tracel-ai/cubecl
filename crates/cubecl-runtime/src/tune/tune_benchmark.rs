@@ -1,13 +1,10 @@
-use cubecl_common::benchmark::Benchmark;
-use cubecl_common::sync_type::SyncType;
-
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
+use cubecl_common::benchmark::BenchmarkDurations;
 
 use super::AutotuneOperation;
 use alloc::boxed::Box;
-use alloc::string::{String, ToString};
 
 /// A benchmark that runs on server handles
 #[derive(new)]
@@ -22,27 +19,19 @@ impl<Out> Clone for Box<dyn AutotuneOperation<Out>> {
     }
 }
 
-impl<S: ComputeServer, C: ComputeChannel<S>, Out> Benchmark for TuneBenchmark<S, C, Out> {
-    type Args = Box<dyn AutotuneOperation<Out>>;
+impl<S: ComputeServer, C: ComputeChannel<S>, Out> TuneBenchmark<S, C, Out> {
+    /// Benchmark how long this operation takes for a number of samples.
+    pub async fn sample_durations(&self) -> BenchmarkDurations {
+        let num_samples = 10;
 
-    fn prepare(&self) -> Self::Args {
-        self.operation.clone()
-    }
-
-    fn num_samples(&self) -> usize {
-        10
-    }
-
-    fn execute(&self, operation: Self::Args) {
-        AutotuneOperation::execute(operation);
-    }
-
-    fn name(&self) -> String {
-        "autotune".to_string()
-    }
-
-    fn sync(&self) {
-        // For benchmarks - we need to wait for all tasks to complete before returning.
-        self.client.sync(SyncType::Wait);
+        let mut durations = vec![];
+        for _ in 0..num_samples {
+            self.client.sync().await;
+            AutotuneOperation::execute(self.operation.clone());
+            // For benchmarks - we need to wait for all tasks to complete before returning.
+            let duration = self.client.sync().await;
+            durations.push(duration);
+        }
+        BenchmarkDurations { durations }
     }
 }
