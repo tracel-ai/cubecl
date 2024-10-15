@@ -284,13 +284,10 @@ impl ValueTable {
                     Err(out)?
                 }
                 let item = op.out.item();
-                let mut lhs = self.lookup_or_add_var(&op.lhs)?;
-                let mut rhs = self.lookup_or_add_var(&op.rhs)?;
+                let lhs = self.lookup_or_add_var(&op.lhs)?;
+                let rhs = self.lookup_or_add_var(&op.rhs)?;
                 let id = id_of_op(operator);
-                if lhs > rhs {
-                    swap(&mut lhs, &mut rhs);
-                }
-                let expr = Instruction::commutative(id, &[lhs, rhs], item);
+                let expr = Instruction::new(id, &[lhs, rhs], item);
                 (expr.into(), out)
             }
 
