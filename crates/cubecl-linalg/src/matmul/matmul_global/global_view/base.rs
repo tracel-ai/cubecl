@@ -37,6 +37,7 @@ pub trait GlobalView<E: Numeric>: CubeType {
         write_row: u32,
         write_col: u32,
         #[comptime] stage_info: StageInfo,
+        #[comptime] slice_tile_size: u32,
     );
 
     fn init_view(view: &mut Self, x_offset: u32, y_offset: u32);

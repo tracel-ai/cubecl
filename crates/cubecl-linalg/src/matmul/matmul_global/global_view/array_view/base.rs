@@ -72,12 +72,20 @@ impl<EG: Numeric> GlobalView<EG> for ArrayView<EG> {
 
     fn write_slice<ES: Numeric>(
         view: &mut Self,
-        slice: &Slice<'_, Line<ES>>,
+        tile: &Slice<'_, Line<ES>>,
         write_row: u32,
         write_col: u32,
         #[comptime] stage_info: StageInfo,
+        #[comptime] slice_line_size: u32,
     ) {
-        smem_slice_to_gmem(view, slice, write_row, write_col, stage_info);
+        smem_slice_to_gmem(
+            view,
+            tile,
+            write_row,
+            write_col,
+            stage_info,
+            slice_line_size,
+        );
     }
 }
 

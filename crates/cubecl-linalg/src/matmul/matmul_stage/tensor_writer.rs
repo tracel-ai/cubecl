@@ -29,6 +29,7 @@ impl<EG: Numeric> StageWriter<EG> for TensorWriter<EG> {
         slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
+        #[comptime] slice_line_size: u32,
     ) {
         TensorView::write_slice(
             &mut stage_writer.tensor_view,
@@ -36,6 +37,7 @@ impl<EG: Numeric> StageWriter<EG> for TensorWriter<EG> {
             compute_plane_offset * stage_writer.stage_info.tile_size_x,
             accumulator_offset * stage_writer.stage_info.tile_size_y,
             stage_writer.stage_info,
+            slice_line_size,
         )
     }
 }

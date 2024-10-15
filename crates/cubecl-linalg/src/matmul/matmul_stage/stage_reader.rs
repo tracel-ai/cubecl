@@ -1,5 +1,4 @@
 use crate::matmul::matmul_stage::Stage;
-use crate::matmul::matmul_tile::RefTile;
 use crate::matmul::matrix_layout::MatrixLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -12,7 +11,7 @@ pub trait StageReader<ES: Numeric>: CubeType {
         compute_plane_offset: u32,
         buffer_offset: u32,
         accumulator_offset: u32,
-    ) -> RefTile<'_, ES>;
+    ) -> (&Slice<'_, Line<ES>>, MatrixLayout);
 
     // Maybe delete if we don't need layout prior to slice
     fn slice_layout(stage_reader: &Self) -> MatrixLayout;
@@ -37,7 +36,7 @@ impl<ES: Numeric, S: Stage<ES>> StageReader<ES> for LhsStageReader<ES, S> {
         compute_plane_offset: u32,
         buffer_offset: u32,
         _accumulator_offset: u32,
-    ) -> RefTile<'_, ES> {
+    ) -> (&Slice<'_, Line<ES>>, MatrixLayout) {
         S::get_tile(&reader.stage, compute_plane_offset, buffer_offset)
     }
 
@@ -47,13 +46,13 @@ impl<ES: Numeric, S: Stage<ES>> StageReader<ES> for LhsStageReader<ES, S> {
 }
 
 #[cube]
-impl<E: Numeric, S: Stage<E>> StageReader<E> for RhsStageReader<E, S> {
+impl<ES: Numeric, S: Stage<ES>> StageReader<ES> for RhsStageReader<ES, S> {
     fn read_tile(
         reader: &Self,
         _compute_plane_offset: u32,
         buffer_offset: u32,
         accumulator_offset: u32,
-    ) -> RefTile<'_, E> {
+    ) -> (&Slice<'_, Line<ES>>, MatrixLayout) {
         S::get_tile(&reader.stage, buffer_offset, accumulator_offset)
     }
 

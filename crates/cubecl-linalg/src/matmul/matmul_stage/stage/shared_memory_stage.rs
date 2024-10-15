@@ -1,8 +1,6 @@
 use super::base::Stage;
 use super::TilingOrder;
 use crate::matmul::matmul_global::GlobalView;
-use crate::matmul::matmul_tile::new_ref_tile;
-use crate::matmul::matmul_tile::RefTile;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements};
@@ -20,8 +18,8 @@ pub struct SharedMemoryStage<E: Numeric, O: TilingOrder> {
 }
 
 #[cube]
-impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
-    type Underlying = SharedMemory<Line<E>>;
+impl<ES: Numeric, O: TilingOrder> Stage<ES> for SharedMemoryStage<ES, O> {
+    type Underlying = SharedMemory<Line<ES>>;
 
     fn new(
         layout: MatrixLayout,
@@ -33,7 +31,7 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
             line_size,
         );
 
-        SharedMemoryStage::<E, O> {
+        SharedMemoryStage::<ES, O> {
             smem,
             layout,
             stage_info: stage_info.runtime(),
@@ -43,10 +41,10 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
     }
 
     fn fill<EG: Numeric, G: GlobalView<EG>>(stage: &mut Self, gmem: &G) {
-        G::load_shared_memory::<E, O>(gmem, &mut stage.smem, stage.stage_info)
+        G::load_shared_memory::<ES, O>(gmem, &mut stage.smem, stage.stage_info)
     }
 
-    fn get_tile(stage: &Self, x: u32, y: u32) -> RefTile<'_, E> {
+    fn get_tile(stage: &Self, x: u32, y: u32) -> (&Slice<'_, Line<ES>>, MatrixLayout) {
         let nth_tile = O::to_nth_tile(
             x,
             y,
@@ -57,7 +55,7 @@ impl<E: Numeric, O: TilingOrder> Stage<E> for SharedMemoryStage<E, O> {
         let tile_stride = tile_num_elements(stage.stage_info) / stage.line_size;
         let start = nth_tile * tile_stride;
 
-        new_ref_tile(stage.smem.slice(start, start + tile_stride), stage.layout)
+        (stage.smem.slice(start, start + tile_stride), stage.layout)
     }
 
     fn layout(stage: &Self) -> MatrixLayout {

@@ -79,7 +79,6 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
         view.y_offset += y_offset;
     }
 
-    /// Assumes (write_row, write_col) is within bounds
     /// Does not account for batch offset
     /// Assumes out is row major
     fn write_coalesced<ES: Numeric>(view: &mut Self, write_x: u32, write_y: u32, value: Line<ES>) {
@@ -101,8 +100,16 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
         write_x: u32,
         write_y: u32,
         #[comptime] stage_info: StageInfo,
+        #[comptime] slice_line_size: u32,
     ) {
-        Smem2TensorSimple::smem_to_tensor(view, slice, write_x, write_y, stage_info);
+        Smem2TensorSimple::smem_to_tensor(
+            view,
+            slice,
+            write_x,
+            write_y,
+            stage_info,
+            slice_line_size,
+        );
     }
 }
 

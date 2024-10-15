@@ -17,6 +17,7 @@ impl<EG: Numeric> StageWriter<EG> for ArrayWriter<EG> {
         slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
+        #[comptime] slice_line_size: u32,
     ) {
         ArrayView::write_slice(
             &mut stage_writer.array_view,
@@ -24,6 +25,7 @@ impl<EG: Numeric> StageWriter<EG> for ArrayWriter<EG> {
             compute_plane_offset * stage_writer.stage_info.tile_size_x,
             accumulator_offset * stage_writer.stage_info.tile_size_y,
             stage_writer.stage_info,
+            slice_line_size,
         );
     }
 }

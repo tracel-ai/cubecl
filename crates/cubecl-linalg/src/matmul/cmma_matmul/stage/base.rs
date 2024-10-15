@@ -10,9 +10,9 @@ use crate::matmul::matmul_stage::{StageMatmul, StageReader, StageWriter};
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
 use crate::matmul::{
+    config::PlaneMapper,
     matrix_layout::MatrixLayout,
     problem::{MatmulProblem, Requirements},
-    config::PlaneMapper,
 };
 use crate::matmul::{FixedShapeMatmul, Matmul};
 
@@ -53,14 +53,14 @@ where
 
         #[unroll]
         for buffer_iter in 0..num_buffers {
-            let tile_lhs = Lhs::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32);
-            Instr::fill_lhs(tile_lhs.slice, &mut instruction_lhs);
+            let (tile_lhs, _) = Lhs::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32);
+            Instr::fill_lhs(tile_lhs, &mut instruction_lhs);
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs =
+                let (tile_rhs, _) =
                     Rhs::read_tile(&rhs, Self::plane_id(), buffer_iter, accumulator_iter);
-                Instr::fill_rhs(tile_rhs.slice, &mut instruction_rhs);
+                Instr::fill_rhs(tile_rhs, &mut instruction_rhs);
 
                 let accumulator = acc.index_mut(accumulator_iter);
                 Instr::execute(&instruction_lhs, &instruction_rhs, accumulator);
@@ -95,9 +95,10 @@ where
             Instr::read_output(accumulator, smem_slice);
             Out::write(
                 out,
-                smem_slice.as_slice(),
+                &smem_slice.as_slice(),
                 Self::plane_id(),
                 accumulator_iter,
+                line_size,
             );
         }
     }

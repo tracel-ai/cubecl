@@ -225,7 +225,46 @@ macro_rules! testgen_cmma_internal_mock {
                     1,
                     1,
                 ),
-                Default::default(),
+                CmmaConfig {
+                    out_smem_line_size: 4u32,
+                },
+                &Default::default(),
+            )
+        }
+
+        #[test]
+        pub fn test_global_matmul_g16x16x16_s16x16x16_lined_with_unlined_smem() {
+            test_tensor_matmul::<
+                CmmaGlobalMatmul<
+                    f32,
+                    f32,
+                    CmmaStageMatmul<
+                        f32,
+                        f32,
+                        f32,
+                        DummyUnitInstruction16_16_16<f32, f32>,
+                        S16x16x16,
+                    >,
+                    LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
+                    TensorUnloader<f32>,
+                >,
+                f32,
+                TestRuntime,
+            >(
+                MatmulProblem::new(
+                    16,
+                    16,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
+                CmmaConfig {
+                    out_smem_line_size: 1u32,
+                },
                 &Default::default(),
             )
         }
@@ -260,7 +299,6 @@ macro_rules! testgen_cmma_internal_mock {
                     2,
                     2,
                 ),
-                // TODO should not need be the same
                 CmmaConfig {
                     out_smem_line_size: 2u32,
                 },
