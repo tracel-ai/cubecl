@@ -9,6 +9,9 @@ use crate::matmul::TensorMatmul;
 use super::test_utils::assert_equals_approx;
 use super::test_utils::matmul_cpu_reference;
 
+pub const LINE_SIZE_IN: u32 = 4u32;
+pub const LINE_SIZE_OUT: u32 = 2u32;
+
 pub fn test_fixed_matmul<MM, I, O, R>(layouts: (MatrixLayout, MatrixLayout), device: &R::Device)
 where
     I: Numeric + CubeElement,
@@ -58,17 +61,17 @@ where
     let cube_dim = CubeDim::new(32, requirements.num_planes, 1);
     let cube_count = CubeCount::Static(requirements.num_cubes, 1, 1);
 
-    let input_line = 4;
-    let output_line = 1;
+    let input_line = LINE_SIZE_IN;
+    let output_line = LINE_SIZE_OUT;
 
     unsafe {
         MM::launch_unchecked(
             &client,
             cube_dim,
             cube_count,
-            ArrayArg::<R>::from_raw_parts(&lhs, lhs_size, input_line),
-            ArrayArg::<R>::from_raw_parts(&rhs, rhs_size, input_line),
-            ArrayArg::<R>::from_raw_parts(&out, out_size, output_line),
+            ArrayArg::<R>::from_raw_parts(&lhs, lhs_size, input_line as u8),
+            ArrayArg::<R>::from_raw_parts(&rhs, rhs_size, input_line as u8),
+            ArrayArg::<R>::from_raw_parts(&out, out_size, output_line as u8),
             layouts,
         );
     }
@@ -121,8 +124,8 @@ where
     let cube_dim = CubeDim::new(32, requirements.num_planes, 1);
     let cube_count = CubeCount::Static(requirements.num_cubes, 1, 1);
 
-    let input_line = 1;
-    let output_line = 1;
+    let input_line = LINE_SIZE_IN;
+    let output_line = LINE_SIZE_OUT;
 
     unsafe {
         MM::launch_unchecked(
@@ -133,19 +136,19 @@ where
                 &lhs,
                 &lhs_strides,
                 &[problem.m as usize, problem.k as usize],
-                input_line,
+                input_line as u8,
             ),
             TensorArg::<R>::from_raw_parts(
                 &rhs,
                 &rhs_strides,
                 &[problem.k as usize, problem.n as usize],
-                input_line,
+                input_line as u8,
             ),
             TensorArg::<R>::from_raw_parts(
                 &out,
                 &[problem.n as usize, 1],
                 &[problem.m as usize, problem.n as usize],
-                output_line,
+                output_line as u8,
             ),
             (problem.lhs_layout, problem.rhs_layout),
         );

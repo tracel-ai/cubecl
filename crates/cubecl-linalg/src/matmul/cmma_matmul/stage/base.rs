@@ -8,6 +8,7 @@ use crate::matmul::launch::stage_matmul_launch;
 use crate::matmul::matmul_stage::{StageMatmul, StageReader, StageWriter};
 use crate::matmul::matmul_tile::MatmulInstruction;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
+use crate::matmul::tests::matmul_test_launcher::LINE_SIZE_OUT;
 use crate::matmul::{
     matrix_layout::MatrixLayout,
     problem::{MatmulProblem, Requirements},
@@ -80,7 +81,7 @@ where
     }
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
-        let line_size = 1u32; // TODO get it
+        let line_size = LINE_SIZE_OUT;
 
         let num_tile_lines = Instr::M * Instr::N / line_size;
         let start = num_tile_lines * Self::plane_id();

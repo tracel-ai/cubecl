@@ -2,6 +2,7 @@ use crate::matmul::matmul_global::GlobalView;
 use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
 use crate::matmul::subroutine::{PlaneMapper, SubRoutine};
+use crate::matmul::tests::matmul_test_launcher::LINE_SIZE_IN;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -66,7 +67,7 @@ impl SharedMemoryLoader for Gmem2SmemContinuous {
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,
     ) {
-        let line_size = 4u32; // TODO get it
+        let line_size = LINE_SIZE_IN;
         let num_stage_elements = comptime!(total_num_elements(stage_info));
 
         // Could be comptime if we were able to fetch line_size as comptime
