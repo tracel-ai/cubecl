@@ -39,6 +39,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -51,7 +52,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -74,6 +74,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -86,7 +87,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -109,6 +109,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -121,7 +122,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -141,7 +141,7 @@ macro_rules! testgen_cmma_internal_mock {
                 RhsTensorLoader<EG, ES, SharedMemoryStage<ES, XMajorTiling>>,
                 TensorUnloader<EG>,
             >;
-            test_tensor_matmul::<GLOBAL, EG, TestRuntime>(
+            test_tensor_matmul::<GLOBAL, EG, CmmaConfig, TestRuntime>(
                 // Can't accumulate more, it will fail because of i32
                 MatmulProblem::new(
                     16,
@@ -153,7 +153,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -176,6 +175,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -188,9 +188,6 @@ macro_rules! testgen_cmma_internal_mock {
                     1,
                     1,
                 ),
-                CmmaConfig {
-                    out_smem_line_size: 1u32,
-                },
                 &Default::default(),
             )
         }
@@ -213,6 +210,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -225,9 +223,6 @@ macro_rules! testgen_cmma_internal_mock {
                     2,
                     2,
                 ),
-                CmmaConfig {
-                    out_smem_line_size: 2u32,
-                },
                 &Default::default(),
             )
         }
@@ -250,6 +245,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -262,7 +258,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -285,6 +280,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -297,7 +293,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -320,6 +315,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -332,7 +328,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -355,6 +350,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -367,7 +363,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -390,6 +385,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -402,7 +398,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -425,6 +420,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -437,7 +433,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -460,6 +455,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -472,7 +468,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -495,6 +490,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -507,7 +503,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -530,6 +525,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -542,7 +538,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }
@@ -565,6 +560,7 @@ macro_rules! testgen_cmma_internal_mock {
                     TensorUnloader<f32>,
                 >,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
                 MatmulProblem::new(
@@ -577,7 +573,6 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
-                Default::default(),
                 &Default::default(),
             )
         }

@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use std::hash::Hash;
 use std::fmt::Debug;
+use std::hash::Hash;
 
 #[cube]
 pub trait PlaneMapper {
@@ -31,4 +31,7 @@ pub trait Config:
     + Hash
     + Debug
 {
+    type ProblemDefinition;
+
+    fn from_problem(problem: Self::ProblemDefinition) -> Self;
 }

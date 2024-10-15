@@ -1,13 +1,21 @@
 use cubecl_core::prelude::*;
 
-use crate::matmul::config::Config;
+use crate::matmul::{config::Config, problem::MatmulProblem};
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct CmmaConfig {
     pub out_smem_line_size: u32,
 }
 
-impl Config for CmmaConfig {}
+impl Config for CmmaConfig {
+    type ProblemDefinition = MatmulProblem;
+
+    fn from_problem(problem: Self::ProblemDefinition) -> Self {
+        Self {
+            out_smem_line_size: problem.out_line_size as u32,
+        }
+    }
+}
 
 impl Init for CmmaConfig {
     fn init(self, _context: &mut CubeContext) -> Self {

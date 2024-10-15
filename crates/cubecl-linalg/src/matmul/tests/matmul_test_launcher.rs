@@ -1,6 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::CubeElement;
 
+use crate::matmul::config::Config;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::MatmulProblem;
 use crate::matmul::FixedShapeMatmul;
@@ -85,13 +86,11 @@ pub fn test_fixed_matmul<MM, I, O, R>(
     }
 }
 
-pub fn test_tensor_matmul<MM, Elem, R>(
-    problem: MatmulProblem,
-    config: MM::Config,
-    device: &R::Device,
-) where
+pub fn test_tensor_matmul<MM, Elem, C, R>(problem: MatmulProblem, device: &R::Device)
+where
     Elem: Numeric + CubeElement,
-    MM: TensorMatmul<Elem>,
+    MM: TensorMatmul<Elem, Config = C>,
+    C: Config<ProblemDefinition = MatmulProblem>,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
@@ -154,7 +153,7 @@ pub fn test_tensor_matmul<MM, Elem, R>(
                 problem.out_line_size,
             ),
             (problem.lhs_layout, problem.rhs_layout),
-            config,
+            MM::Config::from_problem(problem),
         );
     }
 
