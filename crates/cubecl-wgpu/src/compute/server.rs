@@ -277,7 +277,7 @@ impl WgpuServer {
         };
 
         self.query_started = false;
-        let duration_profiled = self.duration_profiled.clone();
+        let duration_profiled = self.duration_profiled;
 
         async move {
             if let Some((fut, period)) = fut {

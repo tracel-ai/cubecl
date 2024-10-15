@@ -177,7 +177,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     .iter()
                     .map(|r| {
                         r.as_ref()
-                            .map(|r| r.computation.median.clone())
+                            .map(|r| r.computation.median)
                             .unwrap_or(Duration::MAX)
                     })
                     .take(3)
