@@ -11,6 +11,8 @@ use crate::{
 
 use super::Optimizer;
 
+const DEBUG_GVN: bool = false;
+
 /// Debug display for the program state.
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -38,19 +40,23 @@ impl Display for Optimizer {
 
         let global_nums = self.gvn.borrow();
 
-        writeln!(f, "# Value Table:")?;
-        writeln!(f, "{}", global_nums.values)?;
+        if DEBUG_GVN {
+            writeln!(f, "# Value Table:")?;
+            writeln!(f, "{}", global_nums.values)?;
+        }
 
         for node in self.program.node_indices() {
             let id = node.index();
             let bb = &self.program[node];
             writeln!(f, "bb{id} {{")?;
-            let block_sets = &global_nums
-                .block_sets
-                .get(&node)
-                .cloned()
-                .unwrap_or_default();
-            writeln!(f, "{block_sets}\n")?;
+            if DEBUG_GVN {
+                let block_sets = &global_nums
+                    .block_sets
+                    .get(&node)
+                    .cloned()
+                    .unwrap_or_default();
+                writeln!(f, "{block_sets}")?;
+            }
 
             if !bb.block_use.is_empty() {
                 writeln!(f, "    Uses: {:?}", bb.block_use)?;

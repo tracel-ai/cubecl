@@ -165,7 +165,7 @@ impl OptimizerPass for MergeBlocks {
 }
 
 fn merge_blocks(opt: &mut Optimizer) -> bool {
-    for block_idx in opt.post_order.clone().into_iter().rev() {
+    for block_idx in opt.reverse_post_order() {
         let successors = opt.sucessors(block_idx);
         if successors.len() == 1 && can_merge(opt, block_idx, successors[0]) {
             let mut new_block = BasicBlock::default();

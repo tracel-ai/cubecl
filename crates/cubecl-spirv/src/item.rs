@@ -132,92 +132,119 @@ impl Item {
     pub fn cast_to<T: SpirvTarget>(
         &self,
         b: &mut SpirvCompiler<T>,
-        object: Word,
+        out_id: Option<Word>,
+        obj: Word,
         other: &Item,
     ) -> Word {
-        if self == other {
-            return object;
-        }
-
-        let broadcast = match (self, other) {
-            (Item::Vector(_, factor), Item::Vector(_, factor2)) if factor == factor2 => object,
-            (Item::Scalar(_), Item::Scalar(_)) => object,
-            (Item::Scalar(elem), Item::Vector(_, factor)) => {
-                let item = Item::Vector(*elem, *factor);
-                let ty = item.id(b);
-                b.composite_construct(ty, None, (0..*factor).map(|_| object).collect::<Vec<_>>())
-                    .unwrap()
-            }
-            (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
-        };
-
-        if self.elem() == other.elem() {
-            return broadcast;
-        }
-
         let ty = other.id(b);
 
-        let convert_int =
-            |b: &mut SpirvCompiler<T>, (width_self, signed_self), (width_other, signed_other)| {
-                let mut out = broadcast;
-                // Clip sign bit
-                if signed_self != signed_other {
-                    match width_self {
-                        64 => {
-                            let max = ConstVal::Bit64(i64::MAX as u64);
-                            let max = b.static_cast(max, &Elem::Int(64, true), other);
-                            out = b.bitwise_and(ty, None, out, max).unwrap();
-                        }
-                        _ => {
-                            let max = ConstVal::Bit32(i32::MAX as u32);
-                            let max = b.static_cast(max, &Elem::Int(32, true), other);
-                            out = b.bitwise_and(ty, None, out, max).unwrap();
-                        }
-                    }
-                }
+        let matching_vec = match (self, other) {
+            (Item::Scalar(_), Item::Scalar(_)) => true,
+            (Item::Vector(_, factor_from), Item::Vector(_, factor_to)) => factor_from == factor_to,
+            _ => false,
+        };
+        let matching_elem = self.elem() == other.elem();
 
-                // Convert width
-                if width_self != width_other {
-                    match signed_other {
-                        true => {
-                            out = b.s_convert(ty, None, out).unwrap();
-                        }
-                        false => {
-                            out = b.u_convert(ty, None, out).unwrap();
-                        }
-                    }
+        let broadcast = |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>| -> Word {
+            match (self, other) {
+                (Item::Scalar(elem), Item::Vector(_, factor)) => {
+                    let item = Item::Vector(*elem, *factor);
+                    let ty = item.id(b);
+                    b.composite_construct(ty, out_id, (0..*factor).map(|_| obj).collect::<Vec<_>>())
+                        .unwrap()
                 }
-                out
+                (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
+            }
+        };
+
+        let swap_sign =
+            |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>, width: u32| match width {
+                64 => {
+                    let max = ConstVal::Bit64(i64::MAX as u64);
+                    let max = b.static_cast(max, &Elem::Int(64, true), other);
+                    b.bitwise_and(ty, out_id, obj, max).unwrap()
+                }
+                _ => {
+                    let max = ConstVal::Bit32(i32::MAX as u32);
+                    let max = b.static_cast(max, &Elem::Int(32, true), other);
+                    b.bitwise_and(ty, out_id, obj, max).unwrap()
+                }
             };
 
-        match (self.elem(), other.elem()) {
-            (Elem::Bool, Elem::Int(_, _)) => {
-                let one = other.constant(b, 1u32.into());
-                let zero = other.constant(b, 0u32.into());
-                b.select(ty, None, broadcast, one, zero).unwrap()
+        let convert_i_width =
+            |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>, signed: bool| {
+                if signed {
+                    b.s_convert(ty, out_id, obj).unwrap()
+                } else {
+                    b.u_convert(ty, out_id, obj).unwrap()
+                }
+            };
+
+        let convert_int = |b: &mut SpirvCompiler<T>,
+                           obj: Word,
+                           out_id: Option<Word>,
+                           (width_self, signed_self),
+                           (width_other, signed_other)| {
+            let sign_differs = signed_self != signed_other;
+            let width_differs = width_self != width_other;
+            match (sign_differs, width_differs) {
+                (true, true) => {
+                    let sign_swap = swap_sign(b, obj, None, width_self);
+                    convert_i_width(b, sign_swap, out_id, signed_other)
+                }
+                (true, false) => swap_sign(b, obj, out_id, width_self),
+                (false, true) => convert_i_width(b, obj, out_id, signed_other),
+                (false, false) => b.copy_object(ty, out_id, obj).unwrap(),
             }
-            (Elem::Bool, Elem::Float(_)) => {
-                let one = other.constant(b, 1f32.into());
-                let zero = other.constant(b, 0f32.into());
-                b.select(ty, None, broadcast, one, zero).unwrap()
+        };
+
+        let cast_elem = |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>| -> Word {
+            match (self.elem(), other.elem()) {
+                (Elem::Bool, Elem::Int(_, _)) => {
+                    let one = other.constant(b, 1u32.into());
+                    let zero = other.constant(b, 0u32.into());
+                    b.select(ty, out_id, obj, one, zero).unwrap()
+                }
+                (Elem::Bool, Elem::Float(_)) => {
+                    let one = other.constant(b, 1f32.into());
+                    let zero = other.constant(b, 0f32.into());
+                    b.select(ty, out_id, obj, one, zero).unwrap()
+                }
+                (Elem::Int(_, _), Elem::Bool) => {
+                    let one = other.constant(b, 1u32.into());
+                    b.i_equal(ty, out_id, obj, one).unwrap()
+                }
+                (Elem::Int(width_self, signed_self), Elem::Int(width_other, signed_other)) => {
+                    convert_int(
+                        b,
+                        obj,
+                        out_id,
+                        (width_self, signed_self),
+                        (width_other, signed_other),
+                    )
+                }
+                (Elem::Int(_, false), Elem::Float(_)) => b.convert_u_to_f(ty, out_id, obj).unwrap(),
+                (Elem::Int(_, true), Elem::Float(_)) => b.convert_s_to_f(ty, out_id, obj).unwrap(),
+                (Elem::Float(_), Elem::Bool) => {
+                    let one = other.constant(b, 1f32.into());
+                    b.i_equal(ty, out_id, obj, one).unwrap()
+                }
+                (Elem::Float(_), Elem::Int(_, false)) => b.convert_f_to_u(ty, out_id, obj).unwrap(),
+                (Elem::Float(_), Elem::Int(_, true)) => b.convert_f_to_s(ty, out_id, obj).unwrap(),
+                (Elem::Float(_), Elem::Float(_)) => b.f_convert(ty, out_id, obj).unwrap(),
+                (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
             }
-            (Elem::Int(_, _), Elem::Bool) => {
-                let one = other.constant(b, 1u32.into());
-                b.i_equal(ty, None, broadcast, one).unwrap()
+        };
+
+        match (matching_vec, matching_elem) {
+            (true, true) if out_id.is_some() => b.copy_object(ty, out_id, obj).unwrap(),
+            (true, true) => obj,
+            (true, false) => cast_elem(b, obj, out_id),
+            (false, true) => broadcast(b, obj, out_id),
+            (false, false) => {
+                let broadcast = broadcast(b, obj, None);
+                cast_elem(b, broadcast, out_id)
             }
-            (Elem::Int(width_self, signed_self), Elem::Int(width_other, signed_other)) => {
-                convert_int(b, (width_self, signed_self), (width_other, signed_other))
-            }
-            (Elem::Int(_, false), Elem::Float(_)) => b.convert_u_to_f(ty, None, broadcast).unwrap(),
-            (Elem::Int(_, true), Elem::Float(_)) => b.convert_s_to_f(ty, None, broadcast).unwrap(),
-            (Elem::Float(_), Elem::Bool) => {
-                let one = other.constant(b, 1f32.into());
-                b.i_equal(ty, None, broadcast, one).unwrap()
-            }
-            (Elem::Float(_), Elem::Int(_, false)) => b.convert_f_to_u(ty, None, broadcast).unwrap(),
-            (Elem::Float(_), Elem::Int(_, true)) => b.convert_f_to_s(ty, None, broadcast).unwrap(),
-            (Elem::Float(_), Elem::Float(_)) => b.f_convert(ty, None, broadcast).unwrap(),
-            (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
         }
     }
 }

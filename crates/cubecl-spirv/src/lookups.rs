@@ -215,10 +215,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn merge_versioned(&mut self, id: (u16, u8, u16), word: Word) {
-        self.state.versioned.insert(id, word);
-    }
-
     pub fn label(&mut self, block: NodeIndex) -> Word {
         if let Some(existing) = self.state.labels.get(&block) {
             *existing

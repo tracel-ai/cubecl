@@ -109,8 +109,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Assign(op) => {
                 let input = self.compile_variable(op.input);
                 let out = self.compile_variable(op.out);
+                let ty = out.item().id(self);
+                let in_id = self.read(&input);
+                let out_id = self.write_id(&out);
 
-                let out_id = self.read_as(&input, &out.item());
+                let is_cast = input.item() != out.item();
+                if is_cast {
+                    if let Some(as_const) = input.as_const() {
+                        let cast = self.static_cast(as_const, &input.elem(), &out.item());
+                        self.copy_object(ty, Some(out_id), cast).unwrap();
+                    } else {
+                        let id = self.read(&input);
+                        input.item().cast_to(self, Some(out_id), id, &out.item());
+                    }
+                } else {
+                    self.copy_object(ty, Some(out_id), in_id).unwrap();
+                }
 
                 self.write(&out, out_id);
             }
