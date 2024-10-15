@@ -40,7 +40,7 @@ mod glcompute {
         pub const FAbs: Word = 4;
         pub const SAbs: Word = 5;
         pub const Floor: Word = 8;
-        pub const Ceil: Word = 8;
+        pub const Ceil: Word = 9;
         pub const Sin: Word = 13;
         pub const Cos: Word = 14;
         pub const Tanh: Word = 21;
