@@ -5,6 +5,7 @@ mod dead_code;
 mod expression_merge;
 mod in_bounds_analysis;
 mod index_merge;
+mod inlined_if_to_select;
 mod integer_range_analysis;
 mod liveness;
 
@@ -15,6 +16,7 @@ pub use dead_code::*;
 pub use expression_merge::*;
 pub use in_bounds_analysis::*;
 pub use index_merge::*;
+pub use inlined_if_to_select::*;
 pub use integer_range_analysis::*;
 
 use crate::AtomicCounter;

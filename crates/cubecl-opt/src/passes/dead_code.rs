@@ -230,7 +230,7 @@ fn can_merge(opt: &mut Optimizer, block: NodeIndex, successor: NodeIndex) -> boo
     !has_multiple_entries && !b_has_control_flow && !s_is_header && !is_continue && !both_merge
 }
 
-fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
+pub fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
     let update = |id: &mut NodeIndex| {
         if *id == from {
             *id = to

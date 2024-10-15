@@ -14,7 +14,7 @@ use super::{convert::value_of_var, Expression, GvnPass, Value, ValueTable};
 const MAX_SET_PASSES: usize = 10;
 
 /// The set annotations for a given block
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BlockSets {
     /// Expressions generated in this block
     pub exp_gen: LinkedList<(u32, Expression)>,

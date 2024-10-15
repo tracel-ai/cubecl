@@ -45,7 +45,11 @@ impl Display for Optimizer {
             let id = node.index();
             let bb = &self.program[node];
             writeln!(f, "bb{id} {{")?;
-            let block_sets = &global_nums.block_sets[&node];
+            let block_sets = &global_nums
+                .block_sets
+                .get(&node)
+                .cloned()
+                .unwrap_or_default();
             writeln!(f, "{block_sets}\n")?;
 
             if !bb.block_use.is_empty() {
