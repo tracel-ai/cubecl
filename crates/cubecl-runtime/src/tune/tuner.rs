@@ -9,7 +9,6 @@ use std::panic::{resume_unwind, AssertUnwindSafe};
 
 use alloc::boxed::Box;
 use alloc::string::ToString;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
@@ -31,8 +30,13 @@ type BenchError = ManuallyDrop<Box<dyn Any + Send>>;
 /// Executes autotune benchmarking and caching
 pub struct Tuner<K: AutotuneKey> {
     tune_cache: TuneCache<K>,
-    results_send: Sender<(K, usize)>,
-    results_rec: Receiver<(K, usize)>,
+    results_send: Sender<AutotuneMessage<K>>,
+    results_rec: Receiver<AutotuneMessage<K>>,
+}
+
+struct AutotuneMessage<K> {
+    key: K,
+    fastest_index: usize,
 }
 
 #[allow(clippy::new_without_default)]
@@ -55,44 +59,49 @@ impl<K: AutotuneKey> Tuner<K> {
     /// Execute the fastest autotune operation if known, otherwise perform some benchmarks before.
     pub fn execute_autotune<S, C, Out: Send + 'static>(
         &mut self,
-        set: Arc<dyn AutotuneOperationSet<K, Out>>,
+        set: Box<dyn AutotuneOperationSet<K, Out>>,
         client: &ComputeClient<S, C>,
     ) -> Out
     where
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
     {
-        match self.tune_cache.try_cache(set.clone()) {
+        match self.tune_cache.try_cache(set.as_ref()) {
             // Cache hit -> return straight away.
-            super::TuneCacheResult::Hit(ops) => return AutotuneOperation::execute(ops),
+            super::TuneCacheResult::Hit { fastest_index } => {
+                let op = set.fastest(fastest_index);
+                return op.execute();
+            }
             // Pending -> wait for the cache to be filled.
             super::TuneCacheResult::Pending => {}
             // Never seen before -> Start autotuning.
             super::TuneCacheResult::Miss => {
-                self.start_autotuning(set.clone(), client);
+                self.start_autotuning(set.as_ref(), client);
             }
         };
 
         // Collect any new cache results that have come in.
-        while let Ok((key, fastest_index)) = self.results_rec.try_recv() {
-            self.tune_cache.cache_insert(key.clone(), fastest_index);
+        while let Ok(msg) = self.results_rec.try_recv() {
+            self.tune_cache
+                .cache_insert(msg.key.clone(), msg.fastest_index);
 
             #[cfg(autotune_persistent_cache)]
             {
                 let checksum = set.compute_checksum();
                 self.tune_cache
-                    .persistent_cache_insert(key, checksum, fastest_index);
+                    .persistent_cache_insert(msg.key, checksum, msg.fastest_index);
                 self.tune_cache.save();
             }
         }
 
         // Check to see if value is now cached. If not, just use a default operation.
-        let operation = match self.tune_cache.try_cache(set.clone()) {
-            super::TuneCacheResult::Hit(ops) => ops,
-            _ => set.fastest(0),
+        let fastest_index = match self.tune_cache.try_cache(set.as_ref()) {
+            super::TuneCacheResult::Hit { fastest_index } => fastest_index,
+            _ => 0,
         };
 
-        AutotuneOperation::execute(operation)
+        let op = set.fastest(fastest_index);
+        AutotuneOperation::execute(op)
     }
 
     fn start_autotuning<
@@ -101,7 +110,7 @@ impl<K: AutotuneKey> Tuner<K> {
         Out: Send + 'static,
     >(
         &mut self,
-        set: Arc<dyn AutotuneOperationSet<K, Out>>,
+        set: &dyn AutotuneOperationSet<K, Out>,
         client: &ComputeClient<S, C>,
     ) {
         let key = set.key();
@@ -120,7 +129,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
             let mut bench_times = vec![];
             for (i, op) in autotunables.into_iter().enumerate() {
-                let res = Self::run_benchmark(set.as_ref(), &key, i, op, &client).await;
+                let res = Self::run_benchmark(set, &key, i, op, &client).await;
                 let timings = res.map(|t| (i, BenchmarkComputations::new(&t), t));
                 bench_times.push(timings);
             }
@@ -143,7 +152,7 @@ impl<K: AutotuneKey> Tuner<K> {
             log::info!("Fastest result {fastest_name}-{key}. \n Top 3 times: {top_times:?}",);
 
             sender
-                .try_send((key, fastest_index))
+                .try_send(AutotuneMessage { key, fastest_index })
                 .expect("Autotune results channel closed");
         });
     }
