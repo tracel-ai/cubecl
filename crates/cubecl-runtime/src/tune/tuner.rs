@@ -221,7 +221,9 @@ impl<K: AutotuneKey> Tuner<K> {
 fn spawn_benchmark_task(future: impl Future<Output = ()> + 'static) {
     // Spawn the tuning as a task.
     #[cfg(target_family = "wasm")]
-    wasm_bindgen_futures::spawn_local(future);
+    {
+        wasm_bindgen_futures::spawn_local(future);
+    }
 
     // It is totally possible here to run the tuning on a thread, which woulp startup time,
     // but might have two downsides:

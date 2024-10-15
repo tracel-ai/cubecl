@@ -10,7 +10,7 @@ pub fn block_on<O>(fut: impl Future<Output = O>) -> O {
 
     #[cfg(feature = "std")]
     {
-        futures::executor::block_on(fut)
+        futures_lite::future::block_on(fut)
     }
 }
 
@@ -21,7 +21,7 @@ pub async fn catch_unwind<O>(
     #[cfg(all(not(target_family = "wasm"), feature = "std"))]
     {
         use core::panic::AssertUnwindSafe;
-        use futures::FutureExt;
+        use futures_lite::FutureExt;
         AssertUnwindSafe(future).catch_unwind().await
     }
 

@@ -15,7 +15,7 @@ version.workspace = true
 
 [features]
 default = ["std"]
-std = ["rand/std", "futures"]
+std = ["rand/std", "futures-lite"]
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
@@ -29,7 +29,7 @@ serde = { workspace = true }
 spin = { workspace = true }         # using in place of use std::sync::Mutex;
 
 # Only activate futures for std env
-futures = { workspace = true, features = ["executor"], default-features = false, optional = true }
+futures-lite = { workspace = true, features = ["std"], default-features = false, optional = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
