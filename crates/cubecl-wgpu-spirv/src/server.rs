@@ -4,6 +4,7 @@ use std::{future::Future, num::NonZero};
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
+use cubecl_runtime::debug::ProfileLevel;
 use cubecl_runtime::{
     debug::DebugLogger,
     memory_management::{MemoryHandle, MemoryLock, MemoryManagement, MemoryUsage},
@@ -65,7 +66,7 @@ impl WgpuSpirvServer {
             tasks_count: 0,
             pipelines: HashMap::new(),
             tasks_max,
-            logger: DebugLogger::new(),
+            logger: DebugLogger::default(),
             storage_locked: MemoryLock::default(),
             poll: WgpuPoll::new(device.clone()),
             query_set: device.create_query_set(&QuerySetDescriptor {
@@ -429,14 +430,14 @@ impl ComputeServer for WgpuSpirvServer {
             self.duration_profiled = duration_previous + duration;
 
             let info = match level {
-                cubecl_runtime::debug::ProfileLevel::Basic => {
+                ProfileLevel::Basic | ProfileLevel::Medium => {
                     if let Some(val) = name.split("<").next() {
                         val.split("::").last().unwrap_or(name).to_string()
                     } else {
                         name.to_string()
                     }
                 }
-                cubecl_runtime::debug::ProfileLevel::Full => {
+                ProfileLevel::Full => {
                     format!("{name}: {kernel_id} CubeCount {count:?}")
                 }
             };
@@ -463,6 +464,7 @@ impl ComputeServer for WgpuSpirvServer {
     /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
         let future = self.sync_queue();
+        self.logger.profile_summary();
         self.duration_profiled = Duration::from_secs(0);
         future
     }

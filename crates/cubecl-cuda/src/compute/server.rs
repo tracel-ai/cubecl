@@ -6,7 +6,7 @@ use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
 use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
-use cubecl_runtime::debug::DebugLogger;
+use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::ExecutionMode;
@@ -170,14 +170,14 @@ impl ComputeServer for CudaServer {
 
             let (name, kernel_id) = profile_info.unwrap();
             let info = match level {
-                cubecl_runtime::debug::ProfileLevel::Basic => {
+                ProfileLevel::Basic | ProfileLevel::Medium => {
                     if let Some(val) = name.split("<").next() {
                         val.split("::").last().unwrap_or(name).to_string()
                     } else {
                         name.to_string()
                     }
                 }
-                cubecl_runtime::debug::ProfileLevel::Full => {
+                ProfileLevel::Full => {
                     format!("{name}: {kernel_id} CubeCount {count:?}")
                 }
             };
@@ -192,6 +192,8 @@ impl ComputeServer for CudaServer {
     fn flush(&mut self) {}
 
     fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
+        self.logger.profile_summary();
+
         let ctx = self.get_context();
         ctx.sync();
         let duration = ctx
@@ -340,7 +342,7 @@ impl CudaServer {
     pub(crate) fn new(ctx: CudaContext) -> Self {
         Self {
             ctx,
-            logger: DebugLogger::new(),
+            logger: DebugLogger::default(),
         }
     }
 

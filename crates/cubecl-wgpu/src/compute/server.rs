@@ -6,7 +6,7 @@ use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
-    debug::DebugLogger,
+    debug::{DebugLogger, ProfileLevel},
     memory_management::{MemoryHandle, MemoryLock, MemoryManagement},
     server::{self, ComputeServer},
     storage::{BindingResource, ComputeStorage},
@@ -137,7 +137,7 @@ impl WgpuServer {
             storage_locked: MemoryLock::default(),
             pipelines: HashMap::new(),
             tasks_max,
-            logger: DebugLogger::new(),
+            logger: DebugLogger::default(),
             poll: WgpuPoll::new(device.clone()),
             query_set: device.create_query_set(&QuerySetDescriptor {
                 label: Some("CubeCL profile queries"),
@@ -467,14 +467,14 @@ impl ComputeServer for WgpuServer {
             self.duration_profiled = duration_previous + duration;
 
             let info = match level {
-                cubecl_runtime::debug::ProfileLevel::Basic => {
+                ProfileLevel::Basic | ProfileLevel::Medium => {
                     if let Some(val) = name.split("<").next() {
                         val.split("::").last().unwrap_or(name).to_string()
                     } else {
                         name.to_string()
                     }
                 }
-                cubecl_runtime::debug::ProfileLevel::Full => {
+                ProfileLevel::Full => {
                     format!("{name}: {kernel_id} CubeCount {count:?}")
                 }
             };
@@ -501,6 +501,7 @@ impl ComputeServer for WgpuServer {
     /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
         let future = self.sync_queue();
+        self.logger.profile_summary();
         self.duration_profiled = Duration::from_secs(0);
         future
     }
