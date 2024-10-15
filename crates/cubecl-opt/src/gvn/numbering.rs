@@ -357,10 +357,10 @@ impl ValueTable {
 
 fn cmp_inverse(op: &OpId) -> OpId {
     match op {
-        OpId::Lower => OpId::GreaterEqual,
-        OpId::Greater => OpId::LowerEqual,
-        OpId::LowerEqual => OpId::Greater,
-        OpId::GreaterEqual => OpId::Lower,
+        OpId::Lower => OpId::Greater,
+        OpId::Greater => OpId::Lower,
+        OpId::LowerEqual => OpId::GreaterEqual,
+        OpId::GreaterEqual => OpId::LowerEqual,
         _ => unreachable!(),
     }
 }
