@@ -9,8 +9,6 @@ use crate::matmul::stage_info::StageInfo;
 pub trait GlobalView<E: Numeric>: CubeType {
     type Global: CubeType;
 
-    fn line_size(view: &Self) -> u32;
-
     fn load_coalesced(
         view: &Self,
         tile_x: u32,

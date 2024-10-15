@@ -19,12 +19,8 @@ pub struct TensorView<E: Numeric> {
 }
 
 #[cube]
-impl<E: Numeric> GlobalView<E> for TensorView<E> {
-    type Global = Tensor<Line<E>>;
-
-    fn line_size(view: &Self) -> u32 {
-        comptime!(view.tensor.line_size())
-    }
+impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
+    type Global = Tensor<Line<EG>>;
 
     fn load_coalesced(
         view: &Self,
@@ -33,7 +29,7 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         load_id: u32,
         tile_size_x: u32,
         tile_size_y: u32,
-    ) -> Line<E> {
+    ) -> Line<EG> {
         let tensor = &view.tensor;
 
         let absolute_tile_x = tile_x * tile_size_x + view.x_offset;
@@ -57,7 +53,7 @@ impl<E: Numeric> GlobalView<E> for TensorView<E> {
         #[comptime] stage_info: StageInfo,
     ) {
         // TODO allow other modes than Gmem2SmemContinuous
-        Gmem2SmemContinuous::load_shared_memory::<E, ES, Self, O>(view, shared_memory, stage_info);
+        Gmem2SmemContinuous::load_shared_memory::<EG, ES, Self, O>(view, shared_memory, stage_info);
     }
 
     fn init_view(view: &mut Self, x_offset: u32, y_offset: u32) {

@@ -16,12 +16,8 @@ pub struct ArrayView<E: Numeric> {
 }
 
 #[cube]
-impl<E: Numeric> GlobalView<E> for ArrayView<E> {
-    type Global = Array<Line<E>>;
-
-    fn line_size(view: &Self) -> u32 {
-        comptime!(view.array.line_size())
-    }
+impl<EG: Numeric> GlobalView<EG> for ArrayView<EG> {
+    type Global = Array<Line<EG>>;
 
     fn load_coalesced(
         view: &Self,
@@ -30,7 +26,7 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         load_id: u32,
         tile_size_x: u32,
         tile_size_y: u32,
-    ) -> Line<E> {
+    ) -> Line<EG> {
         let array = &view.array;
 
         let (load_x, load_y) = match comptime!(view.layout) {
@@ -50,7 +46,7 @@ impl<E: Numeric> GlobalView<E> for ArrayView<E> {
         #[comptime] stage_info: StageInfo,
     ) {
         // TODO allow other modes than Gmem2SmemContinuous
-        Gmem2SmemContinuous::load_shared_memory::<E, ES, Self, O>(view, shared_memory, stage_info);
+        Gmem2SmemContinuous::load_shared_memory::<EG, ES, Self, O>(view, shared_memory, stage_info);
     }
 
     fn init_view(_view: &mut Self, _x_offset: u32, _y_offset: u32) {

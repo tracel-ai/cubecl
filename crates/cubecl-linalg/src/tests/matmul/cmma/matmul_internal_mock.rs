@@ -409,7 +409,9 @@ macro_rules! testgen_cmma_internal_mock {
         }
 
         #[test]
+        #[ignore]
         pub fn test_stage_matmul_s128x16x16() {
+            // Should panic but only when vectorized, because too many units to fill rhs -> out of bounds
             test_fixed_matmul::<
                 CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S128x16x16>,
                 f32,

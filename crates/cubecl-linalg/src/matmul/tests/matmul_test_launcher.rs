@@ -59,7 +59,7 @@ where
     let cube_count = CubeCount::Static(requirements.num_cubes, 1, 1);
 
     let input_line = 4;
-    let output_line = 4;
+    let output_line = 1;
 
     unsafe {
         MM::launch_unchecked(

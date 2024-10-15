@@ -8,3 +8,10 @@ pub trait PlaneMapper {
     fn num_planes() -> u32;
     fn plane_dim() -> u32;
 }
+
+#[cube]
+pub trait SubRoutine {
+    type ProblemDefinition: CubeType;
+
+    fn assert_can_process(problem: Self::ProblemDefinition);
+}
