@@ -1,11 +1,10 @@
-use web_time::Duration;
-
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, CubeCount, Handle};
 use crate::storage::BindingResource;
 use crate::ExecutionMode;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use cubecl_common::stub::Duration;
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///

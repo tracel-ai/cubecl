@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 
 use cubecl::benchmark::Benchmark;
 use cubecl::frontend::Float;
+use cubecl::future;
 use cubecl_linalg::matmul;
 use cubecl_linalg::tensor::TensorHandle;
-use futures_lite::future;
 
 impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     type Args = (TensorHandle<R, E>, TensorHandle<R, E>);

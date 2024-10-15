@@ -1,5 +1,5 @@
 use core::future::Future;
-use web_time::Duration;
+use cubecl_common::stub::Duration;
 
 use crate::{
     server::{Binding, ComputeServer, CubeCount, Handle},

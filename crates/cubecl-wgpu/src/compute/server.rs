@@ -4,6 +4,7 @@ use crate::compiler::wgsl::WgslCompiler;
 
 use super::WgpuStorage;
 use alloc::{borrow::Cow, sync::Arc};
+use cubecl_common::future;
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
     debug::{DebugLogger, ProfileLevel},
@@ -12,7 +13,6 @@ use cubecl_runtime::{
     storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
-use futures_lite::future;
 use hashbrown::HashMap;
 use wgpu::{
     CommandEncoder, ComputePass, ComputePipeline, QuerySet, QuerySetDescriptor, QueryType,

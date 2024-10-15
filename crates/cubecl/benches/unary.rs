@@ -5,8 +5,8 @@ use std::marker::PhantomData;
 use half::f16;
 
 use cubecl::benchmark::Benchmark;
+use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
-use futures_lite::future;
 
 #[cube(launch)]
 fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {

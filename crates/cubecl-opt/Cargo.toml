@@ -6,8 +6,8 @@ readme.workspace = true
 version.workspace = true
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.2.0" }
-cubecl-core = { path = "../cubecl-core", version = "0.2.0" }
+cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
 num = { version = "0.4" }
 petgraph = { version = "0.6" }
 stable-vec = { version = "0.4" }

@@ -22,7 +22,7 @@ default = [
 std = ["cubecl-common/std"]
 channel-mutex = []
 channel-cell = []
-channel-mpsc = ["dep:async-channel", "dep:futures-lite"] # Assume std
+channel-mpsc = ["dep:async-channel"] # Assume std
 storage-bytes = []
 exclusive-memory-only = []
 
@@ -31,10 +31,7 @@ cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features
 derive-new = { workspace = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
-
-web-time = { workspace = true }
 async-channel = { workspace = true, optional = true }
-futures-lite = { workspace = true, optional = true }
 
 # Persistent cache deps - has to match the autotune_persistent_cache cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]

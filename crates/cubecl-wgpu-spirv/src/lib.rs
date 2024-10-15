@@ -2,6 +2,7 @@ extern crate alloc;
 
 use std::sync::Arc;
 
+use cubecl_common::future;
 use cubecl_core::{
     channel::MutexComputeChannel,
     client::ComputeClient,
@@ -14,7 +15,6 @@ use cubecl_wgpu::{
     create_wgpu_setup, init_memory_management, AutoGraphicsApi, RuntimeOptions, Vulkan, WgpuDevice,
     WgpuStorage,
 };
-use futures_lite::future;
 use server::WgpuSpirvServer;
 use wgpu::hal;
 

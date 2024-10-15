@@ -37,7 +37,6 @@ async-channel = "2.3"
 wasm-bindgen-futures = "0.4.45"
 dirs = "5.0.1"
 md5 = "0.7.0"
-futures-lite = "2.3.0"
 weak-table = "0.3"
 web-time = "1.1.0"
 
@@ -70,6 +69,10 @@ portable-atomic-util = { version = "0.2.2", features = [
     "alloc",
 ] } # alloc is for no_std
 pretty_assertions = "1.4"
+
+# Async
+futures-lite = { version = "2.3.0", default-features = false }
+embassy-futures = { version = "0.1.1" } # for no-std
 
 [profile.dev]
 opt-level = 2

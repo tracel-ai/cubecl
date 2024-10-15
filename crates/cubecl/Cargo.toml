@@ -39,7 +39,6 @@ cubecl-cuda = { path = "../cubecl-cuda", version = "0.2.0", default-features = f
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", default-features = false, optional = true }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0", default-features = false, optional = true }
 cubecl-wgpu-spirv = { path = "../cubecl-wgpu-spirv", version = "0.2.0", default-features = false, optional = true }
-futures-lite.workspace = true
 
 [dev-dependencies]
 half = { workspace = true }

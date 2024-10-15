@@ -6,6 +6,9 @@ extern crate derive_new;
 /// Cube Frontend Types.
 pub mod frontend;
 
+/// Some future utilities that work across environments.
+pub use cubecl_common::future;
+
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 pub use frontend::cmma;
 

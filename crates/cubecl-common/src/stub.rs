@@ -153,3 +153,8 @@ impl<T: core::fmt::Debug> SyncOnceCell<T> {
         }
     }
 }
+
+#[cfg(not(target_family = "wasm"))]
+pub use core::time::Duration;
+#[cfg(target_family = "wasm")]
+pub use web_time::Duration;
