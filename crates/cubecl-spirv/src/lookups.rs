@@ -171,7 +171,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         if let Some(id) = self.state.globals.get(&global) {
             *id
         } else {
+            let current_block = self.selected_block();
+            let setup = self.setup_block;
+            self.select_block(Some(setup)).unwrap();
             let id = insert(self);
+            self.select_block(current_block).unwrap();
             self.state.globals.insert(global, id);
             id
         }

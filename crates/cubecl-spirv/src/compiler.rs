@@ -33,6 +33,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     global_invocation_id: Word,
     num_workgroups: Word,
     variable_block: usize,
+    pub setup_block: usize,
     pub opt: Optimizer,
     pub current_block: Option<NodeIndex>,
     pub visited: HashSet<NodeIndex>,
@@ -53,6 +54,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             global_invocation_id: self.global_invocation_id,
             num_workgroups: self.num_workgroups,
             variable_block: self.variable_block,
+            setup_block: self.setup_block,
             opt: self.opt.clone(),
             current_block: self.current_block,
 
@@ -75,6 +77,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             capabilities: Default::default(),
             state: Default::default(),
             variable_block: Default::default(),
+            setup_block: Default::default(),
             opt: Default::default(),
             current_block: Default::default(),
             debug: env::var("CUBECL_DEBUG_LOG").is_ok(),
@@ -162,7 +165,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let entry = self.opt.entry();
         let body = self.label(entry);
-        self.setup(setup, body);
+        let setup_block = self.setup(setup);
+        self.setup_block = setup_block;
         self.compile_block(entry);
 
         let ret = self.opt.ret;
@@ -172,6 +176,9 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             let label = self.label(ret);
             self.branch(label).unwrap();
         }
+
+        self.select_block(Some(setup_block)).unwrap();
+        self.branch(body).unwrap();
 
         // Terminate variable block
         let var_block = self.variable_block;
@@ -201,8 +208,9 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         (module, self.opt.clone())
     }
 
-    fn setup(&mut self, label: Word, body: Word) {
+    fn setup(&mut self, label: Word) -> usize {
         self.begin_block(Some(label)).unwrap();
+        let setup_block = self.selected_block().unwrap();
         let int = Item::Scalar(Elem::Int(32, false));
         let int_ty = int.id(self);
         let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(self);
@@ -218,7 +226,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let rank_2 = self.i_mul(int_ty, None, rank, two).unwrap();
         self.debug_name(rank_2, "rank*2");
         self.state.rank_2 = rank_2;
-        self.branch(body).unwrap();
+        self.select_block(None).unwrap();
+        setup_block
     }
 
     #[track_caller]
