@@ -1,16 +1,17 @@
-#[cfg(target_family = "wasm")]
+use async_channel::{Receiver, Sender};
+
+use core::future::Future;
+use core::{any::Any, mem::ManuallyDrop};
 use web_time::Duration;
 
-#[cfg(not(target_family = "wasm"))]
-use core::time::Duration;
-use core::{any::Any, mem::ManuallyDrop};
-#[cfg(feature = "std")]
-use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+#[cfg(all(not(target_family = "wasm"), feature = "std"))]
+use std::panic::{resume_unwind, AssertUnwindSafe};
 
 use alloc::boxed::Box;
 use alloc::string::ToString;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::benchmark::{Benchmark, BenchmarkComputations, BenchmarkDurations};
+use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
@@ -30,13 +31,18 @@ type BenchError = ManuallyDrop<Box<dyn Any + Send>>;
 /// Executes autotune benchmarking and caching
 pub struct Tuner<K: AutotuneKey> {
     tune_cache: TuneCache<K>,
+    results_send: Sender<(K, usize)>,
+    results_rec: Receiver<(K, usize)>,
 }
 
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
     /// Returns a tuner with cache initialized from persistent cache
     pub fn new(name: &str, device_id: &str) -> Self {
+        let (send, rec) = async_channel::unbounded();
         Self {
+            results_send: send,
+            results_rec: rec,
             tune_cache: TuneCache::new(name, device_id),
         }
     }
@@ -47,115 +53,146 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Execute the fastest autotune operation if known, otherwise perform some benchmarks before.
-    pub fn execute_autotune<S, C, Out>(
+    pub fn execute_autotune<S, C, Out: Send + 'static>(
         &mut self,
-        autotune_operation_set: Box<dyn AutotuneOperationSet<K, Out>>,
+        set: Arc<dyn AutotuneOperationSet<K, Out>>,
         client: &ComputeClient<S, C>,
     ) -> Out
     where
-        S: ComputeServer,
-        C: ComputeChannel<S>,
+        S: ComputeServer + 'static,
+        C: ComputeChannel<S> + 'static,
     {
-        let operation = match self.tune_cache.try_cache(autotune_operation_set) {
-            super::TuneCacheResult::Hit(ops) => ops,
-            super::TuneCacheResult::Miss(set) => self.autotuning(set, client),
+        match self.tune_cache.try_cache(set.clone()) {
+            // Cache hit -> return straight away.
+            super::TuneCacheResult::Hit(ops) => return AutotuneOperation::execute(ops),
+            // Pending -> wait for the cache to be filled.
+            super::TuneCacheResult::Pending => {}
+            // Never seen before -> Start autotuning.
+            super::TuneCacheResult::Miss => {
+                self.start_autotuning(set.clone(), client);
+            }
         };
 
-        AutotuneOperation::<Out>::execute(operation)
-    }
+        // Collect any new cache results that have come in.
+        while let Ok((key, fastest_index)) = self.results_rec.try_recv() {
+            self.tune_cache.cache_insert(key.clone(), fastest_index);
 
-    fn autotuning<S, C, Out>(
-        &mut self,
-        autotune_operation_set: Box<dyn AutotuneOperationSet<K, Out>>,
-        client: &ComputeClient<S, C>,
-    ) -> Box<dyn AutotuneOperation<Out>>
-    where
-        S: ComputeServer,
-        C: ComputeChannel<S>,
-    {
-        let key = autotune_operation_set.key();
-        let autotunables = autotune_operation_set.autotunables();
-        let mut names = Vec::with_capacity(autotunables.len());
-
-        let results: Vec<Result<BenchmarkDurations, BenchError>> = autotunables
-            .into_iter()
-            .enumerate()
-            .map(|(i, op)| {
-                names.push(op.name().to_string());
-                if autotune_operation_set.should_run(&key, i) {
-                    self.run_benchmark(op, client)
-                } else {
-                    Ok(BenchmarkDurations::new(Vec::from([Duration::MAX])))
-                }
-            })
-            .collect();
-
-        #[cfg(feature = "std")]
-        if results.iter().all(|it| it.is_err()) {
-            let first_error = results.into_iter().next().unwrap().err().unwrap();
-            resume_unwind(ManuallyDrop::into_inner(first_error));
-        }
-
-        // Finds the fastest operation, stores it and returns it
-        let fastest_index = self.find_fastest(results);
-        let fastest_name = names.get(fastest_index).unwrap();
-        log::info!("Fastest result {fastest_name}-{key}");
-
-        self.tune_cache.cache_insert(key.clone(), fastest_index);
-        #[cfg(autotune_persistent_cache)]
-        {
-            let checksum = autotune_operation_set.compute_checksum();
-            self.tune_cache
-                .persistent_cache_insert(key, checksum, fastest_index);
-            self.tune_cache.save();
-        }
-
-        match self.tune_cache.try_cache(autotune_operation_set) {
-            super::TuneCacheResult::Hit(ops) => ops,
-            super::TuneCacheResult::Miss(_) => panic!("We just inserted, should not miss"),
-        }
-    }
-
-    fn run_benchmark<S, C, Out>(
-        &mut self,
-        operation: Box<dyn AutotuneOperation<Out>>,
-        client: &ComputeClient<S, C>,
-    ) -> Result<BenchmarkDurations, BenchError>
-    where
-        S: ComputeServer,
-        C: ComputeChannel<S>,
-    {
-        #[cfg(feature = "std")]
-        {
-            catch_unwind(AssertUnwindSafe(|| {
-                TuneBenchmark::new(operation, client.clone()).run()
-            }))
-            .map_err(|e| {
-                println!("Caught error while benchmarking, falling back to next operation.");
-                ManuallyDrop::new(e)
-            })
-        }
-        #[cfg(not(feature = "std"))]
-        Ok(TuneBenchmark::new(operation, client.clone()).run())
-    }
-
-    fn find_fastest(&self, results: Vec<Result<BenchmarkDurations, BenchError>>) -> usize {
-        let mut smallest_duration = Duration::MAX;
-        let mut fastest_tunable = None;
-
-        for (i, result) in results.into_iter().enumerate() {
-            let result = match result {
-                Ok(result) => result,
-                Err(_) => continue,
-            };
-            let computed = BenchmarkComputations::new(&result);
-
-            if computed.median < smallest_duration {
-                smallest_duration = computed.median;
-                fastest_tunable = Some(i);
+            #[cfg(autotune_persistent_cache)]
+            {
+                let checksum = set.compute_checksum();
+                self.tune_cache
+                    .persistent_cache_insert(key, checksum, fastest_index);
+                self.tune_cache.save();
             }
         }
 
-        fastest_tunable.expect("At least one kernel needed. ")
+        // Check to see if value is now cached. If not, just use a default operation.
+        let operation = match self.tune_cache.try_cache(set.clone()) {
+            super::TuneCacheResult::Hit(ops) => ops,
+            _ => set.fastest(0),
+        };
+
+        AutotuneOperation::execute(operation)
     }
+
+    fn start_autotuning<
+        S: ComputeServer + 'static,
+        C: ComputeChannel<S> + 'static,
+        Out: Send + 'static,
+    >(
+        &mut self,
+        set: Arc<dyn AutotuneOperationSet<K, Out>>,
+        client: &ComputeClient<S, C>,
+    ) {
+        let key = set.key();
+        self.tune_cache.mark_pending(key.clone());
+
+        // let set = set.clone();
+        let client = client.clone();
+        let sender = self.results_send.clone();
+
+        spawn_benchmark_task(async move {
+            let autotunables = set.autotunables();
+            let names: Vec<_> = autotunables
+                .iter()
+                .map(|op| op.name().to_string())
+                .collect();
+
+            let mut bench_times = vec![];
+            for (i, op) in autotunables.into_iter().enumerate() {
+                let res = Self::run_benchmark(set.as_ref(), &key, i, op, &client).await;
+                let timings = res.map(|t| (i, BenchmarkComputations::new(&t), t));
+                bench_times.push(timings);
+            }
+
+            // Panic if all tuners panicked.
+            #[cfg(all(feature = "std", not(target_family = "wasm")))]
+            if bench_times.iter().all(|it| it.is_err()) {
+                let first_error = bench_times.into_iter().next().unwrap().err().unwrap();
+                resume_unwind(ManuallyDrop::into_inner(first_error));
+            }
+
+            // Finds the fastest operation (by the median time).
+            let mut bench_times: Vec<_> = bench_times.into_iter().filter_map(|b| b.ok()).collect();
+            bench_times.sort_by_key(|p| p.1.median);
+
+            // Log & send results.
+            let fastest_index = bench_times.first().expect("At least one kernel needed. ").0;
+            let fastest_name = &names[fastest_index];
+            let top_times = bench_times.iter().map(|x| &x.1).take(3).collect::<Vec<_>>();
+            log::info!("Fastest result {fastest_name}-{key}. \n Top 3 times: {top_times:?}",);
+
+            sender
+                .try_send((key, fastest_index))
+                .expect("Autotune results channel closed");
+        });
+    }
+
+    async fn run_benchmark<S: ComputeServer, C: ComputeChannel<S>, Out>(
+        set: &dyn AutotuneOperationSet<K, Out>,
+        key: &K,
+        index: usize,
+        operation: Box<dyn AutotuneOperation<Out>>,
+        client: &ComputeClient<S, C>,
+    ) -> Result<BenchmarkDurations, BenchError> {
+        if set.should_run(key, index) {
+            let tuner = TuneBenchmark::new(operation, client.clone());
+
+            #[cfg(any(target_family = "wasm", not(feature = "std")))]
+            {
+                Ok(tuner.sample_durations().await)
+            }
+
+            #[cfg(all(not(target_family = "wasm"), feature = "std"))]
+            {
+                use futures_lite::FutureExt;
+
+                AssertUnwindSafe(tuner.sample_durations())
+                    .catch_unwind()
+                    .await
+                    .map_err(|e| {
+                        log::warn!(
+                            "Caught error while benchmarking, falling back to next operation."
+                        );
+                        ManuallyDrop::new(e)
+                    })
+            }
+        } else {
+            Ok(BenchmarkDurations::new(vec![Duration::MAX]))
+        }
+    }
+}
+
+fn spawn_benchmark_task(future: impl Future<Output = ()>) {
+    // Spawn the tuning as a task.
+    #[cfg(target_family = "wasm")]
+    wasm_bindgen_futures::spawn_local(future);
+
+    // It is totally possible here to run the tuning on a thread, which woulp startup time,
+    // but might have two downsides:
+    // - Benchmarks now need a "warmup" time until a good kernel is selected.
+    // - Tuning might be less precise, as it's possible that other operations are
+    //   submitted while tuning, which might skew results.
+    #[cfg(not(target_family = "wasm"))]
+    futures_lite::future::block_on(future);
 }

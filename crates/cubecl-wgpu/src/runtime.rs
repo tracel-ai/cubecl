@@ -5,12 +5,12 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_core::{Feature, Runtime};
+pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryManagement};
 use cubecl_runtime::DeviceProperties;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
+use futures_lite::future;
 use wgpu::DeviceDescriptor;
-
-pub use cubecl_runtime::memory_management::MemoryConfiguration;
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
@@ -43,7 +43,7 @@ impl Runtime for WgpuRuntime {
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
             let (adapter, device_wgpu, queue) =
-                pollster::block_on(create_wgpu_setup::<AutoGraphicsApi>(device));
+                future::block_on(create_wgpu_setup::<AutoGraphicsApi>(device));
             create_client(adapter, device_wgpu, queue, RuntimeOptions::default())
         })
     }
@@ -101,7 +101,7 @@ pub fn init_existing_device(
 /// Initialize a client on the given device with the given options. This function is useful to configure the runtime options
 /// or to pick a different graphics API. On wasm, it is necessary to use [`init_async`] instead.
 pub fn init_sync<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) {
-    pollster::block_on(init_async::<G>(device, options));
+    future::block_on(init_async::<G>(device, options));
 }
 
 /// Like [`init_sync`], but async, necessary for wasm.

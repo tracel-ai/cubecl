@@ -214,7 +214,7 @@ impl AutotuneOperations {
             .filter(|it| it.ident.as_ref().unwrap() != &self.key)
             .map(|field| {
                 let name = field.ident.as_ref().unwrap();
-                quote![self.#name]
+                quote![self.#name.clone()]
             })
             .collect();
         let ops = self.operations.iter().enumerate().map(|(i, op)| {
@@ -224,7 +224,7 @@ impl AutotuneOperations {
 
         quote! {
             fn fastest(
-                self: Box<Self>,
+                &self,
                 fastest_index: usize,
             ) -> Box<dyn #operation<#output>> {
                 match fastest_index {

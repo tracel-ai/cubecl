@@ -71,7 +71,7 @@ fn autotune_basic_addition_execution() {
 
     let addition_autotune_kernel =
         dummy::AdditionAutotuneOperationSet::new(client.clone(), shapes, handles);
-    autotune_execute(&client, Box::new(addition_autotune_kernel));
+    autotune_execute(&client, Arc::new(addition_autotune_kernel));
 
     let obtained_resource = client.read(out.binding());
 
@@ -94,7 +94,7 @@ fn autotune_basic_multiplication_execution() {
 
     let multiplication_autotune_kernel =
         dummy::MultiplicationAutotuneOperationSet::new(client.clone(), shapes, handles);
-    autotune_execute(&client, Box::new(multiplication_autotune_kernel));
+    autotune_execute(&client, Arc::new(multiplication_autotune_kernel));
 
     let obtained_resource = client.read(out.binding());
 
@@ -132,8 +132,8 @@ fn autotune_cache_same_key_return_a_cache_hit() {
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
     let cache_test_autotune_kernel_2 =
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+    autotune_execute(&client, Arc::new(cache_test_autotune_kernel_1));
+    autotune_execute(&client, Arc::new(cache_test_autotune_kernel_2));
 
     let obtained_resource = client.read(out_2.binding());
 
@@ -176,8 +176,8 @@ fn autotune_cache_no_cache_on_disk_return_a_cache_miss() {
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
     let cache_test_autotune_kernel_2 =
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+    autotune_execute(&client, Arc::new(cache_test_autotune_kernel_1));
+    autotune_execute(&client, Arc::new(cache_test_autotune_kernel_2));
 
     // read the resource which should update the cache on disk
     let obtained_resource = client.read(out_2.binding());
@@ -216,7 +216,7 @@ fn autotune_cache_file_path_creation_works_when_path_does_not_exist_yet() {
 
     let cache_test_autotune_kernel =
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes, handles);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel));
+    autotune_execute(&client, Arc::new(cache_test_autotune_kernel));
 
     assert!(
         parent_dir.exists(),
@@ -250,8 +250,8 @@ fn autotune_cache_different_keys_return_a_cache_miss() {
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
     let cache_test_autotune_kernel_2 =
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+    autotune_execute(&client, Arc::new(cache_test_autotune_kernel_1));
+    autotune_execute(&client, Arc::new(cache_test_autotune_kernel_2));
 
     let obtained_resource = client.read(out_2.binding());
 
@@ -277,7 +277,7 @@ fn autotune_cache_different_checksums_return_a_cache_miss() {
     let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
     let cache_test_autotune_kernel_1 =
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
+    autotune_execute(&client, Arc::new(cache_test_autotune_kernel_1));
 
     TEST_TUNER.clear();
 
@@ -290,7 +290,7 @@ fn autotune_cache_different_checksums_return_a_cache_miss() {
     let mut cache_test_autotune_kernel_2 =
         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
     cache_test_autotune_kernel_2.generate_random_checksum = true;
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+    autotune_execute(&client, Arc::new(cache_test_autotune_kernel_2));
 
     let obtained_resource = client.read(out_2.binding());
 

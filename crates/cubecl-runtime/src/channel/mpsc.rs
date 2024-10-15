@@ -1,4 +1,4 @@
-use cubecl_common::{reader::Reader, sync_type::SyncType};
+use core::time::Duration;
 use std::{sync::Arc, thread};
 
 use super::ComputeChannel;
@@ -39,7 +39,8 @@ where
     Create(Vec<u8>, Callback<Handle>),
     Empty(usize, Callback<Handle>),
     ExecuteKernel((Server::Kernel, CubeCount, ExecutionMode), Vec<Binding>),
-    Sync(SyncType, Callback<()>),
+    Flush,
+    Sync(Callback<Duration>),
     GetMemoryUsage(Callback<MemoryUsage>),
 }
 
@@ -54,7 +55,7 @@ where
         let _handle = thread::spawn(move || {
             // Run the whole procedure as one blocking future. This is much simpler than trying
             // to use some multithreaded executor.
-            pollster::block_on(async {
+            futures_lite::future::block_on(async {
                 while let Ok(message) = receiver.recv().await {
                     match message {
                         Message::Read(binding, callback) => {
@@ -76,9 +77,12 @@ where
                         Message::ExecuteKernel(kernel, bindings) => unsafe {
                             server.execute(kernel.0, kernel.1, bindings, kernel.2);
                         },
-                        Message::Sync(sync_type, callback) => {
-                            server.sync(sync_type);
-                            callback.send(()).await.unwrap();
+                        Message::Sync(callback) => {
+                            let duration = server.sync().await;
+                            callback.send(duration).await.unwrap();
+                        }
+                        Message::Flush => {
+                            server.flush();
                         }
                         Message::GetMemoryUsage(callback) => {
                             callback.send(server.memory_usage()).await.unwrap();
@@ -106,14 +110,11 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
-    fn read(&self, binding: Binding) -> Reader {
+    async fn read(&self, binding: Binding) -> Vec<u8> {
         let sender = self.state.sender.clone();
-
-        Box::pin(async move {
-            let (callback, response) = async_channel::unbounded();
-            sender.send(Message::Read(binding, callback)).await.unwrap();
-            handle_response(response.recv().await)
-        })
+        let (callback, response) = async_channel::unbounded();
+        sender.send(Message::Read(binding, callback)).await.unwrap();
+        handle_response(response.recv().await)
     }
 
     fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
@@ -161,13 +162,18 @@ where
             .unwrap()
     }
 
-    fn sync(&self, sync_type: SyncType) {
+    fn flush(&self) {
+        self.state.sender.send_blocking(Message::Flush).unwrap()
+    }
+
+    async fn sync(&self) -> Duration {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
-            .send_blocking(Message::Sync(sync_type, callback))
+            .send(Message::Sync(callback))
+            .await
             .unwrap();
-        handle_response(response.recv_blocking())
+        handle_response(response.recv().await)
     }
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
