@@ -209,7 +209,11 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
 }
 
 fn can_merge(opt: &mut Optimizer, block: NodeIndex, successor: NodeIndex) -> bool {
-    let has_multiple_entries = opt.predecessors(successor).len() > 1;
+    let b_is_empty = opt.program[block].ops.borrow().is_empty()
+        && opt.program[block].phi_nodes.borrow().is_empty();
+    let s_is_empty = opt.program[successor].phi_nodes.borrow().is_empty();
+    let is_empty = b_is_empty && s_is_empty;
+    let s_has_multiple_entries = opt.predecessors(successor).len() > 1;
     let block = &opt.program[block];
     let successor = &opt.program[successor];
     let b_has_control_flow = !matches!(*block.control_flow.borrow(), ControlFlow::None);
@@ -227,7 +231,11 @@ fn can_merge(opt: &mut Optimizer, block: NodeIndex, successor: NodeIndex) -> boo
         .iter()
         .any(|it| matches!(it, BlockUse::Merge));
     let both_merge = b_is_merge && s_is_merge;
-    !has_multiple_entries && !b_has_control_flow && !s_is_header && !is_continue && !both_merge
+    (!s_has_multiple_entries || is_empty)
+        && !b_has_control_flow
+        && !s_is_header
+        && !is_continue
+        && !both_merge
 }
 
 pub fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
