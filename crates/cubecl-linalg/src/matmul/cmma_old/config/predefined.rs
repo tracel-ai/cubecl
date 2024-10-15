@@ -3,7 +3,7 @@ use super::{
         ComputeLoopOrderStrategy, MainLoopStrategy, RasterizationStrategy, SmemLoaderStrategy,
         WriteOutStrategy,
     },
-    CmmaConfig, TilingOrderStrategy,
+    CmmaOldConfig, TilingOrderStrategy,
 };
 
 #[derive(Clone, Copy)]
@@ -28,56 +28,56 @@ pub enum PredefinedCmmaConfig {
     BuffersFirst,
 }
 
-impl From<PredefinedCmmaConfig> for CmmaConfig {
+impl From<PredefinedCmmaConfig> for CmmaOldConfig {
     fn from(val: PredefinedCmmaConfig) -> Self {
         match val {
             // Probably the fastest
-            PredefinedCmmaConfig::M128K16 => CmmaConfig {
+            PredefinedCmmaConfig::M128K16 => CmmaOldConfig {
                 b_m: 128,
                 b_k: 16,
                 b_n: 128,
                 ..Default::default()
             },
-            PredefinedCmmaConfig::M64K32 => CmmaConfig {
+            PredefinedCmmaConfig::M64K32 => CmmaOldConfig {
                 b_m: 64,
                 b_k: 32,
                 b_n: 64,
                 ..Default::default()
             },
 
-            PredefinedCmmaConfig::M64K16 => CmmaConfig {
+            PredefinedCmmaConfig::M64K16 => CmmaOldConfig {
                 b_m: 64,
                 b_k: 16,
                 b_n: 64,
                 ..Default::default()
             },
-            PredefinedCmmaConfig::M32K16 => CmmaConfig {
+            PredefinedCmmaConfig::M32K16 => CmmaOldConfig {
                 b_m: 32,
                 b_k: 16,
                 b_n: 32,
                 ..Default::default()
             },
-            PredefinedCmmaConfig::M32K32 => CmmaConfig {
+            PredefinedCmmaConfig::M32K32 => CmmaOldConfig {
                 b_m: 32,
                 b_k: 32,
                 b_n: 32,
                 ..Default::default()
             },
-            PredefinedCmmaConfig::SplitM32k32 => CmmaConfig {
+            PredefinedCmmaConfig::SplitM32k32 => CmmaOldConfig {
                 b_m: 32,
                 b_k: 32,
                 b_n: 32,
                 main_loop_strategy: MainLoopStrategy::Split(4),
                 ..Default::default()
             },
-            PredefinedCmmaConfig::SplitM64k16 => CmmaConfig {
+            PredefinedCmmaConfig::SplitM64k16 => CmmaOldConfig {
                 b_m: 64,
                 b_k: 16,
                 b_n: 64,
                 main_loop_strategy: MainLoopStrategy::Split(4),
                 ..Default::default()
             },
-            PredefinedCmmaConfig::TilewiseInverted => CmmaConfig {
+            PredefinedCmmaConfig::TilewiseInverted => CmmaOldConfig {
                 lhs_smem_loader_strategy: SmemLoaderStrategy::Tilewise(
                     TilingOrderStrategy::ColMajor,
                 ),
@@ -86,7 +86,7 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 ),
                 ..Default::default()
             },
-            PredefinedCmmaConfig::Continuous => CmmaConfig {
+            PredefinedCmmaConfig::Continuous => CmmaOldConfig {
                 lhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
                     TilingOrderStrategy::RowMajor,
                 ),
@@ -95,7 +95,7 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 ),
                 ..Default::default()
             },
-            PredefinedCmmaConfig::ContinuousInverted => CmmaConfig {
+            PredefinedCmmaConfig::ContinuousInverted => CmmaOldConfig {
                 lhs_smem_loader_strategy: SmemLoaderStrategy::Continuous(
                     TilingOrderStrategy::ColMajor,
                 ),
@@ -104,27 +104,27 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 ),
                 ..Default::default()
             },
-            PredefinedCmmaConfig::LargeSmem => CmmaConfig {
+            PredefinedCmmaConfig::LargeSmem => CmmaOldConfig {
                 write_out_strategy: WriteOutStrategy::LargeSmem,
                 ..Default::default()
             },
-            PredefinedCmmaConfig::RowMajorRasterization => CmmaConfig {
+            PredefinedCmmaConfig::RowMajorRasterization => CmmaOldConfig {
                 rasterization_strategy: RasterizationStrategy::RowMajor,
                 ..Default::default()
             },
-            PredefinedCmmaConfig::SwizzleRasterization => CmmaConfig {
+            PredefinedCmmaConfig::SwizzleRasterization => CmmaOldConfig {
                 rasterization_strategy: RasterizationStrategy::Swizzle,
                 ..Default::default()
             },
-            PredefinedCmmaConfig::AccumulatorsFirstNoReuse => CmmaConfig {
+            PredefinedCmmaConfig::AccumulatorsFirstNoReuse => CmmaOldConfig {
                 compute_loop_order_strategy: ComputeLoopOrderStrategy::AllAccumulatorsFirst(false),
                 ..Default::default()
             },
-            PredefinedCmmaConfig::BuffersFirst => CmmaConfig {
+            PredefinedCmmaConfig::BuffersFirst => CmmaOldConfig {
                 compute_loop_order_strategy: ComputeLoopOrderStrategy::AllBuffersFirst,
                 ..Default::default()
             },
-            PredefinedCmmaConfig::M32K16N64 => CmmaConfig {
+            PredefinedCmmaConfig::M32K16N64 => CmmaOldConfig {
                 b_m: 32,
                 b_k: 16,
                 b_n: 64,
@@ -133,7 +133,7 @@ impl From<PredefinedCmmaConfig> for CmmaConfig {
                 ),
                 ..Default::default()
             },
-            PredefinedCmmaConfig::M16K32N64 => CmmaConfig {
+            PredefinedCmmaConfig::M16K32N64 => CmmaOldConfig {
                 b_m: 16,
                 b_k: 32,
                 b_n: 64,

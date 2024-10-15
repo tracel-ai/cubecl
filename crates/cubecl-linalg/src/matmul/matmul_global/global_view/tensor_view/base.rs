@@ -60,7 +60,12 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
         #[comptime] stage_info: StageInfo,
     ) {
         // TODO allow other modes than Gmem2SmemContinuous
-        Gmem2SmemContinuous::load_shared_memory::<EG, ES, Self, O>(view, shared_memory, stage_info);
+        Gmem2SmemContinuous::load_shared_memory::<EG, ES, Self, O>(
+            view,
+            shared_memory,
+            view.tensor.line_size(),
+            stage_info,
+        );
     }
 
     fn init_view(view: &mut Self, x_offset: u32, y_offset: u32) {

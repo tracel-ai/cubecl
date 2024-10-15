@@ -9,14 +9,14 @@ use crate::matmul::matmul_stage::RhsStageReader;
 use crate::matmul::matmul_stage::SharedMemoryStage;
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matmul_stage::XMajorTiling;
-use crate::matmul::matmul_tile::MatmulInstruction;
+use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfos;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube(launch_unchecked)]
-pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, O: Numeric>(
+pub(crate) fn matmul_instruction_launch<M: TileMatmul<I, O>, I: Numeric, O: Numeric>(
     lhs_array: Array<Line<I>>,
     rhs_array: Array<Line<I>>,
     mut out_array: Array<Line<O>>,
@@ -37,7 +37,7 @@ pub(crate) fn matmul_instruction_launch<M: MatmulInstruction<I, O>, I: Numeric, 
 pub(crate) fn stage_matmul_launch<
     I: Numeric,
     O: Numeric,
-    BM: StageMatmul<
+    SMM: StageMatmul<
         I,
         O,
         LhsStageReader<I, SharedMemoryStage<I, XMajorTiling>>,
@@ -50,6 +50,7 @@ pub(crate) fn stage_matmul_launch<
     out_result: Array<Line<O>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
     #[comptime] stage_infos: StageInfos,
+    #[comptime] config: &SMM::Config,
 ) {
     let mut lhs_loader = LhsArrayLoader::new(lhs_data, layouts.0, stage_infos.lhs);
     let mut rhs_loader = RhsArrayLoader::new(rhs_data, layouts.1, stage_infos.rhs);
@@ -59,16 +60,16 @@ pub(crate) fn stage_matmul_launch<
     let rhs_stage_reader = RhsArrayLoader::fill_block(&mut rhs_loader);
     let mut out_stage_reader = ArrayUnloader::unload(out_unloader);
 
-    let mut acc = BM::acc_init_zeros();
-    BM::execute(&lhs_stage_reader, &rhs_stage_reader, &mut acc);
-    BM::acc_read(&acc, &mut out_stage_reader);
+    let mut acc = SMM::acc_init_zeros();
+    SMM::execute(&lhs_stage_reader, &rhs_stage_reader, &mut acc);
+    SMM::acc_read(&acc, &mut out_stage_reader, config);
 }
 
 #[cube(launch_unchecked)]
 pub(crate) fn cube_matmul_launch<
     EG: Numeric,
     ES: Numeric,
-    CM: GlobalMatmul<EG, ES, Lhs, Rhs, Out>,
+    GMM: GlobalMatmul<EG, ES, Lhs, Rhs, Out>,
     Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
     Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
     Out: Unloader<EG, GlobalView = TensorView<EG>>,
@@ -78,6 +79,7 @@ pub(crate) fn cube_matmul_launch<
     out_tensor: Tensor<Line<EG>>,
     #[comptime] layouts: (MatrixLayout, MatrixLayout),
     #[comptime] stage_infos: StageInfos,
+    #[comptime] config: &GMM::Config,
 ) {
     let k = lhs_tensor.shape(lhs_tensor.rank() - 1);
 
@@ -85,5 +87,5 @@ pub(crate) fn cube_matmul_launch<
     let rhs_loader = Rhs::new(rhs_tensor, layouts.1, stage_infos.rhs);
     let out_unloader = Out::new(out_tensor, stage_infos.out);
 
-    CM::execute(lhs_loader, rhs_loader, out_unloader, (0, k));
+    GMM::execute(lhs_loader, rhs_loader, out_unloader, (0, k), config);
 }

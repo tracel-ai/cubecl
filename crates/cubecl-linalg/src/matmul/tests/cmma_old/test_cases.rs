@@ -1,7 +1,7 @@
 use cubecl_core::Runtime;
 
 use crate::matmul::{
-    cmma_old::{config::CmmaConfig, is_available, launch},
+    cmma_old::{config::CmmaOldConfig, is_available, launch},
     tests::matmul_test_case::MatmulTestCase,
 };
 
@@ -97,7 +97,7 @@ impl From<MatmulTest> for MatmulTestCase {
 
 pub(crate) fn test_cmma<R: Runtime>(
     case: MatmulTestCase,
-    config: CmmaConfig,
+    config: CmmaOldConfig,
     device: &R::Device,
 ) -> Result<(), String> {
     let client = R::client(device);

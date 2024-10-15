@@ -4,7 +4,7 @@ use cubecl_core::{
     Feature, Runtime,
 };
 
-use super::config::CmmaConfig;
+use super::config::CmmaOldConfig;
 
 use super::config::TileDimension;
 
@@ -19,7 +19,7 @@ pub enum UnavailabilityReason {
 /// Checks if the matmul cmma can be used.
 pub fn check_cmma_availability<R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    cmma_config: &CmmaConfig,
+    cmma_config: &CmmaOldConfig,
 ) -> Result<(), UnavailabilityReason> {
     let tile_dim: TileDimension = cmma_config.tile_dimension_strategy.into();
     if !client.properties().feature_enabled(Feature::Cmma {

@@ -1,3 +1,4 @@
+use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader, Unloader};
@@ -30,27 +31,40 @@ pub struct CmmaGlobalMatmul<
 impl<
         EG: Numeric,
         ES: Numeric,
-        BM: StageMatmul<ES, EG, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
+        SMM: StageMatmul<
+            ES,
+            EG,
+            Lhs::StageReader,
+            Rhs::StageReader,
+            Out::StageWriter,
+            Config = CmmaConfig,
+        >,
         Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
         Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
         Out: Unloader<EG, GlobalView = TensorView<EG>>,
-    > GlobalMatmul<EG, ES, Lhs, Rhs, Out> for CmmaGlobalMatmul<EG, ES, BM, Lhs, Rhs, Out>
+    > GlobalMatmul<EG, ES, Lhs, Rhs, Out> for CmmaGlobalMatmul<EG, ES, SMM, Lhs, Rhs, Out>
 {
-    fn execute(mut lhs_loader: Lhs, mut rhs_loader: Rhs, out_unloader: Out, k_range: (u32, u32)) {
-        let k_step = BM::K;
+    fn execute(
+        mut lhs_loader: Lhs,
+        mut rhs_loader: Rhs,
+        out_unloader: Out,
+        k_range: (u32, u32),
+        #[comptime] config: &Self::Config,
+    ) {
+        let k_step = SMM::K;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
-        let mut acc = BM::acc_init_zeros();
+        let mut acc = SMM::acc_init_zeros();
 
         // TODO cube mapper
-        Lhs::init_view(&mut lhs_loader, CUBE_POS_X * BM::M, k_range.0);
-        Rhs::init_view(&mut rhs_loader, CUBE_POS_Y * BM::N, k_range.0);
+        Lhs::init_view(&mut lhs_loader, CUBE_POS_X * SMM::M, k_range.0);
+        Rhs::init_view(&mut rhs_loader, CUBE_POS_Y * SMM::N, k_range.0);
 
         // TODO init_view for Out or it will always start at (0,0)
 
         for _ in 0..num_loops {
-            BM::execute(
+            SMM::execute(
                 &Lhs::fill_block(&mut lhs_loader),
                 &Rhs::fill_block(&mut rhs_loader),
                 &mut acc,
@@ -60,7 +74,7 @@ impl<
             Rhs::advance_view(&mut rhs_loader, k_step);
         }
 
-        BM::acc_read(&acc, &mut Out::unload(out_unloader));
+        SMM::acc_read(&acc, &mut Out::unload(out_unloader), config);
     }
 }
 
@@ -89,12 +103,21 @@ impl<
 impl<
         EG: Numeric,
         ES: Numeric,
-        BM: StageMatmul<ES, EG, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
+        SMM: StageMatmul<
+            ES,
+            EG,
+            Lhs::StageReader,
+            Rhs::StageReader,
+            Out::StageWriter,
+            Config = CmmaConfig,
+        >,
         Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
         Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
         Out: Unloader<EG, GlobalView = TensorView<EG>>,
-    > TensorMatmul<EG> for CmmaGlobalMatmul<EG, ES, BM, Lhs, Rhs, Out>
+    > TensorMatmul<EG> for CmmaGlobalMatmul<EG, ES, SMM, Lhs, Rhs, Out>
 {
+    type Config = CmmaConfig;
+
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
@@ -103,6 +126,7 @@ impl<
         rhs: TensorArg<'_, R>,
         out: TensorArg<'_, R>,
         layouts: (MatrixLayout, MatrixLayout),
+        config: CmmaConfig,
     ) {
         cube_matmul_launch::launch_unchecked::<EG, ES, Self, Lhs, Rhs, Out, R>(
             &client,
@@ -113,6 +137,7 @@ impl<
             out,
             layouts,
             Self::stage_infos(),
+            config,
         );
     }
 }

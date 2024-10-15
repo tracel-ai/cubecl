@@ -5,7 +5,7 @@ use cubecl_core::{
 };
 use half::f16;
 
-use super::{base::cmma_launch, config::CmmaConfig};
+use super::{base::cmma_launch, config::CmmaOldConfig};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
 /// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
@@ -14,7 +14,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
     lhs: TensorHandle<R, F>,
     rhs: TensorHandle<R, F>,
     out: TensorHandle<R, F>,
-    cmma_config: CmmaConfig,
+    cmma_config: CmmaOldConfig,
 ) -> TensorHandle<R, F> {
     matmul_cmma_ref::<R, F>(
         client,
@@ -32,7 +32,7 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
-    cmma_config: CmmaConfig,
+    cmma_config: CmmaOldConfig,
 ) {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => true,
@@ -77,7 +77,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
-    cmma_config: CmmaConfig,
+    cmma_config: CmmaOldConfig,
 ) {
     let rank = lhs.strides.len();
 

@@ -15,5 +15,11 @@ pub trait GlobalMatmul<
     Out: Unloader<EG>,
 >: 'static + Send + Sync + TensorMatmul<EG>
 {
-    fn execute(lhs_loader: Lhs, rhs_loader: Rhs, out_writer: Out, k_range: (u32, u32));
+    fn execute(
+        lhs_loader: Lhs,
+        rhs_loader: Rhs,
+        out_writer: Out,
+        k_range: (u32, u32),
+        #[comptime] config: &Self::Config,
+    );
 }

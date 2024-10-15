@@ -12,7 +12,7 @@ use super::{
 
 pub(crate) const CMMA_PLANE_DIM: u8 = 32;
 
-pub struct CmmaConfig {
+pub struct CmmaOldConfig {
     /// Corresponds to the number of tiles in the m dimension for a block
     pub b_m: u32,
     /// Corresponds to the number of tiles in the k dimension for a block
@@ -37,7 +37,7 @@ pub struct CmmaConfig {
     pub num_compute_planes_strategy: NumComputePlanesStrategy,
 }
 
-impl Default for CmmaConfig {
+impl Default for CmmaOldConfig {
     fn default() -> Self {
         Self::new(
             64,
@@ -56,7 +56,7 @@ impl Default for CmmaConfig {
     }
 }
 
-impl CmmaConfig {
+impl CmmaOldConfig {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         b_m: u32,
@@ -71,9 +71,9 @@ impl CmmaConfig {
         main_loop_strategy: MainLoopStrategy,
         tile_dimension_strategy: TileDimensionStrategy,
         num_compute_planes_strategy: NumComputePlanesStrategy,
-    ) -> CmmaConfig {
+    ) -> CmmaOldConfig {
         // Don't modify things here
-        CmmaConfig {
+        CmmaOldConfig {
             b_m,
             b_k,
             b_n,

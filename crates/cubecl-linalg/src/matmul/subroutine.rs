@@ -1,5 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use std::hash::Hash;
+use std::fmt::Debug;
 
 #[cube]
 pub trait PlaneMapper {
@@ -14,4 +16,19 @@ pub trait SubRoutine {
     type ProblemDefinition: CubeType;
 
     fn assert_can_process(problem: Self::ProblemDefinition);
+}
+
+pub trait Config:
+    CubeType<ExpandType = Self>
+    + Copy
+    + Clone
+    + Send
+    + Sync
+    + 'static
+    + Init
+    + Eq
+    + PartialEq
+    + Hash
+    + Debug
+{
 }

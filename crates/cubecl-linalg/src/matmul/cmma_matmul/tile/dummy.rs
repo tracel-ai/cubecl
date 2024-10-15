@@ -1,6 +1,7 @@
+use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::launch::matmul_instruction_launch;
-use crate::matmul::matmul_tile::MatmulInstruction;
 use crate::matmul::matmul_tile::OwnedTile;
+use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::{MatmulProblem, Requirements};
 use crate::matmul::stage_info::{StageInfo, StageInfos};
@@ -24,6 +25,7 @@ macro_rules! impl_matmul_instruction {
             const M: u32 = $m;
             const N: u32 = $n;
             const K: u32 = $k;
+            type Config = CmmaConfig;
 
             unsafe fn launch_unchecked<R: Runtime>(
                 client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -33,6 +35,7 @@ macro_rules! impl_matmul_instruction {
                 rhs: ArrayArg<'_, R>,
                 out: ArrayArg<'_, R>,
                 layouts: (MatrixLayout, MatrixLayout),
+                _config: Self::Config,
             ) {
                 matmul_instruction_launch::launch_unchecked::<Self, I, O, R>(
                     &client, cube_count, cube_dim, lhs, rhs, out, layouts,
@@ -47,7 +50,8 @@ macro_rules! impl_matmul_instruction {
 
             fn requirements(_problem: MatmulProblem) -> Requirements {
                 Requirements {
-                    num_planes: 1,
+                    min_planes: 1,
+                    max_planes: 1,
                     num_cubes: 1,
                 }
             }
@@ -77,7 +81,7 @@ macro_rules! impl_matmul_instruction {
         }
 
         #[cube]
-        impl<I: Numeric, O: Numeric> MatmulInstruction<I, O> for $name<I, O> {
+        impl<I: Numeric, O: Numeric> TileMatmul<I, O> for $name<I, O> {
             type Lhs = OwnedTile<I>;
             type Rhs = OwnedTile<I>;
             type Out = OwnedTile<O>;

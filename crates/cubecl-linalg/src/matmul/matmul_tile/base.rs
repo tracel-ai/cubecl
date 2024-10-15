@@ -6,7 +6,7 @@ use crate::matmul::FixedShapeMatmul;
 
 #[cube]
 /// Executes a small matmul using one plane
-pub trait MatmulInstruction<I: Numeric, O: Numeric>:
+pub trait TileMatmul<I: Numeric, O: Numeric>:
     'static + Send + Sync + FixedShapeMatmul<I, O>
 {
     type Lhs: CubeType;

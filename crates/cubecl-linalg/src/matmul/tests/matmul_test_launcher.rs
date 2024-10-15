@@ -9,24 +9,28 @@ use crate::matmul::TensorMatmul;
 use super::test_utils::assert_equals_approx;
 use super::test_utils::matmul_cpu_reference;
 
-// TODO should be config when used inside cube algo
-pub const LINE_SIZE_IN: u32 = 4u32;
-pub const LINE_SIZE_OUT: u32 = 4u32;
-
-pub fn test_fixed_matmul<MM, I, O, R>(layouts: (MatrixLayout, MatrixLayout), device: &R::Device)
-where
+pub fn test_fixed_matmul<MM, I, O, R>(
+    layouts: (MatrixLayout, MatrixLayout),
+    lines: (u8, u8, u8),
+    config: MM::Config,
+    device: &R::Device,
+) where
     I: Numeric + CubeElement,
     O: Numeric + CubeElement,
     MM: FixedShapeMatmul<I, O>,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
+
     let problem = MatmulProblem {
         m: MM::M,
         n: MM::N,
         k: MM::K,
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
+        lhs_line_size: lines.0,
+        rhs_line_size: lines.1,
+        out_line_size: lines.2,
     };
 
     let lhs_size = (MM::M * MM::K) as usize;
@@ -59,21 +63,19 @@ where
         }
         true => MM::requirements(problem),
     };
-    let cube_dim = CubeDim::new(32, requirements.num_planes, 1);
+    let cube_dim = CubeDim::new(32, requirements.min_planes, 1);
     let cube_count = CubeCount::Static(requirements.num_cubes, 1, 1);
-
-    let input_line = LINE_SIZE_IN;
-    let output_line = LINE_SIZE_OUT;
 
     unsafe {
         MM::launch_unchecked(
             &client,
             cube_dim,
             cube_count,
-            ArrayArg::<R>::from_raw_parts(&lhs, lhs_size, input_line as u8),
-            ArrayArg::<R>::from_raw_parts(&rhs, rhs_size, input_line as u8),
-            ArrayArg::<R>::from_raw_parts(&out, out_size, output_line as u8),
+            ArrayArg::<R>::from_raw_parts(&lhs, lhs_size, lines.0),
+            ArrayArg::<R>::from_raw_parts(&rhs, rhs_size, lines.1),
+            ArrayArg::<R>::from_raw_parts(&out, out_size, lines.2),
             layouts,
+            config,
         );
     }
 
@@ -83,8 +85,11 @@ where
     }
 }
 
-pub fn test_tensor_matmul<MM, Elem, R>(problem: MatmulProblem, device: &R::Device)
-where
+pub fn test_tensor_matmul<MM, Elem, R>(
+    problem: MatmulProblem,
+    config: MM::Config,
+    device: &R::Device,
+) where
     Elem: Numeric + CubeElement,
     MM: TensorMatmul<Elem>,
     R: Runtime,
@@ -122,11 +127,8 @@ where
         }
         true => MM::requirements(problem),
     };
-    let cube_dim = CubeDim::new(32, requirements.num_planes, 1);
+    let cube_dim = CubeDim::new(32, requirements.min_planes, 1);
     let cube_count = CubeCount::Static(requirements.num_cubes, 1, 1);
-
-    let input_line = LINE_SIZE_IN;
-    let output_line = LINE_SIZE_OUT;
 
     unsafe {
         MM::launch_unchecked(
@@ -137,21 +139,22 @@ where
                 &lhs,
                 &lhs_strides,
                 &[problem.m as usize, problem.k as usize],
-                input_line as u8,
+                problem.lhs_line_size,
             ),
             TensorArg::<R>::from_raw_parts(
                 &rhs,
                 &rhs_strides,
                 &[problem.k as usize, problem.n as usize],
-                input_line as u8,
+                problem.rhs_line_size,
             ),
             TensorArg::<R>::from_raw_parts(
                 &out,
                 &[problem.n as usize, 1],
                 &[problem.m as usize, problem.n as usize],
-                output_line as u8,
+                problem.out_line_size,
             ),
             (problem.lhs_layout, problem.rhs_layout),
+            config,
         );
     }
 

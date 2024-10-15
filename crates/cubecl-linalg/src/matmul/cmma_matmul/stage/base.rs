@@ -4,11 +4,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::CmmaStageSize;
+use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::launch::stage_matmul_launch;
 use crate::matmul::matmul_stage::{StageMatmul, StageReader, StageWriter};
-use crate::matmul::matmul_tile::MatmulInstruction;
+use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
-use crate::matmul::tests::matmul_test_launcher::LINE_SIZE_OUT;
 use crate::matmul::{
     matrix_layout::MatrixLayout,
     problem::{MatmulProblem, Requirements},
@@ -20,7 +20,7 @@ pub struct CmmaStageMatmul<
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    INSTR: MatmulInstruction<I, Acc>,
+    INSTR: TileMatmul<I, Acc>,
     BlockSize: CmmaStageSize,
 > {
     _input_precision: PhantomData<I>,
@@ -37,7 +37,7 @@ where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Instr: MatmulInstruction<I, Acc>,
+    Instr: TileMatmul<I, Acc>,
     Block: CmmaStageSize,
     Lhs: StageReader<I>,
     Rhs: StageReader<I>,
@@ -80,9 +80,8 @@ where
         accumulators
     }
 
-    fn acc_read(acc: &Self::Accumulator, out: &mut Out) {
-        let line_size = LINE_SIZE_OUT;
-
+    fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] config: &Self::Config) {
+        let line_size = config.out_smem_line_size;
         let num_tile_lines = Instr::M * Instr::N / line_size;
         let start = num_tile_lines * Self::plane_id();
 
@@ -110,12 +109,13 @@ where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Instr: MatmulInstruction<I, Acc>,
+    Instr: TileMatmul<I, Acc>,
     BlockSize: CmmaStageSize,
 {
     const M: u32 = BlockSize::M;
     const N: u32 = BlockSize::N;
     const K: u32 = BlockSize::K;
+    type Config = CmmaConfig;
 
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -125,6 +125,7 @@ where
         rhs: ArrayArg<'_, R>,
         out: ArrayArg<'_, R>,
         layouts: (MatrixLayout, MatrixLayout),
+        config: CmmaConfig,
     ) {
         stage_matmul_launch::launch_unchecked::<I, O, Self, R>(
             &client,
@@ -135,6 +136,7 @@ where
             out,
             layouts,
             Self::stage_infos(),
+            config,
         );
     }
 }
@@ -144,7 +146,7 @@ where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Instr: MatmulInstruction<I, Acc>,
+    Instr: TileMatmul<I, Acc>,
     Block: CmmaStageSize,
 {
     fn can_process(problem: MatmulProblem) -> bool {
@@ -153,7 +155,8 @@ where
 
     fn requirements(_problem: MatmulProblem) -> Requirements {
         Requirements {
-            num_planes: Block::M / Instr::M,
+            min_planes: Block::M / Instr::M,
+            max_planes: Block::M / Instr::M,
             num_cubes: 1,
         }
     }
@@ -188,7 +191,7 @@ where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Instr: MatmulInstruction<I, Acc>,
+    Instr: TileMatmul<I, Acc>,
     Block: CmmaStageSize,
 {
     fn plane_id() -> u32 {
