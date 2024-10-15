@@ -235,8 +235,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Int(_, true) => b.s_rem(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Float(_) => b.f_rem(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, true) => b.s_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(_) => b.f_mod(ty, Some(out), lhs, rhs).unwrap(),
                         _ => unreachable!(),
                     };
                 });
@@ -245,8 +245,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Int(_, true) => b.s_mod(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Float(_) => b.f_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, true) => b.s_rem(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(_) => b.f_rem(ty, Some(out), lhs, rhs).unwrap(),
                         _ => unreachable!(),
                     };
                 });
