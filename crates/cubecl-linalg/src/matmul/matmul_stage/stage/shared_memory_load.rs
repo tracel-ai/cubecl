@@ -1,7 +1,7 @@
 use crate::matmul::matmul_global::GlobalView;
 use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
-use crate::matmul::subroutine::{PlaneMapper, SubRoutine};
+use crate::matmul::config::{PlaneMapper, SubRoutine};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

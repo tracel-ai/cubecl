@@ -1,5 +1,3 @@
-use cubecl_core::prelude::CubeType;
-
 use super::matrix_layout::MatrixLayout;
 
 #[derive(Copy, Clone)]
@@ -43,4 +41,3 @@ pub struct Requirements {
     pub max_planes: u32,
     pub num_cubes: u32,
 }
-

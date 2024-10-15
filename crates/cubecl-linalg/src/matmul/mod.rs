@@ -13,7 +13,7 @@ pub mod matmul_tile;
 pub mod matrix_layout;
 pub mod problem;
 pub mod stage_info;
-mod subroutine;
+mod config;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not
 /// available.

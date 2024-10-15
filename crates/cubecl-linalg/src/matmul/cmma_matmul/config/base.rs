@@ -1,6 +1,6 @@
 use cubecl_core::prelude::*;
 
-use crate::matmul::subroutine::Config;
+use crate::matmul::config::Config;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct CmmaConfig {

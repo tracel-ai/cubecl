@@ -12,7 +12,7 @@ use crate::matmul::stage_info::{StageInfo, StageInfos};
 use crate::matmul::{
     matrix_layout::MatrixLayout,
     problem::{MatmulProblem, Requirements},
-    subroutine::PlaneMapper,
+    config::PlaneMapper,
 };
 use crate::matmul::{FixedShapeMatmul, Matmul};
 

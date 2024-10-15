@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use super::matrix_layout::MatrixLayout;
 use super::problem::{MatmulProblem, Requirements};
 use super::stage_info::StageInfos;
-use super::subroutine::Config;
+use super::config::Config;
 
 pub trait Matmul<I: Numeric, O: Numeric> {
     fn can_process(problem: MatmulProblem) -> bool;
