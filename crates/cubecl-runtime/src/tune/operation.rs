@@ -26,7 +26,7 @@ pub trait AutotuneOperationSet<K: Send + Sync + 'static, Output = ()>: Send + Sy
     /// Returns the operation for the given index, matching the order
     /// returned by autotunables. Operation obtained here runs on original tensors
     /// Nb: The 0 index is used a "good default".
-    fn fastest(&self, fastest_index: usize) -> Box<dyn AutotuneOperation<Output>>;
+    fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation<Output>>;
 
     /// Compute a checksum that can invalidate outdated cached auto-tune results.
     #[cfg(autotune_persistent_cache)]

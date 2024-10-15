@@ -58,7 +58,7 @@ impl AutotuneOperationSet<String> for AdditionAutotuneOperationSet {
         ]
     }
 
-    fn fastest(&self, fastest_index: usize) -> Box<dyn AutotuneOperation> {
+    fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation> {
         self.autotunables()[fastest_index].clone()
     }
 }
@@ -103,7 +103,7 @@ impl AutotuneOperationSet<String> for MultiplicationAutotuneOperationSet {
         ]
     }
 
-    fn fastest(&self, fastest_index: usize) -> Box<dyn AutotuneOperation> {
+    fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation> {
         self.autotunables()[fastest_index].clone()
     }
 }
@@ -151,7 +151,7 @@ impl AutotuneOperationSet<String> for CacheTestAutotuneOperationSet {
         ]
     }
 
-    fn fastest(&self, fastest_index: usize) -> Box<dyn AutotuneOperation> {
+    fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation> {
         self.autotunables()[fastest_index].clone()
     }
 

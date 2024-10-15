@@ -1,6 +1,5 @@
 use core::{fmt::Display, hash::Hash};
 use hashbrown::HashMap;
-use std::sync::Arc;
 
 use crate::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
@@ -49,7 +48,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         &self,
         id: &ID,
         client: &ComputeClient<S, C>,
-        autotune_operation_set: Arc<dyn AutotuneOperationSet<AK, Out>>,
+        autotune_operation_set: Box<dyn AutotuneOperationSet<AK, Out>>,
     ) -> Out
     where
         S: ComputeServer + 'static,

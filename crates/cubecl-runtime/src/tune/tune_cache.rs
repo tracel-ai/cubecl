@@ -6,7 +6,6 @@ mod std_imports {
     pub use std::path::Path;
     pub use std::path::PathBuf;
 }
-use std::sync::Arc;
 
 #[cfg(autotune_persistent_cache)]
 use std_imports::*;
@@ -65,13 +64,13 @@ pub(crate) struct TuneCache<K> {
 }
 
 /// Result of the cache try
-pub enum TuneCacheResult<Out = ()> {
+pub enum TuneCacheResult<K, Out = ()> {
     /// An operation is found and given
     Hit(Box<dyn AutotuneOperation<Out>>),
     /// We're waiting for cache results to come in.
-    Pending,
+    Pending(Box<dyn AutotuneOperationSet<K, Out>>),
     /// No operation is found yet.
-    Miss,
+    Miss(Box<dyn AutotuneOperationSet<K, Out>>),
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
@@ -123,9 +122,9 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     pub(crate) fn try_cache<Out>(
         &mut self,
-        autotune_operation_set: Arc<dyn AutotuneOperationSet<K, Out>>,
-    ) -> TuneCacheResult<Out> {
-        let key = autotune_operation_set.key();
+        set: Box<dyn AutotuneOperationSet<K, Out>>,
+    ) -> TuneCacheResult<K, Out> {
+        let key = set.key();
         let result = self.in_memory_cache.get_mut(&key);
 
         let InMemoryCacheEntry {
@@ -134,29 +133,29 @@ impl<K: AutotuneKey> TuneCache<K> {
             fastest_index,
         } = match result {
             Some(CacheEntry::Cached(val)) => val,
-            Some(CacheEntry::Pending) => return TuneCacheResult::Pending,
-            None => return TuneCacheResult::Miss,
+            Some(CacheEntry::Pending) => return TuneCacheResult::Pending(set),
+            None => return TuneCacheResult::Miss(set),
         };
 
         #[cfg(autotune_persistent_cache)]
         {
             if !*checksum_checked {
-                let checksum = autotune_operation_set.compute_checksum();
+                let checksum = set.compute_checksum();
                 let persistent_entry = self
                     .persistent_cache
                     .get(&key)
                     .expect("Both caches should be in sync");
                 if checksum != persistent_entry.checksum {
-                    return TuneCacheResult::Miss;
+                    return TuneCacheResult::Miss(set);
                 }
                 *checksum_checked = true;
             }
-            TuneCacheResult::Hit(autotune_operation_set.fastest(*fastest_index))
+            TuneCacheResult::Hit(set.fastest(*fastest_index))
         }
 
         #[cfg(not(autotune_persistent_cache))]
         {
-            TuneCacheResult::Hit(autotune_operation_set.fastest(*fastest_index))
+            TuneCacheResult::Hit(set.fastest(*fastest_index))
         }
     }
 
