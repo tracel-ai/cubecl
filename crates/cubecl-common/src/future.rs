@@ -26,7 +26,7 @@ pub async fn catch_unwind<O>(
     }
 
     #[cfg(any(target_family = "wasm", not(feature = "std")))]
-    { 
+    {
         Ok(future.await)
     }
 }
