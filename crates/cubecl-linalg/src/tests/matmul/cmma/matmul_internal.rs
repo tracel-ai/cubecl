@@ -2,6 +2,7 @@
 #[macro_export]
 macro_rules! testgen_cmma_internal {
     () => {
+        use cubecl_linalg::matmul::cmma_matmul::config::CmmaConfig;
         use cubecl_linalg::matmul::cmma_matmul::stage::{
             CmmaStageMatmul, S16x16x16, S32x8x16, S8x32x16,
         };
@@ -10,6 +11,7 @@ macro_rules! testgen_cmma_internal {
         };
         use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_fixed_matmul;
+        use cubecl_linalg::matmul::problem::MatmulProblem;
         use half::{bf16, f16};
 
         #[test]
@@ -18,11 +20,19 @@ macro_rules! testgen_cmma_internal {
                 CmmaStageMatmul<f16, f32, f32, CmmaInstruction16_16_16<f16, f32>, S16x16x16>,
                 f16,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                (4, 4, 4),
-                Default::default(),
+                MatmulProblem::new(
+                    16,
+                    16,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
@@ -33,11 +43,19 @@ macro_rules! testgen_cmma_internal {
                 CmmaStageMatmul<f16, f16, f16, CmmaInstruction16_16_16<f16, f16>, S16x16x16>,
                 f16,
                 f16,
+                CmmaConfig,
                 TestRuntime,
             >(
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                (4, 4, 4),
-                Default::default(),
+                MatmulProblem::new(
+                    16,
+                    16,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
@@ -48,11 +66,19 @@ macro_rules! testgen_cmma_internal {
                 CmmaStageMatmul<f16, f32, f32, CmmaInstruction32_8_16<f16, f32>, S32x8x16>,
                 f16,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                (4, 4, 4),
-                Default::default(),
+                MatmulProblem::new(
+                    32,
+                    8,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
@@ -63,41 +89,70 @@ macro_rules! testgen_cmma_internal {
                 CmmaStageMatmul<f16, f32, f32, CmmaInstruction8_32_16<f16, f32>, S8x32x16>,
                 f16,
                 f32,
+                CmmaConfig,
                 TestRuntime,
             >(
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                (4, 4, 4),
-                Default::default(),
+                MatmulProblem::new(
+                    8,
+                    32,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
 
         #[test]
         pub fn test_fixed_matmul_instruction_f16_in_f16_out() {
-            test_fixed_matmul::<CmmaInstruction16_16_16<f16, f16>, f16, f16, TestRuntime>(
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                (4, 4, 4),
-                Default::default(),
+            test_fixed_matmul::<CmmaInstruction16_16_16<f16, f16>, f16, f16, CmmaConfig, TestRuntime>(
+                MatmulProblem::new(
+                    16,
+                    16,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
 
         #[test]
         pub fn test_fixed_matmul_instruction_f16_in_f16_out_col_major() {
-            test_fixed_matmul::<CmmaInstruction16_16_16<f16, f16>, f16, f16, TestRuntime>(
-                (MatrixLayout::ColMajor, MatrixLayout::ColMajor),
-                (4, 4, 4),
-                Default::default(),
+            test_fixed_matmul::<CmmaInstruction16_16_16<f16, f16>, f16, f16,CmmaConfig, TestRuntime>(
+                MatmulProblem::new(
+                    16,
+                    16,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
 
         #[test]
         pub fn test_fixed_matmul_instruction_f16_in_f32_out() {
-            test_fixed_matmul::<CmmaInstruction16_16_16<f16, f32>, f16, f32, TestRuntime>(
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                (4, 4, 4),
-                Default::default(),
+            test_fixed_matmul::<CmmaInstruction16_16_16<f16, f32>, f16, f32,CmmaConfig, TestRuntime>(
+                MatmulProblem::new(
+                    16,
+                    16,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
@@ -105,40 +160,68 @@ macro_rules! testgen_cmma_internal {
         #[test]
         #[ignore]
         pub fn test_fixed_matmul_instruction_bf16_in_f32_out() {
-            test_fixed_matmul::<CmmaInstruction16_16_16<bf16, f32>, bf16, f32, TestRuntime>(
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                (4, 4, 4),
-                Default::default(),
+            test_fixed_matmul::<CmmaInstruction16_16_16<bf16, f32>, bf16, f32,CmmaConfig, TestRuntime>(
+                MatmulProblem::new(
+                    16,
+                    16,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
 
         #[test]
         pub fn test_fixed_matmul_instruction_32_8_16() {
-            test_fixed_matmul::<CmmaInstruction32_8_16<f16, f16>, f16, f16, TestRuntime>(
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                (4, 4, 4),
-                Default::default(),
+            test_fixed_matmul::<CmmaInstruction32_8_16<f16, f16>, f16, f16,CmmaConfig, TestRuntime>(
+                MatmulProblem::new(
+                    32,
+                    8,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
 
         #[test]
         pub fn test_fixed_matmul_instruction_8_32_16() {
-            test_fixed_matmul::<CmmaInstruction8_32_16<f16, f16>, f16, f16, TestRuntime>(
-                (MatrixLayout::RowMajor, MatrixLayout::RowMajor),
-                (4, 4, 4),
-                Default::default(),
+            test_fixed_matmul::<CmmaInstruction8_32_16<f16, f16>, f16, f16,CmmaConfig, TestRuntime>(
+                MatmulProblem::new(
+                    8,
+                    32,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }
 
         #[test]
         pub fn test_fixed_matmul_instruction_8_32_16_col_major() {
-            test_fixed_matmul::<CmmaInstruction8_32_16<f16, f16>, f16, f16, TestRuntime>(
-                (MatrixLayout::ColMajor, MatrixLayout::ColMajor),
-                (4, 4, 4),
-                Default::default(),
+            test_fixed_matmul::<CmmaInstruction8_32_16<f16, f16>, f16, f16,CmmaConfig, TestRuntime>(
+                MatmulProblem::new(
+                    8,
+                    32,
+                    16,
+                    MatrixLayout::ColMajor,
+                    MatrixLayout::ColMajor,
+                    4,
+                    4,
+                    4,
+                ),
                 &Default::default(),
             )
         }

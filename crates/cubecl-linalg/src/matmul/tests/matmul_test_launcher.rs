@@ -10,29 +10,17 @@ use crate::matmul::TensorMatmul;
 use super::test_utils::assert_equals_approx;
 use super::test_utils::matmul_cpu_reference;
 
-pub fn test_fixed_matmul<MM, I, O, R>(
-    layouts: (MatrixLayout, MatrixLayout),
-    lines: (u8, u8, u8),
-    config: MM::Config,
-    device: &R::Device,
-) where
+pub fn test_fixed_matmul<MM, I, O, C, R>(problem: MatmulProblem, device: &R::Device)
+where
     I: Numeric + CubeElement,
     O: Numeric + CubeElement,
-    MM: FixedShapeMatmul<I, O>,
+    MM: FixedShapeMatmul<I, O, Config = C>,
+    C: Config<ProblemDefinition = MatmulProblem>,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
 
-    let problem = MatmulProblem {
-        m: MM::M,
-        n: MM::N,
-        k: MM::K,
-        lhs_layout: layouts.0,
-        rhs_layout: layouts.1,
-        lhs_line_size: lines.0,
-        rhs_line_size: lines.1,
-        out_line_size: lines.2,
-    };
+    let config = MM::Config::from_problem(problem);
 
     let lhs_size = (MM::M * MM::K) as usize;
     let rhs_size = (MM::K * MM::N) as usize;
@@ -41,13 +29,13 @@ pub fn test_fixed_matmul<MM, I, O, R>(
     let lhs_original_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 1000.).collect();
     let rhs_original_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 1000.).collect();
 
-    let lhs_data = match layouts.0 {
+    let lhs_data = match problem.lhs_layout {
         MatrixLayout::RowMajor => lhs_original_data.clone(),
         MatrixLayout::ColMajor => {
             transpose::<f32>(&lhs_original_data, MM::M as usize, MM::K as usize)
         }
     };
-    let rhs_data = match layouts.1 {
+    let rhs_data = match problem.rhs_layout {
         MatrixLayout::RowMajor => rhs_original_data.clone(),
         MatrixLayout::ColMajor => {
             transpose::<f32>(&rhs_original_data, MM::K as usize, MM::N as usize)
@@ -72,10 +60,10 @@ pub fn test_fixed_matmul<MM, I, O, R>(
             &client,
             cube_dim,
             cube_count,
-            ArrayArg::<R>::from_raw_parts(&lhs, lhs_size, lines.0),
-            ArrayArg::<R>::from_raw_parts(&rhs, rhs_size, lines.1),
-            ArrayArg::<R>::from_raw_parts(&out, out_size, lines.2),
-            layouts,
+            ArrayArg::<R>::from_raw_parts(&lhs, lhs_size, problem.lhs_line_size),
+            ArrayArg::<R>::from_raw_parts(&rhs, rhs_size, problem.rhs_line_size),
+            ArrayArg::<R>::from_raw_parts(&out, out_size, problem.out_line_size),
+            (problem.lhs_layout, problem.rhs_layout),
             config,
         );
     }

@@ -26,11 +26,3 @@ impl Init for CmmaConfig {
 impl CubeType for CmmaConfig {
     type ExpandType = Self;
 }
-
-impl Default for CmmaConfig {
-    fn default() -> Self {
-        Self {
-            out_smem_line_size: 4u32,
-        }
-    }
-}
