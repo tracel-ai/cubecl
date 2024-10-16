@@ -16,7 +16,7 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
         #[comptime] stage_info: StageInfo,
     ) -> Self;
 
-    fn fill_block(loader: &mut Self) -> Self::StageReader;
+    fn fill_stage(loader: &mut Self) -> Self::StageReader;
 
     fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32);
 

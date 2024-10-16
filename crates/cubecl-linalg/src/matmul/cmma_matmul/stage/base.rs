@@ -27,25 +27,25 @@ pub struct CmmaStageMatmul<
 }
 
 #[cube]
-impl<I, O, Acc, Tmm, Block, Lhs, Rhs, Out> StageMatmul<I, O, Lhs, Rhs, Out>
-    for CmmaStageMatmul<I, O, Acc, Tmm, Block>
+impl<I, O, Acc, Tmm, StageSize, Lhs, Rhs, Out> StageMatmul<I, O, Lhs, Rhs, Out>
+    for CmmaStageMatmul<I, O, Acc, Tmm, StageSize>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
     Tmm: TileMatmul<I, Acc, Config = CmmaConfig>,
-    Block: CmmaStageSize,
+    StageSize: CmmaStageSize,
     Lhs: StageReader<I>,
     Rhs: StageReader<I>,
     Out: StageWriter<O>,
 {
-    const M: u32 = Block::M;
-    const N: u32 = Block::N;
-    const K: u32 = Block::K;
+    const M: u32 = StageSize::M;
+    const N: u32 = StageSize::N;
+    const K: u32 = StageSize::K;
     type Accumulator = Sequence<Tmm::Out>;
 
     fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator) {
-        let num_buffers = Block::K / Tmm::K;
+        let num_buffers = StageSize::K / Tmm::K;
 
         let mut instruction_lhs = Tmm::init_lhs(Lhs::slice_layout(lhs));
         let mut instruction_rhs = Tmm::init_rhs(Rhs::slice_layout(rhs));
@@ -69,7 +69,7 @@ where
 
     fn acc_init_zeros() -> Self::Accumulator {
         let mut accumulators = Sequence::<Tmm::Out>::new();
-        let num_accumulators = Block::N / Tmm::N;
+        let num_accumulators = StageSize::N / Tmm::N;
 
         #[unroll]
         for _ in 0..num_accumulators {

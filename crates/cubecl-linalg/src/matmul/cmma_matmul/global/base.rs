@@ -63,8 +63,8 @@ impl<
 
         for _ in 0..num_loops {
             SMM::execute(
-                &Lhs::fill_block(&mut lhs_loader),
-                &Rhs::fill_block(&mut rhs_loader),
+                &Lhs::fill_stage(&mut lhs_loader),
+                &Rhs::fill_stage(&mut rhs_loader),
                 &mut acc,
             );
 

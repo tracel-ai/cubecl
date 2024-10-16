@@ -57,8 +57,8 @@ pub(crate) fn stage_matmul_launch<
     let mut rhs_loader = RhsTensorLoader::new(rhs_data, layouts.1, stage_infos.rhs);
     let out_unloader = TensorUnloader::new(out_result, stage_infos.out);
 
-    let lhs_stage_reader = LhsTensorLoader::fill_block(&mut lhs_loader);
-    let rhs_stage_reader = RhsTensorLoader::fill_block(&mut rhs_loader);
+    let lhs_stage_reader = LhsTensorLoader::fill_stage(&mut lhs_loader);
+    let rhs_stage_reader = RhsTensorLoader::fill_stage(&mut rhs_loader);
     let mut out_stage_reader = TensorUnloader::unload(out_unloader);
 
     let mut acc = SMM::acc_init_zeros();

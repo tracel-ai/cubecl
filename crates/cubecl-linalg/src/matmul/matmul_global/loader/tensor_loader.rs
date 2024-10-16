@@ -46,7 +46,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsTensorLoader<
         }
     }
 
-    fn fill_block(loader: &mut Self) -> Self::StageReader {
+    fn fill_stage(loader: &mut Self) -> Self::StageReader {
         S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
         LhsStageReader::<ES, S> {
             stage: loader.stage,
@@ -84,7 +84,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for RhsTensorLoader<
         }
     }
 
-    fn fill_block(loader: &mut Self) -> Self::StageReader {
+    fn fill_stage(loader: &mut Self) -> Self::StageReader {
         S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
         RhsStageReader::<ES, S> {
             stage: loader.stage,
