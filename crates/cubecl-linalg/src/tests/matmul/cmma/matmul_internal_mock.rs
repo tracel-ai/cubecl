@@ -50,6 +50,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                4,
                 &Default::default(),
             )
         }
@@ -85,6 +86,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -120,6 +122,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -151,6 +154,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -186,6 +190,7 @@ macro_rules! testgen_cmma_internal_mock {
                     1,
                     1,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -221,6 +226,7 @@ macro_rules! testgen_cmma_internal_mock {
                     2,
                     2,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -256,6 +262,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -291,6 +298,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -326,6 +334,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -361,6 +370,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -396,6 +406,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -431,6 +442,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -466,6 +478,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -501,6 +514,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -536,6 +550,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -571,6 +586,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -593,6 +609,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -615,6 +632,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -637,6 +655,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -659,6 +678,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -681,6 +701,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -703,6 +724,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -725,6 +747,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -749,6 +772,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                8,
                 &Default::default(),
             )
         }
@@ -771,6 +795,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                4,
                 &Default::default(),
             )
         }
@@ -793,6 +818,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                4,
                 &Default::default(),
             )
         }
@@ -815,6 +841,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -837,6 +864,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                2,
                 &Default::default(),
             )
         }
@@ -859,6 +887,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -881,6 +910,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -898,6 +928,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -915,6 +946,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -932,6 +964,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -949,6 +982,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -966,6 +1000,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -983,6 +1018,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -1000,6 +1036,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -1017,6 +1054,7 @@ macro_rules! testgen_cmma_internal_mock {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }

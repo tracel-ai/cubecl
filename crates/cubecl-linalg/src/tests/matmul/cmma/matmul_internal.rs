@@ -32,6 +32,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -54,6 +55,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -76,6 +78,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -98,6 +101,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -115,6 +119,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -132,6 +137,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -149,6 +155,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -167,6 +174,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -184,6 +192,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -201,6 +210,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }
@@ -218,6 +228,7 @@ macro_rules! testgen_cmma_internal {
                     4,
                     4,
                 ),
+                1,
                 &Default::default(),
             )
         }

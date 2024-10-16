@@ -3,7 +3,7 @@ use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::matmul_tile::OwnedTile;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::problem::MatmulProblem;
+use crate::matmul::config::MatmulConfig;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
@@ -97,10 +97,6 @@ macro_rules! impl_matmul_instruction {
         impl<I: Numeric, O: Numeric> Matmul<I, O> for $name<I, O> {
             type Config = CmmaConfig;
 
-            fn can_process(problem: MatmulProblem) -> bool {
-                problem.m == Self::M && problem.n == Self::N && problem.k == Self::K
-            }
-
             fn stage_infos() -> StageInfos {
                 StageInfos {
                     lhs: StageInfo {
@@ -124,7 +120,9 @@ macro_rules! impl_matmul_instruction {
                 }
             }
 
-            fn check_config(_config: Self::Config) {}
+            fn check_config(config: Self::Config) {
+                let _ = comptime!(check_plane_dim(config.plane_dim()));
+            }
 
             unsafe fn launch_unchecked<R: Runtime>(
                 client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -193,4 +191,11 @@ pub(crate) fn execute<I: Numeric, O: Numeric>(
             }
         }
     }
+}
+
+fn check_plane_dim(actual_plane_dim: u32) {
+    assert_eq!(32, actual_plane_dim, 
+        "Error: Expected plane dimension to be 32, but found {}. Please ensure that cube dimension x is set correctly.",
+        actual_plane_dim
+    );
 }

@@ -3,7 +3,6 @@ use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader, Unloader};
 use crate::matmul::matmul_global::{GmmConfig, TensorView};
 use crate::matmul::matmul_stage::StageMatmul;
-use crate::matmul::problem::MatmulProblem;
 use crate::matmul::stage_info::StageInfos;
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
@@ -94,10 +93,6 @@ impl<
     > Matmul<EG, EG> for CmmaGlobalMatmul<EG, ES, SMM, Lhs, Rhs, Out>
 {
     type Config = CmmaConfig;
-
-    fn can_process(problem: MatmulProblem) -> bool {
-        problem.m <= SMM::M && problem.n <= SMM::N
-    }
 
     fn stage_infos() -> StageInfos {
         SMM::stage_infos()

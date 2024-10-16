@@ -13,13 +13,6 @@ pub trait PlaneMapper {
     fn plane_dim() -> u32;
 }
 
-#[cube]
-pub trait SubRoutine {
-    type ProblemDefinition: CubeType;
-
-    fn assert_can_process(problem: Self::ProblemDefinition);
-}
-
 pub trait MatmulConfig:
     CubeType<ExpandType = Self>
     + Copy

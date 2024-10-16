@@ -53,19 +53,24 @@ impl Smem2Tensor for Smem2TensorSimple {
         let num_unit_writes = tile_num_elements(stage_info) / unit_jump;
         let out_line_size = out.tensor.line_size();
 
+        let _ = comptime!(check_line_size(out_line_size, slice_line_size));
+
         for i in 0..num_unit_writes {
             let unit_write = Self::plane_unit() * out_line_size + i * unit_jump;
 
             let row = row_tile_begin + unit_write / stage_info.tile_size_y;
             let col = col_tile_begin + unit_write % stage_info.tile_size_y;
 
-            if comptime!(out_line_size == slice_line_size) {
-                let value = slice[unit_write / out_line_size];
-                TensorView::write_coalesced::<ES>(out, row, col, value);
-            } else {
-                // Unsupported.
-                return;
-            }
+            let value = slice[unit_write / out_line_size];
+            TensorView::write_coalesced::<ES>(out, row, col, value);
         }
     }
+}
+
+fn check_line_size(out_line_size: u32, slice_line_size: u32) {
+    assert_eq!(out_line_size, slice_line_size, 
+        "Error: Expected global output and output shared memory to have equal line size, but found out_line_size = {} and slice_line_size = {}.",
+        out_line_size, slice_line_size
+    );
+    
 }

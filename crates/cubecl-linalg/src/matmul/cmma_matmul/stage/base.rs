@@ -5,12 +5,12 @@ use cubecl_core::prelude::*;
 
 use super::CmmaStageSize;
 use crate::matmul::cmma_matmul::config::CmmaConfig;
+use crate::matmul::config::PlaneMapper;
 use crate::matmul::launch::stage_matmul_launch;
 use crate::matmul::matmul_stage::{SmmConfig, StageMatmul, StageReader, StageWriter};
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
 use crate::matmul::Matmul;
-use crate::matmul::{config::PlaneMapper, problem::MatmulProblem};
 
 pub struct CmmaStageMatmul<
     I: Numeric,
@@ -112,10 +112,6 @@ where
     Block: CmmaStageSize,
 {
     type Config = CmmaConfig;
-
-    fn can_process(problem: MatmulProblem) -> bool {
-        problem.m <= Block::M && problem.n <= Block::N && problem.k <= Block::K
-    }
 
     fn stage_infos() -> StageInfos {
         StageInfos {

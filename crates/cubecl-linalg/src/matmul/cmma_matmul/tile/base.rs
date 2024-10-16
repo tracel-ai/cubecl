@@ -4,7 +4,6 @@ use crate::matmul::config::MatmulConfig;
 use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::problem::MatmulProblem;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
@@ -78,10 +77,6 @@ macro_rules! impl_matmul_instruction {
             (I, O): CmmaValid<I, O>,
         {
             type Config = CmmaConfig;
-
-            fn can_process(problem: MatmulProblem) -> bool {
-                problem.m == Self::M && problem.n == Self::N && problem.k == Self::K
-            }
 
             fn stage_infos() -> StageInfos {
                 StageInfos {

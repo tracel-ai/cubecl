@@ -7,9 +7,9 @@ use crate::matmul::Matmul;
 
 use super::test_utils::assert_equals_approx;
 use super::test_utils::matmul_cpu_reference;
-use crate::matmul::config::{MatmulConfig, ConfigBuilder};
+use crate::matmul::config::{ConfigBuilder, MatmulConfig};
 
-pub fn test_matmul<MM, I, O, R>(problem: MatmulProblem, device: &R::Device)
+pub fn test_matmul<MM, I, O, R>(problem: MatmulProblem, num_planes: u32, device: &R::Device)
 where
     I: Numeric + CubeElement,
     O: Numeric + CubeElement,
@@ -44,8 +44,9 @@ where
     let out = client.empty(out_size as usize * I::as_elem().size());
 
     let config = MM::Config::build()
-        .configure_planes(32, 8)
+        .configure_planes(32, num_planes)
         .tweak_for_problem(&problem);
+
     let cube_dim = CubeDim::new(config.plane_dim(), config.num_planes(), 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
