@@ -17,18 +17,18 @@ pub struct StageInfo {
 }
 
 #[cube]
-pub fn total_num_elements(#[comptime] block_info: StageInfo) -> u32 {
+pub fn total_num_elements(#[comptime] stage_info: StageInfo) -> u32 {
     comptime!(
-        block_info.num_tiles_x
-            * block_info.num_tiles_y
-            * block_info.tile_size_x
-            * block_info.tile_size_y
+        stage_info.num_tiles_x
+            * stage_info.num_tiles_y
+            * stage_info.tile_size_x
+            * stage_info.tile_size_y
     )
 }
 
 #[cube]
-pub fn tile_num_elements(#[comptime] block_info: StageInfo) -> u32 {
-    comptime!(block_info.tile_size_x * block_info.tile_size_y)
+pub fn tile_num_elements(#[comptime] stage_info: StageInfo) -> u32 {
+    comptime!(stage_info.tile_size_x * stage_info.tile_size_y)
 }
 
 impl CubeType for StageInfos {

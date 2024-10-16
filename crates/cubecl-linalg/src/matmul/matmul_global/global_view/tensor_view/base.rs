@@ -1,8 +1,9 @@
+use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::matmul_global::global_view::tensor_view::smem2tensor::{
     Smem2Tensor, Smem2TensorSimple,
 };
-use crate::matmul::matmul_global::GlobalView;
-use crate::matmul::matmul_stage::{Gmem2SmemContinuous, SharedMemoryLoader, TilingOrder};
+use crate::matmul::matmul_global::{GlobalView, Gmem2SmemContinuous, SharedMemoryLoader};
+use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 use cubecl_core as cubecl;
@@ -23,6 +24,7 @@ pub struct TensorView<E: Numeric> {
 #[cube]
 impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
     type Global = Tensor<Line<EG>>;
+    type Config = CmmaConfig;
 
     fn load_coalesced(
         view: &Self,
@@ -58,6 +60,7 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,
+        #[comptime] config: Self::Config,
     ) {
         // TODO allow other modes than Gmem2SmemContinuous
         Gmem2SmemContinuous::load_shared_memory::<EG, ES, Self, O>(
@@ -65,6 +68,7 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
             shared_memory,
             view.tensor.line_size(),
             stage_info,
+            config,
         );
     }
 
@@ -79,8 +83,6 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
         view.y_offset += y_offset;
     }
 
-    /// Does not account for batch offset
-    /// Assumes out is row major
     fn write_coalesced<ES: Numeric>(view: &mut Self, write_x: u32, write_y: u32, value: Line<ES>) {
         let tensor = &mut view.tensor;
         let view_x = write_x + view.x_offset;
@@ -101,6 +103,7 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
         write_y: u32,
         #[comptime] stage_info: StageInfo,
         #[comptime] slice_line_size: u32,
+        #[comptime] config: Self::Config,
     ) {
         Smem2TensorSimple::smem_to_tensor(
             view,
@@ -109,6 +112,7 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
             write_y,
             stage_info,
             slice_line_size,
+            config,
         );
     }
 }

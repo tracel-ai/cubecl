@@ -9,8 +9,6 @@ use super::problem::MatmulProblem;
 pub trait PlaneMapper {
     fn plane_id() -> u32;
     fn plane_unit() -> u32;
-    fn num_planes() -> u32;
-    fn plane_dim() -> u32;
 }
 
 pub trait MatmulConfig:

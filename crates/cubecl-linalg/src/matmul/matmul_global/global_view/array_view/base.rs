@@ -1,8 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::matmul_global::{smem_slice_to_gmem, GlobalView};
-use crate::matmul::matmul_stage::{Gmem2SmemContinuous, SharedMemoryLoader, TilingOrder};
+use crate::matmul::cmma_matmul::config::CmmaConfig;
+use crate::matmul::matmul_global::{
+    smem_slice_to_gmem, GlobalView, Gmem2SmemContinuous, SharedMemoryLoader,
+};
+use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 
@@ -18,6 +21,7 @@ pub struct ArrayView<E: Numeric> {
 #[cube]
 impl<EG: Numeric> GlobalView<EG> for ArrayView<EG> {
     type Global = Array<Line<EG>>;
+    type Config = CmmaConfig;
 
     fn load_coalesced(
         view: &Self,
@@ -44,6 +48,7 @@ impl<EG: Numeric> GlobalView<EG> for ArrayView<EG> {
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,
+        #[comptime] config: Self::Config,
     ) {
         // TODO allow other modes than Gmem2SmemContinuous
         Gmem2SmemContinuous::load_shared_memory::<EG, ES, Self, O>(
@@ -51,6 +56,7 @@ impl<EG: Numeric> GlobalView<EG> for ArrayView<EG> {
             shared_memory,
             view.array.line_size(),
             stage_info,
+            config,
         );
     }
 
@@ -77,6 +83,7 @@ impl<EG: Numeric> GlobalView<EG> for ArrayView<EG> {
         write_col: u32,
         #[comptime] stage_info: StageInfo,
         #[comptime] slice_line_size: u32,
+        #[comptime] _config: Self::Config,
     ) {
         smem_slice_to_gmem(
             view,

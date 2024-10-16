@@ -1,3 +1,4 @@
+use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::matmul_global::{ArrayView, GlobalView};
 use crate::matmul::matmul_stage::StageWriter;
 use crate::matmul::stage_info::StageInfo;
@@ -12,12 +13,15 @@ pub struct ArrayWriter<EG: Numeric> {
 
 #[cube]
 impl<EG: Numeric> StageWriter<EG> for ArrayWriter<EG> {
+    type Config = CmmaConfig;
+
     fn write<ES: Numeric>(
         stage_writer: &mut Self,
         slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
         #[comptime] slice_line_size: u32,
+        #[comptime] config: Self::Config,
     ) {
         ArrayView::write_slice(
             &mut stage_writer.array_view,
@@ -26,6 +30,7 @@ impl<EG: Numeric> StageWriter<EG> for ArrayWriter<EG> {
             accumulator_offset * stage_writer.stage_info.tile_size_y,
             stage_writer.stage_info,
             slice_line_size,
+            config,
         );
     }
 }

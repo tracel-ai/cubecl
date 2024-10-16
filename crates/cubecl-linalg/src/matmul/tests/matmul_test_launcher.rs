@@ -6,6 +6,7 @@ use crate::matmul::problem::MatmulProblem;
 use crate::matmul::Matmul;
 
 use super::test_utils::assert_equals_approx;
+use super::test_utils::generate_random_data;
 use super::test_utils::matmul_cpu_reference;
 use crate::matmul::config::{ConfigBuilder, MatmulConfig};
 
@@ -21,8 +22,8 @@ where
     let rhs_size = problem.k * problem.n;
     let out_size = problem.m * problem.n;
 
-    let lhs_original_data: Vec<f32> = (0..lhs_size).map(|x| x as f32 / 10000.).collect();
-    let rhs_original_data: Vec<f32> = (0..rhs_size).map(|x| x as f32 / 10000.).collect();
+    let lhs_original_data: Vec<f32> = generate_random_data(lhs_size as usize);
+    let rhs_original_data: Vec<f32> = generate_random_data(rhs_size as usize);
 
     let (lhs_data, lhs_strides) = match problem.lhs_layout {
         MatrixLayout::RowMajor => (lhs_original_data.clone(), [problem.k as usize, 1]),
@@ -78,7 +79,7 @@ where
     }
 
     let expected = matmul_cpu_reference(&lhs_original_data, &rhs_original_data, problem);
-    if let Err(e) = assert_equals_approx::<I, R>(&client, out, &expected, 10e-1) {
+    if let Err(e) = assert_equals_approx::<I, R>(&client, out, &expected, 10e-2) {
         panic!("{}", e);
     }
 }

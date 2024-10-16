@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::stage_info::StageInfo;
 
@@ -8,6 +9,7 @@ use crate::matmul::stage_info::StageInfo;
 // TODO separate load from write, they should never be the same instance
 pub trait GlobalView<E: Numeric>: CubeType {
     type Global: CubeType;
+    type Config: GmmConfig;
 
     fn load_coalesced(
         view: &Self,
@@ -22,6 +24,7 @@ pub trait GlobalView<E: Numeric>: CubeType {
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,
+        #[comptime] config: Self::Config,
     );
 
     fn write_coalesced<ES: Numeric>(
@@ -38,6 +41,7 @@ pub trait GlobalView<E: Numeric>: CubeType {
         write_col: u32,
         #[comptime] stage_info: StageInfo,
         #[comptime] slice_tile_size: u32,
+        #[comptime] config: Self::Config,
     );
 
     fn init_view(view: &mut Self, x_offset: u32, y_offset: u32);

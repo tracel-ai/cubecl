@@ -79,13 +79,13 @@ where
         accumulators
     }
 
-    fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] config: &Self::Config) {
+    fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] config: Self::Config) {
         let line_size = config.out_smem_line_size;
         let num_tile_lines = Tmm::M * Tmm::N / line_size;
         let start = num_tile_lines * Self::plane_id();
 
         let mut smem =
-            SharedMemory::<O>::new_lined(num_tile_lines * comptime!(Self::num_planes()), line_size);
+            SharedMemory::<O>::new_lined(num_tile_lines * comptime!(config.num_planes), line_size);
 
         #[unroll]
         for accumulator_iter in 0..acc.len() {
@@ -98,38 +98,39 @@ where
                 Self::plane_id(),
                 accumulator_iter,
                 line_size,
+                *config,
             );
         }
     }
 }
 
-impl<I, O, Acc, Tmm, Block> Matmul<I, O> for CmmaStageMatmul<I, O, Acc, Tmm, Block>
+impl<I, O, Acc, Tmm, StageSize> Matmul<I, O> for CmmaStageMatmul<I, O, Acc, Tmm, StageSize>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
     Tmm: TileMatmul<I, Acc, Config = CmmaConfig>,
-    Block: CmmaStageSize,
+    StageSize: CmmaStageSize,
 {
     type Config = CmmaConfig;
 
     fn stage_infos() -> StageInfos {
         StageInfos {
             lhs: StageInfo {
-                num_tiles_x: Block::M / Tmm::M,
-                num_tiles_y: Block::K / Tmm::K,
+                num_tiles_x: StageSize::M / Tmm::M,
+                num_tiles_y: StageSize::K / Tmm::K,
                 tile_size_x: Tmm::M,
                 tile_size_y: Tmm::K,
             },
             rhs: StageInfo {
-                num_tiles_x: Block::K / Tmm::K,
-                num_tiles_y: Block::N / Tmm::N,
+                num_tiles_x: StageSize::K / Tmm::K,
+                num_tiles_y: StageSize::N / Tmm::N,
                 tile_size_x: Tmm::K,
                 tile_size_y: Tmm::N,
             },
             out: StageInfo {
-                num_tiles_x: Block::M / Tmm::M,
-                num_tiles_y: Block::N / Tmm::N,
+                num_tiles_x: StageSize::M / Tmm::M,
+                num_tiles_y: StageSize::N / Tmm::N,
                 tile_size_x: Tmm::M,
                 tile_size_y: Tmm::N,
             },
@@ -137,7 +138,7 @@ where
     }
 
     fn check_config(config: Self::Config) {
-        let _ = comptime!(check_num_planes(Block::M / Tmm::M, config.num_planes));
+        let _ = comptime!(check_num_planes(StageSize::M / Tmm::M, config.num_planes));
         Tmm::check_config(config.into_tmm_config());
     }
 
@@ -180,14 +181,6 @@ where
 
     fn plane_unit() -> u32 {
         UNIT_POS_X
-    }
-
-    fn num_planes() -> u32 {
-        CUBE_DIM_Y
-    }
-
-    fn plane_dim() -> u32 {
-        CUBE_DIM_X
     }
 }
 

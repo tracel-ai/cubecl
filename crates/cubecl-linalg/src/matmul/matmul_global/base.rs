@@ -20,6 +20,6 @@ pub trait GlobalMatmul<
         rhs_loader: Rhs,
         out_writer: Out,
         k_range: (u32, u32),
-        #[comptime] config: &Self::Config,
+        #[comptime] config: Self::Config,
     );
 }

@@ -47,7 +47,7 @@ impl<
         mut rhs_loader: Rhs,
         out_unloader: Out,
         k_range: (u32, u32),
-        #[comptime] config: &Self::Config,
+        #[comptime] config: Self::Config,
     ) {
         let k_step = SMM::K;
         let range = k_range.1 - k_range.0;

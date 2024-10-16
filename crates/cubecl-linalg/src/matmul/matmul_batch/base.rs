@@ -12,6 +12,6 @@ pub trait BatchMatmul<N: Numeric> {
         lhs: &Tensor<Line<N>>,
         rhs: &Tensor<Line<N>>,
         out: &mut Tensor<Line<N>>,
-        #[comptime] config: &Self::Config,
+        #[comptime] config: Self::Config,
     );
 }

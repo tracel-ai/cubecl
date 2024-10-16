@@ -1,12 +1,15 @@
 use super::TensorView;
-use crate::matmul::config::PlaneMapper;
-use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::cmma_matmul::config::CmmaConfig;
+use crate::matmul::config::{MatmulConfig, PlaneMapper};
+use crate::matmul::matmul_global::{GlobalView, GmmConfig};
 use crate::matmul::stage_info::{tile_num_elements, StageInfo};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
 pub trait Smem2Tensor {
+    type Config: GmmConfig;
+
     fn smem_to_tensor<E: Numeric, ES: Numeric>(
         out: &mut TensorView<E>,
         smem_slice: &Slice<'_, Line<ES>>,
@@ -14,6 +17,7 @@ pub trait Smem2Tensor {
         accumulator_offset: u32,
         #[comptime] stage_info: StageInfo,
         #[comptime] slice_line_size: u32,
+        #[comptime] config: Self::Config
     );
 }
 
@@ -29,18 +33,12 @@ impl PlaneMapper for Smem2TensorSimple {
     fn plane_unit() -> u32 {
         UNIT_POS_X
     }
-
-    fn num_planes() -> u32 {
-        CUBE_DIM_Y
-    }
-
-    fn plane_dim() -> u32 {
-        CUBE_DIM_X
-    }
 }
 
 #[cube]
 impl Smem2Tensor for Smem2TensorSimple {
+    type Config = CmmaConfig;
+
     fn smem_to_tensor<E: Numeric, ES: Numeric>(
         out: &mut TensorView<E>,
         slice: &Slice<'_, Line<ES>>,
@@ -48,8 +46,9 @@ impl Smem2Tensor for Smem2TensorSimple {
         col_tile_begin: u32,
         #[comptime] stage_info: StageInfo,
         #[comptime] slice_line_size: u32,
+        #[comptime] config: Self::Config
     ) {
-        let unit_jump = Self::plane_dim() * out.tensor.line_size();
+        let unit_jump = config.plane_dim() * out.tensor.line_size();
         let num_unit_writes = tile_num_elements(stage_info) / unit_jump;
         let out_line_size = out.tensor.line_size();
 

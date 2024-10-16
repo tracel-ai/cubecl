@@ -1,3 +1,4 @@
+use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::matmul_global::new_tensor_view;
 use crate::matmul::matmul_global::GlobalView;
 use crate::matmul::matmul_global::TensorView;
@@ -29,6 +30,7 @@ pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
 impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsTensorLoader<EG, ES, S> {
     type GlobalView = TensorView<EG>;
     type StageReader = LhsStageReader<ES, S>;
+    type Config = CmmaConfig;
 
     fn new(
         tensor: Tensor<Line<EG>>,
@@ -46,8 +48,8 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsTensorLoader<
         }
     }
 
-    fn fill_stage(loader: &mut Self) -> Self::StageReader {
-        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+    fn fill_stage(loader: &mut Self, config: Self::Config) -> Self::StageReader {
+        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view, config);
         LhsStageReader::<ES, S> {
             stage: loader.stage,
             _e: PhantomData::<ES>.runtime(),
@@ -67,6 +69,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsTensorLoader<
 impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for RhsTensorLoader<EG, ES, S> {
     type GlobalView = TensorView<EG>;
     type StageReader = RhsStageReader<ES, S>;
+    type Config = CmmaConfig;
 
     fn new(
         tensor: Tensor<Line<EG>>,
@@ -84,8 +87,8 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for RhsTensorLoader<
         }
     }
 
-    fn fill_stage(loader: &mut Self) -> Self::StageReader {
-        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+    fn fill_stage(loader: &mut Self, config: Self::Config) -> Self::StageReader {
+        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view, config);
         RhsStageReader::<ES, S> {
             stage: loader.stage,
             _e: PhantomData::<ES>.runtime(),

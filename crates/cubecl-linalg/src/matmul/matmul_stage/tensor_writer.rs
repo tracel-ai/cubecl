@@ -1,7 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::matmul_global::{GlobalView, TensorView};
+use crate::matmul::cmma_matmul::config::CmmaConfig;
+use crate::matmul::matmul_global::{GlobalView, GmmConfig, TensorView};
 use crate::matmul::matmul_stage::StageWriter;
 use crate::matmul::stage_info::StageInfo;
 
@@ -24,12 +25,15 @@ pub(crate) fn new_tensor_writer<EG: Numeric>(
 
 #[cube]
 impl<EG: Numeric> StageWriter<EG> for TensorWriter<EG> {
+    type Config = CmmaConfig;
+
     fn write<ES: Numeric>(
         stage_writer: &mut Self,
         slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
         #[comptime] slice_line_size: u32,
+        #[comptime] config: Self::Config,
     ) {
         TensorView::write_slice(
             &mut stage_writer.tensor_view,
@@ -38,6 +42,7 @@ impl<EG: Numeric> StageWriter<EG> for TensorWriter<EG> {
             accumulator_offset * stage_writer.stage_info.tile_size_y,
             stage_writer.stage_info,
             slice_line_size,
+            config,
         )
     }
 }

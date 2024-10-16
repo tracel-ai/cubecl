@@ -1,4 +1,5 @@
 use super::Loader;
+use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::matmul_global::new_array_view;
 use crate::matmul::matmul_global::ArrayView;
 use crate::matmul::matmul_stage::Stage;
@@ -27,6 +28,7 @@ pub struct RhsArrayLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
 impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsArrayLoader<EG, ES, S> {
     type GlobalView = ArrayView<EG>;
     type StageReader = LhsStageReader<ES, S>;
+    type Config = CmmaConfig;
 
     fn new(
         array: Array<Line<EG>>,
@@ -49,8 +51,8 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsArrayLoader<E
         }
     }
 
-    fn fill_stage(loader: &mut Self) -> Self::StageReader {
-        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+    fn fill_stage(loader: &mut Self, config: Self::Config) -> Self::StageReader {
+        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view, config);
         LhsStageReader::<ES, S> {
             stage: loader.stage,
             _e: PhantomData::<ES>.runtime(),
@@ -70,6 +72,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsArrayLoader<E
 impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for RhsArrayLoader<EG, ES, S> {
     type GlobalView = ArrayView<EG>;
     type StageReader = RhsStageReader<ES, S>;
+    type Config = CmmaConfig;
 
     fn new(
         array: Array<Line<EG>>,
@@ -92,8 +95,8 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for RhsArrayLoader<E
         }
     }
 
-    fn fill_stage(loader: &mut Self) -> Self::StageReader {
-        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view);
+    fn fill_stage(loader: &mut Self, config: Self::Config) -> Self::StageReader {
+        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view, config);
         RhsStageReader::<ES, S> {
             stage: loader.stage,
             _e: PhantomData::<ES>.runtime(),

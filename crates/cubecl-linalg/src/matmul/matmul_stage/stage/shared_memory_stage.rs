@@ -1,5 +1,6 @@
 use super::base::Stage;
 use super::TilingOrder;
+use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::matmul_global::GlobalView;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
@@ -20,6 +21,7 @@ pub struct SharedMemoryStage<E: Numeric, O: TilingOrder> {
 #[cube]
 impl<ES: Numeric, O: TilingOrder> Stage<ES> for SharedMemoryStage<ES, O> {
     type Underlying = SharedMemory<Line<ES>>;
+    type Config = CmmaConfig;
 
     fn new(
         layout: MatrixLayout,
@@ -40,8 +42,8 @@ impl<ES: Numeric, O: TilingOrder> Stage<ES> for SharedMemoryStage<ES, O> {
         }
     }
 
-    fn fill<EG: Numeric, G: GlobalView<EG>>(stage: &mut Self, gmem: &G) {
-        G::load_shared_memory::<ES, O>(gmem, &mut stage.smem, stage.stage_info)
+    fn fill<EG: Numeric, G: GlobalView<EG>>(stage: &mut Self, gmem: &G, config: Self::Config) {
+        G::load_shared_memory::<ES, O>(gmem, &mut stage.smem, stage.stage_info, config)
     }
 
     fn get_tile(stage: &Self, x: u32, y: u32) -> (&Slice<'_, Line<ES>>, MatrixLayout) {

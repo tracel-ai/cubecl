@@ -1,5 +1,6 @@
-use crate::matmul::config::PlaneMapper;
-use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::cmma_matmul::config::CmmaConfig;
+use crate::matmul::config::{MatmulConfig, PlaneMapper};
+use crate::matmul::matmul_global::{GlobalView, GmmConfig};
 use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
 use cubecl_core as cubecl;
@@ -7,11 +8,14 @@ use cubecl_core::prelude::*;
 
 #[cube]
 pub trait SharedMemoryLoader: Clone + Copy + Send + Sync + 'static {
+    type Config: GmmConfig;
+
     fn load_shared_memory<EG: Numeric, ES: Numeric, G: GlobalView<EG>, O: TilingOrder>(
         gmem: &G,
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] line_size: u32,
         #[comptime] stage_info: StageInfo,
+        #[comptime] config: Self::Config,
     );
 }
 
@@ -27,31 +31,26 @@ impl PlaneMapper for Gmem2SmemContinuous {
     fn plane_unit() -> u32 {
         UNIT_POS_X
     }
-
-    fn num_planes() -> u32 {
-        CUBE_DIM_Y
-    }
-
-    fn plane_dim() -> u32 {
-        CUBE_DIM_X
-    }
 }
 
 #[cube]
 impl SharedMemoryLoader for Gmem2SmemContinuous {
+    type Config = CmmaConfig;
+
     fn load_shared_memory<EG: Numeric, ES: Numeric, G: GlobalView<EG>, O: TilingOrder>(
         gmem: &G,
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] line_size: u32,
         #[comptime] stage_info: StageInfo,
+        #[comptime] config: Self::Config,
     ) {
         let num_stage_elements = comptime!(total_num_elements(stage_info));
 
-        let jump_length = comptime!(Self::num_planes() * line_size * Self::plane_dim());
+        let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
         let _ = comptime!(check_jump_divides_well(num_stage_elements, jump_length));
 
         let unit_position_base =
-            (Self::plane_id() * Self::plane_dim() + Self::plane_unit()) * line_size;
+            (Self::plane_id() * config.plane_dim() + Self::plane_unit()) * line_size;
 
         for i in 0..num_stage_elements / jump_length {
             let unit_position = unit_position_base + i * jump_length;
