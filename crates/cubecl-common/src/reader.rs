@@ -4,33 +4,16 @@ use alloc::{sync::Arc, task::Wake};
 #[cfg(not(target_has_atomic = "ptr"))]
 use portable_atomic_util::{task::Wake, Arc};
 
-use alloc::{boxed::Box, vec::Vec};
 use core::{
     future::Future,
-    pin::Pin,
     task::{Context, Poll, Waker},
 };
-
-/// A future that is used to read resources from a compute server.
-pub type Reader = Pin<Box<dyn Future<Output = Vec<u8>> + Send>>;
-
-/// Create a reader from a concrete value.
-pub fn reader_from_concrete(val: Vec<u8>) -> Reader {
-    Box::pin(async move { val })
-}
 
 struct DummyWaker;
 
 impl Wake for DummyWaker {
-    #[cfg(target_has_atomic = "ptr")]
     fn wake(self: Arc<Self>) {}
-    #[cfg(target_has_atomic = "ptr")]
     fn wake_by_ref(self: &Arc<Self>) {}
-
-    #[cfg(not(target_has_atomic = "ptr"))]
-    fn wake(_this: Arc<Self>) {}
-    #[cfg(not(target_has_atomic = "ptr"))]
-    fn wake_by_ref(_this: &Arc<Self>) {}
 }
 
 /// Read a future synchronously.
@@ -59,7 +42,7 @@ pub fn try_read_sync<F: Future<Output = T>, T>(f: F) -> Option<T> {
         Poll::Ready(output) => Some(output),
         // On platforms that support it, now just block on the future and drive it to completion.
         #[cfg(all(not(target_family = "wasm"), feature = "std"))]
-        Poll::Pending => Some(pollster::block_on(pinned)),
+        Poll::Pending => Some(super::future::block_on(pinned)),
         // Otherwise, just bail and return None - this futures will have to be read back asynchronously.
         #[cfg(any(target_family = "wasm", not(feature = "std")))]
         Poll::Pending => None,

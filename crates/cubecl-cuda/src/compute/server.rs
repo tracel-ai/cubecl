@@ -2,13 +2,11 @@ use crate::compiler::{format_cpp_code, CudaCompiler};
 
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
-use cubecl_common::reader::{reader_from_concrete, Reader};
-use cubecl_common::sync_type::SyncType;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
 use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
-use cubecl_runtime::debug::DebugLogger;
+use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::ExecutionMode;
@@ -21,7 +19,9 @@ use cudarc::driver::sys::CUfunc_st;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::future::Future;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub struct CudaServer {
@@ -35,6 +35,7 @@ pub(crate) struct CudaContext {
     stream: cudarc::driver::sys::CUstream,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
+    work_start_time: Option<Instant>,
     pub(crate) arch: u32,
 }
 
@@ -78,8 +79,9 @@ impl ComputeServer for CudaServer {
     type Storage = CudaStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> Reader {
-        reader_from_concrete(self.read_sync(binding))
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
+        let value = self.read_sync(binding);
+        async { value }
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
@@ -156,6 +158,10 @@ impl ComputeServer for CudaServer {
             })
             .collect::<Vec<_>>();
 
+        if ctx.work_start_time.is_none() {
+            ctx.work_start_time = Some(Instant::now());
+        }
+
         if let Some(level) = profile_level {
             ctx.sync();
             let start = std::time::SystemTime::now();
@@ -164,14 +170,14 @@ impl ComputeServer for CudaServer {
 
             let (name, kernel_id) = profile_info.unwrap();
             let info = match level {
-                cubecl_runtime::debug::ProfileLevel::Basic => {
+                ProfileLevel::Basic | ProfileLevel::Medium => {
                     if let Some(val) = name.split("<").next() {
                         val.split("::").last().unwrap_or(name).to_string()
                     } else {
                         name.to_string()
                     }
                 }
-                cubecl_runtime::debug::ProfileLevel::Full => {
+                ProfileLevel::Full => {
                     format!("{name}: {kernel_id} CubeCount {count:?}")
                 }
             };
@@ -183,16 +189,19 @@ impl ComputeServer for CudaServer {
         }
     }
 
-    fn sync(&mut self, sync_type: SyncType) {
-        match sync_type {
-            // Synchronize the stream if waiting.
-            SyncType::Wait => {
-                let ctx = self.get_context();
-                ctx.sync();
-            }
-            // Nothing to do - all tasks are already submitted to the stream.
-            SyncType::Flush => (),
-        }
+    fn flush(&mut self) {}
+
+    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
+        self.logger.profile_summary();
+
+        let ctx = self.get_context();
+        ctx.sync();
+        let duration = ctx
+            .work_start_time
+            .map(|t| t.elapsed())
+            .unwrap_or(Duration::from_secs_f32(0.0));
+        ctx.work_start_time = None;
+        async move { duration }
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
@@ -225,6 +234,7 @@ impl CudaContext {
             module_names: HashMap::new(),
             stream,
             arch,
+            work_start_time: None,
         }
     }
 
@@ -332,7 +342,7 @@ impl CudaServer {
     pub(crate) fn new(ctx: CudaContext) -> Self {
         Self {
             ctx,
-            logger: DebugLogger::new(),
+            logger: DebugLogger::default(),
         }
     }
 

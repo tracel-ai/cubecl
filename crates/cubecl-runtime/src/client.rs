@@ -7,8 +7,7 @@ use crate::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-
-pub use cubecl_common::sync_type::SyncType;
+use cubecl_common::stub::Duration;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
@@ -95,9 +94,14 @@ where
             .execute(kernel, count, bindings, ExecutionMode::Unchecked)
     }
 
+    /// Flush all outstanding commands.
+    pub fn flush(&self) {
+        self.channel.flush();
+    }
+
     /// Wait for the completion of every task in the server.
-    pub fn sync(&self, sync_type: SyncType) {
-        self.channel.sync(sync_type)
+    pub async fn sync(&self) -> Duration {
+        self.channel.sync().await
     }
 
     /// Get the features supported by the compute server.

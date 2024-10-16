@@ -2,6 +2,7 @@ extern crate alloc;
 
 use std::sync::Arc;
 
+use cubecl_common::future;
 use cubecl_core::{
     channel::MutexComputeChannel,
     client::ComputeClient,
@@ -11,8 +12,8 @@ use cubecl_core::{
 use cubecl_runtime::{memory_management::MemoryDeviceProperties, ComputeRuntime, DeviceProperties};
 use cubecl_spirv::{GLCompute, SpirvCompiler};
 use cubecl_wgpu::{
-    create_wgpu_setup, init_async, init_memory_management, AutoGraphicsApi, RuntimeOptions, Vulkan,
-    WgpuDevice, WgpuStorage,
+    create_wgpu_setup, init_memory_management, AutoGraphicsApi, RuntimeOptions, Vulkan, WgpuDevice,
+    WgpuStorage,
 };
 use server::WgpuSpirvServer;
 use wgpu::hal;
@@ -39,7 +40,7 @@ impl Runtime for WgpuSpirvRuntime {
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
             let (adapter, device_wgpu, queue) =
-                pollster::block_on(create_wgpu_setup::<AutoGraphicsApi>(device));
+                future::block_on(create_wgpu_setup::<AutoGraphicsApi>(device));
             create_client(adapter, device_wgpu, queue, RuntimeOptions::default())
         })
     }
@@ -56,7 +57,7 @@ impl Runtime for WgpuSpirvRuntime {
 /// Initialize a client on the given device with the given options. This function is useful to configure the runtime options
 /// or to pick a different graphics API. On wasm, it is necessary to use [`init_async`] instead.
 pub fn init_sync(device: &WgpuDevice, options: RuntimeOptions) {
-    pollster::block_on(init_async::<Vulkan>(device, options));
+    cubecl_wgpu::init_sync::<Vulkan>(device, options);
 }
 
 pub fn create_client(

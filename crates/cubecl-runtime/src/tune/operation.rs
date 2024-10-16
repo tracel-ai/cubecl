@@ -15,7 +15,7 @@ pub fn compute_checksum<Out>(autotunables: &[Box<dyn AutotuneOperation<Out>>]) -
 }
 
 /// Groups operations of the same type for autotune
-pub trait AutotuneOperationSet<K, Output = ()>: Send {
+pub trait AutotuneOperationSet<K: Send + Sync + 'static, Output = ()>: Send + Sync {
     /// The key used in the tune cache
     fn key(&self) -> K;
 
@@ -25,6 +25,7 @@ pub trait AutotuneOperationSet<K, Output = ()>: Send {
 
     /// Returns the operation for the given index, matching the order
     /// returned by autotunables. Operation obtained here runs on original tensors
+    /// Nb: The 0 index is used a "good default".
     fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation<Output>>;
 
     /// Compute a checksum that can invalidate outdated cached auto-tune results.
@@ -67,10 +68,14 @@ pub trait AutotuneKey:
     + serde::de::DeserializeOwned
     + Send
     + Sync
+    + 'static
 {
 }
 #[cfg(not(autotune_persistent_cache))]
 /// Trait alias
-pub trait AutotuneKey: Clone + Debug + PartialEq + Eq + Hash + Display {}
+pub trait AutotuneKey:
+    Clone + Debug + PartialEq + Eq + Hash + Display + Send + Sync + 'static
+{
+}
 
 impl AutotuneKey for String {}

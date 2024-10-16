@@ -2,8 +2,8 @@ use cubecl::prelude::*;
 use std::marker::PhantomData;
 
 use cubecl::benchmark::Benchmark;
-use cubecl::client::SyncType;
 use cubecl::frontend::Float;
+use cubecl::future;
 use cubecl_linalg::matmul;
 use cubecl_linalg::tensor::TensorHandle;
 
@@ -42,7 +42,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     }
 
     fn sync(&self) {
-        self.client.sync(SyncType::Wait);
+        future::block_on(self.client.sync());
     }
 }
 

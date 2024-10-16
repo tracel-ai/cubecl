@@ -14,8 +14,8 @@ default = [
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.2.0" }
-cubecl-core = { path = "../cubecl-core", version = "0.2.0" }
+cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false, features = [
     "channel-mutex",
 ] }
@@ -23,7 +23,6 @@ cubecl-spirv = { path = "../cubecl-spirv", version = "0.2.0" }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0" }
 
 bytemuck = { workspace = true }
-pollster = { workspace = true }
 wgpu = { version = "22.0.0", features = [
     "fragile-send-sync-non-atomic-wasm",
     "spirv",
