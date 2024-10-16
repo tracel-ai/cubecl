@@ -292,7 +292,7 @@ impl WgpuServer {
                     .chunks_exact(8)
                     .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
                     .collect::<Vec<_>>();
-                let delta = data[1] - data[0];
+                let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
                 Duration::from_secs_f64(delta as f64 * period)
             })
         } else {
