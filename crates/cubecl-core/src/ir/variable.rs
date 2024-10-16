@@ -473,7 +473,7 @@ impl Display for Variable {
             Variable::SharedMemory { id, .. } => write!(f, "shared({id})"),
             Variable::LocalArray { id, .. } => write!(f, "array({id})"),
             Variable::Matrix { id, depth, .. } => write!(f, "matrix({id}, {depth})"),
-            Variable::Slice { id, .. } => write!(f, "slice({id})"),
+            Variable::Slice { id, depth, .. } => write!(f, "slice({id}, {depth})"),
             builtin => write!(f, "{builtin:?}"),
         }
     }

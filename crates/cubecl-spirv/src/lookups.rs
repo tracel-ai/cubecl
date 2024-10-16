@@ -48,7 +48,7 @@ pub struct LookupTables {
 pub struct Slice {
     pub ptr: Variable,
     pub offset: Word,
-    pub len: Word,
+    pub end: Word,
     pub const_len: Option<u32>,
     pub item: Item,
 }
@@ -58,7 +58,7 @@ impl From<&Slice> for Variable {
         Variable::Slice {
             ptr: Box::new(value.ptr.clone()),
             offset: value.offset,
-            len: value.len,
+            end: value.end,
             const_len: value.const_len,
             item: value.item.clone(),
         }

@@ -82,17 +82,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 };
 
                 let start_id = self.read(&start);
-                let (len, const_len) = match (start.as_const(), end.as_const()) {
+                let end_id = self.read(&end);
+                let const_len = match (start.as_const(), end.as_const()) {
                     (Some(start), Some(end)) => {
                         let len = end.as_u32() - start.as_u32();
-                        let len_id = self.const_u32(len);
-                        (len_id, Some(len))
+                        Some(len)
                     }
-                    _ => {
-                        let end_id = self.read(&end);
-                        let len_ty = Elem::Int(32, false).id(self);
-                        (self.i_sub(len_ty, None, end_id, start_id).unwrap(), None)
-                    }
+                    _ => None,
                 };
 
                 self.state.slices.insert(
@@ -100,7 +96,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Slice {
                         ptr: input,
                         offset: start_id,
-                        len,
+                        end: end_id,
                         const_len,
                         item,
                     },

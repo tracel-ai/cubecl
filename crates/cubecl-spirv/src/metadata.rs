@@ -108,12 +108,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::GlobalInputArray(ptr, _) | Variable::GlobalOutputArray(ptr, _) => {
                 self.array_length(out_ty, out_id, *ptr, 0).unwrap()
             }
-            Variable::Slice { len, .. } => {
+            Variable::Slice {
+                const_len: Some(len),
+                ..
+            } => {
+                let len = self.const_u32(*len);
                 if out.is_some() {
-                    self.copy_object(out_ty, out_id, *len).unwrap()
+                    self.copy_object(out_ty, out_id, len).unwrap()
                 } else {
-                    *len
+                    len
                 }
+            }
+            Variable::Slice { offset, end, .. } => {
+                let len_ty = Elem::Int(32, false).id(self);
+                self.i_sub(len_ty, out_id, *end, *offset).unwrap()
             }
             Variable::SharedMemory(_, _, len)
             | Variable::ConstantArray(_, _, len)

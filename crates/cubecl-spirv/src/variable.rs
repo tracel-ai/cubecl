@@ -42,7 +42,7 @@ pub enum Variable {
     Slice {
         ptr: Box<Variable>,
         offset: Word,
-        len: Word,
+        end: Word,
         const_len: Option<u32>,
         item: Item,
     },
@@ -731,7 +731,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Slice { ptr, offset, .. } => {
                 let item = Item::Scalar(Elem::Int(32, false));
                 let int = item.id(self);
-                let index = self.i_add(int, None, *offset, index_id).unwrap();
+                let index = match index.as_const() {
+                    Some(ConstVal::Bit32(0)) => *offset,
+                    _ => self.i_add(int, None, *offset, index_id).unwrap(),
+                };
                 self.index(ptr, &Variable::Raw(index, item), unchecked)
             }
             Variable::SharedMemory(id, item, _) => {
