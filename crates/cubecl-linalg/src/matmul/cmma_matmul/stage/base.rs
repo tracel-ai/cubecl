@@ -5,15 +5,12 @@ use cubecl_core::prelude::*;
 
 use super::CmmaStageSize;
 use crate::matmul::cmma_matmul::config::CmmaConfig;
+use crate::matmul::config::Requirements;
 use crate::matmul::launch::stage_matmul_launch;
 use crate::matmul::matmul_stage::{StageMatmul, StageReader, StageWriter};
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
-use crate::matmul::{
-    config::PlaneMapper,
-    matrix_layout::MatrixLayout,
-    problem::{MatmulProblem, Requirements},
-};
+use crate::matmul::{config::PlaneMapper, matrix_layout::MatrixLayout, problem::MatmulProblem};
 use crate::matmul::{FixedShapeMatmul, Matmul};
 
 pub struct CmmaStageMatmul<

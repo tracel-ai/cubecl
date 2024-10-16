@@ -35,3 +35,9 @@ pub trait Config:
 
     fn from_problem(problem: Self::ProblemDefinition) -> Self;
 }
+
+pub struct Requirements {
+    pub min_planes: u32,
+    pub max_planes: u32,
+    pub num_cubes: u32,
+}

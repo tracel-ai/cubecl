@@ -35,9 +35,3 @@ impl MatmulProblem {
         }
     }
 }
-
-pub struct Requirements {
-    pub min_planes: u32,
-    pub max_planes: u32,
-    pub num_cubes: u32,
-}

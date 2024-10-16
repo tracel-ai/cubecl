@@ -1,10 +1,11 @@
 use crate::matmul::cmma_matmul::config::CmmaConfig;
+use crate::matmul::config::Requirements;
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader, Unloader};
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::problem::{MatmulProblem, Requirements};
+use crate::matmul::problem::MatmulProblem;
 use crate::matmul::stage_info::StageInfos;
 use crate::matmul::{Matmul, TensorMatmul};
 use cubecl_core as cubecl;

@@ -1,9 +1,9 @@
 use cubecl_core::prelude::*;
 
+use super::config::{Config, Requirements};
 use super::matrix_layout::MatrixLayout;
-use super::problem::{MatmulProblem, Requirements};
+use super::problem::MatmulProblem;
 use super::stage_info::StageInfos;
-use super::config::Config;
 
 pub trait Matmul<I: Numeric, O: Numeric> {
     fn can_process(problem: MatmulProblem) -> bool;
