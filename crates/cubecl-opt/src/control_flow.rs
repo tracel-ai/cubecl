@@ -93,7 +93,7 @@ impl Optimizer {
             self.program.add_edge(current_block, next, ());
         } else {
             // Returned
-            merge = self.ret;
+            merge = self.merge_ret();
         }
 
         let merge = if is_break { None } else { Some(merge) };
@@ -127,7 +127,7 @@ impl Optimizer {
             self.program.add_edge(current_block, next, ());
         } else {
             // Returned
-            merge = self.ret;
+            merge = self.merge_ret();
         }
 
         self.current_block = Some(or_else);
@@ -137,7 +137,7 @@ impl Optimizer {
             self.program.add_edge(current_block, next, ());
         } else {
             // Returned
-            merge = self.ret;
+            merge = self.merge_ret();
         }
 
         let merge = if is_break { None } else { Some(merge) };
@@ -165,9 +165,12 @@ impl Optimizer {
                 self.program.add_edge(current_block, case_id, ());
                 self.current_block = Some(case_id);
                 let is_break = self.parse_scope(case);
-                if let Some(current_block) = self.current_block {
+                let is_ret = if let Some(current_block) = self.current_block {
                     self.program.add_edge(current_block, next, ());
-                }
+                    false
+                } else {
+                    !is_break
+                };
                 let val = match val.as_const().expect("Switch value must be constant") {
                     ConstantScalarValue::Int(val, _) => unsafe {
                         transmute::<i32, u32>(val as i32)
@@ -175,11 +178,12 @@ impl Optimizer {
                     ConstantScalarValue::UInt(val) => val as u32,
                     _ => unreachable!("Switch cases must be integer"),
                 };
-                (val, case_id, is_break)
+                (val, case_id, is_break, is_ret)
             })
             .collect::<Vec<_>>();
 
-        let is_break = branches.iter().any(|it| it.2);
+        let is_break_branch = branches.iter().any(|it| it.2);
+        let mut is_ret = branches.iter().any(|it| it.3);
         let branches = branches
             .into_iter()
             .map(|it| (it.0, it.1))
@@ -188,13 +192,22 @@ impl Optimizer {
         let default = self.program.add_node(BasicBlock::default());
         self.program.add_edge(current_block, default, ());
         self.current_block = Some(default);
-        let is_break = self.parse_scope(switch.scope_default) || is_break;
+        let is_break_def = self.parse_scope(switch.scope_default);
 
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, next, ());
+        } else {
+            is_ret = !is_break_def;
         }
 
-        let merge = if is_break { None } else { Some(next) };
+        let merge = if is_break_def || is_break_branch {
+            None
+        } else if is_ret {
+            Some(self.merge_ret())
+        } else {
+            self.program[next].block_use.push(BlockUse::Merge);
+            Some(next)
+        };
 
         *self.program[current_block].control_flow.borrow_mut() = ControlFlow::Switch {
             value: switch.value,
@@ -281,9 +294,20 @@ impl Optimizer {
 
         let current_block = self.current_block.expect("For loop has no loopback path");
 
-        self.program.add_edge(current_block, header, ());
+        let continue_target = if self.program[current_block]
+            .block_use
+            .contains(&BlockUse::Merge)
+        {
+            let target = self.program.add_node(BasicBlock::default());
+            self.program.add_edge(current_block, target, ());
+            target
+        } else {
+            current_block
+        };
 
-        self.program[current_block]
+        self.program.add_edge(continue_target, header, ());
+
+        self.program[continue_target]
             .block_use
             .push(BlockUse::ContinueTarget);
         self.program[next].block_use.push(BlockUse::Merge);
@@ -310,7 +334,7 @@ impl Optimizer {
             *self.program[header].control_flow.borrow_mut() = ControlFlow::LoopBreak {
                 break_cond: tmp,
                 body,
-                continue_target: current_block,
+                continue_target,
                 merge: next,
             };
         }
@@ -322,6 +346,18 @@ impl Optimizer {
             })
             .into(),
         );
+    }
+
+    pub(crate) fn merge_ret(&mut self) -> NodeIndex {
+        if self.program[self.ret].block_use.contains(&BlockUse::Merge) {
+            let merge = self.program.add_node(BasicBlock::default());
+            self.program.add_edge(merge, self.ret, ());
+            self.program[merge].block_use.push(BlockUse::Merge);
+            merge
+        } else {
+            self.program[self.ret].block_use.push(BlockUse::Merge);
+            self.ret
+        }
     }
 
     pub(crate) fn split_critical_edges(&mut self) {
