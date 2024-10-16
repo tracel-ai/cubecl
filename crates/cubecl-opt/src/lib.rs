@@ -44,7 +44,7 @@ use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
     EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, EmptyBranchToSelect,
     FindConstSliceLen, InBoundsToUnchecked, InlineAssignments, IntegerRangeAnalysis, MergeBlocks,
-    MergeSameExpressions, OptimizerPass, RemoveIndexScalar,
+    MergeSameExpressions, OptimizerPass, ReduceStrength, RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
@@ -206,6 +206,7 @@ impl Optimizer {
         let gvn_count = AtomicCounter::new(0);
         let gvn = self.gvn.clone();
         gvn.borrow_mut().apply_post_ssa(self, gvn_count.clone());
+        ReduceStrength.apply_post_ssa(self, gvn_count.clone());
 
         if gvn_count.get() > 0 {
             self.apply_post_ssa_passes();
