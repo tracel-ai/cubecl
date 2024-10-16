@@ -5,6 +5,7 @@ use cubecl_core::prelude::*;
 mod base;
 pub mod cmma_matmul;
 pub mod cmma_old;
+mod config;
 pub(crate) mod launch;
 pub mod matmul_batch;
 pub mod matmul_global;
@@ -13,7 +14,6 @@ pub mod matmul_tile;
 pub mod matrix_layout;
 pub mod problem;
 pub mod stage_info;
-mod config;
 
 /// Contains algorithms for tiling 2d matrix multiplication when cooperative matrix are not
 /// available.

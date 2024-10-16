@@ -1,13 +1,11 @@
 use crate::matmul::cmma_matmul::config::CmmaConfig;
-use crate::matmul::config::Requirements;
 use crate::matmul::launch::cube_matmul_launch;
-use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader, Unloader};
+use crate::matmul::matmul_global::{GmmConfig, TensorView};
 use crate::matmul::matmul_stage::StageMatmul;
-use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::MatmulProblem;
 use crate::matmul::stage_info::StageInfos;
-use crate::matmul::{Matmul, TensorMatmul};
+use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -82,28 +80,6 @@ impl<
 impl<
         EG: Numeric,
         ES: Numeric,
-        BM: StageMatmul<ES, EG, Lhs::StageReader, Rhs::StageReader, Out::StageWriter>,
-        Lhs: Loader<EG, ES>,
-        Rhs: Loader<EG, ES>,
-        Out: Unloader<EG>,
-    > Matmul<EG, EG> for CmmaGlobalMatmul<EG, ES, BM, Lhs, Rhs, Out>
-{
-    fn can_process(problem: MatmulProblem) -> bool {
-        problem.m <= BM::M && problem.n <= BM::N
-    }
-
-    fn requirements(problem: MatmulProblem) -> Requirements {
-        BM::requirements(problem)
-    }
-
-    fn stage_infos() -> StageInfos {
-        BM::stage_infos()
-    }
-}
-
-impl<
-        EG: Numeric,
-        ES: Numeric,
         SMM: StageMatmul<
             ES,
             EG,
@@ -115,9 +91,21 @@ impl<
         Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
         Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
         Out: Unloader<EG, GlobalView = TensorView<EG>>,
-    > TensorMatmul<EG> for CmmaGlobalMatmul<EG, ES, SMM, Lhs, Rhs, Out>
+    > Matmul<EG, EG> for CmmaGlobalMatmul<EG, ES, SMM, Lhs, Rhs, Out>
 {
     type Config = CmmaConfig;
+
+    fn can_process(problem: MatmulProblem) -> bool {
+        problem.m <= SMM::M && problem.n <= SMM::N
+    }
+
+    fn stage_infos() -> StageInfos {
+        SMM::stage_infos()
+    }
+
+    fn check_config(config: Self::Config) {
+        SMM::check_config(config.into_smm_config());
+    }
 
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -126,9 +114,9 @@ impl<
         lhs: TensorArg<'_, R>,
         rhs: TensorArg<'_, R>,
         out: TensorArg<'_, R>,
-        layouts: (MatrixLayout, MatrixLayout),
-        config: CmmaConfig,
+        config: Self::Config,
     ) {
+        Self::check_config(config);
         cube_matmul_launch::launch_unchecked::<EG, ES, Self, Lhs, Rhs, Out, R>(
             &client,
             cube_count,
@@ -136,7 +124,7 @@ impl<
             lhs,
             rhs,
             out,
-            layouts,
+            config.layouts,
             Self::stage_infos(),
             config,
         );

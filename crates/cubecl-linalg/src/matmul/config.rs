@@ -3,6 +3,8 @@ use cubecl_core::prelude::*;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use super::problem::MatmulProblem;
+
 #[cube]
 pub trait PlaneMapper {
     fn plane_id() -> u32;
@@ -18,7 +20,7 @@ pub trait SubRoutine {
     fn assert_can_process(problem: Self::ProblemDefinition);
 }
 
-pub trait Config:
+pub trait MatmulConfig:
     CubeType<ExpandType = Self>
     + Copy
     + Clone
@@ -31,13 +33,16 @@ pub trait Config:
     + Hash
     + Debug
 {
-    type ProblemDefinition;
+    type ConfigBuilder: ConfigBuilder<Config = Self>;
 
-    fn from_problem(problem: Self::ProblemDefinition) -> Self;
+    fn build() -> Self::ConfigBuilder;
+    fn num_planes(&self) -> u32;
+    fn plane_dim(&self) -> u32;
 }
 
-pub struct Requirements {
-    pub min_planes: u32,
-    pub max_planes: u32,
-    pub num_cubes: u32,
+pub trait ConfigBuilder {
+    type Config: MatmulConfig;
+
+    fn configure_planes(&self, plane_dim: u32, num_planes: u32) -> Self;
+    fn tweak_for_problem(&self, problem: &MatmulProblem) -> Self::Config;
 }

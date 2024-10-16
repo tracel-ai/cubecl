@@ -2,13 +2,18 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::FixedShapeMatmul;
+use crate::matmul::Matmul;
+
+use super::TmmConfig;
 
 #[cube]
-/// Executes a small matmul using one plane
 pub trait TileMatmul<I: Numeric, O: Numeric>:
-    'static + Send + Sync + FixedShapeMatmul<I, O>
+    'static + Send + Sync + Matmul<I, O, Config: TmmConfig>
 {
+    const M: u32;
+    const N: u32;
+    const K: u32;
+
     type Lhs: CubeType;
     type Rhs: CubeType;
     type Out: CubeType;

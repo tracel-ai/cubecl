@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::TensorMatmul;
+use crate::matmul::Matmul;
 
-use super::{Loader, Unloader};
+use super::{GmmConfig, Loader, Unloader};
 
 #[cube]
 /// Execute a matmul over a block, accumulating for arbitrary k-dim, using one Cube.
@@ -13,7 +13,7 @@ pub trait GlobalMatmul<
     Lhs: Loader<EG, ES>,
     Rhs: Loader<EG, ES>,
     Out: Unloader<EG>,
->: 'static + Send + Sync + TensorMatmul<EG>
+>: 'static + Send + Sync + Matmul<EG, EG, Config: GmmConfig>
 {
     fn execute(
         lhs_loader: Lhs,

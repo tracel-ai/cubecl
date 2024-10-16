@@ -1,12 +1,11 @@
 use crate::matmul::cmma_matmul::config::CmmaConfig;
-use crate::matmul::config::Requirements;
 use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::matmul_tile::OwnedTile;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::MatmulProblem;
 use crate::matmul::stage_info::{StageInfo, StageInfos};
-use crate::matmul::{FixedShapeMatmul, Matmul};
+use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -22,67 +21,12 @@ macro_rules! impl_matmul_instruction {
             _output: PhantomData<O>,
         }
 
-        impl<I: Numeric, O: Numeric> FixedShapeMatmul<I, O> for $name<I, O> {
+        #[cube]
+        impl<I: Numeric, O: Numeric> TileMatmul<I, O> for $name<I, O> {
             const M: u32 = $m;
             const N: u32 = $n;
             const K: u32 = $k;
-            type Config = CmmaConfig;
 
-            unsafe fn launch_unchecked<R: Runtime>(
-                client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
-                cube_dim: CubeDim,
-                cube_count: CubeCount,
-                lhs: ArrayArg<'_, R>,
-                rhs: ArrayArg<'_, R>,
-                out: ArrayArg<'_, R>,
-                layouts: (MatrixLayout, MatrixLayout),
-                _config: Self::Config,
-            ) {
-                matmul_instruction_launch::launch_unchecked::<Self, I, O, R>(
-                    &client, cube_count, cube_dim, lhs, rhs, out, layouts,
-                );
-            }
-        }
-
-        impl<I: Numeric, O: Numeric> Matmul<I, O> for $name<I, O> {
-            fn can_process(problem: MatmulProblem) -> bool {
-                problem.m == Self::M && problem.n == Self::N && problem.k == Self::K
-            }
-
-            fn requirements(_problem: MatmulProblem) -> Requirements {
-                Requirements {
-                    min_planes: 1,
-                    max_planes: 1,
-                    num_cubes: 1,
-                }
-            }
-
-            fn stage_infos() -> StageInfos {
-                StageInfos {
-                    lhs: StageInfo {
-                        num_tiles_x: 1,
-                        num_tiles_y: 1,
-                        tile_size_x: $m,
-                        tile_size_y: $k,
-                    },
-                    rhs: StageInfo {
-                        num_tiles_x: 1,
-                        num_tiles_y: 1,
-                        tile_size_x: $k,
-                        tile_size_y: $n,
-                    },
-                    out: StageInfo {
-                        num_tiles_x: 1,
-                        num_tiles_y: 1,
-                        tile_size_x: $m,
-                        tile_size_y: $n,
-                    },
-                }
-            }
-        }
-
-        #[cube]
-        impl<I: Numeric, O: Numeric> TileMatmul<I, O> for $name<I, O> {
             type Lhs = OwnedTile<I>;
             type Rhs = OwnedTile<I>;
             type Out = OwnedTile<O>;
@@ -147,6 +91,60 @@ macro_rules! impl_matmul_instruction {
                         slice[i] = line;
                     }
                 }
+            }
+        }
+
+        impl<I: Numeric, O: Numeric> Matmul<I, O> for $name<I, O> {
+            type Config = CmmaConfig;
+
+            fn can_process(problem: MatmulProblem) -> bool {
+                problem.m == Self::M && problem.n == Self::N && problem.k == Self::K
+            }
+
+            fn stage_infos() -> StageInfos {
+                StageInfos {
+                    lhs: StageInfo {
+                        num_tiles_x: 1,
+                        num_tiles_y: 1,
+                        tile_size_x: $m,
+                        tile_size_y: $k,
+                    },
+                    rhs: StageInfo {
+                        num_tiles_x: 1,
+                        num_tiles_y: 1,
+                        tile_size_x: $k,
+                        tile_size_y: $n,
+                    },
+                    out: StageInfo {
+                        num_tiles_x: 1,
+                        num_tiles_y: 1,
+                        tile_size_x: $m,
+                        tile_size_y: $n,
+                    },
+                }
+            }
+
+            fn check_config(_config: Self::Config) {}
+
+            unsafe fn launch_unchecked<R: Runtime>(
+                client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+                cube_dim: CubeDim,
+                cube_count: CubeCount,
+                lhs: TensorArg<'_, R>,
+                rhs: TensorArg<'_, R>,
+                out: TensorArg<'_, R>,
+                config: CmmaConfig,
+            ) {
+                Self::check_config(config);
+                matmul_instruction_launch::launch_unchecked::<Self, I, O, R>(
+                    &client,
+                    cube_count,
+                    cube_dim,
+                    lhs,
+                    rhs,
+                    out,
+                    config.layouts,
+                );
             }
         }
     };
