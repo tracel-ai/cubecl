@@ -16,6 +16,8 @@ pub fn read_sync<F: Future<Output = T>, T>(f: F) -> T {
 pub fn try_read_sync<F: Future<Output = T>, T>(f: F) -> Option<T> {
     #[cfg(target_family = "wasm")]
     {
+        use core::task::Poll;
+
         match embassy_futures::poll_once(f) {
             Poll::Ready(output) => Some(output),
             _ => None,
