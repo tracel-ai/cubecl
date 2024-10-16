@@ -129,6 +129,21 @@ impl Display for Optimizer {
                     )?;
                     writeln!(f, "    branch bb{};", body.index())?
                 }
+                super::ControlFlow::LoopBreak {
+                    break_cond,
+                    body,
+                    continue_target,
+                    merge,
+                } => {
+                    writeln!(
+                        f,
+                        "    loop(cond: {}, body: bb{} continue: bb{}, break: bb{})",
+                        break_cond,
+                        body.index(),
+                        continue_target.index(),
+                        merge.index()
+                    )?;
+                }
                 super::ControlFlow::Return => writeln!(f, "    return;")?,
                 super::ControlFlow::None => {
                     let edge = self.program.edges(node).next();

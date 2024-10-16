@@ -32,7 +32,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let one = self.const_u32(1);
 
                 let dim_id = self.read(&dim);
-                let rank_2 = self.state.rank_2;
+                let rank_2 = self.rank_2();
 
                 let index = match position > 1 {
                     true => {
@@ -69,8 +69,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let one = self.const_u32(1);
 
                 let dim_id = self.read(&dim);
-                let rank = self.state.rank;
-                let rank_2 = self.state.rank_2;
+                let rank = self.rank();
+                let rank_2 = self.rank_2();
                 let index = match position > 1 {
                     true => {
                         let position = self.const_u32(position as u32);

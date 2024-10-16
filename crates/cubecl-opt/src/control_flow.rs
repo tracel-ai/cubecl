@@ -31,6 +31,15 @@ pub enum ControlFlow {
         continue_target: NodeIndex,
         merge: NodeIndex,
     },
+    /// A loop with a header (the block that contains this variant), a `body` and a `continue target`.
+    /// `merge` is the block that gets executed as soon as the loop terminates. The header contains
+    /// the break condition.
+    LoopBreak {
+        break_cond: Variable,
+        body: NodeIndex,
+        continue_target: NodeIndex,
+        merge: NodeIndex,
+    },
     /// A return statement. This should only occur once in the program and all other returns should
     /// instead branch to this single return block.
     Return,
@@ -257,14 +266,11 @@ impl Optimizer {
         let header = self.program.add_node(BasicBlock::default());
         self.program.add_edge(current_block, header, ());
 
-        let break_cond = self.program.add_node(BasicBlock::default());
         let body = self.program.add_node(BasicBlock::default());
         let next = self.program.add_node(BasicBlock::default());
 
-        self.program.add_edge(header, break_cond, ());
-
-        self.program.add_edge(break_cond, body, ());
-        self.program.add_edge(break_cond, next, ());
+        self.program.add_edge(header, body, ());
+        self.program.add_edge(header, next, ());
 
         self.loop_break.push_back(next);
 
@@ -277,11 +283,6 @@ impl Optimizer {
 
         self.program.add_edge(current_block, header, ());
 
-        *self.program[header].control_flow.borrow_mut() = ControlFlow::Loop {
-            body: break_cond,
-            continue_target: current_block,
-            merge: next,
-        };
         self.program[current_block]
             .block_use
             .push(BlockUse::ContinueTarget);
@@ -297,7 +298,7 @@ impl Optimizer {
                 false => Operator::Lower,
             };
             let tmp = self.create_temporary(Item::new(Elem::Bool));
-            self.program[break_cond].ops.borrow_mut().push(
+            self.program[header].ops.borrow_mut().push(
                 op(BinaryOperator {
                     lhs: i,
                     rhs: range_loop.end,
@@ -306,11 +307,11 @@ impl Optimizer {
                 .into(),
             );
 
-            *self.program[break_cond].control_flow.borrow_mut() = ControlFlow::IfElse {
-                cond: tmp,
-                then: body,
-                or_else: next,
-                merge: None,
+            *self.program[header].control_flow.borrow_mut() = ControlFlow::LoopBreak {
+                break_cond: tmp,
+                body,
+                continue_target: current_block,
+                merge: next,
             };
         }
         self.program[current_block].ops.borrow_mut().push(

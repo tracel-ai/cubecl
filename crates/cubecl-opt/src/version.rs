@@ -163,6 +163,9 @@ impl Optimizer {
         *self.program[block].ops.borrow_mut() = ops;
         match &mut *self.program[block].control_flow.borrow_mut() {
             super::ControlFlow::IfElse { cond, .. } => self.version_read(cond, state),
+            super::ControlFlow::LoopBreak { break_cond, .. } => {
+                self.version_read(break_cond, state)
+            }
             ControlFlow::Switch { value, .. } => self.version_read(value, state),
             _ => {}
         }

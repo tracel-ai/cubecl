@@ -175,6 +175,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 continue_target,
                 merge,
             } => self.compile_loop(body, continue_target, merge),
+            ControlFlow::LoopBreak {
+                break_cond,
+                body,
+                continue_target,
+                merge,
+            } => self.compile_loop_break(break_cond, body, continue_target, merge),
             ControlFlow::Return => {
                 self.ret().unwrap();
                 self.current_block = None;
@@ -263,6 +269,28 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.loop_merge(merge_label, continue_label, LoopControl::NONE, vec![])
             .unwrap();
         self.branch(body_label).unwrap();
+        self.compile_block(body);
+        self.compile_block(continue_target);
+        self.compile_block(merge);
+    }
+
+    fn compile_loop_break(
+        &mut self,
+        break_cond: core::Variable,
+        body: NodeIndex,
+        continue_target: NodeIndex,
+        merge: NodeIndex,
+    ) {
+        let break_cond = self.compile_variable(break_cond);
+        let cond_id = self.read(&break_cond);
+        let body_label = self.label(body);
+        let continue_label = self.label(continue_target);
+        let merge_label = self.label(merge);
+
+        self.loop_merge(merge_label, continue_label, LoopControl::NONE, [])
+            .unwrap();
+        self.branch_conditional(cond_id, body_label, merge_label, [])
+            .unwrap();
         self.compile_block(body);
         self.compile_block(continue_target);
         self.compile_block(merge);

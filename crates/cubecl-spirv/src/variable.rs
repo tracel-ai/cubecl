@@ -259,6 +259,8 @@ pub enum IndexedVariable {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Globals {
+    Rank2,
+
     Id,
     LocalInvocationId,
     LocalInvocationIdX,
@@ -544,7 +546,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 Variable::GlobalInvocationIdZ(id)
             }
-            core::Variable::Rank => Variable::Rank(self.state.rank),
+            core::Variable::Rank => Variable::Rank(self.rank()),
             core::Variable::ConstantArray { id, item, length } => {
                 let item = self.compile_item(item);
                 let id = self.state.const_arrays[id as usize].id;
@@ -601,6 +603,34 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
         }
+    }
+
+    pub fn rank(&mut self) -> Word {
+        self.get_or_insert_global(Globals::Rank, |b| {
+            let int = Item::Scalar(Elem::Int(32, false));
+            let int_ty = int.id(b);
+            let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(b);
+            let info = b.state.named["info"];
+            let zero = b.const_u32(0);
+            let rank_ptr = b
+                .access_chain(int_ptr, None, info, vec![zero, zero])
+                .unwrap();
+            let rank = b.load(int_ty, None, rank_ptr, None, vec![]).unwrap();
+            b.debug_name(rank, "rank");
+            rank
+        })
+    }
+
+    pub fn rank_2(&mut self) -> Word {
+        self.get_or_insert_global(Globals::Rank2, |b| {
+            let int = Item::Scalar(Elem::Int(32, false));
+            let int_ty = int.id(b);
+            let rank = b.rank();
+            let two = b.const_u32(2);
+            let rank_2 = b.i_mul(int_ty, None, rank, two).unwrap();
+            b.debug_name(rank_2, "rank*2");
+            rank_2
+        })
     }
 
     pub fn read(&mut self, variable: &Variable) -> Word {
