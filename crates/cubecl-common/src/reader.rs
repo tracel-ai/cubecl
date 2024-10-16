@@ -11,9 +11,16 @@ use core::{
 
 struct DummyWaker;
 
+#[cfg(target_has_atomic = "ptr")]
 impl Wake for DummyWaker {
     fn wake(self: Arc<Self>) {}
     fn wake_by_ref(self: &Arc<Self>) {}
+}
+
+#[cfg(not(target_has_atomic = "ptr"))]
+impl Wake for DummyWaker {
+    fn wake(_this: Arc<Self>) {}
+    fn wake_by_ref(_this: &Arc<Self>) {}
 }
 
 /// Read a future synchronously.

@@ -38,6 +38,7 @@ spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 embassy-futures = { version = "0.1.1" }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
+portable-atomic = { workspace = true, features = ["unsafe-assume-single-core"] }
 portable-atomic-util = { workspace = true }
 spin = { workspace = true, features = [
     "mutex",
