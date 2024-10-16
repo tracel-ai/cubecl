@@ -387,13 +387,15 @@ impl Optimizer {
                         Variable::Slice { id, depth, .. } => (*id, *depth),
                         _ => unreachable!(),
                     };
+                    let const_len = slice_op.start.as_const().zip(slice_op.end.as_const());
+                    let const_len = const_len.map(|(start, end)| end.as_u32() - start.as_u32());
                     self.program.slices.insert(
                         out_id,
                         Slice {
                             start: slice_op.start,
                             end: slice_op.end,
                             end_op: None,
-                            const_len: None,
+                            const_len,
                         },
                     );
                     let mut op = Operation::Operator(Operator::Slice(slice_op));
