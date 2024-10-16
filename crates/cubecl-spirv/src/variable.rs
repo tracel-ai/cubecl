@@ -343,19 +343,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.outputs[id as usize];
                 Variable::GlobalOutputArray(id, self.compile_item(item))
             }
-            core::Variable::GlobalScalar { id, elem } => {
-                let arr_id = self.state.named[&format!("scalars_{elem}")];
-                let item = self.compile_item(core::Item::new(elem));
-                let arr = Variable::GlobalInputArray(arr_id, item.clone());
-                let const_id = self.const_u32(id as u32);
-                let index =
-                    Variable::ConstantScalar(const_id, (id as u32).into(), Elem::Int(32, false));
-                let read_id = self.id();
-                let var = Variable::GlobalScalar(read_id, item.elem());
-                self.debug_name(read_id, format!("scalars<{elem}>({id})"));
-                self.read_indexed_unchecked(&var, &arr, &index);
-                var
-            }
+            core::Variable::GlobalScalar { id, elem } => self.global_scalar(id, elem),
             core::Variable::Local { id, item, depth } => {
                 let item = self.compile_item(item);
                 let var = self.get_local((id, depth), &item);
