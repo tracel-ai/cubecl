@@ -41,7 +41,7 @@ where
 
     let lhs = client.create(I::as_bytes(&I::from_values(&lhs_data)));
     let rhs = client.create(I::as_bytes(&I::from_values(&rhs_data)));
-    let out = client.empty(out_size as usize * I::as_elem().size());
+    let out = client.empty(out_size as usize * O::as_elem().size());
 
     let config = MM::Config::build()
         .configure_planes(32, num_planes)
