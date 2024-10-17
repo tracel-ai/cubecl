@@ -97,7 +97,7 @@ impl MemoryPool for DynamicPool {
 pub struct MemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
     storage: Storage,
-    counts: u64,
+    alloc_reserve_count: u64,
 }
 
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
@@ -234,14 +234,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         Self {
             pools,
             storage,
-            counts: 0,
+            alloc_reserve_count: 0,
         }
     }
 
     /// Cleanup allocations in pools that are deemed unnecesarry.
     pub fn cleanup(&mut self) {
         for pool in self.pools.iter_mut() {
-            pool.cleanup(&mut self.storage, self.counts);
+            pool.cleanup(&mut self.storage, self.alloc_reserve_count);
         }
     }
 
@@ -277,7 +277,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     pub fn reserve(&mut self, size: usize, exclude: Option<&MemoryLock>) -> SliceHandle {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
-        self.counts += 1;
+        self.alloc_reserve_count += 1;
 
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
