@@ -6,8 +6,7 @@ use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::stage_info::StageInfo;
 
 #[cube]
-// TODO separate load from write, they should never be the same instance
-pub trait GlobalView<E: Numeric>: CubeType {
+pub trait ReadView<E: Numeric>: CubeType {
     type Global: CubeType;
     type Config: GmmConfig;
 
@@ -24,23 +23,6 @@ pub trait GlobalView<E: Numeric>: CubeType {
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
         #[comptime] stage_info: StageInfo,
-        #[comptime] config: Self::Config,
-    );
-
-    fn write_coalesced<ES: Numeric>(
-        view: &mut Self,
-        write_row: u32,
-        write_col: u32,
-        value: Line<ES>,
-    );
-
-    fn write_slice<ES: Numeric>(
-        view: &mut Self,
-        slice: &Slice<'_, Line<ES>>,
-        write_row: u32,
-        write_col: u32,
-        #[comptime] stage_info: StageInfo,
-        #[comptime] slice_tile_size: u32,
         #[comptime] config: Self::Config,
     );
 

@@ -37,9 +37,9 @@ impl<
             Out::StageWriter,
             Config = CmmaConfig,
         >,
-        Lhs: Loader<EG, ES, GlobalView = TensorView<EG>, Config = CmmaConfig>,
-        Rhs: Loader<EG, ES, GlobalView = TensorView<EG>, Config = CmmaConfig>,
-        Out: Unloader<EG, GlobalView = TensorView<EG>>,
+        Lhs: Loader<EG, ES, ReadView = TensorView<EG>, Config = CmmaConfig>,
+        Rhs: Loader<EG, ES, ReadView = TensorView<EG>, Config = CmmaConfig>,
+        Out: Unloader<EG, WriteView = TensorView<EG>>,
     > GlobalMatmul<EG, ES, Lhs, Rhs, Out> for CmmaGlobalMatmul<EG, ES, SMM, Lhs, Rhs, Out>
 {
     fn execute(
@@ -87,9 +87,9 @@ impl<
             Out::StageWriter,
             Config = CmmaConfig,
         >,
-        Lhs: Loader<EG, ES, GlobalView = TensorView<EG>, Config = CmmaConfig>,
-        Rhs: Loader<EG, ES, GlobalView = TensorView<EG>, Config = CmmaConfig>,
-        Out: Unloader<EG, GlobalView = TensorView<EG>>,
+        Lhs: Loader<EG, ES, ReadView = TensorView<EG>, Config = CmmaConfig>,
+        Rhs: Loader<EG, ES, ReadView = TensorView<EG>, Config = CmmaConfig>,
+        Out: Unloader<EG, WriteView = TensorView<EG>>,
     > Matmul<EG, EG> for CmmaGlobalMatmul<EG, ES, SMM, Lhs, Rhs, Out>
 {
     type Config = CmmaConfig;

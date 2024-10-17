@@ -2,7 +2,7 @@ use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::matmul_global::global_view::tensor_view::smem2tensor::{
     Smem2Tensor, Smem2TensorSimple,
 };
-use crate::matmul::matmul_global::{GlobalView, Gmem2SmemContinuous, SharedMemoryLoader};
+use crate::matmul::matmul_global::{Gmem2SmemContinuous, ReadView, SharedMemoryLoader, WriteView};
 use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
@@ -22,7 +22,7 @@ pub struct TensorView<E: Numeric> {
 }
 
 #[cube]
-impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
+impl<EG: Numeric> ReadView<EG> for TensorView<EG> {
     type Global = Tensor<Line<EG>>;
     type Config = CmmaConfig;
 
@@ -82,6 +82,12 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
         view.x_offset += x_offset;
         view.y_offset += y_offset;
     }
+}
+
+#[cube]
+impl<EG: Numeric> WriteView<EG> for TensorView<EG> {
+    type Global = Tensor<Line<EG>>;
+    type Config = CmmaConfig;
 
     fn write_coalesced<ES: Numeric>(view: &mut Self, write_x: u32, write_y: u32, value: Line<ES>) {
         let tensor = &mut view.tensor;
@@ -114,6 +120,11 @@ impl<EG: Numeric> GlobalView<EG> for TensorView<EG> {
             slice_line_size,
             config,
         );
+    }
+
+    fn init_view(view: &mut Self, x_offset: u32, y_offset: u32) {
+        view.x_offset = x_offset;
+        view.y_offset = y_offset;
     }
 }
 

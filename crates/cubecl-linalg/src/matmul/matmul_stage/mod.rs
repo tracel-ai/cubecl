@@ -1,4 +1,3 @@
-mod array_writer;
 mod base;
 mod config;
 mod stage;
@@ -6,7 +5,6 @@ mod stage_reader;
 mod stage_writer;
 mod tensor_writer;
 
-pub use array_writer::*;
 pub use base::*;
 pub use config::*;
 pub use stage::*;

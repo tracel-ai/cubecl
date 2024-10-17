@@ -1,7 +1,7 @@
 use super::base::Stage;
 use super::TilingOrder;
 use crate::matmul::cmma_matmul::config::CmmaConfig;
-use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::matmul_global::ReadView;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements};
@@ -42,12 +42,12 @@ impl<ES: Numeric, O: TilingOrder> Stage<ES> for SharedMemoryStage<ES, O> {
         }
     }
 
-    fn fill<EG: Numeric, G: GlobalView<EG, Config = CmmaConfig>>(
+    fn fill<EG: Numeric, RV: ReadView<EG, Config = CmmaConfig>>(
         stage: &mut Self,
-        gmem: &G,
+        gmem: &RV,
         config: Self::Config,
     ) {
-        G::load_shared_memory::<ES, O>(gmem, &mut stage.smem, stage.stage_info, config)
+        RV::load_shared_memory::<ES, O>(gmem, &mut stage.smem, stage.stage_info, config)
     }
 
     fn get_tile(stage: &Self, x: u32, y: u32) -> (&Slice<'_, Line<ES>>, MatrixLayout) {

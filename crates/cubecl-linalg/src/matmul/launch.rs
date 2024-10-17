@@ -74,9 +74,9 @@ pub(crate) fn cube_matmul_launch<
     EG: Numeric,
     ES: Numeric,
     GMM: GlobalMatmul<EG, ES, Lhs, Rhs, Out>,
-    Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
-    Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
-    Out: Unloader<EG, GlobalView = TensorView<EG>>,
+    Lhs: Loader<EG, ES, ReadView = TensorView<EG>>,
+    Rhs: Loader<EG, ES, ReadView = TensorView<EG>>,
+    Out: Unloader<EG, WriteView = TensorView<EG>>,
 >(
     lhs_tensor: Tensor<Line<EG>>,
     rhs_tensor: Tensor<Line<EG>>,

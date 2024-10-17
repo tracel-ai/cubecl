@@ -16,7 +16,7 @@ pub struct TensorUnloader<E: Numeric> {
 
 #[cube]
 impl<E: Numeric> Unloader<E> for TensorUnloader<E> {
-    type GlobalView = TensorView<E>;
+    type WriteView = TensorView<E>;
     type StageWriter = TensorWriter<E>;
 
     fn new(tensor: Tensor<Line<E>>, stage_info: StageInfo) -> Self {

@@ -1,4 +1,4 @@
-use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::matmul_global::ReadView;
 use crate::matmul::matmul_stage::SmmConfig;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::stage_info::StageInfo;
@@ -18,9 +18,9 @@ pub trait Stage<ES: Numeric>:
         #[comptime] line_size: u32,
     ) -> Self;
 
-    fn fill<EG: Numeric, G: GlobalView<EG, Config = Self::Config>>(
+    fn fill<EG: Numeric, RV: ReadView<EG, Config = Self::Config>>(
         stage: &mut Self,
-        global: &G,
+        global: &RV,
         config: Self::Config,
     );
 

@@ -1,7 +1,7 @@
 use super::TensorView;
 use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::config::{MatmulConfig, PlaneMapper};
-use crate::matmul::matmul_global::{GlobalView, GmmConfig};
+use crate::matmul::matmul_global::{GmmConfig, WriteView};
 use crate::matmul::stage_info::{tile_num_elements, StageInfo};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

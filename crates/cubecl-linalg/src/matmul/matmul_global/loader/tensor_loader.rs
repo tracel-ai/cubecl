@@ -1,6 +1,6 @@
 use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::matmul_global::new_tensor_view;
-use crate::matmul::matmul_global::GlobalView;
+use crate::matmul::matmul_global::ReadView;
 use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_stage::Stage;
 use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader};
@@ -30,7 +30,7 @@ pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
 impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     for LhsTensorLoader<EG, ES, S>
 {
-    type GlobalView = TensorView<EG>;
+    type ReadView = TensorView<EG>;
     type StageReader = LhsStageReader<ES, S>;
     type Config = CmmaConfig;
 
@@ -51,7 +51,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     }
 
     fn fill_stage(loader: &mut Self, config: Self::Config) -> Self::StageReader {
-        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view, config);
+        S::fill::<EG, Self::ReadView>(&mut loader.stage, &loader.gmem_view, config);
         LhsStageReader::<ES, S> {
             stage: loader.stage,
             _e: PhantomData::<ES>.runtime(),
@@ -71,7 +71,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
 impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     for RhsTensorLoader<EG, ES, S>
 {
-    type GlobalView = TensorView<EG>;
+    type ReadView = TensorView<EG>;
     type StageReader = RhsStageReader<ES, S>;
     type Config = CmmaConfig;
 
@@ -92,7 +92,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     }
 
     fn fill_stage(loader: &mut Self, config: Self::Config) -> Self::StageReader {
-        S::fill::<EG, Self::GlobalView>(&mut loader.stage, &loader.gmem_view, config);
+        S::fill::<EG, Self::ReadView>(&mut loader.stage, &loader.gmem_view, config);
         RhsStageReader::<ES, S> {
             stage: loader.stage,
             _e: PhantomData::<ES>.runtime(),

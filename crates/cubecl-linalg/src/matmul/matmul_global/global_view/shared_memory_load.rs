@@ -1,17 +1,19 @@
 use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::config::{MatmulConfig, PlaneMapper};
-use crate::matmul::matmul_global::{GlobalView, GmmConfig};
+use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::stage_info::{tile_num_elements, total_num_elements, StageInfo};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::ReadView;
+
 #[cube]
 pub trait SharedMemoryLoader: Clone + Copy + Send + Sync + 'static {
     type Config: GmmConfig;
 
-    fn load_shared_memory<EG: Numeric, ES: Numeric, G: GlobalView<EG>, O: TilingOrder>(
-        gmem: &G,
+    fn load_shared_memory<EG: Numeric, ES: Numeric, RV: ReadView<EG>, O: TilingOrder>(
+        gmem: &RV,
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] line_size: u32,
         #[comptime] stage_info: StageInfo,
@@ -37,8 +39,8 @@ impl PlaneMapper for Gmem2SmemContinuous {
 impl SharedMemoryLoader for Gmem2SmemContinuous {
     type Config = CmmaConfig;
 
-    fn load_shared_memory<EG: Numeric, ES: Numeric, G: GlobalView<EG>, O: TilingOrder>(
-        gmem: &G,
+    fn load_shared_memory<EG: Numeric, ES: Numeric, RV: ReadView<EG>, O: TilingOrder>(
+        gmem: &RV,
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] line_size: u32,
         #[comptime] stage_info: StageInfo,
@@ -62,7 +64,7 @@ impl SharedMemoryLoader for Gmem2SmemContinuous {
             let (tile_x, tile_y) =
                 O::to_x_y(nth_tile, stage_info.num_tiles_x, stage_info.num_tiles_y);
 
-            let line = G::load_coalesced(
+            let line = RV::load_coalesced(
                 gmem,
                 tile_x,
                 tile_y,
