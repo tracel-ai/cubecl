@@ -226,13 +226,17 @@ impl CudaCompiler {
                     value: self.compile_variable(value),
                 })
             }
-            gpu::CoopMma::Load { mat, value, stride } => {
-                Instruction::Wmma(super::WmmaInstruction::Load {
-                    frag: self.compile_variable(mat),
-                    value: self.compile_variable(value),
-                    stride: self.compile_variable(stride),
-                })
-            }
+            gpu::CoopMma::Load {
+                mat,
+                value,
+                stride,
+                layout,
+            } => Instruction::Wmma(super::WmmaInstruction::Load {
+                frag: self.compile_variable(mat),
+                value: self.compile_variable(value),
+                stride: self.compile_variable(stride),
+                layout: layout.and_then(|l| self.compile_matrix_layout(l)),
+            }),
             gpu::CoopMma::Execute {
                 mat_a,
                 mat_b,

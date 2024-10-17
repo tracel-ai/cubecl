@@ -42,6 +42,7 @@ pub enum CoopMma {
         mat: Variable,
         value: Variable,
         stride: Variable,
+        layout: Option<MatrixLayout>,
     },
     /// Executes D=A*B+C;
     ///
@@ -65,8 +66,20 @@ impl Display for CoopMma {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CoopMma::Fill { mat, value } => write!(f, "matrix_fill({}, {})", mat, value),
-            CoopMma::Load { mat, value, stride } => {
-                write!(f, "matrix_load({}, {}, stride: {})", mat, value, stride)
+            CoopMma::Load {
+                mat,
+                value,
+                stride,
+                layout,
+            } => {
+                let layout = layout
+                    .map(|it| format!(", layout: {it:?}"))
+                    .unwrap_or(String::new());
+                write!(
+                    f,
+                    "matrix_load({}, {}, stride: {}{layout})",
+                    mat, value, stride
+                )
             }
             CoopMma::Execute {
                 mat_a,

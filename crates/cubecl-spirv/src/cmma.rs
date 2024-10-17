@@ -4,7 +4,7 @@ use crate::{
     variable::{ConstVal, IndexedVariable, Variable},
     SpirvCompiler, SpirvTarget,
 };
-use cubecl_core::ir::{self as core, CoopMma};
+use cubecl_core::ir::{self as core, CoopMma, MatrixLayout};
 use rspirv::spirv::{
     Capability, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word,
 };
@@ -14,7 +14,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.capabilities.insert(Capability::CooperativeMatrixKHR);
         match cmma {
             CoopMma::Fill { mat, value } => self.compile_fill(mat, value),
-            CoopMma::Load { mat, value, stride } => self.compile_load(mat, value, stride),
+            CoopMma::Load {
+                mat,
+                value,
+                stride,
+                layout,
+                ..
+            } => self.compile_load(mat, value, stride, layout),
             CoopMma::Execute {
                 mat_a,
                 mat_b,
@@ -25,19 +31,29 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 output,
                 mat,
                 stride,
+                layout,
                 ..
-            } => self.compile_store(mat, output, stride),
+            } => self.compile_store(mat, output, stride, layout),
         }
     }
 
-    fn compile_load(&mut self, mat: core::Variable, value: core::Variable, stride: core::Variable) {
+    fn compile_load(
+        &mut self,
+        mat: core::Variable,
+        value: core::Variable,
+        stride: core::Variable,
+        layout: Option<MatrixLayout>,
+    ) {
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).2;
 
         let value = self.compile_variable(value);
         let stride = self.compile_variable(stride);
         let stride = self.read(&stride);
-        let layout = mat.layout.unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
+        let layout = layout
+            .and_then(compile_layout)
+            .or(mat.layout)
+            .unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
         let ptr = self.deref_slice(&value);
 
@@ -70,7 +86,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.store(mat.id, mat_id, None, vec![]).unwrap();
     }
 
-    fn compile_store(&mut self, mat: core::Variable, out: core::Variable, stride: core::Variable) {
+    fn compile_store(
+        &mut self,
+        mat: core::Variable,
+        out: core::Variable,
+        stride: core::Variable,
+        layout: MatrixLayout,
+    ) {
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).2;
         let item = self.item(&mat);
@@ -81,7 +103,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let out = self.compile_variable(out);
         let stride = self.compile_variable(stride);
         let stride = self.read(&stride);
-        let layout = mat.layout.unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
+        let layout = compile_layout(layout).unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
         let ptr = self.deref_slice(&out);
 
@@ -175,11 +197,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::MatrixIdent::B => CooperativeMatrixUse::MatrixBKHR,
             core::MatrixIdent::Accumulator => CooperativeMatrixUse::MatrixAccumulatorKHR,
         };
-        let layout = match mat.layout {
-            core::MatrixLayout::ColMajor => Some(CooperativeMatrixLayout::ColumnMajorKHR),
-            core::MatrixLayout::RowMajor => Some(CooperativeMatrixLayout::RowMajorKHR),
-            core::MatrixLayout::Undefined => None,
-        };
+        let layout = compile_layout(mat.layout);
 
         let mut mat = Matrix {
             id: 0,
@@ -196,5 +214,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         mat.id = self.declare_function_variable(ty);
 
         mat
+    }
+}
+
+fn compile_layout(layout: MatrixLayout) -> Option<CooperativeMatrixLayout> {
+    match layout {
+        core::MatrixLayout::ColMajor => Some(CooperativeMatrixLayout::ColumnMajorKHR),
+        core::MatrixLayout::RowMajor => Some(CooperativeMatrixLayout::RowMajorKHR),
+        core::MatrixLayout::Undefined => None,
     }
 }
