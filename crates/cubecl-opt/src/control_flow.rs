@@ -51,7 +51,7 @@ pub enum ControlFlow {
 impl Optimizer {
     pub(crate) fn parse_control_flow(&mut self, branch: Branch) {
         match branch {
-            Branch::If(if_) => self.parse_if(if_),
+            Branch::If(if_) => self.parse_if(*if_),
             Branch::IfElse(if_else) => self.parse_if_else(if_else),
             Branch::Select(mut select) => {
                 self.find_writes_select(&mut select);
@@ -60,11 +60,11 @@ impl Optimizer {
                     .borrow_mut()
                     .push(Branch::Select(select).into());
             }
-            Branch::Switch(switch) => self.parse_switch(switch),
+            Branch::Switch(switch) => self.parse_switch(*switch),
             Branch::RangeLoop(range_loop) => {
-                self.parse_for_loop(range_loop);
+                self.parse_for_loop(*range_loop);
             }
-            Branch::Loop(loop_) => self.parse_loop(loop_),
+            Branch::Loop(loop_) => self.parse_loop(*loop_),
             Branch::Return => {
                 let current_block = self.current_block.take().unwrap();
                 self.program.add_edge(current_block, self.ret, ());
@@ -110,7 +110,7 @@ impl Optimizer {
         self.current_block = Some(next);
     }
 
-    pub(crate) fn parse_if_else(&mut self, if_else: IfElse) {
+    pub(crate) fn parse_if_else(&mut self, if_else: Box<IfElse>) {
         let current_block = self.current_block.unwrap();
         let then = self.program.add_node(BasicBlock::default());
         let or_else = self.program.add_node(BasicBlock::default());
