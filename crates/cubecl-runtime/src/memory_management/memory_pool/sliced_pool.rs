@@ -160,6 +160,10 @@ impl MemoryPool for SlicedPool {
             bytes_reserved: self.slices.iter().map(|s| s.1.storage.size()).sum(),
         }
     }
+
+    fn cleanup<Storage: ComputeStorage>(&mut self, _storage: &mut Storage, _alloc_nr: u64) {
+        // This pool doesn't do any shrinking currently.
+    }
 }
 
 impl SlicedPool {

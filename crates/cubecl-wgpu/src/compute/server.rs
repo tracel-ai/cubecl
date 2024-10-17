@@ -517,6 +517,7 @@ impl ComputeServer for WgpuServer {
         self.storage_locked.clear_locked();
 
         // Cleanup allocations and deallocations.
+        self.memory_management.cleanup();
         self.memory_management.storage().perform_deallocations();
     }
 
