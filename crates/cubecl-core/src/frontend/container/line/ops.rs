@@ -2,8 +2,9 @@ use num_traits::{NumCast, ToPrimitive};
 
 use crate::{
     frontend::{
-        Abs, Clamp, Cos, CubeIndex, CubeIndexMut, CubePrimitive, Erf, Exp, ExpandElementTyped, Log,
-        Log1p, Max, Min, Powf, Recip, Remainder, Sin, Sqrt, Tanh,
+        Abs, Ceil, Clamp, Cos, CubeIndex, CubeIndexMut, CubePrimitive, Erf, Exp,
+        ExpandElementTyped, Floor, Log, Log1p, Max, Min, Powf, Recip, Remainder, Round, Sin, Sqrt,
+        Tanh,
     },
     unexpanded,
 };
@@ -133,6 +134,9 @@ impl<P: CubePrimitive + Sin> Sin for Line<P> {}
 impl<P: CubePrimitive + Tanh> Tanh for Line<P> {}
 impl<P: CubePrimitive + Recip> Recip for Line<P> {}
 impl<P: CubePrimitive + Remainder> Remainder for Line<P> {}
+impl<P: CubePrimitive + Round> Round for Line<P> {}
+impl<P: CubePrimitive + Floor> Floor for Line<P> {}
+impl<P: CubePrimitive + Ceil> Ceil for Line<P> {}
 
 impl<P: CubePrimitive + NumCast> NumCast for Line<P> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
