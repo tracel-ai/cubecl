@@ -1,4 +1,4 @@
-use crate::matmul::cmma_matmul::stage::SharedMemoryStage;
+use crate::matmul::cmma_matmul::stage::Stage;
 use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::matmul_global::GlobalMatmul;
 use crate::matmul::matmul_global::{Loader, Unloader};
@@ -38,8 +38,8 @@ pub(crate) fn stage_matmul_launch<
     SMM: StageMatmul<
         I,
         O,
-        LhsStageReader<I, SharedMemoryStage<I, XMajorTiling>>,
-        RhsStageReader<I, SharedMemoryStage<I, XMajorTiling>>,
+        LhsStageReader<I, Stage<I, XMajorTiling>>,
+        RhsStageReader<I, Stage<I, XMajorTiling>>,
         OutStageWriter<O>,
         Config = CmmaConfig,
     >,

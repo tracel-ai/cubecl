@@ -1,8 +1,6 @@
 use cubecl_core::prelude::*;
 use cubecl_core::CubeElement;
 
-use crate::matmul::config::ConfigBuilder;
-use crate::matmul::config::MatmulPreConfig;
 use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::problem::MatmulProblem;
 use crate::matmul::Matmul;
@@ -47,11 +45,7 @@ where
 
     let cube_dim = CubeDim::new(32, num_planes, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
-    let config = MM::preconfigure()
-        .into_builder()
-        .from_cube_settings(&cube_dim, &cube_count)
-        .from_problem(&problem)
-        .into_config();
+    let config = MM::Config::default(cube_dim, cube_count, problem);
 
     unsafe {
         MM::launch_unchecked(

@@ -5,8 +5,6 @@ use super::config::MatmulConfig;
 pub trait Matmul<I: Numeric, O: Numeric> {
     type Config: MatmulConfig;
 
-    fn preconfigure() -> <Self::Config as MatmulConfig>::PreConfig;
-
     fn check_config(config: Self::Config);
 
     unsafe fn launch_unchecked<R: Runtime>(

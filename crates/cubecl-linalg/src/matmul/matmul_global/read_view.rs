@@ -1,14 +1,16 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::matrix::Ident;
 
+use super::ViewConfig;
+
 #[cube]
+// TODO remove this trait
 pub trait ReadView<E: Numeric>: CubeType {
     type Global: CubeType;
-    type Config: GmmConfig;
+    type Config: ViewConfig;
 
     fn load_coalesced(
         view: &Self,

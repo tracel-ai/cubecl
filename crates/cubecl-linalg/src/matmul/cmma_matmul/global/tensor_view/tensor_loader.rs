@@ -1,8 +1,6 @@
-use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::cmma_matmul::global::new_tensor_view;
-use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader};
+use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader, Stage};
 use crate::matmul::matmul_global::{Loader, ReadView};
-use crate::matmul::matmul_stage::Stage;
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -11,26 +9,23 @@ use std::marker::PhantomData;
 use super::TensorView;
 
 #[derive(CubeType)]
-pub struct LhsTensorLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
+pub struct LhsTensorLoader<EG: Numeric, ES: Numeric> {
     pub gmem_view: TensorView<EG>,
-    pub stage: S,
+    pub stage: Stage,
     pub _e: PhantomData<ES>,
 }
 
 #[derive(CubeType)]
-pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
+pub struct RhsTensorLoader<EG: Numeric, ES: Numeric> {
     pub gmem_view: TensorView<EG>,
     pub stage: S,
     pub _e: PhantomData<ES>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
-    for LhsTensorLoader<EG, ES, S>
-{
+impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsTensorLoader<EG, ES> {
     type ReadView = TensorView<EG>;
-    type StageReader = LhsStageReader<ES, S>;
-    type Config = CmmaConfig;
+    type StageReader = LhsStageReader<ES>;
 
     fn new(tensor: Tensor<Line<EG>>, #[comptime] config: Self::Config) -> Self {
         let stage = S::new(Ident::Lhs, config);
@@ -43,7 +38,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
         }
     }
 
-    fn fill_stage(self_: &mut Self, config: Self::Config) -> Self::StageReader {
+    fn fill_stage(self_: &mut Self, config: StageCmmaMatmulConfig) -> Self::StageReader {
         S::fill::<EG, Self::ReadView>(&mut self_.stage, &self_.gmem_view, Ident::Lhs, config);
         LhsStageReader::<ES, S> {
             stage: self_.stage,

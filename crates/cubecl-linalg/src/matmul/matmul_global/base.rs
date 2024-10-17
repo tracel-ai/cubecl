@@ -6,7 +6,6 @@ use crate::matmul::Matmul;
 use super::{GmmConfig, Loader, Unloader};
 
 #[cube]
-/// Execute a matmul over a block, accumulating for arbitrary k-dim, using one Cube.
 pub trait GlobalMatmul<
     EG: Numeric,
     ES: Numeric,

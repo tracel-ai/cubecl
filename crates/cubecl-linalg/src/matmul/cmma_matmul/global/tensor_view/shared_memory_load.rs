@@ -1,12 +1,12 @@
-use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::config::{MatmulConfig, PlaneMapper};
 use crate::matmul::matmul_global::{GmmConfig, ReadView};
-use crate::matmul::matmul_stage::TilingOrder;
+use crate::matmul::matmul_stage::{TilingOrder, XMajorTiling};
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
+// TODO remove this trait
 pub trait SharedMemoryLoader: Clone + Copy + Send + Sync + 'static {
     type Config: GmmConfig;
 
@@ -39,8 +39,6 @@ impl PlaneMapper for ContinuousSmemLoader {
 
 #[cube]
 impl SharedMemoryLoader for ContinuousSmemLoader {
-    type Config = CmmaConfig;
-
     fn load_shared_memory<
         EG: Numeric,
         ES: Numeric,
@@ -69,8 +67,9 @@ impl SharedMemoryLoader for ContinuousSmemLoader {
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
+            // TODO X or Y choose with comptime config
             let (tile_x, tile_y) =
-                O::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y);
+                XMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y);
 
             let line =
                 RV::load_coalesced(read_view, tile_x, tile_y, pos_within_tile, ident, config);

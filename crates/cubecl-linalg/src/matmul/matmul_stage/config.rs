@@ -1,6 +1,7 @@
-use crate::matmul::{config::MatmulConfig, matmul_tile::TmmConfig};
+use crate::matmul::config::ComptimeConfig;
+use crate::matmul::matmul_tile::TmmConfig;
 
-pub trait SmmConfig: MatmulConfig {
+pub trait SmmConfig: ComptimeConfig {
     type TmmConfig: TmmConfig;
 
     fn into_tmm_config(self) -> Self::TmmConfig;
