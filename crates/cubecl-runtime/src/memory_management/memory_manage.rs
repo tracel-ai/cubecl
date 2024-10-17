@@ -93,6 +93,7 @@ impl MemoryPool for DynamicPool {
 pub struct MemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
     storage: Storage,
+    counts: usize,
 }
 
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
@@ -207,30 +208,22 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         pools.sort_by(|pool1, pool2| usize::cmp(&pool1.max_alloc_size(), &pool2.max_alloc_size()));
 
-        Self { pools, storage }
+        Self {
+            pools,
+            storage,
+            counts: 0,
+        }
     }
 
     /// Cleanup allocations in pools that are deemed unnecesarry.
     pub fn cleanup(&mut self) {
-        for pool in self.pools.iter_mut() {
-            pool.cleanup(&mut self.storage);
+        if self.counts > 50000 {
+            for pool in self.pools.iter_mut() {
+                pool.cleanup(&mut self.storage);
+            }
         }
     }
-}
 
-impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(
-            alloc::format!(
-                "DynamicMemoryManagement {:?}",
-                core::any::type_name::<Storage>(),
-            )
-            .as_str(),
-        )
-    }
-}
-
-impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Returns the storage from the specified binding
     pub fn get(&mut self, binding: SliceBinding) -> StorageHandle {
         self.pools
@@ -261,6 +254,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     pub fn reserve(&mut self, size: usize, exclude: Option<&MemoryLock>) -> SliceHandle {
+        self.counts += 1;
+
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
         let pool = &mut self.pools[pool_ind];
@@ -276,6 +271,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ///
     /// Can be useful for servers that want specific control over memory.
     pub fn alloc(&mut self, size: usize) -> SliceHandle {
+        self.counts += 1;
+
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
         let pool = &mut self.pools[pool_ind];
@@ -320,12 +317,22 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             |m1, m2| m1.combine(m2),
         )
     }
-}
 
-impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Print out a report of the current memory usage.
     pub fn print_memory_usage(&self) {
         log::info!("{}", self.memory_usage());
+    }
+}
+
+impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(
+            alloc::format!(
+                "DynamicMemoryManagement {:?}",
+                core::any::type_name::<Storage>(),
+            )
+            .as_str(),
+        )
     }
 }
 
