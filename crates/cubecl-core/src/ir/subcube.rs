@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::{BinaryOperator, InitOperator, UnaryOperator};
+use super::{BinaryOperator, InitOperator, UnaryOperator, Variable};
 use serde::{Deserialize, Serialize};
 
 /// All subcube operations.
@@ -17,6 +17,22 @@ pub enum Subcube {
     Prod(UnaryOperator),
     Min(UnaryOperator),
     Max(UnaryOperator),
+}
+
+impl Subcube {
+    pub fn out(&self) -> Option<Variable> {
+        let val = match self {
+            Subcube::Elect(init_operator) => init_operator.out,
+            Subcube::Broadcast(binary_operator) => binary_operator.out,
+            Subcube::All(unary_operator)
+            | Subcube::Any(unary_operator)
+            | Subcube::Sum(unary_operator)
+            | Subcube::Prod(unary_operator)
+            | Subcube::Min(unary_operator)
+            | Subcube::Max(unary_operator) => unary_operator.out,
+        };
+        Some(val)
+    }
 }
 
 impl Display for Subcube {

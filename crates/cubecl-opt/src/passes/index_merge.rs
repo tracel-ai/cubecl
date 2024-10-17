@@ -4,7 +4,7 @@ use cubecl_core::ir::{CopyOperator, Operation, Operator, Variable};
 
 use crate::{AtomicCounter, Optimizer};
 
-use super::OptimizerPass;
+use super::{item_compatible, OptimizerPass};
 
 /// Transform consecutive `Index` and `IndexAssign` operations that don't modify the value into a
 /// single `Copy` operation.
@@ -18,12 +18,16 @@ impl OptimizerPass for CopyTransform {
             let ops = opt.program[block].ops.clone();
             for (idx, op) in ops.borrow().iter() {
                 match op {
-                    Operation::Operator(Operator::Index(op)) if op.lhs.is_array() => {
+                    Operation::Operator(Operator::Index(op))
+                        if op.lhs.is_array() && item_compatible(op.lhs.item(), op.out.item()) =>
+                    {
                         if let Some(id) = as_versioned(&op.out) {
                             reads.insert(id, (idx, op.lhs, op.rhs));
                         }
                     }
-                    Operation::Operator(Operator::IndexAssign(op)) if op.out.is_array() => {
+                    Operation::Operator(Operator::IndexAssign(op))
+                        if op.out.is_array() && item_compatible(op.out.item(), op.rhs.item()) =>
+                    {
                         if let Some(id) = as_versioned(&op.rhs) {
                             writes.insert(id, (idx, op.out, op.lhs));
                         }

@@ -34,7 +34,9 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                 // Exclude outputs
                 if !matches!(
                     var,
-                    Variable::GlobalOutputArray { .. } | Variable::Slice { .. }
+                    Variable::GlobalOutputArray { .. }
+                        | Variable::Slice { .. }
+                        | Variable::GlobalInputArray { .. }
                 ) {
                     out = Some(*var);
                 }
@@ -141,6 +143,7 @@ fn search_dead_blocks(opt: &mut Optimizer) -> bool {
                 opt.program.remove_edge(edge);
             }
             opt.program.remove_node(block);
+            opt.post_order.retain(|it| *it != block);
             return true;
         }
     }
@@ -162,7 +165,7 @@ impl OptimizerPass for MergeBlocks {
 }
 
 fn merge_blocks(opt: &mut Optimizer) -> bool {
-    for block_idx in opt.post_order.clone().into_iter().rev() {
+    for block_idx in opt.reverse_post_order() {
         let successors = opt.sucessors(block_idx);
         if successors.len() == 1 && can_merge(opt, block_idx, successors[0]) {
             let mut new_block = BasicBlock::default();
@@ -206,7 +209,11 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
 }
 
 fn can_merge(opt: &mut Optimizer, block: NodeIndex, successor: NodeIndex) -> bool {
-    let has_multiple_entries = opt.predecessors(successor).len() > 1;
+    let b_is_empty = opt.program[block].ops.borrow().is_empty()
+        && opt.program[block].phi_nodes.borrow().is_empty();
+    let s_is_empty = opt.program[successor].phi_nodes.borrow().is_empty();
+    let is_empty = b_is_empty && s_is_empty;
+    let s_has_multiple_entries = opt.predecessors(successor).len() > 1;
     let block = &opt.program[block];
     let successor = &opt.program[successor];
     let b_has_control_flow = !matches!(*block.control_flow.borrow(), ControlFlow::None);
@@ -224,10 +231,14 @@ fn can_merge(opt: &mut Optimizer, block: NodeIndex, successor: NodeIndex) -> boo
         .iter()
         .any(|it| matches!(it, BlockUse::Merge));
     let both_merge = b_is_merge && s_is_merge;
-    !has_multiple_entries && !b_has_control_flow && !s_is_header && !is_continue && !both_merge
+    (!s_has_multiple_entries || is_empty)
+        && !b_has_control_flow
+        && !s_is_header
+        && !is_continue
+        && !both_merge
 }
 
-fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
+pub fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
     let update = |id: &mut NodeIndex| {
         if *id == from {
             *id = to

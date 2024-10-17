@@ -106,7 +106,7 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: (u16, u8), vars: &[Variable
         let ops = opt.program[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {
             match op {
-                Operation::Operator(Operator::Index(index)) => {
+                Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
                     if let Variable::LocalArray { id, depth, .. } = index.lhs {
                         let const_index = index.rhs.as_const().unwrap().as_i64() as usize;
                         if (id, depth) == arr_id {
@@ -118,7 +118,9 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: (u16, u8), vars: &[Variable
                         }
                     }
                 }
-                Operation::Operator(Operator::IndexAssign(assign)) => {
+                Operation::Operator(
+                    Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
+                ) => {
                     if let Variable::LocalArray { id, depth, .. } = assign.out {
                         let const_index = assign.lhs.as_const().unwrap().as_i64() as usize;
                         if (id, depth) == arr_id {

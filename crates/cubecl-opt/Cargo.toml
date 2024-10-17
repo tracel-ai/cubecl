@@ -8,6 +8,9 @@ version.workspace = true
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
-num = { version = "0.4" }
+float-ord = "0.3"
+log = "0.4"
+num = "0.4"
 petgraph = { version = "0.6" }
+smallvec = { version = "1", features = ["union", "const_generics"] }
 stable-vec = { version = "0.4" }

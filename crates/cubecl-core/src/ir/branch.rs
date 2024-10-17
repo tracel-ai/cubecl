@@ -31,8 +31,8 @@ impl Display for Branch {
             Branch::IfElse(if_else) => write!(f, "if({})", if_else.cond),
             Branch::Select(select) => write!(
                 f,
-                "select({}, {}, {})",
-                select.cond, select.then, select.or_else
+                "{} = select({}, {}, {})",
+                select.out, select.cond, select.then, select.or_else
             ),
             Branch::Switch(switch) => write!(
                 f,

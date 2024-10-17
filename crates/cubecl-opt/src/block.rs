@@ -54,6 +54,7 @@ impl Optimizer {
             }
             match &mut *control_flow.borrow_mut() {
                 ControlFlow::IfElse { cond, .. } => visit_read(self, cond),
+                ControlFlow::LoopBreak { break_cond, .. } => visit_read(self, break_cond),
                 ControlFlow::Switch { value, .. } => visit_read(self, value),
                 _ => {}
             };
@@ -64,6 +65,7 @@ impl Optimizer {
 impl Program {
     /// Check whether a variable is dead at the start of this block. Note that `false` does not mean
     /// the variable is definitely live - just that it *may* be live and must be treated as such.
+    #[track_caller]
     pub fn is_dead(&self, node: NodeIndex, var: (u16, u8)) -> bool {
         !self[node].live_vars.contains(&var)
     }

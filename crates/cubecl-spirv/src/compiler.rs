@@ -13,12 +13,12 @@ use cubecl_core::{
     Compiler, ExecutionMode,
 };
 use rspirv::{
-    dr::{Builder, InsertPoint, Module},
-    spirv::{BuiltIn, Capability, Decoration, FunctionControl, StorageClass, Word},
+    dr::{Builder, InsertPoint, Instruction, Module, Operand},
+    spirv::{BuiltIn, Capability, Decoration, FunctionControl, Op, StorageClass, Word},
 };
 
 use crate::{
-    item::{Elem, Item},
+    item::Item,
     lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
     SpirvKernel,
@@ -32,7 +32,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub debug: bool,
     global_invocation_id: Word,
     num_workgroups: Word,
-    variable_block: usize,
+    pub setup_block: usize,
     pub opt: Optimizer,
     pub current_block: Option<NodeIndex>,
     pub visited: HashSet<NodeIndex>,
@@ -52,7 +52,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             mode: self.mode,
             global_invocation_id: self.global_invocation_id,
             num_workgroups: self.num_workgroups,
-            variable_block: self.variable_block,
+            setup_block: self.setup_block,
             opt: self.opt.clone(),
             current_block: self.current_block,
 
@@ -74,7 +74,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             num_workgroups: Default::default(),
             capabilities: Default::default(),
             state: Default::default(),
-            variable_block: Default::default(),
+            setup_block: Default::default(),
             opt: Default::default(),
             current_block: Default::default(),
             debug: env::var("CUBECL_DEBUG_LOG").is_ok(),
@@ -150,19 +150,14 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .begin_function(void, None, FunctionControl::NONE, voidf)
             .unwrap();
 
-        let variables = self.id();
-        self.debug_name(variables, "function vars");
-        self.begin_block(Some(variables)).unwrap();
-        self.variable_block = self.selected_block().unwrap();
-        self.select_block(None).unwrap(); // Pop variables so we can terminate it later once we're done
-
         let setup = self.id();
         self.debug_name(setup, "setup");
         self.opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
 
         let entry = self.opt.entry();
         let body = self.label(entry);
-        self.setup(setup, body);
+        let setup_block = self.setup(setup);
+        self.setup_block = setup_block;
         self.compile_block(entry);
 
         let ret = self.opt.ret;
@@ -173,10 +168,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.branch(label).unwrap();
         }
 
-        // Terminate variable block
-        let var_block = self.variable_block;
-        self.select_block(Some(var_block)).unwrap();
-        self.branch(setup).unwrap();
+        self.select_block(Some(setup_block)).unwrap();
+        self.branch(body).unwrap();
 
         self.end_function().unwrap();
 
@@ -201,24 +194,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         (module, self.opt.clone())
     }
 
-    fn setup(&mut self, label: Word, body: Word) {
+    fn setup(&mut self, label: Word) -> usize {
         self.begin_block(Some(label)).unwrap();
-        let int = Item::Scalar(Elem::Int(32, false));
-        let int_ty = int.id(self);
-        let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(self);
-        let info = self.state.named["info"];
-        let zero = self.const_u32(0);
-        let rank_ptr = self
-            .access_chain(int_ptr, None, info, vec![zero, zero])
-            .unwrap();
-        let rank = self.load(int_ty, None, rank_ptr, None, vec![]).unwrap();
-        self.debug_name(rank, "rank");
-        self.state.rank = rank;
-        let two = self.const_u32(2);
-        let rank_2 = self.i_mul(int_ty, None, rank, two).unwrap();
-        self.debug_name(rank_2, "rank*2");
-        self.state.rank_2 = rank_2;
-        self.branch(body).unwrap();
+        let setup_block = self.selected_block().unwrap();
+        self.select_block(None).unwrap();
+        setup_block
     }
 
     #[track_caller]
@@ -280,12 +260,19 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     // Declare variable in the first block of the function
     pub fn declare_function_variable(&mut self, ty: Word) -> Word {
+        let setup = self.setup_block;
+        let id = self.id();
+        let var = Instruction::new(
+            Op::Variable,
+            Some(ty),
+            Some(id),
+            vec![Operand::StorageClass(StorageClass::Function)],
+        );
         let current_block = self.selected_block();
-        let var_block = self.variable_block;
-        self.select_block(Some(var_block)).unwrap();
-        let var = self.variable(ty, None, StorageClass::Function, None);
+        self.select_block(Some(setup)).unwrap();
+        self.insert_into_block(InsertPoint::Begin, var).unwrap();
         self.select_block(current_block).unwrap();
-        var
+        id
     }
 
     fn declare_shared_memories(&mut self) {

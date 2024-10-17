@@ -97,7 +97,7 @@ impl Variable {
             Variable::Matrix { .. } => false,
             Variable::Slice { .. } => false,
             Variable::LocalArray { .. } => false,
-            Variable::GlobalInputArray { .. } => true,
+            Variable::GlobalInputArray { .. } => false,
             Variable::GlobalScalar { .. } => true,
             Variable::Versioned { .. } => true,
             Variable::LocalBinding { .. } => true,
@@ -141,6 +141,32 @@ impl Variable {
                 | Variable::Matrix { .. }
                 | Variable::Slice { .. }
         )
+    }
+
+    /// Determines if the value is a constant with the specified value (converted if necessary)
+    pub fn is_constant(&self, value: i64) -> bool {
+        match self {
+            Variable::ConstantScalar(ConstantScalarValue::Int(val, _)) => *val == value,
+            Variable::ConstantScalar(ConstantScalarValue::UInt(val)) => *val as i64 == value,
+            Variable::ConstantScalar(ConstantScalarValue::Float(val, _)) => *val == value as f64,
+            _ => false,
+        }
+    }
+
+    /// Determines if the value is a boolean constant with the `true` value
+    pub fn is_true(&self) -> bool {
+        match self {
+            Variable::ConstantScalar(ConstantScalarValue::Bool(val)) => *val,
+            _ => false,
+        }
+    }
+
+    /// Determines if the value is a boolean constant with the `false` value
+    pub fn is_false(&self) -> bool {
+        match self {
+            Variable::ConstantScalar(ConstantScalarValue::Bool(val)) => !(*val),
+            _ => false,
+        }
     }
 }
 
@@ -447,7 +473,7 @@ impl Display for Variable {
             Variable::SharedMemory { id, .. } => write!(f, "shared({id})"),
             Variable::LocalArray { id, .. } => write!(f, "array({id})"),
             Variable::Matrix { id, depth, .. } => write!(f, "matrix({id}, {depth})"),
-            Variable::Slice { id, .. } => write!(f, "slice({id})"),
+            Variable::Slice { id, depth, .. } => write!(f, "slice({id}, {depth})"),
             builtin => write!(f, "{builtin:?}"),
         }
     }
