@@ -34,6 +34,6 @@ pub trait MatmulConfig:
 pub trait ConfigBuilder {
     type Config: MatmulConfig;
 
-    fn configure_planes(&self, plane_dim: u32, num_planes: u32) -> Self;
-    fn tweak_for_problem(&self, problem: &MatmulProblem) -> Self::Config;
+    fn from_cube_settings(&self, cube_dim: &CubeDim, cube_count: &CubeCount) -> Self;
+    fn from_problem(&self, problem: &MatmulProblem) -> Self::Config;
 }

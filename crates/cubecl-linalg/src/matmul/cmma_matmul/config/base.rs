@@ -26,14 +26,14 @@ pub struct CmmaConfigBuilder {
 impl ConfigBuilder for CmmaConfigBuilder {
     type Config = CmmaConfig;
 
-    fn configure_planes(&self, plane_dim: u32, num_planes: u32) -> Self {
+    fn from_cube_settings(&self, cube_dim: &CubeDim, _cube_count: &CubeCount) -> Self {
         Self {
-            plane_dim: Some(plane_dim),
-            num_planes: Some(num_planes),
+            plane_dim: Some(cube_dim.x),
+            num_planes: Some(cube_dim.y),
         }
     }
 
-    fn tweak_for_problem(&self, problem: &MatmulProblem) -> Self::Config {
+    fn from_problem(&self, problem: &MatmulProblem) -> Self::Config {
         Self::Config {
             out_smem_line_size: problem.out_line_size as u32,
             layouts: (problem.lhs_layout, problem.rhs_layout),
