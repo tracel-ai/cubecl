@@ -20,7 +20,6 @@ pub trait WriteView<E: Numeric>: CubeType {
         slice: &Slice<'_, Line<ES>>,
         write_row: u32,
         write_col: u32,
-        #[comptime] slice_tile_size: u32,
         #[comptime] config: Self::Config,
     );
 

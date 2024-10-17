@@ -75,7 +75,6 @@ macro_rules! impl_matmul_instruction {
             }
 
             fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>) {
-                // TODO This results in indexing slice for no reason
                 let line_size = Line::size(&slice[0]);
 
                 for i in 0..out.x * out.y / line_size {

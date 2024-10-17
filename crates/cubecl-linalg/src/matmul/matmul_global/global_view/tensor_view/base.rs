@@ -35,6 +35,7 @@ impl<EG: Numeric> ReadView<EG> for TensorView<EG> {
         #[comptime] config: Self::Config,
     ) -> Line<EG> {
         let tensor = &view.tensor;
+        let line_size = config.line_size(ident);
 
         let view_tile_x = tile_x * tile_size_x + view.x_offset;
         let view_tile_y = tile_y * tile_size_y + view.y_offset;
@@ -47,12 +48,12 @@ impl<EG: Numeric> ReadView<EG> for TensorView<EG> {
         let view_x = view_tile_x + load_x;
         let view_y = view_tile_y + load_y;
 
-        let read_pos = (view_x * view.stride_x + view_y * view.stride_y) / tensor.line_size();
+        let read_pos = (view_x * view.stride_x + view_y * view.stride_y) / line_size;
 
         select(
             view_x < view.shape_x && view_y < view.shape_y,
             tensor[read_pos],
-            Line::empty(tensor.line_size()).fill(EG::from_int(0)),
+            Line::empty(line_size).fill(EG::from_int(0)),
         )
     }
 
@@ -66,7 +67,6 @@ impl<EG: Numeric> ReadView<EG> for TensorView<EG> {
         Gmem2SmemContinuous::load_shared_memory::<EG, ES, Self, O>(
             view,
             shared_memory,
-            view.tensor.line_size(),
             ident,
             config,
         );
@@ -79,6 +79,7 @@ impl<EG: Numeric> ReadView<EG> for TensorView<EG> {
 
     fn update_view(view: &mut Self, x_offset: u32, y_offset: u32) {
         // TODO in practice one of them is always += 0, so there is useless computation
+        // With ident
         view.x_offset += x_offset;
         view.y_offset += y_offset;
     }
@@ -107,10 +108,9 @@ impl<EG: Numeric> WriteView<EG> for TensorView<EG> {
         slice: &Slice<'_, Line<ES>>,
         write_x: u32,
         write_y: u32,
-        #[comptime] slice_line_size: u32,
         #[comptime] config: Self::Config,
     ) {
-        Smem2TensorSimple::smem_to_tensor(view, slice, write_x, write_y, slice_line_size, config);
+        Smem2TensorSimple::smem_to_tensor(view, slice, write_x, write_y, config);
     }
 
     fn init_view(view: &mut Self, x_offset: u32, y_offset: u32) {

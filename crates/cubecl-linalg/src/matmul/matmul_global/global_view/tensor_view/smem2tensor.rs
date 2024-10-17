@@ -15,7 +15,6 @@ pub trait Smem2Tensor {
         smem_slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
-        #[comptime] slice_line_size: u32,
         #[comptime] config: Self::Config
     );
 }
@@ -43,13 +42,14 @@ impl Smem2Tensor for Smem2TensorSimple {
         slice: &Slice<'_, Line<ES>>,
         row_tile_begin: u32,
         col_tile_begin: u32,
-        #[comptime] slice_line_size: u32,
         #[comptime] config: Self::Config
     ) {
         let stage_dim = config.stage_dim(Ident::Out);
+        let slice_line_size = config.out_smem_line_size;
+        let out_line_size = config.line_size(Ident::Out);
+
         let unit_jump = config.plane_dim() * out.tensor.line_size();
         let num_unit_writes = stage_dim.tile_num_elements() / unit_jump;
-        let out_line_size = out.tensor.line_size();
 
         let _ = comptime!(check_line_size(out_line_size, slice_line_size));
 

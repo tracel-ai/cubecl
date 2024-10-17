@@ -12,7 +12,6 @@ pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
         slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
-        #[comptime] slice_line_size: u32,
         #[comptime] config: Self::Config,
     );
 }

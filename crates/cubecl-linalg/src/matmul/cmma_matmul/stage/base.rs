@@ -87,8 +87,8 @@ where
     fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] config: Self::Config) {
         let line_size = config.out_smem_line_size;
         let num_tile_lines = config.tile_num_elems(Ident::Out) / line_size;
-        let start = num_tile_lines * Self::plane_id();
 
+        let start = num_tile_lines * Self::plane_id();
         let mut smem =
             SharedMemory::<O>::new_lined(num_tile_lines * comptime!(config.num_planes), line_size);
 
@@ -102,7 +102,6 @@ where
                 &smem_slice.as_slice(),
                 Self::plane_id(),
                 accumulator_iter,
-                line_size,
                 config,
             );
         }

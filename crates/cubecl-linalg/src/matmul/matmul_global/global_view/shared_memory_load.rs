@@ -20,7 +20,6 @@ pub trait SharedMemoryLoader: Clone + Copy + Send + Sync + 'static {
     >(
         gmem: &RV,
         smem: &mut SharedMemory<Line<ES>>,
-        #[comptime] line_size: u32,
         #[comptime] ident: Ident,
         #[comptime] config: Self::Config,
     );
@@ -52,11 +51,11 @@ impl SharedMemoryLoader for Gmem2SmemContinuous {
     >(
         read_view: &RV,
         smem: &mut SharedMemory<Line<ES>>,
-        #[comptime] line_size: u32,
         #[comptime] ident: Ident,
         #[comptime] config: Self::Config,
     ) {
         let stage_dim = config.stage_dim(ident);
+        let line_size = config.line_size(ident);
         let num_stage_elements = stage_dim.num_elements();
 
         let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
