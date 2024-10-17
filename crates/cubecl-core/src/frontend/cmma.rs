@@ -73,6 +73,7 @@ pub struct Matrix<C: CubeType> {
 #[derive(Clone)]
 pub struct MatrixExpand {
     elem: ExpandElement,
+    ident: MatrixIdent,
 }
 
 impl<C: CubeType> CubeType for Matrix<C> {
@@ -187,7 +188,7 @@ impl<C: CubePrimitive> Matrix<C> {
             elem: C::as_elem(),
             layout,
         });
-        MatrixExpand { elem }
+        MatrixExpand { elem, ident }
     }
 
     pub fn __expand_from_value(
@@ -264,11 +265,53 @@ pub mod load {
         stride: ExpandElementTyped<u32>,
     ) {
         let stride: ExpandElement = stride.into();
+        assert_ne!(
+            mat.ident,
+            MatrixIdent::Accumulator,
+            "Loading accumulator requires explitit layout. Use `load_with_layout` instead."
+        );
 
         context.register(Operation::CoopMma(ir::CoopMma::Load {
             mat: *mat.elem,
             value: *value.expand,
             stride: *stride,
+            layout: None,
+        }));
+    }
+}
+
+/// Load the matrix with the provided array using the stride with an explicit layout.
+/// Explicit layouts are required when loading accumulators.
+#[allow(unused_variables)]
+pub fn load_with_layout<C: CubeType>(
+    mat: &Matrix<C>,
+    value: &Slice<'_, C>,
+    stride: u32,
+    layout: MatrixLayout,
+) {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [load_with_layout()].
+pub mod load_with_layout {
+    use super::*;
+
+    /// Expand method of [load_with_layout()].
+    #[allow(unused_variables)]
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        mat: MatrixExpand,
+        value: ExpandElementTyped<Slice<'static, C>>,
+        stride: ExpandElementTyped<u32>,
+        layout: MatrixLayout,
+    ) {
+        let stride: ExpandElement = stride.into();
+
+        context.register(Operation::CoopMma(ir::CoopMma::Load {
+            mat: *mat.elem,
+            value: *value.expand,
+            stride: *stride,
+            layout: Some(layout),
         }));
     }
 }

@@ -285,7 +285,9 @@ impl ScopeProcessing {
                 CoopMma::Fill { mat, value } => {
                     sanitize_constant_scalar_ref_var(value, mat);
                 }
-                CoopMma::Load { mat, value, stride } => {
+                CoopMma::Load {
+                    mat, value, stride, ..
+                } => {
                     sanitize_constant_scalar_ref_var(value, mat);
                     sanitize_constant_scalar_ref_elem(stride, Elem::UInt);
                 }

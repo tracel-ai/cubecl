@@ -206,7 +206,9 @@ impl Optimizer {
                 visit_read(self, value);
                 visit_write(self, mat);
             }
-            CoopMma::Load { mat, value, stride } => {
+            CoopMma::Load {
+                mat, value, stride, ..
+            } => {
                 visit_read(self, value);
                 visit_read(self, stride);
                 visit_write(self, mat);
