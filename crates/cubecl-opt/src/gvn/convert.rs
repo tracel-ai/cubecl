@@ -310,7 +310,7 @@ impl Expression {
                     .into(),
                 }
             }
-            Expression::Phi(_) => todo!("Phi can't be made into operation"),
+            Expression::Phi(_) => unreachable!("Phi can't be made into operation"),
         }
     }
 }
@@ -319,16 +319,26 @@ impl Value {
     pub(crate) fn as_var(&self) -> Variable {
         match self {
             Value::Constant(val) => Variable::ConstantScalar((*val).into()),
-            Value::Local(Local(id, depth, 0, item)) => Variable::LocalBinding {
+            Value::Local(Local {
+                id,
+                depth,
+                version: 0,
+                item,
+            }) => Variable::LocalBinding {
                 id: *id,
                 item: *item,
                 depth: *depth,
             },
-            Value::Local(Local(id, depth, v, item)) => Variable::Versioned {
+            Value::Local(Local {
+                id,
+                depth,
+                version,
+                item,
+            }) => Variable::Versioned {
                 id: *id,
                 item: *item,
                 depth: *depth,
-                version: *v,
+                version: *version,
             },
             Value::Input(id, item) => Variable::GlobalInputArray {
                 id: *id,
@@ -396,8 +406,18 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             depth,
             version,
             item,
-        } => Value::Local(Local(*id, *depth, *version, *item)),
-        Variable::LocalBinding { id, depth, item } => Value::Local(Local(*id, *depth, 0, *item)),
+        } => Value::Local(Local {
+            id: *id,
+            depth: *depth,
+            version: *version,
+            item: *item,
+        }),
+        Variable::LocalBinding { id, depth, item } => Value::Local(Local {
+            id: *id,
+            depth: *depth,
+            version: 0,
+            item: *item,
+        }),
         Variable::ConstantScalar(val) => Value::Constant((*val).into()),
         Variable::ConstantArray { id, item, length } => Value::ConstArray(*id, *item, *length),
         Variable::Local { .. }

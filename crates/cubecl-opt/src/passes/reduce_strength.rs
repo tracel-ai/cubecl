@@ -6,6 +6,19 @@ use crate::{AtomicCounter, Optimizer};
 
 use super::OptimizerPass;
 
+/// Replace expensive operations with less expensive equivalent ones.
+/// Example
+/// ```rust,ignore
+/// let a = x % 16;
+/// let b = x / 8;
+/// let c = x * 15;
+/// ```
+/// to
+/// ```rust,ignore
+/// let a = x & 15;
+/// let b = x >> 3;
+/// let c = (x << 4) - x;
+/// ```
 pub struct ReduceStrength;
 
 impl OptimizerPass for ReduceStrength {

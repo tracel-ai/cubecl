@@ -15,6 +15,9 @@ use super::{
 };
 
 impl ValueTable {
+    /// Look up or insert operation if it's numberable. Returns the number, optional out value and
+    /// expression. If the error includes a value, treats that value as volatile (i.e. atomics) and
+    /// don't number any expressions that depend on it.
     pub fn maybe_insert_op(
         &mut self,
         op: &Operation,

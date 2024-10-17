@@ -241,9 +241,9 @@ impl Display for Value {
 
 impl Display for Local {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.2 {
-            0 => write!(f, "binding({}, {})", self.0, self.1),
-            v => write!(f, "local({}, {}).v{v}", self.0, self.1),
+        match self.version {
+            0 => write!(f, "binding({}, {})", self.id, self.depth),
+            v => write!(f, "local({}, {}).v{v}", self.id, self.depth),
         }
     }
 }

@@ -84,7 +84,12 @@ impl Default for ValueTable {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
-pub struct Local(pub u16, pub u8, pub u16, pub Item);
+pub struct Local {
+    pub id: u16,
+    pub depth: u8,
+    pub version: u16,
+    pub item: Item,
+}
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
 pub enum Constant {
@@ -125,6 +130,7 @@ impl Expression {
         }
     }
 
+    /// Whether the expression is a trivial copy (which does not need to be hoisted since it's free)
     pub fn is_simple(&self) -> bool {
         matches!(self, Expression::Copy(_, _))
     }
@@ -144,7 +150,7 @@ impl Value {
     pub fn item(&self) -> Item {
         match self {
             Value::Constant(constant) => constant.item(),
-            Value::Local(local) => local.3,
+            Value::Local(local) => local.item,
             Value::Input(_, item) => *item,
             Value::Scalar(_, elem) => Item::new(*elem),
             Value::ConstArray(_, item, _) => *item,
