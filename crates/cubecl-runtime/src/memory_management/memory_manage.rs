@@ -107,7 +107,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         properties: MemoryDeviceProperties,
         config: MemoryConfiguration,
     ) -> Self {
-        match config {
+        let pools = match config {
             #[cfg(not(exclusive_memory_only))]
             MemoryConfiguration::SubSlices => {
                 // Round chunk size to be aligned.
@@ -150,7 +150,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     pool_type: PoolType::ExclusivePages,
                     dealloc_period: None,
                 });
-                Self::new(storage, pools, memory_alignment)
+                pools
             }
             MemoryConfiguration::ExclusivePages => {
                 // Round chunk size to be aligned.
@@ -168,7 +168,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // Add an exact max_page and add max_page as bin.
                 sizes.insert((properties.max_page_size / memory_alignment) * memory_alignment);
                 // Add in one pool for all massive allocations.
-                let pools: Vec<_> = sizes
+                sizes
                     .iter()
                     .map(|&s| {
                         // Bigger buckets will logically have less slices, and are a bigger win
@@ -177,6 +177,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         //
                         // This also +- follows zipfs law https://en.wikipedia.org/wiki/Zipf%27s_law
                         // which is an ok assumption for the distribution of allocations.
+                        //
+                        // This ranges from:
+                        //   128 bytes, 8389608 allocations (aka almost never)
+                        //   10kb, 105857 allocations
+                        //   1MB, 2024 allocations
+                        //   100MB+, 1000-1011 allocations
                         let base_period = 1000;
                         let dealloc_period = base_period + 1024 * MB as u64 / (s as u64);
 
@@ -187,14 +193,16 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                             dealloc_period: Some(dealloc_period),
                         }
                     })
-                    .collect();
+                    .collect()
+            }
+            MemoryConfiguration::Custom(pool_settings) => pool_settings,
+        };
 
-                Self::new(storage, pools, memory_alignment)
-            }
-            MemoryConfiguration::Custom(pool_settings) => {
-                Self::new(storage, pool_settings, properties.alignment)
-            }
+        for pool in pools.iter() {
+            log::trace!("Using memory pool: \n {pool:?}");
         }
+
+        Self::new(storage, pools, properties.alignment)
     }
 
     /// Creates a new instance using the given storage, merging_strategy strategy and slice strategy.
