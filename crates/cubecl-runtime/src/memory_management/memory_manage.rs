@@ -1,4 +1,3 @@
-use core::usize;
 use std::collections::BTreeSet;
 
 use super::{
@@ -39,6 +38,8 @@ const EXP_BIN_SIZES: [usize; 200] = [
     1879048192, 2013265920, 2147483648, 2415919104, 2684354560, 2952790016, 3221225472, 3489660928,
     3758096384, 4026531840,
 ];
+
+const MB: usize = 1024 * 1024;
 
 impl MemoryPool for DynamicPool {
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
@@ -176,13 +177,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         //
                         // This also +- follows zipfs law https://en.wikipedia.org/wiki/Zipf%27s_law
                         // which is an ok assumption for the distribution of allocations.
-                        let MB = 1024 * 1024;
                         let base_period = 1000;
-                        let dealloc_period = base_period + 1024 * MB / (s as u64);
-
-                        // let dealloc_period = (base_period / s).round() as usize;
-
-                        println!("Deallocing {} with period {}", s, dealloc_period);
+                        let dealloc_period = base_period + 1024 * MB as u64 / (s as u64);
 
                         MemoryPoolOptions {
                             page_size: s,
