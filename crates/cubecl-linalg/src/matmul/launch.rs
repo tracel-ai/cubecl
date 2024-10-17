@@ -16,6 +16,8 @@ use crate::matmul::stage_info::StageInfos;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::cmma_matmul::config::CmmaConfig;
+
 #[cube(launch_unchecked)]
 pub(crate) fn matmul_instruction_launch<M: TileMatmul<I, O>, I: Numeric, O: Numeric>(
     lhs_input: Tensor<Line<I>>,
@@ -44,6 +46,7 @@ pub(crate) fn stage_matmul_launch<
         LhsStageReader<I, SharedMemoryStage<I, XMajorTiling>>,
         RhsStageReader<I, SharedMemoryStage<I, XMajorTiling>>,
         TensorWriter<O>,
+        Config = CmmaConfig,
     >,
 >(
     lhs_data: Tensor<Line<I>>,
@@ -62,7 +65,7 @@ pub(crate) fn stage_matmul_launch<
     let mut out_stage_reader = TensorUnloader::unload(out_unloader);
 
     let mut acc = SMM::acc_init_zeros();
-    // SMM::execute(&lhs_stage_reader, &rhs_stage_reader, &mut acc);
+    SMM::execute(&lhs_stage_reader, &rhs_stage_reader, &mut acc);
     SMM::acc_read(&acc, &mut out_stage_reader, config);
 }
 

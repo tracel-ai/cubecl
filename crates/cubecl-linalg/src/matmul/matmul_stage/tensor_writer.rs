@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma_matmul::config::CmmaConfig;
-use crate::matmul::matmul_global::{GlobalView, GmmConfig, TensorView};
+use crate::matmul::matmul_global::{GlobalView, TensorView};
 use crate::matmul::matmul_stage::StageWriter;
 use crate::matmul::stage_info::StageInfo;
 

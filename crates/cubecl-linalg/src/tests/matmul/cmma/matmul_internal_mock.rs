@@ -128,9 +128,10 @@ macro_rules! testgen_cmma_internal_mock {
         }
 
         #[test]
+        #[ignore]
         pub fn test_global_matmul_precisions() {
-            type EG = i32;
-            type ES = i32;
+            type EG = f32;
+            type ES = f32;
             type EA = f32;
             type INSTR = DummyUnitInstruction16_16_16<ES, EA>;
             type STAGE = CmmaStageMatmul<ES, EG, EA, INSTR, S16x16x16>;

@@ -18,7 +18,11 @@ pub trait Stage<ES: Numeric>:
         #[comptime] line_size: u32,
     ) -> Self;
 
-    fn fill<EG: Numeric, G: GlobalView<EG>>(stage: &mut Self, global: &G, config: Self::Config);
+    fn fill<EG: Numeric, G: GlobalView<EG, Config = Self::Config>>(
+        stage: &mut Self,
+        global: &G,
+        config: Self::Config,
+    );
 
     fn get_tile(stage: &Self, x: u32, y: u32) -> (&Slice<'_, Line<ES>>, MatrixLayout);
 

@@ -37,7 +37,7 @@ where
     StageSize: CmmaStageSize,
     Lhs: StageReader<I>,
     Rhs: StageReader<I>,
-    Out: StageWriter<O>,
+    Out: StageWriter<O, Config = Self::Config>,
 {
     const M: u32 = StageSize::M;
     const N: u32 = StageSize::N;
@@ -98,7 +98,7 @@ where
                 Self::plane_id(),
                 accumulator_iter,
                 line_size,
-                *config,
+                config,
             );
         }
     }

@@ -14,6 +14,48 @@ macro_rules! testgen_cmma_internal {
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
         use half::{bf16, f16};
 
+        use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmul;
+        use cubecl_linalg::matmul::cmma_matmul::tile::dummy::{
+            DummyUnitInstruction16_16_16, DummyUnitInstruction32_8_16, DummyUnitInstruction8_32_16,
+        };
+        use cubecl_linalg::matmul::matmul_global::{
+            LhsTensorLoader, RhsTensorLoader, TensorUnloader,
+        };
+        use cubecl_linalg::matmul::matmul_stage::{SharedMemoryStage, XMajorTiling, YMajorTiling};
+
+        #[test]
+        #[ignore]
+        pub fn test_global_matmul_precisions() {
+            type EG = f32;
+            type ES = f16;
+            type EA = f16;
+            type INSTR = CmmaInstruction16_16_16<ES, EA>;
+            type STAGE = CmmaStageMatmul<ES, EG, EA, INSTR, S16x16x16>;
+            type GLOBAL = CmmaGlobalMatmul<
+                EG,
+                ES,
+                STAGE,
+                LhsTensorLoader<EG, ES, SharedMemoryStage<ES, XMajorTiling>>,
+                RhsTensorLoader<EG, ES, SharedMemoryStage<ES, XMajorTiling>>,
+                TensorUnloader<EG>,
+            >;
+            test_matmul::<GLOBAL, EG, EG, TestRuntime>(
+                // Can't accumulate more, it will fail because of i32
+                MatmulProblem::new(
+                    16,
+                    16,
+                    16,
+                    MatrixLayout::RowMajor,
+                    MatrixLayout::RowMajor,
+                    4,
+                    4,
+                    4,
+                ),
+                1,
+                &Default::default(),
+            )
+        }
+
         #[test]
         pub fn test_stage_matmul_s16x16x16_f32() {
             test_matmul::<

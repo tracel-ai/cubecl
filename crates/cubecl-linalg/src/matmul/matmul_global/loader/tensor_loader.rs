@@ -27,7 +27,9 @@ pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsTensorLoader<EG, ES, S> {
+impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
+    for LhsTensorLoader<EG, ES, S>
+{
     type GlobalView = TensorView<EG>;
     type StageReader = LhsStageReader<ES, S>;
     type Config = CmmaConfig;
@@ -66,7 +68,9 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsTensorLoader<
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for RhsTensorLoader<EG, ES, S> {
+impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
+    for RhsTensorLoader<EG, ES, S>
+{
     type GlobalView = TensorView<EG>;
     type StageReader = RhsStageReader<ES, S>;
     type Config = CmmaConfig;

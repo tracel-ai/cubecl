@@ -42,7 +42,11 @@ impl<ES: Numeric, O: TilingOrder> Stage<ES> for SharedMemoryStage<ES, O> {
         }
     }
 
-    fn fill<EG: Numeric, G: GlobalView<EG>>(stage: &mut Self, gmem: &G, config: Self::Config) {
+    fn fill<EG: Numeric, G: GlobalView<EG, Config = CmmaConfig>>(
+        stage: &mut Self,
+        gmem: &G,
+        config: Self::Config,
+    ) {
         G::load_shared_memory::<ES, O>(gmem, &mut stage.smem, stage.stage_info, config)
     }
 

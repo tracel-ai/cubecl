@@ -25,7 +25,9 @@ pub struct RhsArrayLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsArrayLoader<EG, ES, S> {
+impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
+    for LhsArrayLoader<EG, ES, S>
+{
     type GlobalView = ArrayView<EG>;
     type StageReader = LhsStageReader<ES, S>;
     type Config = CmmaConfig;
@@ -69,7 +71,9 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for LhsArrayLoader<E
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: Stage<ES>> Loader<EG, ES> for RhsArrayLoader<EG, ES, S> {
+impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
+    for RhsArrayLoader<EG, ES, S>
+{
     type GlobalView = ArrayView<EG>;
     type StageReader = RhsStageReader<ES, S>;
     type Config = CmmaConfig;

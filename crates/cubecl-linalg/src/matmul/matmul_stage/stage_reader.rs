@@ -13,7 +13,7 @@ pub trait StageReader<ES: Numeric>: CubeType {
         accumulator_offset: u32,
     ) -> (&Slice<'_, Line<ES>>, MatrixLayout);
 
-    // Maybe delete if we don't need layout prior to slice
+    // Maybe delete if we don't need layout prior to slice, or if available in config
     fn slice_layout(stage_reader: &Self) -> MatrixLayout;
 }
 

@@ -37,8 +37,8 @@ impl<
             Out::StageWriter,
             Config = CmmaConfig,
         >,
-        Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
-        Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
+        Lhs: Loader<EG, ES, GlobalView = TensorView<EG>, Config = CmmaConfig>,
+        Rhs: Loader<EG, ES, GlobalView = TensorView<EG>, Config = CmmaConfig>,
         Out: Unloader<EG, GlobalView = TensorView<EG>>,
     > GlobalMatmul<EG, ES, Lhs, Rhs, Out> for CmmaGlobalMatmul<EG, ES, SMM, Lhs, Rhs, Out>
 {
@@ -63,8 +63,8 @@ impl<
 
         for _ in 0..num_loops {
             SMM::execute(
-                &Lhs::fill_stage(&mut lhs_loader),
-                &Rhs::fill_stage(&mut rhs_loader),
+                &Lhs::fill_stage(&mut lhs_loader, config),
+                &Rhs::fill_stage(&mut rhs_loader, config),
                 &mut acc,
             );
 
@@ -87,8 +87,8 @@ impl<
             Out::StageWriter,
             Config = CmmaConfig,
         >,
-        Lhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
-        Rhs: Loader<EG, ES, GlobalView = TensorView<EG>>,
+        Lhs: Loader<EG, ES, GlobalView = TensorView<EG>, Config = CmmaConfig>,
+        Rhs: Loader<EG, ES, GlobalView = TensorView<EG>, Config = CmmaConfig>,
         Out: Unloader<EG, GlobalView = TensorView<EG>>,
     > Matmul<EG, EG> for CmmaGlobalMatmul<EG, ES, SMM, Lhs, Rhs, Out>
 {
