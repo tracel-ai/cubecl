@@ -81,6 +81,12 @@ impl MemoryPool for DynamicPool {
             DynamicPool::Exclusive(m) => m.max_alloc_size(),
         }
     }
+    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage) {
+        match self {
+            DynamicPool::Sliced(m) => m.cleanup(storage),
+            DynamicPool::Exclusive(m) => m.cleanup(storage),
+        }
+    }
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
@@ -202,6 +208,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         pools.sort_by(|pool1, pool2| usize::cmp(&pool1.max_alloc_size(), &pool2.max_alloc_size()));
 
         Self { pools, storage }
+    }
+
+    /// Cleanup allocations in pools that are deemed unnecesarry.
+    pub fn cleanup(&mut self) {
+        for pool in self.pools.iter_mut() {
+            pool.cleanup(&mut self.storage);
+        }
     }
 }
 
