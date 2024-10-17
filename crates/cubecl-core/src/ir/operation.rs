@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// [Procedure] expansions can safely use all operation variants.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
+#[allow(dead_code, missing_docs, clippy::large_enum_variant)] // Some variants might not be used with different flags
 pub enum Operation {
     Operator(Operator),
     Metadata(Metadata),
