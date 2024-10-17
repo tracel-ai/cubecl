@@ -207,6 +207,7 @@ impl Optimizer {
         let gvn = self.gvn.clone();
         gvn.borrow_mut().apply_post_ssa(self, gvn_count.clone());
         ReduceStrength.apply_post_ssa(self, gvn_count.clone());
+        CopyTransform.apply_post_ssa(self, gvn_count.clone());
 
         if gvn_count.get() > 0 {
             self.apply_post_ssa_passes();
@@ -279,7 +280,6 @@ impl Optimizer {
             Box::new(EmptyBranchToSelect),
             Box::new(EliminateDeadBlocks),
             Box::new(MergeBlocks),
-            Box::new(CopyTransform),
         ];
         // Passes that only run if execution mode is checked
         let checked_passes: Vec<Box<dyn OptimizerPass>> = vec![
@@ -330,6 +330,7 @@ impl Optimizer {
         self.program.variables.clear();
         for block in self.node_ids() {
             self.program[block].writes.clear();
+            self.program[block].dom_frontiers.clear();
         }
     }
 
