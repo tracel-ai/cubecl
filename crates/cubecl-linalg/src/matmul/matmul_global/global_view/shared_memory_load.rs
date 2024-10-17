@@ -2,7 +2,7 @@ use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::config::{MatmulConfig, PlaneMapper};
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::TilingOrder;
-use crate::matmul::matrix_layout::TensorIdent;
+use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -12,11 +12,16 @@ use super::ReadView;
 pub trait SharedMemoryLoader: Clone + Copy + Send + Sync + 'static {
     type Config: GmmConfig;
 
-    fn load_shared_memory<EG: Numeric, ES: Numeric, RV: ReadView<EG>, O: TilingOrder>(
+    fn load_shared_memory<
+        EG: Numeric,
+        ES: Numeric,
+        RV: ReadView<EG, Config = Self::Config>,
+        O: TilingOrder,
+    >(
         gmem: &RV,
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] line_size: u32,
-        #[comptime] ident: TensorIdent,
+        #[comptime] ident: Ident,
         #[comptime] config: Self::Config,
     );
 }
@@ -39,11 +44,16 @@ impl PlaneMapper for Gmem2SmemContinuous {
 impl SharedMemoryLoader for Gmem2SmemContinuous {
     type Config = CmmaConfig;
 
-    fn load_shared_memory<EG: Numeric, ES: Numeric, RV: ReadView<EG>, O: TilingOrder>(
+    fn load_shared_memory<
+        EG: Numeric,
+        ES: Numeric,
+        RV: ReadView<EG, Config = Self::Config>,
+        O: TilingOrder,
+    >(
         read_view: &RV,
         smem: &mut SharedMemory<Line<ES>>,
         #[comptime] line_size: u32,
-        #[comptime] ident: TensorIdent,
+        #[comptime] ident: Ident,
         #[comptime] config: Self::Config,
     ) {
         let stage_dim = config.stage_dim(ident);
@@ -72,6 +82,8 @@ impl SharedMemoryLoader for Gmem2SmemContinuous {
                 pos_within_tile,
                 stage_dim.tile_size_x,
                 stage_dim.tile_size_y,
+                ident,
+                config,
             );
 
             smem[unit_position / line_size] = Line::cast_from(line);

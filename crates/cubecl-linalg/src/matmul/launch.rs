@@ -11,7 +11,7 @@ use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matmul_stage::TensorWriter;
 use crate::matmul::matmul_stage::XMajorTiling;
 use crate::matmul::matmul_tile::TileMatmul;
-use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::matrix::MatrixLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -51,11 +51,10 @@ pub(crate) fn stage_matmul_launch<
     lhs_data: Tensor<Line<I>>,
     rhs_data: Tensor<Line<I>>,
     out_result: Tensor<Line<O>>,
-    #[comptime] layouts: (MatrixLayout, MatrixLayout),
     #[comptime] config: SMM::Config,
 ) {
-    let mut lhs_loader = LhsTensorLoader::new(lhs_data, layouts.0, config);
-    let mut rhs_loader = RhsTensorLoader::new(rhs_data, layouts.1, config);
+    let mut lhs_loader = LhsTensorLoader::new(lhs_data, config);
+    let mut rhs_loader = RhsTensorLoader::new(rhs_data, config);
     let out_unloader = TensorUnloader::new(out_result);
 
     let lhs_stage_reader = LhsTensorLoader::fill_stage(&mut lhs_loader, config);
@@ -79,13 +78,12 @@ pub(crate) fn cube_matmul_launch<
     lhs_tensor: Tensor<Line<EG>>,
     rhs_tensor: Tensor<Line<EG>>,
     out_tensor: Tensor<Line<EG>>,
-    #[comptime] layouts: (MatrixLayout, MatrixLayout),
     #[comptime] config: GMM::Config,
 ) {
     let k = lhs_tensor.shape(lhs_tensor.rank() - 1);
 
-    let lhs_loader = Lhs::new(lhs_tensor, layouts.0, config);
-    let rhs_loader = Rhs::new(rhs_tensor, layouts.1, config);
+    let lhs_loader = Lhs::new(lhs_tensor, config);
+    let rhs_loader = Rhs::new(rhs_tensor, config);
     let out_unloader = Out::new(out_tensor);
 
     GMM::execute(lhs_loader, rhs_loader, out_unloader, (0, k), config);

@@ -1,7 +1,6 @@
 use crate::matmul::matmul_global::new_tensor_view;
 use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_stage::TensorWriter;
-use crate::matmul::matrix_layout::MatrixLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -18,7 +17,7 @@ impl<E: Numeric> Unloader<E> for TensorUnloader<E> {
     type StageWriter = TensorWriter<E>;
 
     fn new(tensor: Tensor<Line<E>>) -> Self {
-        let view = new_tensor_view(tensor, MatrixLayout::RowMajor);
+        let view = new_tensor_view(tensor);
         TensorUnloader::<E> { view }
     }
 

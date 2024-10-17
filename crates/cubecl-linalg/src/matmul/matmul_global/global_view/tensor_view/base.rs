@@ -4,14 +4,13 @@ use crate::matmul::matmul_global::global_view::tensor_view::smem2tensor::{
 };
 use crate::matmul::matmul_global::{Gmem2SmemContinuous, ReadView, SharedMemoryLoader, WriteView};
 use crate::matmul::matmul_stage::TilingOrder;
-use crate::matmul::matrix_layout::{MatrixLayout, TensorIdent};
+use crate::matmul::matrix::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
 pub struct TensorView<E: Numeric> {
     pub tensor: Tensor<Line<E>>,
-    pub layout: MatrixLayout,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -32,13 +31,15 @@ impl<EG: Numeric> ReadView<EG> for TensorView<EG> {
         load_id: u32,
         tile_size_x: u32,
         tile_size_y: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: Self::Config,
     ) -> Line<EG> {
         let tensor = &view.tensor;
 
         let view_tile_x = tile_x * tile_size_x + view.x_offset;
         let view_tile_y = tile_y * tile_size_y + view.y_offset;
 
-        let (load_x, load_y) = match comptime!(view.layout) {
+        let (load_x, load_y) = match config.layout(ident) {
             MatrixLayout::RowMajor => (load_id / tile_size_y, load_id % tile_size_y),
             MatrixLayout::ColMajor => (load_id % tile_size_x, load_id / tile_size_x),
         };
@@ -58,7 +59,7 @@ impl<EG: Numeric> ReadView<EG> for TensorView<EG> {
     fn load_shared_memory<ES: Numeric, O: TilingOrder>(
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
-        #[comptime] ident: TensorIdent,
+        #[comptime] ident: Ident,
         #[comptime] config: Self::Config,
     ) {
         // TODO allow other modes than Gmem2SmemContinuous
@@ -109,14 +110,7 @@ impl<EG: Numeric> WriteView<EG> for TensorView<EG> {
         #[comptime] slice_line_size: u32,
         #[comptime] config: Self::Config,
     ) {
-        Smem2TensorSimple::smem_to_tensor(
-            view,
-            slice,
-            write_x,
-            write_y,
-            slice_line_size,
-            config,
-        );
+        Smem2TensorSimple::smem_to_tensor(view, slice, write_x, write_y, slice_line_size, config);
     }
 
     fn init_view(view: &mut Self, x_offset: u32, y_offset: u32) {
@@ -126,7 +120,7 @@ impl<EG: Numeric> WriteView<EG> for TensorView<EG> {
 }
 
 #[cube]
-pub fn new_tensor_view<E: Numeric>(tensor: Tensor<Line<E>>, layout: MatrixLayout) -> TensorView<E> {
+pub fn new_tensor_view<E: Numeric>(tensor: Tensor<Line<E>>) -> TensorView<E> {
     let rank = tensor.rank();
     let stride_x = tensor.stride(rank - 2);
     let stride_y = tensor.stride(rank - 1);
@@ -135,7 +129,6 @@ pub fn new_tensor_view<E: Numeric>(tensor: Tensor<Line<E>>, layout: MatrixLayout
 
     TensorView::<E> {
         tensor,
-        layout,
         x_offset: 0,
         y_offset: 0,
         stride_x,

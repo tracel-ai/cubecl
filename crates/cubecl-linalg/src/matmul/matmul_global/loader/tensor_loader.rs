@@ -4,8 +4,7 @@ use crate::matmul::matmul_global::ReadView;
 use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_stage::Stage;
 use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader};
-use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::matrix_layout::TensorIdent;
+use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -34,14 +33,9 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     type StageReader = LhsStageReader<ES, S>;
     type Config = CmmaConfig;
 
-    fn new(
-        tensor: Tensor<Line<EG>>,
-        #[comptime] layout: MatrixLayout,
-        #[comptime] config: Self::Config,
-    ) -> Self {
-        let line_size = comptime!(tensor.line_size());
-        let stage = S::new(layout, line_size, TensorIdent::Lhs, config);
-        let gmem_view = new_tensor_view(tensor, layout);
+    fn new(tensor: Tensor<Line<EG>>, #[comptime] config: Self::Config) -> Self {
+        let stage = S::new(Ident::Lhs, config);
+        let gmem_view = new_tensor_view(tensor);
 
         LhsTensorLoader::<EG, ES, S> {
             gmem_view,
@@ -51,7 +45,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     }
 
     fn fill_stage(self_: &mut Self, config: Self::Config) -> Self::StageReader {
-        S::fill::<EG, Self::ReadView>(&mut self_.stage, &self_.gmem_view, TensorIdent::Lhs, config);
+        S::fill::<EG, Self::ReadView>(&mut self_.stage, &self_.gmem_view, Ident::Lhs, config);
         LhsStageReader::<ES, S> {
             stage: self_.stage,
             _e: PhantomData::<ES>.runtime(),
@@ -75,14 +69,9 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     type StageReader = RhsStageReader<ES, S>;
     type Config = CmmaConfig;
 
-    fn new(
-        tensor: Tensor<Line<EG>>,
-        #[comptime] layout: MatrixLayout,
-        #[comptime] config: Self::Config,
-    ) -> Self {
-        let line_size = comptime!(tensor.line_size());
-        let stage = S::new(layout, line_size, TensorIdent::Rhs, config);
-        let gmem_view = new_tensor_view(tensor, layout);
+    fn new(tensor: Tensor<Line<EG>>, #[comptime] config: Self::Config) -> Self {
+        let stage = S::new(Ident::Rhs, config);
+        let gmem_view = new_tensor_view(tensor);
 
         RhsTensorLoader::<EG, ES, S> {
             gmem_view,
@@ -92,7 +81,7 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     }
 
     fn fill_stage(self_: &mut Self, config: Self::Config) -> Self::StageReader {
-        S::fill::<EG, Self::ReadView>(&mut self_.stage, &self_.gmem_view, TensorIdent::Rhs, config);
+        S::fill::<EG, Self::ReadView>(&mut self_.stage, &self_.gmem_view, Ident::Rhs, config);
         RhsStageReader::<ES, S> {
             stage: self_.stage,
             _e: PhantomData::<ES>.runtime(),

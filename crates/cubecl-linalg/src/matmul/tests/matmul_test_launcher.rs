@@ -3,7 +3,7 @@ use cubecl_core::CubeElement;
 
 use crate::matmul::config::ConfigBuilder;
 use crate::matmul::config::MatmulPreConfig;
-use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::problem::MatmulProblem;
 use crate::matmul::Matmul;
 

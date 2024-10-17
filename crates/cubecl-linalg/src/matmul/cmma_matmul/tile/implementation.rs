@@ -1,5 +1,5 @@
 use crate::matmul::cmma_matmul::tile::base::Fragment;
-use crate::matmul::matrix_layout::{as_cmma_layout, MatrixLayout};
+use crate::matmul::matrix::{as_cmma_layout, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 

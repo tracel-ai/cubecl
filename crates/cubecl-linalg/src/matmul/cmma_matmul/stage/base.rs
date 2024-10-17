@@ -9,7 +9,7 @@ use crate::matmul::config::PlaneMapper;
 use crate::matmul::launch::stage_matmul_launch;
 use crate::matmul::matmul_stage::{SmmConfig, StageMatmul, StageReader, StageWriter};
 use crate::matmul::matmul_tile::TileMatmul;
-use crate::matmul::matrix_layout::TensorIdent;
+use crate::matmul::matrix::Ident;
 use crate::matmul::Matmul;
 
 pub struct CmmaStageMatmul<
@@ -47,18 +47,17 @@ where
     fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, config: Self::Config) {
         let num_buffers = StageSize::K / Tmm::K;
 
-        let mut instruction_lhs = Tmm::init_lhs(Lhs::slice_layout(lhs));
-        let mut instruction_rhs = Tmm::init_rhs(Rhs::slice_layout(rhs));
+        let mut instruction_lhs = Tmm::init_lhs(comptime!(config.layout(Ident::Lhs)));
+        let mut instruction_rhs = Tmm::init_rhs(comptime!(config.layout(Ident::Rhs)));
 
         #[unroll]
         for buffer_iter in 0..num_buffers {
-            // TODO remove _
-            let (tile_lhs, _) = Lhs::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32, config);
+            let tile_lhs = Lhs::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32, config);
             Tmm::fill_lhs(tile_lhs, &mut instruction_lhs);
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let (tile_rhs, _) = Rhs::read_tile(
+                let tile_rhs = Rhs::read_tile(
                     &rhs,
                     Self::plane_id(),
                     buffer_iter,
@@ -87,7 +86,7 @@ where
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] config: Self::Config) {
         let line_size = config.out_smem_line_size;
-        let num_tile_lines = config.tile_num_elems(TensorIdent::Out) / line_size;
+        let num_tile_lines = config.tile_num_elems(Ident::Out) / line_size;
         let start = num_tile_lines * Self::plane_id();
 
         let mut smem =
@@ -154,14 +153,7 @@ where
     ) {
         Self::check_config(config);
         stage_matmul_launch::launch_unchecked::<I, O, Self, R>(
-            &client,
-            cube_count,
-            cube_dim,
-            lhs,
-            rhs,
-            out,
-            config.layouts,
-            config,
+            &client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }
 }

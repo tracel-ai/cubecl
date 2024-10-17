@@ -1,6 +1,5 @@
 use crate::matmul::matmul_global::{GmmConfig, ReadView};
 use crate::matmul::matmul_stage::StageReader;
-use crate::matmul::matrix_layout::MatrixLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -12,7 +11,6 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
 
     fn new(
         gmem: <Self::ReadView as ReadView<EG>>::Global,
-        #[comptime] layout: MatrixLayout,
         #[comptime] config: Self::Config,
     ) -> Self;
 

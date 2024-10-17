@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use cubecl::benchmark::Benchmark;
 use cubecl::client::SyncType;
 use cubecl::frontend::Float;
-use cubecl_linalg::matmul;
 use cubecl_linalg::tensor::TensorHandle;
 
 impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
@@ -21,16 +20,17 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
 
     fn execute(&self, (lhs, rhs): Self::Args) {
         let client = R::client(&self.device);
-        let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
+        todo!()
+        // let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        match self.kind {
-            MatmulKind::Tiling2d => {
-                matmul::tiling2d::launch(&self.client, lhs, rhs, out, Default::default());
-            }
-            MatmulKind::Cmma => {
-                matmul::cmma_old::launch(&self.client, lhs, rhs, out, Default::default());
-            }
-        }
+        // match self.kind {
+        //     MatmulKind::Tiling2d => {
+        //         matmul::tiling2d::launch(&self.client, lhs, rhs, out, Default::default());
+        //     }
+        //     MatmulKind::Cmma => {
+        //         matmul::cmma_old::launch(&self.client, lhs, rhs, out, Default::default());
+        //     }
+        // }
     }
 
     fn num_samples(&self) -> usize {

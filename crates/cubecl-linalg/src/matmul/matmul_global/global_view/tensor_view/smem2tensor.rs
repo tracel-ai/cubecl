@@ -2,7 +2,7 @@ use super::TensorView;
 use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::config::{MatmulConfig, PlaneMapper};
 use crate::matmul::matmul_global::{GmmConfig, WriteView};
-use crate::matmul::matrix_layout::TensorIdent;
+use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -46,7 +46,7 @@ impl Smem2Tensor for Smem2TensorSimple {
         #[comptime] slice_line_size: u32,
         #[comptime] config: Self::Config
     ) {
-        let stage_dim = config.stage_dim(TensorIdent::Out);
+        let stage_dim = config.stage_dim(Ident::Out);
         let unit_jump = config.plane_dim() * out.tensor.line_size();
         let num_unit_writes = stage_dim.tile_num_elements() / unit_jump;
         let out_line_size = out.tensor.line_size();

@@ -1,8 +1,7 @@
 use crate::matmul::cmma_matmul::config::{CmmaConfig, CmmaPreConfig};
 use crate::matmul::launch::matmul_instruction_launch;
-use crate::matmul::matmul_tile::OwnedTile;
 use crate::matmul::matmul_tile::TileMatmul;
-use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::config::MatmulConfig;
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
@@ -34,21 +33,21 @@ macro_rules! impl_matmul_instruction {
                 execute::<I, O>(lhs, rhs, out);
             }
 
-            fn init_lhs(layout: MatrixLayout) -> Self::Lhs {
+            fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs {
                 OwnedTile::<I> {
                     handle: Array::<I>::new(Self::M * Self::K),
                     x: Self::M.runtime(),
                     y: Self::K.runtime(),
-                    layout,
+                    layout: as_dummy_layout(layout),
                 }
             }
 
-            fn init_rhs(layout: MatrixLayout) -> Self::Rhs {
+            fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs {
                 OwnedTile::<I> {
                     handle: Array::<I>::new(Self::K * Self::N),
                     x: Self::K.runtime(),
                     y: Self::N.runtime(),
-                    layout,
+                    layout: as_dummy_layout(layout),
                 }
             }
 
@@ -65,7 +64,7 @@ macro_rules! impl_matmul_instruction {
                     handle: Array::<O>::new(Self::M * Self::N),
                     x: Self::M.runtime(),
                     y: Self::N.runtime(),
-                    layout: MatrixLayout::RowMajor.runtime(),
+                    layout: DummyLayout::RowMajor.runtime()
                 };
 
                 for i in 0..Self::M * Self::N {
@@ -167,12 +166,12 @@ pub(crate) fn execute<I: Numeric, O: Numeric>(
         for j in 0..n {
             for k_ in 0..k {
                 let lhs_val = match comptime!(lhs.layout) {
-                    MatrixLayout::RowMajor => lhs.handle[i * k + k_],
-                    MatrixLayout::ColMajor => lhs.handle[k_ * m + i],
+                    DummyLayout::RowMajor => lhs.handle[i * k + k_],
+                    DummyLayout::ColMajor => lhs.handle[k_ * m + i],
                 };
                 let rhs_val = match comptime!(rhs.layout) {
-                    MatrixLayout::RowMajor => rhs.handle[k_ * n + j],
-                    MatrixLayout::ColMajor => rhs.handle[j * k + k_],
+                    DummyLayout::RowMajor => rhs.handle[k_ * n + j],
+                    DummyLayout::ColMajor => rhs.handle[j * k + k_],
                 };
 
                 out.handle[i * n + j] += O::cast_from(lhs_val * rhs_val);
@@ -180,6 +179,46 @@ pub(crate) fn execute<I: Numeric, O: Numeric>(
         }
     }
 }
+
+#[derive(Copy, Clone)]
+pub enum DummyLayout {
+    RowMajor,
+    ColMajor
+}
+
+impl CubeType for DummyLayout {
+    type ExpandType = Self;
+}
+
+impl Init for DummyLayout {
+    fn init(self, _context: &mut CubeContext) -> Self {
+        self
+    }
+}
+
+impl IntoRuntime for DummyLayout {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        self
+    }
+}
+
+#[cube]
+pub fn as_dummy_layout(#[comptime] layout: MatrixLayout) -> DummyLayout {
+    match layout {
+        MatrixLayout::RowMajor => DummyLayout::RowMajor,
+        MatrixLayout::ColMajor => DummyLayout::ColMajor,
+    }
+}
+
+
+#[derive(CubeType)]
+pub struct OwnedTile<E: Numeric> {
+    pub x: u32,
+    pub y: u32,
+    pub handle: Array<E>,
+    pub layout: DummyLayout
+}
+
 
 fn check_plane_dim(actual_plane_dim: u32) {
     assert_eq!(32, actual_plane_dim, 

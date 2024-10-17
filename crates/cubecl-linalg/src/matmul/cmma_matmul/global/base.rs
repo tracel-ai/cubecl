@@ -65,7 +65,7 @@ impl<
                 &Lhs::fill_stage(&mut lhs_loader, config),
                 &Rhs::fill_stage(&mut rhs_loader, config),
                 &mut acc,
-                config
+                config,
             );
 
             Lhs::advance_view(&mut lhs_loader, k_step);
@@ -113,14 +113,7 @@ impl<
     ) {
         Self::check_config(config);
         cube_matmul_launch::launch_unchecked::<EG, ES, Self, Lhs, Rhs, Out, R>(
-            &client,
-            cube_count,
-            cube_dim,
-            lhs,
-            rhs,
-            out,
-            config.layouts,
-            config,
+            &client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }
 }

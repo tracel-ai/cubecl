@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::Matmul;
 
 use super::TmmConfig;

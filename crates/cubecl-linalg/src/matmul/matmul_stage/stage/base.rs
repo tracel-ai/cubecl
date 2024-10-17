@@ -1,6 +1,6 @@
 use crate::matmul::matmul_global::ReadView;
 use crate::matmul::matmul_stage::SmmConfig;
-use crate::matmul::matrix_layout::{MatrixLayout, TensorIdent};
+use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -11,17 +11,12 @@ pub trait Stage<ES: Numeric>:
     type Underlying: CubeType;
     type Config: SmmConfig;
 
-    fn new(
-        layout: MatrixLayout,
-        #[comptime] line_size: u32,
-        #[comptime] ident: TensorIdent,
-        #[comptime] config: Self::Config,
-    ) -> Self;
+    fn new(#[comptime] ident: Ident, #[comptime] config: Self::Config) -> Self;
 
     fn fill<EG: Numeric, RV: ReadView<EG, Config = Self::Config>>(
         self_: &mut Self,
         global: &RV,
-        #[comptime] ident: TensorIdent,
+        #[comptime] ident: Ident,
         #[comptime] config: Self::Config,
     );
 
@@ -29,9 +24,7 @@ pub trait Stage<ES: Numeric>:
         self_: &Self,
         x: u32,
         y: u32,
-        #[comptime] ident: TensorIdent,
+        #[comptime] ident: Ident,
         #[comptime] config: Self::Config,
-    ) -> (&Slice<'_, Line<ES>>, MatrixLayout);
-
-    fn layout(self_: &Self) -> MatrixLayout;
+    ) -> &Slice<'_, Line<ES>>;
 }

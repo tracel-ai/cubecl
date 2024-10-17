@@ -3,7 +3,7 @@ use crate::matmul::config::MatmulConfig;
 use crate::matmul::cmma_matmul::config::{CmmaConfig, CmmaPreConfig};
 use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::matmul_tile::TileMatmul;
-use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};

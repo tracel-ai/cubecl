@@ -15,7 +15,7 @@ macro_rules! testgen_cmma_internal_mock {
             LhsTensorLoader, RhsTensorLoader, TensorUnloader,
         };
         use cubecl_linalg::matmul::matmul_stage::{SharedMemoryStage, XMajorTiling, YMajorTiling};
-        use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
+        use cubecl_linalg::matmul::matrix::MatrixLayout;
         use cubecl_linalg::matmul::problem::MatmulProblem;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
 
@@ -115,39 +115,6 @@ macro_rules! testgen_cmma_internal_mock {
                 MatmulProblem::new(
                     12,
                     12,
-                    16,
-                    MatrixLayout::RowMajor,
-                    MatrixLayout::RowMajor,
-                    4,
-                    4,
-                    4,
-                ),
-                1,
-                &Default::default(),
-            )
-        }
-
-        #[test]
-        #[ignore]
-        pub fn test_global_matmul_precisions() {
-            type EG = f32;
-            type ES = f32;
-            type EA = f32;
-            type INSTR = DummyUnitInstruction16_16_16<ES, EA>;
-            type STAGE = CmmaStageMatmul<ES, EG, EA, INSTR, S16x16x16>;
-            type GLOBAL = CmmaGlobalMatmul<
-                EG,
-                ES,
-                STAGE,
-                LhsTensorLoader<EG, ES, SharedMemoryStage<ES, XMajorTiling>>,
-                RhsTensorLoader<EG, ES, SharedMemoryStage<ES, XMajorTiling>>,
-                TensorUnloader<EG>,
-            >;
-            test_matmul::<GLOBAL, EG, EG, TestRuntime>(
-                // Can't accumulate more, it will fail because of i32
-                MatmulProblem::new(
-                    16,
-                    16,
                     16,
                     MatrixLayout::RowMajor,
                     MatrixLayout::RowMajor,

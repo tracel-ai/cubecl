@@ -1,4 +1,4 @@
-use super::matrix_layout::MatrixLayout;
+use super::matrix::MatrixLayout;
 
 #[derive(Copy, Clone)]
 pub struct MatmulProblem {

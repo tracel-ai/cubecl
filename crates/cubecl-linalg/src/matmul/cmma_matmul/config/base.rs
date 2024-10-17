@@ -5,7 +5,7 @@ use crate::matmul::{
     matmul_global::GmmConfig,
     matmul_stage::SmmConfig,
     matmul_tile::TmmConfig,
-    matrix_layout::{MatrixLayout, TensorIdent},
+    matrix::{Ident, MatrixLayout},
     problem::MatmulProblem,
 };
 
@@ -18,6 +18,7 @@ pub struct CmmaConfig {
     pub num_planes: u32,
     pub plane_dim: u32,
     pub stage_dims: StageDims,
+    pub line_sizes: (u32, u32, u32),
 }
 
 #[derive(Default)]
@@ -27,6 +28,7 @@ pub struct CmmaConfigBuilder {
     pub out_smem_line_size: Option<u32>,
     pub layouts: Option<(MatrixLayout, MatrixLayout)>,
     pub stage_dims: Option<StageDims>,
+    pub line_sizes: Option<(u32, u32, u32)>,
 }
 
 impl ConfigBuilder for CmmaConfigBuilder {
@@ -41,6 +43,11 @@ impl ConfigBuilder for CmmaConfigBuilder {
     fn from_problem(mut self, problem: &MatmulProblem) -> Self {
         self.out_smem_line_size = Some(problem.out_line_size as u32);
         self.layouts = Some((problem.lhs_layout, problem.rhs_layout));
+        self.line_sizes = Some((
+            problem.lhs_line_size as u32,
+            problem.rhs_line_size as u32,
+            problem.out_line_size as u32,
+        ));
         self
     }
 
@@ -51,6 +58,7 @@ impl ConfigBuilder for CmmaConfigBuilder {
             num_planes: self.num_planes.unwrap(),
             plane_dim: self.plane_dim.unwrap(),
             stage_dims: self.stage_dims.unwrap(),
+            line_sizes: self.line_sizes.unwrap(),
         }
     }
 }
@@ -148,19 +156,35 @@ impl CubeType for CmmaConfig {
 }
 
 impl CmmaConfig {
-    pub fn stage_num_elems(&self, ident: TensorIdent) -> u32 {
+    pub fn stage_num_elems(&self, ident: Ident) -> u32 {
         self.stage_dim(ident).num_elements()
     }
 
-    pub fn tile_num_elems(&self, ident: TensorIdent) -> u32 {
+    pub fn tile_num_elems(&self, ident: Ident) -> u32 {
         self.stage_dim(ident).tile_num_elements()
     }
 
-    pub fn stage_dim(&self, ident: TensorIdent) -> StageDim {
+    pub fn stage_dim(&self, ident: Ident) -> StageDim {
         match ident {
-            TensorIdent::Lhs => self.stage_dims.lhs,
-            TensorIdent::Rhs => self.stage_dims.rhs,
-            TensorIdent::Out => self.stage_dims.out,
+            Ident::Lhs => self.stage_dims.lhs,
+            Ident::Rhs => self.stage_dims.rhs,
+            Ident::Out => self.stage_dims.out,
+        }
+    }
+
+    pub fn line_size(&self, ident: Ident) -> u32 {
+        match ident {
+            Ident::Lhs => self.line_sizes.0,
+            Ident::Rhs => self.line_sizes.1,
+            Ident::Out => self.line_sizes.2,
+        }
+    }
+
+    pub fn layout(&self, ident: Ident) -> MatrixLayout {
+        match ident {
+            Ident::Lhs => self.layouts.0,
+            Ident::Rhs => self.layouts.1,
+            Ident::Out => MatrixLayout::RowMajor,
         }
     }
 }

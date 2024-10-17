@@ -9,7 +9,7 @@ macro_rules! testgen_cmma_internal {
         use cubecl_linalg::matmul::cmma_matmul::tile::base::{
             CmmaInstruction16_16_16, CmmaInstruction32_8_16, CmmaInstruction8_32_16,
         };
-        use cubecl_linalg::matmul::matrix_layout::MatrixLayout;
+        use cubecl_linalg::matmul::matrix::MatrixLayout;
         use cubecl_linalg::matmul::problem::MatmulProblem;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
         use half::{bf16, f16};
