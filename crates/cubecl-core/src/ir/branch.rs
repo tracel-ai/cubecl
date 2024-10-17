@@ -4,6 +4,7 @@ use super::{Elem, Item, Scope, Variable};
 use serde::{Deserialize, Serialize};
 
 /// All branching types.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Branch {
     /// An if statement.
