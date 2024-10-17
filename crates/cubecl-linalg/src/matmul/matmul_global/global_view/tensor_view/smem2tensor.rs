@@ -2,7 +2,7 @@ use super::TensorView;
 use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::config::{MatmulConfig, PlaneMapper};
 use crate::matmul::matmul_global::{GmmConfig, WriteView};
-use crate::matmul::stage_info::{tile_num_elements, StageInfo};
+use crate::matmul::matrix_layout::TensorIdent;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -15,7 +15,6 @@ pub trait Smem2Tensor {
         smem_slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
-        #[comptime] stage_info: StageInfo,
         #[comptime] slice_line_size: u32,
         #[comptime] config: Self::Config
     );
@@ -44,12 +43,12 @@ impl Smem2Tensor for Smem2TensorSimple {
         slice: &Slice<'_, Line<ES>>,
         row_tile_begin: u32,
         col_tile_begin: u32,
-        #[comptime] stage_info: StageInfo,
         #[comptime] slice_line_size: u32,
         #[comptime] config: Self::Config
     ) {
+        let stage_dim = config.stage_dim(TensorIdent::Out);
         let unit_jump = config.plane_dim() * out.tensor.line_size();
-        let num_unit_writes = tile_num_elements(stage_info) / unit_jump;
+        let num_unit_writes = stage_dim.tile_num_elements() / unit_jump;
         let out_line_size = out.tensor.line_size();
 
         let _ = comptime!(check_line_size(out_line_size, slice_line_size));
@@ -57,8 +56,8 @@ impl Smem2Tensor for Smem2TensorSimple {
         for i in 0..num_unit_writes {
             let unit_write = Self::plane_unit() * out_line_size + i * unit_jump;
 
-            let row = row_tile_begin + unit_write / stage_info.tile_size_y;
-            let col = col_tile_begin + unit_write % stage_info.tile_size_y;
+            let row = row_tile_begin + unit_write / stage_dim.tile_size_y;
+            let col = col_tile_begin + unit_write % stage_dim.tile_size_y;
 
             let value = slice[unit_write / out_line_size];
             TensorView::write_coalesced::<ES>(out, row, col, value);

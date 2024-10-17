@@ -11,6 +11,12 @@ pub trait PlaneMapper {
     fn plane_unit() -> u32;
 }
 
+pub trait MatmulPreConfig {
+    type MatmulConfig: MatmulConfig;
+    type ConfigBuilder: ConfigBuilder<Config = Self::MatmulConfig>;
+    fn into_builder(&self) -> Self::ConfigBuilder;
+}
+
 pub trait MatmulConfig:
     CubeType<ExpandType = Self>
     + Copy
@@ -24,9 +30,8 @@ pub trait MatmulConfig:
     + Hash
     + Debug
 {
-    type ConfigBuilder: ConfigBuilder<Config = Self>;
+    type PreConfig: MatmulPreConfig<MatmulConfig = Self>;
 
-    fn build() -> Self::ConfigBuilder;
     fn num_planes(&self) -> u32;
     fn plane_dim(&self) -> u32;
 }
@@ -34,6 +39,7 @@ pub trait MatmulConfig:
 pub trait ConfigBuilder {
     type Config: MatmulConfig;
 
-    fn from_cube_settings(&self, cube_dim: &CubeDim, cube_count: &CubeCount) -> Self;
-    fn from_problem(&self, problem: &MatmulProblem) -> Self::Config;
+    fn from_cube_settings(self, cube_dim: &CubeDim, cube_count: &CubeCount) -> Self;
+    fn from_problem(self, problem: &MatmulProblem) -> Self;
+    fn into_config(self) -> Self::Config;
 }

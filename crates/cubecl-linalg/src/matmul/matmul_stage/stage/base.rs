@@ -1,7 +1,6 @@
 use crate::matmul::matmul_global::ReadView;
 use crate::matmul::matmul_stage::SmmConfig;
-use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::stage_info::StageInfo;
+use crate::matmul::matrix_layout::{MatrixLayout, TensorIdent};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -14,17 +13,25 @@ pub trait Stage<ES: Numeric>:
 
     fn new(
         layout: MatrixLayout,
-        #[comptime] block_info: StageInfo,
         #[comptime] line_size: u32,
+        #[comptime] ident: TensorIdent,
+        #[comptime] config: Self::Config,
     ) -> Self;
 
     fn fill<EG: Numeric, RV: ReadView<EG, Config = Self::Config>>(
-        stage: &mut Self,
+        self_: &mut Self,
         global: &RV,
-        config: Self::Config,
+        #[comptime] ident: TensorIdent,
+        #[comptime] config: Self::Config,
     );
 
-    fn get_tile(stage: &Self, x: u32, y: u32) -> (&Slice<'_, Line<ES>>, MatrixLayout);
+    fn get_tile(
+        self_: &Self,
+        x: u32,
+        y: u32,
+        #[comptime] ident: TensorIdent,
+        #[comptime] config: Self::Config,
+    ) -> (&Slice<'_, Line<ES>>, MatrixLayout);
 
-    fn layout(stage: &Self) -> MatrixLayout;
+    fn layout(self_: &Self) -> MatrixLayout;
 }

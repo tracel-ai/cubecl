@@ -4,12 +4,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::CmmaStageSize;
-use crate::matmul::cmma_matmul::config::CmmaConfig;
+use crate::matmul::cmma_matmul::config::{CmmaConfig, CmmaPreConfig};
 use crate::matmul::config::PlaneMapper;
 use crate::matmul::launch::stage_matmul_launch;
 use crate::matmul::matmul_stage::{SmmConfig, StageMatmul, StageReader, StageWriter};
 use crate::matmul::matmul_tile::TileMatmul;
-use crate::matmul::stage_info::{StageInfo, StageInfos};
+use crate::matmul::matrix_layout::TensorIdent;
 use crate::matmul::Matmul;
 
 pub struct CmmaStageMatmul<
@@ -35,8 +35,8 @@ where
     Acc: Numeric,
     Tmm: TileMatmul<I, Acc, Config = CmmaConfig>,
     StageSize: CmmaStageSize,
-    Lhs: StageReader<I>,
-    Rhs: StageReader<I>,
+    Lhs: StageReader<I, Config = Self::Config>,
+    Rhs: StageReader<I, Config = Self::Config>,
     Out: StageWriter<O, Config = Self::Config>,
 {
     const M: u32 = StageSize::M;
@@ -44,7 +44,7 @@ where
     const K: u32 = StageSize::K;
     type Accumulator = Sequence<Tmm::Out>;
 
-    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator) {
+    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, config: Self::Config) {
         let num_buffers = StageSize::K / Tmm::K;
 
         let mut instruction_lhs = Tmm::init_lhs(Lhs::slice_layout(lhs));
@@ -52,13 +52,19 @@ where
 
         #[unroll]
         for buffer_iter in 0..num_buffers {
-            let (tile_lhs, _) = Lhs::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32);
+            // TODO remove _
+            let (tile_lhs, _) = Lhs::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32, config);
             Tmm::fill_lhs(tile_lhs, &mut instruction_lhs);
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let (tile_rhs, _) =
-                    Rhs::read_tile(&rhs, Self::plane_id(), buffer_iter, accumulator_iter);
+                let (tile_rhs, _) = Rhs::read_tile(
+                    &rhs,
+                    Self::plane_id(),
+                    buffer_iter,
+                    accumulator_iter,
+                    config,
+                );
                 Tmm::fill_rhs(tile_rhs, &mut instruction_rhs);
 
                 let accumulator = acc.index_mut(accumulator_iter);
@@ -81,7 +87,7 @@ where
 
     fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] config: Self::Config) {
         let line_size = config.out_smem_line_size;
-        let num_tile_lines = Tmm::M * Tmm::N / line_size;
+        let num_tile_lines = config.tile_num_elems(TensorIdent::Out) / line_size;
         let start = num_tile_lines * Self::plane_id();
 
         let mut smem =
@@ -104,42 +110,37 @@ where
     }
 }
 
-impl<I, O, Acc, Tmm, StageSize> Matmul<I, O> for CmmaStageMatmul<I, O, Acc, Tmm, StageSize>
+impl<I, O, Acc, TMM, StageSize> Matmul<I, O> for CmmaStageMatmul<I, O, Acc, TMM, StageSize>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Tmm: TileMatmul<I, Acc, Config = CmmaConfig>,
+    TMM: TileMatmul<I, Acc, Config = CmmaConfig>,
     StageSize: CmmaStageSize,
 {
     type Config = CmmaConfig;
 
-    fn stage_infos() -> StageInfos {
-        StageInfos {
-            lhs: StageInfo {
-                num_tiles_x: StageSize::M / Tmm::M,
-                num_tiles_y: StageSize::K / Tmm::K,
-                tile_size_x: Tmm::M,
-                tile_size_y: Tmm::K,
-            },
-            rhs: StageInfo {
-                num_tiles_x: StageSize::K / Tmm::K,
-                num_tiles_y: StageSize::N / Tmm::N,
-                tile_size_x: Tmm::K,
-                tile_size_y: Tmm::N,
-            },
-            out: StageInfo {
-                num_tiles_x: StageSize::M / Tmm::M,
-                num_tiles_y: StageSize::N / Tmm::N,
-                tile_size_x: Tmm::M,
-                tile_size_y: Tmm::N,
-            },
-        }
+    fn preconfigure() -> CmmaPreConfig {
+        let mut pre_config = TMM::preconfigure();
+
+        pre_config.lhs_num_tiles_x = Some(StageSize::M / TMM::M);
+        pre_config.lhs_num_tiles_y = Some(StageSize::K / TMM::K);
+
+        pre_config.rhs_num_tiles_x = Some(StageSize::K / TMM::K);
+        pre_config.rhs_num_tiles_y = Some(StageSize::N / TMM::N);
+
+        pre_config.out_num_tiles_x = Some(StageSize::M / TMM::M);
+        pre_config.out_num_tiles_y = Some(StageSize::N / TMM::N);
+
+        pre_config
     }
 
     fn check_config(config: Self::Config) {
-        let _ = comptime!(check_num_planes(StageSize::M / Tmm::M, config.num_planes));
-        Tmm::check_config(config.into_tmm_config());
+        let _ = comptime!(check_num_planes(
+            config.stage_dims.lhs.num_tiles_x,
+            config.num_planes
+        ));
+        TMM::check_config(config.into_tmm_config());
     }
 
     unsafe fn launch_unchecked<R: Runtime>(
@@ -160,7 +161,6 @@ where
             rhs,
             out,
             config.layouts,
-            Self::stage_infos(),
             config,
         );
     }

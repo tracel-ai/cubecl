@@ -5,7 +5,7 @@ use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_stage::Stage;
 use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::stage_info::StageInfo;
+use crate::matmul::matrix_layout::TensorIdent;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -37,10 +37,10 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     fn new(
         tensor: Tensor<Line<EG>>,
         #[comptime] layout: MatrixLayout,
-        #[comptime] stage: StageInfo,
+        #[comptime] config: Self::Config,
     ) -> Self {
         let line_size = comptime!(tensor.line_size());
-        let stage = S::new(layout, stage, line_size);
+        let stage = S::new(layout, line_size, TensorIdent::Lhs, config);
         let gmem_view = new_tensor_view(tensor, layout);
 
         LhsTensorLoader::<EG, ES, S> {
@@ -50,20 +50,20 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
         }
     }
 
-    fn fill_stage(loader: &mut Self, config: Self::Config) -> Self::StageReader {
-        S::fill::<EG, Self::ReadView>(&mut loader.stage, &loader.gmem_view, config);
+    fn fill_stage(self_: &mut Self, config: Self::Config) -> Self::StageReader {
+        S::fill::<EG, Self::ReadView>(&mut self_.stage, &self_.gmem_view, TensorIdent::Lhs, config);
         LhsStageReader::<ES, S> {
-            stage: loader.stage,
+            stage: self_.stage,
             _e: PhantomData::<ES>.runtime(),
         }
     }
 
-    fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32) {
-        TensorView::init_view(&mut loader.gmem_view, cube_offset, k_start);
+    fn init_view(self_: &mut Self, cube_offset: u32, k_start: u32) {
+        TensorView::init_view(&mut self_.gmem_view, cube_offset, k_start);
     }
 
-    fn advance_view(loader: &mut Self, k_offset: u32) {
-        TensorView::update_view(&mut loader.gmem_view, 0, k_offset);
+    fn advance_view(self_: &mut Self, k_offset: u32) {
+        TensorView::update_view(&mut self_.gmem_view, 0, k_offset);
     }
 }
 
@@ -78,10 +78,10 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
     fn new(
         tensor: Tensor<Line<EG>>,
         #[comptime] layout: MatrixLayout,
-        #[comptime] stage_info: StageInfo,
+        #[comptime] config: Self::Config,
     ) -> Self {
         let line_size = comptime!(tensor.line_size());
-        let stage = S::new(layout, stage_info, line_size);
+        let stage = S::new(layout, line_size, TensorIdent::Rhs, config);
         let gmem_view = new_tensor_view(tensor, layout);
 
         RhsTensorLoader::<EG, ES, S> {
@@ -91,19 +91,19 @@ impl<EG: Numeric, ES: Numeric, S: Stage<ES, Config = CmmaConfig>> Loader<EG, ES>
         }
     }
 
-    fn fill_stage(loader: &mut Self, config: Self::Config) -> Self::StageReader {
-        S::fill::<EG, Self::ReadView>(&mut loader.stage, &loader.gmem_view, config);
+    fn fill_stage(self_: &mut Self, config: Self::Config) -> Self::StageReader {
+        S::fill::<EG, Self::ReadView>(&mut self_.stage, &self_.gmem_view, TensorIdent::Rhs, config);
         RhsStageReader::<ES, S> {
-            stage: loader.stage,
+            stage: self_.stage,
             _e: PhantomData::<ES>.runtime(),
         }
     }
 
-    fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32) {
-        TensorView::init_view(&mut loader.gmem_view, k_start, cube_offset);
+    fn init_view(self_: &mut Self, cube_offset: u32, k_start: u32) {
+        TensorView::init_view(&mut self_.gmem_view, k_start, cube_offset);
     }
 
-    fn advance_view(loader: &mut Self, k_offset: u32) {
-        TensorView::update_view(&mut loader.gmem_view, k_offset, 0);
+    fn advance_view(self_: &mut Self, k_offset: u32) {
+        TensorView::update_view(&mut self_.gmem_view, k_offset, 0);
     }
 }

@@ -1,20 +1,26 @@
+use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::matmul_stage::Stage;
-use crate::matmul::matrix_layout::MatrixLayout;
+use crate::matmul::matrix_layout::{MatrixLayout, TensorIdent};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
+use super::SmmConfig;
+
 #[cube]
 pub trait StageReader<ES: Numeric>: CubeType {
+    type Config: SmmConfig;
+
     fn read_tile(
-        stage_reader: &Self,
+        self_: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
         accumulator_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> (&Slice<'_, Line<ES>>, MatrixLayout);
 
     // Maybe delete if we don't need layout prior to slice, or if available in config
-    fn slice_layout(stage_reader: &Self) -> MatrixLayout;
+    fn slice_layout(self_: &Self) -> MatrixLayout;
 }
 
 #[derive(CubeType)]
@@ -30,33 +36,51 @@ pub struct RhsStageReader<ES: Numeric, S: Stage<ES>> {
 }
 
 #[cube]
-impl<ES: Numeric, S: Stage<ES>> StageReader<ES> for LhsStageReader<ES, S> {
+impl<ES: Numeric, S: Stage<ES, Config = CmmaConfig>> StageReader<ES> for LhsStageReader<ES, S> {
+    type Config = CmmaConfig;
+
     fn read_tile(
-        reader: &Self,
+        self_: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
         _accumulator_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> (&Slice<'_, Line<ES>>, MatrixLayout) {
-        S::get_tile(&reader.stage, compute_plane_offset, buffer_offset)
+        S::get_tile(
+            &self_.stage,
+            compute_plane_offset,
+            buffer_offset,
+            TensorIdent::Lhs,
+            config,
+        )
     }
 
-    fn slice_layout(reader: &Self) -> MatrixLayout {
-        S::layout(&reader.stage)
+    fn slice_layout(self_: &Self) -> MatrixLayout {
+        S::layout(&self_.stage)
     }
 }
 
 #[cube]
-impl<ES: Numeric, S: Stage<ES>> StageReader<ES> for RhsStageReader<ES, S> {
+impl<ES: Numeric, S: Stage<ES, Config = CmmaConfig>> StageReader<ES> for RhsStageReader<ES, S> {
+    type Config = CmmaConfig;
+
     fn read_tile(
-        reader: &Self,
+        self_: &Self,
         _compute_plane_offset: u32,
         buffer_offset: u32,
         accumulator_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> (&Slice<'_, Line<ES>>, MatrixLayout) {
-        S::get_tile(&reader.stage, buffer_offset, accumulator_offset)
+        S::get_tile(
+            &self_.stage,
+            buffer_offset,
+            accumulator_offset,
+            TensorIdent::Rhs,
+            config,
+        )
     }
 
-    fn slice_layout(reader: &Self) -> MatrixLayout {
-        S::layout(&reader.stage)
+    fn slice_layout(self_: &Self) -> MatrixLayout {
+        S::layout(&self_.stage)
     }
 }

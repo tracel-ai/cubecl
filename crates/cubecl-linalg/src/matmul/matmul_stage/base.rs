@@ -20,7 +20,7 @@ pub trait StageMatmul<
 
     type Accumulator: CubeType;
 
-    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator);
+    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     fn acc_init_zeros() -> Self::Accumulator;
     fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] config: Self::Config);

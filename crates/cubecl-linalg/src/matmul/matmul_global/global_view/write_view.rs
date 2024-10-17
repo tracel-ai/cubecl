@@ -2,7 +2,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::matmul_global::GmmConfig;
-use crate::matmul::stage_info::StageInfo;
 
 #[cube]
 pub trait WriteView<E: Numeric>: CubeType {
@@ -21,7 +20,6 @@ pub trait WriteView<E: Numeric>: CubeType {
         slice: &Slice<'_, Line<ES>>,
         write_row: u32,
         write_col: u32,
-        #[comptime] stage_info: StageInfo,
         #[comptime] slice_tile_size: u32,
         #[comptime] config: Self::Config,
     );

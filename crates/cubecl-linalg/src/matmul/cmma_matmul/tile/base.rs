@@ -1,10 +1,9 @@
 use super::implementation::*;
-use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::config::MatmulConfig;
+use crate::matmul::cmma_matmul::config::{CmmaConfig, CmmaPreConfig};
 use crate::matmul::launch::matmul_instruction_launch;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::stage_info::{StageInfo, StageInfos};
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
@@ -77,27 +76,16 @@ macro_rules! impl_matmul_instruction {
             (I, O): CmmaValid<I, O>,
         {
             type Config = CmmaConfig;
-
-            fn stage_infos() -> StageInfos {
-                StageInfos {
-                    lhs: StageInfo {
-                        num_tiles_x: 1,
-                        num_tiles_y: 1,
-                        tile_size_x: $m,
-                        tile_size_y: $k,
-                    },
-                    rhs: StageInfo {
-                        num_tiles_x: 1,
-                        num_tiles_y: 1,
-                        tile_size_x: $k,
-                        tile_size_y: $n,
-                    },
-                    out: StageInfo {
-                        num_tiles_x: 1,
-                        num_tiles_y: 1,
-                        tile_size_x: $m,
-                        tile_size_y: $n,
-                    },
+            
+            fn preconfigure() -> CmmaPreConfig {
+                CmmaPreConfig {
+                    lhs_tile_size_x: $m,
+                    lhs_tile_size_y: $k,
+                    rhs_tile_size_x: $k,
+                    rhs_tile_size_y: $n,
+                    out_tile_size_x: $m,
+                    out_tile_size_y: $n,
+                    ..Default::default()
                 }
             }
 

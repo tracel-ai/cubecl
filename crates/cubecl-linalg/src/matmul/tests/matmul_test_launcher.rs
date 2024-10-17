@@ -1,6 +1,8 @@
 use cubecl_core::prelude::*;
 use cubecl_core::CubeElement;
 
+use crate::matmul::config::ConfigBuilder;
+use crate::matmul::config::MatmulPreConfig;
 use crate::matmul::matrix_layout::MatrixLayout;
 use crate::matmul::problem::MatmulProblem;
 use crate::matmul::Matmul;
@@ -8,7 +10,6 @@ use crate::matmul::Matmul;
 use super::test_utils::assert_equals_approx;
 use super::test_utils::generate_random_data;
 use super::test_utils::matmul_cpu_reference;
-use crate::matmul::config::{ConfigBuilder, MatmulConfig};
 
 pub fn test_matmul<MM, I, O, R>(problem: MatmulProblem, num_planes: u32, device: &R::Device)
 where
@@ -46,9 +47,11 @@ where
 
     let cube_dim = CubeDim::new(32, num_planes, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
-    let config = MM::Config::build()
+    let config = MM::preconfigure()
+        .into_builder()
         .from_cube_settings(&cube_dim, &cube_count)
-        .from_problem(&problem);
+        .from_problem(&problem)
+        .into_config();
 
     unsafe {
         MM::launch_unchecked(

@@ -1,13 +1,11 @@
 use cubecl_core::prelude::*;
 
 use super::config::MatmulConfig;
-use super::stage_info::StageInfos;
 
 pub trait Matmul<I: Numeric, O: Numeric> {
     type Config: MatmulConfig;
 
-    // TODO Can it migrate to config
-    fn stage_infos() -> StageInfos;
+    fn preconfigure() -> <Self::Config as MatmulConfig>::PreConfig;
 
     fn check_config(config: Self::Config);
 

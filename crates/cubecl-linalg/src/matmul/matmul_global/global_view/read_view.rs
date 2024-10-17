@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::TilingOrder;
-use crate::matmul::stage_info::StageInfo;
+use crate::matmul::matrix_layout::TensorIdent;
 
 #[cube]
 pub trait ReadView<E: Numeric>: CubeType {
@@ -22,7 +22,7 @@ pub trait ReadView<E: Numeric>: CubeType {
     fn load_shared_memory<ES: Numeric, O: TilingOrder>(
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
-        #[comptime] stage_info: StageInfo,
+        #[comptime] ident: TensorIdent,
         #[comptime] config: Self::Config,
     );
 

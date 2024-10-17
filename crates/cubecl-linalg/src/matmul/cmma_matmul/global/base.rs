@@ -1,9 +1,8 @@
-use crate::matmul::cmma_matmul::config::CmmaConfig;
+use crate::matmul::cmma_matmul::config::{CmmaConfig, CmmaPreConfig};
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader, Unloader};
 use crate::matmul::matmul_global::{GmmConfig, TensorView};
 use crate::matmul::matmul_stage::StageMatmul;
-use crate::matmul::stage_info::StageInfos;
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -66,6 +65,7 @@ impl<
                 &Lhs::fill_stage(&mut lhs_loader, config),
                 &Rhs::fill_stage(&mut rhs_loader, config),
                 &mut acc,
+                config
             );
 
             Lhs::advance_view(&mut lhs_loader, k_step);
@@ -94,8 +94,8 @@ impl<
 {
     type Config = CmmaConfig;
 
-    fn stage_infos() -> StageInfos {
-        SMM::stage_infos()
+    fn preconfigure() -> CmmaPreConfig {
+        SMM::preconfigure()
     }
 
     fn check_config(config: Self::Config) {
@@ -120,7 +120,6 @@ impl<
             rhs,
             out,
             config.layouts,
-            Self::stage_infos(),
             config,
         );
     }

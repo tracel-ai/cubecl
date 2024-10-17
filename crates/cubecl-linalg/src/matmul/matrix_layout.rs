@@ -2,6 +2,13 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum TensorIdent {
+    Lhs,
+    Rhs,
+    Out,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum MatrixLayout {
     RowMajor,
     ColMajor,

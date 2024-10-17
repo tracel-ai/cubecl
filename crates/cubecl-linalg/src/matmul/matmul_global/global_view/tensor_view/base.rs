@@ -4,8 +4,7 @@ use crate::matmul::matmul_global::global_view::tensor_view::smem2tensor::{
 };
 use crate::matmul::matmul_global::{Gmem2SmemContinuous, ReadView, SharedMemoryLoader, WriteView};
 use crate::matmul::matmul_stage::TilingOrder;
-use crate::matmul::matrix_layout::MatrixLayout;
-use crate::matmul::stage_info::StageInfo;
+use crate::matmul::matrix_layout::{MatrixLayout, TensorIdent};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -59,7 +58,7 @@ impl<EG: Numeric> ReadView<EG> for TensorView<EG> {
     fn load_shared_memory<ES: Numeric, O: TilingOrder>(
         view: &Self,
         shared_memory: &mut SharedMemory<Line<ES>>,
-        #[comptime] stage_info: StageInfo,
+        #[comptime] ident: TensorIdent,
         #[comptime] config: Self::Config,
     ) {
         // TODO allow other modes than Gmem2SmemContinuous
@@ -67,7 +66,7 @@ impl<EG: Numeric> ReadView<EG> for TensorView<EG> {
             view,
             shared_memory,
             view.tensor.line_size(),
-            stage_info,
+            ident,
             config,
         );
     }
@@ -107,7 +106,6 @@ impl<EG: Numeric> WriteView<EG> for TensorView<EG> {
         slice: &Slice<'_, Line<ES>>,
         write_x: u32,
         write_y: u32,
-        #[comptime] stage_info: StageInfo,
         #[comptime] slice_line_size: u32,
         #[comptime] config: Self::Config,
     ) {
@@ -116,7 +114,6 @@ impl<EG: Numeric> WriteView<EG> for TensorView<EG> {
             slice,
             write_x,
             write_y,
-            stage_info,
             slice_line_size,
             config,
         );
