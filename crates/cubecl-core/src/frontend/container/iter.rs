@@ -35,14 +35,14 @@ impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
         let item = index::expand(&mut child, self, i.clone().into());
         body(&mut child, item);
 
-        context.register(Branch::RangeLoop(RangeLoop {
+        context.register(Branch::RangeLoop(Box::new(RangeLoop {
             i: *i,
             start: 0u32.into(),
             end: *len,
             step: None,
             inclusive: false,
             scope: child.into_scope(),
-        }));
+        })));
     }
 
     fn expand_unroll(
