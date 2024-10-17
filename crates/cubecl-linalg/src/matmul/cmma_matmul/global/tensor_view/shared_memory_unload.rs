@@ -7,10 +7,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub trait Smem2Tensor {
+pub trait SharedMemoryUnloader {
     type Config: GmmConfig;
 
-    fn smem_to_tensor<E: Numeric, ES: Numeric>(
+    fn unload_shared_memory<E: Numeric, ES: Numeric>(
         out: &mut TensorView<E>,
         smem_slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
@@ -20,10 +20,10 @@ pub trait Smem2Tensor {
 }
 
 #[derive(CubeType)]
-pub struct Smem2TensorSimple {}
+pub struct SimpleSmemUnloader {}
 
 #[cube]
-impl PlaneMapper for Smem2TensorSimple {
+impl PlaneMapper for SimpleSmemUnloader {
     fn plane_id() -> u32 {
         UNIT_POS_Y
     }
@@ -34,12 +34,12 @@ impl PlaneMapper for Smem2TensorSimple {
 }
 
 #[cube]
-impl Smem2Tensor for Smem2TensorSimple {
+impl SharedMemoryUnloader for SimpleSmemUnloader {
     type Config = CmmaConfig;
 
-    fn smem_to_tensor<E: Numeric, ES: Numeric>(
+    fn unload_shared_memory<E: Numeric, ES: Numeric>(
         out: &mut TensorView<E>,
-        slice: &Slice<'_, Line<ES>>,
+        smem_slice: &Slice<'_, Line<ES>>,
         row_tile_begin: u32,
         col_tile_begin: u32,
         #[comptime] config: Self::Config
@@ -59,7 +59,7 @@ impl Smem2Tensor for Smem2TensorSimple {
             let row = row_tile_begin + unit_write / stage_dim.tile_size_y;
             let col = col_tile_begin + unit_write % stage_dim.tile_size_y;
 
-            let value = slice[unit_write / out_line_size];
+            let value = smem_slice[unit_write / out_line_size];
             TensorView::write_coalesced::<ES>(out, row, col, value);
         }
     }
@@ -70,5 +70,4 @@ fn check_line_size(out_line_size: u32, slice_line_size: u32) {
         "Error: Expected global output and output shared memory to have equal line size, but found out_line_size = {} and slice_line_size = {}.",
         out_line_size, slice_line_size
     );
-    
 }

@@ -1,10 +1,11 @@
-use crate::matmul::matmul_global::new_tensor_view;
-use crate::matmul::matmul_global::TensorView;
-use crate::matmul::matmul_stage::TensorWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::Unloader;
+use crate::matmul::cmma_matmul::global::new_tensor_view;
+use crate::matmul::cmma_matmul::stage::OutStageWriter;
+use crate::matmul::matmul_global::Unloader;
+
+use super::TensorView;
 
 #[derive(CubeType)]
 pub struct TensorUnloader<E: Numeric> {
@@ -14,7 +15,7 @@ pub struct TensorUnloader<E: Numeric> {
 #[cube]
 impl<E: Numeric> Unloader<E> for TensorUnloader<E> {
     type WriteView = TensorView<E>;
-    type StageWriter = TensorWriter<E>;
+    type StageWriter = OutStageWriter<E>;
 
     fn new(tensor: Tensor<Line<E>>) -> Self {
         let view = new_tensor_view(tensor);
@@ -22,7 +23,7 @@ impl<E: Numeric> Unloader<E> for TensorUnloader<E> {
     }
 
     fn unload(unloader: Self) -> Self::StageWriter {
-        TensorWriter::<E> {
+        OutStageWriter::<E> {
             tensor_view: unloader.view,
         }
     }

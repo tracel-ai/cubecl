@@ -1,7 +1,6 @@
-use super::base::Stage;
-use super::TilingOrder;
 use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::matmul_global::ReadView;
+use crate::matmul::matmul_stage::{Stage, TilingOrder};
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

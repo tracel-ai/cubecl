@@ -1,12 +1,10 @@
 use crate::matmul::cmma_matmul::config::CmmaConfig;
 use crate::matmul::config::{MatmulConfig, PlaneMapper};
-use crate::matmul::matmul_global::GmmConfig;
+use crate::matmul::matmul_global::{GmmConfig, ReadView};
 use crate::matmul::matmul_stage::TilingOrder;
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::ReadView;
 
 #[cube]
 pub trait SharedMemoryLoader: Clone + Copy + Send + Sync + 'static {
@@ -26,10 +24,10 @@ pub trait SharedMemoryLoader: Clone + Copy + Send + Sync + 'static {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Gmem2SmemContinuous {}
+pub struct ContinuousSmemLoader {}
 
 #[cube]
-impl PlaneMapper for Gmem2SmemContinuous {
+impl PlaneMapper for ContinuousSmemLoader {
     fn plane_id() -> u32 {
         UNIT_POS_Y
     }
@@ -40,7 +38,7 @@ impl PlaneMapper for Gmem2SmemContinuous {
 }
 
 #[cube]
-impl SharedMemoryLoader for Gmem2SmemContinuous {
+impl SharedMemoryLoader for ContinuousSmemLoader {
     type Config = CmmaConfig;
 
     fn load_shared_memory<
@@ -74,16 +72,8 @@ impl SharedMemoryLoader for Gmem2SmemContinuous {
             let (tile_x, tile_y) =
                 O::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y);
 
-            let line = RV::load_coalesced(
-                read_view,
-                tile_x,
-                tile_y,
-                pos_within_tile,
-                stage_dim.tile_size_x,
-                stage_dim.tile_size_y,
-                ident,
-                config,
-            );
+            let line =
+                RV::load_coalesced(read_view, tile_x, tile_y, pos_within_tile, ident, config);
 
             smem[unit_position / line_size] = Line::cast_from(line);
         }

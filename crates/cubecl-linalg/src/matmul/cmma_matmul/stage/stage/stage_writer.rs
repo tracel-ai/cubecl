@@ -2,21 +2,22 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma_matmul::config::CmmaConfig;
-use crate::matmul::matmul_global::{TensorView, WriteView};
+use crate::matmul::cmma_matmul::global::TensorView;
+use crate::matmul::matmul_global::WriteView;
 use crate::matmul::matmul_stage::StageWriter;
 
 #[derive(CubeType)]
-pub struct TensorWriter<EG: Numeric> {
+pub struct OutStageWriter<EG: Numeric> {
     pub tensor_view: TensorView<EG>,
 }
 
 #[cube]
-pub(crate) fn new_tensor_writer<EG: Numeric>(tensor_view: TensorView<EG>) -> TensorWriter<EG> {
-    TensorWriter::<EG> { tensor_view }
+pub(crate) fn new_tensor_writer<EG: Numeric>(tensor_view: TensorView<EG>) -> OutStageWriter<EG> {
+    OutStageWriter::<EG> { tensor_view }
 }
 
 #[cube]
-impl<EG: Numeric> StageWriter<EG> for TensorWriter<EG> {
+impl<EG: Numeric> StageWriter<EG> for OutStageWriter<EG> {
     type Config = CmmaConfig;
 
     fn write<ES: Numeric>(

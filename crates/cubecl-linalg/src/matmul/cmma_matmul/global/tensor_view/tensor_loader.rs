@@ -1,15 +1,14 @@
 use crate::matmul::cmma_matmul::config::CmmaConfig;
-use crate::matmul::matmul_global::new_tensor_view;
-use crate::matmul::matmul_global::ReadView;
-use crate::matmul::matmul_global::TensorView;
+use crate::matmul::cmma_matmul::global::new_tensor_view;
+use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader};
+use crate::matmul::matmul_global::{Loader, ReadView};
 use crate::matmul::matmul_stage::Stage;
-use crate::matmul::matmul_stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::Loader;
+use super::TensorView;
 
 #[derive(CubeType)]
 pub struct LhsTensorLoader<EG: Numeric, ES: Numeric, S: Stage<ES>> {

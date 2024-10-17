@@ -1,14 +1,8 @@
+use crate::matmul::cmma_matmul::stage::SharedMemoryStage;
+use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::matmul_global::GlobalMatmul;
-use crate::matmul::matmul_global::LhsTensorLoader;
-use crate::matmul::matmul_global::RhsTensorLoader;
-use crate::matmul::matmul_global::TensorUnloader;
-use crate::matmul::matmul_global::TensorView;
 use crate::matmul::matmul_global::{Loader, Unloader};
-use crate::matmul::matmul_stage::LhsStageReader;
-use crate::matmul::matmul_stage::RhsStageReader;
-use crate::matmul::matmul_stage::SharedMemoryStage;
 use crate::matmul::matmul_stage::StageMatmul;
-use crate::matmul::matmul_stage::TensorWriter;
 use crate::matmul::matmul_stage::XMajorTiling;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix::MatrixLayout;
@@ -16,6 +10,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::cmma_matmul::config::CmmaConfig;
+use super::cmma_matmul::global::{LhsTensorLoader, RhsTensorLoader, TensorUnloader, TensorView};
+use super::cmma_matmul::stage::OutStageWriter;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul_instruction_launch<M: TileMatmul<I, O>, I: Numeric, O: Numeric>(
@@ -44,7 +40,7 @@ pub(crate) fn stage_matmul_launch<
         O,
         LhsStageReader<I, SharedMemoryStage<I, XMajorTiling>>,
         RhsStageReader<I, SharedMemoryStage<I, XMajorTiling>>,
-        TensorWriter<O>,
+        OutStageWriter<O>,
         Config = CmmaConfig,
     >,
 >(

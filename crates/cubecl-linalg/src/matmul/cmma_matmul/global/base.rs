@@ -1,12 +1,14 @@
 use crate::matmul::cmma_matmul::config::{CmmaConfig, CmmaPreConfig};
 use crate::matmul::launch::cube_matmul_launch;
+use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader, Unloader};
-use crate::matmul::matmul_global::{GmmConfig, TensorView};
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
+
+use super::TensorView;
 
 pub struct CmmaGlobalMatmul<
     EG: Numeric,
