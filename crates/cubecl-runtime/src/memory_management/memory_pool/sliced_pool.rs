@@ -161,7 +161,7 @@ impl MemoryPool for SlicedPool {
         }
     }
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, _storage: &mut Storage) {
+    fn cleanup<Storage: ComputeStorage>(&mut self, _storage: &mut Storage, _alloc_nr: u64) {
         // This pool doesn't do any shrinking currently.
     }
 }

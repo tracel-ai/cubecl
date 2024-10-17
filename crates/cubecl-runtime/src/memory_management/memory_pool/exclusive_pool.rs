@@ -4,7 +4,7 @@ use crate::{
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
 use alloc::vec::Vec;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
 /// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
 ///
@@ -12,12 +12,59 @@ use hashbrown::HashMap;
 ///   either read only or read_write slices but not a mix of both.
 /// - The pool uses a ring buffer to efficiently manage and reuse pages.
 pub struct ExclusiveMemoryPool {
-    pages: HashMap<StorageId, SliceId>,
+    pages: HashMap<StorageId, MemoryPage>,
     slices: HashMap<SliceId, Slice>,
     ring_buffer: Vec<StorageId>,
     index: usize,
     max_page_size: usize,
     alignment: usize,
+    dealloc_period: u64,
+    last_dealloc: u64,
+}
+
+struct MemoryPage {
+    slice_id: SliceId,
+    dealloc_mark: bool,
+}
+
+impl ExclusiveMemoryPool {
+    pub(crate) fn new(page_size: usize, alignment: usize, dealloc_period: u64) -> Self {
+        // Pages should be allocated to be aligned.
+        assert_eq!(page_size % alignment, 0);
+        Self {
+            pages: HashMap::new(),
+            slices: HashMap::new(),
+            ring_buffer: Vec::new(),
+            index: 0,
+            max_page_size: page_size,
+            alignment,
+            dealloc_period,
+            last_dealloc: 0,
+        }
+    }
+
+    /// Finds a free page that can contain the given size
+    /// Returns a slice on that page if sucessfull.
+    fn get_free_page(&mut self, locked: Option<&MemoryLock>) -> Option<SliceId> {
+        for _ in 0..self.ring_buffer.len() {
+            let storage_id = &self.ring_buffer[self.index];
+            if let Some(locked) = locked.as_ref() {
+                if locked.is_locked(storage_id) {
+                    continue;
+                }
+            }
+
+            let page = self.pages.get_mut(storage_id).unwrap();
+            page.dealloc_mark = false;
+            let slice = self.slices.get(&page.slice_id).unwrap();
+            self.index = (self.index + 1) % self.ring_buffer.len();
+            if slice.handle.is_free() {
+                return Some(page.slice_id);
+            }
+        }
+
+        None
+    }
 }
 
 impl MemoryPool for ExclusiveMemoryPool {
@@ -38,7 +85,7 @@ impl MemoryPool for ExclusiveMemoryPool {
     ) -> SliceHandle {
         let page = self.get_free_page(exclude);
         let slice_id = if let Some(page) = page {
-            *page
+            page
         } else {
             *self.alloc(storage, self.max_page_size).id()
         };
@@ -66,7 +113,13 @@ impl MemoryPool for ExclusiveMemoryPool {
 
         let handle_slice = slice.handle.clone();
         let slice_id = *slice.handle.id();
-        self.pages.insert(storage.id, slice_id);
+        self.pages.insert(
+            storage.id,
+            MemoryPage {
+                slice_id,
+                dealloc_mark: false,
+            },
+        );
         self.slices.insert(slice_id, slice);
         handle_slice
     }
@@ -90,68 +143,47 @@ impl MemoryPool for ExclusiveMemoryPool {
         self.max_page_size
     }
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage) {
-        let remove: Vec<_> = self
+    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
+        let elapsed = alloc_nr - self.last_dealloc;
+
+        if elapsed < self.dealloc_period {
+            return;
+        }
+
+        self.last_dealloc = alloc_nr;
+
+        let deallocations: HashSet<_> = self
             .pages
-            .iter()
-            .filter_map(|(storage_id, slice_id)| {
-                let slice = self.slices.get(slice_id).unwrap();
+            .iter_mut()
+            .filter_map(|(storage_id, page)| {
+                let slice = self.slices.get(&page.slice_id).unwrap();
 
                 if slice.is_free() {
-                    Some(*storage_id)
+                    // If not marked yet the memory might just have been freed.
+                    if !page.dealloc_mark {
+                        page.dealloc_mark = true;
+                        None
+                    } else {
+                        Some(*storage_id)
+                    }
                 } else {
                     None
                 }
             })
             .collect();
 
-        for storage_id in remove.iter() {
-            let slice_id = self.pages[storage_id];
-            self.pages.remove(storage_id);
-            self.slices.remove(&slice_id);
-            storage.dealloc(*storage_id);
-        }
+        // Perform any deallocations if necesarry.
+        if !deallocations.is_empty() {
+            for storage_id in deallocations.iter() {
+                let slice_id = self.pages[storage_id].slice_id;
+                self.pages.remove(storage_id);
+                self.slices.remove(&slice_id);
+                storage.dealloc(*storage_id);
+            }
 
-        if !remove.is_empty() {
             self.index = 0;
-            self.ring_buffer.retain(|storage| !remove.contains(storage));
+            self.ring_buffer
+                .retain(|storage| !deallocations.contains(storage));
         }
-    }
-}
-
-impl ExclusiveMemoryPool {
-    pub(crate) fn new(page_size: usize, alignment: usize) -> Self {
-        // Pages should be allocated to be aligned.
-        assert_eq!(page_size % alignment, 0);
-        Self {
-            pages: HashMap::new(),
-            slices: HashMap::new(),
-            ring_buffer: Vec::new(),
-            index: 0,
-            max_page_size: page_size,
-            alignment,
-        }
-    }
-
-    /// Finds a free page that can contain the given size
-    /// Returns a slice on that page if sucessfull.
-    fn get_free_page(&mut self, locked: Option<&MemoryLock>) -> Option<&SliceId> {
-        for _ in 0..self.ring_buffer.len() {
-            let storage_id = &self.ring_buffer[self.index];
-            if let Some(locked) = locked.as_ref() {
-                if locked.is_locked(storage_id) {
-                    continue;
-                }
-            }
-
-            let page = self.pages.get(storage_id).unwrap();
-            let slice = self.slices.get(page).unwrap();
-            self.index = (self.index + 1) % self.ring_buffer.len();
-            if slice.handle.is_free() {
-                return Some(page);
-            }
-        }
-
-        None
     }
 }
