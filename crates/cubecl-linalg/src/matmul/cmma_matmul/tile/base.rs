@@ -1,7 +1,5 @@
 use super::implementation::*;
-use crate::matmul::config::MatmulConfig;
-use crate::matmul::cmma_matmul::config::{CmmaConfig, CmmaPreConfig};
-use crate::matmul::launch::matmul_instruction_launch;
+use crate::matmul::matmul_tile::TmmConfig;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::Matmul;
@@ -24,13 +22,14 @@ pub struct Fragment<T: Numeric> {
 
 macro_rules! impl_matmul_instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
-        pub struct $name<I: Numeric, O: Numeric> {
+        pub struct $name<I: Numeric, O: Numeric, T: TmmConfig> {
             _input: PhantomData<I>,
             _output: PhantomData<O>,
+            _config: PhantomData<T>,
         }
 
         #[cube]
-        impl<I: Numeric, O: Numeric> TileMatmul<I, O> for $name<I, O>
+        impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O> for $name<I, O, T>
         where
             (I, O): CmmaValid<I, O>,
         {
@@ -71,48 +70,48 @@ macro_rules! impl_matmul_instruction {
             }
         }
 
-        impl<I: Numeric, O: Numeric> Matmul<I, O> for $name<I, O>
+        impl<I: Numeric, O: Numeric, T: TmmConfig> Matmul<I, O> for $name<I, O, T>
         where
             (I, O): CmmaValid<I, O>,
         {
-            type Config = CmmaConfig;
+            type Config = T;
             
-            fn preconfigure() -> CmmaPreConfig {
-                CmmaPreConfig {
-                    lhs_tile_size_x: $m,
-                    lhs_tile_size_y: $k,
-                    rhs_tile_size_x: $k,
-                    rhs_tile_size_y: $n,
-                    out_tile_size_x: $m,
-                    out_tile_size_y: $n,
-                    ..Default::default()
-                }
-            }
+            // fn preconfigure() -> CmmaPreConfig {
+            //     CmmaPreConfig {
+            //         lhs_tile_size_x: $m,
+            //         lhs_tile_size_y: $k,
+            //         rhs_tile_size_x: $k,
+            //         rhs_tile_size_y: $n,
+            //         out_tile_size_x: $m,
+            //         out_tile_size_y: $n,
+            //         ..Default::default()
+            //     }
+            // }
 
             fn check_config(config: Self::Config) {
                 let _ = comptime!(check_plane_dim(config.plane_dim()));
             }
 
-            unsafe fn launch_unchecked<R: Runtime>(
-                client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
-                cube_dim: CubeDim,
-                cube_count: CubeCount,
-                lhs: TensorArg<'_, R>,
-                rhs: TensorArg<'_, R>,
-                out: TensorArg<'_, R>,
-                config: CmmaConfig,
-            ) {
-                Self::check_config(config);
-                matmul_instruction_launch::launch_unchecked::<Self, I, O, R>(
-                    &client,
-                    cube_count,
-                    cube_dim,
-                    lhs,
-                    rhs,
-                    out,
-                    config.layouts,
-                );
-            }
+            // unsafe fn launch_unchecked<R: Runtime>(
+            //     client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+            //     cube_dim: CubeDim,
+            //     cube_count: CubeCount,
+            //     lhs: TensorArg<'_, R>,
+            //     rhs: TensorArg<'_, R>,
+            //     out: TensorArg<'_, R>,
+            //     config: CmmaConfig,
+            // ) {
+            //     Self::check_config(config);
+            //     matmul_instruction_launch::launch_unchecked::<Self, I, O, R>(
+            //         &client,
+            //         cube_count,
+            //         cube_dim,
+            //         lhs,
+            //         rhs,
+            //         out,
+            //         config.layouts,
+            //     );
+            // }
         }
     };
 }

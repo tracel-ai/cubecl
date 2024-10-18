@@ -9,10 +9,11 @@ use super::{GmmConfig, Loader, Unloader};
 pub trait GlobalMatmul<
     EG: Numeric,
     ES: Numeric,
-    Lhs: Loader<EG, ES>,
-    Rhs: Loader<EG, ES>,
-    Out: Unloader<EG>,
->: 'static + Send + Sync + Matmul<EG, EG, Config: GmmConfig>
+    Lhs: Loader<EG, ES, G>,
+    Rhs: Loader<EG, ES, G>,
+    Out: Unloader<EG, G>,
+    G: GmmConfig,
+>: 'static + Send + Sync + Matmul<EG, EG, Config = G>
 {
     fn execute(
         lhs_loader: Lhs,

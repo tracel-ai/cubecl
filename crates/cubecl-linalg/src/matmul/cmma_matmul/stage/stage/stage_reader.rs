@@ -1,36 +1,36 @@
-use crate::matmul::cmma_matmul::stage::CmmaStageMatmulConfig;
-use crate::matmul::matmul_stage::{Stage, StageReader};
-use crate::matmul::matmul_tile::TmmConfig;
+use std::marker::PhantomData;
+
+use crate::matmul::cmma_matmul::stage::get_tile;
+use crate::matmul::matmul_stage::{SmmConfig, StageReader};
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use std::marker::PhantomData;
 
-use super::Stage;
+use super::SharedMemoryStage;
 
 #[derive(CubeType)]
-pub struct LhsStageReader<ES: Numeric> {
-    pub stage: Stage,
-    pub _e: PhantomData<ES>,
+pub struct LhsStageReader<ES: Numeric, S: SmmConfig> {
+    pub stage: SharedMemoryStage<ES>,
+    pub _config: PhantomData<S>,
 }
 
 #[derive(CubeType)]
-pub struct RhsStageReader<ES: Numeric> {
-    pub stage: Stage,
-    pub _e: PhantomData<ES>,
+pub struct RhsStageReader<ES: Numeric, S: SmmConfig> {
+    pub stage: SharedMemoryStage<ES>,
+    pub _config: PhantomData<S>,
 }
 
 #[cube]
-impl<ES: Numeric> StageReader<ES> for LhsStageReader<ES> {
-    fn read_tile<T: TmmConfig>(
-        self_: &Self,
+impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for LhsStageReader<ES, S> {
+    fn read_tile(
+        this: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
         _accumulator_offset: u32,
-        #[comptime] config: CmmaStageMatmulConfig<T>,
+        #[comptime] config: S,
     ) -> &Slice<'_, Line<ES>> {
-        S::get_tile(
-            &self_.stage,
+        get_tile::<ES, S>(
+            &this.stage,
             compute_plane_offset,
             buffer_offset,
             Ident::Lhs,
@@ -40,18 +40,16 @@ impl<ES: Numeric> StageReader<ES> for LhsStageReader<ES> {
 }
 
 #[cube]
-impl<ES: Numeric, S: Stage<ES>> StageReader<ES> for RhsStageReader<ES, S> {
-    type Config = S::Config;
-
+impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for RhsStageReader<ES, S> {
     fn read_tile(
-        self_: &Self,
+        this: &Self,
         _compute_plane_offset: u32,
         buffer_offset: u32,
         accumulator_offset: u32,
-        #[comptime] config: Self::Config,
+        #[comptime] config: S,
     ) -> &Slice<'_, Line<ES>> {
-        S::get_tile(
-            &self_.stage,
+        get_tile::<ES, S>(
+            &this.stage,
             buffer_offset,
             accumulator_offset,
             Ident::Rhs,

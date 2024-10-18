@@ -1,72 +1,61 @@
 use crate::matmul::cmma_matmul::stage::{LhsStageReader, OutStageWriter, RhsStageReader};
-use crate::matmul::config::{ComptimeConfig, MatmulConfig};
 use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader};
 use crate::matmul::matmul_global::{GmmConfig, Unloader};
 use crate::matmul::matmul_stage::{SmmConfig, StageMatmul};
-use crate::matmul::Matmul;
+use crate::matmul::{Matmul, MatmulLaunch};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::{LhsTensorLoader, RhsTensorLoader, TensorUnloader};
+use super::{CmmaGlobalMatmulConfig, LhsTensorLoader, RhsTensorLoader, TensorUnloader};
 
 pub struct CmmaGlobalMatmul<
     EG: Numeric,
     ES: Numeric,
-    SMM: StageMatmul<ES, EG, LhsStageReader<ES>, RhsStageReader<ES>, OutStageWriter<EG>>,
+    SMM: StageMatmul<
+        ES,
+        EG,
+        LhsStageReader<ES, G::SmmConfig>,
+        RhsStageReader<ES, G::SmmConfig>,
+        OutStageWriter<EG>,
+        G::SmmConfig,
+    >,
+    G: GmmConfig,
 > {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _stage_matmul: PhantomData<SMM>,
-}
-
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct CmmaGlobalMatmulConfig<S: SmmConfig> {
-    smm_config: S,
-}
-
-impl<S: SmmConfig> ComptimeConfig for CmmaGlobalMatmulConfig<S> {}
-
-impl<S: SmmConfig> GmmConfig for CmmaGlobalMatmulConfig<S> {
-    type SmmConfig = S;
-
-    fn to_smm_config(&self) -> Self::SmmConfig {
-        self.smm_config
-    }
-}
-
-impl<S: SmmConfig> MatmulConfig for CmmaGlobalMatmulConfig<S> {
-    fn num_planes(&self) -> u32 {
-        todo!()
-    }
-
-    fn plane_dim(&self) -> u32 {
-        todo!()
-    }
-
-    fn default(
-        cube_dim: CubeDim,
-        cube_count: CubeCount,
-        problem: crate::matmul::problem::MatmulProblem,
-    ) {
-        todo!()
-    }
+    _config: PhantomData<G>,
 }
 
 #[cube]
-impl<EG, ES, SMM>
-    GlobalMatmul<EG, ES, LhsTensorLoader<EG, ES>, RhsTensorLoader<EG, ES>, TensorUnloader<EG>>
-    for CmmaGlobalMatmul<EG, ES, SMM>
+impl<EG, ES, SMM, G>
+    GlobalMatmul<
+        EG,
+        ES,
+        LhsTensorLoader<EG, ES, G>,
+        RhsTensorLoader<EG, ES, G>,
+        TensorUnloader<EG, G>,
+        G,
+    > for CmmaGlobalMatmul<EG, ES, SMM, G>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: StageMatmul<ES, EG, LhsStageReader<ES>, RhsStageReader<ES>, OutStageWriter<EG>>,
+    SMM: StageMatmul<
+        ES,
+        EG,
+        LhsStageReader<ES, G::SmmConfig>,
+        RhsStageReader<ES, G::SmmConfig>,
+        OutStageWriter<EG>,
+        G::SmmConfig,
+    >,
+    G: GmmConfig,
 {
     fn execute(
-        mut lhs_loader: LhsTensorLoader<EG, ES>,
-        mut rhs_loader: RhsTensorLoader<EG, ES>,
-        out_unloader: TensorUnloader<EG>,
+        mut lhs_loader: LhsTensorLoader<EG, ES, G>,
+        mut rhs_loader: RhsTensorLoader<EG, ES, G>,
+        out_unloader: TensorUnloader<EG, G>,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -84,8 +73,8 @@ where
 
         for _ in 0..num_loops {
             SMM::execute(
-                &LhsTensorLoader::fill_stage(&mut lhs_loader, config.to_smm_config()),
-                &RhsTensorLoader::fill_stage(&mut rhs_loader, config.to_smm_config()),
+                &LhsTensorLoader::fill_stage(&mut lhs_loader, config),
+                &RhsTensorLoader::fill_stage(&mut rhs_loader, config),
                 &mut acc,
                 config.to_smm_config(),
             );
@@ -94,25 +83,44 @@ where
             RhsTensorLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::acc_read(
+        SMM::acc_read::<G>(
             &acc,
             &mut TensorUnloader::unload(out_unloader),
             config.to_smm_config(),
+            config,
         );
     }
 }
 
-impl<EG, ES, SMM> Matmul<EG, EG> for CmmaGlobalMatmul<EG, ES, SMM>
+impl<EG, ES, SMM, G> Matmul<EG, EG> for CmmaGlobalMatmul<EG, ES, SMM, G>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: StageMatmul<ES, EG, LhsStageReader<ES>, RhsStageReader<ES>, OutStageWriter<EG>>,
+    SMM: StageMatmul<
+        ES,
+        EG,
+        LhsStageReader<ES, G::SmmConfig>,
+        RhsStageReader<ES, G::SmmConfig>,
+        OutStageWriter<EG>,
+        G::SmmConfig,
+    >,
+    G: GmmConfig,
 {
-    type Config = CmmaGlobalMatmulConfig<SMM::Config>;
+    type Config = G;
 
     fn check_config(config: Self::Config) {
         SMM::check_config(config.to_smm_config());
     }
+}
+
+impl<EG, ES, SMM, S: SmmConfig> MatmulLaunch<EG, EG>
+    for CmmaGlobalMatmul<EG, ES, SMM, CmmaGlobalMatmulConfig<S>>
+where
+    EG: Numeric,
+    ES: Numeric,
+    SMM: StageMatmul<ES, EG, LhsStageReader<ES, S>, RhsStageReader<ES, S>, OutStageWriter<EG>, S>,
+{
+    type MatmulLaunchConfig = CmmaGlobalMatmulConfig<S>;
 
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -121,10 +129,10 @@ where
         lhs: TensorArg<'_, R>,
         rhs: TensorArg<'_, R>,
         out: TensorArg<'_, R>,
-        config: Self::Config,
+        config: CmmaGlobalMatmulConfig<S>,
     ) {
         Self::check_config(config);
-        cube_matmul_launch::launch_unchecked::<EG, ES, Self, R>(
+        cube_matmul_launch::launch_unchecked::<EG, ES, Self, CmmaGlobalMatmulConfig<S>, R>(
             &client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }

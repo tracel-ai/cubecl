@@ -1,3 +1,6 @@
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct StageDims {
     pub lhs: StageDim,
@@ -5,7 +8,7 @@ pub struct StageDims {
     pub out: StageDim,
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct StageDim {
     pub tile_size_x: u32,
     pub tile_size_y: u32,

@@ -8,7 +8,7 @@ pub enum Ident {
     Out,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum MatrixLayout {
     RowMajor,
     ColMajor,

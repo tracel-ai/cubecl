@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::Matmul;
+use crate::matmul::{matmul_global::GmmConfig, Matmul};
 
 use super::{SmmConfig, StageReader, StageWriter};
 
@@ -9,10 +9,11 @@ use super::{SmmConfig, StageReader, StageWriter};
 pub trait StageMatmul<
     I: Numeric,
     O: Numeric,
-    Lhs: StageReader<I>,
-    Rhs: StageReader<I>,
+    Lhs: StageReader<I, S>,
+    Rhs: StageReader<I, S>,
     Out: StageWriter<O>,
->: 'static + Send + Sync + Matmul<I, O, Config: SmmConfig>
+    S: SmmConfig,
+>: 'static + Send + Sync + Matmul<I, O, Config = S>
 {
     const M: u32;
     const N: u32;
@@ -20,8 +21,13 @@ pub trait StageMatmul<
 
     type Accumulator: CubeType;
 
-    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, #[comptime] config: S);
 
     fn acc_init_zeros() -> Self::Accumulator;
-    fn acc_read(acc: &Self::Accumulator, out: &mut Out, #[comptime] config: Self::Config);
+    fn acc_read<G: GmmConfig>(
+        acc: &Self::Accumulator,
+        out: &mut Out,
+        #[comptime] stage_config: S,
+        #[comptime] global_config: G,
+    );
 }

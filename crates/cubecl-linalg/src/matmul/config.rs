@@ -3,8 +3,6 @@ use cubecl_core::prelude::*;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use super::problem::MatmulProblem;
-
 #[cube]
 pub trait PlaneMapper {
     fn plane_id() -> u32;
@@ -12,11 +10,22 @@ pub trait PlaneMapper {
 }
 
 pub trait MatmulConfig: ComptimeConfig {
-    fn num_planes(&self) -> u32;
-    fn plane_dim(&self) -> u32;
+    // fn num_planes(&self) -> u32;
+    // fn plane_dim(&self) -> u32;
+    // fn cube_dim(&self) -> CubeDim;
+    // fn cube_count(&self) -> CubeCount;
+}
 
-    // Create a valid configuration with the default settings given basic launching informations
-    fn default(cube_dim: CubeDim, cube_count: CubeCount, problem: MatmulProblem);
+pub trait MatmulLaunchConfig {
+    fn cube_dim(&self) -> CubeDim;
+    // {
+    //     CubeDim::new(self.cube_count.0, self.cube_count.1, self.cube_count.2)
+    // }
+
+    fn cube_count(&self) -> CubeCount;
+    //  {
+    //     CubeCount::Static(self.cube_count.0, self.cube_count.1, self.cube_count.2)
+    // }
 }
 
 pub trait ComptimeConfig:

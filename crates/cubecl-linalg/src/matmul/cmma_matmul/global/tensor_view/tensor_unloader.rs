@@ -1,30 +1,38 @@
+use std::marker::PhantomData;
+
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::cmma_matmul::global::new_tensor_view;
 use crate::matmul::cmma_matmul::stage::OutStageWriter;
-use crate::matmul::matmul_global::Unloader;
+use crate::matmul::matmul_global::{GmmConfig, Unloader};
 
 use super::TensorView;
 
 #[derive(CubeType)]
-pub struct TensorUnloader<E: Numeric> {
-    pub view: TensorView<E>,
+pub struct TensorUnloader<EG: Numeric, G: GmmConfig> {
+    pub view: TensorView<EG>,
+    pub _config: PhantomData<G>,
 }
 
 #[cube]
-impl<E: Numeric> Unloader<E> for TensorUnloader<E> {
-    type WriteView = TensorView<E>;
-    type StageWriter = OutStageWriter<E>;
-
-    fn new(tensor: Tensor<Line<E>>) -> Self {
-        let view = new_tensor_view(tensor);
-        TensorUnloader::<E> { view }
-    }
+impl<EG: Numeric, G: GmmConfig> Unloader<EG, G> for TensorUnloader<EG, G> {
+    type StageWriter = OutStageWriter<EG>;
 
     fn unload(unloader: Self) -> Self::StageWriter {
-        OutStageWriter::<E> {
+        OutStageWriter::<EG> {
             tensor_view: unloader.view,
         }
+    }
+}
+
+#[cube]
+pub fn new_tensor_unloader<EG: Numeric, G: GmmConfig>(
+    tensor: Tensor<Line<EG>>,
+) -> TensorUnloader<EG, G> {
+    let view = new_tensor_view(tensor);
+    TensorUnloader::<EG, G> {
+        view,
+        _config: PhantomData::<G>.runtime(),
     }
 }

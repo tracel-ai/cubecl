@@ -1,19 +1,23 @@
 use cubecl_core::prelude::*;
 use cubecl_core::CubeElement;
 
+use crate::matmul::config::MatmulLaunchConfig;
 use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::problem::MatmulProblem;
-use crate::matmul::Matmul;
+use crate::matmul::MatmulLaunch;
 
 use super::test_utils::assert_equals_approx;
 use super::test_utils::generate_random_data;
 use super::test_utils::matmul_cpu_reference;
 
-pub fn test_matmul<MM, I, O, R>(problem: MatmulProblem, num_planes: u32, device: &R::Device)
-where
+pub fn test_matmul<MM, I, O, G, R>(
+    problem: MatmulProblem,
+    config: MM::MatmulLaunchConfig,
+    device: &R::Device,
+) where
     I: Numeric + CubeElement,
     O: Numeric + CubeElement,
-    MM: Matmul<I, O>,
+    MM: MatmulLaunch<I, O>,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
@@ -43,15 +47,11 @@ where
     let rhs = client.create(I::as_bytes(&I::from_values(&rhs_data)));
     let out = client.empty(out_size as usize * O::as_elem().size());
 
-    let cube_dim = CubeDim::new(32, num_planes, 1);
-    let cube_count = CubeCount::Static(1, 1, 1);
-    let config = MM::Config::default(cube_dim, cube_count, problem);
-
     unsafe {
         MM::launch_unchecked(
             &client,
-            cube_dim,
-            cube_count,
+            config.cube_dim(),
+            config.cube_count(),
             TensorArg::<R>::from_raw_parts(
                 &lhs,
                 &lhs_strides,

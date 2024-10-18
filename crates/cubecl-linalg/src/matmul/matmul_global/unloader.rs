@@ -1,14 +1,12 @@
-use crate::matmul::matmul_global::WriteView;
 use crate::matmul::matmul_stage::StageWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube]
-pub trait Unloader<EG: Numeric>: CubeType + 'static + Send + Sync {
-    type WriteView: WriteView<EG>;
-    type StageWriter: StageWriter<EG>;
+use super::GmmConfig;
 
-    fn new(gmem: <Self::WriteView as WriteView<EG>>::Global) -> Self;
+#[cube]
+pub trait Unloader<EG: Numeric, G: GmmConfig>: CubeType + 'static + Send + Sync {
+    type StageWriter: StageWriter<EG>;
 
     fn unload(unloader: Self) -> Self::StageWriter;
 }
