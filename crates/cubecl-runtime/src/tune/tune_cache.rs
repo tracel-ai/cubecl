@@ -257,6 +257,8 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     /// Return the file path for the persistent cache on disk
     pub fn get_persistent_cache_file_path(&self) -> PathBuf {
-        get_persistent_cache_file_path(&format!("{}/{}", self.name, self.device_id))
+        let name = sanitize_filename::sanitize(&self.name);
+        let device_id = sanitize_filename::sanitize(&self.device_id);
+        get_persistent_cache_file_path(&format!("{name}/{device_id}"))
     }
 }

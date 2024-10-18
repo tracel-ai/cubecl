@@ -11,6 +11,9 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-runtim
 version.workspace = true
 
 [features]
+channel-cell = []
+channel-mpsc = ["dep:async-channel"] # Assume std
+channel-mutex = []
 default = [
     "std",
     "channel-mutex",
@@ -19,26 +22,24 @@ default = [
     "storage-bytes",
     "cubecl-common/default",
 ]
-std = ["cubecl-common/std"]
-channel-mutex = []
-channel-cell = []
-channel-mpsc = ["dep:async-channel"] # Assume std
-storage-bytes = []
 exclusive-memory-only = []
+std = ["cubecl-common/std"]
+storage-bytes = []
 
 [dependencies]
+async-channel = { workspace = true, optional = true }
 cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features = false }
 derive-new = { workspace = true }
-log = { workspace = true }
 hashbrown = { workspace = true }
-async-channel = { workspace = true, optional = true }
+log = { workspace = true }
 
 # Persistent cache deps - has to match the autotune_persistent_cache cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
 dirs = { workspace = true }
+md5 = { workspace = true }
+sanitize-filename = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
-md5 = { workspace = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
@@ -55,12 +56,12 @@ spin = { workspace = true, features = [
 wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
-serial_test = { workspace = true }
 rand = { workspace = true }
+serial_test = { workspace = true }
 
 [build-dependencies]
 cfg_aliases = "0.2.1"
 
 [[bench]]
-name = "dynamic"
 harness = false
+name = "dynamic"

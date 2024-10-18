@@ -1,5 +1,7 @@
+use std::marker::PhantomData;
+
 use crate::{
-    compiler::wgsl,
+    compiler::{base::WgpuCompiler, wgsl::WgslCompiler},
     compute::{WgpuServer, WgpuStorage},
     AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
@@ -10,19 +12,18 @@ pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryManagement};
 use cubecl_runtime::DeviceProperties;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
-use wgpu::DeviceDescriptor;
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
 /// specific graphics API.
 #[derive(Debug)]
-pub struct WgpuRuntime;
+pub struct WgpuRuntime<C: WgpuCompiler = WgslCompiler>(PhantomData<C>);
+
+type Server = WgpuServer<WgslCompiler>;
 
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
 static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
-
-type Server = WgpuServer;
 
 pub fn init_memory_management(
     device: Arc<wgpu::Device>,
@@ -33,23 +34,23 @@ pub fn init_memory_management(
     MemoryManagement::from_configuration(storage, mem_props, config)
 }
 
-impl Runtime for WgpuRuntime {
-    type Compiler = wgsl::WgslCompiler;
-    type Server = WgpuServer;
+impl Runtime for WgpuRuntime<WgslCompiler> {
+    type Compiler = WgslCompiler;
+    type Server = WgpuServer<WgslCompiler>;
 
-    type Channel = MutexComputeChannel<WgpuServer>;
+    type Channel = MutexComputeChannel<WgpuServer<WgslCompiler>>;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
             let (adapter, device_wgpu, queue) =
-                future::block_on(create_wgpu_setup::<AutoGraphicsApi>(device));
+                future::block_on(create_wgpu_setup::<AutoGraphicsApi, WgslCompiler>(device));
             create_client(adapter, device_wgpu, queue, RuntimeOptions::default())
         })
     }
 
     fn name() -> &'static str {
-        "wgpu"
+        "wgpu<wgsl>"
     }
 
     fn supported_line_sizes() -> &'static [u8] {
@@ -106,15 +107,15 @@ pub fn init_sync<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) {
 
 /// Like [`init_sync`], but async, necessary for wasm.
 pub async fn init_async<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) {
-    let (adapter, device_wgpu, queue) = create_wgpu_setup::<G>(device).await;
+    let (adapter, device_wgpu, queue) = create_wgpu_setup::<G, WgslCompiler>(device).await;
     let client = create_client(adapter, device_wgpu, queue, options);
     RUNTIME.register(device, client)
 }
 
-pub async fn create_wgpu_setup<G: GraphicsApi>(
+pub async fn create_wgpu_setup<G: GraphicsApi, C: WgpuCompiler>(
     device: &WgpuDevice,
 ) -> (Arc<wgpu::Adapter>, Arc<wgpu::Device>, Arc<wgpu::Queue>) {
-    let (device_wgpu, queue, adapter) = select_device::<G>(device).await;
+    let (device_wgpu, queue, adapter) = select_device::<G, C>(device).await;
 
     log::info!(
         "Created wgpu compute server on device {:?} => {:?}",
@@ -124,12 +125,12 @@ pub async fn create_wgpu_setup<G: GraphicsApi>(
     (Arc::new(adapter), Arc::new(device_wgpu), Arc::new(queue))
 }
 
-pub fn create_client(
+pub fn create_client<C: WgpuCompiler>(
     adapter: Arc<wgpu::Adapter>,
     device_wgpu: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     options: RuntimeOptions,
-) -> ComputeClient<WgpuServer, MutexComputeChannel<WgpuServer>> {
+) -> ComputeClient<WgpuServer<C>, MutexComputeChannel<WgpuServer<C>>> {
     let limits = device_wgpu.limits();
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as usize,
@@ -141,7 +142,12 @@ pub fn create_client(
         mem_props.clone(),
         options.memory_config,
     );
-    let server = WgpuServer::new(memory_management, device_wgpu, queue, options.tasks_max);
+    let server = WgpuServer::new(
+        memory_management,
+        device_wgpu.clone(),
+        queue,
+        options.tasks_max,
+    );
     let channel = MutexComputeChannel::new(server);
 
     let features = adapter.features();
@@ -149,11 +155,12 @@ pub fn create_client(
     if features.contains(wgpu::Features::SUBGROUP) {
         device_props.register_feature(Feature::Subcube);
     }
+    C::register_features(&adapter, &device_wgpu, &mut device_props);
     ComputeClient::new(channel, device_props)
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).
-pub async fn select_device<G: GraphicsApi>(
+pub async fn select_device<G: GraphicsApi, C: WgpuCompiler>(
     device: &WgpuDevice,
 ) -> (wgpu::Device, wgpu::Queue, wgpu::Adapter) {
     #[cfg(target_family = "wasm")]
@@ -161,30 +168,8 @@ pub async fn select_device<G: GraphicsApi>(
 
     #[cfg(not(target_family = "wasm"))]
     let adapter = select_adapter::<G>(device);
-    let limits = adapter.limits();
 
-    let (device, queue) = adapter
-        .request_device(
-            &DeviceDescriptor {
-                label: None,
-                required_features: adapter.features(),
-                required_limits: limits,
-                // The default is MemoryHints::Performance, which tries to do some bigger
-                // block allocations. However, we already batch allocations, so we
-                // can use MemoryHints::MemoryUsage to lower memory usage.
-                memory_hints: wgpu::MemoryHints::MemoryUsage,
-            },
-            None,
-        )
-        .await
-        .map_err(|err| {
-            format!(
-                "Unable to request the device with the adapter {:?}, err {:?}",
-                adapter.get_info(),
-                err
-            )
-        })
-        .unwrap();
+    let (device, queue) = C::request_device(&adapter).await;
 
     (device, queue, adapter)
 }

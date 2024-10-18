@@ -1,8 +1,8 @@
-use std::{future::Future, num::NonZero, pin::Pin, time::Duration};
+use std::{future::Future, marker::PhantomData, num::NonZero, pin::Pin, time::Duration};
 
 use super::WgpuStorage;
-use crate::compiler::wgsl::WgslCompiler;
-use alloc::{borrow::Cow, sync::Arc};
+use crate::compiler::base::WgpuCompiler;
+use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
 use cubecl_runtime::{
@@ -14,10 +14,7 @@ use cubecl_runtime::{
 };
 use hashbrown::HashMap;
 use web_time::Instant;
-use wgpu::{
-    CommandEncoder, ComputePass, ComputePipeline, QuerySet, QuerySetDescriptor, QueryType,
-    ShaderModuleDescriptor,
-};
+use wgpu::{CommandEncoder, ComputePass, ComputePipeline, QuerySet, QuerySetDescriptor, QueryType};
 
 #[cfg(not(target_family = "wasm"))]
 mod poll {
@@ -95,9 +92,9 @@ pub use poll::WgpuPoll;
 
 /// Wgpu compute server.
 #[derive(Debug)]
-pub struct WgpuServer {
+pub struct WgpuServer<C: WgpuCompiler> {
     memory_management: MemoryManagement<WgpuStorage>,
-    device: Arc<wgpu::Device>,
+    pub(crate) device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     encoder: CommandEncoder,
     current_pass: Option<ComputePass<'static>>,
@@ -111,6 +108,7 @@ pub struct WgpuServer {
     duration_profiled: Duration,
     command_start_time: Option<Instant>,
     query_set: Option<QuerySet>,
+    _compiler: PhantomData<C>,
 }
 
 fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
@@ -119,7 +117,7 @@ fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
     })
 }
 
-impl WgpuServer {
+impl<C: WgpuCompiler> WgpuServer<C> {
     /// Create a new server.
     pub fn new(
         memory_management: MemoryManagement<WgpuStorage>,
@@ -152,6 +150,7 @@ impl WgpuServer {
             query_set: queries,
             command_start_time: None,
             duration_profiled: Duration::from_secs(0),
+            _compiler: PhantomData,
         }
     }
 
@@ -167,48 +166,17 @@ impl WgpuServer {
             return pipeline.clone();
         }
 
-        let mut compile = kernel.compile(mode);
+        let mut compile = <C as WgpuCompiler>::compile(self, kernel, mode);
         if self.logger.is_activated() {
             compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
         }
 
         let compile = self.logger.debug(compile);
-        let pipeline = self.compile_source(&compile.source, mode);
+        let pipeline = C::create_pipeline(self, compile, mode);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         pipeline
-    }
-
-    fn compile_source(&self, source: &str, mode: ExecutionMode) -> Arc<ComputePipeline> {
-        let module = match mode {
-            ExecutionMode::Checked => self.device.create_shader_module(ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-            }),
-            ExecutionMode::Unchecked => unsafe {
-                self.device
-                    .create_shader_module_unchecked(ShaderModuleDescriptor {
-                        label: None,
-                        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                    })
-            },
-        };
-
-        Arc::new(
-            self.device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: None,
-                    layout: None,
-                    module: &module,
-                    entry_point: "main",
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory: false,
-                        ..Default::default()
-                    },
-                    cache: None,
-                }),
-        )
     }
 
     fn clear_compute_pass(&mut self) {
@@ -306,8 +274,8 @@ impl WgpuServer {
     }
 }
 
-impl ComputeServer for WgpuServer {
-    type Kernel = Box<dyn CubeTask<WgslCompiler>>;
+impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
+    type Kernel = Box<dyn CubeTask<C>>;
     type Storage = WgpuStorage;
     type Feature = Feature;
 

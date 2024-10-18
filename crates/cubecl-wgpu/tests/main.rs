@@ -1,7 +1,6 @@
 use common::*;
 use cubecl_core as cubecl;
 use cubecl_core::{prelude::*, CubeCount, CubeDim};
-use cubecl_wgpu::WgpuRuntime;
 use pretty_assertions::assert_eq;
 
 mod common;
@@ -20,7 +19,7 @@ pub fn slice_assign() {
     let input = handle(&client);
     let output = handle(&client);
 
-    let kernel = slice_assign_kernel::create_dummy_kernel::<WgpuRuntime>(
+    let kernel = slice_assign_kernel::create_dummy_kernel::<TestRuntime>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new(1, 1, 1),
         tensor(&input),
@@ -45,7 +44,7 @@ pub fn subcube_sum() {
     let client = client();
     let output = handle(&client);
 
-    let kernel = kernel_sum::create_dummy_kernel::<WgpuRuntime>(
+    let kernel = kernel_sum::create_dummy_kernel::<TestRuntime>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new(4, 1, 1),
         tensor(&output),
@@ -74,7 +73,7 @@ pub fn sequence_for_loop() {
     let client = client();
     let output = handle(&client);
 
-    let kernel = sequence_for_loop_kernel::create_dummy_kernel::<WgpuRuntime>(
+    let kernel = sequence_for_loop_kernel::create_dummy_kernel::<TestRuntime>(
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         array(&output),
@@ -103,7 +102,7 @@ pub fn unary_bench() {
     let rhs = handle(&client);
     let out = handle(&client);
 
-    let kernel = execute_unary_kernel::create_dummy_kernel::<f32, WgpuRuntime>(
+    let kernel = execute_unary_kernel::create_dummy_kernel::<f32, TestRuntime>(
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         tensor_vec(&lhs, 4),
@@ -129,7 +128,7 @@ pub fn constant_array() {
     let out = handle(&client);
     let data: Vec<u32> = vec![3, 5, 1];
 
-    let kernel = constant_array_kernel::create_dummy_kernel::<f32, WgpuRuntime>(
+    let kernel = constant_array_kernel::create_dummy_kernel::<f32, TestRuntime>(
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         tensor_vec(&out, 1),

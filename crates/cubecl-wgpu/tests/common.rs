@@ -4,13 +4,15 @@ use cubecl_core::{
     server::Handle,
     Compiler, ExecutionMode, Kernel, Runtime,
 };
-use cubecl_wgpu::{WgpuDevice, WgpuRuntime};
+use cubecl_wgpu::{WgpuDevice, WgpuRuntime, WgslCompiler};
 
-type Client = ComputeClient<<WgpuRuntime as Runtime>::Server, <WgpuRuntime as Runtime>::Channel>;
+pub type TestRuntime = WgpuRuntime<WgslCompiler>;
+
+type Client = ComputeClient<<TestRuntime as Runtime>::Server, <TestRuntime as Runtime>::Channel>;
 
 pub fn client() -> Client {
     let device = WgpuDevice::default();
-    WgpuRuntime::client(&device)
+    TestRuntime::client(&device)
 }
 
 #[allow(unused)]
@@ -19,22 +21,22 @@ pub fn handle(client: &Client) -> Handle {
 }
 
 #[allow(unused)]
-pub fn tensor(tensor: &Handle) -> TensorArg<'_, WgpuRuntime> {
+pub fn tensor(tensor: &Handle) -> TensorArg<'_, TestRuntime> {
     unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], 1) }
 }
 
 #[allow(unused)]
-pub fn tensor_vec(tensor: &Handle, vectorization: u8) -> TensorArg<'_, WgpuRuntime> {
+pub fn tensor_vec(tensor: &Handle, vectorization: u8) -> TensorArg<'_, TestRuntime> {
     unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], vectorization) }
 }
 
 #[allow(unused)]
-pub fn array(tensor: &Handle) -> ArrayArg<'_, WgpuRuntime> {
+pub fn array(tensor: &Handle) -> ArrayArg<'_, TestRuntime> {
     unsafe { ArrayArg::from_raw_parts(tensor, 1, 1) }
 }
 
 pub fn compile(kernel: impl Kernel) -> String {
-    <<WgpuRuntime as Runtime>::Compiler as Compiler>::compile(
+    <<TestRuntime as Runtime>::Compiler as Compiler>::compile(
         kernel.define(),
         ExecutionMode::Checked,
     )

@@ -434,6 +434,17 @@ impl Optimizer {
             depth: u8::MAX,
         }
     }
+
+    pub(crate) fn ret(&mut self) -> NodeIndex {
+        if self.program[self.ret].block_use.contains(&BlockUse::Merge) {
+            let new_ret = self.program.add_node(BasicBlock::default());
+            self.program.add_edge(new_ret, self.ret, ());
+            self.ret = new_ret;
+            new_ret
+        } else {
+            self.ret
+        }
+    }
 }
 
 /// A visitor that does nothing.
