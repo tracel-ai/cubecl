@@ -19,26 +19,25 @@ default = [
     "cubecl-wgpu?/default",
     "cubecl-cuda?/default",
 ]
-linalg = ["dep:cubecl-linalg"]
 exclusive-memory-only = [
     "cubecl-wgpu?/exclusive-memory-only",
     "cubecl-runtime/exclusive-memory-only",
 ]
+linalg = ["dep:cubecl-linalg"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 
 # Runtimes
 cuda = ["cubecl-cuda"]
 wgpu = ["cubecl-wgpu"]
-wgpu-spirv = ["cubecl-wgpu-spirv"]
+wgpu-spirv = ["cubecl-wgpu/spirv"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.2.0", default-features = false, optional = true }
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", default-features = false, optional = true }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.2.0", default-features = false, optional = true }
-cubecl-wgpu-spirv = { path = "../cubecl-wgpu-spirv", version = "0.2.0", default-features = false, optional = true }
 
 [dev-dependencies]
 half = { workspace = true }
