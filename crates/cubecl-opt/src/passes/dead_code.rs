@@ -166,7 +166,7 @@ impl OptimizerPass for MergeBlocks {
 
 fn merge_blocks(opt: &mut Optimizer) -> bool {
     for block_idx in opt.reverse_post_order() {
-        let successors = opt.sucessors(block_idx);
+        let successors = opt.successors(block_idx);
         if successors.len() == 1 && can_merge(opt, block_idx, successors[0]) {
             let mut new_block = BasicBlock::default();
             let block = opt.program[block_idx].clone();
@@ -194,7 +194,7 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
                     opt.program.add_edge(incoming, block_idx, ());
                 }
             }
-            for outgoing in opt.sucessors(successors[0]) {
+            for outgoing in opt.successors(successors[0]) {
                 opt.program.add_edge(block_idx, outgoing, ());
             }
             *opt.program.node_weight_mut(block_idx).unwrap() = new_block;

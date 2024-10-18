@@ -187,7 +187,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             ControlFlow::None => {
                 let opt = self.opt.clone();
-                let children = opt.sucessors(self.current_block.unwrap());
+                let children = opt.successors(self.current_block.unwrap());
                 assert_eq!(
                     children.len(),
                     1,

@@ -32,7 +32,7 @@ impl Optimizer {
 
         let mut live_vars = gen.clone();
 
-        for successor in self.sucessors(block) {
+        for successor in self.successors(block) {
             let successor = &self.program[successor].live_vars;
             live_vars.extend(successor.difference(kill));
         }

@@ -268,7 +268,7 @@ pub mod load {
         assert_ne!(
             mat.ident,
             MatrixIdent::Accumulator,
-            "Loading accumulator requires explitit layout. Use `load_with_layout` instead."
+            "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
         );
 
         context.register(Operation::CoopMma(ir::CoopMma::Load {

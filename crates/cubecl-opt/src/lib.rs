@@ -9,7 +9,7 @@
 //! 1. Parse root scope recursively into a [control flow graph](https://en.wikipedia.org/wiki/Control-flow_graph)
 //! 2. Run optimizations that must be done before SSA transformation
 //! 3. Analyze variable liveness
-//! 4. Transfom the graph to [pruned SSA](https://en.wikipedia.org/wiki/Static_single-assignment_form#Pruned_SSA) form
+//! 4. Transform the graph to [pruned SSA](https://en.wikipedia.org/wiki/Static_single-assignment_form#Pruned_SSA) form
 //! 5. Run post-SSA optimizations and analyses in a loop until no more improvements are found
 //! 6. Speed
 //!
@@ -234,7 +234,7 @@ impl Optimizer {
     }
 
     fn determine_postorder(&mut self, block: NodeIndex, visited: &mut HashSet<NodeIndex>) {
-        for successor in self.sucessors(block) {
+        for successor in self.successors(block) {
             if !visited.contains(&successor) {
                 visited.insert(successor);
                 self.determine_postorder(successor, visited);
@@ -348,7 +348,7 @@ impl Optimizer {
     }
 
     /// List of successor IDs of the `block`
-    pub fn sucessors(&self, block: NodeIndex) -> Vec<NodeIndex> {
+    pub fn successors(&self, block: NodeIndex) -> Vec<NodeIndex> {
         self.program
             .edges_directed(block, Direction::Outgoing)
             .map(|it| it.target())
