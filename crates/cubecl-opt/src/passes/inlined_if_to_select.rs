@@ -61,7 +61,7 @@ impl OptimizerPass for EmptyBranchToSelect {
                                 .map(|(_, v)| v),
                         );
                         opt.program[block].ops.borrow_mut().extend(selects);
-                        let merge_successors = opt.sucessors(merge);
+                        let merge_successors = opt.successors(merge);
                         let merge_control = opt.program[merge].control_flow.borrow().clone();
 
                         let edges_to_remove = opt
@@ -100,5 +100,5 @@ fn is_simple(opt: &Optimizer, then: NodeIndex, or_else: NodeIndex, merge: NodeIn
             *opt.program[or_else].control_flow.borrow(),
             ControlFlow::None
         );
-    no_control && opt.sucessors(then)[0] == merge && opt.sucessors(or_else)[0] == merge
+    no_control && opt.successors(then)[0] == merge && opt.successors(or_else)[0] == merge
 }

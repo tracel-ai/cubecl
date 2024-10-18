@@ -2,14 +2,12 @@ use crate::compiler::{format_cpp_code, HipCompiler};
 
 use super::storage::HipStorage;
 use super::HipResource;
-use cubecl_common::reader::{reader_from_concrete, Reader};
-use cubecl_common::sync_type::SyncType;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::ir::CubeDim;
 use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
 use cubecl_hip_sys::{hiprtcResult_HIPRTC_SUCCESS, HIP_SUCCESS};
-use cubecl_runtime::debug::DebugLogger;
+use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::ExecutionMode;
@@ -20,6 +18,8 @@ use cubecl_runtime::{
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::future::Future;
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub struct HipServer {
@@ -33,6 +33,7 @@ pub(crate) struct HipContext {
     stream: cubecl_hip_sys::hipStream_t,
     memory_management: MemoryManagement<HipStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
+    work_start_time: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -55,12 +56,12 @@ impl HipServer {
         );
 
         // TODO: Check if it is possible to make this faster
-        let mut data = vec![0; resource.size() as usize];
+        let mut data = vec![0; resource.size as usize];
         unsafe {
             let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
                 data.as_mut_ptr() as *mut _,
                 resource.ptr,
-                resource.size() as usize,
+                resource.size as usize,
                 ctx.stream,
             );
             assert_eq!(status, HIP_SUCCESS, "Should copy data from device to host");
@@ -75,8 +76,9 @@ impl ComputeServer for HipServer {
     type Storage = HipStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> Reader {
-        reader_from_concrete(self.read_sync(binding))
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
+        let value = self.read_sync(binding);
+        async { value }
     }
 
     fn memory_usage(&self) -> MemoryUsage {
@@ -170,7 +172,7 @@ impl ComputeServer for HipServer {
 
             let (name, kernel_id) = profile_info.unwrap();
             let info = match level {
-                cubecl_runtime::debug::ProfileLevel::Basic => {
+                ProfileLevel::Basic | ProfileLevel::Medium => {
                     if let Some(val) = name.split("<").next() {
                         val.split("::").last().unwrap_or(name).to_string()
                     } else {
@@ -189,16 +191,19 @@ impl ComputeServer for HipServer {
         }
     }
 
-    fn sync(&mut self, sync_type: SyncType) {
-        match sync_type {
-            // Synchronize the stream if waiting.
-            SyncType::Wait => {
-                let ctx = self.get_context();
-                ctx.sync();
-            }
-            // Nothing to do - all tasks are already submitted to the stream.
-            SyncType::Flush => (),
-        }
+    fn flush(&mut self) {}
+
+    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
+        self.logger.profile_summary();
+
+        let ctx = self.get_context();
+        ctx.sync();
+        let duration = ctx
+            .work_start_time
+            .map(|t| t.elapsed())
+            .unwrap_or(Duration::from_secs_f32(0.0));
+        ctx.work_start_time = None;
+        async move { duration }
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
@@ -225,6 +230,7 @@ impl HipContext {
             module_names: HashMap::new(),
             stream,
             context,
+            work_start_time: None,
         }
     }
 
@@ -368,7 +374,7 @@ impl HipContext {
     ) {
         let mut bindings = resources
             .iter()
-            .map(|memory| memory.as_binding())
+            .map(|memory| memory.binding)
             .collect::<Vec<_>>();
 
         let kernel = self.module_names.get(&kernel_id).unwrap();
@@ -398,7 +404,7 @@ impl HipServer {
     pub(crate) fn new(ctx: HipContext) -> Self {
         Self {
             ctx,
-            logger: DebugLogger::new(),
+            logger: DebugLogger::default(),
         }
     }
 

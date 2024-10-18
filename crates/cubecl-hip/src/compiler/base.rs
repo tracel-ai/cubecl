@@ -11,6 +11,9 @@ use cubecl_runtime::ExecutionMode;
 
 use super::{Instruction, VariableSettings, WarpInstruction};
 
+pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug, Default)]
 pub struct HipCompiler {
@@ -42,7 +45,9 @@ impl Compiler for HipCompiler {
             strategy,
             ..Self::default()
         };
-        compiler.compile_shader(kernel)
+        let ir = compiler.compile_ir(kernel);
+        COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
+        ir
     }
 
     fn elem_size(elem: gpu::Elem) -> usize {
@@ -59,7 +64,7 @@ impl Compiler for HipCompiler {
 }
 
 impl HipCompiler {
-    fn compile_shader(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel {
+    fn compile_ir(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel {
         self.num_inputs = value.inputs.len();
         self.num_outputs = value.outputs.len();
 
@@ -221,13 +226,17 @@ impl HipCompiler {
                     value: self.compile_variable(value),
                 })
             }
-            gpu::CoopMma::Load { mat, value, stride } => {
-                Instruction::Wmma(super::WmmaInstruction::Load {
-                    frag: self.compile_variable(mat),
-                    value: self.compile_variable(value),
-                    stride: self.compile_variable(stride),
-                })
-            }
+            gpu::CoopMma::Load {
+                mat,
+                value,
+                stride,
+                layout,
+            } => Instruction::Wmma(super::WmmaInstruction::Load {
+                frag: self.compile_variable(mat),
+                value: self.compile_variable(value),
+                stride: self.compile_variable(stride),
+                layout: layout.and_then(|l| self.compile_matrix_layout(l)),
+            }),
             gpu::CoopMma::Execute {
                 mat_a,
                 mat_b,
@@ -791,6 +800,7 @@ impl HipCompiler {
         }
     }
 }
+
 #[allow(missing_docs)]
 struct CheckedIndexAssign {
     pub lhs: Variable,

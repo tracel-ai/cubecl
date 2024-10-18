@@ -13,7 +13,7 @@ use crate::{
     device::HipDevice,
 };
 
-/// The values that control how a WGPU Runtime will perform its calculations.
+/// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
 pub struct RuntimeOptions {
     /// Configures the memory management.
@@ -91,7 +91,7 @@ impl Runtime for HipRuntime {
     }
 
     fn name() -> &'static str {
-        "cuda"
+        "hip"
     }
 
     fn require_array_lengths() -> bool {

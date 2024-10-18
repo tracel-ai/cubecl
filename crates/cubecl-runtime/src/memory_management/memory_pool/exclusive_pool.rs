@@ -44,7 +44,7 @@ impl ExclusiveMemoryPool {
     }
 
     /// Finds a free page that can contain the given size
-    /// Returns a slice on that page if sucessfull.
+    /// Returns a slice on that page if successful.
     fn get_free_page(&mut self, locked: Option<&MemoryLock>) -> Option<SliceId> {
         for _ in 0..self.ring_buffer.len() {
             let storage_id = &self.ring_buffer[self.index];
@@ -172,7 +172,7 @@ impl MemoryPool for ExclusiveMemoryPool {
             })
             .collect();
 
-        // Perform any deallocations if necesarry.
+        // Perform any deallocations if necessary.
         if !deallocations.is_empty() {
             for storage_id in deallocations.iter() {
                 let slice_id = self.pages[storage_id].slice_id;

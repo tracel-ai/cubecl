@@ -246,7 +246,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
     }
 
-    /// Cleanup allocations in pools that are deemed unnecesarry.
+    /// Cleanup allocations in pools that are deemed unnecessary.
     pub fn cleanup(&mut self) {
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count);

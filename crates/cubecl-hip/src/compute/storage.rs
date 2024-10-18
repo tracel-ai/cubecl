@@ -23,9 +23,9 @@ impl core::fmt::Debug for HipStorage {
     }
 }
 
-/// Keeps actual wgpu buffer references in a hashmap with ids as key.
+/// Keeps actual HIP buffer references in a hashmap with ids as key.
 impl HipStorage {
-    /// Create a new storage on the given [device](wgpu::Device).
+    /// Create a new storage on the given stream.
     pub fn new(stream: cubecl_hip_sys::hipStream_t) -> Self {
         Self {
             memory: HashMap::new(),
@@ -59,28 +59,11 @@ pub struct HipResource {
     /// The buffer.
     pub ptr: cubecl_hip_sys::hipDeviceptr_t,
     pub binding: Binding,
-    offset: u64,
-    size: u64,
+    pub offset: u64,
+    pub size: u64,
 }
 
 unsafe impl Send for HipResource {}
-
-impl HipResource {
-    /// Return the binding view of the buffer.
-    pub fn as_binding(&self) -> Binding {
-        self.binding
-    }
-
-    /// Return the buffer size.
-    pub fn size(&self) -> u64 {
-        self.size
-    }
-
-    /// Return the buffer offset.
-    pub fn offset(&self) -> u64 {
-        self.offset
-    }
-}
 
 impl ComputeStorage for HipStorage {
     type Resource = HipResource;

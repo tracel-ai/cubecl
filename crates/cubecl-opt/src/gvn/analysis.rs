@@ -150,7 +150,7 @@ impl GvnPass {
     fn build_block_sets_bckwd(&mut self, opt: &Optimizer, current: NodeIndex) -> bool {
         let mut changed = false;
 
-        let successors = opt.sucessors(current);
+        let successors = opt.successors(current);
         // Since we have no critical edges, if successors > 1 then they must have only one entry,
         // So no phi nodes.
         #[allow(clippy::comparison_chain)]

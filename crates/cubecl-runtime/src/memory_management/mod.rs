@@ -17,7 +17,7 @@ pub enum PoolType {
     ExclusivePages,
     /// Use a memory where each allocation is a slice of a bigger allocation.
     SlicedPages {
-        /// The maxiumum size of a slice to allocate in the pool.
+        /// The maximum size of a slice to allocate in the pool.
         max_slice_size: usize,
     },
 }

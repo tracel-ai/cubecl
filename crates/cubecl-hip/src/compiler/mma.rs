@@ -35,6 +35,7 @@ pub enum WmmaInstruction {
         frag: Variable,
         value: Variable,
         stride: Variable,
+        layout: Option<FragmentLayout>,
     },
     /// Executes D=A*B+C;
     ///
@@ -100,7 +101,23 @@ impl Display for WmmaInstruction {
                 frag,
                 value,
                 stride,
+                layout: None,
             } => writeln!(f, "wmma::load_matrix_sync({frag}, {value}, {stride});"),
+            WmmaInstruction::Load {
+                frag,
+                value,
+                stride,
+                layout: Some(layout),
+            } => {
+                let layout = match layout {
+                    FragmentLayout::ColMajor => "wmma::mem_col_major",
+                    FragmentLayout::RowMajor => "wmma::mem_row_major",
+                };
+                writeln!(
+                    f,
+                    "wmma::load_matrix_sync({frag}, {value}, {stride}, {layout});"
+                )
+            }
             WmmaInstruction::Execute {
                 frag_a,
                 frag_b,
