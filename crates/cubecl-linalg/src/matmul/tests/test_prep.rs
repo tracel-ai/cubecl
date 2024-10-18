@@ -1,21 +1,15 @@
 use cubecl_core::prelude::*;
 use cubecl_core::Runtime;
 
-use crate::matmul::cmma_matmul::global::CmmaGlobalMatmul;
 use crate::matmul::cmma_matmul::global::CmmaGlobalMatmulConfig;
 use crate::matmul::cmma_matmul::global::LhsTensorLoader;
 use crate::matmul::cmma_matmul::global::RhsTensorLoader;
 use crate::matmul::cmma_matmul::global::TensorUnloader;
-use crate::matmul::cmma_matmul::stage::CmmaStageMatmul;
 use crate::matmul::cmma_matmul::stage::CmmaStageMatmulConfig;
-use crate::matmul::cmma_matmul::stage::CmmaStageSize;
 use crate::matmul::cmma_matmul::stage::LhsStageReader;
 use crate::matmul::cmma_matmul::stage::OutStageWriter;
 use crate::matmul::cmma_matmul::stage::RhsStageReader;
-use crate::matmul::cmma_matmul::stage::S64x64x32;
-use crate::matmul::cmma_matmul::tile::dummy::DummyUnitInstruction16_16_16;
 use crate::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
-use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::MatmulLaunch;
 use crate::matmul::{
     cmma_matmul::config::StageDim, matmul_global::GlobalMatmul, matmul_stage::StageMatmul,

@@ -25,11 +25,42 @@ macro_rules! testgen_cmma_internal_mock {
         use cubecl_linalg::matmul::tests::create_stage_dim;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
         use cubecl_linalg::matmul::tests::run_matmul_test;
-        use cubecl_linalg::matmul_test;
 
         type T = CmmaTileMatmulConfig;
         type S = CmmaStageMatmulConfig<T>;
         type G = CmmaGlobalMatmulConfig<S>;
+
+        macro_rules! matmul_test {
+            (
+                                        $test_name:ident,
+                                        $problem:expr,
+                                        $num_planes:expr,
+                                        $eg:ty, $es:ty, $ea:ty, $stage_size:ty,
+                                        $tile_matmul_type:ident
+                                    ) => {
+                pub fn $test_name<R: Runtime>(device: &R::Device) {
+                    type T = CmmaTileMatmulConfig;
+                    type S = CmmaStageMatmulConfig<T>;
+                    type G = CmmaGlobalMatmulConfig<S>;
+
+                    let problem = $problem;
+
+                    let num_planes = $num_planes;
+                    type EG = $eg;
+                    type ES = $es;
+                    type EA = $ea;
+                    type StageSize = $stage_size;
+
+                    type TileMatmul = $tile_matmul_type<ES, EA, T>;
+                    type StageMatmul = CmmaStageMatmul<ES, EG, EA, TileMatmul, StageSize, S>;
+                    type GlobalMatmul = CmmaGlobalMatmul<EG, ES, StageMatmul, G>;
+
+                    run_matmul_test::<EG, ES, EA, TileMatmul, StageMatmul, GlobalMatmul, R>(
+                        problem, num_planes, device,
+                    );
+                }
+            };
+        }
 
         #[test]
         pub fn test_global_matmul_g60x60x120_s64x64x32() {
@@ -53,1004 +84,691 @@ macro_rules! testgen_cmma_internal_mock {
                 DummyUnitInstruction16_16_16
             );
             test_global_matmul_g60x60x120_s64x64x32::<TestRuntime>(&Default::default())
-
-            // let problem = MatmulProblem {
-            //     m: 60,
-            //     n: 60,
-            //     k: 120,
-            //     lhs_layout: MatrixLayout::RowMajor,
-            //     rhs_layout: MatrixLayout::RowMajor,
-            //     lhs_line_size: 4,
-            //     rhs_line_size: 4,
-            //     out_line_size: 4,
-            // };
-            // let num_planes = 4;
-            // type EG = f32;
-            // type ES = f32;
-            // type EA = f32;
-            // type StageSize = S64x64x32;
-
-            // type TileMatmul = DummyUnitInstruction16_16_16<ES, EA, T>;
-            // type StageMatmul = CmmaStageMatmul<ES, EG, EA, TileMatmul, StageSize, S>;
-            // type GlobalMatmul = CmmaGlobalMatmul<EG, ES, StageMatmul, G>;
-
-            // run_matmul_test::<EG, ES, EA, TileMatmul, StageMatmul, GlobalMatmul, TestRuntime>(
-            //     problem,
-            //     num_planes,
-            //     &Default::default(),
-            // );
         }
 
-        //     #[test]
-        //     pub fn test_global_matmul_g16x16x36_s16x16x16() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S16x16x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 36,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g16x16x36_s16x16x16() {
+            matmul_test!(
+                test_global_matmul_g16x16x36_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 36,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_global_matmul_g12x12x16_s16x16x16() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S16x16x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 12,
-        //                 12,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g16x16x36_s16x16x16::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_global_matmul_g16x16x16_s16x16x16_unlined() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S16x16x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 1,
-        //                 1,
-        //                 1,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g12x12x16_s16x16x16() {
+            matmul_test!(
+                test_global_matmul_g12x12x16_s16x16x16,
+                MatmulProblem {
+                    m: 12,
+                    n: 12,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16
+            );
+            test_global_matmul_g12x12x16_s16x16x16::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_global_matmul_g16x16x16_s16x16x16_line2() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S16x16x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 2,
-        //                 2,
-        //                 2,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g16x16x16_s16x16x16_unlined() {
+            matmul_test!(
+                test_global_matmul_g16x16x16_s16x16x16_unlined,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 1,
+                    rhs_line_size: 1,
+                    out_line_size: 1,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_global_matmul_g16x16x16_s16x16x16() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S16x16x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g16x16x16_s16x16x16_unlined::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_global_matmul_ymajor() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S32x32x32,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, YMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, YMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 32,
-        //                 32,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g16x16x16_s16x16x16_line2() {
+            matmul_test!(
+                test_global_matmul_g16x16x16_s16x16x16_line2,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 2,
+                    rhs_line_size: 2,
+                    out_line_size: 2,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_global_matmul_g16x16x32_s16x16x16() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S16x16x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 64,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g16x16x16_s16x16x16_line2::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_global_matmul_g16x16x16_s16x16x16_col_major() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S16x16x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::ColMajor,
-        //                 MatrixLayout::ColMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g16x16x16_s16x16x16() {
+            matmul_test!(
+                test_global_matmul_g16x16x16_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_global_matmul_g16x16x128_s16x16x16() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S16x16x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 128,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g16x16x16_s16x16x16::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_global_matmul_g32x16x128_s32x16x16() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S32x16x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 16,
-        //                 128,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_ymajor() {
+            matmul_test!(
+                test_global_matmul_ymajor,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 32,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x32x32,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_global_matmul_g32x32x224_s32x32x32() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S32x32x32,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 32,
-        //                 224,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_ymajor::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_global_matmul_g16x32x16_s16x32x16() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S16x32x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 32,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g16x16x32_s16x16x16() {
+            matmul_test!(
+                test_global_matmul_g16x16x32_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 32,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_global_matmul_col_major_tiling() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S32x32x32,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 32,
-        //                 32,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g16x16x32_s16x16x16::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_global_matmul_g32x32x16_s32x32x16() {
-        //         test_matmul::<
-        //             CmmaGlobalMatmul<
-        //                 f32,
-        //                 f32,
-        //                 CmmaStageMatmul<
-        //                     f32,
-        //                     f32,
-        //                     f32,
-        //                     DummyUnitInstruction16_16_16<f32, f32>,
-        //                     S32x32x16,
-        //                 >,
-        //                 LhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 RhsTensorLoader<f32, f32, SharedMemoryStage<f32, XMajorTiling>>,
-        //                 TensorUnloader<f32>,
-        //             >,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 32,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g16x16x16_s16x16x16_col_major() {
+            matmul_test!(
+                test_global_matmul_g16x16x16_s16x16x16_col_major,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s16x32x16() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x32x16>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 32,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g16x16x16_s16x16x16_col_major::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s16x16x16() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S16x16x16>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g16x16x128_s16x16x16() {
+            matmul_test!(
+                test_global_matmul_g16x16x128_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 128,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s32x32x32_row_col() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 32,
-        //                 32,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::ColMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g16x16x128_s16x16x16::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s32x32x32_col_row() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 32,
-        //                 32,
-        //                 MatrixLayout::ColMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g32x16x128_s32x16x16() {
+            matmul_test!(
+                test_global_matmul_g32x16x128_s32x16x16,
+                MatmulProblem {
+                    m: 32,
+                    n: 16,
+                    k: 128,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x16x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s32x32x32_col_col() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 32,
-        //                 32,
-        //                 MatrixLayout::ColMajor,
-        //                 MatrixLayout::ColMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g32x16x128_s32x16x16::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s32x16x16() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x16x16>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g32x32x224_s32x32x32() {
+            matmul_test!(
+                test_global_matmul_g32x32x224_s32x32x32,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 224,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x32x32,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_stage_matmul_i32x8x16_col_major() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32x16x16>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::ColMajor,
-        //                 MatrixLayout::ColMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g32x32x224_s32x32x32::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     #[ignore = "Should panic or not depending on line size"]
-        //     // Line size too large gives out of bounds
-        //     pub fn test_stage_matmul_s128x16x16() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S128x16x16>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 128,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             8,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g16x32x16_s16x32x16() {
+            matmul_test!(
+                test_global_matmul_g16x32x16_s16x32x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 32,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x32x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s64x64x16() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S64x64x16>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 64,
-        //                 64,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             4,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g16x32x16_s16x32x16::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s64x64x32() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S64x64x32>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 64,
-        //                 64,
-        //                 32,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             4,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_col_major_tiling() {
+            matmul_test!(
+                test_global_matmul_col_major_tiling,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 32,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x32x32,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s32x32x16() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x16>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 32,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_col_major_tiling::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s32x32x32() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction16_16_16<f32, f32>, S32x32x32>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 32,
-        //                 32,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             2,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_global_matmul_g32x32x16_s32x32x16() {
+            matmul_test!(
+                test_global_matmul_g32x32x16_s32x32x16,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x32x16,
+                DummyUnitInstruction16_16_16
+            );
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s32x8x16() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction32_8_16<f32, f32>, S32x8x16>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 8,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+            test_global_matmul_g32x32x16_s32x32x16::<TestRuntime>(&Default::default())
+        }
 
-        //     #[test]
-        //     pub fn test_stage_matmul_s8x32x16() {
-        //         test_matmul::<
-        //             CmmaStageMatmul<f32, f32, f32, DummyUnitInstruction8_32_16<f32, f32>, S8x32x16>,
-        //             f32,
-        //             f32,
-        //             TestRuntime,
-        //         >(
-        //             MatmulProblem::new(
-        //                 8,
-        //                 32,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_stage_matmul_s16x32x16() {
+            matmul_test!(
+                test_stage_matmul_s16x32x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 32,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x32x16,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s16x32x16::<TestRuntime>(&Default::default());
+        }
 
-        //     #[test]
-        //     pub fn test_tile_matmul_16x16x16() {
-        //         test_matmul::<DummyUnitInstruction16_16_16<f32, f32>, f32, f32, TestRuntime>(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_stage_matmul_s16x16x16() {
+            matmul_test!(
+                test_stage_matmul_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16
+            );
+        }
 
-        //     #[test]
-        //     pub fn test_tile_matmul_16x16x16_row_col() {
-        //         test_matmul::<DummyUnitInstruction16_16_16<f32, f32>, f32, f32, TestRuntime>(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::ColMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_stage_matmul_s32x32x32_row_col() {
+            matmul_test!(
+                test_stage_matmul_s32x32x32_row_col,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 32,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x32x32,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s32x32x32_row_col::<TestRuntime>(&Default::default());
+        }
 
-        //     #[test]
-        //     pub fn test_tile_matmul_16x16x16_col_row() {
-        //         test_matmul::<DummyUnitInstruction16_16_16<f32, f32>, f32, f32, TestRuntime>(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::ColMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_stage_matmul_s32x32x32_col_row() {
+            matmul_test!(
+                test_stage_matmul_s32x32x32_col_row,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 32,
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x32x32,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s32x32x32_col_row::<TestRuntime>(&Default::default());
+        }
 
-        //     #[test]
-        //     pub fn test_tile_matmul_16x16x16_col_col() {
-        //         test_matmul::<DummyUnitInstruction16_16_16<f32, f32>, f32, f32, TestRuntime>(
-        //             MatmulProblem::new(
-        //                 16,
-        //                 16,
-        //                 16,
-        //                 MatrixLayout::ColMajor,
-        //                 MatrixLayout::ColMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_stage_matmul_s32x32x32_col_col() {
+            matmul_test!(
+                test_stage_matmul_s32x32x32_col_col,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 32,
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x32x32,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s32x32x32_col_col::<TestRuntime>(&Default::default());
+        }
 
-        //     #[test]
-        //     pub fn test_tile_matmul_32x8x16() {
-        //         test_matmul::<DummyUnitInstruction32_8_16<f32, f32>, f32, f32, TestRuntime>(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 8,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_stage_matmul_s32x16x16() {
+            matmul_test!(
+                test_stage_matmul_s32x16x16,
+                MatmulProblem {
+                    m: 32,
+                    n: 16,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x16x16,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s32x16x16::<TestRuntime>(&Default::default());
+        }
 
-        //     #[test]
-        //     pub fn test_tile_matmul_32x8x16_col_major() {
-        //         test_matmul::<DummyUnitInstruction32_8_16<f32, f32>, f32, f32, TestRuntime>(
-        //             MatmulProblem::new(
-        //                 32,
-        //                 8,
-        //                 16,
-        //                 MatrixLayout::ColMajor,
-        //                 MatrixLayout::ColMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_stage_matmul_i32x8x16_col_major() {
+            matmul_test!(
+                test_stage_matmul_i32x8x16_col_major,
+                MatmulProblem {
+                    m: 32,
+                    n: 16,
+                    k: 16,
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S32x16x16,
+                DummyUnitInstruction32_8_16
+            );
+            test_stage_matmul_i32x8x16_col_major::<TestRuntime>(&Default::default());
+        }
 
-        //     #[test]
-        //     pub fn test_tile_matmul_8x32x16() {
-        //         test_matmul::<DummyUnitInstruction8_32_16<f32, f32>, f32, f32, TestRuntime>(
-        //             MatmulProblem::new(
-        //                 8,
-        //                 32,
-        //                 16,
-        //                 MatrixLayout::RowMajor,
-        //                 MatrixLayout::RowMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        #[ignore]
+        pub fn test_stage_matmul_s128x16x16() {
+            matmul_test!(
+                test_stage_matmul_s128x16x16,
+                MatmulProblem {
+                    m: 128,
+                    n: 16,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                8,
+                f32,
+                f32,
+                f32,
+                S128x16x16,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s128x16x16::<TestRuntime>(&Default::default());
+        }
 
-        //     #[test]
-        //     pub fn test_tile_matmul_8x32x16_col_major() {
-        //         test_matmul::<DummyUnitInstruction8_32_16<f32, f32>, f32, f32, TestRuntime>(
-        //             MatmulProblem::new(
-        //                 8,
-        //                 32,
-        //                 16,
-        //                 MatrixLayout::ColMajor,
-        //                 MatrixLayout::ColMajor,
-        //                 4,
-        //                 4,
-        //                 4,
-        //             ),
-        //             1,
-        //             &Default::default(),
-        //         )
-        //     }
+        #[test]
+        pub fn test_stage_matmul_s64x64x16() {
+            matmul_test!(
+                test_stage_matmul_s64x64x16,
+                MatmulProblem {
+                    m: 64,
+                    n: 64,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                4,
+                f32,
+                f32,
+                f32,
+                S64x64x16,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s64x64x16::<TestRuntime>(&Default::default());
+        }
+
+        #[test]
+        pub fn test_stage_matmul_s64x64x32() {
+            matmul_test!(
+                test_stage_matmul_s64x64x32,
+                MatmulProblem {
+                    m: 64,
+                    n: 64,
+                    k: 32,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                4,
+                f32,
+                f32,
+                f32,
+                S64x64x32,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s64x64x32::<TestRuntime>(&Default::default());
+        }
+
+        #[test]
+        pub fn test_stage_matmul_s32x32x16() {
+            matmul_test!(
+                test_stage_matmul_s32x32x16,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x32x16,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s32x32x16::<TestRuntime>(&Default::default());
+        }
+
+        #[test]
+        pub fn test_stage_matmul_s32x32x32() {
+            matmul_test!(
+                test_stage_matmul_s32x32x32,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 32,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                2,
+                f32,
+                f32,
+                f32,
+                S32x32x32,
+                DummyUnitInstruction16_16_16
+            );
+            test_stage_matmul_s32x32x32::<TestRuntime>(&Default::default());
+        }
+
+        #[test]
+        pub fn test_stage_matmul_s32x8x16() {
+            matmul_test!(
+                test_stage_matmul_s32x8x16,
+                MatmulProblem {
+                    m: 32,
+                    n: 8,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S32x8x16,
+                DummyUnitInstruction32_8_16
+            );
+            test_stage_matmul_s32x8x16::<TestRuntime>(&Default::default());
+        }
+
+        #[test]
+        pub fn test_stage_matmul_s8x32x16() {
+            matmul_test!(
+                test_stage_matmul_s8x32x16,
+                MatmulProblem {
+                    m: 8,
+                    n: 32,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                1,
+                f32,
+                f32,
+                f32,
+                S8x32x16,
+                DummyUnitInstruction8_32_16
+            );
+            test_stage_matmul_s8x32x16::<TestRuntime>(&Default::default());
+        }
     };
 }
