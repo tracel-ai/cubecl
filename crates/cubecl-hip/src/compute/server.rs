@@ -379,7 +379,7 @@ impl HipContext {
 
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
-        println!("toto");
+
         unsafe {
             let status = cubecl_hip_sys::hipModuleLaunchKernel(
                 kernel.func,

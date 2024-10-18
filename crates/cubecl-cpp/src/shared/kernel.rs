@@ -89,10 +89,6 @@ impl<D: Dialect> Display for ComputeKernel<D> {
             D::include_f16(f)?;
         }
 
-        if self.wmma_activated {
-            D::namespace_wmma(f)?;
-        }
-
         f.write_str("typedef unsigned int uint;\n")?;
 
         for item in self.items.iter() {

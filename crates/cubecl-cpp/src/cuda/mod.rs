@@ -13,7 +13,7 @@ impl Dialect for Cuda {
     fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <mma.h>\n")
     }
-    fn namespace_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("using namespace nvcuda;\n")
+    fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("#include <cuda_runtime.h>\n")
     }
 }

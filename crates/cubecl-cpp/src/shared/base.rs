@@ -18,7 +18,7 @@ pub trait Dialect: Default + Clone + Debug + Send + Sync + 'static {
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_bf16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn namespace_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
 #[allow(clippy::too_many_arguments)]
