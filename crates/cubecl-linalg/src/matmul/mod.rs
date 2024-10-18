@@ -8,6 +8,7 @@ pub mod matmul_stage;
 pub mod matmul_tile;
 pub mod matrix;
 pub mod problem;
+pub mod stage_dim;
 
 #[cfg(feature = "export_tests")]
 pub mod tests;

@@ -1,8 +1,8 @@
-use crate::matmul::cmma_matmul::config::StageDim;
 use crate::matmul::config::{ComptimeConfig, MatmulConfig};
-use crate::matmul::matmul_stage::{SmmConfig, StageMatmul};
+use crate::matmul::matmul_stage::SmmConfig;
 use crate::matmul::matmul_tile::TmmConfig;
 use crate::matmul::matrix::{Ident, MatrixLayout};
+use crate::matmul::stage_dim::StageDim;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

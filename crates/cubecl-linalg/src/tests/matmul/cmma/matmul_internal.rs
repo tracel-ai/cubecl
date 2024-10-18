@@ -1,8 +1,7 @@
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! testgen_cmma_internal{
+macro_rules! testgen_cmma_internal {
     () => {
-        use cubecl_linalg::matmul::cmma_matmul::config::StageDim;
         use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmul;
         use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmulConfig;
         use cubecl_linalg::matmul::cmma_matmul::global::{
@@ -25,6 +24,7 @@ macro_rules! testgen_cmma_internal{
         use cubecl_linalg::matmul::tests::create_stage_dim;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
         use cubecl_linalg::matmul::tests::run_matmul_test;
+        use cubecl_linalg::matmul::stage_dim::StageDim;
 
         type T = CmmaTileMatmulConfig;
         type S = CmmaStageMatmulConfig<T>;
@@ -32,12 +32,12 @@ macro_rules! testgen_cmma_internal{
 
         macro_rules! matmul_test {
             (
-                                        $test_name:ident,
-                                        $problem:expr,
-                                        $num_planes:expr,
-                                        $eg:ty, $es:ty, $ea:ty, $stage_size:ty,
-                                        $tile_matmul_type:ident
-                                    ) => {
+                                                        $test_name:ident,
+                                                        $problem:expr,
+                                                        $num_planes:expr,
+                                                        $eg:ty, $es:ty, $ea:ty, $stage_size:ty,
+                                                        $tile_matmul_type:ident
+                                                    ) => {
                 pub fn $test_name<R: Runtime>(device: &R::Device) {
                     type T = CmmaTileMatmulConfig;
                     type S = CmmaStageMatmulConfig<T>;
