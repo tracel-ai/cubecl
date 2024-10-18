@@ -6,7 +6,6 @@ mod compute;
 mod device;
 mod runtime;
 
-pub mod compiler;
 pub use device::*;
 pub use runtime::*;
 

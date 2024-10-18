@@ -1,13 +1,13 @@
 [package]
 authors = ["nathanielsimard <nathaniel.simard.42@gmail.com>"]
 categories = ["science"]
-description = "CUDA runtime for CubeCL"
+description = "CPP transpiler for CubeCL"
 edition.workspace = true
-keywords = ["gpu", "cuda"]
+keywords = ["cpp", "gpu", "cuda", "hip"]
 license.workspace = true
-name = "cubecl-cuda"
+name = "cubecl-cpp"
 readme.workspace = true
-repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda"
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cpp"
 version.workspace = true
 
 [features]
@@ -15,34 +15,19 @@ default = [
   "cubecl-runtime/default",
   "cubecl-common/default",
   "cubecl-core/default",
-  "cudarc/cuda-12050",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+cuda = []
+hip = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features = false }
-cubecl-cpp = { path = "../cubecl-cpp", version = "0.2.0", default-features = false, features = ["cuda"] }
 cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false, features = [
   "channel-mutex",
 ] }
 
 bytemuck = { workspace = true }
-cudarc = { version = "0.12.1", features = [
-  "std",
-  "driver",
-  "cuda-version-from-build-system",
-], default-features = false }
-
 derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
-
-[dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.2.0", features = [
-  "export_tests",
-] }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.2.0", features = [
-  "export_tests",
-] }
-pretty_assertions = { workspace = true }

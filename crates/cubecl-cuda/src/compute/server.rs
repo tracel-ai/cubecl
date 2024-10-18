@@ -1,4 +1,4 @@
-use crate::compiler::{format_cpp_code, CudaCompiler};
+use cubecl_cpp::{formatter::format_cpp, CudaCompiler};
 
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
@@ -256,7 +256,7 @@ impl CudaContext {
         if logger.is_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
-            if let Ok(formatted) = format_cpp_code(&kernel_compiled.source) {
+            if let Ok(formatted) = format_cpp(&kernel_compiled.source) {
                 kernel_compiled.source = formatted;
             }
         }
