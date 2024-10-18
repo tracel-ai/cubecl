@@ -1,4 +1,4 @@
-use crate::compiler::FmtLeft;
+use crate::shared::FmtLeft;
 
 use super::{Component, Elem, Item, Variable};
 use std::fmt::{Display, Formatter};
@@ -140,7 +140,6 @@ function!(Min, "min");
 
 pub struct IndexAssign;
 pub struct Index;
-pub struct CheckedIndexAssign;
 
 impl Binary for IndexAssign {
     fn format_scalar<Lhs, Rhs>(

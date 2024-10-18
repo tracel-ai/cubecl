@@ -1,4 +1,4 @@
-use crate::compiler::{format_cpp_code, HipCompiler};
+use cubecl_cpp::{formatter::format_cpp, HipCompiler};
 
 use super::storage::HipStorage;
 use super::HipResource;
@@ -264,7 +264,7 @@ impl HipContext {
         if logger.is_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
-            if let Ok(formatted) = format_cpp_code(&jitc_kernel.source) {
+            if let Ok(formatted) = format_cpp(&jitc_kernel.source) {
                 jitc_kernel.source = formatted;
             }
         }

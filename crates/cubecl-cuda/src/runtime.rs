@@ -12,10 +12,10 @@ use cubecl_runtime::{
 };
 
 use crate::{
-    compiler::CudaCompiler,
     compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
 };
+use cubecl_cpp::CudaCompiler;
 
 /// The values that control how a WGPU Runtime will perform its calculations.
 #[derive(Default)]

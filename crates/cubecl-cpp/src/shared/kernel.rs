@@ -1,6 +1,6 @@
-use super::{Body, Item, Variable};
+use super::{Body, Dialect, Item, Variable};
 use cubecl_core::{ir::CubeDim, CompilerRepresentation};
-use std::{collections::HashSet, fmt::Display, io::Write, process::Command};
+use std::{collections::HashSet, fmt::Display, marker::PhantomData};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding {
@@ -49,7 +49,7 @@ impl SharedMemory {
 }
 
 #[derive(Debug, Clone)]
-pub struct ComputeKernel {
+pub struct ComputeKernel<D: Dialect> {
     pub inputs: Vec<Binding>,
     pub outputs: Vec<Binding>,
     pub named: Vec<(String, Binding)>,
@@ -59,9 +59,10 @@ pub struct ComputeKernel {
     pub bf16: bool,
     pub f16: bool,
     pub items: HashSet<super::Item>,
+    pub dialect: PhantomData<D>,
 }
 
-impl CompilerRepresentation for ComputeKernel {
+impl<D: Dialect> CompilerRepresentation for ComputeKernel<D> {
     fn shared_memory_size(&self) -> usize {
         let mut current = 0usize;
 
@@ -75,21 +76,21 @@ impl CompilerRepresentation for ComputeKernel {
     }
 }
 
-impl Display for ComputeKernel {
+impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.wmma_activated {
-            f.write_str("#include <mma.h>\n")?;
+            D::include_wmma(f)?;
         }
         if self.bf16 {
-            f.write_str("#include <cuda_bf16.h>\n")?;
+            D::include_bf16(f)?;
         }
 
         if self.f16 {
-            f.write_str("#include <cuda_fp16.h>\n")?;
+            D::include_f16(f)?;
         }
 
         if self.wmma_activated {
-            f.write_str("using namespace nvcuda;\n")?;
+            D::namespace_wmma(f)?;
         }
 
         f.write_str("typedef unsigned int uint;\n")?;
@@ -156,29 +157,5 @@ extern \"C\" __global__ void kernel(
         f.write_str("\n}")?;
 
         Ok(())
-    }
-}
-
-/// Format C++ code, useful when debugging.
-pub(crate) fn format_cpp_code(code: &str) -> Result<String, std::io::Error> {
-    let mut child = Command::new("clang-format")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()?;
-
-    {
-        let stdin = child.stdin.as_mut().expect("Failed to open stdin");
-        stdin.write_all(code.as_bytes())?;
-    }
-
-    let output = child.wait_with_output()?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    } else {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "clang-format failed",
-        ))
     }
 }

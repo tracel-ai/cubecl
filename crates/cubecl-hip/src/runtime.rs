@@ -1,3 +1,5 @@
+use cubecl_cpp::HipCompiler;
+
 use cubecl_core::{Feature, MemoryConfiguration, Runtime};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
@@ -8,7 +10,6 @@ use cubecl_runtime::{
 };
 
 use crate::{
-    compiler::HipCompiler,
     compute::{HipContext, HipServer, HipStorage},
     device::HipDevice,
 };
