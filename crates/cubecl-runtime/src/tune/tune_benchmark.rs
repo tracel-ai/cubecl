@@ -1,7 +1,7 @@
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
-use cubecl_common::benchmark::BenchmarkDurations;
+use cubecl_common::benchmark::{BenchmarkDurations, TimingMethod};
 
 use super::AutotuneOperation;
 use alloc::boxed::Box;
@@ -32,6 +32,9 @@ impl<S: ComputeServer, C: ComputeChannel<S>, Out> TuneBenchmark<S, C, Out> {
             let duration = self.client.sync().await;
             durations.push(duration);
         }
-        BenchmarkDurations { durations }
+        BenchmarkDurations {
+            timing_method: TimingMethod::GPU,
+            durations,
+        }
     }
 }

@@ -4,9 +4,10 @@ use std::marker::PhantomData;
 #[cfg(feature = "cuda")]
 use half::f16;
 
-use cubecl::benchmark::Benchmark;
+use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
+use std::time::Duration;
 
 #[cube(launch)]
 fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
@@ -64,8 +65,8 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         .to_lowercase()
     }
 
-    fn sync(&self) {
-        future::block_on(self.client.sync());
+    fn sync(&self) -> Duration {
+        future::block_on(self.client.sync())
     }
 }
 
@@ -95,7 +96,7 @@ fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
         _e: PhantomData,
     };
     println!("{}", bench.name());
-    println!("{}", bench.run());
+    println!("{}", bench.run(TimingMethod::CPU));
 }
 
 fn main() {

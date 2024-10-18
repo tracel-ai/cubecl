@@ -11,7 +11,7 @@ use std::panic::resume_unwind;
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec::Vec;
-use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
+use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations, TimingMethod};
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
@@ -213,7 +213,10 @@ impl<K: AutotuneKey> Tuner<K> {
                     ManuallyDrop::new(e)
                 })
         } else {
-            Ok(BenchmarkDurations::new(vec![Duration::MAX]))
+            Ok(BenchmarkDurations::new(
+                TimingMethod::GPU,
+                vec![Duration::MAX],
+            ))
         }
     }
 }
