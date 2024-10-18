@@ -24,7 +24,7 @@ cubecl-core = { path = "../cubecl-core", version = "0.2.0" }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false, features = [
   "channel-mutex",
 ] }
-cubecl-hip-sys = { workspace = true }
+cubecl-hip-sys = { workspace = true, features = ["rocm_622"] }
 
 bytemuck = { workspace = true }
 
