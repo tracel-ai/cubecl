@@ -8,6 +8,7 @@ use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{MemoryDeviceProperties, MemoryManagement},
+    storage::ComputeStorage,
     ComputeRuntime, DeviceProperties,
 };
 
@@ -31,8 +32,6 @@ type Server = CudaServer;
 type Channel = MutexComputeChannel<Server>;
 
 static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::new();
-
-const MEMORY_OFFSET_ALIGNMENT: usize = 32;
 
 fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
@@ -70,7 +69,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let storage = CudaStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
-        alignment: MEMORY_OFFSET_ALIGNMENT,
+        alignment: CudaStorage::ALIGNMENT,
     };
 
     let memory_management = MemoryManagement::from_configuration(

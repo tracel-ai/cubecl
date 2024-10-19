@@ -313,9 +313,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     fn create(&mut self, data: &[u8]) -> server::Handle {
         let num_bytes = data.len();
 
-        // Copying into a buffer has to be 4 byte aligned.
-        let aligned_len = (num_bytes + wgpu::COPY_BUFFER_ALIGNMENT as usize - 1)
-            / wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+        // memory is 32 bytes aligned (see WgpuStorage).
+        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let aligned_len = num_bytes.div_ceil(align) * align;
 
         // Reserve memory on some storage we haven't yet used this command queue for compute
         // or copying.
