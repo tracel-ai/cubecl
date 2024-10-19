@@ -40,8 +40,14 @@ pub struct Launch {
 #[derive(Clone)]
 pub struct KernelFn {
     pub sig: KernelSignature,
-    pub block: Block,
+    pub body: KernelBody,
     pub context: Context,
+}
+
+#[derive(Clone)]
+pub enum KernelBody {
+    Block(Block),
+    Verbatim(TokenStream),
 }
 
 #[derive(Clone)]
@@ -67,13 +73,21 @@ impl KernelParam {
         let param = match param {
             FnArg::Typed(param) => param,
             FnArg::Receiver(param) => {
+                let mut is_ref = false;
+                let mut is_mut = false;
+                let normalized_ty =
+                    normalize_kernel_ty(*param.ty.clone(), false, &mut is_ref, &mut is_mut);
+
+                is_mut = param.mutability.is_some();
+                is_ref = param.reference.is_some();
+
                 return Ok(KernelParam {
                     name: Ident::new("self", param.span()),
-                    ty: *param.ty.clone(),
-                    normalized_ty: *param.ty.clone(),
+                    ty: *param.ty,
+                    normalized_ty,
                     is_const: false,
-                    is_mut: param.mutability.is_some(),
-                    is_ref: param.reference.is_some(),
+                    is_mut,
+                    is_ref,
                 });
             }
         };
@@ -158,7 +172,7 @@ impl KernelFn {
 
         Ok(KernelFn {
             sig,
-            block,
+            body: KernelBody::Block(block),
             context,
         })
     }
