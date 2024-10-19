@@ -67,7 +67,8 @@ impl Optimizer {
             Branch::Loop(loop_) => self.parse_loop(*loop_),
             Branch::Return => {
                 let current_block = self.current_block.take().unwrap();
-                self.program.add_edge(current_block, self.ret, ());
+                let ret = self.ret();
+                self.program.add_edge(current_block, ret, ());
             }
             Branch::Break => {
                 let current_block = self.current_block.take().unwrap();
@@ -93,7 +94,7 @@ impl Optimizer {
             self.program.add_edge(current_block, next, ());
         } else {
             // Returned
-            merge = self.merge_ret();
+            merge = self.ret;
         }
 
         let merge = if is_break { None } else { Some(merge) };
@@ -127,7 +128,7 @@ impl Optimizer {
             self.program.add_edge(current_block, next, ());
         } else {
             // Returned
-            merge = self.merge_ret();
+            merge = self.ret;
         }
 
         self.current_block = Some(or_else);
@@ -137,7 +138,7 @@ impl Optimizer {
             self.program.add_edge(current_block, next, ());
         } else {
             // Returned
-            merge = self.merge_ret();
+            merge = self.ret;
         }
 
         let merge = if is_break { None } else { Some(merge) };
@@ -203,7 +204,7 @@ impl Optimizer {
         let merge = if is_break_def || is_break_branch {
             None
         } else if is_ret {
-            Some(self.merge_ret())
+            Some(self.ret)
         } else {
             self.program[next].block_use.push(BlockUse::Merge);
             Some(next)
@@ -346,18 +347,6 @@ impl Optimizer {
             })
             .into(),
         );
-    }
-
-    pub(crate) fn merge_ret(&mut self) -> NodeIndex {
-        if self.program[self.ret].block_use.contains(&BlockUse::Merge) {
-            let merge = self.program.add_node(BasicBlock::default());
-            self.program.add_edge(merge, self.ret, ());
-            self.program[merge].block_use.push(BlockUse::Merge);
-            merge
-        } else {
-            self.program[self.ret].block_use.push(BlockUse::Merge);
-            self.ret
-        }
     }
 
     pub(crate) fn split_critical_edges(&mut self) {
