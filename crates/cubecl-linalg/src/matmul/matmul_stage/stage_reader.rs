@@ -6,7 +6,7 @@ use super::SmmConfig;
 #[cube]
 pub trait StageReader<ES: Numeric, S: SmmConfig>: CubeType {
     fn read_tile(
-        self_: &Self,
+        this: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
         accumulator_offset: u32,

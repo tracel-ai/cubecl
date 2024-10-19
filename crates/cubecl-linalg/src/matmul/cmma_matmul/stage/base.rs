@@ -132,20 +132,6 @@ where
     S: SmmConfig,
 {
     type Config = S;
-    // fn preconfigure() -> CmmaPreConfig {
-    //     let mut pre_config = TMM::preconfigure();
-
-    //     pre_config.lhs_num_tiles_x = Some(StageSize::M / TMM::M);
-    //     pre_config.lhs_num_tiles_y = Some(StageSize::K / TMM::K);
-
-    //     pre_config.rhs_num_tiles_x = Some(StageSize::K / TMM::K);
-    //     pre_config.rhs_num_tiles_y = Some(StageSize::N / TMM::N);
-
-    //     pre_config.out_num_tiles_x = Some(StageSize::M / TMM::M);
-    //     pre_config.out_num_tiles_y = Some(StageSize::N / TMM::N);
-
-    //     pre_config
-    // }
 
     fn check_config(config: Self::Config) {
         let _ = comptime!(check_num_planes(
@@ -154,21 +140,6 @@ where
         ));
         TMM::check_config(config.into_tmm_config());
     }
-
-    // unsafe fn launch_unchecked<R: Runtime>(
-    //     client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
-    //     cube_dim: CubeDim,
-    //     cube_count: CubeCount,
-    //     lhs: TensorArg<'_, R>,
-    //     rhs: TensorArg<'_, R>,
-    //     out: TensorArg<'_, R>,
-    //     config: S::GmmConfig,
-    // ) {
-    //     Self::check_config(config);
-    //     stage_matmul_launch::launch_unchecked::<I, O, Self, S::GmmConfig, R>(
-    //         &client, cube_count, cube_dim, lhs, rhs, out, config,
-    //     );
-    // }
 }
 
 #[cube]

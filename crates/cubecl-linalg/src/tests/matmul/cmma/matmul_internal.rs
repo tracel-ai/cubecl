@@ -10,14 +10,13 @@ macro_rules! testgen_cmma_internal {
         use cubecl_linalg::matmul::cmma_matmul::stage::CmmaStageMatmulConfig;
         use cubecl_linalg::matmul::cmma_matmul::stage::{
             CmmaStageMatmul, S128x128x16, S128x16x16, S16x16x16, S16x16x32, S16x32x16, S32x16x16,
-            S32x32x16, S32x32x32, S32x8x16, S64x64x16, S64x64x32, S8x32x16, SharedMemoryStage,
+            S32x32x16, S32x32x32, S32x8x16, S64x64x16, S64x64x32, S8x32x16,
         };
         use cubecl_linalg::matmul::cmma_matmul::tile::dummy::{
             DummyUnitInstruction16_16_16, DummyUnitInstruction32_8_16, DummyUnitInstruction8_32_16,
         };
         use cubecl_linalg::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
         use cubecl_linalg::matmul::matmul_stage::StageMatmul;
-        use cubecl_linalg::matmul::matmul_stage::{XMajorTiling, YMajorTiling};
         use cubecl_linalg::matmul::matmul_tile::TileMatmul;
         use cubecl_linalg::matmul::matrix::MatrixLayout;
         use cubecl_linalg::matmul::problem::MatmulProblem;

@@ -93,42 +93,9 @@ macro_rules! impl_matmul_instruction {
         impl<I: Numeric, O: Numeric, T: TmmConfig> Matmul<I, O> for $name<I, O, T> {
             type Config = T;
 
-            // fn preconfigure() -> CmmaPreConfig {
-            //     CmmaPreConfig {
-            //         lhs_tile_size_x: $m,
-            //         lhs_tile_size_y: $k,
-            //         rhs_tile_size_x: $k,
-            //         rhs_tile_size_y: $n,
-            //         out_tile_size_x: $m,
-            //         out_tile_size_y: $n,
-            //         ..Default::default()
-            //     }
-            // }
-
             fn check_config(config: Self::Config) {
                 let _ = comptime!(check_plane_dim(config.plane_dim()));
             }
-
-            // unsafe fn launch_unchecked<R: Runtime>(
-            //     client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
-            //     cube_dim: CubeDim,
-            //     cube_count: CubeCount,
-            //     lhs: TensorArg<'_, R>,
-            //     rhs: TensorArg<'_, R>,
-            //     out: TensorArg<'_, R>,
-            //     config: CmmaConfig,
-            // ) {
-            //     Self::check_config(config);
-            //     matmul_instruction_launch::launch_unchecked::<Self, I, O, R>(
-            //         &client,
-            //         cube_count,
-            //         cube_dim,
-            //         lhs,
-            //         rhs,
-            //         out,
-            //         config.layouts,
-            //     );
-            // }
         }
     };
 }
@@ -139,7 +106,6 @@ impl_matmul_instruction!(DummyUnitInstruction8_32_16, 8, 32, 16);
 
 #[cube]
 fn fill<E: Numeric>(slice: &Slice<'_, Line<E>>, tile: &mut OwnedTile<E>) {
-    // TODO This results in indexing slice for no reason
     let line_size = Line::size(&slice[0]);
 
     for i in 0..tile.x * tile.y / line_size {

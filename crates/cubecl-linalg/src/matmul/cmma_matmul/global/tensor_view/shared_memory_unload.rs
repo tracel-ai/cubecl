@@ -21,9 +21,9 @@ impl PlaneMapper for SimpleSmemUnloader {
 }
 
 #[cube]
-pub(crate) fn unload_shared_memory<EG: Numeric, ES: Numeric, G: GmmConfig>(
+pub(crate) fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
     view: &mut TensorView<EG>,
-    smem_slice: &Slice<'_, Line<ES>>,
+    slice: &Slice<'_, Line<ES>>,
     row_tile_begin: u32,
     col_tile_begin: u32,
     #[comptime] config: G
@@ -43,7 +43,7 @@ pub(crate) fn unload_shared_memory<EG: Numeric, ES: Numeric, G: GmmConfig>(
         let row = row_tile_begin + unit_write / stage_dim.tile_size_y;
         let col = col_tile_begin + unit_write % stage_dim.tile_size_y;
 
-        let value = smem_slice[unit_write / out_line_size];
+        let value = slice[unit_write / out_line_size];
         write_coalesced::<EG, ES>(view, row, col, value);
     }
 }

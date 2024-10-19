@@ -6,7 +6,7 @@ use crate::matmul::matmul_global::GmmConfig;
 #[cube]
 pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
     fn write<ES: Numeric, G: GmmConfig>(
-        tile_writer: &mut Self,
+        this: &mut Self,
         slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,

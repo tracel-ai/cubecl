@@ -1,5 +1,5 @@
-use crate::matmul::cmma_matmul::global::load_shared_memory;
-use crate::matmul::cmma_matmul::global::unload_shared_memory;
+use crate::matmul::cmma_matmul::global::continuous_load_to_slice;
+use crate::matmul::cmma_matmul::global::unload_from_slice;
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matrix::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
@@ -51,16 +51,14 @@ pub(crate) fn load_coalesced<EG: Numeric, G: GmmConfig>(
 }
 
 #[cube]
-// TODO rename
-pub(crate) fn load_shared_memory_<EG: Numeric, ES: Numeric, G: GmmConfig>(
+pub(crate) fn load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
     view: &TensorView<EG>,
-    shared_memory: &mut SharedMemory<Line<ES>>,
+    slice: &mut SliceMut<'_, Line<ES>>,
     #[comptime] ident: Ident,
     #[comptime] config: G,
 ) {
-    // TODO allow other modes than Gmem2SmemContinuous
-    // TODO allow YMAjor
-    load_shared_memory::<EG, ES, G>(view, shared_memory, ident, config);
+    // TODO allow other modes than continuous
+    continuous_load_to_slice::<EG, ES, G>(view, slice, ident, config);
 }
 
 #[cube]
@@ -70,11 +68,21 @@ pub(crate) fn init_view<EG: Numeric>(view: &mut TensorView<EG>, x_offset: u32, y
 }
 
 #[cube]
-pub(crate) fn update_view<EG: Numeric>(view: &mut TensorView<EG>, x_offset: u32, y_offset: u32) {
-    // TODO in practice one of them is always += 0, so there is useless computation
-    // With ident
-    view.x_offset += x_offset;
-    view.y_offset += y_offset;
+pub(crate) fn update_view<EG: Numeric>(
+    view: &mut TensorView<EG>,
+    x_offset: u32,
+    y_offset: u32,
+    #[comptime] ident: Ident,
+) {
+    match ident {
+        Ident::Lhs => {
+            view.y_offset += y_offset;
+        }
+        Ident::Rhs => {
+            view.x_offset += x_offset;
+        }
+        Ident::Out => {}
+    }
 }
 
 #[cube]
@@ -104,7 +112,7 @@ pub(crate) fn write_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
     write_y: u32,
     #[comptime] config: G,
 ) {
-    unload_shared_memory::<EG, ES, G>(view, slice, write_x, write_y, config);
+    unload_from_slice::<EG, ES, G>(view, slice, write_x, write_y, config);
 }
 
 #[cube]

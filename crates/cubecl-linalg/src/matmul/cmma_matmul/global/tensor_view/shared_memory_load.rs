@@ -1,7 +1,7 @@
 use crate::matmul::cmma_matmul::global::load_coalesced;
+use crate::matmul::cmma_matmul::stage::{TilingOrder, XMajorTiling};
 use crate::matmul::config::PlaneMapper;
 use crate::matmul::matmul_global::GmmConfig;
-use crate::matmul::matmul_stage::{TilingOrder, XMajorTiling};
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -23,9 +23,9 @@ impl PlaneMapper for ContinuousSmemLoader {
 }
 
 #[cube]
-pub(crate) fn load_shared_memory<EG: Numeric, ES: Numeric, G: GmmConfig>(
+pub(crate) fn continuous_load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
     read_view: &TensorView<EG>,
-    smem: &mut SharedMemory<Line<ES>>,
+    slice: &mut SliceMut<'_, Line<ES>>,
     #[comptime] ident: Ident,
     #[comptime] config: G,
 ) {
@@ -54,7 +54,7 @@ pub(crate) fn load_shared_memory<EG: Numeric, ES: Numeric, G: GmmConfig>(
         let line =
             load_coalesced::<EG, G>(read_view, tile_x, tile_y, pos_within_tile, ident, config);
 
-        smem[unit_position / line_size] = Line::cast_from(line);
+        slice[unit_position / line_size] = Line::cast_from(line);
     }
 }
 

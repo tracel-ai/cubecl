@@ -1,4 +1,4 @@
-use super::implementation::*;
+use crate::matmul::matrix::as_cmma_layout;
 use crate::matmul::matmul_tile::TmmConfig;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix::MatrixLayout;
@@ -76,42 +76,10 @@ macro_rules! impl_matmul_instruction {
         {
             type Config = T;
             
-            // fn preconfigure() -> CmmaPreConfig {
-            //     CmmaPreConfig {
-            //         lhs_tile_size_x: $m,
-            //         lhs_tile_size_y: $k,
-            //         rhs_tile_size_x: $k,
-            //         rhs_tile_size_y: $n,
-            //         out_tile_size_x: $m,
-            //         out_tile_size_y: $n,
-            //         ..Default::default()
-            //     }
-            // }
-
             fn check_config(config: Self::Config) {
                 let _ = comptime!(check_plane_dim(config.plane_dim()));
             }
 
-            // unsafe fn launch_unchecked<R: Runtime>(
-            //     client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
-            //     cube_dim: CubeDim,
-            //     cube_count: CubeCount,
-            //     lhs: TensorArg<'_, R>,
-            //     rhs: TensorArg<'_, R>,
-            //     out: TensorArg<'_, R>,
-            //     config: CmmaConfig,
-            // ) {
-            //     Self::check_config(config);
-            //     matmul_instruction_launch::launch_unchecked::<Self, I, O, R>(
-            //         &client,
-            //         cube_count,
-            //         cube_dim,
-            //         lhs,
-            //         rhs,
-            //         out,
-            //         config.layouts,
-            //     );
-            // }
         }
     };
 }
@@ -119,6 +87,99 @@ macro_rules! impl_matmul_instruction {
 impl_matmul_instruction!(CmmaInstruction16_16_16, 16, 16, 16);
 impl_matmul_instruction!(CmmaInstruction32_8_16, 32, 8, 16);
 impl_matmul_instruction!(CmmaInstruction8_32_16, 8, 32, 16);
+
+
+#[cube]
+pub(crate) fn execute<I: Numeric, O: Numeric>(
+    lhs: &Fragment<I>,
+    rhs: &Fragment<I>,
+    out: &mut Fragment<O>,
+) {
+    cmma::execute::<I, I, O, O>(&lhs.matrix, &rhs.matrix, &out.matrix, &out.matrix);
+}
+
+#[cube]
+pub(crate) fn init_lhs<I: Numeric>(
+    #[comptime] layout: MatrixLayout,
+    m: u32,
+    n: u32,
+    k: u32,
+) -> Fragment<I> {
+    unsafe {
+        Fragment::<I> {
+            matrix: cmma::Matrix::<I>::uninitialized(
+                cmma::MatrixIdent::A,
+                m,
+                n,
+                k,
+                as_cmma_layout(layout),
+            ),
+            stride: match layout {
+                MatrixLayout::RowMajor => k,
+                MatrixLayout::ColMajor => m,
+            },
+        }
+    }
+}
+
+#[cube]
+pub(crate) fn init_rhs<I: Numeric>(
+    #[comptime] layout: MatrixLayout,
+    m: u32,
+    n: u32,
+    k: u32,
+) -> Fragment<I> {
+    unsafe {
+        Fragment::<I> {
+            matrix: cmma::Matrix::<I>::uninitialized(
+                cmma::MatrixIdent::B,
+                m,
+                n,
+                k,
+                as_cmma_layout(layout),
+            ),
+            stride: match layout {
+                MatrixLayout::RowMajor => n,
+                MatrixLayout::ColMajor => k,
+            },
+        }
+    }
+}
+
+#[cube]
+pub(crate) fn fill_lhs<C: CubePrimitive, I: Numeric>(slice: &Slice<'_, C>, lhs: &mut Fragment<I>) {
+    cmma::load(&lhs.matrix, slice, lhs.stride);
+}
+
+#[cube]
+pub(crate) fn fill_rhs<C: CubePrimitive, I: Numeric>(slice: &Slice<'_, C>, rhs: &mut Fragment<I>) {
+    cmma::load(&rhs.matrix, slice, rhs.stride);
+}
+
+#[cube]
+pub(crate) fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
+    unsafe {
+        let matrix = cmma::Matrix::<O>::uninitialized(
+            cmma::MatrixIdent::Accumulator,
+            m,
+            n,
+            k,
+            cmma::MatrixLayout::Undefined,
+        );
+
+        cmma::fill(&matrix, O::from_int(0));
+
+        Fragment::<O> { matrix, stride: n }
+    }
+}
+
+#[cube]
+pub(crate) fn read_output<O: Numeric, C: Numeric>(
+    out: &Fragment<O>,
+    slice: &mut SliceMut<'_, Line<C>>,
+) {
+    cmma::store(slice, &out.matrix, out.stride, cmma::MatrixLayout::RowMajor);
+}
 
 fn check_plane_dim(actual_plane_dim: u32) {
     assert_eq!(32, actual_plane_dim, 

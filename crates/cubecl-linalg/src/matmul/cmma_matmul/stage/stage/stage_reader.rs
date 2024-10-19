@@ -6,18 +6,28 @@ use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::SharedMemoryStage;
+use super::Stage;
 
 #[derive(CubeType)]
 pub struct LhsStageReader<ES: Numeric, S: SmmConfig> {
-    pub stage: SharedMemoryStage<ES>,
+    pub stage: Stage<ES>,
     pub _config: PhantomData<S>,
 }
 
 #[derive(CubeType)]
 pub struct RhsStageReader<ES: Numeric, S: SmmConfig> {
-    pub stage: SharedMemoryStage<ES>,
+    pub stage: Stage<ES>,
     pub _config: PhantomData<S>,
+}
+
+#[cube]
+pub(crate) fn new_lhs_stage_reader<ES: Numeric, S: SmmConfig>(
+    stage: Stage<ES>,
+) -> LhsStageReader<ES, S> {
+    LhsStageReader::<ES, S> {
+        stage,
+        _config: PhantomData::<S>.runtime(),
+    }
 }
 
 #[cube]
@@ -36,6 +46,16 @@ impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for LhsStageReader<ES, S> {
             Ident::Lhs,
             config,
         )
+    }
+}
+
+#[cube]
+pub(crate) fn new_rhs_stage_reader<ES: Numeric, S: SmmConfig>(
+    stage: Stage<ES>,
+) -> RhsStageReader<ES, S> {
+    RhsStageReader::<ES, S> {
+        stage,
+        _config: PhantomData::<S>.runtime(),
     }
 }
 

@@ -1,10 +1,9 @@
-use crate::matmul::cmma_matmul::global::{
-    init_view, load_shared_memory_, new_tensor_view, update_view,
+use crate::matmul::cmma_matmul::global::{init_view, load_to_slice, new_tensor_view, update_view};
+use crate::matmul::cmma_matmul::stage::{
+    as_slice_mut, new_lhs_stage_reader, new_rhs_stage_reader, new_stage,
 };
-use crate::matmul::cmma_matmul::stage::new_stage;
-use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader, SharedMemoryStage};
+use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader, Stage};
 use crate::matmul::matmul_global::{GmmConfig, Loader};
-use crate::matmul::matmul_stage::SmmConfig;
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -15,7 +14,7 @@ use super::TensorView;
 #[derive(CubeType)]
 pub struct LhsTensorLoader<EG: Numeric, ES: Numeric, G: GmmConfig> {
     pub tensor_view: TensorView<EG>,
-    pub stage: SharedMemoryStage<ES>,
+    pub stage: Stage<ES>,
     pub _e: PhantomData<ES>,
     pub _config: PhantomData<G>,
 }
@@ -23,7 +22,7 @@ pub struct LhsTensorLoader<EG: Numeric, ES: Numeric, G: GmmConfig> {
 #[derive(CubeType)]
 pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, G: GmmConfig> {
     pub tensor_view: TensorView<EG>,
-    pub stage: SharedMemoryStage<ES>,
+    pub stage: Stage<ES>,
     pub _e: PhantomData<ES>,
     pub _config: PhantomData<G>,
 }
@@ -33,9 +32,9 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
     type StageReader = LhsStageReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        load_shared_memory_::<EG, ES, G>(
+        load_to_slice::<EG, ES, G>(
             &this.tensor_view,
-            &mut this.stage.smem,
+            as_slice_mut(&mut this.stage),
             Ident::Lhs,
             config,
         );
@@ -47,17 +46,7 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
     }
 
     fn advance_view(self_: &mut Self, k_offset: u32) {
-        update_view(&mut self_.tensor_view, 0, k_offset);
-    }
-}
-
-#[cube]
-fn new_lhs_stage_reader<ES: Numeric, S: SmmConfig>(
-    stage: SharedMemoryStage<ES>,
-) -> LhsStageReader<ES, S> {
-    LhsStageReader::<ES, S> {
-        stage,
-        _config: PhantomData::<S>.runtime(),
+        update_view(&mut self_.tensor_view, 0, k_offset, Ident::Lhs);
     }
 }
 
@@ -82,31 +71,21 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoad
     type StageReader = RhsStageReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        load_shared_memory_::<EG, ES, G>(
+        load_to_slice::<EG, ES, G>(
             &this.tensor_view,
-            &mut this.stage.smem,
+            as_slice_mut(&mut this.stage),
             Ident::Lhs,
             config,
         );
         new_rhs_stage_reader(this.stage)
     }
 
-    fn init_view(self_: &mut Self, cube_offset: u32, k_start: u32) {
-        init_view(&mut self_.tensor_view, k_start, cube_offset);
+    fn init_view(this: &mut Self, cube_offset: u32, k_start: u32) {
+        init_view(&mut this.tensor_view, k_start, cube_offset);
     }
 
-    fn advance_view(self_: &mut Self, k_offset: u32) {
-        update_view(&mut self_.tensor_view, k_offset, 0);
-    }
-}
-
-#[cube]
-fn new_rhs_stage_reader<ES: Numeric, S: SmmConfig>(
-    stage: SharedMemoryStage<ES>,
-) -> RhsStageReader<ES, S> {
-    RhsStageReader::<ES, S> {
-        stage,
-        _config: PhantomData::<S>.runtime(),
+    fn advance_view(this: &mut Self, k_offset: u32) {
+        update_view(&mut this.tensor_view, k_offset, 0, Ident::Rhs);
     }
 }
 

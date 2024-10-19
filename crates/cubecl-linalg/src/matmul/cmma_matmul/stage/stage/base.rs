@@ -1,12 +1,11 @@
+use crate::matmul::cmma_matmul::stage::{TilingOrder, XMajorTiling};
 use crate::matmul::matmul_stage::SmmConfig;
-use crate::matmul::matmul_stage::{TilingOrder, XMajorTiling};
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType, Clone, Copy)]
-// TODO rename to Stage
-pub struct SharedMemoryStage<ES: Numeric> {
+pub struct Stage<ES: Numeric> {
     pub smem: SharedMemory<Line<ES>>,
 }
 
@@ -14,18 +13,18 @@ pub struct SharedMemoryStage<ES: Numeric> {
 pub(crate) fn new_stage<ES: Numeric, S: SmmConfig>(
     #[comptime] ident: Ident,
     #[comptime] config: S,
-) -> SharedMemoryStage<ES> {
+) -> Stage<ES> {
     let smem = SharedMemory::new_lined(
         comptime!(config.stage_dim(ident).num_elements() / config.line_size(ident)),
         config.line_size(ident),
     );
 
-    SharedMemoryStage::<ES> { smem }
+    Stage::<ES> { smem }
 }
 
 #[cube]
 pub(crate) fn get_tile<ES: Numeric, S: SmmConfig>(
-    this: &SharedMemoryStage<ES>,
+    this: &Stage<ES>,
     x: u32,
     y: u32,
     #[comptime] ident: Ident,
@@ -40,4 +39,9 @@ pub(crate) fn get_tile<ES: Numeric, S: SmmConfig>(
     let start = nth_tile * tile_stride;
 
     this.smem.slice(start, start + tile_stride)
+}
+
+#[cube]
+pub(crate) fn as_slice_mut<ES: Numeric>(this: &mut Stage<ES>) -> &mut SliceMut<'_, Line<ES>> {
+    this.smem.as_slice_mut()
 }
