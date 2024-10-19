@@ -1,9 +1,10 @@
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use syn::{
-    spanned::Spanned, visit_mut::VisitMut, Generics, Ident, ImplItem, ItemImpl, Token, Type,
+    spanned::Spanned, visit_mut::VisitMut, GenericArgument, Generics, Ident, ImplItem, ItemImpl,
+    PathArguments, Token, Type, TypePath,
 };
 
-use crate::parse::kernel::KernelBody;
+use crate::{parse::kernel::KernelBody, scope::Context};
 
 use super::{
     helpers::{RemoveHelpers, ReplaceIndices},
@@ -20,26 +21,73 @@ pub struct CubeImpl {
 
 pub enum CubeImplItem {
     Fn(KernelFn),
-    Method(KernelFn),
+    MethodExpand(KernelFn),
+    FnExpand(KernelFn),
     Other,
 }
 
 impl CubeImplItem {
-    pub fn from_impl_item(item: ImplItem) -> syn::Result<Vec<Self>> {
+    fn create_func_expand(struct_ty_name: &Type, func: &KernelFn, is_method: bool) -> KernelFn {
+        let mut func_sig = func.sig.clone();
+
+        let num_skip = if is_method { 1 } else { 0 };
+        for param in func_sig.parameters.iter_mut().skip(num_skip) {
+            param.self_plain();
+        }
+
+        if let Some(param) = func_sig.parameters.first_mut() {
+            if is_method {
+                let ty = match &param.ty {
+                    Type::Reference(reference) => reference.elem.as_ref().clone(),
+                    ty => ty.clone(),
+                };
+                param.name = Ident::new("this".into(), param.span());
+                param.normalized_ty = ty;
+            }
+        }
+        func_sig.self_returns_as_plain();
+
+        let args = func_sig.parameters.iter().map(|param| &param.name);
+        let struct_name = format_type_with_turbofish(struct_ty_name);
+        let fn_name = &func_sig.name;
+
+        let tokens = quote! {
+            #struct_name::#fn_name(
+                context,
+                #(#args),*
+            )
+        };
+
+        KernelFn {
+            sig: func_sig,
+            body: KernelBody::Verbatim(tokens),
+            context: Context::new(func.context.return_type.clone()),
+        }
+    }
+
+    pub fn from_impl_item(struct_ty_name: &Type, item: ImplItem) -> syn::Result<Vec<Self>> {
         let res = match item {
             ImplItem::Fn(func) => {
                 let mut func = KernelFn::from_sig_and_block(func.sig, func.block)?;
-                if func
+                let func_name_expand = format_ident!("__expand_{}", func.sig.name);
+                let is_method = func
                     .sig
                     .parameters
                     .first()
                     .map(|param| param.name == "self")
-                    .unwrap_or(false)
-                {
+                    .unwrap_or(false);
+
+                if is_method {
                     let mut method = func.clone();
 
                     method.sig.name = format_ident!("__expand_{}_method", func.sig.name);
-                    func.sig.name = format_ident!("__expand_{}", func.sig.name);
+                    method.sig.self_returns_as_plain();
+
+                    for param in method.sig.parameters.iter_mut().skip(1) {
+                        param.self_plain();
+                    }
+
+                    func.sig.name = func_name_expand;
 
                     if let Some(param) = func.sig.parameters.first_mut() {
                         param.name = Ident::new("this".into(), param.span());
@@ -56,15 +104,23 @@ impl CubeImplItem {
                         func.body = KernelBody::Verbatim(tokens);
                     }
 
-                    return Ok(vec![CubeImplItem::Fn(func), CubeImplItem::Method(method)]);
+                    let func_expand = Self::create_func_expand(struct_ty_name, &func, true);
+                    vec![
+                        CubeImplItem::Fn(func),
+                        CubeImplItem::MethodExpand(method),
+                        CubeImplItem::FnExpand(func_expand),
+                    ]
                 } else {
-                    func.sig.name = format_ident!("__expand_{}", func.sig.name);
+                    func.sig.name = func_name_expand;
+
+                    let func_expand = Self::create_func_expand(struct_ty_name, &func, false);
+                    vec![CubeImplItem::Fn(func), CubeImplItem::FnExpand(func_expand)]
                 }
-                CubeImplItem::Fn(func)
             }
-            _ => CubeImplItem::Other,
+            _ => vec![CubeImplItem::Other],
         };
-        Ok(vec![res])
+
+        Ok(res)
     }
 
     pub fn func(&mut self) -> Option<&mut KernelFn> {
@@ -76,7 +132,14 @@ impl CubeImplItem {
 
     pub fn method(&mut self) -> Option<&mut KernelFn> {
         match self {
-            CubeImplItem::Method(func) => Some(func),
+            CubeImplItem::MethodExpand(func) => Some(func),
+            _ => None,
+        }
+    }
+
+    pub fn fn_expand(&mut self) -> Option<&mut KernelFn> {
+        match self {
+            CubeImplItem::FnExpand(func) => Some(func),
             _ => None,
         }
     }
@@ -84,11 +147,13 @@ impl CubeImplItem {
 
 impl CubeImpl {
     pub fn from_item_impl(mut item_impl: ItemImpl) -> syn::Result<Self> {
+        let struct_name = *item_impl.self_ty.clone();
+
         let items = item_impl
             .items
             .iter()
             .cloned()
-            .map(CubeImplItem::from_impl_item)
+            .map(|item| CubeImplItem::from_impl_item(&struct_name, item))
             .map(|items| {
                 let result: Vec<syn::Result<CubeImplItem>> = match items {
                     Ok(items) => items.into_iter().map(|item| Ok(item)).collect(),
@@ -101,8 +166,6 @@ impl CubeImpl {
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
         ReplaceIndices.visit_item_impl_mut(&mut item_impl);
-
-        let struct_name = *item_impl.self_ty;
 
         let mut attrs = item_impl.attrs;
         attrs.retain(|attr| !attr.path().is_ident("cube"));
@@ -117,5 +180,31 @@ impl CubeImpl {
             items,
             original_items: item_impl.items,
         })
+    }
+}
+
+fn format_type_with_turbofish(ty: &Type) -> proc_macro2::TokenStream {
+    match ty {
+        Type::Path(TypePath { path, .. }) => {
+            let segments = &path.segments;
+            let last_segment = segments.last().unwrap();
+            let ident = &last_segment.ident;
+
+            match &last_segment.arguments {
+                PathArguments::AngleBracketed(args) => {
+                    let generic_args = args.args.iter().map(|arg| {
+                        match arg {
+                            GenericArgument::Type(t) => t.to_token_stream(),
+                            // Handle other types of GenericArgument if needed
+                            _ => quote! { #arg },
+                        }
+                    });
+
+                    quote! { #ident::<#(#generic_args),*> }
+                }
+                _ => quote! { #ident },
+            }
+        }
+        _ => ty.to_token_stream(),
     }
 }

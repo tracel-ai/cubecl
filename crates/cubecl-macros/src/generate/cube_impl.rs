@@ -25,10 +25,17 @@ impl CubeImpl {
                 )*
             }
         };
+
         let methods = &self
             .items
             .iter_mut()
             .filter_map(CubeImplItem::method)
+            .map(|it| it.to_tokens_mut())
+            .collect::<Vec<_>>();
+        let fns_expand = &self
+            .items
+            .iter_mut()
+            .filter_map(CubeImplItem::fn_expand)
             .map(|it| it.to_tokens_mut())
             .collect::<Vec<_>>();
 
@@ -52,6 +59,11 @@ impl CubeImpl {
                         #[allow(unused, clone_on_copy, clippy::all)]
                         #methods
                     )*
+                    #(
+                        #[allow(unused, clone_on_copy, clippy::all)]
+                        #fns_expand
+                    )*
+
                 }
             }
         } else {

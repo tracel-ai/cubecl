@@ -4,7 +4,7 @@ use quote::{format_ident, quote, ToTokens};
 use syn::Ident;
 
 use crate::{
-    parse::kernel::{KernelBody, KernelFn, KernelParam, KernelSignature, Launch},
+    parse::kernel::{KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch},
     paths::{core_type, prelude_path, prelude_type},
 };
 
@@ -36,7 +36,10 @@ impl ToTokens for KernelSignature {
 
         let name = &self.name;
         let generics = &self.generics;
-        let return_type = &self.returns;
+        let return_type = match &self.returns {
+            KernelReturns::ExpandType(ty) => quote![<#ty as #cube_type>::ExpandType],
+            KernelReturns::Plain(ty) => quote![#ty],
+        };
         let out = if self
             .parameters
             .first()
@@ -50,7 +53,7 @@ impl ToTokens for KernelSignature {
                     self, // Always owned during expand.
                     context: &mut #cube_context,
                     #(#args),*
-                ) -> <#return_type as #cube_type>::ExpandType
+                ) -> #return_type
             }
         } else {
             let args = &self.parameters;
@@ -58,7 +61,7 @@ impl ToTokens for KernelSignature {
                 fn #name #generics(
                     context: &mut #cube_context,
                     #(#args),*
-                ) -> <#return_type as #cube_type>::ExpandType
+                ) -> #return_type
             }
         };
 

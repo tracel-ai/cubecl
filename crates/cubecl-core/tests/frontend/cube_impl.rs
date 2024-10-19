@@ -7,17 +7,30 @@ struct SimpleType {
 }
 
 #[cube]
-#[allow(dead_code)]
 impl SimpleType {
     #[allow(dead_code)]
-    fn value(self, lhs: u32) -> u32 {
+    fn simple_method(&self, lhs: u32) -> u32 {
         self.a * lhs
     }
 
     #[allow(dead_code)]
-    pub fn with_five(self) -> u32 {
-        let val = self.value(5u32);
-        val
+    pub fn call_method_inner(&self) -> u32 {
+        self.simple_method(5u32)
+    }
+
+    #[allow(dead_code)]
+    pub fn call_method_as_function_inner(&self) -> u32 {
+        Self::simple_method(&self, 5u32)
+    }
+
+    #[allow(dead_code)]
+    pub fn return_self(self) -> Self {
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_other(self, other: Self) -> u32 {
+        self.call_method_inner() + other.call_method_inner()
     }
 }
 
@@ -28,16 +41,16 @@ struct TypeGeneric<C: CubePrimitive> {
 
 #[cube]
 impl<C: Numeric> TypeGeneric<C> {
-    /// My docs.
     #[allow(dead_code)]
     fn value(&self, lhs: u32) -> C {
         self.a * C::cast_from(lhs)
     }
 
     #[allow(dead_code)]
-    pub fn with_five(&self) -> C {
-        let val = self.value(5u32);
-        val
+    pub fn call_inner(&self) -> C {
+        let val1 = self.value(5u32);
+        let val2 = Self::value(&self, 2u32);
+        val1 + val2
     }
 }
 
@@ -50,13 +63,13 @@ struct ComplexType<C: Numeric, T: Numeric> {
 #[cube]
 impl<C: Numeric> ComplexType<C, f32> {
     #[allow(dead_code)]
-    pub fn execute_suff(&mut self, lhs: f32, rhs: C) -> f32 {
+    pub fn complex_method(&mut self, lhs: f32, rhs: C) -> f32 {
         let tmp = self.a + (C::cast_from(lhs) / rhs);
 
-        ComplexType::<C, f32>::functional(lhs, tmp)
+        Self::simple_function(lhs, tmp)
     }
 
-    fn functional(lhs: f32, rhs: C) -> f32 {
+    fn simple_function(lhs: f32, rhs: C) -> f32 {
         lhs * f32::cast_from(rhs)
     }
 }

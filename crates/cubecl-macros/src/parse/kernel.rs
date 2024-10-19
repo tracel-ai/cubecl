@@ -54,8 +54,23 @@ pub enum KernelBody {
 pub struct KernelSignature {
     pub name: Ident,
     pub parameters: Vec<KernelParam>,
-    pub returns: Type,
+    pub returns: KernelReturns,
     pub generics: Generics,
+}
+
+#[derive(Clone)]
+pub enum KernelReturns {
+    ExpandType(Type),
+    Plain(Type),
+}
+
+impl KernelReturns {
+    pub fn ty(&self) -> Type {
+        match self {
+            KernelReturns::ExpandType(ty) => ty.clone(),
+            KernelReturns::Plain(ty) => ty.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -114,6 +129,19 @@ impl KernelParam {
     pub fn ty_owned(&self) -> Type {
         strip_ref(self.ty.clone(), &mut false, &mut false)
     }
+
+    pub fn self_plain(&mut self) {
+        if let Type::Path(pat) = &self.ty {
+            if pat
+                .path
+                .get_ident()
+                .filter(|ident| *ident == "Self")
+                .is_some()
+            {
+                self.normalized_ty = self.ty.clone();
+            }
+        }
+    }
 }
 
 impl KernelSignature {
@@ -134,7 +162,7 @@ impl KernelSignature {
             generics,
             name,
             parameters,
-            returns,
+            returns: KernelReturns::ExpandType(returns),
         })
     }
 
@@ -156,8 +184,20 @@ impl KernelSignature {
             generics,
             name,
             parameters,
-            returns,
+            returns: KernelReturns::ExpandType(returns),
         })
+    }
+    pub fn self_returns_as_plain(&mut self) {
+        if let Type::Path(pat) = self.returns.ty() {
+            if pat
+                .path
+                .get_ident()
+                .filter(|ident| *ident == "Self")
+                .is_some()
+            {
+                self.returns = KernelReturns::Plain(self.returns.ty());
+            }
+        }
     }
 }
 
@@ -166,7 +206,7 @@ impl KernelFn {
         let sig = KernelSignature::from_signature(sig)?;
         Desugar.visit_block_mut(&mut block);
 
-        let mut context = Context::new(sig.returns.clone());
+        let mut context = Context::new(sig.returns.ty());
         context.extend(sig.parameters.clone());
         let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
 
