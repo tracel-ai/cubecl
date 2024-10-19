@@ -20,7 +20,7 @@ impl SimpleType {
 
     #[allow(dead_code)]
     pub fn call_method_as_function_inner(&self) -> u32 {
-        Self::simple_method(&self, 5u32)
+        Self::simple_method(self, 5u32)
     }
 
     #[allow(dead_code)]
@@ -49,7 +49,7 @@ impl<C: Numeric> TypeGeneric<C> {
     #[allow(dead_code)]
     pub fn call_inner(&self) -> C {
         let val1 = self.value(5u32);
-        let val2 = Self::value(&self, 2u32);
+        let val2 = Self::value(self, 2u32);
         val1 + val2
     }
 }

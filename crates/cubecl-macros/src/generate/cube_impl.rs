@@ -47,7 +47,7 @@ impl CubeImpl {
                 syn::Type::Path(mut pat) => {
                     let seg = pat.path.segments.first_mut().unwrap();
                     let struct_expand_name = Ident::new(
-                        format!("{}Expand", seg.ident.to_string()).as_str(),
+                        format!("{}Expand", seg.ident).as_str(),
                         self.struct_name.span(),
                     );
                     seg.ident = struct_expand_name;

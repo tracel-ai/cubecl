@@ -105,7 +105,7 @@ impl CubeImplItem {
         func.sig.name = func_name_expand;
 
         let param = func.sig.parameters.first_mut().expect("Should be a method");
-        param.name = Ident::new("this".into(), param.span());
+        param.name = Ident::new("this", param.span());
 
         let args = func.sig.parameters.iter().skip(1).map(|param| &param.name);
         let fna = &method_sig.name;
@@ -149,7 +149,7 @@ impl CubeImplItem {
                     Type::Reference(reference) => reference.elem.as_ref().clone(),
                     ty => ty.clone(),
                 };
-                param.name = Ident::new("this".into(), param.span());
+                param.name = Ident::new("this", param.span());
                 param.normalized_ty = ty;
             }
         }
@@ -183,14 +183,13 @@ impl CubeImpl {
             .iter()
             .cloned()
             .map(|item| CubeImplItem::from_impl_item(&struct_name, item))
-            .map(|items| {
+            .flat_map(|items| {
                 let result: Vec<syn::Result<CubeImplItem>> = match items {
-                    Ok(items) => items.into_iter().map(|item| Ok(item)).collect(),
+                    Ok(items) => items.into_iter().map(Ok).collect(),
                     Err(err) => vec![Err(err)],
                 };
                 result
             })
-            .flatten()
             .collect::<Result<_, _>>()?;
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
