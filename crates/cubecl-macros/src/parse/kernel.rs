@@ -130,7 +130,10 @@ impl KernelParam {
         strip_ref(self.ty.clone(), &mut false, &mut false)
     }
 
-    pub fn self_plain(&mut self) {
+    /// If the type is self, we set the normalized ty to self as well.
+    ///
+    /// Useful when the param is used in functions or methods associated to the expand type.
+    pub fn plain_normalized_self(&mut self) {
         if let Type::Path(pat) = &self.ty {
             if pat
                 .path
@@ -187,7 +190,9 @@ impl KernelSignature {
             returns: KernelReturns::ExpandType(returns),
         })
     }
-    pub fn self_returns_as_plain(&mut self) {
+
+    /// If the type is self, we set the return type to plain instead of expand type.
+    pub fn plain_returns_self(&mut self) {
         if let Type::Path(pat) = self.returns.ty() {
             if pat
                 .path

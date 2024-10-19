@@ -32,14 +32,17 @@ impl CubeImpl {
             .filter_map(CubeImplItem::method)
             .map(|it| it.to_tokens_mut())
             .collect::<Vec<_>>();
-        let fns_expand = &self
-            .items
-            .iter_mut()
-            .filter_map(CubeImplItem::fn_expand)
-            .map(|it| it.to_tokens_mut())
-            .collect::<Vec<_>>();
 
+        // Without method we don't need to add any code.
         let methods_tokens = if !methods.is_empty() {
+            let fns_expand = &self
+                .items
+                .iter_mut()
+                .filter_map(CubeImplItem::fn_expand)
+                .map(|it| it.to_tokens_mut())
+                .collect::<Vec<_>>();
+
+            // We use the expand convention to find the correct expand type.
             let struct_expand_name = match self.struct_name.clone() {
                 syn::Type::Path(mut pat) => {
                     let seg = pat.path.segments.first_mut().unwrap();
@@ -48,9 +51,9 @@ impl CubeImpl {
                         self.struct_name.span(),
                     );
                     seg.ident = struct_expand_name;
-                    pat
+                    quote![#pat]
                 }
-                _ => todo!(),
+                name => quote![#name],
             };
 
             quote! {

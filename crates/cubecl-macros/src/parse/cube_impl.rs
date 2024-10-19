@@ -27,49 +27,12 @@ pub enum CubeImplItem {
 }
 
 impl CubeImplItem {
-    fn create_func_expand(struct_ty_name: &Type, func: &KernelFn, is_method: bool) -> KernelFn {
-        let mut func_sig = func.sig.clone();
-
-        let num_skip = if is_method { 1 } else { 0 };
-        for param in func_sig.parameters.iter_mut().skip(num_skip) {
-            param.self_plain();
-        }
-
-        if let Some(param) = func_sig.parameters.first_mut() {
-            if is_method {
-                let ty = match &param.ty {
-                    Type::Reference(reference) => reference.elem.as_ref().clone(),
-                    ty => ty.clone(),
-                };
-                param.name = Ident::new("this".into(), param.span());
-                param.normalized_ty = ty;
-            }
-        }
-        func_sig.self_returns_as_plain();
-
-        let args = func_sig.parameters.iter().map(|param| &param.name);
-        let struct_name = format_type_with_turbofish(struct_ty_name);
-        let fn_name = &func_sig.name;
-
-        let tokens = quote! {
-            #struct_name::#fn_name(
-                context,
-                #(#args),*
-            )
-        };
-
-        KernelFn {
-            sig: func_sig,
-            body: KernelBody::Verbatim(tokens),
-            context: Context::new(func.context.return_type.clone()),
-        }
-    }
-
     pub fn from_impl_item(struct_ty_name: &Type, item: ImplItem) -> syn::Result<Vec<Self>> {
         let res = match item {
             ImplItem::Fn(func) => {
                 let mut func = KernelFn::from_sig_and_block(func.sig, func.block)?;
                 let func_name_expand = format_ident!("__expand_{}", func.sig.name);
+
                 let is_method = func
                     .sig
                     .parameters
@@ -78,33 +41,9 @@ impl CubeImplItem {
                     .unwrap_or(false);
 
                 if is_method {
-                    let mut method = func.clone();
-
-                    method.sig.name = format_ident!("__expand_{}_method", func.sig.name);
-                    method.sig.self_returns_as_plain();
-
-                    for param in method.sig.parameters.iter_mut().skip(1) {
-                        param.self_plain();
-                    }
-
-                    func.sig.name = func_name_expand;
-
-                    if let Some(param) = func.sig.parameters.first_mut() {
-                        param.name = Ident::new("this".into(), param.span());
-
-                        let args = func.sig.parameters.iter().skip(1).map(|param| &param.name);
-                        let fna = &method.sig.name;
-
-                        let tokens = quote! {
-                            this.#fna(
-                                context,
-                                #(#args),*
-                            )
-                        };
-                        func.body = KernelBody::Verbatim(tokens);
-                    }
-
+                    let method = Self::handle_method_expand(func_name_expand, &mut func);
                     let func_expand = Self::create_func_expand(struct_ty_name, &func, true);
+
                     vec![
                         CubeImplItem::Fn(func),
                         CubeImplItem::MethodExpand(method),
@@ -141,6 +80,96 @@ impl CubeImplItem {
         match self {
             CubeImplItem::FnExpand(func) => Some(func),
             _ => None,
+        }
+    }
+
+    /// Create the method from the function and update the function body to point to the method's
+    /// implementation.
+    fn handle_method_expand(func_name_expand: Ident, func: &mut KernelFn) -> KernelFn {
+        let mut method_sig = func.sig.clone();
+
+        method_sig.name = format_ident!("__expand_{}_method", func.sig.name);
+        method_sig.plain_returns_self();
+
+        // Since the function is associated to the expand type, we have to update the normalized
+        // types for the arguments.
+        for param in method_sig
+            .parameters
+            .iter_mut()
+            // We skip the self param.
+            .skip(1)
+        {
+            param.plain_normalized_self();
+        }
+
+        func.sig.name = func_name_expand;
+
+        let param = func.sig.parameters.first_mut().expect("Should be a method");
+        param.name = Ident::new("this".into(), param.span());
+
+        let args = func.sig.parameters.iter().skip(1).map(|param| &param.name);
+        let fna = &method_sig.name;
+        let mut body = KernelBody::Verbatim(quote! {
+            this.#fna(
+                context,
+                #(#args),*
+            )
+        });
+
+        // The function point to the method's body.
+        core::mem::swap(&mut func.body, &mut body);
+
+        KernelFn {
+            sig: method_sig,
+            body,
+            context: Context::new(func.context.return_type.clone()),
+        }
+    }
+
+    /// Create the same function but that should be generated for the expand type.
+    ///
+    /// This is important since it allows to use the Self keyword inside methods.
+    fn create_func_expand(struct_ty_name: &Type, func: &KernelFn, is_method: bool) -> KernelFn {
+        let mut func_sig = func.sig.clone();
+
+        // Since the function is associated to the expand type, we have to update the normalized
+        // types for the arguments.
+        for param in func_sig
+            .parameters
+            .iter_mut()
+            // We skip the self param.
+            .skip(if is_method { 1 } else { 0 })
+        {
+            param.plain_normalized_self();
+        }
+
+        if let Some(param) = func_sig.parameters.first_mut() {
+            if is_method {
+                let ty = match &param.ty {
+                    Type::Reference(reference) => reference.elem.as_ref().clone(),
+                    ty => ty.clone(),
+                };
+                param.name = Ident::new("this".into(), param.span());
+                param.normalized_ty = ty;
+            }
+        }
+        func_sig.plain_returns_self();
+
+        let args = func_sig.parameters.iter().map(|param| &param.name);
+        let struct_name = format_type_with_turbofish(struct_ty_name);
+        let fn_name = &func_sig.name;
+
+        let body = quote! {
+            #struct_name::#fn_name(
+                context,
+                #(#args),*
+            )
+        };
+
+        KernelFn {
+            sig: func_sig,
+            body: KernelBody::Verbatim(body),
+            context: Context::new(func.context.return_type.clone()),
         }
     }
 }
@@ -183,6 +212,8 @@ impl CubeImpl {
     }
 }
 
+/// When we use a type with generics for calling a function, we have to add more `::` between the type ident and
+/// the generics arguments.
 fn format_type_with_turbofish(ty: &Type) -> proc_macro2::TokenStream {
     match ty {
         Type::Path(TypePath { path, .. }) => {
@@ -192,12 +223,9 @@ fn format_type_with_turbofish(ty: &Type) -> proc_macro2::TokenStream {
 
             match &last_segment.arguments {
                 PathArguments::AngleBracketed(args) => {
-                    let generic_args = args.args.iter().map(|arg| {
-                        match arg {
-                            GenericArgument::Type(t) => t.to_token_stream(),
-                            // Handle other types of GenericArgument if needed
-                            _ => quote! { #arg },
-                        }
+                    let generic_args = args.args.iter().map(|arg| match arg {
+                        GenericArgument::Type(t) => t.to_token_stream(),
+                        _ => quote! { #arg },
                     });
 
                     quote! { #ident::<#(#generic_args),*> }
