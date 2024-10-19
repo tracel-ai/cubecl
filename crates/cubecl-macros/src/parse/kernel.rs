@@ -3,8 +3,8 @@ use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::TokenStream;
 use std::iter;
 use syn::{
-    parse_quote, punctuated::Punctuated, visit_mut::VisitMut, Expr, FnArg, Generics, Ident, ItemFn,
-    Signature, TraitItemFn, Type, Visibility,
+    parse_quote, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut, Expr, FnArg,
+    Generics, Ident, ItemFn, Signature, TraitItemFn, Type, Visibility,
 };
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
@@ -66,10 +66,16 @@ impl KernelParam {
     fn from_param(param: FnArg) -> syn::Result<Self> {
         let param = match param {
             FnArg::Typed(param) => param,
-            param => Err(syn::Error::new_spanned(
-                param,
-                "Can't use `cube` on methods",
-            ))?,
+            FnArg::Receiver(param) => {
+                return Ok(KernelParam {
+                    name: Ident::new("self", param.span()),
+                    ty: *param.ty.clone(),
+                    normalized_ty: *param.ty.clone(),
+                    is_const: false,
+                    is_mut: param.mutability.is_some(),
+                    is_ref: param.reference.is_some(),
+                });
+            }
         };
         let Pattern {
             ident,
