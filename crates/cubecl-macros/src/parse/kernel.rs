@@ -191,7 +191,7 @@ impl KernelSignature {
         })
     }
 
-    /// If the type is self, we set the return type to plain instead of expand type.
+    /// If the type is self, we set the returns type to plain instead of expand type.
     pub fn plain_returns_self(&mut self) {
         if let Type::Path(pat) = self.returns.ty() {
             if pat

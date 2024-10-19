@@ -108,15 +108,15 @@ impl CubeImplItem {
         param.name = Ident::new("this", param.span());
 
         let args = func.sig.parameters.iter().skip(1).map(|param| &param.name);
-        let fna = &method_sig.name;
+        let method_name = &method_sig.name;
         let mut body = KernelBody::Verbatim(quote! {
-            this.#fna(
+            this.#method_name(
                 context,
                 #(#args),*
             )
         });
 
-        // The function point to the method's body.
+        // The function points to the method's body.
         core::mem::swap(&mut func.body, &mut body);
 
         KernelFn {
@@ -212,7 +212,7 @@ impl CubeImpl {
 }
 
 /// When we use a type with generics for calling a function, we have to add more `::` between the type ident and
-/// the generics arguments.
+/// the generic arguments.
 fn format_type_with_turbofish(ty: &Type) -> proc_macro2::TokenStream {
     match ty {
         Type::Path(TypePath { path, .. }) => {
