@@ -161,19 +161,36 @@ impl Item {
             }
         };
 
-        let swap_sign =
-            |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>, width: u32| match width {
-                64 => {
-                    let max = ConstVal::Bit64(i64::MAX as u64);
-                    let max = b.static_cast(max, &Elem::Int(64, true), other);
-                    b.bitwise_and(ty, out_id, obj, max).unwrap()
-                }
-                _ => {
-                    let max = ConstVal::Bit32(i32::MAX as u32);
-                    let max = b.static_cast(max, &Elem::Int(32, true), other);
-                    b.bitwise_and(ty, out_id, obj, max).unwrap()
-                }
-            };
+        let swap_sign = |b: &mut SpirvCompiler<T>,
+                         obj: Word,
+                         out_id: Option<Word>,
+                         width: u32,
+                         target_sign: bool| match (width, target_sign) {
+            (64, false) => {
+                let zero = ConstVal::Bit64(0);
+                let zero = b.static_cast(zero, &Elem::Int(64, true), other);
+                let id = out_id.unwrap_or_else(|| b.id());
+                T::s_max(b, ty, obj, zero, id);
+                id
+            }
+            (_, false) => {
+                let zero = ConstVal::Bit32(0);
+                let zero = b.static_cast(zero, &Elem::Int(64, true), other);
+                let id = out_id.unwrap_or_else(|| b.id());
+                T::s_max(b, ty, obj, zero, id);
+                id
+            }
+            (64, true) => {
+                let max = ConstVal::Bit64(i64::MAX as u64);
+                let max = b.static_cast(max, &Elem::Int(64, true), other);
+                b.bitwise_and(ty, out_id, obj, max).unwrap()
+            }
+            (_, true) => {
+                let max = ConstVal::Bit32(i32::MAX as u32);
+                let max = b.static_cast(max, &Elem::Int(32, true), other);
+                b.bitwise_and(ty, out_id, obj, max).unwrap()
+            }
+        };
 
         let convert_i_width =
             |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>, signed: bool| {
@@ -193,10 +210,10 @@ impl Item {
             let width_differs = width_self != width_other;
             match (sign_differs, width_differs) {
                 (true, true) => {
-                    let sign_swap = swap_sign(b, obj, None, width_self);
+                    let sign_swap = swap_sign(b, obj, None, width_self, signed_other);
                     convert_i_width(b, sign_swap, out_id, signed_other)
                 }
-                (true, false) => swap_sign(b, obj, out_id, width_self),
+                (true, false) => swap_sign(b, obj, out_id, width_self, signed_other),
                 (false, true) => convert_i_width(b, obj, out_id, signed_other),
                 (false, false) => b.copy_object(ty, out_id, obj).unwrap(),
             }
@@ -215,7 +232,7 @@ impl Item {
                     b.select(ty, out_id, obj, one, zero).unwrap()
                 }
                 (Elem::Int(_, _), Elem::Bool) => {
-                    let one = other.constant(b, 1u32.into());
+                    let one = self.constant(b, 1u32.into());
                     b.i_equal(ty, out_id, obj, one).unwrap()
                 }
                 (Elem::Int(width_self, signed_self), Elem::Int(width_other, signed_other)) => {
@@ -230,7 +247,7 @@ impl Item {
                 (Elem::Int(_, false), Elem::Float(_)) => b.convert_u_to_f(ty, out_id, obj).unwrap(),
                 (Elem::Int(_, true), Elem::Float(_)) => b.convert_s_to_f(ty, out_id, obj).unwrap(),
                 (Elem::Float(_), Elem::Bool) => {
-                    let one = other.constant(b, 1f32.into());
+                    let one = self.constant(b, 1f32.into());
                     b.i_equal(ty, out_id, obj, one).unwrap()
                 }
                 (Elem::Float(_), Elem::Int(_, false)) => b.convert_f_to_u(ty, out_id, obj).unwrap(),
@@ -266,7 +283,7 @@ impl Elem {
         let id = match self {
             Elem::Void => b.type_void(),
             Elem::Bool => b.type_bool(),
-            Elem::Int(width, signed) => b.type_int(*width, if *signed { 1 } else { 0 }),
+            Elem::Int(width, _) => b.type_int(*width, 0),
             Elem::Float(width) => {
                 if *width == 16 {
                     b.capabilities.insert(Capability::Float16);
