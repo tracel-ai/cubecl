@@ -10,7 +10,7 @@ impl CubeImpl {
         let fns = &self
             .items
             .iter_mut()
-            .filter_map(CubeImplItem::func)
+            .filter_map(CubeImplItem::as_func)
             .map(|it| it.to_tokens_mut())
             .collect::<Vec<_>>();
         let struct_name = &self.struct_name;
@@ -29,7 +29,7 @@ impl CubeImpl {
         let methods = &self
             .items
             .iter_mut()
-            .filter_map(CubeImplItem::method)
+            .filter_map(CubeImplItem::as_method_expand)
             .map(|it| it.to_tokens_mut())
             .collect::<Vec<_>>();
 
@@ -38,7 +38,7 @@ impl CubeImpl {
             let fns_expand = &self
                 .items
                 .iter_mut()
-                .filter_map(CubeImplItem::fn_expand)
+                .filter_map(CubeImplItem::as_func_expand)
                 .map(|it| it.to_tokens_mut())
                 .collect::<Vec<_>>();
 

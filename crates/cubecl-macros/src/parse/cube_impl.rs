@@ -62,23 +62,23 @@ impl CubeImplItem {
         Ok(res)
     }
 
-    pub fn func(&mut self) -> Option<&mut KernelFn> {
+    pub fn as_func(&mut self) -> Option<&mut KernelFn> {
         match self {
             CubeImplItem::Fn(func) => Some(func),
             _ => None,
         }
     }
 
-    pub fn method(&mut self) -> Option<&mut KernelFn> {
+    pub fn as_func_expand(&mut self) -> Option<&mut KernelFn> {
         match self {
-            CubeImplItem::MethodExpand(func) => Some(func),
+            CubeImplItem::FnExpand(func) => Some(func),
             _ => None,
         }
     }
 
-    pub fn fn_expand(&mut self) -> Option<&mut KernelFn> {
+    pub fn as_method_expand(&mut self) -> Option<&mut KernelFn> {
         match self {
-            CubeImplItem::FnExpand(func) => Some(func),
+            CubeImplItem::MethodExpand(func) => Some(func),
             _ => None,
         }
     }
