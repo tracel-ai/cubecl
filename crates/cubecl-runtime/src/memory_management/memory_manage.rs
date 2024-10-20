@@ -100,6 +100,10 @@ pub struct MemoryManagement<Storage> {
     alloc_reserve_count: u64,
 }
 
+fn round_up_to_multiple(value: usize, multiple: usize) -> usize {
+    ((value + multiple - 1) / multiple) * multiple
+}
+
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
@@ -112,7 +116,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             MemoryConfiguration::SubSlices => {
                 // Round chunk size to be aligned.
                 let memory_alignment = properties.alignment;
-                let max_page = (properties.max_page_size / memory_alignment) * memory_alignment;
+                let max_page = round_up_to_multiple(properties.max_page_size, memory_alignment);
 
                 let mut pools = Vec::new();
                 pools.push(MemoryPoolOptions {
@@ -130,7 +134,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 while current >= 32 * MB {
                     current /= 4;
                     // Make sure every pool has an aligned size.
-                    current = (current / memory_alignment) * memory_alignment;
+                    current = round_up_to_multiple(current, memory_alignment);
 
                     pools.push(MemoryPoolOptions {
                         page_size: current,
@@ -162,11 +166,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 let mut sizes: BTreeSet<_> = EXP_BIN_SIZES
                     .iter()
                     .copied()
-                    .map(|size| (size / memory_alignment) * memory_alignment)
+                    .map(|size| round_up_to_multiple(size, memory_alignment))
                     .take_while(|&size| size < properties.max_page_size)
                     .collect();
                 // Add an exact max_page and add max_page as bin.
-                sizes.insert((properties.max_page_size / memory_alignment) * memory_alignment);
+                sizes.insert(round_up_to_multiple(
+                    properties.max_page_size,
+                    memory_alignment,
+                ));
                 // Add in one pool for all massive allocations.
                 sizes
                     .iter()
