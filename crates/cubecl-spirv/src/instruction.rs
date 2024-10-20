@@ -406,7 +406,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_unary_op_cast(op, |b, _, ty, input, out| T::tanh(b, ty, input, out))
             }
             Operator::Powf(op) => self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
-                let bool = b.type_bool();
+                let bool = match out_ty {
+                    Item::Scalar(_) => Elem::Bool.id(b),
+                    Item::Vector(_, factor) => Item::Vector(Elem::Bool, factor).id(b),
+                    _ => unreachable!(),
+                };
                 let zero = out_ty.const_u32(b, 0);
                 let one = out_ty.const_u32(b, 1);
                 let two = out_ty.const_u32(b, 2);
