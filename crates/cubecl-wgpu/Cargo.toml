@@ -20,12 +20,15 @@ exclusive-memory-only = []
 spirv = ["cubecl-spirv", "ash"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
+spirv-dump = ["sanitize-filename"]
+
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.2.0", default-features = false, features = [
     "channel-mutex",
 ] }
+sanitize-filename = { workspace = true, optional = true }
 
 # SPIR-V
 ash = { version = "0.38", optional = true }

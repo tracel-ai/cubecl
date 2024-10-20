@@ -167,6 +167,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
 
         let mut compile = <C as WgpuCompiler>::compile(self, kernel, mode);
+
         if self.logger.is_activated() {
             compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
         }
@@ -334,10 +335,19 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             let resource = self.memory_management.storage().get(&resource_handle);
 
             // Write to the staging buffer. Next queue submission this will copy the data to the GPU.
-            self.queue
-                .write_buffer_with(&resource.buffer, resource.offset(), len)
-                .expect("Failed to write to staging buffer.")
-                .copy_from_slice(data);
+            if data.len() == aligned_len {
+                self.queue
+                    .write_buffer_with(&resource.buffer, resource.offset(), len)
+                    .expect("Failed to write to staging buffer.")
+                    .copy_from_slice(data);
+            } else {
+                let mut data = Vec::from(data);
+                data.extend(vec![0; aligned_len - data.len()]);
+                self.queue
+                    .write_buffer_with(&resource.buffer, resource.offset(), len)
+                    .expect("Failed to write to staging buffer.")
+                    .copy_from_slice(&data);
+            }
         }
 
         Handle::new(memory, None, None)
