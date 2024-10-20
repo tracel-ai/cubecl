@@ -337,6 +337,7 @@ pub async fn init_async(device: &WgpuDevice, options: RuntimeOptions) {
     RUNTIME.register(device, client)
 }
 
+#[cfg(feature = "spirv-dump")]
 fn dump_spirv(compiled: &CompiledKernel<VkSpirvCompiler>, name: &str, id: cubecl_core::KernelId) {
     use std::{
         fs,
