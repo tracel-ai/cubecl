@@ -166,16 +166,8 @@ impl Item {
                          out_id: Option<Word>,
                          width: u32,
                          target_sign: bool| match (width, target_sign) {
-            (64, false) => {
-                let zero = ConstVal::Bit64(0);
-                let zero = b.static_cast(zero, &Elem::Int(64, true), other);
-                let id = out_id.unwrap_or_else(|| b.id());
-                T::s_max(b, ty, obj, zero, id);
-                id
-            }
             (_, false) => {
-                let zero = ConstVal::Bit32(0);
-                let zero = b.static_cast(zero, &Elem::Int(64, true), other);
+                let zero = self.const_u32(b, 0);
                 let id = out_id.unwrap_or_else(|| b.id());
                 T::s_max(b, ty, obj, zero, id);
                 id
