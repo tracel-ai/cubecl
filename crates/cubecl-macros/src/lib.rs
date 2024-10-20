@@ -1,7 +1,10 @@
+use core::panic;
+
 use darling::FromDeriveInput;
 use error::error_into_token_stream;
 use generate::autotune::{generate_autotune_key, generate_autotune_set};
 use parse::{
+    cube_impl::CubeImpl,
     cube_trait::{CubeTrait, CubeTraitImpl},
     cube_type::CubeType,
     helpers::{RemoveHelpers, ReplaceIndices},
@@ -47,18 +50,19 @@ pub fn cube(args: TokenStream, input: TokenStream) -> TokenStream {
 
 fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
     let mut item: Item = syn::parse(input)?;
-    match item.clone() {
+    let args = from_tokens(args.into())?;
+
+    let tokens = match item.clone() {
         Item::Fn(kernel) => {
-            let args = from_tokens(args.into())?;
             let kernel = Launch::from_item_fn(kernel, args)?;
             RemoveHelpers.visit_item_mut(&mut item);
             ReplaceIndices.visit_item_mut(&mut item);
 
-            Ok(TokenStream::from(quote! {
+            return Ok(TokenStream::from(quote! {
                 #[allow(dead_code, clippy::too_many_arguments)]
                 #item
                 #kernel
-            }))
+            }));
         }
         Item::Trait(kernel_trait) => {
             let expand_trait = CubeTrait::from_item_trait(kernel_trait)?;
@@ -67,19 +71,37 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
                 #expand_trait
             }))
         }
-        Item::Impl(item_impl) if item_impl.trait_.is_some() => {
-            let mut expand_impl = CubeTraitImpl::from_item_impl(item_impl)?;
-            let expand_impl = expand_impl.to_tokens_mut();
+        Item::Impl(item_impl) => {
+            if item_impl.trait_.is_some() {
+                let mut expand_impl = CubeTraitImpl::from_item_impl(item_impl)?;
+                let expand_impl = expand_impl.to_tokens_mut();
 
-            Ok(TokenStream::from(quote! {
-                #expand_impl
-            }))
+                Ok(TokenStream::from(quote! {
+                    #expand_impl
+                }))
+            } else {
+                let mut expand_impl = CubeImpl::from_item_impl(item_impl)?;
+                let expand_impl = expand_impl.to_tokens_mut();
+
+                Ok(TokenStream::from(quote! {
+                    #expand_impl
+                }))
+            }
         }
         item => Err(syn::Error::new_spanned(
             item,
             "`#[cube]` is only supported on traits and functions",
         ))?,
+    };
+
+    if args.debug.is_present() {
+        match tokens {
+            Ok(tokens) => panic!("{tokens}"),
+            Err(err) => panic!("{err}"),
+        };
     }
+
+    tokens
 }
 
 /// Derive macro to define a cube type that is launched with a kernel

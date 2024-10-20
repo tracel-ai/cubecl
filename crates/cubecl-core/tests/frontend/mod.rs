@@ -4,6 +4,7 @@ mod cast_elem;
 mod cast_kind;
 mod comptime;
 mod constants;
+mod cube_impl;
 mod cube_trait;
 mod enum_type;
 mod for_loop;
