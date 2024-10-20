@@ -73,6 +73,12 @@ impl WgpuStorage {
 impl ComputeStorage for WgpuStorage {
     type Resource = WgpuResource;
 
+    // 32 bytes is enough to handle a double4 worth of alignment.
+    // See: https://github.com/gfx-rs/wgpu/issues/3508
+    // NB: cudamalloc and co. actually align to _256_ bytes. Worth
+    // trying this in the future to see if it reduces memory coalescing.
+    const ALIGNMENT: usize = 32;
+
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let buffer = self.memory.get(&handle.id).unwrap();
         WgpuResource::new(buffer.clone(), handle.offset() as u64, handle.size() as u64)

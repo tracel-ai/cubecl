@@ -313,16 +313,18 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     fn create(&mut self, data: &[u8]) -> server::Handle {
         let num_bytes = data.len();
 
-        // Handle empty tensors (must bind at minimum 4 bytes)
-        let reserve_size = core::cmp::max(num_bytes, 4);
+        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+        // memory is 32 bytes aligned (see WgpuStorage).
+        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let aligned_len = num_bytes.div_ceil(align) * align;
 
         // Reserve memory on some storage we haven't yet used this command queue for compute
         // or copying.
         let memory = self
             .memory_management
-            .reserve(reserve_size, Some(&self.storage_locked));
+            .reserve(aligned_len, Some(&self.storage_locked));
 
-        if let Some(len) = NonZero::new(num_bytes as u64) {
+        if let Some(len) = NonZero::new(aligned_len as u64) {
             let resource_handle = self.memory_management.get(memory.clone().binding());
 
             // Dont re-use this handle for writing until the queue is flushed. All writes
