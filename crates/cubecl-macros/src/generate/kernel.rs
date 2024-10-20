@@ -4,7 +4,7 @@ use quote::{format_ident, quote, ToTokens};
 use syn::Ident;
 
 use crate::{
-    parse::kernel::{KernelFn, KernelParam, KernelSignature, Launch},
+    parse::kernel::{KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch},
     paths::{core_type, prelude_path, prelude_type},
 };
 
@@ -12,13 +12,16 @@ impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
         let sig = &self.sig;
-        let block = self.block.to_tokens(&mut self.context);
+        let body = match &self.body {
+            KernelBody::Block(block) => &block.to_tokens(&mut self.context),
+            KernelBody::Verbatim(tokens) => tokens,
+        };
 
         let out = quote! {
             #sig {
                 use #prelude_path::IntoRuntime as _;
 
-                #block
+                #body
             }
         };
 
@@ -33,15 +36,35 @@ impl ToTokens for KernelSignature {
 
         let name = &self.name;
         let generics = &self.generics;
-        let return_type = &self.returns;
-        let args = &self.parameters;
-
-        let out = quote! {
-            fn #name #generics(
-                context: &mut #cube_context,
-                #(#args),*
-            ) -> <#return_type as #cube_type>::ExpandType
+        let return_type = match &self.returns {
+            KernelReturns::ExpandType(ty) => quote![<#ty as #cube_type>::ExpandType],
+            KernelReturns::Plain(ty) => quote![#ty],
         };
+        let out = if self
+            .parameters
+            .first()
+            .filter(|param| param.name == "self")
+            .is_some()
+        {
+            let args = self.parameters.iter().skip(1);
+
+            quote! {
+                fn #name #generics(
+                    self, // Always owned during expand.
+                    context: &mut #cube_context,
+                    #(#args),*
+                ) -> #return_type
+            }
+        } else {
+            let args = &self.parameters;
+            quote! {
+                fn #name #generics(
+                    context: &mut #cube_context,
+                    #(#args),*
+                ) -> #return_type
+            }
+        };
+
         tokens.extend(out);
     }
 }

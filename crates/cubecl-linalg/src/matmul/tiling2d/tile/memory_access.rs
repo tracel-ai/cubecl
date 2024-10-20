@@ -122,7 +122,7 @@ impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
     }
 }
 
-#[cube(debug)]
+#[cube]
 impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     fn read_contiguous_unchecked(
         tensor: &Tensor<Line<F>>,
