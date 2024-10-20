@@ -310,7 +310,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             Operator::Recip(op) => {
-                self.compile_unary_op(op, |b, out_ty, ty, input, out| {
+                self.compile_unary_op_cast(op, |b, out_ty, ty, input, out| {
                     let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
                     b.f_div(ty, Some(out), one, input).unwrap();
                 });
@@ -326,12 +326,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Operator::Not(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| {
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| {
                     b.logical_not(ty, Some(out), input).unwrap();
                 });
             }
             Operator::Neg(op) => {
-                self.compile_unary_op(op, |b, out_ty, ty, input, out| {
+                self.compile_unary_op_cast(op, |b, out_ty, ty, input, out| {
                     match out_ty.elem() {
                         Elem::Int(_, true) => b.s_negate(ty, Some(out), input).unwrap(),
                         Elem::Float(_) => b.f_negate(ty, Some(out), input).unwrap(),
@@ -357,7 +357,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Bitcast(op) => self.compile_unary_op(op, |b, _, ty, input, out| {
                 b.bitcast(ty, Some(out), input).unwrap();
             }),
-            Operator::Erf(op) => self.compile_unary_op(op, |b, out_ty, ty, input, out| {
+            Operator::Erf(op) => self.compile_unary_op_cast(op, |b, out_ty, ty, input, out| {
                 b.compile_erf(out_ty, ty, input, out);
             }),
 
@@ -373,20 +373,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Operator::Abs(op) => {
-                self.compile_unary_op(op, |b, out_ty, ty, input, out| match out_ty.elem() {
+                self.compile_unary_op_cast(op, |b, out_ty, ty, input, out| match out_ty.elem() {
                     Elem::Int(_, _) => T::s_abs(b, ty, input, out),
                     Elem::Float(_) => T::f_abs(b, ty, input, out),
                     _ => unreachable!(),
                 });
             }
             Operator::Exp(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| T::exp(b, ty, input, out));
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| T::exp(b, ty, input, out));
             }
             Operator::Log(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| T::log(b, ty, input, out))
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| T::log(b, ty, input, out))
             }
             Operator::Log1p(op) => {
-                self.compile_unary_op(op, |b, out_ty, ty, input, out| {
+                self.compile_unary_op_cast(op, |b, out_ty, ty, input, out| {
                     let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
                     let add = match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, None, input, one).unwrap(),
@@ -397,13 +397,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Operator::Cos(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| T::cos(b, ty, input, out))
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| T::cos(b, ty, input, out))
             }
             Operator::Sin(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| T::sin(b, ty, input, out))
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| T::sin(b, ty, input, out))
             }
             Operator::Tanh(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| T::tanh(b, ty, input, out))
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| T::tanh(b, ty, input, out))
             }
             Operator::Powf(op) => self.compile_binary_op(op, |b, out_ty, ty, lhs, rhs, out| {
                 let bool = b.type_bool();
@@ -429,16 +429,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 b.select(ty, Some(out), is_zero, even, sel1).unwrap();
             }),
             Operator::Sqrt(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| T::sqrt(b, ty, input, out))
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| T::sqrt(b, ty, input, out))
             }
             Operator::Round(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| T::round(b, ty, input, out))
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| T::round(b, ty, input, out))
             }
             Operator::Floor(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| T::floor(b, ty, input, out))
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| T::floor(b, ty, input, out))
             }
             Operator::Ceil(op) => {
-                self.compile_unary_op(op, |b, _, ty, input, out| T::ceil(b, ty, input, out))
+                self.compile_unary_op_cast(op, |b, _, ty, input, out| T::ceil(b, ty, input, out))
             }
             Operator::Clamp(op) => {
                 let input = self.compile_variable(op.input);
@@ -760,6 +760,24 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
         }
+    }
+
+    pub fn compile_unary_op_cast(
+        &mut self,
+        op: UnaryOperator,
+        exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
+    ) {
+        let input = self.compile_variable(op.input);
+        let out = self.compile_variable(op.out);
+        let out_ty = out.item();
+
+        let input_id = self.read_as(&input, &out_ty);
+        let out_id = self.write_id(&out);
+
+        let ty = out_ty.id(self);
+
+        exec(self, out_ty, ty, input_id, out_id);
+        self.write(&out, out_id);
     }
 
     pub fn compile_unary_op(

@@ -21,7 +21,7 @@ pub trait WgpuCompiler: Compiler {
         mode: ExecutionMode,
     ) -> Arc<ComputePipeline>;
 
-    #[expect(async_fn_in_trait, reason = "Only used locally")]
+    #[allow(async_fn_in_trait)]
     async fn request_device(adapter: &Adapter) -> (Device, Queue);
     fn register_features(adapter: &Adapter, device: &Device, props: &mut DeviceProperties<Feature>);
 }
