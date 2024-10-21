@@ -117,8 +117,10 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
         } else {
             mode
         };
-        let compiled = kernel.compile(mode);
         log::debug!("Compiling {}", kernel.name());
+        let compiled = kernel.compile(mode);
+        #[cfg(feature = "spirv-dump")]
+        dump_spirv(&compiled, kernel.name(), kernel.id());
         compiled
     }
 
@@ -333,4 +335,42 @@ pub async fn init_async(device: &WgpuDevice, options: RuntimeOptions) {
         create_wgpu_setup::<Vulkan, SpirvCompiler<GLCompute>>(device).await;
     let client = create_client(adapter, device_wgpu, queue, options);
     RUNTIME.register(device, client)
+}
+
+#[cfg(feature = "spirv-dump")]
+fn dump_spirv(compiled: &CompiledKernel<VkSpirvCompiler>, name: &str, id: cubecl_core::KernelId) {
+    use std::{
+        fs,
+        hash::{DefaultHasher, Hash, Hasher},
+    };
+
+    if let Ok(dir) = std::env::var("CUBCEL_DEBUG_SPIRV") {
+        let name = name
+            .split("<")
+            .take_while(|it| !it.ends_with("Runtime"))
+            .map(|it| it.split(">").next().unwrap())
+            .map(|it| it.split("::").last().unwrap())
+            .collect::<Vec<_>>()
+            .join("_");
+        let mut hash = DefaultHasher::new();
+        id.hash(&mut hash);
+        let id = hash.finish();
+        let name = sanitize_filename::sanitize_with_options(
+            format!("{name}_{id:#x}"),
+            sanitize_filename::Options {
+                replacement: "_",
+                ..Default::default()
+            },
+        );
+        let repr = compiled.repr.as_ref().unwrap();
+        let kernel = repr.assemble().into_iter();
+        let kernel = kernel.flat_map(|it| it.to_le_bytes()).collect::<Vec<_>>();
+        println!("{name}");
+        fs::write(format!("{dir}/{name}.spv"), kernel).unwrap();
+        fs::write(
+            format!("{dir}/{name}.ir.txt"),
+            format!("{}", repr.optimizer),
+        )
+        .unwrap();
+    }
 }

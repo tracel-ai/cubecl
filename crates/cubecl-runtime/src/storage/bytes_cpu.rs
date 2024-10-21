@@ -53,6 +53,8 @@ impl BytesResource {
 impl ComputeStorage for BytesStorage {
     type Resource = BytesResource;
 
+    const ALIGNMENT: usize = 4;
+
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let allocated_bytes = self.memory.get(&handle.id).unwrap();
 

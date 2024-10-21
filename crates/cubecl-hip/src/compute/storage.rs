@@ -66,6 +66,8 @@ pub struct HipResource {
 unsafe impl Send for HipResource {}
 
 impl ComputeStorage for HipStorage {
+    const ALIGNMENT: usize = 4;
+
     type Resource = HipResource;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {

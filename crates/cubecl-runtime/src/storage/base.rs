@@ -68,6 +68,9 @@ pub trait ComputeStorage: Send {
     /// it can be accessed by kernels.
     type Resource: Send;
 
+    /// The alignment memory is allocated with in this storage.
+    const ALIGNMENT: usize;
+
     /// Returns the underlying resource for a specified storage handle
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource;
 

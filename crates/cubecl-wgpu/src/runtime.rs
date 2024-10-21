@@ -9,9 +9,12 @@ use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryManagement};
 use cubecl_runtime::DeviceProperties;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
+use cubecl_runtime::{
+    memory_management::{MemoryDeviceProperties, MemoryManagement},
+    storage::ComputeStorage,
+};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
@@ -134,7 +137,7 @@ pub fn create_client<C: WgpuCompiler>(
     let limits = device_wgpu.limits();
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as usize,
-        alignment: limits.min_storage_buffer_offset_alignment as usize,
+        alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as usize),
     };
 
     let memory_management = init_memory_management(
