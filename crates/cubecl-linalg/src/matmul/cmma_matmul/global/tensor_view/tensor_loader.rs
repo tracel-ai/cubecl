@@ -41,12 +41,12 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
         new_lhs_stage_reader(this.stage)
     }
 
-    fn init_view(self_: &mut Self, cube_offset: u32, k_start: u32) {
-        init_view(&mut self_.tensor_view, cube_offset, k_start);
+    fn init_view(this: &mut Self, cube_offset: u32, k_start: u32) {
+        init_view(&mut this.tensor_view, cube_offset, k_start);
     }
 
-    fn advance_view(self_: &mut Self, k_offset: u32) {
-        update_view(&mut self_.tensor_view, 0, k_offset, Ident::Lhs);
+    fn advance_view(this: &mut Self, k_offset: u32) {
+        update_view(&mut this.tensor_view, 0, k_offset, Ident::Lhs);
     }
 }
 

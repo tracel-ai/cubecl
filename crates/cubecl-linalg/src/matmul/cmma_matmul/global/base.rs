@@ -67,7 +67,6 @@ where
         let x_offset = CUBE_POS_X * SMM::M;
         let y_offset = CUBE_POS_Y * SMM::N;
 
-        // It could be tensor view directly
         LhsTensorLoader::init_view(&mut lhs_loader, x_offset, k_range.0);
         RhsTensorLoader::init_view(&mut rhs_loader, k_range.0, y_offset);
         TensorUnloader::init_view(&mut out_unloader, x_offset, y_offset);
@@ -80,23 +79,9 @@ where
                 config.to_smm_config(),
             );
 
-            // It could be tensor view directly
             LhsTensorLoader::advance_view(&mut lhs_loader, k_step);
             RhsTensorLoader::advance_view(&mut rhs_loader, k_step);
         }
-
-        // TODO TensorUnloader is bad abstraction. Doesn't do anything
-        // The only thing loaders do more than view is
-        // give stage readers and writers
-        // OutStageWriter is bad, it plays on Gmm level in spite of its name
-        // All it does is pass stuff around with a multiplication that somebody else could do
-
-        // There should be only the TensorUnloader, which should replace the Out TensorView
-        // And (L/R)hsTensorLoader should be merged with Input TensorView
-
-        // BUT there should be a stage writer
-        // It writes to the out smem
-        // Then the unloader takes from the out smem to the global memory
 
         SMM::acc_read::<TensorUnloader<EG, G>, G>(
             &acc,
