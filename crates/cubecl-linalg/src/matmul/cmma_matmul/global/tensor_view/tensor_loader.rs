@@ -1,7 +1,4 @@
-use crate::matmul::cmma_matmul::global::{load_to_slice, new_tensor_view, update_view};
-use crate::matmul::cmma_matmul::stage::{
-    as_slice_mut, new_lhs_stage_reader, new_rhs_stage_reader, new_stage,
-};
+use crate::matmul::cmma_matmul::global::load_to_slice;
 use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader, Stage};
 use crate::matmul::matmul_global::{GmmConfig, Loader};
 use crate::matmul::matrix::Ident;
@@ -34,15 +31,15 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         load_to_slice::<EG, ES, G>(
             &this.tensor_view,
-            as_slice_mut(&mut this.stage),
+            this.stage.as_slice_mut(),
             Ident::Lhs,
             config,
         );
-        new_lhs_stage_reader(this.stage)
+        LhsStageReader::new(this.stage)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
-        update_view(&mut this.tensor_view, 0, k_offset, Ident::Lhs);
+        this.tensor_view.update_view::<EG>(k_offset, Ident::Lhs);
     }
 }
 
@@ -53,8 +50,8 @@ pub fn new_lhs_tensor_loader<EG: Numeric, ES: Numeric, G: GmmConfig>(
     y_offset: u32,
     #[comptime] config: G,
 ) -> LhsTensorLoader<EG, ES, G> {
-    let stage = new_stage::<ES, G::SmmConfig>(Ident::Lhs, config.to_smm_config());
-    let tensor_view = new_tensor_view(tensor, x_offset, y_offset);
+    let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+    let tensor_view = TensorView::new(tensor, x_offset, y_offset);
 
     LhsTensorLoader::<EG, ES, G> {
         tensor_view,
@@ -71,15 +68,15 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoad
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         load_to_slice::<EG, ES, G>(
             &this.tensor_view,
-            as_slice_mut(&mut this.stage),
+            this.stage.as_slice_mut(),
             Ident::Rhs,
             config,
         );
-        new_rhs_stage_reader(this.stage)
+        RhsStageReader::new(this.stage)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
-        update_view(&mut this.tensor_view, k_offset, 0, Ident::Rhs);
+        this.tensor_view.update_view::<EG>(k_offset, Ident::Rhs);
     }
 }
 
@@ -90,8 +87,8 @@ pub fn new_rhs_tensor_loader<EG: Numeric, ES: Numeric, G: GmmConfig>(
     y_offset: u32,
     #[comptime] config: G,
 ) -> RhsTensorLoader<EG, ES, G> {
-    let stage = new_stage::<ES, G::SmmConfig>(Ident::Rhs, config.to_smm_config());
-    let tensor_view = new_tensor_view(tensor, x_offset, y_offset);
+    let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+    let tensor_view = TensorView::new(tensor, x_offset, y_offset);
 
     RhsTensorLoader::<EG, ES, G> {
         tensor_view,

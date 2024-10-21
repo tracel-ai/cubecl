@@ -14,42 +14,34 @@ pub struct TensorView<E: Numeric> {
 }
 
 #[cube]
-pub(crate) fn update_view<EG: Numeric>(
-    view: &mut TensorView<EG>,
-    x_offset: u32,
-    y_offset: u32,
-    #[comptime] ident: Ident,
-) {
-    match ident {
-        Ident::Lhs => {
-            view.y_offset += y_offset;
+impl<E: Numeric> TensorView<E> {
+    pub fn new(tensor: Tensor<Line<E>>, x_offset: u32, y_offset: u32) -> TensorView<E> {
+        let rank = tensor.rank();
+        let stride_x = tensor.stride(rank - 2);
+        let stride_y = tensor.stride(rank - 1);
+        let shape_x = tensor.shape(rank - 2);
+        let shape_y = tensor.shape(rank - 1);
+
+        TensorView::<E> {
+            tensor,
+            x_offset,
+            y_offset,
+            stride_x,
+            stride_y,
+            shape_x,
+            shape_y,
         }
-        Ident::Rhs => {
-            view.x_offset += x_offset;
-        }
-        Ident::Out => {}
     }
-}
 
-#[cube]
-pub fn new_tensor_view<E: Numeric>(
-    tensor: Tensor<Line<E>>,
-    x_offset: u32,
-    y_offset: u32,
-) -> TensorView<E> {
-    let rank = tensor.rank();
-    let stride_x = tensor.stride(rank - 2);
-    let stride_y = tensor.stride(rank - 1);
-    let shape_x = tensor.shape(rank - 2);
-    let shape_y = tensor.shape(rank - 1);
-
-    TensorView::<E> {
-        tensor,
-        x_offset,
-        y_offset,
-        stride_x,
-        stride_y,
-        shape_x,
-        shape_y,
+    pub fn update_view<EG: Numeric>(&mut self, k_offset: u32, #[comptime] ident: Ident) {
+        match ident {
+            Ident::Lhs => {
+                self.y_offset += k_offset;
+            }
+            Ident::Rhs => {
+                self.x_offset += k_offset;
+            }
+            Ident::Out => {}
+        }
     }
 }
