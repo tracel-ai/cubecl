@@ -1,4 +1,6 @@
-use crate::matmul::cmma_matmul::stage::{TilingOrder, XMajorTiling};
+use crate::matmul::cmma_matmul::stage::{
+    TilingOrder, TilingOrderConfig, XMajorTiling, YMajorTiling,
+};
 use crate::matmul::config::PlaneMapper;
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matrix::Ident;
@@ -59,8 +61,14 @@ fn continuous_load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
         let pos_within_tile = unit_position % tile_num_elements;
 
         // TODO X or Y choose with comptime config
-        let (tile_x, tile_y) =
-            XMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y);
+        let (tile_x, tile_y) = match config.tiling_order() {
+            TilingOrderConfig::XMajor => {
+                XMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+            }
+            TilingOrderConfig::YMajor => {
+                YMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+            }
+        };
 
         let line =
             load_coalesced::<EG, G>(read_view, tile_x, tile_y, pos_within_tile, ident, config);

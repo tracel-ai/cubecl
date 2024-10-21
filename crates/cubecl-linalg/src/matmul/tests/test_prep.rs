@@ -8,6 +8,7 @@ use crate::matmul::cmma_matmul::global::TensorUnloader;
 use crate::matmul::cmma_matmul::stage::CmmaStageMatmulConfig;
 use crate::matmul::cmma_matmul::stage::LhsStageReader;
 use crate::matmul::cmma_matmul::stage::RhsStageReader;
+use crate::matmul::cmma_matmul::stage::TilingOrderConfig;
 use crate::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
 use crate::matmul::stage_dim::StageDim;
 use crate::matmul::MatmulLaunch;
@@ -23,9 +24,22 @@ type S = CmmaStageMatmulConfig<T>;
 type G = CmmaGlobalMatmulConfig<S>;
 const PLANE_DIM: u32 = 32;
 
+pub struct AdvancedConfig {
+    pub tiling_order: TilingOrderConfig,
+}
+
+impl Default for AdvancedConfig {
+    fn default() -> Self {
+        Self {
+            tiling_order: TilingOrderConfig::XMajor,
+        }
+    }
+}
+
 pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, R>(
     problem: MatmulProblem,
     num_planes: u32,
+    advanded_config: AdvancedConfig,
     device: &R::Device,
 ) where
     TMM: TileMatmul<ES, EA>,
@@ -59,6 +73,7 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, R>(
         problem.lhs_layout,
         problem.rhs_layout,
         num_planes,
+        advanded_config.tiling_order,
         t,
     );
     let g = G::new(problem.out_line_size as u32, PLANE_DIM, s);

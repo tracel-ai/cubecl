@@ -6,6 +6,8 @@ use crate::matmul::stage_dim::StageDim;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::TilingOrderConfig;
+
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct CmmaStageMatmulConfig<T: TmmConfig> {
     tmm_config: T,
@@ -18,6 +20,7 @@ pub struct CmmaStageMatmulConfig<T: TmmConfig> {
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
     num_planes: u32,
+    tiling_order: TilingOrderConfig,
 }
 
 impl<T: TmmConfig> ComptimeConfig for CmmaStageMatmulConfig<T> {}
@@ -56,6 +59,10 @@ impl<T: TmmConfig> SmmConfig for CmmaStageMatmulConfig<T> {
     fn num_planes(&self) -> u32 {
         self.num_planes
     }
+
+    fn tiling_order(&self) -> TilingOrderConfig {
+        self.tiling_order
+    }
 }
 
 impl<T: TmmConfig> MatmulConfig for CmmaStageMatmulConfig<T> {}
@@ -71,6 +78,7 @@ impl<T: TmmConfig> CmmaStageMatmulConfig<T> {
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
         num_planes: u32,
+        tiling_order: TilingOrderConfig,
         tmm_config: T,
     ) -> Self {
         Self {
@@ -84,6 +92,7 @@ impl<T: TmmConfig> CmmaStageMatmulConfig<T> {
             lhs_layout,
             rhs_layout,
             num_planes,
+            tiling_order,
         }
     }
 }

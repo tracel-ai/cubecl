@@ -23,6 +23,8 @@ macro_rules! testgen_cmma_internal {
         use cubecl_linalg::matmul::tests::create_stage_dim;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
         use cubecl_linalg::matmul::tests::run_matmul_test;
+        use cubecl_linalg::matmul::tests::AdvancedConfig;
+        use cubecl_linalg::matmul::cmma_matmul::stage::TilingOrderConfig;
         use cubecl_linalg::matmul::stage_dim::StageDim;
 
         type T = CmmaTileMatmulConfig;
@@ -35,7 +37,8 @@ macro_rules! testgen_cmma_internal {
                                                         $problem:expr,
                                                         $num_planes:expr,
                                                         $eg:ty, $es:ty, $ea:ty, $stage_size:ty,
-                                                        $tile_matmul_type:ident
+                                                        $tile_matmul_type:ident,
+                                                        $advanded_config:expr
                                                     ) => {
                 pub fn $test_name<R: Runtime>(device: &R::Device) {
                     type T = CmmaTileMatmulConfig;
@@ -55,7 +58,7 @@ macro_rules! testgen_cmma_internal {
                     type GlobalMatmul = CmmaGlobalMatmul<EG, ES, StageMatmul, G>;
 
                     run_matmul_test::<EG, ES, EA, TileMatmul, StageMatmul, GlobalMatmul, R>(
-                        problem, num_planes, device,
+                        problem, num_planes, $advanded_config, device,
                     );
                 }
             };
@@ -80,7 +83,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S64x64x32,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_global_matmul_g60x60x120_s64x64x32::<TestRuntime>(&Default::default())
         }
@@ -104,7 +108,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g16x16x36_s16x16x16::<TestRuntime>(&Default::default())
@@ -129,7 +134,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_global_matmul_g12x12x16_s16x16x16::<TestRuntime>(&Default::default())
         }
@@ -153,7 +159,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g16x16x16_s16x16x16_unlined::<TestRuntime>(&Default::default())
@@ -178,7 +185,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g16x16x16_s16x16x16_line2::<TestRuntime>(&Default::default())
@@ -203,7 +211,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g16x16x16_s16x16x16::<TestRuntime>(&Default::default())
@@ -228,7 +237,10 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig {
+                    tiling_order: TilingOrderConfig::YMajor
+                }
             );
 
             test_global_matmul_ymajor::<TestRuntime>(&Default::default())
@@ -253,7 +265,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g16x16x32_s16x16x16::<TestRuntime>(&Default::default())
@@ -278,7 +291,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g16x16x16_s16x16x16_col_major::<TestRuntime>(&Default::default())
@@ -303,7 +317,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g16x16x128_s16x16x16::<TestRuntime>(&Default::default())
@@ -328,7 +343,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g32x16x128_s32x16x16::<TestRuntime>(&Default::default())
@@ -353,7 +369,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g32x32x224_s32x32x32::<TestRuntime>(&Default::default())
@@ -378,7 +395,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x32x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g16x32x16_s16x32x16::<TestRuntime>(&Default::default())
@@ -403,7 +421,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_col_major_tiling::<TestRuntime>(&Default::default())
@@ -428,7 +447,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x32x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
 
             test_global_matmul_g32x32x16_s32x32x16::<TestRuntime>(&Default::default())
@@ -453,7 +473,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x32x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s16x32x16::<TestRuntime>(&Default::default());
         }
@@ -477,7 +498,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
         }
 
@@ -500,7 +522,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x32_row_col::<TestRuntime>(&Default::default());
         }
@@ -524,7 +547,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x32_col_row::<TestRuntime>(&Default::default());
         }
@@ -548,7 +572,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x32_col_col::<TestRuntime>(&Default::default());
         }
@@ -572,7 +597,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s32x16x16::<TestRuntime>(&Default::default());
         }
@@ -596,7 +622,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x16x16,
-                DummyUnitInstruction32_8_16
+                DummyUnitInstruction32_8_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_i32x8x16_col_major::<TestRuntime>(&Default::default());
         }
@@ -621,7 +648,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S128x16x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s128x16x16::<TestRuntime>(&Default::default());
         }
@@ -645,7 +673,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S64x64x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s64x64x16::<TestRuntime>(&Default::default());
         }
@@ -669,7 +698,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S64x64x32,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s64x64x32::<TestRuntime>(&Default::default());
         }
@@ -693,7 +723,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x32x16,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x16::<TestRuntime>(&Default::default());
         }
@@ -717,7 +748,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x32::<TestRuntime>(&Default::default());
         }
@@ -741,7 +773,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S32x8x16,
-                DummyUnitInstruction32_8_16
+                DummyUnitInstruction32_8_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s32x8x16::<TestRuntime>(&Default::default());
         }
@@ -765,7 +798,8 @@ macro_rules! testgen_cmma_internal {
                 f32,
                 f32,
                 S8x32x16,
-                DummyUnitInstruction8_32_16
+                DummyUnitInstruction8_32_16,
+                AdvancedConfig::default()
             );
             test_stage_matmul_s8x32x16::<TestRuntime>(&Default::default());
         }

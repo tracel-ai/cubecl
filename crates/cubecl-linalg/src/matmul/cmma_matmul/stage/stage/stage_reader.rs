@@ -21,16 +21,6 @@ pub struct RhsStageReader<ES: Numeric, S: SmmConfig> {
 }
 
 #[cube]
-pub(crate) fn new_lhs_stage_reader<ES: Numeric, S: SmmConfig>(
-    stage: Stage<ES>,
-) -> LhsStageReader<ES, S> {
-    LhsStageReader::<ES, S> {
-        stage,
-        _config: PhantomData::<S>.runtime(),
-    }
-}
-
-#[cube]
 impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for LhsStageReader<ES, S> {
     fn read_tile(
         this: &Self,
@@ -50,16 +40,6 @@ impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for LhsStageReader<ES, S> {
 }
 
 #[cube]
-pub(crate) fn new_rhs_stage_reader<ES: Numeric, S: SmmConfig>(
-    stage: Stage<ES>,
-) -> RhsStageReader<ES, S> {
-    RhsStageReader::<ES, S> {
-        stage,
-        _config: PhantomData::<S>.runtime(),
-    }
-}
-
-#[cube]
 impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for RhsStageReader<ES, S> {
     fn read_tile(
         this: &Self,
@@ -75,5 +55,25 @@ impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for RhsStageReader<ES, S> {
             Ident::Rhs,
             config,
         )
+    }
+}
+
+#[cube]
+pub(crate) fn new_lhs_stage_reader<ES: Numeric, S: SmmConfig>(
+    stage: Stage<ES>,
+) -> LhsStageReader<ES, S> {
+    LhsStageReader::<ES, S> {
+        stage,
+        _config: PhantomData::<S>.runtime(),
+    }
+}
+
+#[cube]
+pub(crate) fn new_rhs_stage_reader<ES: Numeric, S: SmmConfig>(
+    stage: Stage<ES>,
+) -> RhsStageReader<ES, S> {
+    RhsStageReader::<ES, S> {
+        stage,
+        _config: PhantomData::<S>.runtime(),
     }
 }

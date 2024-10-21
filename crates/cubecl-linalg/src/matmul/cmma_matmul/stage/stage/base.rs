@@ -1,8 +1,10 @@
-use crate::matmul::cmma_matmul::stage::{TilingOrder, XMajorTiling};
+use crate::matmul::cmma_matmul::stage::{TilingOrder, XMajorTiling, YMajorTiling};
 use crate::matmul::matmul_stage::SmmConfig;
 use crate::matmul::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+
+use super::TilingOrderConfig;
 
 #[derive(CubeType, Clone, Copy)]
 pub struct Stage<ES: Numeric> {
@@ -32,8 +34,14 @@ pub(crate) fn get_tile<ES: Numeric, S: SmmConfig>(
 ) -> &Slice<'_, Line<ES>> {
     let stage_dim = config.stage_dim(ident);
 
-    // TODO X or Y choose with comptime config
-    let nth_tile = XMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y);
+    let nth_tile = match config.tiling_order() {
+        TilingOrderConfig::XMajor => {
+            XMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+        }
+        TilingOrderConfig::YMajor => {
+            YMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+        }
+    };
 
     let tile_stride = stage_dim.tile_num_elements() / config.line_size(ident);
     let start = nth_tile * tile_stride;

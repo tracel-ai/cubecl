@@ -1,3 +1,4 @@
+use crate::matmul::cmma_matmul::stage::TilingOrderConfig;
 use crate::matmul::config::{ComptimeConfig, MatmulConfig, MatmulLaunchConfig};
 use crate::matmul::matmul_stage::SmmConfig;
 use crate::matmul::matrix::{Ident, MatrixLayout};
@@ -14,6 +15,7 @@ pub trait GmmConfig: ComptimeConfig + MatmulConfig + MatmulLaunchConfig {
     fn out_smem_line_size(&self) -> u32;
     fn num_planes(&self) -> u32;
     fn plane_dim(&self) -> u32;
+    fn tiling_order(&self) -> TilingOrderConfig;
 }
 
 pub trait ViewConfig: ComptimeConfig {}

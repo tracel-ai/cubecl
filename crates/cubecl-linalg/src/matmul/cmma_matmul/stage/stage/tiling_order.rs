@@ -1,6 +1,12 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+#[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum TilingOrderConfig {
+    XMajor,
+    YMajor,
+}
+
 #[cube]
 pub trait TilingOrder: Clone + Copy + 'static + Send + Sync {
     fn to_x_y(nth: u32, num_x: u32, num_y: u32) -> (u32, u32);

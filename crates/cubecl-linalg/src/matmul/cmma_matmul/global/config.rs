@@ -1,3 +1,4 @@
+use crate::matmul::cmma_matmul::stage::TilingOrderConfig;
 use crate::matmul::config::{ComptimeConfig, MatmulConfig, MatmulLaunchConfig};
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::SmmConfig;
@@ -57,6 +58,10 @@ impl<S: SmmConfig> GmmConfig for CmmaGlobalMatmulConfig<S> {
 
     fn plane_dim(&self) -> u32 {
         self.plane_dim
+    }
+
+    fn tiling_order(&self) -> TilingOrderConfig {
+        self.smm_config.tiling_order()
     }
 }
 
