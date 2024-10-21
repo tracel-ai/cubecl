@@ -13,7 +13,6 @@ use crate::matmul::cmma_matmul::stage::TilingOrderConfig;
 use crate::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
 use crate::matmul::matmul_batch::BatchMatmul;
 use crate::matmul::stage_dim::StageDim;
-use crate::matmul::MatmulLaunch;
 use crate::matmul::{
     matmul_global::GlobalMatmul, matmul_stage::StageMatmul, matmul_tile::TileMatmul,
     problem::MatmulProblem,
@@ -25,7 +24,6 @@ type T = CmmaTileMatmulConfig;
 type S = CmmaStageMatmulConfig<T>;
 type G = CmmaGlobalMatmulConfig<S>;
 type B = CmmaBatchMatmulConfig<G>;
-const PLANE_DIM: u32 = 32;
 
 pub struct AdvancedConfig {
     pub tiling_order: TilingOrderConfig,
@@ -41,7 +39,8 @@ impl Default for AdvancedConfig {
 
 pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
     problem: MatmulProblem,
-    num_planes: u32,
+    cube_dim: CubeDim,
+    cube_count: CubeCount,
     advanded_config: AdvancedConfig,
     device: &R::Device,
 ) where
@@ -55,7 +54,7 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
         TensorUnloader<EG, G>,
         G,
     >,
-    BMM: BatchMatmul<EG, B> + MatmulLaunch<EG, EG, MatmulLaunchConfig = B>,
+    BMM: BatchMatmul<EG, B>,
     EG: Numeric + CubeElement,
     ES: Numeric,
     EA: Numeric,
@@ -69,7 +68,16 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
     let check_m_bounds = problem.m % stage_m != 0;
     let check_n_bounds = problem.n % stage_n != 0;
 
-    let t = T::new(PLANE_DIM, problem.lhs_layout, problem.rhs_layout);
+    let plane_dim = cube_dim.x;
+    let num_planes = cube_dim.y;
+
+    let (cube_count_x, cube_count_y) = if let CubeCount::Static(x, y, _) = cube_count {
+        (x, y)
+    } else {
+        panic!("Dynamic cube count unsupported")
+    };
+
+    let t = T::new(plane_dim, problem.lhs_layout, problem.rhs_layout);
     let s = S::new(
         t,
         lhs_stage_dim,
@@ -84,13 +92,12 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
     let g = G::new(
         s,
         problem.out_line_size as u32,
-        PLANE_DIM,
         check_m_bounds,
         check_n_bounds,
     );
-    let b = B::new(g);
+    let b = B::new(g, cube_count_x, cube_count_y);
 
-    test_matmul::<BMM, EG, EG, G, R>(problem, b, device);
+    test_matmul::<BMM, EG, B, G, R>(problem, cube_dim, cube_count, b, device);
 }
 
 pub fn create_stage_dim(

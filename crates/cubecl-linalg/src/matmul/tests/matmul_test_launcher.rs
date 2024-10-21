@@ -1,26 +1,31 @@
 use cubecl_core::prelude::*;
 use cubecl_core::CubeElement;
 
-use crate::matmul::config::MatmulLaunchConfig;
+use crate::matmul::matmul_batch::BatchMatmul;
+use crate::matmul::matmul_batch::BmmConfig;
 use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::problem::MatmulProblem;
-use crate::matmul::MatmulLaunch;
 
 use super::test_utils::assert_equals_approx;
 use super::test_utils::generate_random_data;
 use super::test_utils::matmul_cpu_reference;
 
-pub fn test_matmul<MM, I, O, G, R>(
+pub fn test_matmul<MM, EG, B, G, R>(
     problem: MatmulProblem,
-    config: MM::MatmulLaunchConfig,
+    cube_dim: CubeDim,
+    cube_count: CubeCount,
+    config: MM::Config,
     device: &R::Device,
 ) where
-    I: Numeric + CubeElement,
-    O: Numeric + CubeElement,
-    MM: MatmulLaunch<I, O>,
+    EG: Numeric + CubeElement,
+    MM: BatchMatmul<EG, B>,
+    B: BmmConfig,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
+
+    assert!(problem.m <= config.max_m() && problem.n <= config.max_n());
+
     let lhs_size = problem.m * problem.k;
     let rhs_size = problem.k * problem.n;
     let out_size = problem.m * problem.n;
@@ -43,15 +48,15 @@ pub fn test_matmul<MM, I, O, G, R>(
         ),
     };
 
-    let lhs = client.create(I::as_bytes(&I::from_values(&lhs_data)));
-    let rhs = client.create(I::as_bytes(&I::from_values(&rhs_data)));
-    let out = client.empty(out_size as usize * O::as_elem().size());
+    let lhs = client.create(EG::as_bytes(&EG::from_values(&lhs_data)));
+    let rhs = client.create(EG::as_bytes(&EG::from_values(&rhs_data)));
+    let out = client.empty(out_size as usize * EG::as_elem().size());
 
     unsafe {
         MM::launch_unchecked(
             &client,
-            config.cube_dim(),
-            config.cube_count(),
+            cube_dim,
+            cube_count,
             TensorArg::<R>::from_raw_parts(
                 &lhs,
                 &lhs_strides,
@@ -75,7 +80,7 @@ pub fn test_matmul<MM, I, O, G, R>(
     }
 
     let expected = matmul_cpu_reference(&lhs_original_data, &rhs_original_data, problem);
-    if let Err(e) = assert_equals_approx::<I, R>(&client, out, &expected, 10e-2) {
+    if let Err(e) = assert_equals_approx::<EG, R>(&client, out, &expected, 10e-2) {
         panic!("{}", e);
     }
 }

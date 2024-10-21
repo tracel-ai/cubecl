@@ -13,5 +13,6 @@ pub trait SmmConfig: ComptimeConfig + MatmulConfig {
     fn stage_dim(&self, ident: Ident) -> StageDim;
     fn layout(&self, ident: Ident) -> MatrixLayout;
     fn num_planes(&self) -> u32;
+    fn plane_dim(&self) -> u32;
     fn tiling_order(&self) -> TilingOrderConfig;
 }

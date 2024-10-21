@@ -54,6 +54,10 @@ impl<T: TmmConfig> SmmConfig for CmmaStageMatmulConfig<T> {
         self.num_planes
     }
 
+    fn plane_dim(&self) -> u32 {
+        self.tmm_config.plane_dim()
+    }
+
     fn tiling_order(&self) -> TilingOrderConfig {
         self.tiling_order
     }

@@ -11,27 +11,3 @@ pub struct MatmulProblem {
     pub rhs_line_size: u8,
     pub out_line_size: u8,
 }
-
-// impl MatmulProblem {
-//     pub fn new(
-//         m: u32,
-//         n: u32,
-//         k: u32,
-//         lhs_layout: MatrixLayout,
-//         rhs_layout: MatrixLayout,
-//         lhs_line_size: u8,
-//         rhs_line_size: u8,
-//         out_line_size: u8,
-//     ) -> MatmulProblem {
-//         MatmulProblem {
-//             m,
-//             n,
-//             k,
-//             lhs_layout,
-//             rhs_layout,
-//             lhs_line_size,
-//             rhs_line_size,
-//             out_line_size,
-//         }
-//     }
-// }

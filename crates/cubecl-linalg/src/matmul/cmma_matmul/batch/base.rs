@@ -4,11 +4,10 @@ use crate::matmul::cmma_matmul::global::{
     new_lhs_tensor_loader, new_rhs_tensor_loader, new_tensor_unloader, LhsTensorLoader,
     RhsTensorLoader, TensorUnloader,
 };
-use crate::matmul::launch::batch_matmul_launch;
 use crate::matmul::matmul_batch::{BatchMatmul, BmmConfig};
 use crate::matmul::matmul_global::GlobalMatmul;
 use crate::matmul::matrix::Ident;
-use crate::matmul::{Matmul, MatmulLaunch};
+use crate::matmul::{batch_matmul_launch, Matmul, MatmulLaunch};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -102,8 +101,6 @@ impl<
         B: BmmConfig,
     > MatmulLaunch<EG, EG> for CmmaBatchMatmul<EG, ES, GMM, B>
 {
-    type MatmulLaunchConfig = B;
-
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
@@ -111,10 +108,10 @@ impl<
         lhs: TensorArg<'_, R>,
         rhs: TensorArg<'_, R>,
         out: TensorArg<'_, R>,
-        config: Self::MatmulLaunchConfig,
+        config: B,
     ) {
         Self::check_config(config);
-        batch_matmul_launch::launch_unchecked::<EG, ES, Self, Self::MatmulLaunchConfig, R>(
+        batch_matmul_launch::launch_unchecked::<EG, ES, Self, Self::Config, R>(
             &client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }

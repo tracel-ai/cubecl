@@ -1,5 +1,5 @@
 use crate::matmul::cmma_matmul::stage::TilingOrderConfig;
-use crate::matmul::config::{ComptimeConfig, MatmulConfig, MatmulLaunchConfig};
+use crate::matmul::config::{ComptimeConfig, MatmulConfig};
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::SmmConfig;
 use crate::matmul::matrix::{Ident, MatrixLayout};
@@ -11,26 +11,11 @@ use cubecl_core::prelude::*;
 pub struct CmmaGlobalMatmulConfig<S: SmmConfig> {
     smm_config: S,
     out_smem_line_size: u32,
-    plane_dim: u32,
     check_m_bounds: bool,
     check_n_bounds: bool,
 }
 
 impl<S: SmmConfig> ComptimeConfig for CmmaGlobalMatmulConfig<S> {}
-
-impl<S: SmmConfig> MatmulLaunchConfig for CmmaGlobalMatmulConfig<S> {
-    fn cube_dim(&self) -> CubeDim {
-        CubeDim {
-            x: self.plane_dim(),
-            y: self.num_planes(),
-            z: 1,
-        }
-    }
-
-    fn cube_count(&self) -> CubeCount {
-        CubeCount::Static(1, 1, 1)
-    }
-}
 
 impl<S: SmmConfig> GmmConfig for CmmaGlobalMatmulConfig<S> {
     type SmmConfig = S;
@@ -60,7 +45,7 @@ impl<S: SmmConfig> GmmConfig for CmmaGlobalMatmulConfig<S> {
     }
 
     fn plane_dim(&self) -> u32 {
-        self.plane_dim
+        self.smm_config.plane_dim()
     }
 
     fn tiling_order(&self) -> TilingOrderConfig {
@@ -82,14 +67,12 @@ impl<S: SmmConfig> CmmaGlobalMatmulConfig<S> {
     pub fn new(
         smm_config: S,
         out_smem_line_size: u32,
-        plane_dim: u32,
         check_m_bounds: bool,
         check_n_bounds: bool,
     ) -> Self {
         Self {
             smm_config,
             out_smem_line_size,
-            plane_dim,
             check_m_bounds,
             check_n_bounds,
         }

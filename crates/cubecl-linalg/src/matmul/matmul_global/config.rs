@@ -1,10 +1,10 @@
 use crate::matmul::cmma_matmul::stage::TilingOrderConfig;
-use crate::matmul::config::{ComptimeConfig, MatmulConfig, MatmulLaunchConfig};
+use crate::matmul::config::{ComptimeConfig, MatmulConfig};
 use crate::matmul::matmul_stage::SmmConfig;
 use crate::matmul::matrix::{Ident, MatrixLayout};
 use crate::matmul::stage_dim::StageDim;
 
-pub trait GmmConfig: ComptimeConfig + MatmulConfig + MatmulLaunchConfig {
+pub trait GmmConfig: ComptimeConfig + MatmulConfig {
     type SmmConfig: SmmConfig;
 
     fn to_smm_config(&self) -> Self::SmmConfig;

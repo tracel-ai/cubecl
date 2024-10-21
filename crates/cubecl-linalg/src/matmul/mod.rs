@@ -1,7 +1,6 @@
 mod base;
 pub mod cmma_matmul;
 mod config;
-pub(crate) mod launch;
 pub mod matmul_batch;
 pub mod matmul_global;
 pub mod matmul_stage;
