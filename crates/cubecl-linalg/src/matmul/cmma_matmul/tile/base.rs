@@ -80,7 +80,6 @@ macro_rules! impl_matmul_instruction {
             fn check_config(config: Self::Config) {
                 let _ = comptime!(check_plane_dim(config.plane_dim()));
             }
-
         }
     };
 }

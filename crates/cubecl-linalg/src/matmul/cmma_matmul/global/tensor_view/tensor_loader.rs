@@ -74,7 +74,7 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoad
         load_to_slice::<EG, ES, G>(
             &this.tensor_view,
             as_slice_mut(&mut this.stage),
-            Ident::Lhs,
+            Ident::Rhs,
             config,
         );
         new_rhs_stage_reader(this.stage)

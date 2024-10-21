@@ -604,28 +604,28 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
-        pub fn test_stage_matmul_i32x8x16_col_major() {
+        pub fn test_stage_matmul_s32x8x16_col_major() {
             matmul_test!(
-                test_stage_matmul_i32x8x16_col_major,
+                test_stage_matmul_s32x8x16_col_major,
                 MatmulProblem {
                     m: 32,
-                    n: 16,
+                    n: 8,
                     k: 16,
                     lhs_layout: MatrixLayout::ColMajor,
                     rhs_layout: MatrixLayout::ColMajor,
-                    lhs_line_size: 4,
-                    rhs_line_size: 4,
-                    out_line_size: 4,
+                    lhs_line_size: 1,
+                    rhs_line_size: 1,
+                    out_line_size: 1,
                 },
                 1,
                 f32,
                 f32,
                 f32,
-                S32x16x16,
+                S32x8x16,
                 DummyUnitInstruction32_8_16,
                 AdvancedConfig::default()
             );
-            test_stage_matmul_i32x8x16_col_major::<TestRuntime>(&Default::default());
+            test_stage_matmul_s32x8x16_col_major::<TestRuntime>(&Default::default());
         }
 
         #[test]
@@ -755,7 +755,7 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
-        pub fn test_stage_matmul_s32x8x16() {
+        pub fn test_stage_matmul_s32x8x16_row_major() {
             matmul_test!(
                 test_stage_matmul_s32x8x16,
                 MatmulProblem {

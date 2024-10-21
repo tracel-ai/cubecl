@@ -31,7 +31,7 @@ pub(crate) fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
     let slice_line_size = config.out_smem_line_size();
     let out_line_size = config.line_size(Ident::Out);
 
-    let unit_jump = config.plane_dim() * view.tensor.line_size();
+    let unit_jump = config.plane_dim() * out_line_size;
     let num_unit_writes = stage_dim.tile_num_elements() / unit_jump;
 
     let _ = comptime!(check_line_size(out_line_size, slice_line_size));
