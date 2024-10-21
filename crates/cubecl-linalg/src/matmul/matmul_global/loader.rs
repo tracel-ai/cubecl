@@ -9,7 +9,5 @@ pub trait Loader<EG: Numeric, ES: Numeric, G: GmmConfig>: CubeType + 'static + S
     type StageReader: StageReader<ES, G::SmmConfig>;
 
     fn fill_stage(loader: &mut Self, #[comptime] config: G) -> Self::StageReader;
-
-    fn init_view(loader: &mut Self, cube_offset: u32, k_start: u32);
     fn advance_view(loader: &mut Self, k_offset: u32);
 }

@@ -64,10 +64,6 @@ where
 
         let mut acc = SMM::acc_init_zeros();
 
-        LhsTensorLoader::init_view(&mut lhs_loader, x_offset, k_range.0);
-        RhsTensorLoader::init_view(&mut rhs_loader, k_range.0, y_offset);
-        TensorUnloader::init_view(&mut out_unloader, x_offset, y_offset);
-
         for _ in 0..num_loops {
             let lhs_stage_reader = &LhsTensorLoader::fill_stage(&mut lhs_loader, config);
             let rhs_stage_reader = &RhsTensorLoader::fill_stage(&mut rhs_loader, config);

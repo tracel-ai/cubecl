@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::global::{init_view, new_tensor_view, unload_from_slice};
+use crate::matmul::cmma_matmul::global::{new_tensor_view, unload_from_slice};
 use crate::matmul::matmul_global::{GmmConfig, Unloader};
 use crate::matmul::matmul_stage::StageWriter;
 use crate::matmul::matrix::Ident;
@@ -23,18 +23,16 @@ impl<EG: Numeric, G: GmmConfig> Unloader<EG, G> for TensorUnloader<EG, G> {
     fn as_stage_writer(this: Self) -> Self::StageWriter {
         this
     }
-
-    fn init_view(this: &mut Self, cube_offset_x: u32, cube_offset_y: u32) {
-        init_view(&mut this.tensor_view, cube_offset_x, cube_offset_y);
-    }
 }
 
 #[cube]
 pub fn new_tensor_unloader<EG: Numeric, G: GmmConfig>(
     tensor: Tensor<Line<EG>>,
+    x_offset: u32,
+    y_offset: u32,
 ) -> TensorUnloader<EG, G> {
     TensorUnloader::<EG, G> {
-        tensor_view: new_tensor_view(tensor),
+        tensor_view: new_tensor_view(tensor, x_offset, y_offset),
         _config: PhantomData::<G>.runtime(),
     }
 }

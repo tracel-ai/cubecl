@@ -1,4 +1,4 @@
-use crate::matmul::cmma_matmul::global::{init_view, load_to_slice, new_tensor_view, update_view};
+use crate::matmul::cmma_matmul::global::{load_to_slice, new_tensor_view, update_view};
 use crate::matmul::cmma_matmul::stage::{
     as_slice_mut, new_lhs_stage_reader, new_rhs_stage_reader, new_stage,
 };
@@ -41,10 +41,6 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
         new_lhs_stage_reader(this.stage)
     }
 
-    fn init_view(this: &mut Self, cube_offset: u32, k_start: u32) {
-        init_view(&mut this.tensor_view, cube_offset, k_start);
-    }
-
     fn advance_view(this: &mut Self, k_offset: u32) {
         update_view(&mut this.tensor_view, 0, k_offset, Ident::Lhs);
     }
@@ -53,10 +49,12 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
 #[cube]
 pub fn new_lhs_tensor_loader<EG: Numeric, ES: Numeric, G: GmmConfig>(
     tensor: Tensor<Line<EG>>,
+    x_offset: u32,
+    y_offset: u32,
     #[comptime] config: G,
 ) -> LhsTensorLoader<EG, ES, G> {
     let stage = new_stage::<ES, G::SmmConfig>(Ident::Lhs, config.to_smm_config());
-    let tensor_view = new_tensor_view(tensor);
+    let tensor_view = new_tensor_view(tensor, x_offset, y_offset);
 
     LhsTensorLoader::<EG, ES, G> {
         tensor_view,
@@ -80,10 +78,6 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoad
         new_rhs_stage_reader(this.stage)
     }
 
-    fn init_view(this: &mut Self, cube_offset: u32, k_start: u32) {
-        init_view(&mut this.tensor_view, k_start, cube_offset);
-    }
-
     fn advance_view(this: &mut Self, k_offset: u32) {
         update_view(&mut this.tensor_view, k_offset, 0, Ident::Rhs);
     }
@@ -92,10 +86,12 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoad
 #[cube]
 pub fn new_rhs_tensor_loader<EG: Numeric, ES: Numeric, G: GmmConfig>(
     tensor: Tensor<Line<EG>>,
+    x_offset: u32,
+    y_offset: u32,
     #[comptime] config: G,
 ) -> RhsTensorLoader<EG, ES, G> {
     let stage = new_stage::<ES, G::SmmConfig>(Ident::Rhs, config.to_smm_config());
-    let tensor_view = new_tensor_view(tensor);
+    let tensor_view = new_tensor_view(tensor, x_offset, y_offset);
 
     RhsTensorLoader::<EG, ES, G> {
         tensor_view,

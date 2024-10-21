@@ -14,12 +14,6 @@ pub struct TensorView<E: Numeric> {
 }
 
 #[cube]
-pub(crate) fn init_view<EG: Numeric>(view: &mut TensorView<EG>, x_offset: u32, y_offset: u32) {
-    view.x_offset = x_offset;
-    view.y_offset = y_offset;
-}
-
-#[cube]
 pub(crate) fn update_view<EG: Numeric>(
     view: &mut TensorView<EG>,
     x_offset: u32,
@@ -38,7 +32,11 @@ pub(crate) fn update_view<EG: Numeric>(
 }
 
 #[cube]
-pub fn new_tensor_view<E: Numeric>(tensor: Tensor<Line<E>>) -> TensorView<E> {
+pub fn new_tensor_view<E: Numeric>(
+    tensor: Tensor<Line<E>>,
+    x_offset: u32,
+    y_offset: u32,
+) -> TensorView<E> {
     let rank = tensor.rank();
     let stride_x = tensor.stride(rank - 2);
     let stride_y = tensor.stride(rank - 1);
@@ -47,8 +45,8 @@ pub fn new_tensor_view<E: Numeric>(tensor: Tensor<Line<E>>) -> TensorView<E> {
 
     TensorView::<E> {
         tensor,
-        x_offset: 0,
-        y_offset: 0,
+        x_offset,
+        y_offset,
         stride_x,
         stride_y,
         shape_x,
