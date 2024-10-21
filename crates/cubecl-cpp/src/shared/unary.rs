@@ -31,53 +31,101 @@ pub trait Unary {
         elem: Elem,
         index: usize,
     ) -> std::fmt::Result {
-        let optimized = Variable::optimized_args([*input, *out]);
-        let [input, out] = optimized.args;
-        let (index, elem) = match optimized.optimization_factor {
-            Some(factor) => (index / factor, out.elem()),
-            None => (index, elem),
+        let mut write_op = |index, elem, input: &Variable, out: &Variable| {
+            let out_item = out.item();
+            let out = out.fmt_left();
+            writeln!(f, "{out} = {out_item}{{")?;
+
+            for i in 0..index {
+                let inputi = input.index(i);
+
+                Self::format_scalar(f, inputi, elem)?;
+                f.write_str(",")?;
+            }
+
+            f.write_str("};\n")
         };
 
-        let out_item = out.item();
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {out_item}{{")?;
+        if Self::can_optimize() {
+            let optimized = Variable::optimized_args([*input, *out]);
+            let [input, out_optimized] = optimized.args;
 
-        for i in 0..index {
-            let inputi = input.index(i);
+            let item_out_original = out.item();
+            let item_out_optimized = out_optimized.item();
 
-            Self::format_scalar(f, inputi, elem)?;
-            f.write_str(",")?;
+            let (index, elem) = match optimized.optimization_factor {
+                Some(factor) => (index / factor, out_optimized.elem()),
+                None => (index, elem),
+            };
+
+            if item_out_original != item_out_optimized {
+                let out_tmp = Variable::tmp(item_out_optimized);
+
+                write_op(index, elem, &input, &out_tmp)?;
+
+                writeln!(
+                    f,
+                    "{out} = reinterpret_cast<{item_out_original}&>({out_tmp});\n"
+                )
+            } else {
+                write_op(index, elem, &input, &out_optimized)
+            }
+        } else {
+            write_op(index, elem, input, out)
         }
+    }
 
-        f.write_str("};\n")
+    fn can_optimize() -> bool {
+        true
     }
 }
 
 pub trait FunctionFmt {
     fn base_function_name() -> &'static str;
     fn function_name(elem: Elem) -> String {
-        match elem {
-            Elem::F16 | Elem::BF16 => format!("h{}", Self::base_function_name()),
-            Elem::F162 | Elem::BF162 => format!("h2{}", Self::base_function_name()),
-            _ => Self::base_function_name().into(),
+        if Self::half_support() {
+            match elem {
+                Elem::F16 | Elem::BF16 => return format!("h{}", Self::base_function_name()),
+                Elem::F162 | Elem::BF162 => return format!("h2{}", Self::base_function_name()),
+                _ => (),
+            };
         }
+
+        Self::base_function_name().into()
     }
     fn format_unary<Input: Display>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
         elem: Elem,
     ) -> std::fmt::Result {
-        write!(f, "{}({input})", Self::function_name(elem))
+        if Self::half_support() {
+            return write!(f, "{}({input})", Self::function_name(elem));
+        }
+
+        match elem {
+            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+            }
+            _ => write!(f, "{}({input})", Self::function_name(elem)),
+        }
     }
+
+    fn half_support() -> bool;
 }
 
 macro_rules! function {
     ($name:ident, $func:expr) => {
+        function!($name, $func, true);
+    };
+    ($name:ident, $func:expr, $half_support:expr) => {
         pub struct $name;
 
         impl FunctionFmt for $name {
             fn base_function_name() -> &'static str {
                 $func
+            }
+            fn half_support() -> bool {
+                $half_support
             }
         }
 
@@ -89,22 +137,27 @@ macro_rules! function {
             ) -> std::fmt::Result {
                 Self::format_unary(f, input, elem)
             }
+
+            fn can_optimize() -> bool {
+                $half_support
+            }
         }
     };
 }
 
-function!(Abs, "abs");
 function!(Log, "log");
 function!(Log1p, "log1p");
 function!(Cos, "cos");
 function!(Sin, "sin");
-function!(Tanh, "tanh");
 function!(Sqrt, "sqrt");
 function!(Exp, "exp");
-function!(Erf, "erf");
 function!(Ceil, "ceil");
 function!(Floor, "floor");
 function!(Round, "rint");
+
+function!(Tanh, "tanh", false);
+function!(Erf, "erf", false);
+function!(Abs, "abs", false);
 
 pub struct Not;
 

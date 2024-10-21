@@ -2,6 +2,7 @@ use syn::{visit_mut::VisitMut, GenericParam, TypeParam};
 
 pub mod autotune;
 pub mod branch;
+pub mod cube_impl;
 pub mod cube_trait;
 pub mod cube_type;
 pub mod desugar;

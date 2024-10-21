@@ -21,7 +21,7 @@ pub struct SsaState<'a> {
 
 /// An entry in the phi instruction. Contains the variable ID that should be used when coming from
 /// `block`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PhiEntry {
     pub block: NodeIndex,
     pub value: Variable,
@@ -58,7 +58,7 @@ pub struct PhiEntry {
 ///     let result.v3 = phi [bb2: result.v1] [bb3: result.v2];
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PhiInstruction {
     /// The out variable for the phi instruction
     pub out: Variable,
@@ -163,6 +163,9 @@ impl Optimizer {
         *self.program[block].ops.borrow_mut() = ops;
         match &mut *self.program[block].control_flow.borrow_mut() {
             super::ControlFlow::IfElse { cond, .. } => self.version_read(cond, state),
+            super::ControlFlow::LoopBreak { break_cond, .. } => {
+                self.version_read(break_cond, state)
+            }
             ControlFlow::Switch { value, .. } => self.version_read(value, state),
             _ => {}
         }

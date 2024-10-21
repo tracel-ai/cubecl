@@ -73,6 +73,14 @@ impl Optimizer {
             | Operator::ShiftRight(binary_operator)
             | Operator::Remainder(binary_operator)
             | Operator::Dot(binary_operator)
+            | Operator::AtomicAdd(binary_operator)
+            | Operator::AtomicSub(binary_operator)
+            | Operator::AtomicMax(binary_operator)
+            | Operator::AtomicMin(binary_operator)
+            | Operator::AtomicAnd(binary_operator)
+            | Operator::AtomicOr(binary_operator)
+            | Operator::AtomicXor(binary_operator)
+            | Operator::AtomicSwap(binary_operator)
             | Operator::GreaterEqual(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read, visit_write)
             }
@@ -95,6 +103,8 @@ impl Optimizer {
             | Operator::Neg(unary_operator)
             | Operator::Bitcast(unary_operator)
             | Operator::Magnitude(unary_operator)
+            | Operator::AtomicLoad(unary_operator)
+            | Operator::AtomicStore(unary_operator)
             | Operator::Normalize(unary_operator) => {
                 self.visit_unop(unary_operator, visit_read, visit_write)
             }
@@ -117,19 +127,13 @@ impl Optimizer {
                 }
                 visit_write(self, &mut line_init_operator.out)
             }
-
             // Atomics are always pointers
-            Operator::AtomicCompareAndSwap(_)
-            | Operator::AtomicLoad(_)
-            | Operator::AtomicStore(_)
-            | Operator::AtomicSwap(_)
-            | Operator::AtomicAdd(_)
-            | Operator::AtomicSub(_)
-            | Operator::AtomicMax(_)
-            | Operator::AtomicMin(_)
-            | Operator::AtomicAnd(_)
-            | Operator::AtomicOr(_)
-            | Operator::AtomicXor(_) => {}
+            Operator::AtomicCompareAndSwap(op) => {
+                visit_read(self, &mut op.input);
+                visit_read(self, &mut op.cmp);
+                visit_read(self, &mut op.val);
+                visit_write(self, &mut op.out);
+            }
             Operator::Copy(copy_operator) => {
                 visit_read(self, &mut copy_operator.input);
                 visit_read(self, &mut copy_operator.in_index);
@@ -202,7 +206,9 @@ impl Optimizer {
                 visit_read(self, value);
                 visit_write(self, mat);
             }
-            CoopMma::Load { mat, value, stride } => {
+            CoopMma::Load {
+                mat, value, stride, ..
+            } => {
                 visit_read(self, value);
                 visit_read(self, stride);
                 visit_write(self, mat);

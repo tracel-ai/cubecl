@@ -1,4 +1,4 @@
-use crate::compiler::FmtLeft;
+use crate::shared::FmtLeft;
 
 use super::{Component, Elem, Item, Variable};
 use std::fmt::{Display, Formatter};
@@ -37,26 +37,47 @@ pub trait Binary {
         rhs: &Variable,
         out: &Variable,
     ) -> core::fmt::Result {
-        let item_out = out.item();
-
         let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
-        let [lhs, rhs, out] = optimized.args;
+        let [lhs, rhs, out_optimized] = optimized.args;
+
+        let item_out_original = out.item();
+        let item_out_optimized = out_optimized.item();
+
         let index = match optimized.optimization_factor {
-            Some(factor) => item_out.vectorization / factor,
-            None => item_out.vectorization,
+            Some(factor) => item_out_optimized.vectorization / factor,
+            None => item_out_optimized.vectorization,
         };
 
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {item_out}{{")?;
-        for i in 0..index {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
+        let mut write_op = |lhs: &Variable, rhs: &Variable, out: &Variable, item_out: Item| {
+            let out = out.fmt_left();
+            writeln!(f, "{out} = {item_out}{{")?;
+            for i in 0..index {
+                let lhsi = lhs.index(i);
+                let rhsi = rhs.index(i);
 
-            Self::format_scalar(f, lhsi, rhsi, item_out)?;
-            f.write_str(", ")?;
+                Self::format_scalar(f, lhsi, rhsi, item_out)?;
+                f.write_str(", ")?;
+            }
+
+            f.write_str("};\n")
+        };
+
+        if item_out_original == item_out_optimized {
+            write_op(&lhs, &rhs, out, item_out_optimized)
+        } else {
+            let out_tmp = Variable::tmp(item_out_optimized);
+
+            write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
+
+            let out = out.fmt_left();
+
+            writeln!(
+                f,
+                "{out} = reinterpret_cast<{item_out_original}&>({out_tmp});\n"
+            )?;
+
+            Ok(())
         }
-
-        f.write_str("};\n")
     }
 }
 
@@ -119,7 +140,6 @@ function!(Min, "min");
 
 pub struct IndexAssign;
 pub struct Index;
-pub struct CheckedIndexAssign;
 
 impl Binary for IndexAssign {
     fn format_scalar<Lhs, Rhs>(

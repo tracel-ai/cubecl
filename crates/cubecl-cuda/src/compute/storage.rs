@@ -2,17 +2,45 @@ use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageU
 use cudarc::driver::sys::CUstream;
 use std::collections::HashMap;
 
+use super::uninit_vec;
+
 /// Buffer storage for cuda.
 pub struct CudaStorage {
     memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
     deallocations: Vec<StorageId>,
     stream: cudarc::driver::sys::CUstream,
-    activate_slices: HashMap<ActiveResource, cudarc::driver::sys::CUdeviceptr>,
+    ptr_bindings: PtrBindings,
 }
 
-#[derive(new, Debug, Hash, PartialEq, Eq, Clone)]
-struct ActiveResource {
-    ptr: u64,
+struct PtrBindings {
+    slots: Vec<cudarc::driver::sys::CUdeviceptr>,
+    cursor: usize,
+}
+
+impl PtrBindings {
+    fn new() -> Self {
+        Self {
+            // We assume that a CUDA stream will never hold more than 1024 bindings at the same time.
+            // Therefore, we can reuse the oldest pointer slot without having to keep track of bindings
+            // lifetime.
+            slots: uninit_vec(1024),
+            cursor: 0,
+        }
+    }
+
+    fn register(&mut self, ptr: u64) -> &u64 {
+        self.slots[self.cursor] = ptr;
+        let ptr = self.slots.get(self.cursor).unwrap();
+
+        self.cursor += 1;
+
+        // Reset the cursor.
+        if self.cursor >= self.slots.len() {
+            self.cursor = 0;
+        }
+
+        ptr
+    }
 }
 
 unsafe impl Send for CudaStorage {}
@@ -31,7 +59,7 @@ impl CudaStorage {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             stream,
-            activate_slices: HashMap::new(),
+            ptr_bindings: PtrBindings::new(),
         }
     }
 
@@ -44,10 +72,6 @@ impl CudaStorage {
                 }
             }
         }
-    }
-
-    pub fn flush(&mut self) {
-        self.activate_slices.clear();
     }
 }
 
@@ -84,20 +108,17 @@ impl CudaResource {
 
 impl ComputeStorage for CudaStorage {
     type Resource = CudaResource;
+    // 32 bytes is enough to handle a double4 worth of alignment.
+    // NB: cudamalloc and co. actually align to _256_ bytes. Worth
+    // trying this in the future to see if it reduces memory coalescing.
+    const ALIGNMENT: usize = 32;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = self.memory.get(&handle.id).unwrap();
 
         let offset = handle.offset() as u64;
         let size = handle.size() as u64;
-
-        let ptr = ptr + offset;
-        let key = ActiveResource::new(ptr);
-
-        self.activate_slices.insert(key.clone(), ptr);
-
-        // The ptr needs to stay alive until we send the task to the server.
-        let ptr = self.activate_slices.get(&key).unwrap();
+        let ptr = self.ptr_bindings.register(ptr + offset);
 
         CudaResource::new(
             *ptr,

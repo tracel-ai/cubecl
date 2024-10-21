@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use half::f16;
 
 use cubecl::benchmark::Benchmark;
-use cubecl::client::SyncType;
+use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
 
 #[cube(launch)]
@@ -65,7 +65,7 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     }
 
     fn sync(&self) {
-        self.client.sync(SyncType::Wait);
+        future::block_on(self.client.sync());
     }
 }
 

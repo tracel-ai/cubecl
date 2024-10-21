@@ -6,6 +6,7 @@ mod std_imports {
     pub use std::path::Path;
     pub use std::path::PathBuf;
 }
+
 #[cfg(autotune_persistent_cache)]
 use std_imports::*;
 
@@ -13,9 +14,7 @@ use std_imports::*;
 use serde::{Deserialize, Serialize};
 
 use super::AutotuneKey;
-use super::AutotuneOperation;
 use super::AutotuneOperationSet;
-use alloc::boxed::Box;
 use hashbrown::HashMap;
 
 #[cfg(autotune_persistent_cache)]
@@ -36,6 +35,12 @@ pub(crate) struct InMemoryCacheEntry {
     fastest_index: usize,
 }
 
+#[derive(Debug)]
+enum CacheEntry {
+    Pending,
+    Cached(InMemoryCacheEntry),
+}
+
 /// Persistent cache entry
 #[cfg(autotune_persistent_cache)]
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,7 +52,7 @@ pub(crate) struct PersistentCacheEntry {
 /// Use to find and reuse the best kernel for some input
 #[derive(Debug)]
 pub(crate) struct TuneCache<K> {
-    in_memory_cache: HashMap<K, InMemoryCacheEntry>,
+    in_memory_cache: HashMap<K, CacheEntry>,
     #[cfg(autotune_persistent_cache)]
     persistent_cache: HashMap<K, PersistentCacheEntry>,
     #[cfg(autotune_persistent_cache)]
@@ -57,11 +62,16 @@ pub(crate) struct TuneCache<K> {
 }
 
 /// Result of the cache try
-pub enum TuneCacheResult<K, Out = ()> {
-    /// An operation is found and given
-    Hit(Box<dyn AutotuneOperation<Out>>),
-    /// No operation is found and the set is given back for ownership
-    Miss(Box<dyn AutotuneOperationSet<K, Out>>),
+pub enum TuneCacheResult {
+    /// An operation is found.
+    Hit {
+        /// The index of the fastest operation to execute.
+        fastest_index: usize,
+    },
+    /// We're waiting for cache results to come in.
+    Pending,
+    /// No operation is found yet.
+    Miss,
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
@@ -96,6 +106,9 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     pub(crate) fn find_fastest(&self, key: &K) -> Option<usize> {
         let val = self.in_memory_cache.get(key)?;
+        let CacheEntry::Cached(val) = val else {
+            return None;
+        };
 
         #[cfg(autotune_persistent_cache)]
         if val.checksum_checked {
@@ -110,52 +123,60 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     pub(crate) fn try_cache<Out>(
         &mut self,
-        autotune_operation_set: Box<dyn AutotuneOperationSet<K, Out>>,
-    ) -> TuneCacheResult<K, Out> {
-        let key = autotune_operation_set.key();
+        set: &dyn AutotuneOperationSet<K, Out>,
+    ) -> TuneCacheResult {
+        let key = set.key();
         let result = self.in_memory_cache.get_mut(&key);
+
+        let InMemoryCacheEntry {
+            #[cfg(autotune_persistent_cache)]
+            checksum_checked,
+            fastest_index,
+        } = match result {
+            Some(CacheEntry::Cached(val)) => val,
+            Some(CacheEntry::Pending) => return TuneCacheResult::Pending,
+            None => return TuneCacheResult::Miss,
+        };
 
         #[cfg(autotune_persistent_cache)]
         {
-            if let Some(InMemoryCacheEntry {
-                checksum_checked,
-                fastest_index,
-            }) = result
-            {
-                if !*checksum_checked {
-                    let checksum = autotune_operation_set.compute_checksum();
-                    let persistent_entry = self
-                        .persistent_cache
-                        .get(&key)
-                        .expect("Both caches should be in sync");
-                    if checksum != persistent_entry.checksum {
-                        return TuneCacheResult::Miss(autotune_operation_set);
-                    }
-                    *checksum_checked = true;
+            if !*checksum_checked {
+                let checksum = set.compute_checksum();
+                let persistent_entry = self
+                    .persistent_cache
+                    .get(&key)
+                    .expect("Both caches should be in sync");
+                if checksum != persistent_entry.checksum {
+                    return TuneCacheResult::Miss;
                 }
-                return TuneCacheResult::Hit(autotune_operation_set.fastest(*fastest_index));
+                *checksum_checked = true;
+            }
+            TuneCacheResult::Hit {
+                fastest_index: *fastest_index,
             }
         }
 
         #[cfg(not(autotune_persistent_cache))]
         {
-            if let Some(InMemoryCacheEntry { fastest_index, .. }) = result {
-                return TuneCacheResult::Hit(autotune_operation_set.fastest(*fastest_index));
+            TuneCacheResult::Hit {
+                fastest_index: *fastest_index,
             }
         }
-
-        TuneCacheResult::Miss(autotune_operation_set)
     }
 
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {
         self.in_memory_cache.insert(
             key,
-            InMemoryCacheEntry {
+            CacheEntry::Cached(InMemoryCacheEntry {
                 #[cfg(autotune_persistent_cache)]
                 checksum_checked: true,
                 fastest_index,
-            },
+            }),
         );
+    }
+
+    pub(crate) fn mark_pending(&mut self, key: K) {
+        self.in_memory_cache.insert(key, CacheEntry::Pending);
     }
 }
 
@@ -202,10 +223,10 @@ impl<K: AutotuneKey> TuneCache<K> {
         for (key, entry) in self.persistent_cache.iter() {
             self.in_memory_cache.insert(
                 key.clone(),
-                InMemoryCacheEntry {
+                CacheEntry::Cached(InMemoryCacheEntry {
                     checksum_checked: false,
                     fastest_index: entry.fastest_index,
-                },
+                }),
             );
         }
         Ok(())
@@ -236,6 +257,8 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     /// Return the file path for the persistent cache on disk
     pub fn get_persistent_cache_file_path(&self) -> PathBuf {
-        get_persistent_cache_file_path(&format!("{}/{}", self.name, self.device_id))
+        let name = sanitize_filename::sanitize(&self.name);
+        let device_id = sanitize_filename::sanitize(&self.device_id);
+        get_persistent_cache_file_path(&format!("{name}/{device_id}"))
     }
 }

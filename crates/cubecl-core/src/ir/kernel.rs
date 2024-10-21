@@ -188,7 +188,7 @@ impl Display for Elem {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 pub struct Item {
     pub elem: Elem,
     pub vectorization: Vectorization,

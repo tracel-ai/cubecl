@@ -7,8 +7,7 @@ use crate::{
     ExecutionMode,
 };
 use alloc::vec::Vec;
-use core::fmt::Debug;
-use cubecl_common::{reader::Reader, sync_type::SyncType};
+use core::{fmt::Debug, future::Future, time::Duration};
 
 /// The compute server is responsible for handling resources and computations over resources.
 ///
@@ -26,7 +25,7 @@ where
     type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Given a handle, returns the owned resource as bytes.
-    fn read(&mut self, binding: Binding) -> Reader;
+    fn read(&mut self, binding: Binding) -> impl Future<Output = Vec<u8>> + Send + 'static;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self>;
@@ -53,8 +52,13 @@ where
         kind: ExecutionMode,
     );
 
+    /// Flush all outstanding tasks in the server.
+    fn flush(&mut self);
+
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self, command: SyncType);
+    ///
+    /// Returns the (approximate) total amount of GPU work done since the last sync.
+    fn sync(&mut self) -> impl Future<Output = Duration> + Send + 'static;
 
     /// The current memory usage of the server.
     fn memory_usage(&self) -> MemoryUsage;

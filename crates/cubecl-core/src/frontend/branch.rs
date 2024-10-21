@@ -105,14 +105,14 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
 
         body(&mut child, i.clone().into());
 
-        context.register(Branch::RangeLoop(RangeLoop {
+        context.register(Branch::RangeLoop(Box::new(RangeLoop {
             i: *i,
             start: *self.start.expand,
             end: *self.end.expand,
             step: None,
             scope: child.into_scope(),
             inclusive: self.inclusive,
-        }));
+        })));
     }
 }
 
@@ -135,14 +135,14 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
 
         body(&mut child, i.clone().into());
 
-        context.register(Branch::RangeLoop(RangeLoop {
+        context.register(Branch::RangeLoop(Box::new(RangeLoop {
             i: *i,
             start: *self.start.expand,
             end: *self.end.expand,
             step: Some(*self.step.expand),
             scope: child.into_scope(),
             inclusive: self.inclusive,
-        }));
+        })));
     }
 
     fn expand_unroll(
@@ -279,10 +279,10 @@ pub fn if_expand(
 
             block(&mut child);
 
-            context.register(Branch::If(If {
+            context.register(Branch::If(Box::new(If {
                 cond: *runtime_cond,
                 scope: child.into_scope(),
-            }));
+            })));
         }
     }
 }
@@ -306,11 +306,11 @@ impl IfElseExpand {
                 let mut else_child = context.child();
                 else_block(&mut else_child);
 
-                context.register(Branch::IfElse(IfElse {
+                context.register(Branch::IfElse(Box::new(IfElse {
                     cond: *runtime_cond,
                     scope_if: then_child.into_scope(),
                     scope_else: else_child.into_scope(),
-                }));
+                })));
             }
             Self::ComptimeElse => else_block(context),
             Self::ComptimeThen => (),
@@ -368,11 +368,11 @@ impl<C: CubePrimitive> IfElseExprExpand<C> {
                 let ret = else_block(&mut else_child);
                 assign::expand(&mut else_child, ret, out.clone());
 
-                context.register(Branch::IfElse(IfElse {
+                context.register(Branch::IfElse(Box::new(IfElse {
                     cond: *runtime_cond,
                     scope_if: then_child.into_scope(),
                     scope_else: else_child.into_scope(),
-                }));
+                })));
                 out
             }
             Self::ComptimeElse => else_block(context),
@@ -431,7 +431,7 @@ impl<I: Int> SwitchExpand<I> {
 
     pub fn finish(self, context: &mut CubeContext) {
         let value_var = *self.value.expand;
-        context.register(Branch::Switch(Switch {
+        context.register(Branch::Switch(Box::new(Switch {
             value: value_var,
             scope_default: self.default.into_scope(),
             cases: self
@@ -439,7 +439,7 @@ impl<I: Int> SwitchExpand<I> {
                 .into_iter()
                 .map(|it| (*it.0.expand, it.1.into_scope()))
                 .collect(),
-        }));
+        })));
     }
 }
 
@@ -482,7 +482,7 @@ impl<I: Int, C: CubePrimitive> SwitchExpandExpr<I, C> {
 
     pub fn finish(self, context: &mut CubeContext) -> ExpandElementTyped<C> {
         let value_var = *self.value.expand;
-        context.register(Branch::Switch(Switch {
+        context.register(Branch::Switch(Box::new(Switch {
             value: value_var,
             scope_default: self.default.into_scope(),
             cases: self
@@ -490,7 +490,7 @@ impl<I: Int, C: CubePrimitive> SwitchExpandExpr<I, C> {
                 .into_iter()
                 .map(|it| (*it.0.expand, it.1.into_scope()))
                 .collect(),
-        }));
+        })));
         self.out
     }
 }
@@ -526,7 +526,7 @@ pub fn loop_expand(context: &mut CubeContext, mut block: impl FnMut(&mut CubeCon
     let mut inside_loop = context.child();
 
     block(&mut inside_loop);
-    context.register(Branch::Loop(Loop {
+    context.register(Branch::Loop(Box::new(Loop {
         scope: inside_loop.into_scope(),
-    }));
+    })));
 }

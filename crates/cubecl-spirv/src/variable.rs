@@ -42,7 +42,7 @@ pub enum Variable {
     Slice {
         ptr: Box<Variable>,
         offset: Word,
-        len: Word,
+        end: Word,
         const_len: Option<u32>,
         item: Item,
     },
@@ -259,6 +259,8 @@ pub enum IndexedVariable {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Globals {
+    Rank2,
+
     Id,
     LocalInvocationId,
     LocalInvocationIdX,
@@ -341,19 +343,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.outputs[id as usize];
                 Variable::GlobalOutputArray(id, self.compile_item(item))
             }
-            core::Variable::GlobalScalar { id, elem } => {
-                let arr_id = self.state.named[&format!("scalars_{elem}")];
-                let item = self.compile_item(core::Item::new(elem));
-                let arr = Variable::GlobalInputArray(arr_id, item.clone());
-                let const_id = self.const_u32(id as u32);
-                let index =
-                    Variable::ConstantScalar(const_id, (id as u32).into(), Elem::Int(32, false));
-                let read_id = self.id();
-                let var = Variable::GlobalScalar(read_id, item.elem());
-                self.debug_name(read_id, format!("scalars<{elem}>({id})"));
-                self.read_indexed_unchecked(&var, &arr, &index);
-                var
-            }
+            core::Variable::GlobalScalar { id, elem } => self.global_scalar(id, elem),
             core::Variable::Local { id, item, depth } => {
                 let item = self.compile_item(item);
                 let var = self.get_local((id, depth), &item);
@@ -544,7 +534,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 Variable::GlobalInvocationIdZ(id)
             }
-            core::Variable::Rank => Variable::Rank(self.state.rank),
+            core::Variable::Rank => Variable::Rank(self.rank()),
             core::Variable::ConstantArray { id, item, length } => {
                 let item = self.compile_item(item);
                 let id = self.state.const_arrays[id as usize].id;
@@ -603,6 +593,34 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
+    pub fn rank(&mut self) -> Word {
+        self.get_or_insert_global(Globals::Rank, |b| {
+            let int = Item::Scalar(Elem::Int(32, false));
+            let int_ty = int.id(b);
+            let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(b);
+            let info = b.state.named["info"];
+            let zero = b.const_u32(0);
+            let rank_ptr = b
+                .access_chain(int_ptr, None, info, vec![zero, zero])
+                .unwrap();
+            let rank = b.load(int_ty, None, rank_ptr, None, vec![]).unwrap();
+            b.debug_name(rank, "rank");
+            rank
+        })
+    }
+
+    pub fn rank_2(&mut self) -> Word {
+        self.get_or_insert_global(Globals::Rank2, |b| {
+            let int = Item::Scalar(Elem::Int(32, false));
+            let int_ty = int.id(b);
+            let rank = b.rank();
+            let two = b.const_u32(2);
+            let rank_2 = b.i_mul(int_ty, None, rank, two).unwrap();
+            b.debug_name(rank_2, "rank*2");
+            rank_2
+        })
+    }
+
     pub fn read(&mut self, variable: &Variable) -> Word {
         match variable {
             Variable::GlobalInputArray(id, _) => *id,
@@ -623,43 +641,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn read_to(&mut self, variable: &Variable, out: &Variable) -> Word {
-        let out_id = self.write_id(out);
-
-        match variable {
-            Variable::GlobalInputArray(_, _)
-            | Variable::GlobalOutputArray(_, _)
-            | Variable::SharedMemory(_, _, _)
-            | Variable::ConstantArray(_, _, _)
-            | Variable::LocalArray(_, _, _)
-            | Variable::Slice { .. } => panic!("Can't read unindexed array"),
-            Variable::Local { id, item } => {
-                let ty = item.id(self);
-                self.load(ty, Some(out_id), *id, None, vec![]).unwrap()
-            }
-            Variable::Named { id, item, .. } => {
-                let ty = item.id(self);
-                self.load(ty, Some(out_id), *id, None, vec![]).unwrap()
-            }
-            Variable::LocalBinding { id, .. } => {
-                let word = variable.id(self);
-                self.merge_binding(*id, word);
-                word
-            }
-            ssa => {
-                let ty = ssa.item().id(self);
-                let id = ssa.id(self);
-                self.copy_object(ty, Some(out_id), id).unwrap()
-            }
-        }
-    }
-
     pub fn read_as(&mut self, variable: &Variable, item: &Item) -> Word {
         if let Some(as_const) = variable.as_const() {
             self.static_cast(as_const, &variable.elem(), item)
         } else {
             let id = self.read(variable);
-            variable.item().cast_to(self, id, item)
+            variable.item().cast_to(self, None, id, item)
         }
     }
 
@@ -732,7 +719,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Slice { ptr, offset, .. } => {
                 let item = Item::Scalar(Elem::Int(32, false));
                 let int = item.id(self);
-                let index = self.i_add(int, None, *offset, index_id).unwrap();
+                let index = match index.as_const() {
+                    Some(ConstVal::Bit32(0)) => *offset,
+                    _ => self.i_add(int, None, *offset, index_id).unwrap(),
+                };
                 self.index(ptr, &Variable::Raw(index, item), unchecked)
             }
             Variable::SharedMemory(id, item, _) => {
@@ -775,7 +765,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 b.composite_extract(ty, Some(out_id), var, vec![index])
                     .unwrap()
             }
-            IndexedVariable::Scalar(var) => b.read_to(&var, out),
+            IndexedVariable::Scalar(var) => {
+                let ty = out.item().id(b);
+                let input = b.read(&var);
+                let out_id = b.write_id(out);
+                b.copy_object(ty, Some(out_id), input).unwrap();
+                b.write(out, out_id);
+                out_id
+            }
         };
         if checked && !always_in_bounds {
             self.compile_read_bound(variable, index_id, variable.item(), read)
@@ -805,7 +802,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.composite_extract(ty, Some(out_id), var, vec![index])
                     .unwrap()
             }
-            IndexedVariable::Scalar(var) => self.read_to(&var, out),
+            IndexedVariable::Scalar(var) => {
+                let ty = out.item().id(self);
+                let input = self.read(&var);
+                let out_id = self.write_id(out);
+                self.copy_object(ty, Some(out_id), input).unwrap();
+                self.write(out, out_id);
+                out_id
+            }
         }
     }
 
@@ -839,8 +843,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         match variable {
             Variable::Local { id, .. } => self.store(*id, value, None, vec![]).unwrap(),
             Variable::Slice { ptr, .. } => self.write(ptr, value),
-            Variable::LocalBinding { id, .. } => self.merge_binding(*id, value),
-            Variable::Versioned { id, .. } => self.merge_versioned(*id, value),
             _ => {}
         }
     }

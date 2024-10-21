@@ -9,7 +9,7 @@
 //! 1. Parse root scope recursively into a [control flow graph](https://en.wikipedia.org/wiki/Control-flow_graph)
 //! 2. Run optimizations that must be done before SSA transformation
 //! 3. Analyze variable liveness
-//! 4. Transfom the graph to [pruned SSA](https://en.wikipedia.org/wiki/Static_single-assignment_form#Pruned_SSA) form
+//! 4. Transform the graph to [pruned SSA](https://en.wikipedia.org/wiki/Static_single-assignment_form#Pruned_SSA) form
 //! 5. Run post-SSA optimizations and analyses in a loop until no more improvements are found
 //! 6. Speed
 //!
@@ -24,31 +24,34 @@
 //!
 
 use std::{
-    collections::{HashMap, VecDeque},
+    cell::RefCell,
+    collections::{HashMap, HashSet, VecDeque},
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use cubecl_core::{
-    ir::{self as core, Operator, Variable},
+    ir::{self as core, Branch, Operator, Variable},
     CubeDim,
 };
 use cubecl_core::{
     ir::{Item, Operation, Scope},
     ExecutionMode,
 };
+use gvn::GvnPass;
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
-    EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, FindConstSliceLen,
-    InBoundsToUnchecked, InlineAssignments, IntegerRangeAnalysis, MergeSameExpressions,
-    OptimizerPass, RemoveIndexScalar,
+    EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, EmptyBranchToSelect,
+    FindConstSliceLen, InBoundsToUnchecked, InlineAssignments, IntegerRangeAnalysis, MergeBlocks,
+    MergeSameExpressions, OptimizerPass, ReduceStrength, RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
 mod block;
 mod control_flow;
 mod debug;
+mod gvn;
 mod instructions;
 mod passes;
 mod phi_frontiers;
@@ -99,6 +102,8 @@ struct Program {
     pub graph: StableDiGraph<BasicBlock, ()>,
     root: NodeIndex,
     int_ranges: HashMap<VarId, Range>,
+
+    temp_id: AtomicCounter,
 }
 
 impl Deref for Program {
@@ -128,6 +133,8 @@ struct Range {
 pub struct Optimizer {
     /// The overall program state
     program: Program,
+    /// The post order of the graph for traversal
+    post_order: Vec<NodeIndex>,
     /// The current block while parsing
     current_block: Option<NodeIndex>,
     /// The current loop's break target
@@ -140,6 +147,7 @@ pub struct Optimizer {
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
+    pub(crate) gvn: Rc<RefCell<GvnPass>>,
 }
 
 impl Default for Optimizer {
@@ -152,6 +160,8 @@ impl Default for Optimizer {
             root_scope: Scope::root(),
             cube_dim: Default::default(),
             mode: Default::default(),
+            post_order: Default::default(),
+            gvn: Default::default(),
         }
     }
 }
@@ -174,11 +184,17 @@ impl Optimizer {
     /// Run all optimizations
     fn run_opt(&mut self, expand: Scope) {
         self.parse_graph(expand);
+        self.split_critical_edges();
+        self.determine_postorder(self.entry(), &mut HashSet::new());
         self.analyze_liveness();
         self.apply_pre_ssa_passes();
         self.exempt_index_assign_locals();
         self.ssa_transform();
         self.apply_post_ssa_passes();
+
+        // Special expensive passes that should only run once.
+        // Need more optimization rounds in between.
+
         let arrays_prop = AtomicCounter::new(0);
         CopyPropagateArray.apply_post_ssa(self, arrays_prop.clone());
         if arrays_prop.get() > 0 {
@@ -186,6 +202,18 @@ impl Optimizer {
             self.ssa_transform();
             self.apply_post_ssa_passes();
         }
+
+        let gvn_count = AtomicCounter::new(0);
+        let gvn = self.gvn.clone();
+        gvn.borrow_mut().apply_post_ssa(self, gvn_count.clone());
+        ReduceStrength.apply_post_ssa(self, gvn_count.clone());
+        CopyTransform.apply_post_ssa(self, gvn_count.clone());
+
+        if gvn_count.get() > 0 {
+            self.apply_post_ssa_passes();
+        }
+
+        MergeBlocks.apply_post_ssa(self, AtomicCounter::new(0));
     }
 
     /// The entry block of the program
@@ -203,6 +231,24 @@ impl Optimizer {
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, self.ret, ());
         }
+    }
+
+    fn determine_postorder(&mut self, block: NodeIndex, visited: &mut HashSet<NodeIndex>) {
+        for successor in self.successors(block) {
+            if !visited.contains(&successor) {
+                visited.insert(successor);
+                self.determine_postorder(successor, visited);
+            }
+        }
+        self.post_order.push(block);
+    }
+
+    pub fn post_order(&self) -> Vec<NodeIndex> {
+        self.post_order.clone()
+    }
+
+    pub fn reverse_post_order(&self) -> Vec<NodeIndex> {
+        self.post_order.iter().rev().copied().collect()
     }
 
     fn apply_pre_ssa_passes(&mut self) {
@@ -231,8 +277,9 @@ impl Optimizer {
             Box::new(ConstEval),
             Box::new(RemoveIndexScalar),
             Box::new(EliminateConstBranches),
+            Box::new(EmptyBranchToSelect),
             Box::new(EliminateDeadBlocks),
-            Box::new(CopyTransform),
+            Box::new(MergeBlocks),
         ];
         // Passes that only run if execution mode is checked
         let checked_passes: Vec<Box<dyn OptimizerPass>> = vec![
@@ -283,6 +330,7 @@ impl Optimizer {
         self.program.variables.clear();
         for block in self.node_ids() {
             self.program[block].writes.clear();
+            self.program[block].dom_frontiers.clear();
         }
     }
 
@@ -300,7 +348,7 @@ impl Optimizer {
     }
 
     /// List of successor IDs of the `block`
-    pub fn sucessors(&self, block: NodeIndex) -> Vec<NodeIndex> {
+    pub fn successors(&self, block: NodeIndex) -> Vec<NodeIndex> {
         self.program
             .edges_directed(block, Direction::Outgoing)
             .map(|it| it.target())
@@ -308,12 +356,19 @@ impl Optimizer {
     }
 
     /// Reference to the [`BasicBlock`] with ID `block`
+    #[track_caller]
     pub fn block(&self, block: NodeIndex) -> &BasicBlock {
         &self.program[block]
     }
 
+    /// Reference to the [`BasicBlock`] with ID `block`
+    #[track_caller]
+    pub fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
+        &mut self.program[block]
+    }
+
     /// Recursively parse a scope into the graph
-    pub fn parse_scope(&mut self, mut scope: Scope) {
+    pub fn parse_scope(&mut self, mut scope: Scope) -> bool {
         let processed = scope.process();
 
         for var in processed.variables {
@@ -321,6 +376,10 @@ impl Optimizer {
                 self.program.variables.insert((id, depth), item);
             }
         }
+
+        let is_break = processed
+            .operations
+            .contains(&Operation::Branch(Branch::Break));
 
         for instruction in processed.operations {
             match instruction {
@@ -330,13 +389,15 @@ impl Optimizer {
                         Variable::Slice { id, depth, .. } => (*id, *depth),
                         _ => unreachable!(),
                     };
+                    let const_len = slice_op.start.as_const().zip(slice_op.end.as_const());
+                    let const_len = const_len.map(|(start, end)| end.as_u32() - start.as_u32());
                     self.program.slices.insert(
                         out_id,
                         Slice {
                             start: slice_op.start,
                             end: slice_op.end,
                             end_op: None,
-                            const_len: None,
+                            const_len,
                         },
                     );
                     let mut op = Operation::Operator(Operator::Slice(slice_op));
@@ -349,6 +410,8 @@ impl Optimizer {
                 }
             }
         }
+
+        is_break
     }
 
     /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
@@ -360,7 +423,77 @@ impl Optimizer {
             _ => None,
         }
     }
+
+    /// Create a temporary variable for use in the compiler. Counts backwards from u16::MAX to avoid
+    /// Collisions with existing locals, since binding counter is no longer available.
+    pub fn create_temporary(&self, item: Item) -> Variable {
+        let next_id = self.program.temp_id.inc() as u16;
+        Variable::LocalBinding {
+            id: u16::MAX - next_id,
+            item,
+            depth: u8::MAX,
+        }
+    }
+
+    pub(crate) fn ret(&mut self) -> NodeIndex {
+        if self.program[self.ret].block_use.contains(&BlockUse::Merge) {
+            let new_ret = self.program.add_node(BasicBlock::default());
+            self.program.add_edge(new_ret, self.ret, ());
+            self.ret = new_ret;
+            new_ret
+        } else {
+            self.ret
+        }
+    }
 }
 
 /// A visitor that does nothing.
 pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}
+
+#[cfg(test)]
+mod test {
+    use cubecl_core::{
+        self as cubecl,
+        ir::{Elem, HybridAllocator, Item, Variable},
+        prelude::{Array, CubeContext, ExpandElement},
+    };
+    use cubecl_core::{cube, CubeDim, ExecutionMode};
+
+    use crate::Optimizer;
+
+    #[allow(unused)]
+    #[cube(launch)]
+    fn pre_kernel(x: u32, cond: u32, out: &mut Array<u32>) {
+        let mut y = 0;
+        let mut z = 0;
+        if cond == 0 {
+            y = x + 4;
+        }
+        z = x + 4;
+        out[0] = y;
+        out[1] = z;
+    }
+
+    #[test]
+    #[ignore = "no good way to assert opt is applied"]
+    fn test_pre() {
+        let mut ctx = CubeContext::root(HybridAllocator::default());
+        let x = ExpandElement::Plain(Variable::GlobalScalar {
+            id: 0,
+            elem: Elem::UInt,
+        });
+        let cond = ExpandElement::Plain(Variable::GlobalScalar {
+            id: 1,
+            elem: Elem::UInt,
+        });
+        let arr = ExpandElement::Plain(Variable::GlobalOutputArray {
+            id: 0,
+            item: Item::new(Elem::UInt),
+        });
+
+        pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());
+        let scope = ctx.into_scope();
+        let opt = Optimizer::new(scope, CubeDim::default(), ExecutionMode::Checked);
+        println!("{opt}")
+    }
+}

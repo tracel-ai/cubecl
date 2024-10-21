@@ -18,18 +18,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             Subcube::All(op) => {
+                self.capabilities.insert(Capability::GroupNonUniformVote);
                 self.compile_unary_op(op, |b, _, ty, input, out| {
                     b.group_non_uniform_all(ty, Some(out), subgroup, input)
                         .unwrap();
                 });
             }
             Subcube::Any(op) => {
+                self.capabilities.insert(Capability::GroupNonUniformVote);
                 self.compile_unary_op(op, |b, _, ty, input, out| {
                     b.group_non_uniform_any(ty, Some(out), subgroup, input)
                         .unwrap();
                 });
             }
             Subcube::Broadcast(op) => {
+                self.capabilities.insert(Capability::GroupNonUniformBallot);
                 self.compile_binary_op_no_cast(op, |b, _, ty, lhs, rhs, out| {
                     b.group_non_uniform_broadcast(ty, Some(out), subgroup, lhs, rhs)
                         .unwrap();

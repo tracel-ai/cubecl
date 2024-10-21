@@ -58,11 +58,7 @@ impl std::fmt::Display for MemoryUsage {
         let usage_percentage = (self.bytes_in_use as f32 / self.bytes_reserved as f32) * 100.0;
         let padding_percentage = (self.bytes_padding as f32 / self.bytes_in_use as f32) * 100.0;
         writeln!(f, "Memory Usage Report:")?;
-        writeln!(
-            f,
-            "  Number of allocations: {}",
-            bytes_format(self.number_allocs)
-        )?;
+        writeln!(f, "  Number of allocations: {}", self.number_allocs)?;
         writeln!(f, "  Bytes in use: {}", bytes_format(self.bytes_in_use))?;
         writeln!(
             f,

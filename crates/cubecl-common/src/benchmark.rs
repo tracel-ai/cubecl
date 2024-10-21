@@ -3,14 +3,9 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Display;
-use core::time::Duration;
-
 use serde::{Deserialize, Serialize};
 
-#[cfg(all(not(target_family = "wasm"), feature = "std"))]
-use std::time::Instant;
-#[cfg(all(target_family = "wasm", feature = "std"))]
-use web_time::Instant;
+use super::stub::Duration;
 
 /// Results of a benchmark run.
 #[derive(new, Debug, Default, Clone, Serialize, Deserialize)]
@@ -145,7 +140,6 @@ pub trait Benchmark {
     fn run(&self) -> BenchmarkDurations {
         #[cfg(not(feature = "std"))]
         panic!("Attempting to run benchmark in a no-std environment");
-
         #[cfg(feature = "std")]
         {
             // Warmup
@@ -157,17 +151,12 @@ pub trait Benchmark {
             let mut durations = Vec::with_capacity(self.num_samples());
 
             for _ in 0..self.num_samples() {
-                // Prepare
                 self.sync();
-
-                // Execute the benchmark
-                let start = Instant::now();
+                let start = std::time::Instant::now();
                 self.execute(args.clone());
                 self.sync();
-                let end = Instant::now();
-
                 // Register the duration
-                durations.push(end - start);
+                durations.push(start.elapsed());
             }
 
             BenchmarkDurations { durations }

@@ -1,8 +1,18 @@
+use std::{borrow::Cow, sync::Arc};
+
 use super::{shader::ComputeShader, ConstantArray, Item, SharedMemory};
 use super::{LocalArray, Subgroup};
-use crate::compiler::wgsl;
-use cubecl_core::ir::{self as cube, HybridAllocator};
+use crate::{
+    compiler::{base::WgpuCompiler, wgsl},
+    WgpuServer,
+};
+use cubecl_core::{
+    ir::{self as cube, HybridAllocator},
+    prelude::CompiledKernel,
+    server::ComputeServer,
+};
 use cubecl_runtime::ExecutionMode;
+use wgpu::{ComputePipeline, DeviceDescriptor, ShaderModuleDescriptor};
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
@@ -51,6 +61,87 @@ impl cubecl_core::Compiler for WgslCompiler {
 
     fn local_allocator() -> impl cube::LocalAllocator {
         HybridAllocator::default()
+    }
+}
+
+impl WgpuCompiler for WgslCompiler {
+    fn create_pipeline(
+        server: &mut WgpuServer<Self>,
+        kernel: CompiledKernel<Self>,
+        mode: ExecutionMode,
+    ) -> Arc<ComputePipeline> {
+        let source = &kernel.source;
+        let module = match mode {
+            ExecutionMode::Checked => server.device.create_shader_module(ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+            }),
+            ExecutionMode::Unchecked => unsafe {
+                server
+                    .device
+                    .create_shader_module_unchecked(ShaderModuleDescriptor {
+                        label: None,
+                        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                    })
+            },
+        };
+
+        Arc::new(
+            server
+                .device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: None,
+                    layout: None,
+                    module: &module,
+                    entry_point: "main",
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        zero_initialize_workgroup_memory: false,
+                        ..Default::default()
+                    },
+                    cache: None,
+                }),
+        )
+    }
+
+    fn compile(
+        _server: &mut WgpuServer<Self>,
+        kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        mode: ExecutionMode,
+    ) -> CompiledKernel<Self> {
+        kernel.compile(mode)
+    }
+
+    async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
+        let limits = adapter.limits();
+        adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: None,
+                    required_features: adapter.features(),
+                    required_limits: limits,
+                    // The default is MemoryHints::Performance, which tries to do some bigger
+                    // block allocations. However, we already batch allocations, so we
+                    // can use MemoryHints::MemoryUsage to lower memory usage.
+                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+                },
+                None,
+            )
+            .await
+            .map_err(|err| {
+                format!(
+                    "Unable to request the device with the adapter {:?}, err {:?}",
+                    adapter.get_info(),
+                    err
+                )
+            })
+            .unwrap()
+    }
+
+    fn register_features(
+        _adapter: &wgpu::Adapter,
+        _device: &wgpu::Device,
+        _props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+    ) {
     }
 }
 

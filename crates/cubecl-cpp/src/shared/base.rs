@@ -1,4 +1,4 @@
-use std::{collections::HashSet, num::NonZero};
+use std::{collections::HashSet, fmt::Debug, marker::PhantomData, num::NonZero};
 
 use cubecl_core::{
     cpa,
@@ -11,9 +11,19 @@ use cubecl_runtime::ExecutionMode;
 
 use super::{Instruction, VariableSettings, WarpInstruction};
 
+pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
+pub trait Dialect: Default + Clone + Debug + Send + Sync + 'static {
+    fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn include_bf16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+}
+
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug, Default)]
-pub struct CudaCompiler {
+pub struct CppCompiler<D: Dialect> {
     shared_memories: Vec<super::SharedMemory>,
     const_arrays: Vec<super::ConstArray>,
     local_arrays: Vec<super::LocalArray>,
@@ -29,10 +39,11 @@ pub struct CudaCompiler {
     items: HashSet<super::Item>,
     strategy: ExecutionMode,
     settings: VariableSettings,
+    dialect: PhantomData<D>,
 }
 
-impl Compiler for CudaCompiler {
-    type Representation = super::ComputeKernel;
+impl<D: Dialect> Compiler for CppCompiler<D> {
+    type Representation = super::ComputeKernel<D>;
 
     fn compile(
         kernel: cubecl_core::ir::KernelDefinition,
@@ -42,7 +53,9 @@ impl Compiler for CudaCompiler {
             strategy,
             ..Self::default()
         };
-        compiler.compile_shader(kernel)
+        let ir = compiler.compile_ir(kernel);
+        COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
+        ir
     }
 
     fn elem_size(elem: gpu::Elem) -> usize {
@@ -58,8 +71,8 @@ impl Compiler for CudaCompiler {
     }
 }
 
-impl CudaCompiler {
-    fn compile_shader(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel {
+impl<D: Dialect> CppCompiler<D> {
+    fn compile_ir(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel<D> {
         self.num_inputs = value.inputs.len();
         self.num_outputs = value.outputs.len();
 
@@ -102,6 +115,7 @@ impl CudaCompiler {
             bf16: self.bf16,
             f16: self.f16,
             items: self.items,
+            dialect: PhantomData,
         }
     }
 
@@ -221,13 +235,17 @@ impl CudaCompiler {
                     value: self.compile_variable(value),
                 })
             }
-            gpu::CoopMma::Load { mat, value, stride } => {
-                Instruction::Wmma(super::WmmaInstruction::Load {
-                    frag: self.compile_variable(mat),
-                    value: self.compile_variable(value),
-                    stride: self.compile_variable(stride),
-                })
-            }
+            gpu::CoopMma::Load {
+                mat,
+                value,
+                stride,
+                layout,
+            } => Instruction::Wmma(super::WmmaInstruction::Load {
+                frag: self.compile_variable(mat),
+                value: self.compile_variable(value),
+                stride: self.compile_variable(stride),
+                layout: layout.and_then(|l| self.compile_matrix_layout(l)),
+            }),
             gpu::CoopMma::Execute {
                 mat_a,
                 mat_b,
@@ -791,6 +809,7 @@ impl CudaCompiler {
         }
     }
 }
+
 #[allow(missing_docs)]
 struct CheckedIndexAssign {
     pub lhs: Variable,

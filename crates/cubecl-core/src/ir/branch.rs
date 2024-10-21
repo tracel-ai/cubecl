@@ -4,20 +4,21 @@ use super::{Elem, Item, Scope, Variable};
 use serde::{Deserialize, Serialize};
 
 /// All branching types.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Branch {
     /// An if statement.
-    If(If),
+    If(Box<If>),
     /// An if else statement.
-    IfElse(IfElse),
+    IfElse(Box<IfElse>),
     // A select statement/ternary
     Select(Select),
     /// A switch statement
-    Switch(Switch),
+    Switch(Box<Switch>),
     /// A range loop.
-    RangeLoop(RangeLoop),
+    RangeLoop(Box<RangeLoop>),
     /// A loop.
-    Loop(Loop),
+    Loop(Box<Loop>),
     /// A return statement.
     Return,
     /// A break statement.
@@ -31,8 +32,8 @@ impl Display for Branch {
             Branch::IfElse(if_else) => write!(f, "if({})", if_else.cond),
             Branch::Select(select) => write!(
                 f,
-                "select({}, {}, {})",
-                select.cond, select.then, select.or_else
+                "{} = select({}, {}, {})",
+                select.out, select.cond, select.then, select.or_else
             ),
             Branch::Switch(switch) => write!(
                 f,
@@ -116,7 +117,7 @@ impl If {
         func(&mut scope);
 
         let op = Self { cond, scope };
-        parent_scope.register(Branch::If(op));
+        parent_scope.register(Branch::If(Box::new(op)));
     }
 }
 
@@ -137,11 +138,11 @@ impl IfElse {
         func_if(&mut scope_if);
         func_else(&mut scope_else);
 
-        parent_scope.register(Branch::IfElse(Self {
+        parent_scope.register(Branch::IfElse(Box::new(Self {
             cond,
             scope_if,
             scope_else,
-        }));
+        })));
     }
 }
 
@@ -161,14 +162,14 @@ impl RangeLoop {
 
         func(i, &mut scope);
 
-        parent_scope.register(Branch::RangeLoop(Self {
+        parent_scope.register(Branch::RangeLoop(Box::new(Self {
             i,
             start,
             end,
             step,
             scope,
             inclusive,
-        }));
+        })));
     }
 }
 
@@ -180,7 +181,7 @@ impl Loop {
         func(&mut scope);
 
         let op = Self { scope };
-        parent_scope.register(Branch::Loop(op));
+        parent_scope.register(Branch::Loop(Box::new(op)));
     }
 }
 

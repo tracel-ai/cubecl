@@ -72,6 +72,7 @@ pub struct Matrix<C: CubeType> {
 /// Expand type of [Matrix].
 pub struct MatrixExpand<C: CubeType> {
     elem: ExpandElement,
+    ident: MatrixIdent,
     _c: PhantomData<C>,
 }
 
@@ -79,6 +80,7 @@ impl<C: CubeType> Clone for MatrixExpand<C> {
     fn clone(&self) -> Self {
         Self {
             elem: self.elem.clone(),
+            ident: self.ident.clone(),
             _c: self._c.clone(),
         }
     }
@@ -198,6 +200,7 @@ impl<C: CubePrimitive> Matrix<C> {
         });
         MatrixExpand {
             elem,
+            ident,
             _c: PhantomData,
         }
     }
@@ -280,11 +283,53 @@ pub mod load {
         stride: ExpandElementTyped<u32>,
     ) {
         let stride: ExpandElement = stride.into();
+        assert_ne!(
+            mat.ident,
+            MatrixIdent::Accumulator,
+            "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
+        );
 
         context.register(Operation::CoopMma(ir::CoopMma::Load {
             mat: *mat.elem,
             value: *value.expand,
             stride: *stride,
+            layout: None,
+        }));
+    }
+}
+
+/// Load the matrix with the provided array using the stride with an explicit layout.
+/// Explicit layouts are required when loading accumulators.
+#[allow(unused_variables)]
+pub fn load_with_layout<C: CubeType>(
+    mat: &Matrix<C>,
+    value: &Slice<'_, C>,
+    stride: u32,
+    layout: MatrixLayout,
+) {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [load_with_layout()].
+pub mod load_with_layout {
+    use super::*;
+
+    /// Expand method of [load_with_layout()].
+    #[allow(unused_variables)]
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        mat: MatrixExpand<C>,
+        value: ExpandElementTyped<Slice<'static, C>>,
+        stride: ExpandElementTyped<u32>,
+        layout: MatrixLayout,
+    ) {
+        let stride: ExpandElement = stride.into();
+
+        context.register(Operation::CoopMma(ir::CoopMma::Load {
+            mat: *mat.elem,
+            value: *value.expand,
+            stride: *stride,
+            layout: Some(layout),
         }));
     }
 }

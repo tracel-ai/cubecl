@@ -38,7 +38,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         mem_properties.clone(),
         MemoryConfiguration::default(),
     );
-    let server = DummyServer::new(memory_management);
+    let server = DummyServer::new(memory_management, None);
     let channel = MutexComputeChannel::new(server);
     ComputeClient::new(channel, DeviceProperties::new(&[], mem_properties))
 }

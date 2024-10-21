@@ -1,8 +1,6 @@
 use std::fmt::Display;
 
-use crate::compiler::Component;
-
-use super::{Elem, Variable};
+use super::{Component, Elem, Variable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum FragmentIdent {
@@ -37,6 +35,7 @@ pub enum WmmaInstruction {
         frag: Variable,
         value: Variable,
         stride: Variable,
+        layout: Option<FragmentLayout>,
     },
     /// Executes D=A*B+C;
     ///
@@ -59,8 +58,8 @@ pub enum WmmaInstruction {
 impl Display for FragmentLayout {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FragmentLayout::ColMajor => f.write_str("wmma::col_major"),
-            FragmentLayout::RowMajor => f.write_str("wmma::row_major"),
+            FragmentLayout::ColMajor => f.write_str("nvcuda::wmma::col_major"),
+            FragmentLayout::RowMajor => f.write_str("nvcuda::wmma::row_major"),
         }
     }
 }
@@ -68,9 +67,9 @@ impl Display for FragmentLayout {
 impl Display for FragmentIdent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FragmentIdent::A => f.write_str("wmma::matrix_a"),
-            FragmentIdent::B => f.write_str("wmma::matrix_b"),
-            FragmentIdent::Accumulator => f.write_str("wmma::accumulator"),
+            FragmentIdent::A => f.write_str("nvcuda::wmma::matrix_a"),
+            FragmentIdent::B => f.write_str("nvcuda::wmma::matrix_b"),
+            FragmentIdent::Accumulator => f.write_str("nvcuda::wmma::accumulator"),
         }
     }
 }
@@ -80,12 +79,12 @@ impl Display for Fragment {
         match self.layout {
             Some(layout) => write!(
                 f,
-                "wmma::fragment<{}, {}, {}, {}, {}, {}>",
+                "nvcuda::wmma::fragment<{}, {}, {}, {}, {}, {}>",
                 self.ident, self.m, self.n, self.k, self.elem, layout
             ),
             None => write!(
                 f,
-                "wmma::fragment<{}, {}, {}, {}, {}>",
+                "nvcuda::wmma::fragment<{}, {}, {}, {}, {}>",
                 self.ident, self.m, self.n, self.k, self.elem,
             ),
         }
@@ -96,19 +95,44 @@ impl Display for WmmaInstruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WmmaInstruction::Fill { frag, value } => {
-                writeln!(f, "wmma::fill_fragment({frag}, {value});")
+                writeln!(f, "nvcuda::wmma::fill_fragment({frag}, {value});")
             }
             WmmaInstruction::Load {
                 frag,
                 value,
                 stride,
+                layout: None,
             } => {
                 let item = value.item();
                 if item.vectorization > 1 {
                     let elem = item.elem;
-                    writeln!(f, "wmma::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride});")
+                    writeln!(f, "nvcuda::wmma::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride});")
                 } else {
-                    writeln!(f, "wmma::load_matrix_sync({frag}, {value}, {stride});")
+                    writeln!(
+                        f,
+                        "nvcuda::wmma::load_matrix_sync({frag}, {value}, {stride});"
+                    )
+                }
+            }
+            WmmaInstruction::Load {
+                frag,
+                value,
+                stride,
+                layout: Some(layout),
+            } => {
+                let layout = match layout {
+                    FragmentLayout::ColMajor => "nvcuda::wmma::mem_col_major",
+                    FragmentLayout::RowMajor => "nvcuda::wmma::mem_row_major",
+                };
+                let item = value.item();
+                if item.vectorization > 1 {
+                    let elem = item.elem;
+                    writeln!(f, "nvcuda::wmma::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride}, {layout});")
+                } else {
+                    writeln!(
+                        f,
+                        "nvcuda::wmma::load_matrix_sync({frag}, {value}, {stride}, {layout});"
+                    )
                 }
             }
             WmmaInstruction::Execute {
@@ -116,7 +140,10 @@ impl Display for WmmaInstruction {
                 frag_b,
                 frag_c,
                 frag_d,
-            } => writeln!(f, "wmma::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"),
+            } => writeln!(
+                f,
+                "nvcuda::wmma::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
+            ),
             WmmaInstruction::Store {
                 output,
                 frag,
@@ -124,8 +151,8 @@ impl Display for WmmaInstruction {
                 layout,
             } => {
                 let layout = match layout {
-                    FragmentLayout::ColMajor => "wmma::mem_col_major",
-                    FragmentLayout::RowMajor => "wmma::mem_row_major",
+                    FragmentLayout::ColMajor => "nvcuda::wmma::mem_col_major",
+                    FragmentLayout::RowMajor => "nvcuda::wmma::mem_row_major",
                 };
 
                 let item = output.item();
@@ -133,12 +160,12 @@ impl Display for WmmaInstruction {
                     let elem = item.elem;
                     writeln!(
                         f,
-                        "wmma::store_matrix_sync(reinterpret_cast<{elem} *>({output}), {frag}, {stride}, {layout});"
+                        "nvcuda::wmma::store_matrix_sync(reinterpret_cast<{elem} *>({output}), {frag}, {stride}, {layout});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "wmma::store_matrix_sync({output}, {frag}, {stride}, {layout});"
+                        "nvcuda::wmma::store_matrix_sync({output}, {frag}, {stride}, {layout});"
                     )
                 }
             }

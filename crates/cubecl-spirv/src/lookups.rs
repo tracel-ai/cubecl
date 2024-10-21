@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use cubecl_core::ir::KernelDefinition;
+use cubecl_core::ir::{self, KernelDefinition};
 use cubecl_opt::NodeIndex;
 use hashbrown::{HashMap, HashSet};
 use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};
@@ -26,6 +26,7 @@ pub struct LookupTables {
 
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
+    pub scalars: HashMap<(u16, ir::Elem), Word>,
     pub globals: HashMap<Globals, Word>,
     pub array_types: HashMap<Word, Word>,
     pub constants: HashMap<(ConstVal, Item), Word>,
@@ -37,8 +38,6 @@ pub struct LookupTables {
 
     pub slices: HashMap<(u16, u8), Slice>,
 
-    pub rank: Word,
-    pub rank_2: Word,
     pub extensions: Vec<Word>,
     // For break, continue
     pub loops: VecDeque<Loop>,
@@ -50,7 +49,7 @@ pub struct LookupTables {
 pub struct Slice {
     pub ptr: Variable,
     pub offset: Word,
-    pub len: Word,
+    pub end: Word,
     pub const_len: Option<u32>,
     pub item: Item,
 }
@@ -60,7 +59,7 @@ impl From<&Slice> for Variable {
         Variable::Slice {
             ptr: Box::new(value.ptr.clone()),
             offset: value.offset,
-            len: value.len,
+            end: value.end,
             const_len: value.const_len,
             item: value.item.clone(),
         }
@@ -171,7 +170,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         if let Some(id) = self.state.globals.get(&global) {
             *id
         } else {
+            let current_block = self.selected_block();
+            let setup = self.setup_block;
+            self.select_block(Some(setup)).unwrap();
             let id = insert(self);
+            self.select_block(current_block).unwrap();
             self.state.globals.insert(global, id);
             id
         }
@@ -215,10 +218,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn merge_versioned(&mut self, id: (u16, u8, u16), word: Word) {
-        self.state.versioned.insert(id, word);
-    }
-
     pub fn label(&mut self, block: NodeIndex) -> Word {
         if let Some(existing) = self.state.labels.get(&block) {
             *existing
@@ -237,6 +236,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let word = self.label(block);
             self.state.end_labels.insert(block, word);
             word
+        }
+    }
+
+    pub fn global_scalar(&mut self, id: u16, elem: ir::Elem) -> Variable {
+        if let Some(existing) = self.state.scalars.get(&(id, elem)).copied() {
+            let item = self.compile_item(ir::Item::new(elem));
+            Variable::GlobalScalar(existing, item.elem())
+        } else {
+            let current_block = self.selected_block();
+            let setup = self.setup_block;
+            self.select_block(Some(setup)).unwrap();
+            let arr_id = self.state.named[&format!("scalars_{elem}")];
+            let item = self.compile_item(ir::Item::new(elem));
+            let arr = Variable::GlobalInputArray(arr_id, item.clone());
+            let const_id = self.const_u32(id as u32);
+            let index =
+                Variable::ConstantScalar(const_id, (id as u32).into(), Elem::Int(32, false));
+            let read_id = self.id();
+            let var = Variable::GlobalScalar(read_id, item.elem());
+            self.debug_name(read_id, format!("scalars<{elem}>({id})"));
+            self.read_indexed_unchecked(&var, &arr, &index);
+            self.select_block(current_block).unwrap();
+            self.state.scalars.insert((id, elem), read_id);
+            var
         }
     }
 }

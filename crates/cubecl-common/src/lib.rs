@@ -22,9 +22,7 @@ pub mod benchmark;
 /// notation.
 pub mod reader;
 
-/// Operators used by macro and IR
-pub mod operator;
-/// Synchronization type module, used both by ComputeServer and Backends.
-pub mod sync_type;
+/// Future utils with a compatible API for native, non-std and wasm environments.
+pub mod future;
 
 extern crate alloc;

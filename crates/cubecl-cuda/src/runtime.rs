@@ -8,14 +8,15 @@ use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{MemoryDeviceProperties, MemoryManagement},
+    storage::ComputeStorage,
     ComputeRuntime, DeviceProperties,
 };
 
 use crate::{
-    compiler::CudaCompiler,
     compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
 };
+use cubecl_cpp::CudaCompiler;
 
 /// The values that control how a WGPU Runtime will perform its calculations.
 #[derive(Default)]
@@ -32,17 +33,8 @@ type Channel = MutexComputeChannel<Server>;
 
 static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::new();
 
-const MEMORY_OFFSET_ALIGNMENT: usize = 32;
-
-/// Initialize a client on the given device with the given options. This function is useful to create a
-/// client with custom runtime options.
-pub fn init(device: &CudaDevice, options: RuntimeOptions) {
-    let client = create_client(device, options);
-    RUNTIME.register(device, client)
-}
-
 fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
-    // To get the supported WMMA featurs, and memory properties, we have to initialize the server immediatly.
+    // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
     let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
     let arch = unsafe {
@@ -77,7 +69,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let storage = CudaStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
-        alignment: MEMORY_OFFSET_ALIGNMENT,
+        alignment: CudaStorage::ALIGNMENT,
     };
 
     let memory_management = MemoryManagement::from_configuration(

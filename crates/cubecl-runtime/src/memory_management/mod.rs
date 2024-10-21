@@ -17,7 +17,7 @@ pub enum PoolType {
     ExclusivePages,
     /// Use a memory where each allocation is a slice of a bigger allocation.
     SlicedPages {
-        /// The maxiumum size of a slice to allocate in the pool.
+        /// The maximum size of a slice to allocate in the pool.
         max_slice_size: usize,
     },
 }
@@ -33,6 +33,12 @@ pub struct MemoryPoolOptions {
     ///
     /// Useful when you know in advance how much memory you'll need.
     pub chunk_num_prealloc: usize,
+    /// Period after which allocations are deemed unused and deallocated.
+    ///
+    /// This period is measured in the number of allocations in the parent allocator. If a page
+    /// in the pool was unused for the entire period, it will be deallocated. This period is
+    /// approximmate, as checks are only done occasionally.
+    pub dealloc_period: Option<u64>,
 }
 
 /// High level configuration of memory management.
