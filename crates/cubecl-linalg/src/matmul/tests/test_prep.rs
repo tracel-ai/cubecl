@@ -1,6 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::Runtime;
 
+use crate::matmul::cmma_matmul::batch::CmmaBatchMatmulConfig;
 use crate::matmul::cmma_matmul::global::CmmaGlobalMatmulConfig;
 use crate::matmul::cmma_matmul::global::LhsTensorLoader;
 use crate::matmul::cmma_matmul::global::RhsTensorLoader;
@@ -10,6 +11,7 @@ use crate::matmul::cmma_matmul::stage::LhsStageReader;
 use crate::matmul::cmma_matmul::stage::RhsStageReader;
 use crate::matmul::cmma_matmul::stage::TilingOrderConfig;
 use crate::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
+use crate::matmul::matmul_batch::BatchMatmul;
 use crate::matmul::stage_dim::StageDim;
 use crate::matmul::MatmulLaunch;
 use crate::matmul::{
@@ -22,6 +24,7 @@ use super::matmul_test_launcher::test_matmul;
 type T = CmmaTileMatmulConfig;
 type S = CmmaStageMatmulConfig<T>;
 type G = CmmaGlobalMatmulConfig<S>;
+type B = CmmaBatchMatmulConfig<G>;
 const PLANE_DIM: u32 = 32;
 
 pub struct AdvancedConfig {
@@ -36,7 +39,7 @@ impl Default for AdvancedConfig {
     }
 }
 
-pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, R>(
+pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
     problem: MatmulProblem,
     num_planes: u32,
     advanded_config: AdvancedConfig,
@@ -45,13 +48,14 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, R>(
     TMM: TileMatmul<ES, EA, T>,
     SMM: StageMatmul<ES, EG, LhsStageReader<ES, S>, RhsStageReader<ES, S>, S>,
     GMM: GlobalMatmul<
-            EG,
-            ES,
-            LhsTensorLoader<EG, ES, G>,
-            RhsTensorLoader<EG, ES, G>,
-            TensorUnloader<EG, G>,
-            G,
-        > + MatmulLaunch<EG, EG, MatmulLaunchConfig = G>,
+        EG,
+        ES,
+        LhsTensorLoader<EG, ES, G>,
+        RhsTensorLoader<EG, ES, G>,
+        TensorUnloader<EG, G>,
+        G,
+    >,
+    BMM: BatchMatmul<EG, B> + MatmulLaunch<EG, EG, MatmulLaunchConfig = B>,
     EG: Numeric + CubeElement,
     ES: Numeric,
     EA: Numeric,
@@ -84,8 +88,9 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, R>(
         check_m_bounds,
         check_n_bounds,
     );
+    let b = B::new(g);
 
-    test_matmul::<GMM, EG, EG, G, R>(problem, g, device);
+    test_matmul::<BMM, EG, EG, G, R>(problem, b, device);
 }
 
 pub fn create_stage_dim(

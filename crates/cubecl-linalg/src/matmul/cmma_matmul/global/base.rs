@@ -1,14 +1,13 @@
 use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader};
-use crate::matmul::launch::cube_matmul_launch;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader};
 use crate::matmul::matmul_global::{GmmConfig, Unloader};
-use crate::matmul::matmul_stage::{SmmConfig, StageMatmul};
-use crate::matmul::{Matmul, MatmulLaunch};
+use crate::matmul::matmul_stage::StageMatmul;
+use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::{CmmaGlobalMatmulConfig, LhsTensorLoader, RhsTensorLoader, TensorUnloader};
+use super::{LhsTensorLoader, RhsTensorLoader, TensorUnloader};
 
 pub struct CmmaGlobalMatmul<
     EG: Numeric,
@@ -109,30 +108,5 @@ where
 
     fn check_config(config: Self::Config) {
         SMM::check_config(config.to_smm_config());
-    }
-}
-
-impl<EG, ES, SMM, S: SmmConfig> MatmulLaunch<EG, EG>
-    for CmmaGlobalMatmul<EG, ES, SMM, CmmaGlobalMatmulConfig<S>>
-where
-    EG: Numeric,
-    ES: Numeric,
-    SMM: StageMatmul<ES, EG, LhsStageReader<ES, S>, RhsStageReader<ES, S>, S>,
-{
-    type MatmulLaunchConfig = CmmaGlobalMatmulConfig<S>;
-
-    unsafe fn launch_unchecked<R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
-        cube_dim: CubeDim,
-        cube_count: CubeCount,
-        lhs: TensorArg<'_, R>,
-        rhs: TensorArg<'_, R>,
-        out: TensorArg<'_, R>,
-        config: CmmaGlobalMatmulConfig<S>,
-    ) {
-        Self::check_config(config);
-        cube_matmul_launch::launch_unchecked::<EG, ES, Self, CmmaGlobalMatmulConfig<S>, R>(
-            &client, cube_count, cube_dim, lhs, rhs, out, config,
-        );
     }
 }

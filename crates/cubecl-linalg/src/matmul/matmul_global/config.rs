@@ -19,5 +19,3 @@ pub trait GmmConfig: ComptimeConfig + MatmulConfig + MatmulLaunchConfig {
     fn check_m_bounds(&self) -> bool;
     fn check_n_bounds(&self) -> bool;
 }
-
-pub trait ViewConfig: ComptimeConfig {}

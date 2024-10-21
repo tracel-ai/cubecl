@@ -3,6 +3,8 @@
 macro_rules! testgen_cmma_internal {
     () => {
         use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmul;
+        use cubecl_linalg::matmul::cmma_matmul::batch::CmmaBatchMatmulConfig;
+        use cubecl_linalg::matmul::cmma_matmul::batch::CmmaBatchMatmul;
         use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmulConfig;
         use cubecl_linalg::matmul::cmma_matmul::global::{
             LhsTensorLoader, RhsTensorLoader, TensorUnloader,
@@ -30,6 +32,7 @@ macro_rules! testgen_cmma_internal {
         type T = CmmaTileMatmulConfig;
         type S = CmmaStageMatmulConfig<T>;
         type G = CmmaGlobalMatmulConfig<S>;
+        type B = CmmaBatchMatmulConfig<G>;
 
         macro_rules! matmul_test {
             (
@@ -56,8 +59,9 @@ macro_rules! testgen_cmma_internal {
                     type TileMatmul = $tile_matmul_type<ES, EA, T>;
                     type StageMatmul = CmmaStageMatmul<ES, EG, EA, TileMatmul, StageSize, S>;
                     type GlobalMatmul = CmmaGlobalMatmul<EG, ES, StageMatmul, G>;
+                    type BatchMatmul = CmmaBatchMatmul<EG, ES, GlobalMatmul, B>;
 
-                    run_matmul_test::<EG, ES, EA, TileMatmul, StageMatmul, GlobalMatmul, R>(
+                    run_matmul_test::<EG, ES, EA, TileMatmul, StageMatmul, GlobalMatmul, BatchMatmul, R>(
                         problem, num_planes, $advanded_config, device,
                     );
                 }

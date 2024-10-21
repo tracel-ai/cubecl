@@ -6,6 +6,7 @@ use crate::matmul::matrix::{Ident, MatrixLayout};
 use crate::matmul::stage_dim::StageDim;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct CmmaGlobalMatmulConfig<S: SmmConfig> {
     smm_config: S,

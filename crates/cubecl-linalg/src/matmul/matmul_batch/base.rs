@@ -1,17 +1,18 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::Matmul;
+
 use super::BmmConfig;
 
 #[cube]
-/// Execute a matmul on a whole tensor
-pub trait BatchMatmul<N: Numeric> {
-    type Config: BmmConfig;
-
+pub trait BatchMatmul<EG: Numeric, B: BmmConfig>:
+    'static + Send + Sync + Matmul<EG, EG, Config = B>
+{
     fn execute(
-        lhs: &Tensor<Line<N>>,
-        rhs: &Tensor<Line<N>>,
-        out: &mut Tensor<Line<N>>,
+        lhs: Tensor<Line<EG>>,
+        rhs: Tensor<Line<EG>>,
+        out: Tensor<Line<EG>>,
         #[comptime] config: Self::Config,
     );
 }
