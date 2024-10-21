@@ -71,12 +71,19 @@ where
         TensorUnloader::init_view(&mut out_unloader, x_offset, y_offset);
 
         for _ in 0..num_loops {
+            let lhs_stage_reader = &LhsTensorLoader::fill_stage(&mut lhs_loader, config);
+            let rhs_stage_reader = &RhsTensorLoader::fill_stage(&mut rhs_loader, config);
+
+            sync_units();
+
             SMM::execute(
-                &LhsTensorLoader::fill_stage(&mut lhs_loader, config),
-                &RhsTensorLoader::fill_stage(&mut rhs_loader, config),
+                lhs_stage_reader,
+                rhs_stage_reader,
                 &mut acc,
                 config.to_smm_config(),
             );
+
+            sync_units();
 
             LhsTensorLoader::advance_view(&mut lhs_loader, k_step);
             RhsTensorLoader::advance_view(&mut rhs_loader, k_step);
