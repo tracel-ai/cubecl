@@ -109,8 +109,11 @@ impl CubeImplItem {
 
         let args = func.sig.parameters.iter().skip(1).map(|param| &param.name);
         let method_name = &method_sig.name;
+        let (_, generics, _) = &method_sig.generics.split_for_impl();
+        let generics = generics.as_turbofish();
+
         let mut body = KernelBody::Verbatim(quote! {
-            this.#method_name(
+            this.#method_name #generics(
                 context,
                 #(#args),*
             )
@@ -158,9 +161,11 @@ impl CubeImplItem {
         let args = func_sig.parameters.iter().map(|param| &param.name);
         let struct_name = format_type_with_turbofish(struct_ty_name);
         let fn_name = &func_sig.name;
+        let (_, generics, _) = &func_sig.generics.split_for_impl();
+        let generics = generics.as_turbofish();
 
         let body = quote! {
-            #struct_name::#fn_name(
+            #struct_name::#fn_name #generics(
                 context,
                 #(#args),*
             )
