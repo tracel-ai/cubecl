@@ -53,6 +53,8 @@ where
         mut lhs_loader: LhsTensorLoader<EG, ES, G>,
         mut rhs_loader: RhsTensorLoader<EG, ES, G>,
         mut out_unloader: TensorUnloader<EG, G>,
+        x_offset: u32,
+        y_offset: u32,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -61,10 +63,6 @@ where
         let num_loops = (range + k_step - 1) / k_step;
 
         let mut acc = SMM::acc_init_zeros();
-
-        // TODO cube mapper
-        let x_offset = CUBE_POS_X * SMM::M;
-        let y_offset = CUBE_POS_Y * SMM::N;
 
         LhsTensorLoader::init_view(&mut lhs_loader, x_offset, k_range.0);
         RhsTensorLoader::init_view(&mut rhs_loader, k_range.0, y_offset);

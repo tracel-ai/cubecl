@@ -19,6 +19,8 @@ pub trait GlobalMatmul<
         lhs_loader: Lhs,
         rhs_loader: Rhs,
         out_writer: Out,
+        x_offset: u32,
+        y_offset: u32,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );

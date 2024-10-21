@@ -24,4 +24,12 @@ impl StageDim {
     pub fn tile_num_elements(&self) -> u32 {
         self.tile_size_x * self.tile_size_y
     }
+
+    pub fn num_elements_x_dim(&self) -> u32 {
+        self.num_tiles_x * self.tile_size_x
+    }
+
+    pub fn num_elements_y_dim(&self) -> u32 {
+        self.num_tiles_y * self.tile_size_y
+    }
 }

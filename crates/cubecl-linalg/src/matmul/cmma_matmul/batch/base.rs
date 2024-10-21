@@ -7,6 +7,7 @@ use crate::matmul::cmma_matmul::global::{
 use crate::matmul::launch::batch_matmul_launch;
 use crate::matmul::matmul_batch::{BatchMatmul, BmmConfig};
 use crate::matmul::matmul_global::GlobalMatmul;
+use crate::matmul::matrix::Ident;
 use crate::matmul::{Matmul, MatmulLaunch};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -51,17 +52,18 @@ impl<
         out: Tensor<Line<EG>>,
         #[comptime] config: Self::Config,
     ) {
-        let k = lhs.shape(lhs.rank() - 1);
-
-        let lhs_loader = new_lhs_tensor_loader(lhs, config.to_gmm_config());
-        let rhs_loader = new_rhs_tensor_loader(rhs, config.to_gmm_config());
-        let out_unloader = new_tensor_unloader(out);
+        // TODO this is naive
+        let x_offset = CUBE_POS_X * config.stage_dim(Ident::Lhs).num_elements_x_dim();
+        let y_offset = CUBE_POS_Y * config.stage_dim(Ident::Rhs).num_elements_y_dim();
+        let k_range = (0, lhs.shape(lhs.rank() - 1));
 
         GMM::execute(
-            lhs_loader,
-            rhs_loader,
-            out_unloader,
-            (0, k),
+            new_lhs_tensor_loader(lhs, config.to_gmm_config()),
+            new_rhs_tensor_loader(rhs, config.to_gmm_config()),
+            new_tensor_unloader(out),
+            x_offset,
+            y_offset,
+            k_range,
             config.to_gmm_config(),
         );
     }

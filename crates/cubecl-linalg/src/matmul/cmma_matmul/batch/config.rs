@@ -2,6 +2,8 @@ use crate::matmul::{
     config::{ComptimeConfig, MatmulConfig, MatmulLaunchConfig},
     matmul_batch::BmmConfig,
     matmul_global::GmmConfig,
+    matrix::Ident,
+    stage_dim::StageDim,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -16,6 +18,10 @@ impl<G: GmmConfig> BmmConfig for CmmaBatchMatmulConfig<G> {
 
     fn to_gmm_config(&self) -> Self::GmmConfig {
         self.gmm_config
+    }
+
+    fn stage_dim(&self, ident: Ident) -> StageDim {
+        self.gmm_config.stage_dim(ident)
     }
 }
 
