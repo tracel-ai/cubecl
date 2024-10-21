@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{CmmaStageSize, LhsStageReader, OutStageWriter, RhsStageReader};
+use super::{CmmaStageSize, LhsStageReader, RhsStageReader};
 use crate::matmul::config::PlaneMapper;
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::{SmmConfig, StageMatmul, StageReader, StageWriter};
@@ -28,8 +28,7 @@ pub struct CmmaStageMatmul<
 }
 
 #[cube]
-impl<I, O, Acc, TMM, StageSize, S>
-    StageMatmul<I, O, LhsStageReader<I, S>, RhsStageReader<I, S>, OutStageWriter<O>, S>
+impl<I, O, Acc, TMM, StageSize, S> StageMatmul<I, O, LhsStageReader<I, S>, RhsStageReader<I, S>, S>
     for CmmaStageMatmul<I, O, Acc, TMM, StageSize, S>
 where
     I: Numeric,
@@ -90,9 +89,9 @@ where
         accumulators
     }
 
-    fn acc_read<G: GmmConfig>(
+    fn acc_read<SW: StageWriter<O, G>, G: GmmConfig>(
         acc: &Self::Accumulator,
-        out: &mut OutStageWriter<O>,
+        out: &mut SW,
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
     ) {
@@ -111,7 +110,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_output(accumulator, smem_slice);
-            OutStageWriter::write::<O, G>(
+            SW::write(
                 out,
                 &smem_slice.as_slice(),
                 Self::plane_id(),

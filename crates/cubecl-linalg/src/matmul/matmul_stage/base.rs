@@ -11,7 +11,6 @@ pub trait StageMatmul<
     O: Numeric,
     Lhs: StageReader<I, S>,
     Rhs: StageReader<I, S>,
-    Out: StageWriter<O>,
     S: SmmConfig,
 >: 'static + Send + Sync + Matmul<I, O, Config = S>
 {
@@ -25,7 +24,7 @@ pub trait StageMatmul<
 
     fn acc_init_zeros() -> Self::Accumulator;
 
-    fn acc_read<G: GmmConfig>(
+    fn acc_read<Out: StageWriter<O, G>, G: GmmConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
         #[comptime] stage_config: S,

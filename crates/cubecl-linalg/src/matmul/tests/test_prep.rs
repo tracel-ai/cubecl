@@ -7,7 +7,6 @@ use crate::matmul::cmma_matmul::global::RhsTensorLoader;
 use crate::matmul::cmma_matmul::global::TensorUnloader;
 use crate::matmul::cmma_matmul::stage::CmmaStageMatmulConfig;
 use crate::matmul::cmma_matmul::stage::LhsStageReader;
-use crate::matmul::cmma_matmul::stage::OutStageWriter;
 use crate::matmul::cmma_matmul::stage::RhsStageReader;
 use crate::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
 use crate::matmul::stage_dim::StageDim;
@@ -30,7 +29,7 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, R>(
     device: &R::Device,
 ) where
     TMM: TileMatmul<ES, EA>,
-    SMM: StageMatmul<ES, EG, LhsStageReader<ES, S>, RhsStageReader<ES, S>, OutStageWriter<EG>, S>,
+    SMM: StageMatmul<ES, EG, LhsStageReader<ES, S>, RhsStageReader<ES, S>, S>,
     GMM: GlobalMatmul<
             EG,
             ES,

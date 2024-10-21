@@ -3,7 +3,7 @@ use crate::matmul::cmma_matmul::global::{
 };
 use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::matmul_global::GlobalMatmul;
-use crate::matmul::matmul_global::{Loader, Unloader};
+use crate::matmul::matmul_global::Loader;
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix::MatrixLayout;
@@ -11,7 +11,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::cmma_matmul::global::{LhsTensorLoader, RhsTensorLoader, TensorUnloader};
-use super::cmma_matmul::stage::OutStageWriter;
 use super::matmul_global::GmmConfig;
 
 #[cube(launch_unchecked)]
@@ -41,7 +40,6 @@ pub(crate) fn stage_matmul_launch<
         O,
         LhsStageReader<I, G::SmmConfig>,
         RhsStageReader<I, G::SmmConfig>,
-        OutStageWriter<O>,
         G::SmmConfig,
     >,
     G: GmmConfig,
@@ -53,11 +51,10 @@ pub(crate) fn stage_matmul_launch<
 ) {
     let mut lhs_loader = new_lhs_tensor_loader::<I, I, G>(lhs_data, config);
     let mut rhs_loader = new_rhs_tensor_loader::<I, I, G>(rhs_data, config);
-    let out_unloader = new_tensor_unloader::<O, G>(out_result);
+    let mut out_unloader = new_tensor_unloader::<O, G>(out_result);
 
     let lhs_stage_reader = LhsTensorLoader::fill_stage(&mut lhs_loader, config);
     let rhs_stage_reader = RhsTensorLoader::fill_stage(&mut rhs_loader, config);
-    let mut out_stage_reader = TensorUnloader::unload(out_unloader);
 
     let mut acc = SMM::acc_init_zeros();
     SMM::execute(
@@ -66,7 +63,12 @@ pub(crate) fn stage_matmul_launch<
         &mut acc,
         config.to_smm_config(),
     );
-    SMM::acc_read::<G>(&acc, &mut out_stage_reader, config.to_smm_config(), config);
+    SMM::acc_read::<TensorUnloader<O, G>, G>(
+        &acc,
+        &mut out_unloader,
+        config.to_smm_config(),
+        config,
+    );
 }
 
 #[cube(launch_unchecked)]
