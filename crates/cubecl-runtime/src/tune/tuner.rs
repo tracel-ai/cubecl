@@ -214,7 +214,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 })
         } else {
             Ok(BenchmarkDurations::new(
-                TimingMethod::GPU,
+                TimingMethod::DeviceOnly,
                 vec![Duration::MAX],
             ))
         }

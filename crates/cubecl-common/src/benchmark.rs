@@ -10,20 +10,20 @@ use super::stub::Duration;
 /// How a benchmark's execution times are measured.
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub enum TimingMethod {
-    /// Time measurements come from CPU timing of execution + sync
+    /// Time measurements come from full timing of execution + sync
     /// calls.
     #[default]
-    CPU,
+    Full,
     /// Time measurements come from hardware reported timestamps
     /// coming from a sync call.
-    GPU,
+    DeviceOnly,
 }
 
 impl Display for TimingMethod {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            TimingMethod::CPU => f.write_str("cpu"),
-            TimingMethod::GPU => f.write_str("gpu"),
+            TimingMethod::Full => f.write_str("full"),
+            TimingMethod::DeviceOnly => f.write_str("device_only"),
         }
     }
 }
@@ -179,8 +179,10 @@ pub trait Benchmark {
 
             for _ in 0..self.num_samples() {
                 match timing_method {
-                    TimingMethod::CPU => durations.push(self.run_one_cpu(args.clone())),
-                    TimingMethod::GPU => durations.push(self.run_one_gpu(args.clone())),
+                    TimingMethod::Full => durations.push(self.run_one_full(args.clone())),
+                    TimingMethod::DeviceOnly => {
+                        durations.push(self.run_one_device_only(args.clone()))
+                    }
                 }
             }
 
@@ -191,15 +193,17 @@ pub trait Benchmark {
         }
     }
     #[cfg(feature = "std")]
-    /// Collect one sample with timing on the CPU.
-    fn run_one_cpu(&self, args: Self::Args) -> Duration {
+    /// Collect one sample directly measuring the full execute + sync
+    /// step.
+    fn run_one_full(&self, args: Self::Args) -> Duration {
         let start = std::time::Instant::now();
         self.execute(args);
         self.sync();
         start.elapsed()
     }
-    /// Collect one sample with timing on the GPU.
-    fn run_one_gpu(&self, args: Self::Args) -> Duration {
+    /// Collect one sample using timing measurements reported by the
+    /// device.
+    fn run_one_device_only(&self, args: Self::Args) -> Duration {
         self.execute(args);
         self.sync()
     }
@@ -275,7 +279,7 @@ mod tests {
     #[test]
     fn test_min_max_median_durations_even_number_of_samples() {
         let durations = BenchmarkDurations {
-            timing_method: TimingMethod::CPU,
+            timing_method: TimingMethod::Full,
             durations: vec![
                 Duration::new(10, 0),
                 Duration::new(20, 0),
@@ -293,7 +297,7 @@ mod tests {
     #[test]
     fn test_min_max_median_durations_odd_number_of_samples() {
         let durations = BenchmarkDurations {
-            timing_method: TimingMethod::CPU,
+            timing_method: TimingMethod::Full,
             durations: vec![
                 Duration::new(18, 5),
                 Duration::new(20, 0),
@@ -310,7 +314,7 @@ mod tests {
     #[test]
     fn test_mean_duration() {
         let durations = BenchmarkDurations {
-            timing_method: TimingMethod::CPU,
+            timing_method: TimingMethod::Full,
             durations: vec![
                 Duration::new(10, 0),
                 Duration::new(20, 0),
@@ -325,7 +329,7 @@ mod tests {
     #[test]
     fn test_variance_duration() {
         let durations = BenchmarkDurations {
-            timing_method: TimingMethod::CPU,
+            timing_method: TimingMethod::Full,
             durations: vec![
                 Duration::new(10, 0),
                 Duration::new(20, 0),

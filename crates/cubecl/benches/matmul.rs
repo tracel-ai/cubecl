@@ -80,7 +80,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
         _e: PhantomData,
     };
     println!("{}", bench.name());
-    println!("{}", bench.run(TimingMethod::CPU));
+    println!("{}", bench.run(TimingMethod::Full));
 }
 
 fn main() {

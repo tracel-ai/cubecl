@@ -33,7 +33,7 @@ impl<S: ComputeServer, C: ComputeChannel<S>, Out> TuneBenchmark<S, C, Out> {
             durations.push(duration);
         }
         BenchmarkDurations {
-            timing_method: TimingMethod::GPU,
+            timing_method: TimingMethod::DeviceOnly,
             durations,
         }
     }
