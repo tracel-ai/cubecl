@@ -6,22 +6,27 @@ use crate::matmul::matmul_global::GlobalMatmul;
 use crate::matmul::matmul_global::Loader;
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::matmul_tile::TileMatmul;
-use crate::matmul::matrix::MatrixLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::cmma_matmul::global::{LhsTensorLoader, RhsTensorLoader, TensorUnloader};
 use super::matmul_global::GmmConfig;
+use super::matmul_tile::TmmConfig;
 
 #[cube(launch_unchecked)]
-pub(crate) fn matmul_instruction_launch<M: TileMatmul<I, O>, I: Numeric, O: Numeric>(
+pub(crate) fn matmul_instruction_launch<
+    M: TileMatmul<I, O, T>,
+    I: Numeric,
+    O: Numeric,
+    T: TmmConfig,
+>(
     lhs_input: Tensor<Line<I>>,
     rhs_input: Tensor<Line<I>>,
     mut output: Tensor<Line<O>>,
-    #[comptime] layouts: (MatrixLayout, MatrixLayout),
+    #[comptime] config: T,
 ) {
-    let mut lhs = M::init_lhs(layouts.0);
-    let mut rhs = M::init_rhs(layouts.1);
+    let mut lhs = M::init_lhs(config);
+    let mut rhs = M::init_rhs(config);
     let mut out = M::init_output();
 
     M::fill_lhs(lhs_input.as_slice(), &mut lhs);

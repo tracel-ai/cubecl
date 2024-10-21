@@ -17,8 +17,6 @@ pub struct CmmaStageMatmulConfig<T: TmmConfig> {
     lhs_line_size: u32,
     rhs_line_size: u32,
     out_line_size: u32,
-    lhs_layout: MatrixLayout,
-    rhs_layout: MatrixLayout,
     num_planes: u32,
     tiling_order: TilingOrderConfig,
 }
@@ -28,7 +26,7 @@ impl<T: TmmConfig> ComptimeConfig for CmmaStageMatmulConfig<T> {}
 impl<T: TmmConfig> SmmConfig for CmmaStageMatmulConfig<T> {
     type TmmConfig = T;
 
-    fn into_tmm_config(self) -> Self::TmmConfig {
+    fn to_tmm_config(self) -> Self::TmmConfig {
         self.tmm_config
     }
 
@@ -49,11 +47,7 @@ impl<T: TmmConfig> SmmConfig for CmmaStageMatmulConfig<T> {
     }
 
     fn layout(&self, ident: Ident) -> MatrixLayout {
-        match ident {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => MatrixLayout::RowMajor,
-        }
+        self.tmm_config.layout(ident)
     }
 
     fn num_planes(&self) -> u32 {
@@ -69,17 +63,15 @@ impl<T: TmmConfig> MatmulConfig for CmmaStageMatmulConfig<T> {}
 
 impl<T: TmmConfig> CmmaStageMatmulConfig<T> {
     pub fn new(
+        tmm_config: T,
         lhs_stage_dim: StageDim,
         rhs_stage_dim: StageDim,
         out_stage_dim: StageDim,
         lhs_line_size: u32,
         rhs_line_size: u32,
         out_line_size: u32,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
         num_planes: u32,
         tiling_order: TilingOrderConfig,
-        tmm_config: T,
     ) -> Self {
         Self {
             tmm_config,
@@ -89,8 +81,6 @@ impl<T: TmmConfig> CmmaStageMatmulConfig<T> {
             lhs_line_size,
             rhs_line_size,
             out_line_size,
-            lhs_layout,
-            rhs_layout,
             num_planes,
             tiling_order,
         }

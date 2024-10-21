@@ -15,7 +15,7 @@ pub struct CmmaStageMatmul<
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Tmm: TileMatmul<I, Acc>,
+    Tmm: TileMatmul<I, Acc, S::TmmConfig>,
     BlockSize: CmmaStageSize,
     S: SmmConfig,
 > {
@@ -34,7 +34,7 @@ where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    TMM: TileMatmul<I, Acc, Config = S::TmmConfig>,
+    TMM: TileMatmul<I, Acc, S::TmmConfig>,
     StageSize: CmmaStageSize,
     S: SmmConfig,
 {
@@ -51,8 +51,8 @@ where
     ) {
         let num_buffers = StageSize::K / TMM::K;
 
-        let mut instruction_lhs = TMM::init_lhs(comptime!(config.layout(Ident::Lhs)));
-        let mut instruction_rhs = TMM::init_rhs(comptime!(config.layout(Ident::Rhs)));
+        let mut instruction_lhs = TMM::init_lhs(config.to_tmm_config());
+        let mut instruction_rhs = TMM::init_rhs(config.to_tmm_config());
 
         #[unroll]
         for buffer_iter in 0..num_buffers {
@@ -126,7 +126,7 @@ where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    TMM: TileMatmul<I, Acc, Config = S::TmmConfig>,
+    TMM: TileMatmul<I, Acc, S::TmmConfig>,
     StageSize: CmmaStageSize,
     S: SmmConfig,
 {
@@ -137,7 +137,7 @@ where
             config.stage_dim(Ident::Lhs).num_tiles_x,
             config.num_planes()
         ));
-        TMM::check_config(config.into_tmm_config());
+        TMM::check_config(config.to_tmm_config());
     }
 }
 
@@ -147,7 +147,7 @@ where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Tmm: TileMatmul<I, Acc>,
+    Tmm: TileMatmul<I, Acc, S::TmmConfig>,
     StageSize: CmmaStageSize,
     S: SmmConfig,
 {

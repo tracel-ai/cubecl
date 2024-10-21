@@ -16,6 +16,8 @@ pub trait GmmConfig: ComptimeConfig + MatmulConfig + MatmulLaunchConfig {
     fn num_planes(&self) -> u32;
     fn plane_dim(&self) -> u32;
     fn tiling_order(&self) -> TilingOrderConfig;
+    fn check_m_bounds(&self) -> bool;
+    fn check_n_bounds(&self) -> bool;
 }
 
 pub trait ViewConfig: ComptimeConfig {}

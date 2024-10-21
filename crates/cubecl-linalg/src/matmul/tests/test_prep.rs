@@ -42,7 +42,7 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, R>(
     advanded_config: AdvancedConfig,
     device: &R::Device,
 ) where
-    TMM: TileMatmul<ES, EA>,
+    TMM: TileMatmul<ES, EA, T>,
     SMM: StageMatmul<ES, EG, LhsStageReader<ES, S>, RhsStageReader<ES, S>, S>,
     GMM: GlobalMatmul<
             EG,
@@ -62,21 +62,28 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, R>(
     let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) =
         create_stage_dim(stage_m, stage_n, stage_k, tile_m, tile_n, tile_k);
 
-    let t = T::new(PLANE_DIM);
+    let check_m_bounds = problem.m % stage_m != 0;
+    let check_n_bounds = problem.n % stage_n != 0;
+
+    let t = T::new(PLANE_DIM, problem.lhs_layout, problem.rhs_layout);
     let s = S::new(
+        t,
         lhs_stage_dim,
         rhs_stage_dim,
         out_stage_dim,
         problem.lhs_line_size as u32,
         problem.rhs_line_size as u32,
         problem.out_line_size as u32,
-        problem.lhs_layout,
-        problem.rhs_layout,
         num_planes,
         advanded_config.tiling_order,
-        t,
     );
-    let g = G::new(problem.out_line_size as u32, PLANE_DIM, s);
+    let g = G::new(
+        s,
+        problem.out_line_size as u32,
+        PLANE_DIM,
+        check_m_bounds,
+        check_n_bounds,
+    );
 
     test_matmul::<GMM, EG, EG, G, R>(problem, g, device);
 }

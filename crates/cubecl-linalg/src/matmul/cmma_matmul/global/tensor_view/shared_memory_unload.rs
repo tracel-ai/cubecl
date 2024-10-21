@@ -43,17 +43,18 @@ pub(crate) fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
         let col = col_tile_begin + unit_write % stage_dim.tile_size_y;
 
         let value = slice[unit_write / out_line_size];
-        write_coalesced::<EG, ES>(view, row, col, value);
+        write_coalesced::<EG, ES, G>(view, row, col, value, config);
     }
 }
 
 
 #[cube]
-fn write_coalesced<EG: Numeric, ES: Numeric>(
+fn write_coalesced<EG: Numeric, ES: Numeric, G: GmmConfig>(
     view: &mut TensorView<EG>,
     write_x: u32,
     write_y: u32,
     value: Line<ES>,
+    #[comptime] config: G
 ) {
     let tensor = &mut view.tensor;
     let view_x = write_x + view.x_offset;
@@ -61,9 +62,24 @@ fn write_coalesced<EG: Numeric, ES: Numeric>(
 
     let write_position = (view_x * view.stride_x + view_y * view.stride_y) / tensor.line_size();
 
-    // TODO: will need comptime checkbound condition because we can't use select for not writing
-    if write_x < view.shape_x && write_y < view.shape_y {
-        tensor[write_position] = Line::cast_from(value);
+    if config.check_m_bounds() {
+        if config.check_n_bounds() {
+            if write_x < view.shape_x && write_y < view.shape_y {
+                tensor[write_position] = Line::cast_from(value);
+            }
+        } else {
+            if write_x < view.shape_x {
+                tensor[write_position] = Line::cast_from(value);
+            }
+        }
+    } else {
+        if config.check_n_bounds() {
+            if write_y < view.shape_y {
+                tensor[write_position] = Line::cast_from(value);
+            }
+        } else {
+            tensor[write_position] = Line::cast_from(value);
+        }
     }
 }
 

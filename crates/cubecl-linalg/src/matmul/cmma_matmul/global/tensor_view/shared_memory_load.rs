@@ -60,7 +60,6 @@ fn continuous_load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
         let nth_tile = unit_position / tile_num_elements;
         let pos_within_tile = unit_position % tile_num_elements;
 
-        // TODO X or Y choose with comptime config
         let (tile_x, tile_y) = match config.tiling_order() {
             TilingOrderConfig::XMajor => {
                 XMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)

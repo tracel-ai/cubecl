@@ -7,7 +7,7 @@ use crate::matmul::stage_dim::StageDim;
 pub trait SmmConfig: ComptimeConfig + MatmulConfig {
     type TmmConfig: TmmConfig;
 
-    fn into_tmm_config(self) -> Self::TmmConfig;
+    fn to_tmm_config(self) -> Self::TmmConfig;
 
     fn line_size(&self, ident: Ident) -> u32;
     fn stage_dim(&self, ident: Ident) -> StageDim;

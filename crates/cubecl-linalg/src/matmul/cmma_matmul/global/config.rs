@@ -11,6 +11,8 @@ pub struct CmmaGlobalMatmulConfig<S: SmmConfig> {
     smm_config: S,
     out_smem_line_size: u32,
     plane_dim: u32,
+    check_m_bounds: bool,
+    check_n_bounds: bool,
 }
 
 impl<S: SmmConfig> ComptimeConfig for CmmaGlobalMatmulConfig<S> {}
@@ -63,16 +65,32 @@ impl<S: SmmConfig> GmmConfig for CmmaGlobalMatmulConfig<S> {
     fn tiling_order(&self) -> TilingOrderConfig {
         self.smm_config.tiling_order()
     }
+
+    fn check_m_bounds(&self) -> bool {
+        self.check_m_bounds
+    }
+
+    fn check_n_bounds(&self) -> bool {
+        self.check_n_bounds
+    }
 }
 
 impl<S: SmmConfig> MatmulConfig for CmmaGlobalMatmulConfig<S> {}
 
 impl<S: SmmConfig> CmmaGlobalMatmulConfig<S> {
-    pub fn new(out_smem_line_size: u32, plane_dim: u32, smm_config: S) -> Self {
+    pub fn new(
+        smm_config: S,
+        out_smem_line_size: u32,
+        plane_dim: u32,
+        check_m_bounds: bool,
+        check_n_bounds: bool,
+    ) -> Self {
         Self {
             smm_config,
             out_smem_line_size,
             plane_dim,
+            check_m_bounds,
+            check_n_bounds,
         }
     }
 }

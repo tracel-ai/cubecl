@@ -2,6 +2,7 @@ use crate::matmul::matrix::as_cmma_layout;
 use crate::matmul::matmul_tile::TmmConfig;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix::MatrixLayout;
+use crate::matmul::matrix::Ident;
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
@@ -29,7 +30,7 @@ macro_rules! impl_matmul_instruction {
         }
 
         #[cube]
-        impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O> for $name<I, O, T>
+        impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O, T> for $name<I, O, T>
         where
             (I, O): CmmaValid<I, O>,
         {
@@ -45,12 +46,12 @@ macro_rules! impl_matmul_instruction {
                 execute::<I, O>(lhs, rhs, out);
             }
 
-            fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs {
-                init_lhs(layout, Self::M, Self::N, Self::K)
+            fn init_lhs(#[comptime] config: T) -> Self::Lhs {
+                init_lhs(config.layout(Ident::Lhs), Self::M, Self::N, Self::K)
             }
 
-            fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs {
-                init_rhs(layout, Self::M, Self::N, Self::K)
+            fn init_rhs(#[comptime] config: T) -> Self::Rhs {
+                init_rhs(config.layout(Ident::Rhs), Self::M, Self::N, Self::K)
             }
 
             fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs) {

@@ -1,6 +1,7 @@
 use crate::matmul::matmul_tile::TmmConfig;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix::MatrixLayout;
+use crate::matmul::matrix::Ident;
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -19,7 +20,7 @@ macro_rules! impl_matmul_instruction {
         }
 
         #[cube]
-        impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O> for $name<I, O, T> {
+        impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O, T> for $name<I, O, T> {
             const M: u32 = $m;
             const N: u32 = $n;
             const K: u32 = $k;
@@ -32,21 +33,21 @@ macro_rules! impl_matmul_instruction {
                 execute::<I, O>(lhs, rhs, out);
             }
 
-            fn init_lhs(#[comptime] layout: MatrixLayout) -> Self::Lhs {
+            fn init_lhs(#[comptime] config: T) -> Self::Lhs {
                 OwnedTile::<I> {
                     handle: Array::<I>::new(Self::M * Self::K),
                     x: Self::M.runtime(),
                     y: Self::K.runtime(),
-                    layout: as_dummy_layout(layout),
+                    layout: as_dummy_layout(config.layout(Ident::Lhs)),
                 }
             }
 
-            fn init_rhs(#[comptime] layout: MatrixLayout) -> Self::Rhs {
+            fn init_rhs(#[comptime] config: T) -> Self::Rhs {
                 OwnedTile::<I> {
                     handle: Array::<I>::new(Self::K * Self::N),
                     x: Self::K.runtime(),
                     y: Self::N.runtime(),
-                    layout: as_dummy_layout(layout),
+                    layout: as_dummy_layout(config.layout(Ident::Rhs)),
                 }
             }
 
