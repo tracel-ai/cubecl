@@ -32,6 +32,11 @@ impl SimpleType {
     pub fn with_other(self, other: Self) -> u32 {
         self.call_method_inner() + other.call_method_inner()
     }
+
+    #[allow(dead_code)]
+    pub fn with_generic<E: Float>(self, rhs: E) -> u32 {
+        self.simple_method(u32::cast_from(rhs))
+    }
 }
 
 #[derive(CubeType)]
