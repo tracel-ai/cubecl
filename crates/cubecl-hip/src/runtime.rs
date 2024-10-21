@@ -33,7 +33,7 @@ type Channel = MutexComputeChannel<Server>;
 const MEMORY_OFFSET_ALIGNMENT: usize = 32;
 
 fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
-    let mut ctx: cubecl_hip_sys::hipCtx_t = 0 as cubecl_hip_sys::hipCtx_t;
+    let mut ctx: cubecl_hip_sys::hipCtx_t = std::ptr::null_mut();
     unsafe {
         let status =
             cubecl_hip_sys::hipCtxCreate(&mut ctx, 0, device.index as cubecl_hip_sys::hipDevice_t);

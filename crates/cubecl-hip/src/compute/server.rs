@@ -343,7 +343,8 @@ impl HipContext {
         // Create the HIP module
         let mut module: cubecl_hip_sys::hipModule_t = std::ptr::null_mut();
         unsafe {
-            let status = cubecl_hip_sys::hipModuleLoadData(&mut module, code.as_ptr() as *const _);
+            let codeptr = code.as_ptr();
+            let status = cubecl_hip_sys::hipModuleLoadData(&mut module, codeptr as *const _);
             assert_eq!(status, HIP_SUCCESS, "Should load compiled code into module");
         }
         // Retrieve the HIP module function
