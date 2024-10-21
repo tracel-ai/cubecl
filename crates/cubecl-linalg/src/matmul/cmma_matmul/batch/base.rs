@@ -61,8 +61,6 @@ impl<
             new_lhs_tensor_loader(lhs, x_offset, k_range.0, config.to_gmm_config()),
             new_rhs_tensor_loader(rhs, k_range.0, y_offset, config.to_gmm_config()),
             new_tensor_unloader(out, x_offset, y_offset),
-            x_offset,
-            y_offset,
             k_range,
             config.to_gmm_config(),
         );

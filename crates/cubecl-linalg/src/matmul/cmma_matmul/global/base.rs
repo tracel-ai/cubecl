@@ -1,6 +1,6 @@
 use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader};
+use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_global::{GlobalMatmul, Loader};
-use crate::matmul::matmul_global::{GmmConfig, Unloader};
 use crate::matmul::matmul_stage::StageMatmul;
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
@@ -53,8 +53,6 @@ where
         mut lhs_loader: LhsTensorLoader<EG, ES, G>,
         mut rhs_loader: RhsTensorLoader<EG, ES, G>,
         mut out_unloader: TensorUnloader<EG, G>,
-        x_offset: u32,
-        y_offset: u32,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
