@@ -26,6 +26,21 @@ pub fn test_matmul<MM, EG, B, G, R>(
 
     assert!(problem.m <= config.max_m() && problem.n <= config.max_n());
 
+    // Lhs
+    assert!(match problem.lhs_layout {
+        MatrixLayout::RowMajor => problem.k % problem.lhs_line_size as u32 == 0,
+        MatrixLayout::ColMajor => problem.m % problem.lhs_line_size as u32 == 0,
+    });
+
+    // Rhs
+    assert!(match problem.rhs_layout {
+        MatrixLayout::RowMajor => problem.n % problem.rhs_line_size as u32 == 0,
+        MatrixLayout::ColMajor => problem.k % problem.rhs_line_size as u32 == 0,
+    });
+
+    // Out
+    assert!(problem.n % problem.out_line_size as u32 == 0);
+
     let lhs_size = problem.m * problem.k;
     let rhs_size = problem.k * problem.n;
     let out_size = problem.m * problem.n;

@@ -97,7 +97,6 @@ macro_rules! testgen_cmma_internal {
             test_batch_matmul_g32x32x32_s16x16x16::<TestRuntime>(&Default::default())
         }
 
-
         #[test]
         pub fn test_batch_matmul_g32x32x32_s16x16x16() {
             matmul_test!(
@@ -122,6 +121,84 @@ macro_rules! testgen_cmma_internal {
                 AdvancedConfig::default()
             );
             test_batch_matmul_g32x32x32_s16x16x16::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_stage_matmul_g16x14x16_s16x16x16_rhs_col_major() {
+            matmul_test!(
+                test_batch_matmul_g14x16x16_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 14,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 2,
+                },
+                CubeDim::new(PLANE_DIM, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
+            );
+            test_batch_matmul_g14x16x16_s16x16x16::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_stage_matmul_g16x12x16_s16x16x16() {
+            matmul_test!(
+                test_batch_matmul_g14x16x16_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 12,
+                    k: 16,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(PLANE_DIM, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
+            );
+            test_batch_matmul_g14x16x16_s16x16x16::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_stage_matmul_g16x16x12_s16x16x16() {
+            matmul_test!(
+                test_batch_matmul_g14x16x16_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 12,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(PLANE_DIM, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
+            );
+            test_batch_matmul_g14x16x16_s16x16x16::<TestRuntime>(&Default::default())
         }
 
         #[test]
