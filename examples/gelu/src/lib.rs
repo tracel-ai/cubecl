@@ -1,9 +1,11 @@
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
+/// A [Line] represents a contiguous series of elements where SIMD operations may be available.
+/// The runtime will automatically use SIMD instructions when possible for improved performance.
 fn gelu_array<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
     if ABSOLUTE_POS < input.len() {
-        output[ABSOLUTE_POS] = gelu_scalar::<F>(input[ABSOLUTE_POS]);
+        output[ABSOLUTE_POS] = gelu_scalar(input[ABSOLUTE_POS]);
     }
 }
 
