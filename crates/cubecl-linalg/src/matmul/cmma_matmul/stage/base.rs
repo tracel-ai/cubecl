@@ -38,9 +38,9 @@ where
     StageSize: CmmaStageSize,
     S: SmmConfig,
 {
-    const M: u32 = StageSize::M;
-    const N: u32 = StageSize::N;
-    const K: u32 = StageSize::K;
+    const M: u32 = StageSize::NUM_M * TMM::M;
+    const N: u32 = StageSize::NUM_N * TMM::N;
+    const K: u32 = StageSize::NUM_K * TMM::K;
     type Accumulator = Sequence<TMM::Out>;
 
     fn execute(
@@ -49,13 +49,11 @@ where
         acc: &mut Self::Accumulator,
         #[comptime] config: S,
     ) {
-        let num_buffers = StageSize::K / TMM::K;
-
         let mut instruction_lhs = TMM::init_lhs(config.to_tmm_config());
         let mut instruction_rhs = TMM::init_rhs(config.to_tmm_config());
 
         #[unroll]
-        for buffer_iter in 0..num_buffers {
+        for buffer_iter in 0..StageSize::NUM_K {
             let tile_lhs =
                 LhsStageReader::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32, config);
             TMM::fill_lhs(tile_lhs, &mut instruction_lhs);
@@ -79,10 +77,9 @@ where
 
     fn acc_init_zeros() -> Self::Accumulator {
         let mut accumulators = Sequence::<TMM::Out>::new();
-        let num_accumulators = StageSize::N / TMM::N;
 
         #[unroll]
-        for _ in 0..num_accumulators {
+        for _ in 0..StageSize::NUM_N {
             accumulators.push(TMM::init_output());
         }
 
