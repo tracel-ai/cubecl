@@ -44,6 +44,8 @@ where
     SyncElapsed(Callback<TimestampsResult>),
     Sync(Callback<()>),
     GetMemoryUsage(Callback<MemoryUsage>),
+    EnableTimestamps,
+    DisableTimestamps,
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -92,6 +94,12 @@ where
                         }
                         Message::GetMemoryUsage(callback) => {
                             callback.send(server.memory_usage()).await.unwrap();
+                        }
+                        Message::EnableTimestamps => {
+                            server.enable_timestamps();
+                        }
+                        Message::DisableTimestamps => {
+                            server.disable_timestamps();
                         }
                     };
                 }
@@ -202,11 +210,17 @@ where
     }
 
     fn enable_timestamps(&self) {
-        todo!();
+        self.state
+            .sender
+            .send_blocking(Message::EnableTimestamps)
+            .unwrap();
     }
 
     fn disable_timestamps(&self) {
-        todo!();
+        self.state
+            .sender
+            .send_blocking(Message::DisableTimestamps)
+            .unwrap();
     }
 }
 

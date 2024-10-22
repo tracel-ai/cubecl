@@ -251,7 +251,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
                 return Box::pin(async move {
                     fut.await;
-                    Err(TimestampsError::Deactivated)
+                    Err(TimestampsError::Disabled)
                 });
             }
         };
@@ -449,11 +449,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         self.tasks_count += 1;
 
-        // Record the start time of the first compute pass.
-        // if self.command_start_time.is_none() {
-        //     self.command_start_time = Some(Instant::now());
-        // }
-
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
 
@@ -540,7 +535,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                     None => Ok(duration),
                 },
                 Err(err) => match err {
-                    TimestampsError::Deactivated => Err(err),
+                    TimestampsError::Disabled => Err(err),
                     TimestampsError::Unavailabled => match profiled {
                         Some(profiled) => Ok(profiled),
                         None => Err(err),

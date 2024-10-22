@@ -86,7 +86,6 @@ fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
     };
     println!("{}", bench.name());
     println!("{}", bench.run(TimingMethod::DeviceOnly));
-    println!("{}", bench.run(TimingMethod::Full));
 }
 
 fn main() {

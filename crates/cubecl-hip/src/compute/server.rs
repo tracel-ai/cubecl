@@ -235,7 +235,7 @@ impl ComputeServer for HipServer {
                 *start_time = Instant::now();
                 Ok(duration)
             }
-            KernelTimestamps::Disabled => Err(TimestampsError::Deactivated),
+            KernelTimestamps::Disabled => Err(TimestampsError::Disabled),
         };
 
         async move { duration }
@@ -258,7 +258,9 @@ impl ComputeServer for HipServer {
     }
 
     fn disable_timestamps(&mut self) {
-        self.ctx.timestamps.disable();
+        if self.logger.profile_level().is_none() {
+            self.ctx.timestamps.disable();
+        }
     }
 }
 

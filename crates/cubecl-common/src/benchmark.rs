@@ -32,7 +32,7 @@ impl Display for TimingMethod {
 #[derive(Debug)]
 pub enum TimestampsError {
     /// Collecting timestamps is disabled, make sure to enable it.
-    Deactivated,
+    Disabled,
     /// Collecting timestamps isn't available.
     Unavailabled,
     /// En unknown error occured while collecting timestamps.
@@ -240,7 +240,7 @@ pub trait Benchmark {
         match result {
             Ok(time) => time,
             Err(err) => match err {
-                TimestampsError::Deactivated => {
+                TimestampsError::Disabled => {
                     panic!("Collecting timestamps is deactivated, make sure to enable it before running the benchmark");
                 }
                 TimestampsError::Unavailabled => start.elapsed(),

@@ -92,15 +92,18 @@ enum MatmulKind {
 
 #[allow(dead_code)]
 fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
+    let client = R::client(&device);
+    client.enable_timestamps();
+
     let bench = UnaryBench::<R, E> {
         shape: vec![32, 512, 2048],
         vectorization,
-        client: R::client(&device),
+        client,
         device,
         _e: PhantomData,
     };
     println!("{}", bench.name());
-    println!("{}", bench.run(TimingMethod::Full));
+    println!("{}", bench.run(TimingMethod::DeviceOnly));
 }
 
 fn main() {
