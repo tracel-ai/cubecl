@@ -49,13 +49,17 @@ pub(crate) fn matmul_cpu_reference(lhs: &[f32], rhs: &[f32], problem: MatmulProb
     let m = problem.m as usize;
     let n = problem.n as usize;
     let k = problem.k as usize;
+    let b = problem.b as usize;
 
-    let mut out = vec![0.; m * n];
+    let mut out = vec![0.; m * n * b];
 
-    for i in 0..m {
-        for j in 0..n {
-            for k_ in 0..k {
-                out[i * n + j] += lhs[i * k + k_] * rhs[k_ * n + j];
+    for b_ in 0..b {
+        for i in 0..m {
+            for j in 0..n {
+                for k_ in 0..k {
+                    out[(b_ * m * n) + i * n + j] +=
+                        lhs[(b_ * m * k) + i * k + k_] * rhs[(b_ * k * n) + k_ * n + j];
+                }
             }
         }
     }

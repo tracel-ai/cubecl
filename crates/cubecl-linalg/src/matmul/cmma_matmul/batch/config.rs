@@ -13,6 +13,7 @@ pub struct CmmaBatchMatmulConfig<G: GmmConfig> {
     gmm_config: G,
     cube_count_x: u32,
     cube_count_y: u32,
+    cube_count_z: u32,
 }
 
 impl<G: GmmConfig> BmmConfig for CmmaBatchMatmulConfig<G> {
@@ -41,17 +42,22 @@ impl<G: GmmConfig> BmmConfig for CmmaBatchMatmulConfig<G> {
     fn max_n(&self) -> u32 {
         self.cube_count_y() * self.stage_dim(Ident::Out).num_elements_y_dim()
     }
+
+    fn max_batches(&self) -> u32 {
+        self.cube_count_z
+    }
 }
 
 impl<G: GmmConfig> ComptimeConfig for CmmaBatchMatmulConfig<G> {}
 impl<G: GmmConfig> MatmulConfig for CmmaBatchMatmulConfig<G> {}
 
 impl<G: GmmConfig> CmmaBatchMatmulConfig<G> {
-    pub fn new(gmm_config: G, cube_count_x: u32, cube_count_y: u32) -> Self {
+    pub fn new(gmm_config: G, cube_count_x: u32, cube_count_y: u32, cube_count_z: u32) -> Self {
         Self {
             gmm_config,
             cube_count_x,
             cube_count_y,
+            cube_count_z,
         }
     }
 }

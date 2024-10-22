@@ -25,6 +25,48 @@ pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, G: GmmConfig> {
 }
 
 #[cube]
+impl<EG: Numeric, ES: Numeric, G: GmmConfig> LhsTensorLoader<EG, ES, G> {
+    pub fn new(
+        tensor: Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: G,
+    ) -> Self {
+        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        let tensor_view = TensorView::new(tensor, x_offset, y_offset, nth_batch);
+
+        LhsTensorLoader::<EG, ES, G> {
+            tensor_view,
+            stage,
+            _e: PhantomData::<ES>.runtime(),
+            _config: PhantomData::<G>.runtime(),
+        }
+    }
+}
+
+#[cube]
+impl<EG: Numeric, ES: Numeric, G: GmmConfig> RhsTensorLoader<EG, ES, G> {
+    pub fn new(
+        tensor: Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: G,
+    ) -> Self {
+        let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+        let tensor_view = TensorView::new(tensor, x_offset, y_offset, nth_batch);
+
+        RhsTensorLoader::<EG, ES, G> {
+            tensor_view,
+            stage,
+            _e: PhantomData::<ES>.runtime(),
+            _config: PhantomData::<G>.runtime(),
+        }
+    }
+}
+
+#[cube]
 impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoader<EG, ES, G> {
     type StageReader = LhsStageReader<ES, G::SmmConfig>;
 
@@ -44,26 +86,6 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GmmConfig> LhsTensorLoader<EG, ES, G> {
-    pub fn new(
-        tensor: Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
-        #[comptime] config: G,
-    ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
-        let tensor_view = TensorView::new(tensor, x_offset, y_offset);
-
-        LhsTensorLoader::<EG, ES, G> {
-            tensor_view,
-            stage,
-            _e: PhantomData::<ES>.runtime(),
-            _config: PhantomData::<G>.runtime(),
-        }
-    }
-}
-
-#[cube]
 impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoader<EG, ES, G> {
     type StageReader = RhsStageReader<ES, G::SmmConfig>;
 
@@ -79,25 +101,5 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoad
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Rhs);
-    }
-}
-
-#[cube]
-impl<EG: Numeric, ES: Numeric, G: GmmConfig> RhsTensorLoader<EG, ES, G> {
-    pub fn new(
-        tensor: Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
-        #[comptime] config: G,
-    ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
-        let tensor_view = TensorView::new(tensor, x_offset, y_offset);
-
-        RhsTensorLoader::<EG, ES, G> {
-            tensor_view,
-            stage,
-            _e: PhantomData::<ES>.runtime(),
-            _config: PhantomData::<G>.runtime(),
-        }
     }
 }

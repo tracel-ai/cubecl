@@ -70,6 +70,117 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
+        pub fn test_batch_matmul_b3_g256x256x256_s64x64x32() {
+            matmul_test!(
+                test_batch_matmul_b3_g256x256x256_s64x64x32,
+                MatmulProblem {
+                    m: 256,
+                    n: 256,
+                    k: 256,
+                    b: 3,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(PLANE_DIM, 4, 1),
+                CubeCount::Static(4, 4, 3),
+                f32,
+                f32,
+                f32,
+                S64x64x32,
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
+            );
+            test_batch_matmul_b3_g256x256x256_s64x64x32::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_batch_matmul_b3_g16x16x16_s16x16x16_col_major() {
+            matmul_test!(
+                test_batch_matmul_b3_g16x16x16_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    b: 3,
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(PLANE_DIM, 1, 1),
+                CubeCount::Static(1, 1, 3),
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
+            );
+            test_batch_matmul_b3_g16x16x16_s16x16x16::<TestRuntime>(&Default::default())
+        }
+
+
+        #[test]
+        pub fn test_batch_matmul_b3_g16x16x16_s16x16x16() {
+            matmul_test!(
+                test_batch_matmul_b3_g16x16x16_s16x16x16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    b: 3,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(PLANE_DIM, 1, 1),
+                CubeCount::Static(1, 1, 3),
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
+            );
+            test_batch_matmul_b3_g16x16x16_s16x16x16::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_batch_matmul_g256x256x256_s64x64x32() {
+            matmul_test!(
+                test_batch_matmul_g256x256x256_s64x64x32,
+                MatmulProblem {
+                    m: 256,
+                    n: 256,
+                    k: 256,
+                    b: 1,
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(PLANE_DIM, 4, 1),
+                CubeCount::Static(4, 4, 1),
+                f32,
+                f32,
+                f32,
+                S64x64x32,
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig {
+                    tiling_order: TilingOrderConfig::YMajor
+                }
+            );
+            test_batch_matmul_g256x256x256_s64x64x32::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
         pub fn test_batch_matmul_g32x32x32_s16x16x16_col_y_major() {
             matmul_test!(
                 test_batch_matmul_g32x32x32_s16x16x16,
@@ -77,6 +188,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::ColMajor,
                     rhs_layout: MatrixLayout::ColMajor,
                     lhs_line_size: 4,
@@ -105,6 +217,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -131,6 +244,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 14,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::ColMajor,
                     lhs_line_size: 4,
@@ -157,6 +271,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 12,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -183,6 +298,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 16,
                     k: 12,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -209,6 +325,7 @@ macro_rules! testgen_cmma_internal {
                     m: 60,
                     n: 60,
                     k: 120,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -235,6 +352,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 16,
                     k: 36,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -262,6 +380,7 @@ macro_rules! testgen_cmma_internal {
                     m: 12,
                     n: 12,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -288,6 +407,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 16,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 1,
@@ -315,6 +435,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 16,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 2,
@@ -342,6 +463,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 16,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -369,6 +491,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -398,6 +521,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 16,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -425,6 +549,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 16,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::ColMajor,
                     rhs_layout: MatrixLayout::ColMajor,
                     lhs_line_size: 4,
@@ -452,6 +577,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 16,
                     k: 128,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -479,6 +605,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 16,
                     k: 128,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -506,6 +633,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 224,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -533,6 +661,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 32,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -560,6 +689,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -587,6 +717,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -614,6 +745,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 32,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -640,6 +772,7 @@ macro_rules! testgen_cmma_internal {
                     m: 16,
                     n: 16,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -665,6 +798,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::ColMajor,
                     lhs_line_size: 4,
@@ -691,6 +825,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::ColMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -717,6 +852,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::ColMajor,
                     rhs_layout: MatrixLayout::ColMajor,
                     lhs_line_size: 4,
@@ -743,6 +879,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 16,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -769,6 +906,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 8,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::ColMajor,
                     rhs_layout: MatrixLayout::ColMajor,
                     lhs_line_size: 1,
@@ -795,6 +933,7 @@ macro_rules! testgen_cmma_internal {
                     m: 128,
                     n: 16,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 1,
@@ -821,6 +960,7 @@ macro_rules! testgen_cmma_internal {
                     m: 64,
                     n: 64,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -847,6 +987,7 @@ macro_rules! testgen_cmma_internal {
                     m: 64,
                     n: 64,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -873,6 +1014,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -899,6 +1041,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 32,
                     k: 32,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -925,6 +1068,7 @@ macro_rules! testgen_cmma_internal {
                     m: 32,
                     n: 8,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
@@ -951,6 +1095,7 @@ macro_rules! testgen_cmma_internal {
                     m: 8,
                     n: 32,
                     k: 16,
+                    b: 1,
                     lhs_layout: MatrixLayout::RowMajor,
                     rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,

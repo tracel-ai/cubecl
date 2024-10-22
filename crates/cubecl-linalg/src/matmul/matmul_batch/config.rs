@@ -14,4 +14,5 @@ pub trait BmmConfig: ComptimeConfig + MatmulConfig {
 
     fn max_m(&self) -> u32;
     fn max_n(&self) -> u32;
+    fn max_batches(&self) -> u32;
 }

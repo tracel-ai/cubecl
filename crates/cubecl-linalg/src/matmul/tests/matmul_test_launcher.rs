@@ -23,45 +23,67 @@ pub fn test_matmul<MM, EG, B, G, R>(
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
+    problem.check_config::<B>(&config);
 
-    assert!(problem.m <= config.max_m() && problem.n <= config.max_n());
-
-    // Lhs
-    assert!(match problem.lhs_layout {
-        MatrixLayout::RowMajor => problem.k % problem.lhs_line_size as u32 == 0,
-        MatrixLayout::ColMajor => problem.m % problem.lhs_line_size as u32 == 0,
-    });
-
-    // Rhs
-    assert!(match problem.rhs_layout {
-        MatrixLayout::RowMajor => problem.n % problem.rhs_line_size as u32 == 0,
-        MatrixLayout::ColMajor => problem.k % problem.rhs_line_size as u32 == 0,
-    });
-
-    // Out
-    assert!(problem.n % problem.out_line_size as u32 == 0);
-
-    let lhs_size = problem.m * problem.k;
-    let rhs_size = problem.k * problem.n;
-    let out_size = problem.m * problem.n;
+    let lhs_size = problem.m * problem.k * problem.b;
+    let rhs_size = problem.k * problem.n * problem.b;
+    let out_size = problem.m * problem.n * problem.b;
 
     let lhs_original_data: Vec<f32> = generate_random_data(lhs_size as usize);
     let rhs_original_data: Vec<f32> = generate_random_data(rhs_size as usize);
 
     let (lhs_data, lhs_strides) = match problem.lhs_layout {
-        MatrixLayout::RowMajor => (lhs_original_data.clone(), [problem.k as usize, 1]),
+        MatrixLayout::RowMajor => (
+            lhs_original_data.clone(),
+            [
+                problem.m as usize * problem.k as usize,
+                problem.k as usize,
+                1,
+            ],
+        ),
         MatrixLayout::ColMajor => (
-            transpose::<f32>(&lhs_original_data, problem.m as usize, problem.k as usize),
-            [1, problem.m as usize],
+            transpose::<f32>(
+                &lhs_original_data,
+                problem.b as usize,
+                problem.m as usize,
+                problem.k as usize,
+            ),
+            [
+                problem.m as usize * problem.k as usize,
+                1,
+                problem.m as usize,
+            ],
         ),
     };
     let (rhs_data, rhs_strides) = match problem.rhs_layout {
-        MatrixLayout::RowMajor => (rhs_original_data.clone(), [problem.n as usize, 1]),
+        MatrixLayout::RowMajor => (
+            rhs_original_data.clone(),
+            [
+                problem.k as usize * problem.n as usize,
+                problem.n as usize,
+                1,
+            ],
+        ),
         MatrixLayout::ColMajor => (
-            transpose::<f32>(&rhs_original_data, problem.k as usize, problem.n as usize),
-            [1, problem.k as usize],
+            transpose::<f32>(
+                &rhs_original_data,
+                problem.b as usize,
+                problem.k as usize,
+                problem.n as usize,
+            ),
+            [
+                problem.k as usize * problem.n as usize,
+                1,
+                problem.k as usize,
+            ],
         ),
     };
+
+    let out_strides = [
+        problem.m as usize * problem.n as usize,
+        problem.n as usize,
+        1,
+    ];
 
     let lhs = client.create(EG::as_bytes(&EG::from_values(&lhs_data)));
     let rhs = client.create(EG::as_bytes(&EG::from_values(&rhs_data)));
@@ -75,19 +97,19 @@ pub fn test_matmul<MM, EG, B, G, R>(
             TensorArg::<R>::from_raw_parts(
                 &lhs,
                 &lhs_strides,
-                &[problem.m as usize, problem.k as usize],
+                &[problem.b as usize, problem.m as usize, problem.k as usize],
                 problem.lhs_line_size,
             ),
             TensorArg::<R>::from_raw_parts(
                 &rhs,
                 &rhs_strides,
-                &[problem.k as usize, problem.n as usize],
+                &[problem.b as usize, problem.k as usize, problem.n as usize],
                 problem.rhs_line_size,
             ),
             TensorArg::<R>::from_raw_parts(
                 &out,
-                &[problem.n as usize, 1],
-                &[problem.m as usize, problem.n as usize],
+                &out_strides,
+                &[problem.b as usize, problem.m as usize, problem.n as usize],
                 problem.out_line_size,
             ),
             config,
@@ -100,11 +122,13 @@ pub fn test_matmul<MM, EG, B, G, R>(
     }
 }
 
-fn transpose<E: Copy>(array: &[E], rows: usize, cols: usize) -> Vec<E> {
+fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> Vec<E> {
     let mut result = vec![array[0]; array.len()];
-    for i in 0..rows {
-        for j in 0..cols {
-            result[j * rows + i] = array[i * cols + j];
+    for b in 0..batches {
+        for i in 0..rows {
+            for j in 0..cols {
+                result[(b * rows * cols) + j * rows + i] = array[(b * rows * cols) + i * cols + j];
+            }
         }
     }
     result

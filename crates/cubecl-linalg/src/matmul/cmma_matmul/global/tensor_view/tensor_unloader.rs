@@ -27,9 +27,9 @@ impl<EG: Numeric, G: GmmConfig> Unloader<EG, G> for TensorUnloader<EG, G> {
 
 #[cube]
 impl<EG: Numeric, G: GmmConfig> TensorUnloader<EG, G> {
-    pub fn new(tensor: Tensor<Line<EG>>, x_offset: u32, y_offset: u32) -> Self {
+    pub fn new(tensor: Tensor<Line<EG>>, x_offset: u32, y_offset: u32, batch_offset: u32) -> Self {
         TensorUnloader::<EG, G> {
-            tensor_view: TensorView::new(tensor, x_offset, y_offset),
+            tensor_view: TensorView::new(tensor, x_offset, y_offset, batch_offset),
             _config: PhantomData::<G>.runtime(),
         }
     }

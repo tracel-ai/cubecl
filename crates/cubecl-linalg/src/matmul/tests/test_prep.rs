@@ -71,8 +71,9 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
     let plane_dim = cube_dim.x;
     let num_planes = cube_dim.y;
 
-    let (cube_count_x, cube_count_y) = if let CubeCount::Static(x, y, _) = cube_count {
-        (x, y)
+    let (cube_count_x, cube_count_y, cube_count_z) = if let CubeCount::Static(x, y, z) = cube_count
+    {
+        (x, y, z)
     } else {
         panic!("Dynamic cube count unsupported")
     };
@@ -95,7 +96,7 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
         check_m_bounds,
         check_n_bounds,
     );
-    let b = B::new(g, cube_count_x, cube_count_y);
+    let b = B::new(g, cube_count_x, cube_count_y, cube_count_z);
 
     test_matmul::<BMM, EG, B, G, R>(problem, cube_dim, cube_count, b, device);
 }

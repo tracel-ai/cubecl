@@ -12,16 +12,24 @@ pub struct TensorView<E: Numeric> {
     pub stride_y: u32,
     pub shape_x: u32,
     pub shape_y: u32,
+    pub batch_offset: u32,
 }
 
 #[cube]
 impl<EG: Numeric> TensorView<EG> {
-    pub fn new(tensor: Tensor<Line<EG>>, x_offset: u32, y_offset: u32) -> TensorView<EG> {
+    pub fn new(
+        tensor: Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+    ) -> TensorView<EG> {
         let rank = tensor.rank();
+        let stride_b = tensor.stride(rank - 3);
         let stride_x = tensor.stride(rank - 2);
         let stride_y = tensor.stride(rank - 1);
         let shape_x = tensor.shape(rank - 2);
         let shape_y = tensor.shape(rank - 1);
+        let batch_offset = stride_b * nth_batch;
 
         TensorView::<EG> {
             tensor,
@@ -31,6 +39,7 @@ impl<EG: Numeric> TensorView<EG> {
             stride_y,
             shape_x,
             shape_y,
+            batch_offset,
         }
     }
 
@@ -70,7 +79,8 @@ impl<EG: Numeric> TensorView<EG> {
         let view_x = view_tile_x + load_x;
         let view_y = view_tile_y + load_y;
 
-        let read_pos = (view_x * self.stride_x + view_y * self.stride_y) / line_size;
+        let read_pos =
+            (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
         select(
             view_x < self.shape_x && view_y < self.shape_y,
@@ -90,7 +100,8 @@ impl<EG: Numeric> TensorView<EG> {
         let view_x = write_x + self.x_offset;
         let view_y = write_y + self.y_offset;
 
-        let write_position = (view_x * self.stride_x + view_y * self.stride_y) / tensor.line_size();
+        let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
+            / tensor.line_size();
 
         if config.check_m_bounds() {
             if config.check_n_bounds() {
