@@ -13,7 +13,8 @@ macro_rules! testgen_cmma {
             CmmaInstruction8_32_16,
             f32,
             half::f16,
-            f32
+            f32,
+            32
         );
     };
 }
@@ -29,7 +30,8 @@ macro_rules! testgen_cmma_mock {
             DummyUnitInstruction8_32_16,
             f32,
             f32,
-            f32
+            f32,
+            16
         );
     };
 }

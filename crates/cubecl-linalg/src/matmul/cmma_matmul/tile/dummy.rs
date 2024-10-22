@@ -1,7 +1,7 @@
-use crate::matmul::matmul_tile::TmmConfig;
 use crate::matmul::matmul_tile::TileMatmul;
-use crate::matmul::matrix::MatrixLayout;
+use crate::matmul::matmul_tile::TmmConfig;
 use crate::matmul::matrix::Ident;
+use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -64,7 +64,7 @@ macro_rules! impl_matmul_instruction {
                     handle: Array::<O>::new(Self::M * Self::N),
                     x: Self::M.runtime(),
                     y: Self::N.runtime(),
-                    layout: DummyLayout::RowMajor.runtime()
+                    layout: DummyLayout::RowMajor.runtime(),
                 };
 
                 for i in 0..Self::M * Self::N {
@@ -94,9 +94,7 @@ macro_rules! impl_matmul_instruction {
         impl<I: Numeric, O: Numeric, T: TmmConfig> Matmul<I, O> for $name<I, O, T> {
             type Config = T;
 
-            fn check_config(config: Self::Config) {
-                let _ = comptime!(check_plane_dim(config.plane_dim()));
-            }
+            fn check_config(_config: Self::Config) {}
         }
     };
 }
@@ -148,7 +146,7 @@ pub(crate) fn execute<I: Numeric, O: Numeric>(
 #[derive(Copy, Clone)]
 pub enum DummyLayout {
     RowMajor,
-    ColMajor
+    ColMajor,
 }
 
 impl CubeType for DummyLayout {
@@ -175,19 +173,10 @@ pub fn as_dummy_layout(#[comptime] layout: MatrixLayout) -> DummyLayout {
     }
 }
 
-
 #[derive(CubeType)]
 pub struct OwnedTile<E: Numeric> {
     pub x: u32,
     pub y: u32,
     pub handle: Array<E>,
-    pub layout: DummyLayout
-}
-
-
-fn check_plane_dim(actual_plane_dim: u32) {
-    assert_eq!(32, actual_plane_dim, 
-        "Error: Expected plane dimension to be 32, but found {}. Please ensure that cube dimension x is set correctly.",
-        actual_plane_dim
-    );
+    pub layout: DummyLayout,
 }
