@@ -76,7 +76,7 @@ impl ComputeStorage for HipStorage {
         let offset = handle.offset();
         let size = handle.size();
 
-        let ptr = ptr + offset;
+        let ptr = ptr + offset as usize;
         let key = ActiveResource::new(ptr);
 
         self.activate_slices
