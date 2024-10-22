@@ -8,5 +8,6 @@
   - [Comptime](./core-features/comptime.md)
   - [Vectorization](./core-features/vectorization.md)
   - [Autotune](./core-features/autotune.md)
+  - [Hardware Features](./core-features/features.md)
 - [Language Support](./language-support/summary.md)
   - [Trait Support](./language-support/trait.md)

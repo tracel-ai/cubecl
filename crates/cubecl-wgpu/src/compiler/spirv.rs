@@ -18,7 +18,7 @@ use cubecl_core::{
     server::ComputeServer,
     ExecutionMode, Feature, Runtime,
 };
-use cubecl_runtime::ComputeRuntime;
+use cubecl_runtime::{ComputeRuntime, DeviceProperties};
 use wgpu::{
     hal::{self, vulkan},
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
@@ -139,6 +139,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
         _device: &wgpu::Device,
         props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
     ) {
+        register_types(props);
         let cmma = unsafe {
             adapter.as_hal::<hal::api::Vulkan, _, _>(|adapter| {
                 let adapter = adapter.expect("Can only use SPIR-V with Vulkan");
@@ -258,6 +259,27 @@ fn request_device(
         wgpu_adapter
             .create_device_from_hal(device, &descriptor, None)
             .expect("Failed to create wgpu device")
+    }
+}
+
+fn register_types(props: &mut DeviceProperties<Feature>) {
+    use cubecl_core::ir::{Elem, FloatKind, IntKind};
+
+    let supported_types = [
+        Elem::UInt,
+        Elem::Int(IntKind::I32),
+        Elem::Int(IntKind::I64),
+        Elem::AtomicInt(IntKind::I32),
+        Elem::AtomicInt(IntKind::I64),
+        Elem::AtomicUInt,
+        Elem::Float(FloatKind::F16),
+        Elem::Float(FloatKind::F32),
+        Elem::Float(FloatKind::F64),
+        Elem::Bool,
+    ];
+
+    for ty in supported_types {
+        props.register_feature(Feature::Type(ty));
     }
 }
 

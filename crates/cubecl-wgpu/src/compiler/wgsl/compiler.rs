@@ -10,8 +10,9 @@ use cubecl_core::{
     ir::{self as cube, HybridAllocator},
     prelude::CompiledKernel,
     server::ComputeServer,
+    Feature,
 };
-use cubecl_runtime::ExecutionMode;
+use cubecl_runtime::{DeviceProperties, ExecutionMode};
 use wgpu::{ComputePipeline, DeviceDescriptor, ShaderModuleDescriptor};
 
 /// Wgsl Compiler.
@@ -140,8 +141,26 @@ impl WgpuCompiler for WgslCompiler {
     fn register_features(
         _adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
-        _props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+        props: &mut DeviceProperties<Feature>,
     ) {
+        register_types(props);
+    }
+}
+
+fn register_types(props: &mut DeviceProperties<Feature>) {
+    use cubecl_core::ir::{Elem, FloatKind, IntKind};
+
+    let supported_types = [
+        Elem::UInt,
+        Elem::Int(IntKind::I32),
+        Elem::AtomicInt(IntKind::I32),
+        Elem::AtomicUInt,
+        Elem::Float(FloatKind::F32),
+        Elem::Bool,
+    ];
+
+    for ty in supported_types {
+        props.register_feature(Feature::Type(ty));
     }
 }
 
