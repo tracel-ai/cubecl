@@ -49,7 +49,7 @@ pub(crate) fn matmul_cpu_reference(lhs: &[f32], rhs: &[f32], problem: MatmulProb
     let m = problem.m as usize;
     let n = problem.n as usize;
     let k = problem.k as usize;
-    let b = problem.b as usize;
+    let b = problem.num_batches();
 
     let mut out = vec![0.; m * n * b];
 

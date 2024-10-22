@@ -24,12 +24,11 @@ impl<EG: Numeric> TensorView<EG> {
         nth_batch: u32,
     ) -> TensorView<EG> {
         let rank = tensor.rank();
-        let stride_b = tensor.stride(rank - 3);
         let stride_x = tensor.stride(rank - 2);
         let stride_y = tensor.stride(rank - 1);
         let shape_x = tensor.shape(rank - 2);
         let shape_y = tensor.shape(rank - 1);
-        let batch_offset = stride_b * nth_batch;
+        let stride_b = tensor.stride(rank - 3);
 
         TensorView::<EG> {
             tensor,
@@ -39,7 +38,7 @@ impl<EG: Numeric> TensorView<EG> {
             stride_y,
             shape_x,
             shape_y,
-            batch_offset,
+            batch_offset: nth_batch * stride_b,
         }
     }
 

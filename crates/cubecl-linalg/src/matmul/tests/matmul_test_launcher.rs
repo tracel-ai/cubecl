@@ -3,6 +3,7 @@ use cubecl_core::CubeElement;
 
 use crate::matmul::matmul_batch::BatchMatmul;
 use crate::matmul::matmul_batch::BmmConfig;
+use crate::matmul::matrix::Ident;
 use crate::matmul::matrix::MatrixLayout;
 use crate::matmul::problem::MatmulProblem;
 
@@ -25,93 +26,48 @@ pub fn test_matmul<MM, EG, B, G, R>(
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
     problem.check_config::<B>(&config);
 
-    let lhs_size = problem.m * problem.k * problem.b;
-    let rhs_size = problem.k * problem.n * problem.b;
-    let out_size = problem.m * problem.n * problem.b;
+    let lhs_shape = problem.shape(Ident::Lhs);
+    let rhs_shape = problem.shape(Ident::Rhs);
+    let out_shape = problem.shape(Ident::Out);
+    let lhs_strides = problem.strides(Ident::Lhs);
+    let rhs_strides = problem.strides(Ident::Rhs);
+    let out_strides = problem.strides(Ident::Out);
 
-    let lhs_original_data: Vec<f32> = generate_random_data(lhs_size as usize);
-    let rhs_original_data: Vec<f32> = generate_random_data(rhs_size as usize);
-
-    let (lhs_data, lhs_strides) = match problem.lhs_layout {
-        MatrixLayout::RowMajor => (
-            lhs_original_data.clone(),
-            [
-                problem.m as usize * problem.k as usize,
-                problem.k as usize,
-                1,
-            ],
-        ),
-        MatrixLayout::ColMajor => (
-            transpose::<f32>(
-                &lhs_original_data,
-                problem.b as usize,
-                problem.m as usize,
-                problem.k as usize,
-            ),
-            [
-                problem.m as usize * problem.k as usize,
-                1,
-                problem.m as usize,
-            ],
+    let lhs_original_data: Vec<f32> =
+        generate_random_data(problem.tensor_size(Ident::Lhs) as usize);
+    let lhs_data = match problem.lhs_layout {
+        MatrixLayout::RowMajor => lhs_original_data.clone(),
+        MatrixLayout::ColMajor => transpose::<f32>(
+            &lhs_original_data,
+            problem.num_batches() as usize,
+            problem.m as usize,
+            problem.k as usize,
         ),
     };
-    let (rhs_data, rhs_strides) = match problem.rhs_layout {
-        MatrixLayout::RowMajor => (
-            rhs_original_data.clone(),
-            [
-                problem.k as usize * problem.n as usize,
-                problem.n as usize,
-                1,
-            ],
-        ),
-        MatrixLayout::ColMajor => (
-            transpose::<f32>(
-                &rhs_original_data,
-                problem.b as usize,
-                problem.k as usize,
-                problem.n as usize,
-            ),
-            [
-                problem.k as usize * problem.n as usize,
-                1,
-                problem.k as usize,
-            ],
+    let rhs_original_data: Vec<f32> =
+        generate_random_data(problem.tensor_size(Ident::Rhs) as usize);
+    let rhs_data = match problem.rhs_layout {
+        MatrixLayout::RowMajor => rhs_original_data.clone(),
+        MatrixLayout::ColMajor => transpose::<f32>(
+            &rhs_original_data,
+            problem.num_batches() as usize,
+            problem.k as usize,
+            problem.n as usize,
         ),
     };
-
-    let out_strides = [
-        problem.m as usize * problem.n as usize,
-        problem.n as usize,
-        1,
-    ];
 
     let lhs = client.create(EG::as_bytes(&EG::from_values(&lhs_data)));
     let rhs = client.create(EG::as_bytes(&EG::from_values(&rhs_data)));
-    let out = client.empty(out_size as usize * EG::as_elem().size());
+    let out = client.empty(problem.tensor_size(Ident::Out) as usize * EG::as_elem().size());
 
     unsafe {
         MM::launch_unchecked(
             &client,
             cube_dim,
             cube_count,
-            TensorArg::<R>::from_raw_parts(
-                &lhs,
-                &lhs_strides,
-                &[problem.b as usize, problem.m as usize, problem.k as usize],
-                problem.lhs_line_size,
-            ),
-            TensorArg::<R>::from_raw_parts(
-                &rhs,
-                &rhs_strides,
-                &[problem.b as usize, problem.k as usize, problem.n as usize],
-                problem.rhs_line_size,
-            ),
-            TensorArg::<R>::from_raw_parts(
-                &out,
-                &out_strides,
-                &[problem.b as usize, problem.m as usize, problem.n as usize],
-                problem.out_line_size,
-            ),
+            TensorArg::<R>::from_raw_parts(&lhs, &lhs_strides, &lhs_shape, problem.lhs_line_size),
+            TensorArg::<R>::from_raw_parts(&rhs, &rhs_strides, &rhs_shape, problem.rhs_line_size),
+            TensorArg::<R>::from_raw_parts(&out, &out_strides, &out_shape, problem.out_line_size),
             config,
         );
     }

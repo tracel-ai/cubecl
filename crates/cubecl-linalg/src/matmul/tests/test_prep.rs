@@ -65,8 +65,8 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
     let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) =
         create_stage_dim(stage_m, stage_n, stage_k, tile_m, tile_n, tile_k);
 
-    let check_m_bounds = problem.m % stage_m != 0;
-    let check_n_bounds = problem.n % stage_n != 0;
+    let check_m_bounds = problem.m as u32 % stage_m != 0;
+    let check_n_bounds = problem.n as u32 % stage_n != 0;
 
     let plane_dim = cube_dim.x;
     let num_planes = cube_dim.y;
