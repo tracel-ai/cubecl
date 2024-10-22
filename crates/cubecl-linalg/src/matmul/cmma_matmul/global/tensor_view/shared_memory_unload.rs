@@ -21,7 +21,19 @@ impl PlaneMapper for SimpleSmemUnloader {
 
 #[cube]
 pub(crate) fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
-    view: &mut TensorView<EG>,
+    write_view: &mut TensorView<EG>,
+    slice: &Slice<'_, Line<ES>>,
+    row_tile_begin: u32,
+    col_tile_begin: u32,
+    #[comptime] config: G
+) {
+    SimpleSmemUnloader::unload_from_slice::<EG, ES, G>(write_view, slice, row_tile_begin, col_tile_begin, config);
+}
+
+#[cube]
+impl SimpleSmemUnloader {
+pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
+    write_view: &mut TensorView<EG>,
     slice: &Slice<'_, Line<ES>>,
     row_tile_begin: u32,
     col_tile_begin: u32,
@@ -43,46 +55,10 @@ pub(crate) fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
         let col = col_tile_begin + unit_write % stage_dim.tile_size_y;
 
         let value = slice[unit_write / out_line_size];
-        write_coalesced::<EG, ES, G>(view, row, col, value, config);
+        write_view.write_coalesced::<ES, G>(row, col, value, config);
     }
 }
-
-
-#[cube]
-fn write_coalesced<EG: Numeric, ES: Numeric, G: GmmConfig>(
-    view: &mut TensorView<EG>,
-    write_x: u32,
-    write_y: u32,
-    value: Line<ES>,
-    #[comptime] config: G
-) {
-    let tensor = &mut view.tensor;
-    let view_x = write_x + view.x_offset;
-    let view_y = write_y + view.y_offset;
-
-    let write_position = (view_x * view.stride_x + view_y * view.stride_y) / tensor.line_size();
-
-    if config.check_m_bounds() {
-        if config.check_n_bounds() {
-            if write_x < view.shape_x && write_y < view.shape_y {
-                tensor[write_position] = Line::cast_from(value);
-            }
-        } else {
-            if write_x < view.shape_x {
-                tensor[write_position] = Line::cast_from(value);
-            }
-        }
-    } else {
-        if config.check_n_bounds() {
-            if write_y < view.shape_y {
-                tensor[write_position] = Line::cast_from(value);
-            }
-        } else {
-            tensor[write_position] = Line::cast_from(value);
-        }
-    }
 }
-
 
 fn check_line_size(out_line_size: u32, slice_line_size: u32) {
     assert_eq!(out_line_size, slice_line_size, 

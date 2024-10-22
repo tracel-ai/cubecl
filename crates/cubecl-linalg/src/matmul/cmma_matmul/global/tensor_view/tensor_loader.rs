@@ -39,7 +39,7 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view::<EG>(k_offset, Ident::Lhs);
+        this.tensor_view.update_view(k_offset, Ident::Lhs);
     }
 }
 
@@ -76,7 +76,7 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoad
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view::<EG>(k_offset, Ident::Rhs);
+        this.tensor_view.update_view(k_offset, Ident::Rhs);
     }
 }
 
