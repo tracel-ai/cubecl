@@ -71,12 +71,12 @@ impl ComputeStorage for HipStorage {
     type Resource = HipResource;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let ptr = *self.memory.get(&handle.id).unwrap();
+        let ptr = (*self.memory.get(&handle.id).unwrap()) as u64;
 
         let offset = handle.offset();
         let size = handle.size();
 
-        let ptr = ptr.wrapping_add(offset as usize);
+        let ptr = ptr + offset;
         let key = ActiveResource::new(ptr);
 
         self.activate_slices
