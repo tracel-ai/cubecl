@@ -1,5 +1,7 @@
-pub mod base;
+mod base;
 mod config;
-pub mod dummy;
+mod dummy;
 
+pub use base::*;
 pub use config::*;
+pub use dummy::*;

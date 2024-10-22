@@ -1,33 +1,33 @@
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_cmma_internal {
-    () => {
-        use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmul;
-        use cubecl_linalg::matmul::cmma_matmul::batch::CmmaBatchMatmulConfig;
+    ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $eg:ty, $es:ty, $ea:ty) => {
         use cubecl_linalg::matmul::cmma_matmul::batch::CmmaBatchMatmul;
+        use cubecl_linalg::matmul::cmma_matmul::batch::CmmaBatchMatmulConfig;
+        use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmul;
         use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmulConfig;
         use cubecl_linalg::matmul::cmma_matmul::global::{
             LhsTensorLoader, RhsTensorLoader, TensorUnloader,
         };
         use cubecl_linalg::matmul::cmma_matmul::stage::CmmaStageMatmulConfig;
+        use cubecl_linalg::matmul::cmma_matmul::stage::TilingOrderConfig;
         use cubecl_linalg::matmul::cmma_matmul::stage::{
             CmmaStageMatmul, S128x128x16, S128x16x16, S16x16x16, S16x16x32, S16x32x16, S32x16x16,
             S32x32x16, S32x32x32, S32x8x16, S64x64x16, S64x64x32, S8x32x16,
         };
-        use cubecl_linalg::matmul::cmma_matmul::tile::dummy::{
-            DummyUnitInstruction16_16_16, DummyUnitInstruction32_8_16, DummyUnitInstruction8_32_16,
+        use cubecl_linalg::matmul::cmma_matmul::tile::{
+            $i_16x16x16, $i_32x8x16, $i_8x32x16,
         };
         use cubecl_linalg::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
         use cubecl_linalg::matmul::matmul_stage::StageMatmul;
         use cubecl_linalg::matmul::matmul_tile::TileMatmul;
         use cubecl_linalg::matmul::matrix::MatrixLayout;
         use cubecl_linalg::matmul::problem::MatmulProblem;
+        use cubecl_linalg::matmul::stage_dim::StageDim;
         use cubecl_linalg::matmul::tests::create_stage_dim;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
         use cubecl_linalg::matmul::tests::run_matmul_test;
         use cubecl_linalg::matmul::tests::AdvancedConfig;
-        use cubecl_linalg::matmul::cmma_matmul::stage::TilingOrderConfig;
-        use cubecl_linalg::matmul::stage_dim::StageDim;
 
         type T = CmmaTileMatmulConfig;
         type S = CmmaStageMatmulConfig<T>;
@@ -37,14 +37,14 @@ macro_rules! testgen_cmma_internal {
 
         macro_rules! matmul_test {
             (
-                                                        $test_name:ident,
-                                                        $problem:expr,
-                                                        $cube_dim:expr,
-                                                        $cube_count:expr,
-                                                        $eg:ty, $es:ty, $ea:ty, $stage_size:ty,
-                                                        $tile_matmul_type:ident,
-                                                        $advanded_config:expr
-                                                    ) => {
+                                                                        $test_name:ident,
+                                                                        $problem:expr,
+                                                                        $cube_dim:expr,
+                                                                        $cube_count:expr,
+                                                                        $stage_size:ty,
+                                                                        $tile_matmul_type:ident,
+                                                                        $advanded_config:expr
+                                                                    ) => {
                 pub fn $test_name<R: Runtime>(device: &R::Device) {
                     type T = CmmaTileMatmulConfig;
                     type S = CmmaStageMatmulConfig<T>;
@@ -62,17 +62,48 @@ macro_rules! testgen_cmma_internal {
                     type GlobalMatmul = CmmaGlobalMatmul<EG, ES, StageMatmul, G>;
                     type BatchMatmul = CmmaBatchMatmul<EG, ES, GlobalMatmul, B>;
 
-                    run_matmul_test::<EG, ES, EA, TileMatmul, StageMatmul, GlobalMatmul, BatchMatmul, R>(
-                        problem, $cube_dim, $cube_count, $advanded_config, device,
-                    );
+                    run_matmul_test::<
+                        EG,
+                        ES,
+                        EA,
+                        TileMatmul,
+                        StageMatmul,
+                        GlobalMatmul,
+                        BatchMatmul,
+                        R,
+                    >(problem, $cube_dim, $cube_count, $advanded_config, device);
                 }
             };
         }
 
         #[test]
+        pub fn test_batch_matmul_b3x4_g300x300x300_s64x64x32() {
+            matmul_test!(
+                test_batch_matmul_b3x4_g300x300x300_s64x64x32,
+                MatmulProblem {
+                    m: 300,
+                    n: 300,
+                    k: 300,
+                    b: vec![3, 4],
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(PLANE_DIM, 4, 1),
+                CubeCount::Static(5, 5, 12),
+                S64x64x32,
+                $i_16x16x16,
+                AdvancedConfig::default()
+            );
+            test_batch_matmul_b3x4_g300x300x300_s64x64x32::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
         pub fn test_batch_matmul_b3x4_g108x108x243_s64x64x32() {
             matmul_test!(
-                test_batch_matmul_b3x4_g256x256x256_s64x64x32,
+                test_batch_matmul_b3x4_g108x108x243_s64x64x32,
                 MatmulProblem {
                     m: 108,
                     n: 108,
@@ -86,14 +117,11 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 4, 1),
                 CubeCount::Static(2, 2, 1),
-                f32,
-                f32,
-                f32,
                 S64x64x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
-            test_batch_matmul_b3x4_g256x256x256_s64x64x32::<TestRuntime>(&Default::default())
+            test_batch_matmul_b3x4_g108x108x243_s64x64x32::<TestRuntime>(&Default::default())
         }
 
         #[test]
@@ -113,11 +141,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 4, 1),
                 CubeCount::Static(4, 4, 12),
-                f32,
-                f32,
-                f32,
                 S64x64x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_batch_matmul_b3x4_g256x256x256_s64x64x32::<TestRuntime>(&Default::default())
@@ -140,11 +165,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 4, 1),
                 CubeCount::Static(4, 4, 3),
-                f32,
-                f32,
-                f32,
                 S64x64x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_batch_matmul_b3_g256x256x256_s64x64x32::<TestRuntime>(&Default::default())
@@ -167,16 +189,12 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 3),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_batch_matmul_b3_g16x16x16_s16x16x16::<TestRuntime>(&Default::default())
         }
-
 
         #[test]
         pub fn test_batch_matmul_b3_g16x16x16_s16x16x16() {
@@ -195,11 +213,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 3),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_batch_matmul_b3_g16x16x16_s16x16x16::<TestRuntime>(&Default::default())
@@ -222,11 +237,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 4, 1),
                 CubeCount::Static(4, 4, 1),
-                f32,
-                f32,
-                f32,
                 S64x64x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig {
                     tiling_order: TilingOrderConfig::YMajor
                 }
@@ -251,11 +263,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(2, 2, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig {
                     tiling_order: TilingOrderConfig::YMajor
                 }
@@ -280,11 +289,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(2, 2, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_batch_matmul_g32x32x32_s16x16x16::<TestRuntime>(&Default::default())
@@ -307,11 +313,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_batch_matmul_g14x16x16_s16x16x16::<TestRuntime>(&Default::default())
@@ -334,11 +337,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_batch_matmul_g14x16x16_s16x16x16::<TestRuntime>(&Default::default())
@@ -361,11 +361,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_batch_matmul_g14x16x16_s16x16x16::<TestRuntime>(&Default::default())
@@ -388,11 +385,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 4, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S64x64x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_global_matmul_g60x60x120_s64x64x32::<TestRuntime>(&Default::default())
@@ -415,11 +409,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -443,11 +434,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_global_matmul_g12x12x16_s16x16x16::<TestRuntime>(&Default::default())
@@ -470,11 +458,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -498,11 +483,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -526,11 +508,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -554,11 +533,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig {
                     tiling_order: TilingOrderConfig::YMajor
                 }
@@ -584,11 +560,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -612,11 +585,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -640,11 +610,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -668,11 +635,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -696,11 +660,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -724,11 +685,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x32x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -752,11 +710,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -780,11 +735,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x32x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
 
@@ -808,11 +760,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x32x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s16x32x16::<TestRuntime>(&Default::default());
@@ -835,11 +784,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S16x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
         }
@@ -861,11 +807,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x32_row_col::<TestRuntime>(&Default::default());
@@ -888,11 +831,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x32_col_row::<TestRuntime>(&Default::default());
@@ -915,11 +855,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x32_col_col::<TestRuntime>(&Default::default());
@@ -942,11 +879,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s32x16x16::<TestRuntime>(&Default::default());
@@ -969,11 +903,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x8x16,
-                DummyUnitInstruction32_8_16,
+                $i_32x8x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s32x8x16_col_major::<TestRuntime>(&Default::default());
@@ -996,11 +927,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 8, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S128x16x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s128x16x16::<TestRuntime>(&Default::default());
@@ -1023,11 +951,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 4, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S64x64x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s64x64x16::<TestRuntime>(&Default::default());
@@ -1050,11 +975,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 4, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S64x64x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s64x64x32::<TestRuntime>(&Default::default());
@@ -1077,11 +999,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x32x16,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x16::<TestRuntime>(&Default::default());
@@ -1104,11 +1023,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 2, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x32x32,
-                DummyUnitInstruction16_16_16,
+                $i_16x16x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s32x32x32::<TestRuntime>(&Default::default());
@@ -1131,11 +1047,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S32x8x16,
-                DummyUnitInstruction32_8_16,
+                $i_32x8x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s32x8x16::<TestRuntime>(&Default::default());
@@ -1158,11 +1071,8 @@ macro_rules! testgen_cmma_internal {
                 },
                 CubeDim::new(PLANE_DIM, 1, 1),
                 CubeCount::Static(1, 1, 1),
-                f32,
-                f32,
-                f32,
                 S8x32x16,
-                DummyUnitInstruction8_32_16,
+                $i_8x32x16,
                 AdvancedConfig::default()
             );
             test_stage_matmul_s8x32x16::<TestRuntime>(&Default::default());
