@@ -26,9 +26,9 @@ pub fn kernel_shape_dim_4(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor
 }
 
 pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle1 = client.empty(12 * core::mem::size_of::<u32>() as u64);
-    let handle2 = client.empty(12 * core::mem::size_of::<u32>() as u64);
-    let handle3 = client.empty(12 * core::mem::size_of::<u32>() as u64);
+    let handle1 = client.empty(12 * core::mem::size_of::<u32>());
+    let handle2 = client.empty(12 * core::mem::size_of::<u32>());
+    let handle3 = client.empty(12 * core::mem::size_of::<u32>());
 
     unsafe {
         kernel_shape_dim_4::launch_unchecked::<R>(

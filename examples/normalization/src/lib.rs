@@ -12,8 +12,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
     let input_handle = client.create(f32::as_bytes(input));
-    let output_a_handle = client.empty((input.len() * core::mem::size_of::<f32>()) as u64);
-    let output_b_handle = client.empty((input.len() * core::mem::size_of::<f32>()) as u64);
+    let output_a_handle = client.empty(input.len() * core::mem::size_of::<f32>());
+    let output_b_handle = client.empty(input.len() * core::mem::size_of::<f32>());
 
     unsafe {
         norm_test::launch_unchecked::<f32, R>(

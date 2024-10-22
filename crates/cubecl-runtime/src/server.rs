@@ -34,7 +34,7 @@ where
     fn create(&mut self, data: &[u8]) -> Handle;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
-    fn empty(&mut self, size: u64) -> Handle;
+    fn empty(&mut self, size: usize) -> Handle;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///

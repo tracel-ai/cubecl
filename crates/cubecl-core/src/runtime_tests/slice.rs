@@ -50,7 +50,7 @@ pub fn slice_mut_len(output: &mut Array<u32>) {
 
 pub fn test_slice_select<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let input = client.create(f32::as_bytes(&[0.0, 1.0, 2.0, 3.0, 4.0]));
-    let output = client.empty(core::mem::size_of::<f32>() as u64);
+    let output = client.empty(core::mem::size_of::<f32>());
 
     unsafe {
         slice_select::launch::<R>(
@@ -70,7 +70,7 @@ pub fn test_slice_select<R: Runtime>(client: ComputeClient<R::Server, R::Channel
 
 pub fn test_slice_len<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let input = client.create(f32::as_bytes(&[0.0, 1.0, 2.0, 3.0, 4.0]));
-    let output = client.empty(core::mem::size_of::<u32>() as u64);
+    let output = client.empty(core::mem::size_of::<u32>());
 
     unsafe {
         slice_len::launch::<R>(
@@ -129,7 +129,7 @@ pub fn test_slice_mut_assign<R: Runtime>(client: ComputeClient<R::Server, R::Cha
 }
 
 pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let output = client.empty((core::mem::size_of::<u32>() * 4) as u64);
+    let output = client.empty(core::mem::size_of::<u32>() * 4);
 
     unsafe {
         slice_mut_len::launch::<R>(

@@ -55,7 +55,7 @@ where
         self.server.lock().create(data)
     }
 
-    fn empty(&self, size: u64) -> Handle {
+    fn empty(&self, size: usize) -> Handle {
         self.server.lock().empty(size)
     }
 

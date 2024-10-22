@@ -54,7 +54,7 @@ macro_rules! test_binary_impl {
             {
                 let lhs = &$lhs;
                 let rhs = &$rhs;
-                let output_handle = client.empty(($expected.len() * core::mem::size_of::<f32>()) as u64);
+                let output_handle = client.empty($expected.len() * core::mem::size_of::<f32>());
                 let lhs_handle = client.create(f32::as_bytes(lhs));
                 let rhs_handle = client.create(f32::as_bytes(rhs));
 

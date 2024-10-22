@@ -86,7 +86,7 @@ impl ComputeServer for HipServer {
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
-        let handle = self.empty(data.len() as u64);
+        let handle = self.empty(data.len());
         let ctx = self.get_context();
 
         let binding = handle.clone().binding();
@@ -108,7 +108,7 @@ impl ComputeServer for HipServer {
         handle
     }
 
-    fn empty(&mut self, size: u64) -> server::Handle {
+    fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
         let handle = ctx.memory_management.reserve(size, None);
         server::Handle::new(handle, None, None)

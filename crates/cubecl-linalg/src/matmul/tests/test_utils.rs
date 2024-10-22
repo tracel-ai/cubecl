@@ -61,7 +61,7 @@ pub(crate) fn create_empty<R: Runtime>(
     x: usize,
     y: usize,
 ) -> Handle {
-    client.empty((x * y * core::mem::size_of::<f32>()) as u64)
+    client.empty(x * y * core::mem::size_of::<f32>())
 }
 
 pub(crate) fn assert_equals<R: Runtime>(

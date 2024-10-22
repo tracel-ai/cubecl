@@ -52,7 +52,7 @@ macro_rules! test_unary_impl {
             $(
             {
                 let input = &$input;
-                let output_handle = client.empty((input.len() * core::mem::size_of::<f32>()) as u64);
+                let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
                 let input_handle = client.create(f32::as_bytes(input));
 
                 unsafe {

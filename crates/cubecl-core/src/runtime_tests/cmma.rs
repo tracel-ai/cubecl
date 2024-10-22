@@ -60,7 +60,7 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
 
     let lhs = client.create(f16::as_bytes(&lhs));
     let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty((core::mem::size_of::<f32>() * 256) as u64);
+    let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
         kernel_simple_1::launch::<R>(
