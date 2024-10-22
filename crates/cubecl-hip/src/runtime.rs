@@ -62,7 +62,7 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     };
     let storage = HipStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
-        max_page_size: max_memory / 4,
+        max_page_size: max_memory as u64 / 4,
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
     let memory_management = MemoryManagement::from_configuration(
