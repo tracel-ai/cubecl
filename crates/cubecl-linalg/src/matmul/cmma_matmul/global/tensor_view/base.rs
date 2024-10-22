@@ -104,17 +104,17 @@ impl<EG: Numeric> TensorView<EG> {
 
         if config.check_m_bounds() {
             if config.check_n_bounds() {
-                if write_x < self.shape_x && write_y < self.shape_y {
+                if view_x < self.shape_x && view_y < self.shape_y {
                     tensor[write_position] = Line::cast_from(value);
                 }
             } else {
-                if write_x < self.shape_x {
+                if view_x < self.shape_x {
                     tensor[write_position] = Line::cast_from(value);
                 }
             }
         } else {
             if config.check_n_bounds() {
-                if write_y < self.shape_y {
+                if view_y < self.shape_y {
                     tensor[write_position] = Line::cast_from(value);
                 }
             } else {

@@ -70,6 +70,33 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
+        pub fn test_batch_matmul_b3x4_g108x108x243_s64x64x32() {
+            matmul_test!(
+                test_batch_matmul_b3x4_g256x256x256_s64x64x32,
+                MatmulProblem {
+                    m: 108,
+                    n: 108,
+                    k: 243,
+                    b: vec![],
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(PLANE_DIM, 4, 1),
+                CubeCount::Static(2, 2, 1),
+                f32,
+                f32,
+                f32,
+                S64x64x32,
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig::default()
+            );
+            test_batch_matmul_b3x4_g256x256x256_s64x64x32::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
         pub fn test_batch_matmul_b3x4_g256x256x256_s64x64x32() {
             matmul_test!(
                 test_batch_matmul_b3x4_g256x256x256_s64x64x32,
