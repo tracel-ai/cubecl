@@ -104,7 +104,7 @@ impl ComputeServer for CudaServer {
 
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size, None);
+        let handle = ctx.memory_management.reserve(size as u64, None);
         server::Handle::new(handle, None, None)
     }
 

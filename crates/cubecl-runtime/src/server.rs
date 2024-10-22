@@ -70,14 +70,14 @@ pub struct Handle {
     /// Memory handle.
     pub memory: SliceHandle,
     /// Memory offset in bytes.
-    pub offset_start: Option<usize>,
+    pub offset_start: Option<u64>,
     /// Memory offset in bytes.
-    pub offset_end: Option<usize>,
+    pub offset_end: Option<u64>,
 }
 
 impl Handle {
     /// Add to the current offset in bytes.
-    pub fn offset_start(mut self, offset: usize) -> Self {
+    pub fn offset_start(mut self, offset: u64) -> Self {
         if let Some(val) = &mut self.offset_start {
             *val += offset;
         } else {
@@ -87,7 +87,7 @@ impl Handle {
         self
     }
     /// Add to the current offset in bytes.
-    pub fn offset_end(mut self, offset: usize) -> Self {
+    pub fn offset_end(mut self, offset: u64) -> Self {
         if let Some(val) = &mut self.offset_end {
             *val += offset;
         } else {
@@ -104,9 +104,9 @@ pub struct Binding {
     /// Memory binding.
     pub memory: SliceBinding,
     /// Memory offset in bytes.
-    pub offset_start: Option<usize>,
+    pub offset_start: Option<u64>,
     /// Memory offset in bytes.
-    pub offset_end: Option<usize>,
+    pub offset_end: Option<u64>,
 }
 
 impl Handle {

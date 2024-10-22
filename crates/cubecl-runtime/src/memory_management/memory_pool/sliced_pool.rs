@@ -16,16 +16,16 @@ pub(crate) struct SlicedPool {
     storage_index: SearchIndex<StorageId>,
     ring: RingBuffer,
     recently_added_pages: Vec<StorageId>,
-    recently_allocated_size: usize,
-    page_size: usize,
-    max_alloc_size: usize,
-    alignment: usize,
+    recently_allocated_size: u64,
+    page_size: u64,
+    max_alloc_size: u64,
+    alignment: u64,
 }
 
 // TODO: consider using generic trait and decouple from Slice
 #[derive(new, Debug)]
 pub(crate) struct MemoryPage {
-    pub(crate) slices: HashMap<usize, SliceId>,
+    pub(crate) slices: HashMap<u64, SliceId>,
 }
 
 impl MemoryPage {
@@ -33,7 +33,7 @@ impl MemoryPage {
     /// return a boolean representing if a merge happened
     pub(crate) fn merge_with_next_slice(
         &mut self,
-        first_slice_address: usize,
+        first_slice_address: u64,
         slices: &mut HashMap<SliceId, Slice>,
     ) -> bool {
         let first_slice_id = self.find_slice(first_slice_address).expect(
@@ -70,18 +70,18 @@ impl MemoryPage {
         false
     }
 
-    pub(crate) fn find_slice(&self, address: usize) -> Option<SliceId> {
+    pub(crate) fn find_slice(&self, address: u64) -> Option<SliceId> {
         let slice_id = self.slices.get(&address);
         slice_id.copied()
     }
 
-    pub(crate) fn insert_slice(&mut self, address: usize, slice: SliceId) {
+    pub(crate) fn insert_slice(&mut self, address: u64, slice: SliceId) {
         self.slices.insert(address, slice);
     }
 }
 
 impl MemoryPool for SlicedPool {
-    fn max_alloc_size(&self) -> usize {
+    fn max_alloc_size(&self) -> u64 {
         self.max_alloc_size
     }
 
@@ -97,7 +97,7 @@ impl MemoryPool for SlicedPool {
     fn reserve<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
-        size: usize,
+        size: u64,
         locked: Option<&MemoryLock>,
     ) -> SliceHandle {
         let slice = self.get_free_slice(size, locked);
@@ -150,7 +150,7 @@ impl MemoryPool for SlicedPool {
             .collect();
 
         MemoryUsage {
-            number_allocs: used_slices.len(),
+            number_allocs: used_slices.len() as u64,
             bytes_in_use: used_slices.iter().map(|s| s.storage.size()).sum(),
             bytes_padding: used_slices.iter().map(|s| s.padding).sum(),
             bytes_reserved: self.slices.iter().map(|s| s.1.storage.size()).sum(),
@@ -163,7 +163,7 @@ impl MemoryPool for SlicedPool {
 }
 
 impl SlicedPool {
-    pub(crate) fn new(page_size: usize, max_alloc_size: usize, alignment: usize) -> Self {
+    pub(crate) fn new(page_size: u64, max_alloc_size: u64, alignment: u64) -> Self {
         // Pages should be allocated to be aligned.
         assert_eq!(page_size % alignment, 0);
         Self {
@@ -227,7 +227,7 @@ impl SlicedPool {
     fn create_page<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
-        size: usize,
+        size: u64,
     ) -> StorageId {
         let storage = storage.alloc(self.page_size);
 
@@ -242,7 +242,7 @@ impl SlicedPool {
 }
 
 impl Slice {
-    pub(crate) fn split(&mut self, offset_slice: usize, buffer_alignment: usize) -> Option<Self> {
+    pub(crate) fn split(&mut self, offset_slice: u64, buffer_alignment: u64) -> Option<Self> {
         let size_new = self.effective_size() - offset_slice;
         let offset_new = self.storage.offset() + offset_slice;
         let old_size = self.effective_size();
@@ -279,7 +279,7 @@ impl Slice {
         Some(Slice::new(storage_new, handle, padding))
     }
 
-    pub(crate) fn next_slice_position(&self) -> usize {
+    pub(crate) fn next_slice_position(&self) -> u64 {
         self.storage.offset() + self.effective_size()
     }
 }

@@ -52,7 +52,11 @@ impl ComputeServer for DummyServer {
     }
 
     fn empty(&mut self, size: usize) -> Handle {
-        Handle::new(self.memory_management.reserve(size, None), None, None)
+        Handle::new(
+            self.memory_management.reserve(size as u64, None),
+            None,
+            None,
+        )
     }
 
     unsafe fn execute(

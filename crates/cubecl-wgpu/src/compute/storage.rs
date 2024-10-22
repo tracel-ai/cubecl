@@ -77,18 +77,18 @@ impl ComputeStorage for WgpuStorage {
     // See: https://github.com/gfx-rs/wgpu/issues/3508
     // NB: cudamalloc and co. actually align to _256_ bytes. Worth
     // trying this in the future to see if it reduces memory coalescing.
-    const ALIGNMENT: usize = 32;
+    const ALIGNMENT: u64 = 32;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let buffer = self.memory.get(&handle.id).unwrap();
-        WgpuResource::new(buffer.clone(), handle.offset() as u64, handle.size() as u64)
+        WgpuResource::new(buffer.clone(), handle.offset(), handle.size())
     }
 
-    fn alloc(&mut self, size: usize) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> StorageHandle {
         let id = StorageId::new();
         let buffer = Arc::new(self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: size as u64,
+            size,
             usage: wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC

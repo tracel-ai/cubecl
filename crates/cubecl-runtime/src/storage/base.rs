@@ -10,9 +10,9 @@ storage_id_type!(StorageId);
 #[derive(Clone, Debug)]
 pub struct StorageUtilization {
     /// The offset in bytes from the chunk start.
-    pub offset: usize,
+    pub offset: u64,
     /// The size of the slice in bytes.
-    pub size: usize,
+    pub size: u64,
 }
 
 /// Contains the [storage id](StorageId) of a resource and the way it is used.
@@ -26,17 +26,17 @@ pub struct StorageHandle {
 
 impl StorageHandle {
     /// Returns the size the handle is pointing to in memory.
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> u64 {
         self.utilization.size
     }
 
     /// Returns the size the handle is pointing to in memory.
-    pub fn offset(&self) -> usize {
+    pub fn offset(&self) -> u64 {
         self.utilization.offset
     }
 
     /// Increase the current offset with the given value in bytes.
-    pub fn offset_start(&self, offset_bytes: usize) -> Self {
+    pub fn offset_start(&self, offset_bytes: u64) -> Self {
         let utilization = StorageUtilization {
             offset: self.offset() + offset_bytes,
             size: self.size() - offset_bytes,
@@ -49,7 +49,7 @@ impl StorageHandle {
     }
 
     /// Reduce the size of the memory handle..
-    pub fn offset_end(&self, offset_bytes: usize) -> Self {
+    pub fn offset_end(&self, offset_bytes: u64) -> Self {
         let utilization = StorageUtilization {
             offset: self.offset(),
             size: self.size() - offset_bytes,
@@ -69,13 +69,13 @@ pub trait ComputeStorage: Send {
     type Resource: Send;
 
     /// The alignment memory is allocated with in this storage.
-    const ALIGNMENT: usize;
+    const ALIGNMENT: u64;
 
     /// Returns the underlying resource for a specified storage handle
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource;
 
     /// Allocates `size` units of memory and returns a handle to it
-    fn alloc(&mut self, size: usize) -> StorageHandle;
+    fn alloc(&mut self, size: u64) -> StorageHandle;
 
     /// Deallocates the memory pointed by the given storage id.
     fn dealloc(&mut self, id: StorageId);

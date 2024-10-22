@@ -32,7 +32,12 @@ struct AllocatedBytes {
 
 impl BytesResource {
     fn get_exact_location_and_length(&self) -> (*mut u8, usize) {
-        unsafe { (self.ptr.add(self.utilization.offset), self.utilization.size) }
+        unsafe {
+            (
+                self.ptr.add(self.utilization.offset as usize),
+                self.utilization.size as usize,
+            )
+        }
     }
 
     /// Returns the resource as a mutable slice of bytes.
@@ -53,7 +58,7 @@ impl BytesResource {
 impl ComputeStorage for BytesStorage {
     type Resource = BytesResource;
 
-    const ALIGNMENT: usize = 4;
+    const ALIGNMENT: u64 = 4;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let allocated_bytes = self.memory.get(&handle.id).unwrap();
@@ -64,7 +69,7 @@ impl ComputeStorage for BytesStorage {
         }
     }
 
-    fn alloc(&mut self, size: usize) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> StorageHandle {
         let id = StorageId::new();
         let handle = StorageHandle {
             id,
@@ -72,7 +77,7 @@ impl ComputeStorage for BytesStorage {
         };
 
         unsafe {
-            let layout = Layout::array::<u8>(size).unwrap();
+            let layout = Layout::array::<u8>(size as usize).unwrap();
             let ptr = alloc(layout);
             let memory = AllocatedBytes { ptr, layout };
 

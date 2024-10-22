@@ -80,7 +80,7 @@ impl MemoryPool for ExclusiveMemoryPool {
     fn reserve<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
-        size: usize,
+        size: u64,
         exclude: Option<&MemoryLock>,
     ) -> SliceHandle {
         let page = self.get_free_page(exclude);
@@ -99,11 +99,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         slice.handle.clone()
     }
 
-    fn alloc<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: usize,
-    ) -> SliceHandle {
+    fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
         let storage = storage.alloc(size);
         self.ring_buffer.push(storage.id);
 
@@ -132,14 +128,14 @@ impl MemoryPool for ExclusiveMemoryPool {
             .collect();
 
         MemoryUsage {
-            number_allocs: used_slices.len(),
+            number_allocs: used_slices.len() as u64,
             bytes_in_use: used_slices.iter().map(|s| s.storage.size()).sum(),
             bytes_padding: used_slices.iter().map(|s| s.padding).sum(),
-            bytes_reserved: self.pages.len() * self.max_page_size,
+            bytes_reserved: self.pages.len() as u64 * self.max_page_size,
         }
     }
 
-    fn max_alloc_size(&self) -> usize {
+    fn max_alloc_size(&self) -> u64 {
         self.max_page_size
     }
 

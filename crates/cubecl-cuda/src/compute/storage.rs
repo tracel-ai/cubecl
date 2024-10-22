@@ -111,13 +111,13 @@ impl ComputeStorage for CudaStorage {
     // 32 bytes is enough to handle a double4 worth of alignment.
     // NB: cudamalloc and co. actually align to _256_ bytes. Worth
     // trying this in the future to see if it reduces memory coalescing.
-    const ALIGNMENT: usize = 32;
+    const ALIGNMENT: u64 = 32;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = self.memory.get(&handle.id).unwrap();
 
-        let offset = handle.offset() as u64;
-        let size = handle.size() as u64;
+        let offset = handle.offset();
+        let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
 
         CudaResource::new(
@@ -128,9 +128,10 @@ impl ComputeStorage for CudaStorage {
         )
     }
 
-    fn alloc(&mut self, size: usize) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> StorageHandle {
         let id = StorageId::new();
-        let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size).unwrap() };
+        let ptr =
+            unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize).unwrap() };
         self.memory.insert(id, ptr);
         StorageHandle::new(id, StorageUtilization { offset: 0, size })
     }

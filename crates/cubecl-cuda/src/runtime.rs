@@ -64,7 +64,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
         cudarc::driver::sys::lib().cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
-        bytes.assume_init()
+        bytes.assume_init() as u64
     };
     let storage = CudaStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
