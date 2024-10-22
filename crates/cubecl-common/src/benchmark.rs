@@ -7,9 +7,32 @@ use serde::{Deserialize, Serialize};
 
 use super::stub::Duration;
 
+/// How a benchmark's execution times are measured.
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+pub enum TimingMethod {
+    /// Time measurements come from full timing of execution + sync
+    /// calls.
+    #[default]
+    Full,
+    /// Time measurements come from hardware reported timestamps
+    /// coming from a sync call.
+    DeviceOnly,
+}
+
+impl Display for TimingMethod {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TimingMethod::Full => f.write_str("full"),
+            TimingMethod::DeviceOnly => f.write_str("device_only"),
+        }
+    }
+}
+
 /// Results of a benchmark run.
 #[derive(new, Debug, Default, Clone, Serialize, Deserialize)]
 pub struct BenchmarkDurations {
+    /// How these durations were measured.
+    pub timing_method: TimingMethod,
     /// All durations of the run, in the order they were benchmarked
     pub durations: Vec<Duration>,
 }
@@ -56,11 +79,13 @@ impl Display for BenchmarkDurations {
             max,
         } = computed;
         let num_sample = self.durations.len();
+        let timing_method = self.timing_method;
 
         f.write_str(
             format!(
                 "
 ―――――――― Result ―――――――――
+  Timing      {timing_method}
   Samples     {num_sample}
   Mean        {mean:.3?}
   Variance    {variance:.3?}
@@ -134,10 +159,12 @@ pub trait Benchmark {
     fn shapes(&self) -> Vec<Vec<usize>> {
         vec![]
     }
-    /// Wait for computed to be over
-    fn sync(&self);
+    /// Wait for computation to complete and return hardware reported
+    /// computation duration.
+    fn sync(&self) -> Duration;
     /// Run the benchmark a number of times.
-    fn run(&self) -> BenchmarkDurations {
+    #[allow(unused_variables)]
+    fn run(&self, timing_method: TimingMethod) -> BenchmarkDurations {
         #[cfg(not(feature = "std"))]
         panic!("Attempting to run benchmark in a no-std environment");
         #[cfg(feature = "std")]
@@ -151,16 +178,34 @@ pub trait Benchmark {
             let mut durations = Vec::with_capacity(self.num_samples());
 
             for _ in 0..self.num_samples() {
-                self.sync();
-                let start = std::time::Instant::now();
-                self.execute(args.clone());
-                self.sync();
-                // Register the duration
-                durations.push(start.elapsed());
+                match timing_method {
+                    TimingMethod::Full => durations.push(self.run_one_full(args.clone())),
+                    TimingMethod::DeviceOnly => {
+                        durations.push(self.run_one_device_only(args.clone()))
+                    }
+                }
             }
 
-            BenchmarkDurations { durations }
+            BenchmarkDurations {
+                timing_method,
+                durations,
+            }
         }
+    }
+    #[cfg(feature = "std")]
+    /// Collect one sample directly measuring the full execute + sync
+    /// step.
+    fn run_one_full(&self, args: Self::Args) -> Duration {
+        let start = std::time::Instant::now();
+        self.execute(args);
+        self.sync();
+        start.elapsed()
+    }
+    /// Collect one sample using timing measurements reported by the
+    /// device.
+    fn run_one_device_only(&self, args: Self::Args) -> Duration {
+        self.execute(args);
+        self.sync()
     }
 }
 
@@ -201,7 +246,7 @@ impl Display for BenchmarkResult {
 
 #[cfg(feature = "std")]
 /// Runs the given benchmark on the device and prints result and information.
-pub fn run_benchmark<BM>(benchmark: BM) -> BenchmarkResult
+pub fn run_benchmark<BM>(benchmark: BM, timing_method: TimingMethod) -> BenchmarkResult
 where
     BM: Benchmark,
 {
@@ -214,7 +259,7 @@ where
         .output()
         .unwrap();
     let git_hash = String::from_utf8(output.stdout).unwrap().trim().to_string();
-    let durations = benchmark.run();
+    let durations = benchmark.run(timing_method);
     BenchmarkResult {
         raw: durations.clone(),
         computed: BenchmarkComputations::new(&durations),
@@ -234,6 +279,7 @@ mod tests {
     #[test]
     fn test_min_max_median_durations_even_number_of_samples() {
         let durations = BenchmarkDurations {
+            timing_method: TimingMethod::Full,
             durations: vec![
                 Duration::new(10, 0),
                 Duration::new(20, 0),
@@ -251,6 +297,7 @@ mod tests {
     #[test]
     fn test_min_max_median_durations_odd_number_of_samples() {
         let durations = BenchmarkDurations {
+            timing_method: TimingMethod::Full,
             durations: vec![
                 Duration::new(18, 5),
                 Duration::new(20, 0),
@@ -267,6 +314,7 @@ mod tests {
     #[test]
     fn test_mean_duration() {
         let durations = BenchmarkDurations {
+            timing_method: TimingMethod::Full,
             durations: vec![
                 Duration::new(10, 0),
                 Duration::new(20, 0),
@@ -281,6 +329,7 @@ mod tests {
     #[test]
     fn test_variance_duration() {
         let durations = BenchmarkDurations {
+            timing_method: TimingMethod::Full,
             durations: vec![
                 Duration::new(10, 0),
                 Duration::new(20, 0),

@@ -1,11 +1,13 @@
 use cubecl::prelude::*;
 use std::marker::PhantomData;
 
-use cubecl::benchmark::Benchmark;
+use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::frontend::Float;
 use cubecl::future;
 use cubecl_linalg::matmul;
 use cubecl_linalg::tensor::TensorHandle;
+
+use std::time::Duration;
 
 impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     type Args = (TensorHandle<R, E>, TensorHandle<R, E>);
@@ -41,8 +43,8 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
         format!("matmul-{}-{}-{:?}", R::name(), E::as_elem(), self.kind).to_lowercase()
     }
 
-    fn sync(&self) {
-        future::block_on(self.client.sync());
+    fn sync(&self) -> Duration {
+        future::block_on(self.client.sync())
     }
 }
 
@@ -78,7 +80,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
         _e: PhantomData,
     };
     println!("{}", bench.name());
-    println!("{}", bench.run());
+    println!("{}", bench.run(TimingMethod::Full));
 }
 
 fn main() {
