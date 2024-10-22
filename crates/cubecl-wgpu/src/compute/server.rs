@@ -203,7 +203,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         #[cfg(not(target_family = "wasm"))]
         {
             self.device.poll(wgpu::MaintainBase::Wait);
-            Box::pin(async move { () })
+            Box::pin(async move {})
         }
     }
 
@@ -236,7 +236,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                     });
 
                     self.encoder
-                        .resolve_query_set(&query_set, 0..2, &resolved, 0);
+                        .resolve_query_set(query_set, 0..2, &resolved, 0);
                     *init = false;
                     TimestampMethod::Buffer(resolved, size)
                 }

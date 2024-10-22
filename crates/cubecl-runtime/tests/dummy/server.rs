@@ -76,7 +76,7 @@ impl ComputeServer for DummyServer {
 
     #[allow(clippy::manual_async_fn)]
     fn sync(&mut self) -> impl Future<Output = ()> + 'static {
-        async move { () }
+        async move {}
     }
 
     #[allow(clippy::manual_async_fn)]

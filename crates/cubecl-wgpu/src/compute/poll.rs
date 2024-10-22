@@ -1,5 +1,5 @@
 #[cfg(not(target_family = "wasm"))]
-mod poll {
+mod _impl {
     use std::thread::JoinHandle;
 
     #[derive(Debug)]
@@ -57,7 +57,7 @@ mod poll {
 
 // On Wasm, the browser handles the polling loop, so we don't need anything.
 #[cfg(target_family = "wasm")]
-mod poll {
+mod _impl {
     #[derive(Debug)]
     pub struct WgpuPoll {}
     impl WgpuPoll {
@@ -70,4 +70,4 @@ mod poll {
     }
 }
 
-pub(crate) use poll::*;
+pub(crate) use _impl::*;

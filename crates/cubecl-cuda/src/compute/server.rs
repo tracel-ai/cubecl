@@ -214,7 +214,7 @@ impl ComputeServer for CudaServer {
 
         let ctx = self.get_context();
         ctx.sync();
-        async move { () }
+        async move {}
     }
 
     fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
