@@ -44,20 +44,22 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
 }
 
 #[cube]
-pub fn new_lhs_tensor_loader<EG: Numeric, ES: Numeric, G: GmmConfig>(
-    tensor: Tensor<Line<EG>>,
-    x_offset: u32,
-    y_offset: u32,
-    #[comptime] config: G,
-) -> LhsTensorLoader<EG, ES, G> {
-    let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
-    let tensor_view = TensorView::new(tensor, x_offset, y_offset);
+impl<EG: Numeric, ES: Numeric, G: GmmConfig> LhsTensorLoader<EG, ES, G> {
+    pub fn new(
+        tensor: Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        #[comptime] config: G,
+    ) -> Self {
+        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        let tensor_view = TensorView::new(tensor, x_offset, y_offset);
 
-    LhsTensorLoader::<EG, ES, G> {
-        tensor_view,
-        stage,
-        _e: PhantomData::<ES>.runtime(),
-        _config: PhantomData::<G>.runtime(),
+        LhsTensorLoader::<EG, ES, G> {
+            tensor_view,
+            stage,
+            _e: PhantomData::<ES>.runtime(),
+            _config: PhantomData::<G>.runtime(),
+        }
     }
 }
 
@@ -81,19 +83,21 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoad
 }
 
 #[cube]
-pub fn new_rhs_tensor_loader<EG: Numeric, ES: Numeric, G: GmmConfig>(
-    tensor: Tensor<Line<EG>>,
-    x_offset: u32,
-    y_offset: u32,
-    #[comptime] config: G,
-) -> RhsTensorLoader<EG, ES, G> {
-    let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
-    let tensor_view = TensorView::new(tensor, x_offset, y_offset);
+impl<EG: Numeric, ES: Numeric, G: GmmConfig> RhsTensorLoader<EG, ES, G> {
+    pub fn new(
+        tensor: Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        #[comptime] config: G,
+    ) -> Self {
+        let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+        let tensor_view = TensorView::new(tensor, x_offset, y_offset);
 
-    RhsTensorLoader::<EG, ES, G> {
-        tensor_view,
-        stage,
-        _e: PhantomData::<ES>.runtime(),
-        _config: PhantomData::<G>.runtime(),
+        RhsTensorLoader::<EG, ES, G> {
+            tensor_view,
+            stage,
+            _e: PhantomData::<ES>.runtime(),
+            _config: PhantomData::<G>.runtime(),
+        }
     }
 }

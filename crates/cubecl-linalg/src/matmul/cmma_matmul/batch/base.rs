@@ -1,9 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::cmma_matmul::global::{
-    new_lhs_tensor_loader, new_rhs_tensor_loader, new_tensor_unloader, LhsTensorLoader,
-    RhsTensorLoader, TensorUnloader,
-};
+use crate::matmul::cmma_matmul::global::{LhsTensorLoader, RhsTensorLoader, TensorUnloader};
 use crate::matmul::matmul_batch::{BatchMatmul, BmmConfig};
 use crate::matmul::matmul_global::GlobalMatmul;
 use crate::matmul::matrix::Ident;
@@ -57,9 +54,9 @@ impl<
         let k_range = (0, lhs.shape(lhs.rank() - 1));
 
         GMM::execute(
-            new_lhs_tensor_loader(lhs, x_offset, k_range.0, config.to_gmm_config()),
-            new_rhs_tensor_loader(rhs, k_range.0, y_offset, config.to_gmm_config()),
-            new_tensor_unloader(out, x_offset, y_offset),
+            LhsTensorLoader::new(lhs, x_offset, k_range.0, config.to_gmm_config()),
+            RhsTensorLoader::new(rhs, k_range.0, y_offset, config.to_gmm_config()),
+            TensorUnloader::new(out, x_offset, y_offset),
             k_range,
             config.to_gmm_config(),
         );

@@ -70,6 +70,35 @@ macro_rules! testgen_cmma_internal {
         }
 
         #[test]
+        pub fn test_batch_matmul_g32x32x32_s16x16x16_col_y_major() {
+            matmul_test!(
+                test_batch_matmul_g32x32x32_s16x16x16,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 32,
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(PLANE_DIM, 1, 1),
+                CubeCount::Static(2, 2, 1),
+                f32,
+                f32,
+                f32,
+                S16x16x16,
+                DummyUnitInstruction16_16_16,
+                AdvancedConfig {
+                    tiling_order: TilingOrderConfig::YMajor
+                }
+            );
+            test_batch_matmul_g32x32x32_s16x16x16::<TestRuntime>(&Default::default())
+        }
+
+
+        #[test]
         pub fn test_batch_matmul_g32x32x32_s16x16x16() {
             matmul_test!(
                 test_batch_matmul_g32x32x32_s16x16x16,
