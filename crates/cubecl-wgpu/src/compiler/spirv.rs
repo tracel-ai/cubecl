@@ -4,9 +4,9 @@ use ash::{
     khr::cooperative_matrix,
     vk::{
         ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo,
-        PhysicalDeviceCooperativeMatrixFeaturesKHR, PhysicalDeviceVulkan12Features,
-        PhysicalDeviceVulkanMemoryModelFeatures, ScopeKHR, EXT_ROBUSTNESS2_NAME,
-        KHR_COOPERATIVE_MATRIX_NAME,
+        PhysicalDevice16BitStorageFeatures, PhysicalDeviceCooperativeMatrixFeaturesKHR,
+        PhysicalDeviceShaderFloat16Int8Features, PhysicalDeviceVulkanMemoryModelFeatures, ScopeKHR,
+        EXT_ROBUSTNESS2_NAME, KHR_COOPERATIVE_MATRIX_NAME,
     },
 };
 use cubecl_core::{
@@ -179,9 +179,12 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
 fn request_device(
     wgpu_adapter: &wgpu::Adapter,
     adapter: &vulkan::Adapter,
-    features: Features,
+    mut features: Features,
     limits: Limits,
 ) -> (wgpu::Device, wgpu::Queue) {
+    // This registers only f16 but not u8/i8, so remove so we can manually add them
+    features.remove(Features::SHADER_F16);
+
     let has_cmma = adapter
         .physical_device_capabilities()
         .supports_extension(KHR_COOPERATIVE_MATRIX_NAME);
@@ -190,7 +193,11 @@ fn request_device(
     let mut mem_model = PhysicalDeviceVulkanMemoryModelFeatures::default()
         .vulkan_memory_model(true)
         .vulkan_memory_model_device_scope(true);
-    let mut f16 = PhysicalDeviceVulkan12Features::default().shader_float16(true);
+    let mut f16_i8 = PhysicalDeviceShaderFloat16Int8Features::default()
+        .shader_float16(true)
+        .shader_int8(true);
+    let mut buf_16 =
+        PhysicalDevice16BitStorageFeatures::default().storage_buffer16_bit_access(true);
 
     if has_cmma {
         device_extensions.push(KHR_COOPERATIVE_MATRIX_NAME);
@@ -199,6 +206,11 @@ fn request_device(
 
     let mut phys_features = adapter.physical_device_features(&device_extensions, features);
     let ash = adapter.shared_instance();
+
+    let supported_feat = unsafe {
+        ash.raw_instance()
+            .get_physical_device_features(adapter.raw_physical_device())
+    };
 
     let family_index = 0; //TODO
     let family_info = DeviceQueueCreateInfo::default()
@@ -218,8 +230,10 @@ fn request_device(
         .queue_create_infos(&family_infos)
         .enabled_extension_names(&str_pointers);
     let mut info = phys_features.add_to_device_create(pre_info);
+    info = info.enabled_features(&supported_feat);
     info = info.push_next(&mut mem_model);
-    info = info.push_next(&mut f16);
+    info = info.push_next(&mut f16_i8);
+    info = info.push_next(&mut buf_16);
 
     if let Some(cmma) = &mut cmma {
         info = info.push_next(cmma);
@@ -366,7 +380,7 @@ fn dump_spirv(compiled: &CompiledKernel<VkSpirvCompiler>, name: &str, id: cubecl
         hash::{DefaultHasher, Hash, Hasher},
     };
 
-    if let Ok(dir) = std::env::var("CUBCEL_DEBUG_SPIRV") {
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV") {
         let name = name
             .split("<")
             .take_while(|it| !it.ends_with("Runtime"))
@@ -387,7 +401,6 @@ fn dump_spirv(compiled: &CompiledKernel<VkSpirvCompiler>, name: &str, id: cubecl
         let repr = compiled.repr.as_ref().unwrap();
         let kernel = repr.assemble().into_iter();
         let kernel = kernel.flat_map(|it| it.to_le_bytes()).collect::<Vec<_>>();
-        println!("{name}");
         fs::write(format!("{dir}/{name}.spv"), kernel).unwrap();
         fs::write(
             format!("{dir}/{name}.ir.txt"),

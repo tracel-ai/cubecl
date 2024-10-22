@@ -276,12 +276,7 @@ impl Elem {
             Elem::Void => b.type_void(),
             Elem::Bool => b.type_bool(),
             Elem::Int(width, _) => b.type_int(*width, 0),
-            Elem::Float(width) => {
-                if *width == 16 {
-                    b.capabilities.insert(Capability::Float16);
-                }
-                b.type_float(*width)
-            }
+            Elem::Float(width) => b.type_float(*width),
         };
         if b.debug && !b.state.debug_types.contains(&id) {
             b.debug_name(id, format!("{self}"));
