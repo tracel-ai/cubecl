@@ -24,19 +24,8 @@ impl PlaneMapper for ContinuousSmemLoader {
 }
 
 #[cube]
-pub(crate) fn load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
-    view: &TensorView<EG>,
-    slice: &mut SliceMut<'_, Line<ES>>,
-    #[comptime] ident: Ident,
-    #[comptime] config: G,
-) {
-    // TODO allow other modes than continuous
-    ContinuousSmemLoader::load_to_slice::<EG, ES, G>(view, slice, ident, config);
-}
-
-#[cube]
 impl ContinuousSmemLoader {
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
+    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
         read_view: &TensorView<EG>,
         slice: &mut SliceMut<'_, Line<ES>>,
         #[comptime] ident: Ident,

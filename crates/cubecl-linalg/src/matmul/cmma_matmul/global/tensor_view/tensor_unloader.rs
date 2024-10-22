@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::global::unload_from_slice;
+use crate::matmul::cmma_matmul::global::SimpleSmemUnloader;
 use crate::matmul::matmul_global::{GmmConfig, Unloader};
 use crate::matmul::matmul_stage::StageWriter;
 use crate::matmul::matrix::Ident;
@@ -46,12 +46,12 @@ impl<EG: Numeric, G: GmmConfig> StageWriter<EG, G> for TensorUnloader<EG, G> {
         accumulator_offset: u32,
         #[comptime] config: G,
     ) {
-        unload_from_slice::<EG, ES, G>(
+        SimpleSmemUnloader::unload_from_slice::<EG, ES, G>(
             &mut this.tensor_view,
             slice,
             compute_plane_offset * config.stage_dim(Ident::Out).tile_size_x,
             accumulator_offset * config.stage_dim(Ident::Out).tile_size_y,
             config,
-        )
+        );
     }
 }

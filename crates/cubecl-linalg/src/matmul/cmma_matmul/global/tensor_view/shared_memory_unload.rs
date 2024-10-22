@@ -20,17 +20,6 @@ impl PlaneMapper for SimpleSmemUnloader {
 }
 
 #[cube]
-pub(crate) fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
-    write_view: &mut TensorView<EG>,
-    slice: &Slice<'_, Line<ES>>,
-    row_tile_begin: u32,
-    col_tile_begin: u32,
-    #[comptime] config: G
-) {
-    SimpleSmemUnloader::unload_from_slice::<EG, ES, G>(write_view, slice, row_tile_begin, col_tile_begin, config);
-}
-
-#[cube]
 impl SimpleSmemUnloader {
 pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
     write_view: &mut TensorView<EG>,
