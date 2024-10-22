@@ -41,7 +41,7 @@ impl ComputeServer for DummyServer {
     }
 
     fn create(&mut self, data: &[u8]) -> Handle {
-        let handle = self.empty(data.len());
+        let handle = self.empty(data.len() as u64);
         let resource = self.get_resource(handle.clone().binding());
         let bytes = resource.resource().write();
         for (i, val) in data.iter().enumerate() {
@@ -51,12 +51,8 @@ impl ComputeServer for DummyServer {
         handle
     }
 
-    fn empty(&mut self, size: usize) -> Handle {
-        Handle::new(
-            self.memory_management.reserve(size as u64, None),
-            None,
-            None,
-        )
+    fn empty(&mut self, size: u64) -> Handle {
+        Handle::new(self.memory_management.reserve(size, None), None, None)
     }
 
     unsafe fn execute(

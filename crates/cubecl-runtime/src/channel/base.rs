@@ -21,7 +21,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     fn create(&self, data: &[u8]) -> Handle;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them
-    fn empty(&self, size: usize) -> Handle;
+    fn empty(&self, size: u64) -> Handle;
 
     /// Executes the `kernel` over the given `bindings`.
     ///

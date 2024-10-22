@@ -37,7 +37,7 @@ where
     Read(Binding, Callback<Vec<u8>>),
     GetResource(Binding, Callback<BindingResource<Server>>),
     Create(Vec<u8>, Callback<Handle>),
-    Empty(usize, Callback<Handle>),
+    Empty(u64, Callback<Handle>),
     ExecuteKernel((Server::Kernel, CubeCount, ExecutionMode), Vec<Binding>),
     Flush,
     Sync(Callback<Duration>),
@@ -139,7 +139,7 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn empty(&self, size: usize) -> Handle {
+    fn empty(&self, size: u64) -> Handle {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender

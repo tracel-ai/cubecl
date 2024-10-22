@@ -36,8 +36,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
     let vectorization = 4;
-    let output_handle_1 = client.empty(input.len() * core::mem::size_of::<f32>());
-    let output_handle_2 = client.empty(input.len() * core::mem::size_of::<f32>());
+    let output_handle_1 = client.empty((input.len() * core::mem::size_of::<f32>()) as u64);
+    let output_handle_2 = client.empty((input.len() * core::mem::size_of::<f32>()) as u64);
     let input_handle = client.create(f32::as_bytes(input));
 
     let mut ops = Sequence::new();

@@ -189,7 +189,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let input = &[-1., 10., 1., 5.];
     let len = input.len();
 
-    let output = client.empty(input.len() * core::mem::size_of::<f32>());
+    let output = client.empty((input.len() * core::mem::size_of::<f32>()) as u64);
     let input = client.create(f32::as_bytes(input));
 
     for kind in [

@@ -67,7 +67,7 @@ where
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
-    pub fn empty(&self, size: usize) -> Handle {
+    pub fn empty(&self, size: u64) -> Handle {
         self.channel.empty(size)
     }
 

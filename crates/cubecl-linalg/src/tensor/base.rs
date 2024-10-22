@@ -126,7 +126,7 @@ where
         let num_elements: usize = shape.iter().product();
         let size = E::as_elem().size();
 
-        let handle = client.empty(size * num_elements);
+        let handle = client.empty((size * num_elements) as u64);
         let strides = Self::contiguous_strides(&shape);
 
         Self::new(shape, strides, handle)

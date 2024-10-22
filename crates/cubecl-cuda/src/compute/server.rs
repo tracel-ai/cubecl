@@ -85,7 +85,7 @@ impl ComputeServer for CudaServer {
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
-        let handle = self.empty(data.len());
+        let handle = self.empty(data.len() as u64);
         let ctx = self.get_context();
 
         let binding = handle.clone().binding();
@@ -102,9 +102,9 @@ impl ComputeServer for CudaServer {
         handle
     }
 
-    fn empty(&mut self, size: usize) -> server::Handle {
+    fn empty(&mut self, size: u64) -> server::Handle {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
+        let handle = ctx.memory_management.reserve(size, None);
         server::Handle::new(handle, None, None)
     }
 

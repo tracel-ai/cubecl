@@ -344,12 +344,8 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         Handle::new(memory, None, None)
     }
 
-    fn empty(&mut self, size: usize) -> server::Handle {
-        server::Handle::new(
-            self.memory_management.reserve(size as u64, None),
-            None,
-            None,
-        )
+    fn empty(&mut self, size: u64) -> server::Handle {
+        server::Handle::new(self.memory_management.reserve(size, None), None, None)
     }
 
     unsafe fn execute(
