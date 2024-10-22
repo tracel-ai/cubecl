@@ -1,5 +1,6 @@
-use core::time::Duration;
 use std::{sync::Arc, thread};
+
+use cubecl_common::benchmark::TimestampsResult;
 
 use super::ComputeChannel;
 use crate::{
@@ -40,7 +41,8 @@ where
     Empty(usize, Callback<Handle>),
     ExecuteKernel((Server::Kernel, CubeCount, ExecutionMode), Vec<Binding>),
     Flush,
-    Sync(Callback<Duration>),
+    SyncElapsed(Callback<TimestampsResult>),
+    Sync(Callback<()>),
     GetMemoryUsage(Callback<MemoryUsage>),
 }
 
@@ -77,9 +79,13 @@ where
                         Message::ExecuteKernel(kernel, bindings) => unsafe {
                             server.execute(kernel.0, kernel.1, bindings, kernel.2);
                         },
-                        Message::Sync(callback) => {
-                            let duration = server.sync().await;
+                        Message::SyncElapsed(callback) => {
+                            let duration = server.sync_elapsed().await;
                             callback.send(duration).await.unwrap();
+                        }
+                        Message::Sync(callback) => {
+                            server.sync().await;
+                            callback.send(()).await.unwrap();
                         }
                         Message::Flush => {
                             server.flush();
@@ -166,11 +172,21 @@ where
         self.state.sender.send_blocking(Message::Flush).unwrap()
     }
 
-    async fn sync(&self) -> Duration {
+    async fn sync(&self) {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
             .send(Message::Sync(callback))
+            .await
+            .unwrap();
+        handle_response(response.recv().await)
+    }
+
+    async fn sync_elapsed(&self) -> TimestampsResult {
+        let (callback, response) = async_channel::unbounded();
+        self.state
+            .sender
+            .send(Message::SyncElapsed(callback))
             .await
             .unwrap();
         handle_response(response.recv().await)
@@ -183,6 +199,14 @@ where
             .send_blocking(Message::GetMemoryUsage(callback))
             .unwrap();
         handle_response(response.recv_blocking())
+    }
+
+    fn enable_timestamps(&self) {
+        todo!();
+    }
+
+    fn disable_timestamps(&self) {
+        todo!();
     }
 }
 

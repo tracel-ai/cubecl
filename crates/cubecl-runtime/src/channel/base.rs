@@ -1,5 +1,5 @@
 use core::future::Future;
-use cubecl_common::stub::Duration;
+use cubecl_common::benchmark::TimestampsResult;
 
 use crate::{
     server::{Binding, ComputeServer, CubeCount, Handle},
@@ -39,11 +39,20 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Flush outstanding work of the server.
     fn flush(&self);
 
-    /// Perform some synchronization of commands on the server.
+    /// Wait for the completion of every task in the server.
+    fn sync(&self) -> impl Future<Output = ()> + Send;
+
+    /// Wait for the completion of every task in the server.
     ///
     /// Returns the (approximate) total amount of GPU work done since the last sync.
-    fn sync(&self) -> impl Future<Output = Duration> + Send;
+    fn sync_elapsed(&self) -> impl Future<Output = TimestampsResult> + Send;
 
     /// Get the current memory usage of the server.
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage;
+
+    /// Enable collecting timestamps.
+    fn enable_timestamps(&self);
+
+    /// Disable collecting timestamps.
+    fn disable_timestamps(&self);
 }

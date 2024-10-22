@@ -28,6 +28,20 @@ impl Display for TimingMethod {
     }
 }
 
+/// Error that can occured when collecting timestamps from a device.
+#[derive(Debug)]
+pub enum TimestampsError {
+    /// Collecting timestamps is disabled, make sure to enable it.
+    Deactivated,
+    /// Collecting timestamps isn't available.
+    Unavailabled,
+    /// En unknown error occured while collecting timestamps.
+    Unknown(String),
+}
+
+/// Result when collecting timestamps.
+pub type TimestampsResult = Result<Duration, TimestampsError>;
+
 /// Results of a benchmark run.
 #[derive(new, Debug, Default, Clone, Serialize, Deserialize)]
 pub struct BenchmarkDurations {
@@ -159,9 +173,15 @@ pub trait Benchmark {
     fn shapes(&self) -> Vec<Vec<usize>> {
         vec![]
     }
+    /// Wait for computation to complete.
+    fn sync(&self);
+
     /// Wait for computation to complete and return hardware reported
     /// computation duration.
-    fn sync(&self) -> Duration;
+    fn sync_elapsed(&self) -> TimestampsResult {
+        Err(TimestampsError::Unavailabled)
+    }
+
     /// Run the benchmark a number of times.
     #[allow(unused_variables)]
     fn run(&self, timing_method: TimingMethod) -> BenchmarkDurations {
@@ -173,7 +193,13 @@ pub trait Benchmark {
             let args = self.prepare();
 
             self.execute(args.clone());
-            self.sync();
+
+            match timing_method {
+                TimingMethod::Full => self.sync(),
+                TimingMethod::DeviceOnly => {
+                    let _ = self.sync_elapsed();
+                }
+            }
 
             let mut durations = Vec::with_capacity(self.num_samples());
 
@@ -203,9 +229,26 @@ pub trait Benchmark {
     }
     /// Collect one sample using timing measurements reported by the
     /// device.
+    #[cfg(feature = "std")]
     fn run_one_device_only(&self, args: Self::Args) -> Duration {
+        let start = std::time::Instant::now();
+
         self.execute(args);
-        self.sync()
+
+        let result = self.sync_elapsed();
+
+        match result {
+            Ok(time) => time,
+            Err(err) => match err {
+                TimestampsError::Deactivated => {
+                    panic!("Collecting timestamps is deactivated, make sure to enable it before running the benchmark");
+                }
+                TimestampsError::Unavailabled => start.elapsed(),
+                TimestampsError::Unknown(err) => {
+                    panic!("An unknown error occured while collecting the timestamps when benchmarking: {err}");
+                }
+            },
+        }
     }
 }
 
@@ -246,7 +289,7 @@ impl Display for BenchmarkResult {
 
 #[cfg(feature = "std")]
 /// Runs the given benchmark on the device and prints result and information.
-pub fn run_benchmark<BM>(benchmark: BM, timing_method: TimingMethod) -> BenchmarkResult
+pub fn run_benchmark<BM>(benchmark: BM) -> BenchmarkResult
 where
     BM: Benchmark,
 {
@@ -259,7 +302,8 @@ where
         .output()
         .unwrap();
     let git_hash = String::from_utf8(output.stdout).unwrap().trim().to_string();
-    let durations = benchmark.run(timing_method);
+    let durations = benchmark.run(TimingMethod::Full);
+
     BenchmarkResult {
         raw: durations.clone(),
         computed: BenchmarkComputations::new(&durations),

@@ -1,7 +1,6 @@
-use cubecl_common::stub::Duration;
+use cubecl_runtime::TimestampsResult;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Instant;
 
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::server::CubeCount;
@@ -21,7 +20,6 @@ use super::DummyKernel;
 #[derive(new, Debug)]
 pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
-    computation_start: Option<Instant>,
 }
 
 impl ComputeServer for DummyServer {
@@ -62,10 +60,6 @@ impl ComputeServer for DummyServer {
         bindings: Vec<Binding>,
         _mode: ExecutionMode,
     ) {
-        if self.computation_start.is_none() {
-            self.computation_start = Some(Instant::now());
-        }
-
         let bind_resources = bindings
             .into_iter()
             .map(|binding| self.get_resource(binding))
@@ -81,17 +75,20 @@ impl ComputeServer for DummyServer {
     }
 
     #[allow(clippy::manual_async_fn)]
-    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
-        // Nothing to do with dummy backend.
-        let duration = self
-            .computation_start
-            .map(|f| f.elapsed())
-            .unwrap_or(Duration::from_secs_f32(0.0));
-        self.computation_start = None;
-        async move { duration }
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+        async move { () }
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
+        async move { Err(cubecl_runtime::TimestampsError::Unavailabled) }
     }
 
     fn memory_usage(&self) -> MemoryUsage {
         self.memory_management.memory_usage()
     }
+
+    fn enable_timestamps(&mut self) {}
+
+    fn disable_timestamps(&mut self) {}
 }

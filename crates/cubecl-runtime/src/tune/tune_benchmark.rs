@@ -25,13 +25,22 @@ impl<S: ComputeServer, C: ComputeChannel<S>, Out> TuneBenchmark<S, C, Out> {
         let num_samples = 10;
 
         let mut durations = vec![];
+        self.client.enable_timestamps();
+
         for _ in 0..num_samples {
-            self.client.sync().await;
+            let _ = self.client.sync_elapsed().await;
             AutotuneOperation::execute(self.operation.clone());
             // For benchmarks - we need to wait for all tasks to complete before returning.
-            let duration = self.client.sync().await;
+            let duration = self
+                .client
+                .sync_elapsed()
+                .await
+                .expect("Timestamps to be enabled");
             durations.push(duration);
         }
+
+        self.client.disable_timestamps();
+
         BenchmarkDurations {
             timing_method: TimingMethod::DeviceOnly,
             durations,

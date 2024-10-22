@@ -9,11 +9,11 @@ use cubecl_core::{prelude::*, KernelId};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::ExecutionMode;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
+use cubecl_runtime::{ExecutionMode, TimestampsError, TimestampsResult};
 use cudarc::driver::sys::CUctx_st;
 use cudarc::driver::sys::CUfunc_st;
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct CudaServer {
@@ -35,8 +35,30 @@ pub(crate) struct CudaContext {
     stream: cudarc::driver::sys::CUstream,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
-    work_start_time: Option<Instant>,
+    timestamps: KernelTimestamps,
     pub(crate) arch: u32,
+}
+
+#[derive(Debug)]
+enum KernelTimestamps {
+    Inferred { start_time: Instant },
+    Disabled,
+}
+
+impl KernelTimestamps {
+    fn enable(&mut self) {
+        if !matches!(self, Self::Disabled) {
+            return;
+        }
+
+        *self = Self::Inferred {
+            start_time: Instant::now(),
+        };
+    }
+
+    fn disable(&mut self) {
+        *self = Self::Disabled;
+    }
 }
 
 #[derive(Debug)]
@@ -158,10 +180,6 @@ impl ComputeServer for CudaServer {
             })
             .collect::<Vec<_>>();
 
-        if ctx.work_start_time.is_none() {
-            ctx.work_start_time = Some(Instant::now());
-        }
-
         if let Some(level) = profile_level {
             ctx.sync();
             let start = std::time::SystemTime::now();
@@ -191,16 +209,29 @@ impl ComputeServer for CudaServer {
 
     fn flush(&mut self) {}
 
-    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
         self.logger.profile_summary();
 
         let ctx = self.get_context();
         ctx.sync();
-        let duration = ctx
-            .work_start_time
-            .map(|t| t.elapsed())
-            .unwrap_or(Duration::from_secs_f32(0.0));
-        ctx.work_start_time = None;
+        async move { () }
+    }
+
+    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
+        self.logger.profile_summary();
+
+        let ctx = self.get_context();
+        ctx.sync();
+
+        let duration = match &mut ctx.timestamps {
+            KernelTimestamps::Inferred { start_time } => {
+                let duration = start_time.elapsed();
+                *start_time = Instant::now();
+                Ok(duration)
+            }
+            KernelTimestamps::Disabled => Err(TimestampsError::Deactivated),
+        };
+
         async move { duration }
     }
 
@@ -219,6 +250,14 @@ impl ComputeServer for CudaServer {
     fn memory_usage(&self) -> MemoryUsage {
         self.ctx.memory_usage()
     }
+
+    fn enable_timestamps(&mut self) {
+        self.ctx.timestamps.enable();
+    }
+
+    fn disable_timestamps(&mut self) {
+        self.ctx.timestamps.disable();
+    }
 }
 
 impl CudaContext {
@@ -234,7 +273,7 @@ impl CudaContext {
             module_names: HashMap::new(),
             stream,
             arch,
-            work_start_time: None,
+            timestamps: KernelTimestamps::Disabled,
         }
     }
 
@@ -339,11 +378,12 @@ impl CudaContext {
 
 impl CudaServer {
     /// Create a new cuda server.
-    pub(crate) fn new(ctx: CudaContext) -> Self {
-        Self {
-            ctx,
-            logger: DebugLogger::default(),
+    pub(crate) fn new(mut ctx: CudaContext) -> Self {
+        let logger = DebugLogger::default();
+        if logger.profile_level().is_some() {
+            ctx.timestamps.enable();
         }
+        Self { ctx, logger }
     }
 
     fn get_context(&mut self) -> &mut CudaContext {

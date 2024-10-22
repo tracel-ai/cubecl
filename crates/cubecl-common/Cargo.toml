@@ -27,6 +27,7 @@ derive-new = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 spin = { workspace = true }         # using in place of use std::sync::Mutex;
+log = { workspace = true }
 
 # Only activate futures for std env
 futures-lite = { workspace = true, features = ["std"], default-features = false, optional = true }
