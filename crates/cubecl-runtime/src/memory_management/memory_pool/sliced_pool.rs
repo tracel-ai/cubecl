@@ -108,11 +108,7 @@ impl MemoryPool for SlicedPool {
         }
     }
 
-    fn alloc<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: usize,
-    ) -> SliceHandle {
+    fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
         let storage_id = self.create_page(storage, self.page_size);
         self.recently_added_pages.push(storage_id);
         self.recently_allocated_size += self.page_size;
@@ -184,7 +180,7 @@ impl SlicedPool {
     }
 
     /// Finds a free slice that can contain the given size
-    fn get_free_slice(&mut self, size: usize, locked: Option<&MemoryLock>) -> Option<SliceHandle> {
+    fn get_free_slice(&mut self, size: u64, locked: Option<&MemoryLock>) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
@@ -208,7 +204,7 @@ impl SlicedPool {
     }
 
     /// Creates a slice of size `size` upon the given page with the given offset.
-    fn create_slice(&self, offset: usize, size: usize, storage_id: StorageId) -> Slice {
+    fn create_slice(&self, offset: u64, size: u64, storage_id: StorageId) -> Slice {
         assert_eq!(
             offset % self.alignment,
             0,

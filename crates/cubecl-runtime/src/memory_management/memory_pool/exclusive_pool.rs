@@ -16,8 +16,8 @@ pub struct ExclusiveMemoryPool {
     slices: HashMap<SliceId, Slice>,
     ring_buffer: Vec<StorageId>,
     index: usize,
-    max_page_size: usize,
-    alignment: usize,
+    max_page_size: u64,
+    alignment: u64,
     dealloc_period: u64,
     last_dealloc: u64,
 }
@@ -28,7 +28,7 @@ struct MemoryPage {
 }
 
 impl ExclusiveMemoryPool {
-    pub(crate) fn new(page_size: usize, alignment: usize, dealloc_period: u64) -> Self {
+    pub(crate) fn new(page_size: u64, alignment: u64, dealloc_period: u64) -> Self {
         // Pages should be allocated to be aligned.
         assert_eq!(page_size % alignment, 0);
         Self {

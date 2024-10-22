@@ -17,7 +17,7 @@ enum DynamicPool {
 // This guarantees that _for bins in use_, the wasted space is at most 12.5%. So as long
 // as bins have a high use rate this should be fairly efficient. That said, currently slices in
 // bins don't deallocate, so there is a chance more memory than needed is used.
-const EXP_BIN_SIZES: [usize; 200] = [
+const EXP_BIN_SIZES: [u64; 200] = [
     128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384, 416, 448, 480, 512, 576, 640,
     704, 768, 832, 896, 960, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2304, 2560,
     2816, 3072, 3328, 3584, 3840, 4096, 4608, 5120, 5632, 6144, 6656, 7168, 7680, 8192, 9216,
@@ -61,11 +61,7 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn alloc<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: usize,
-    ) -> SliceHandle {
+    fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
             DynamicPool::Exclusive(m) => m.alloc(storage, size),
@@ -100,7 +96,7 @@ pub struct MemoryManagement<Storage> {
     alloc_reserve_count: u64,
 }
 
-fn round_up_to_multiple(value: usize, multiple: usize) -> usize {
+fn round_up_to_multiple(value: u64, multiple: u64) -> u64 {
     ((value + multiple - 1) / multiple) * multiple
 }
 
@@ -116,11 +112,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             MemoryConfiguration::SubSlices => {
                 // Round chunk size to be aligned.
                 let memory_alignment = properties.alignment;
-                let max_page = round_up_to_multiple(properties.max_page_size, memory_alignment);
+                let max_page = properties.max_page_size;
 
                 let mut pools = Vec::new();
                 pools.push(MemoryPoolOptions {
-                    page_size: max_page,
+                    page_size: max_page / memory_alignment * memory_alignment, // align the size to max_page.
                     chunk_num_prealloc: 0,
                     pool_type: PoolType::SlicedPages {
                         max_slice_size: max_page,
@@ -169,11 +165,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     .map(|size| round_up_to_multiple(size, memory_alignment))
                     .take_while(|&size| size < properties.max_page_size)
                     .collect();
-                // Add an exact max_page and add max_page as bin.
-                sizes.insert(round_up_to_multiple(
-                    properties.max_page_size,
-                    memory_alignment,
-                ));
+
                 // Add in one pool for all massive allocations.
                 sizes
                     .iter()
