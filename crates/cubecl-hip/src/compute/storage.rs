@@ -66,15 +66,15 @@ pub struct HipResource {
 unsafe impl Send for HipResource {}
 
 impl ComputeStorage for HipStorage {
-    const ALIGNMENT: usize = 4;
+    const ALIGNMENT: u64 = 4;
 
     type Resource = HipResource;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let ptr = *self.memory.get(&handle.id).unwrap() as u64;
+        let ptr = (*self.memory.get(&handle.id).unwrap()) as u64;
 
-        let offset = handle.offset() as u64;
-        let size = handle.size() as u64;
+        let offset = handle.offset();
+        let size = handle.size();
 
         let ptr = ptr + offset;
         let key = ActiveResource::new(ptr);
@@ -93,11 +93,11 @@ impl ComputeStorage for HipStorage {
         )
     }
 
-    fn alloc(&mut self, size: usize) -> StorageHandle {
+    fn alloc(&mut self, size: u64) -> StorageHandle {
         let id = StorageId::new();
         unsafe {
             let mut dptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
-            let status = cubecl_hip_sys::hipMallocAsync(&mut dptr, size, self.stream);
+            let status = cubecl_hip_sys::hipMallocAsync(&mut dptr, size as usize, self.stream);
             assert_eq!(status, HIP_SUCCESS, "Should allocate memory");
             self.memory.insert(id, dptr);
         };

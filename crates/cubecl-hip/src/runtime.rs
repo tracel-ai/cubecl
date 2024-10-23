@@ -30,7 +30,7 @@ static RUNTIME: ComputeRuntime<HipDevice, Server, MutexComputeChannel<Server>> =
 type Server = HipServer;
 type Channel = MutexComputeChannel<Server>;
 
-const MEMORY_OFFSET_ALIGNMENT: usize = 32;
+const MEMORY_OFFSET_ALIGNMENT: u64 = 32;
 
 fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let mut ctx: cubecl_hip_sys::hipCtx_t = std::ptr::null_mut();
@@ -62,7 +62,7 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     };
     let storage = HipStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
-        max_page_size: max_memory / 4,
+        max_page_size: max_memory as u64 / 4,
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
     let memory_management = MemoryManagement::from_configuration(

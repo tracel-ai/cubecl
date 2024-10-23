@@ -312,11 +312,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     /// This is important, otherwise the compute passes are going to be too small and we won't be able to
     /// fully utilize the GPU.
     fn create(&mut self, data: &[u8]) -> server::Handle {
-        let num_bytes = data.len();
+        let num_bytes = data.len() as u64;
 
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
-        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let align = wgpu::COPY_BUFFER_ALIGNMENT;
         let aligned_len = num_bytes.div_ceil(align) * align;
 
         // Reserve memory on some storage we haven't yet used this command queue for compute
@@ -325,7 +325,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             .memory_management
             .reserve(aligned_len, Some(&self.storage_locked));
 
-        if let Some(len) = NonZero::new(aligned_len as u64) {
+        if let Some(len) = NonZero::new(aligned_len) {
             let resource_handle = self.memory_management.get(memory.clone().binding());
 
             // Dont re-use this handle for writing until the queue is flushed. All writes
@@ -345,7 +345,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
-        server::Handle::new(self.memory_management.reserve(size, None), None, None)
+        server::Handle::new(
+            self.memory_management.reserve(size as u64, None),
+            None,
+            None,
+        )
     }
 
     unsafe fn execute(

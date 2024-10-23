@@ -9,13 +9,13 @@ use super::{MemoryPage, Slice, SliceId};
 pub struct RingBuffer {
     queue: Vec<StorageId>,
     chunk_positions: HashMap<StorageId, usize>,
-    cursor_slice: usize,
+    cursor_slice: u64,
     cursor_chunk: usize,
-    buffer_alignment: usize,
+    buffer_alignment: u64,
 }
 
 impl RingBuffer {
-    pub fn new(buffer_alignment: usize) -> Self {
+    pub fn new(buffer_alignment: u64) -> Self {
         Self {
             queue: Vec::new(),
             chunk_positions: HashMap::new(),
@@ -33,7 +33,7 @@ impl RingBuffer {
 
     pub fn find_free_slice(
         &mut self,
-        size: usize,
+        size: u64,
         pages: &mut HashMap<StorageId, MemoryPage>,
         slices: &mut HashMap<SliceId, Slice>,
         locked: Option<&MemoryLock>,
@@ -53,11 +53,11 @@ impl RingBuffer {
 
     fn find_free_slice_in_chunk(
         &mut self,
-        size: usize,
+        size: u64,
         page: &mut MemoryPage,
         slices: &mut HashMap<SliceId, Slice>,
-        mut slice_index: usize,
-    ) -> Option<(usize, SliceId)> {
+        mut slice_index: u64,
+    ) -> Option<(u64, SliceId)> {
         while let Some(slice_id) = page.find_slice(slice_index) {
             //mutable borrow scope
             {
@@ -97,7 +97,7 @@ impl RingBuffer {
 
     fn find_free_slice_in_all_chunks(
         &mut self,
-        size: usize,
+        size: u64,
         pages: &mut HashMap<StorageId, MemoryPage>,
         slices: &mut HashMap<SliceId, Slice>,
         max_cursor_position: usize,
@@ -310,7 +310,7 @@ mod tests {
     }
 
     fn new_chunk(
-        slice_sizes: &[usize],
+        slice_sizes: &[u64],
     ) -> (StorageId, Vec<SliceId>, HashMap<SliceId, Slice>, MemoryPage) {
         let offsets: Vec<_> = slice_sizes
             .iter()

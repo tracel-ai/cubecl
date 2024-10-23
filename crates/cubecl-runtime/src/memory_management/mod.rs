@@ -18,7 +18,7 @@ pub enum PoolType {
     /// Use a memory where each allocation is a slice of a bigger allocation.
     SlicedPages {
         /// The maximum size of a slice to allocate in the pool.
-        max_slice_size: usize,
+        max_slice_size: u64,
     },
 }
 
@@ -28,11 +28,11 @@ pub struct MemoryPoolOptions {
     /// What kind of pool to use.
     pub pool_type: PoolType,
     /// The amount of bytes used for each chunk in the memory pool.
-    pub page_size: usize,
+    pub page_size: u64,
     /// The number of chunks allocated directly at creation.
     ///
     /// Useful when you know in advance how much memory you'll need.
-    pub chunk_num_prealloc: usize,
+    pub chunk_num_prealloc: u64,
     /// Period after which allocations are deemed unused and deallocated.
     ///
     /// This period is measured in the number of allocations in the parent allocator. If a page
@@ -72,7 +72,7 @@ impl Default for MemoryConfiguration {
 #[derive(Debug, Clone)]
 pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
-    pub max_page_size: usize,
+    pub max_page_size: u64,
     /// The required memory offset alignment in bytes.
-    pub alignment: usize,
+    pub alignment: u64,
 }
