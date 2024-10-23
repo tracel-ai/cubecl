@@ -11,7 +11,7 @@ use std::panic::resume_unwind;
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec::Vec;
-use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations, TimingMethod};
+use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
@@ -117,15 +117,25 @@ impl<K: AutotuneKey> Tuner<K> {
         let key = set.key();
         log::info!("Tuning {key}");
         self.tune_cache.mark_pending(key.clone());
+        let client = client.clone();
+        let sender = self.results_send.clone();
 
         let autotunables: Vec<_> = set
             .autotunables()
             .into_iter()
             .enumerate()
-            .map(|(index, op)| (index, op, set.should_run(&key, index)))
+            .filter(|(index, _)| set.should_run(&key, *index))
             .collect();
-        let client = client.clone();
-        let sender = self.results_send.clone();
+
+        if autotunables.len() == 1 {
+            sender
+                .try_send(AutotuneMessage {
+                    key,
+                    fastest_index: autotunables[0].0,
+                })
+                .expect("Autotune results channel closed");
+            return;
+        }
 
         spawn_benchmark_task(async move {
             #[derive(new, Debug)]
@@ -137,14 +147,12 @@ impl<K: AutotuneKey> Tuner<K> {
 
             let mut bench_results = Vec::with_capacity(autotunables.len());
 
-            for (index, op, should_run) in autotunables.into_iter() {
+            for (index, op) in autotunables.into_iter() {
                 let name = op.name().to_string();
-                let result = Self::run_benchmark(op, &client, should_run)
-                    .await
-                    .map(|durations| {
-                        log::info!("Name: {name} => {}", durations);
-                        BenchResult::new(name, index, BenchmarkComputations::new(&durations))
-                    });
+                let result = Self::run_benchmark(op, &client).await.map(|durations| {
+                    log::info!("Name: {name} => {}", durations);
+                    BenchResult::new(name, index, BenchmarkComputations::new(&durations))
+                });
 
                 bench_results.push(result);
             }
@@ -202,22 +210,14 @@ impl<K: AutotuneKey> Tuner<K> {
     async fn run_benchmark<S: ComputeServer, C: ComputeChannel<S>, Out>(
         operation: Box<dyn AutotuneOperation<Out>>,
         client: &ComputeClient<S, C>,
-        should_run: bool,
     ) -> Result<BenchmarkDurations, BenchError> {
-        if should_run {
-            let tuner = TuneBenchmark::new(operation, client.clone());
-            future::catch_unwind(tuner.sample_durations())
-                .await
-                .map_err(|e| {
-                    log::warn!("Caught error while benchmarking, falling back to next operation.");
-                    ManuallyDrop::new(e)
-                })
-        } else {
-            Ok(BenchmarkDurations::new(
-                TimingMethod::DeviceOnly,
-                vec![Duration::MAX],
-            ))
-        }
+        let tuner = TuneBenchmark::new(operation, client.clone());
+        future::catch_unwind(tuner.sample_durations())
+            .await
+            .map_err(|e| {
+                log::warn!("Caught error while benchmarking, falling back to next operation.");
+                ManuallyDrop::new(e)
+            })
     }
 }
 
