@@ -287,8 +287,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Metadata::Stride { dim, var } => {
                 self.stride = true;
                 let position = match var.kind {
-                    gpu::VariableKind::GlobalInputArray { id } => id as usize,
-                    gpu::VariableKind::GlobalOutputArray { id } => self.num_inputs + id as usize,
+                    gpu::VariableKind::GlobalInputArray(id) => id as usize,
+                    gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
                 Instruction::Stride {
@@ -300,8 +300,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Metadata::Shape { dim, var } => {
                 self.shape = true;
                 let position = match var.kind {
-                    gpu::VariableKind::GlobalInputArray { id } => id as usize,
-                    gpu::VariableKind::GlobalOutputArray { id } => self.num_inputs + id as usize,
+                    gpu::VariableKind::GlobalInputArray(id) => id as usize,
+                    gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a shape, got {:?}", var),
                 };
                 Instruction::Shape {
@@ -682,10 +682,10 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_variable(&mut self, value: gpu::Variable) -> super::Variable {
         let item = value.item;
         match value.kind {
-            gpu::VariableKind::GlobalInputArray { id } => {
+            gpu::VariableKind::GlobalInputArray(id) => {
                 super::Variable::GlobalInputArray(id, self.compile_item(item))
             }
-            gpu::VariableKind::GlobalScalar { id } => {
+            gpu::VariableKind::GlobalScalar(id) => {
                 super::Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
             gpu::VariableKind::Local { id, depth } => super::Variable::Local {
@@ -708,7 +708,7 @@ impl<D: Dialect> CppCompiler<D> {
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::VariableKind::GlobalOutputArray { id } => {
+            gpu::VariableKind::GlobalOutputArray(id) => {
                 super::Variable::GlobalOutputArray(id, self.compile_item(item))
             }
             gpu::VariableKind::ConstantScalar(value) => {

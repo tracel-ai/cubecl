@@ -336,15 +336,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 .get(&(id, depth))
                 .expect("Tried accessing non-existing slice")
                 .into(),
-            core::VariableKind::GlobalInputArray { id } => {
+            core::VariableKind::GlobalInputArray(id) => {
                 let id = self.state.inputs[id as usize];
                 Variable::GlobalInputArray(id, self.compile_item(item))
             }
-            core::VariableKind::GlobalOutputArray { id } => {
+            core::VariableKind::GlobalOutputArray(id) => {
                 let id = self.state.outputs[id as usize];
                 Variable::GlobalOutputArray(id, self.compile_item(item))
             }
-            core::VariableKind::GlobalScalar { id } => self.global_scalar(id, item.elem),
+            core::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.elem),
             core::VariableKind::Local { id, depth } => {
                 let item = self.compile_item(item);
                 let var = self.get_local((id, depth), &item);

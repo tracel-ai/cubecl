@@ -187,7 +187,7 @@ impl Scope {
             },
             Item::new(elem),
         );
-        let scalar = Variable::new(VariableKind::GlobalScalar { id: index }, Item::new(elem));
+        let scalar = Variable::new(VariableKind::GlobalScalar(index), Item::new(elem));
 
         self.reads_scalar.push((local, scalar));
 
@@ -244,7 +244,7 @@ impl Scope {
         self.reads_global
             .iter()
             .map(|(var, strategy, _, _)| match var.kind {
-                VariableKind::GlobalInputArray { id } => (id, *strategy),
+                VariableKind::GlobalInputArray(id) => (id, *strategy),
                 _ => panic!("Can only read global input arrays."),
             })
             .collect()
@@ -341,7 +341,7 @@ impl Scope {
             },
             _ => item,
         };
-        let input = Variable::new(VariableKind::GlobalInputArray { id: index }, item_global);
+        let input = Variable::new(VariableKind::GlobalInputArray(index), item_global);
         let index = self.new_local_index();
         let local = Variable::new(
             VariableKind::Local {

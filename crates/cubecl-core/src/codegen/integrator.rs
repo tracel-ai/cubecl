@@ -407,7 +407,7 @@ impl KernelIntegrator {
                             },
                             item,
                         ),
-                        Variable::new(VariableKind::GlobalOutputArray { id: index }, item_adapted),
+                        Variable::new(VariableKind::GlobalOutputArray(index), item_adapted),
                         position,
                     );
                     index += 1;
@@ -426,10 +426,7 @@ impl KernelIntegrator {
                             },
                             item,
                         ),
-                        Variable::new(
-                            VariableKind::GlobalInputArray { id: input },
-                            bool_item(item),
-                        ),
+                        Variable::new(VariableKind::GlobalInputArray(input), bool_item(item)),
                         position,
                     );
                 }

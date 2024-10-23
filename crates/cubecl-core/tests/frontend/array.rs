@@ -126,10 +126,7 @@ mod tests {
         let mut scope = context.into_scope();
         let local = scope.create_local(Item::new(Elem::UInt));
 
-        let array = Variable::new(
-            VariableKind::GlobalInputArray { id: 0 },
-            Item::new(Elem::UInt),
-        );
+        let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(Elem::UInt));
         let index: Variable = 1u32.into();
         let value: Variable = 1u32.into();
 
@@ -186,10 +183,7 @@ mod tests {
         let mut scope = context.into_scope();
         let local = scope.create_local(Item::new(Elem::UInt));
 
-        let array = Variable::new(
-            VariableKind::GlobalInputArray { id: 0 },
-            Item::new(Elem::UInt),
-        );
+        let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(Elem::UInt));
         let index: Variable = 6u32.into();
         let value: Variable = 1u32.into();
 

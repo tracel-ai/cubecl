@@ -233,10 +233,10 @@ impl WgslCompiler {
     pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
         let item = value.item;
         match value.kind {
-            cube::VariableKind::GlobalInputArray { id } => {
+            cube::VariableKind::GlobalInputArray(id) => {
                 wgsl::Variable::GlobalInputArray(id, Self::compile_item(item))
             }
-            cube::VariableKind::GlobalScalar { id } => {
+            cube::VariableKind::GlobalScalar(id) => {
                 wgsl::Variable::GlobalScalar(id, Self::compile_elem(item.elem), item.elem)
             }
             cube::VariableKind::Local { id, depth }
@@ -254,7 +254,7 @@ impl WgslCompiler {
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::VariableKind::GlobalOutputArray { id } => {
+            cube::VariableKind::GlobalOutputArray(id) => {
                 wgsl::Variable::GlobalOutputArray(id, Self::compile_item(item))
             }
             cube::VariableKind::ConstantScalar(value) => {
@@ -541,8 +541,8 @@ impl WgslCompiler {
             cube::Metadata::Stride { dim, var } => {
                 self.stride = true;
                 let position = match var.kind {
-                    cube::VariableKind::GlobalInputArray { id } => id as usize,
-                    cube::VariableKind::GlobalOutputArray { id } => self.num_inputs + id as usize,
+                    cube::VariableKind::GlobalInputArray(id) => id as usize,
+                    cube::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
                 wgsl::Instruction::Stride {
@@ -554,8 +554,8 @@ impl WgslCompiler {
             cube::Metadata::Shape { dim, var } => {
                 self.shape = true;
                 let position = match var.kind {
-                    cube::VariableKind::GlobalInputArray { id } => id as usize,
-                    cube::VariableKind::GlobalOutputArray { id } => self.num_inputs + id as usize,
+                    cube::VariableKind::GlobalInputArray(id) => id as usize,
+                    cube::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a shape, got {:?}", var),
                 };
                 wgsl::Instruction::Shape {

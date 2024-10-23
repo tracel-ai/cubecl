@@ -234,11 +234,9 @@ impl Value {
                 },
                 *item,
             ),
-            Value::Input(id, item) => {
-                Variable::new(VariableKind::GlobalInputArray { id: *id }, *item)
-            }
+            Value::Input(id, item) => Variable::new(VariableKind::GlobalInputArray(*id), *item),
             Value::Scalar(id, elem) => {
-                Variable::new(VariableKind::GlobalScalar { id: *id }, Item::new(*elem))
+                Variable::new(VariableKind::GlobalScalar(*id), Item::new(*elem))
             }
             Value::ConstArray(id, item, len) => Variable::new(
                 VariableKind::ConstantArray {
@@ -248,9 +246,7 @@ impl Value {
                 *item,
             ),
             Value::Builtin(builtin) => Variable::builtin(*builtin),
-            Value::Output(id, item) => {
-                Variable::new(VariableKind::GlobalOutputArray { id: *id }, *item)
-            }
+            Value::Output(id, item) => Variable::new(VariableKind::GlobalOutputArray(*id), *item),
             Value::Slice(id, depth, item) => Variable::new(
                 VariableKind::Slice {
                     id: *id,
@@ -265,9 +261,9 @@ impl Value {
 pub fn value_of_var(var: &Variable) -> Option<Value> {
     let item = var.item;
     let val = match var.kind {
-        VariableKind::GlobalInputArray { id } => Value::Input(id, item),
-        VariableKind::GlobalScalar { id } => Value::Scalar(id, item.elem),
-        VariableKind::GlobalOutputArray { id } => Value::Output(id, item),
+        VariableKind::GlobalInputArray(id) => Value::Input(id, item),
+        VariableKind::GlobalOutputArray(id) => Value::Output(id, item),
+        VariableKind::GlobalScalar(id) => Value::Scalar(id, item.elem),
         VariableKind::Versioned { id, depth, version } => Value::Local(Local {
             id,
             depth,

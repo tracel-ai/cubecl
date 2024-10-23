@@ -31,20 +31,22 @@ impl Variable {
     }
 }
 
+type Id = u16;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum VariableKind {
-    GlobalInputArray { id: u16 },
-    GlobalScalar { id: u16 },
-    GlobalOutputArray { id: u16 },
-    Local { id: u16, depth: u8 },
-    Versioned { id: u16, depth: u8, version: u16 },
-    LocalBinding { id: u16, depth: u8 },
+    GlobalInputArray(Id),
+    GlobalOutputArray(Id),
+    GlobalScalar(Id),
+    Local { id: Id, depth: u8 },
+    Versioned { id: Id, depth: u8, version: u16 },
+    LocalBinding { id: Id, depth: u8 },
     ConstantScalar(ConstantScalarValue),
-    ConstantArray { id: u16, length: u32 },
-    SharedMemory { id: u16, length: u32 },
-    LocalArray { id: u16, depth: u8, length: u32 },
-    Matrix { id: u16, mat: Matrix, depth: u8 },
-    Slice { id: u16, depth: u8 },
+    ConstantArray { id: Id, length: u32 },
+    SharedMemory { id: Id, length: u32 },
+    LocalArray { id: Id, depth: u8, length: u32 },
+    Matrix { id: Id, mat: Matrix, depth: u8 },
+    Slice { id: Id, depth: u8 },
     Builtin(Builtin),
 }
 
@@ -339,13 +341,13 @@ impl Variable {
     }
     pub fn index(&self) -> Option<u16> {
         match self.kind {
-            VariableKind::GlobalInputArray { id } => Some(id),
-            VariableKind::GlobalScalar { id } => Some(id),
+            VariableKind::GlobalInputArray(id) => Some(id),
+            VariableKind::GlobalScalar(id) => Some(id),
             VariableKind::Local { id, .. } => Some(id),
             VariableKind::Versioned { id, .. } => Some(id),
             VariableKind::LocalBinding { id, .. } => Some(id),
             VariableKind::Slice { id, .. } => Some(id),
-            VariableKind::GlobalOutputArray { id } => Some(id),
+            VariableKind::GlobalOutputArray(id) => Some(id),
             VariableKind::ConstantScalar(_) => None,
             VariableKind::ConstantArray { id, .. } => Some(id),
             VariableKind::SharedMemory { id, .. } => Some(id),
@@ -366,9 +368,9 @@ impl Variable {
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.kind {
-            VariableKind::GlobalInputArray { id } => write!(f, "input({id})"),
-            VariableKind::GlobalScalar { id } => write!(f, "scalar({id})"),
-            VariableKind::GlobalOutputArray { id } => write!(f, "output({id})"),
+            VariableKind::GlobalInputArray(id) => write!(f, "input({id})"),
+            VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),
+            VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
             VariableKind::ConstantScalar(constant) => write!(f, "{constant}"),
             VariableKind::Local { id, depth } => write!(f, "local({id}, {depth})"),
             VariableKind::Versioned { id, depth, version } => {

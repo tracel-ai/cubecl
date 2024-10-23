@@ -479,15 +479,15 @@ mod test {
     fn test_pre() {
         let mut ctx = CubeContext::root(HybridAllocator::default());
         let x = ExpandElement::Plain(Variable::new(
-            VariableKind::GlobalScalar { id: 0 },
+            VariableKind::GlobalScalar(0),
             Item::new(Elem::UInt),
         ));
         let cond = ExpandElement::Plain(Variable::new(
-            VariableKind::GlobalScalar { id: 1 },
+            VariableKind::GlobalScalar(1),
             Item::new(Elem::UInt),
         ));
         let arr = ExpandElement::Plain(Variable::new(
-            VariableKind::GlobalOutputArray { id: 0 },
+            VariableKind::GlobalOutputArray(0),
             Item::new(Elem::UInt),
         ));
 
