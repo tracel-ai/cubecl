@@ -3,7 +3,7 @@ use std::{
     mem::take,
 };
 
-use cubecl_core::ir::{Item, Operation, Variable};
+use cubecl_core::ir::{Instruction, Item, Variable};
 use petgraph::visit::EdgeRef;
 
 use crate::{ControlFlow, EdgeIndex, NodeIndex};
@@ -171,34 +171,30 @@ impl Optimizer {
         }
     }
 
-    fn version_reads(&mut self, op: &mut Operation, state: &mut SsaState<'_>) {
-        self.visit_operation(op, |opt, var| opt.version_read(var, state), |_, _| {});
+    fn version_reads(&mut self, op: &mut Instruction, state: &mut SsaState<'_>) {
+        self.visit_operation(&mut op.operation, |opt, var| opt.version_read(var, state));
     }
 
-    fn version_writes(&mut self, op: &mut Operation, state: &mut SsaState<'_>) {
-        self.visit_operation(
-            op,
-            |_, _| {},
-            |_, var| match var {
-                Variable::Local { id, item, depth }
-                | Variable::Versioned {
-                    id, item, depth, ..
-                } => {
-                    if let Some(version) = state.versions.get_mut(&(*id, *depth)) {
-                        let max_version = state.max_versions.get_mut(&(*id, *depth)).unwrap();
-                        *max_version += 1;
-                        *version = *max_version;
-                        *var = Variable::Versioned {
-                            id: *id,
-                            item: *item,
-                            depth: *depth,
-                            version: *version,
-                        }
+    fn version_writes(&mut self, op: &mut Instruction, state: &mut SsaState<'_>) {
+        self.visit_out(&mut op.out, |_, var| match var {
+            Variable::Local { id, item, depth }
+            | Variable::Versioned {
+                id, item, depth, ..
+            } => {
+                if let Some(version) = state.versions.get_mut(&(*id, *depth)) {
+                    let max_version = state.max_versions.get_mut(&(*id, *depth)).unwrap();
+                    *max_version += 1;
+                    *version = *max_version;
+                    *var = Variable::Versioned {
+                        id: *id,
+                        item: *item,
+                        depth: *depth,
+                        version: *version,
                     }
                 }
-                _ => {}
-            },
-        );
+            }
+            _ => {}
+        });
     }
 
     fn version_read(&self, var: &mut Variable, state: &mut SsaState<'_>) {

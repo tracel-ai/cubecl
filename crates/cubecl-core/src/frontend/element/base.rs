@@ -1,7 +1,9 @@
 use super::{CubePrimitive, Numeric, Vectorized};
 use crate::{
-    ir::{ConstantScalarValue, Elem, FloatKind, Item, Operator, Variable},
-    prelude::{assign, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher},
+    ir::{ConstantScalarValue, Elem, FloatKind, Item, Operation, Variable},
+    prelude::{
+        cast as ir_cast, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher,
+    },
     Runtime,
 };
 use alloc::rc::Rc;
@@ -369,7 +371,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         return elem;
     }
 
-    let mut init = |elem: ExpandElement| init_expand(context, elem, Operator::Assign);
+    let mut init = |elem: ExpandElement| init_expand(context, elem, Operation::Assign);
 
     match *elem {
         Variable::GlobalScalar { .. } => init(elem),
@@ -459,9 +461,7 @@ pub(crate) fn __expand_vectorized<C: Numeric + CubeIndex<u32>, Out: Numeric>(
     let val = Out::from(val).unwrap();
     let val: ExpandElementTyped<Out> = val.into();
 
-    // Explanation for removing all this code: Assignments are already being unrolled and broadcast
-    // in the backend, so this was just duplicating code and it interfered with the SSA allocator
-    assign::expand(context, val, new_var.clone().into());
+    ir_cast::expand(context, val, new_var.clone().into());
 
     new_var.into()
 }

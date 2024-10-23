@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use crate::{
     ir::{ConstantScalarValue, Item},
-    prelude::{assign, CubeContext, ExpandElement},
+    prelude::{CubeContext, ExpandElement},
     unexpanded,
 };
 
@@ -40,6 +40,8 @@ mod new {
 
 /// Module that contains the implementation details of the fill function.
 mod fill {
+    use crate::prelude::cast;
+
     use super::*;
 
     impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Line<P> {
@@ -79,7 +81,7 @@ mod fill {
             let length = self.expand.item().vectorization;
             let output = context.create_local_binding(Item::vectorized(P::as_elem(), length));
 
-            assign::expand::<P>(context, value, output.clone().into());
+            cast::expand::<P>(context, value, output.clone().into());
 
             output.into()
         }

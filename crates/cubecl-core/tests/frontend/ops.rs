@@ -488,7 +488,11 @@ mod tests {
                 _ => 2,
             };
             format!(
-                "[Operator({ops_name}(BinaryOperator {{ \
+                "[Instruction {{ out: Some(Local {{ id: {out_number}, item: Item {{ \
+                    elem: {out_type}, \
+                    vectorization: None \
+                }}, depth: 0 }}), \
+                operation: Operator({ops_name}(BinaryOperator {{ \
                 lhs: Local {{ id: 0, item: Item {{ \
                     elem: {in_type}, \
                     vectorization: None \
@@ -496,25 +500,21 @@ mod tests {
                 rhs: Local {{ id: 1, item: Item {{ \
                     elem: {in_type}, \
                     vectorization: None \
-                }}, depth: 0 }}, \
-                out: Local {{ id: {out_number}, item: Item {{ \
-                    elem: {out_type}, \
-                    vectorization: None \
                 }}, depth: 0 }} \
-            }}))]"
+            }})) }}]"
             )
         } else {
             format!(
-                "[Operator({ops_name}(UnaryOperator {{ \
+                "[Instruction {{ out: Some(Local {{ id: 0, item: Item {{ \
+                    elem: {out_type}, \
+                    vectorization: None \
+                }}, depth: 0 }}), \
+                operation: Operator({ops_name}(UnaryOperator {{ \
                 input: Local {{ id: 0, item: Item {{ \
                     elem: {in_type}, \
                     vectorization: None \
-                }}, depth: 0 }}, \
-                out: Local {{ id: 0, item: Item {{ \
-                    elem: {out_type}, \
-                    vectorization: None \
                 }}, depth: 0 }} \
-            }}))]"
+            }})) }}]"
             )
         }
     }

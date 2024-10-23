@@ -1,11 +1,13 @@
-use super::{Branch, CoopMma, Elem, Metadata, Operation, Operator, Variable};
+use crate::prelude::AtomicOp;
+
+use super::{Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, Variable};
 
 /// Information necessary when compiling a scope.
 pub struct ScopeProcessing {
     /// The variable declarations.
     pub variables: Vec<Variable>,
     /// The operations.
-    pub operations: Vec<Operation>,
+    pub operations: Vec<Instruction>,
 }
 
 impl ScopeProcessing {
@@ -23,287 +25,291 @@ impl ScopeProcessing {
     /// Make sure constant scalars are of the correct type so compilers don't have to do conversion
     /// and handle edge cases such as indexing with a signed integer.
     fn sanitize_constant_scalars(mut self) -> Self {
-        self.operations.iter_mut().for_each(|op| match op {
-            Operation::Operator(op) => match op {
-                Operator::Add(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Fma(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.a, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.b, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.c, &op.out);
-                }
-                Operator::Sub(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Mul(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Div(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Abs(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Exp(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Log(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Log1p(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Cos(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Sin(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Tanh(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Powf(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Sqrt(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Round(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Floor(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Ceil(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Erf(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Recip(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Equal(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                }
-                Operator::NotEqual(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                }
-                Operator::Lower(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                }
-                Operator::Clamp(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.min_value, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.max_value, &op.out);
-                }
-                Operator::Greater(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                }
-                Operator::LowerEqual(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                }
-                Operator::GreaterEqual(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                }
-                Operator::Assign(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Modulo(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Slice(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                    sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt);
-                    sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt);
-                }
-                Operator::Index(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt);
-                }
-                Operator::UncheckedIndex(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt);
-                }
-                Operator::IndexAssign(op) => {
-                    sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::UncheckedIndexAssign(op) => {
-                    sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::And(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                }
-                Operator::Or(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                }
-                Operator::Not(op) => {
-                    sanitize_constant_scalar_ref_elem(&mut op.input, Elem::Bool);
-                }
-                Operator::Neg(op) => sanitize_constant_scalar_ref_var(&mut op.input, &op.out),
-                Operator::Max(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Min(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::BitwiseAnd(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::BitwiseOr(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::BitwiseXor(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::ShiftLeft(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::ShiftRight(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Remainder(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Bitcast(_) => {}
-                Operator::AtomicLoad(_) => {}
-                Operator::AtomicStore(_) => {}
-                Operator::AtomicSwap(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::AtomicCompareAndSwap(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.cmp, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.val, &op.out);
-                }
-                Operator::AtomicAdd(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::AtomicSub(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::AtomicMax(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::AtomicMin(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::AtomicAnd(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::AtomicOr(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::AtomicXor(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::Magnitude(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Normalize(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                }
-                Operator::Dot(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.lhs, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.rhs, &op.out);
-                }
-                Operator::InitLine(_) => {
-                    // TODO: Sanitize based on elem
-                }
-                Operator::Copy(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                    sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
-                    sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
-                }
-                Operator::CopyBulk(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.input, &op.out);
-                    sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
-                    sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
-                }
-                Operator::Select(op) => {
-                    sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
-                    sanitize_constant_scalar_ref_var(&mut op.then, &op.out);
-                    sanitize_constant_scalar_ref_var(&mut op.or_else, &op.out);
-                }
-            },
-            Operation::Metadata(op) => match op {
-                Metadata::Stride { dim, .. } => {
-                    sanitize_constant_scalar_ref_elem(dim, Elem::UInt);
-                }
-                Metadata::Shape { dim, .. } => {
-                    sanitize_constant_scalar_ref_elem(dim, Elem::UInt);
-                }
-                Metadata::Length { .. } => {
-                    // Nothing to do
-                }
-            },
-
-            Operation::Branch(op) => match op {
-                Branch::If(op) => {
-                    sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
-                }
-                Branch::IfElse(op) => {
-                    sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
-                }
-                Branch::RangeLoop(op) => {
-                    sanitize_constant_scalar_ref_var(&mut op.end, &op.start);
-                    sanitize_constant_scalar_ref_var(&mut op.i, &op.start);
-                    if let Some(step) = &mut op.step {
-                        sanitize_constant_scalar_ref_elem(step, Elem::UInt);
+        self.operations
+            .iter_mut()
+            .for_each(|inst| match &mut inst.operation {
+                Operation::Assign(op) => {
+                    sanitize_constant_scalar_ref_var(op, &inst.out.unwrap());
+                }
+                Operation::Operator(op) => match op {
+                    Operator::Add(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
-                }
-                _ => {
+                    Operator::Fma(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.a, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.b, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.c, &inst.out.unwrap());
+                    }
+                    Operator::Sub(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::Mul(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::Div(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::Abs(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Exp(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Log(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Log1p(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Cos(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Sin(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Tanh(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Powf(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::Sqrt(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Round(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Floor(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Ceil(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Erf(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Recip(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Equal(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::NotEqual(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::Lower(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::Clamp(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.min_value, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.max_value, &inst.out.unwrap());
+                    }
+                    Operator::Greater(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::LowerEqual(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::GreaterEqual(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::Modulo(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::Slice(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt);
+                    }
+                    Operator::Index(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt);
+                    }
+                    Operator::UncheckedIndex(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt);
+                    }
+                    Operator::IndexAssign(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::UncheckedIndexAssign(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::And(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::Or(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::Not(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.input, Elem::Bool);
+                    }
+                    Operator::Neg(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap())
+                    }
+                    Operator::Max(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::Min(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::BitwiseAnd(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::BitwiseOr(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::BitwiseXor(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::ShiftLeft(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::ShiftRight(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::Remainder(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::Bitcast(_) => {}
+                    Operator::Magnitude(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Normalize(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Operator::Dot(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::InitLine(_) => {
+                        // TODO: Sanitize based on elem
+                    }
+                    Operator::Copy(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
+                    }
+                    Operator::CopyBulk(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
+                    }
+                    Operator::Select(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
+                        sanitize_constant_scalar_ref_var(&mut op.then, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.or_else, &inst.out.unwrap());
+                    }
+                    Operator::Cast(_) => {}
+                },
+                Operation::Atomic(op) => match op {
+                    AtomicOp::Load(_) => {}
+                    AtomicOp::Store(_) => {}
+                    AtomicOp::Swap(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    AtomicOp::CompareAndSwap(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.cmp, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.val, &inst.out.unwrap());
+                    }
+                    AtomicOp::Add(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    AtomicOp::Sub(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    AtomicOp::Max(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    AtomicOp::Min(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    AtomicOp::And(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    AtomicOp::Or(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    AtomicOp::Xor(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                },
+                Operation::Metadata(op) => match op {
+                    Metadata::Stride { dim, .. } => {
+                        sanitize_constant_scalar_ref_elem(dim, Elem::UInt);
+                    }
+                    Metadata::Shape { dim, .. } => {
+                        sanitize_constant_scalar_ref_elem(dim, Elem::UInt);
+                    }
+                    Metadata::Length { .. } => {
+                        // Nothing to do
+                    }
+                },
+                Operation::Branch(op) => match op {
+                    Branch::If(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
+                    }
+                    Branch::IfElse(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
+                    }
+                    Branch::RangeLoop(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.end, &op.start);
+                        sanitize_constant_scalar_ref_var(&mut op.i, &op.start);
+                        if let Some(step) = &mut op.step {
+                            sanitize_constant_scalar_ref_elem(step, Elem::UInt);
+                        }
+                    }
+                    _ => {
+                        // Nothing to do.
+                    }
+                },
+                Operation::Synchronization(_) => {
                     // Nothing to do.
                 }
-            },
-            Operation::Synchronization(_) => {
-                // Nothing to do.
-            }
-            Operation::Subcube(_) => {
-                // Nothing to do since no constant is possible.
-            }
-            Operation::CoopMma(op) => match op {
-                CoopMma::Fill { mat, value } => {
-                    sanitize_constant_scalar_ref_var(value, mat);
+                Operation::Subcube(_) => {
+                    // Nothing to do since no constant is possible.
                 }
-                CoopMma::Load {
-                    mat, value, stride, ..
-                } => {
-                    sanitize_constant_scalar_ref_var(value, mat);
-                    sanitize_constant_scalar_ref_elem(stride, Elem::UInt);
-                }
-                CoopMma::Execute { .. } => {
-                    // Nothing to do.
-                }
-                CoopMma::Store { stride, .. } => {
-                    sanitize_constant_scalar_ref_elem(stride, Elem::UInt);
-                }
-            },
-        });
+                Operation::CoopMma(op) => match op {
+                    CoopMma::Fill { value } => {
+                        sanitize_constant_scalar_ref_var(value, &inst.out.unwrap());
+                    }
+                    CoopMma::Load { value, stride, .. } => {
+                        sanitize_constant_scalar_ref_var(value, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(stride, Elem::UInt);
+                    }
+                    CoopMma::Execute { .. } => {
+                        // Nothing to do.
+                    }
+                    CoopMma::Store { stride, .. } => {
+                        sanitize_constant_scalar_ref_elem(stride, Elem::UInt);
+                    }
+                },
+            });
         self
     }
 }

@@ -74,7 +74,6 @@ pub struct Select {
     pub cond: Variable,
     pub then: Variable,
     pub or_else: Variable,
-    pub out: Variable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

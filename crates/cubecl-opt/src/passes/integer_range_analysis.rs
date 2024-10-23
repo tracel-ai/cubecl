@@ -34,14 +34,14 @@ impl OptimizerPass for IntegerRangeAnalysis {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for block in opt.node_ids() {
             let ops = opt.program[block].ops.clone();
-            for op in ops.borrow().values() {
-                let op = match op {
+            for inst in ops.borrow().values() {
+                let op = match &inst.operation {
                     Operation::Operator(op) => op,
                     _ => continue,
                 };
                 match op {
-                    Operator::Add(binop) if binop.out.item().elem().is_int() => {
-                        if let Some(out_id) = var_id(&binop.out) {
+                    Operator::Add(binop) if inst.item().elem().is_int() => {
+                        if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = range_of(opt, &binop.lhs);
                             let rhs_range = range_of(opt, &binop.rhs);
                             let out_range = lhs_range + rhs_range;
@@ -51,8 +51,8 @@ impl OptimizerPass for IntegerRangeAnalysis {
                             }
                         }
                     }
-                    Operator::Sub(binop) if binop.out.item().elem().is_int() => {
-                        if let Some(out_id) = var_id(&binop.out) {
+                    Operator::Sub(binop) if inst.item().elem().is_int() => {
+                        if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = range_of(opt, &binop.lhs);
                             let rhs_range = range_of(opt, &binop.rhs);
                             let out_range = lhs_range - rhs_range;
@@ -62,8 +62,8 @@ impl OptimizerPass for IntegerRangeAnalysis {
                             }
                         }
                     }
-                    Operator::Mul(binop) if binop.out.item().elem().is_int() => {
-                        if let Some(out_id) = var_id(&binop.out) {
+                    Operator::Mul(binop) if inst.item().elem().is_int() => {
+                        if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = range_of(opt, &binop.lhs);
                             let rhs_range = range_of(opt, &binop.rhs);
                             let out_range = lhs_range * rhs_range;
@@ -73,8 +73,8 @@ impl OptimizerPass for IntegerRangeAnalysis {
                             }
                         }
                     }
-                    Operator::Div(binop) if binop.out.item().elem().is_int() => {
-                        if let Some(out_id) = var_id(&binop.out) {
+                    Operator::Div(binop) if inst.item().elem().is_int() => {
+                        if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = range_of(opt, &binop.lhs);
                             let rhs_range: Range = range_of(opt, &binop.rhs);
                             let out_range = lhs_range / rhs_range;
@@ -84,8 +84,8 @@ impl OptimizerPass for IntegerRangeAnalysis {
                             }
                         }
                     }
-                    Operator::Modulo(binop) if binop.out.item().elem().is_int() => {
-                        if let Some(out_id) = var_id(&binop.out) {
+                    Operator::Modulo(binop) if inst.item().elem().is_int() => {
+                        if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = range_of(opt, &binop.lhs);
                             let rhs_range = range_of(opt, &binop.rhs);
                             let out_range = lhs_range % rhs_range;

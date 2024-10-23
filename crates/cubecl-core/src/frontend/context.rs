@@ -1,4 +1,4 @@
-use crate::ir::{self, Elem, Item, Operation, ReusingAllocator, Scope, Variable};
+use crate::ir::{self, Elem, Item, Instruction, ReusingAllocator, Scope, Variable};
 use crate::{frontend::ExpandElement, ir::LocalAllocator};
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -31,7 +31,7 @@ impl CubeContext {
         }
     }
 
-    pub fn register<O: Into<Operation>>(&mut self, op: O) {
+    pub fn register<O: Into<Instruction>>(&mut self, op: O) {
         self.scope.borrow_mut().register(op)
     }
 

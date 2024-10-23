@@ -30,7 +30,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
             let mut op = opt.program[node].ops.borrow()[idx].clone();
             let mut out = None;
             let used = Rc::new(AtomicBool::new(false));
-            opt.visit_operation(&mut op, visit_noop, |_, var| {
+            opt.visit_out(&mut op.out, |_, var| {
                 // Exclude outputs
                 if !matches!(
                     var,

@@ -1,10 +1,8 @@
-use cubecl_core::ir::{
-    ConstantScalarValue, Metadata, Operation, Operator, UnaryOperator, Variable,
-};
+use cubecl_core::ir::{ConstantScalarValue, Instruction, Metadata, Operation, Operator, Variable};
 
 use crate::{AtomicCounter, Optimizer, Slice};
 
-use super::{get_out, OptimizerPass};
+use super::OptimizerPass;
 
 /// Simplifies certain expressions where one operand is constant.
 /// For example: `out = x * 1` to `out = x`
@@ -17,107 +15,107 @@ impl OptimizerPass for ConstOperandSimplify {
 
             for idx in ops {
                 let op = &mut opt.program[node].ops.borrow_mut()[idx];
-                match op {
-                    // 0 * x == 0
-                    Operation::Operator(Operator::Mul(bin_op)) if bin_op.lhs.is_constant(0) => {
-                        *op = assign(bin_op.out, bin_op.lhs);
-                        changes.inc();
-                    }
-                    // x * 0 == 0
-                    Operation::Operator(Operator::Mul(bin_op)) if bin_op.rhs.is_constant(0) => {
-                        *op = assign(bin_op.out, bin_op.rhs);
-                        changes.inc();
-                    }
-                    // 1 * x == x
-                    Operation::Operator(Operator::Mul(bin_op)) if bin_op.lhs.is_constant(1) => {
-                        *op = assign(bin_op.out, bin_op.rhs);
-                        changes.inc();
-                    }
-                    // x * 1 == x
-                    Operation::Operator(Operator::Mul(bin_op)) if bin_op.rhs.is_constant(1) => {
-                        *op = assign(bin_op.out, bin_op.lhs);
-                        changes.inc();
-                    }
-                    // 0 + x = x
-                    Operation::Operator(Operator::Add(bin_op)) if bin_op.lhs.is_constant(0) => {
-                        *op = assign(bin_op.out, bin_op.rhs);
-                        changes.inc();
-                    }
-                    // x + 0 = x
-                    Operation::Operator(Operator::Add(bin_op)) if bin_op.rhs.is_constant(0) => {
-                        *op = assign(bin_op.out, bin_op.lhs);
-                        changes.inc();
-                    }
-                    // x - 0 == x
-                    Operation::Operator(Operator::Sub(bin_op)) if bin_op.rhs.is_constant(0) => {
-                        *op = assign(bin_op.out, bin_op.lhs);
-                        changes.inc();
-                    }
-                    // x / 1 == x, 0 / x == 0
-                    Operation::Operator(Operator::Div(bin_op))
-                        if bin_op.lhs.is_constant(0) || bin_op.rhs.is_constant(1) =>
-                    {
-                        *op = assign(bin_op.out, bin_op.lhs);
-                        changes.inc();
-                    }
-                    // x % 1 == 0, 0 % x == 0
-                    Operation::Operator(Operator::Modulo(bin_op))
-                        if bin_op.rhs.is_constant(1) || bin_op.lhs.is_constant(0) =>
-                    {
-                        let value = ConstantScalarValue::UInt(0).cast_to(bin_op.out.item().elem());
-                        *op = assign(bin_op.out, Variable::ConstantScalar(value));
-                        changes.inc();
-                    }
-                    // true || x == true, x || true == true
-                    Operation::Operator(Operator::Or(bin_op))
-                        if bin_op.lhs.is_true() || bin_op.rhs.is_true() =>
-                    {
-                        *op = assign(bin_op.out, true.into());
-                        changes.inc();
-                    }
-                    // false || x == x, x || false == x
-                    Operation::Operator(Operator::Or(bin_op)) if bin_op.lhs.is_false() => {
-                        *op = assign(bin_op.out, bin_op.rhs);
-                        changes.inc();
-                    }
-                    // x || false == x
-                    Operation::Operator(Operator::Or(bin_op)) if bin_op.rhs.is_false() => {
-                        *op = assign(bin_op.out, bin_op.lhs);
-                        changes.inc();
-                    }
-                    // false && x == false, x && false == false
-                    Operation::Operator(Operator::And(bin_op))
-                        if bin_op.lhs.is_false() || bin_op.rhs.is_false() =>
-                    {
-                        *op = assign(bin_op.out, false.into());
-                        changes.inc();
-                    }
-                    // true && x == x
-                    Operation::Operator(Operator::And(bin_op)) if bin_op.lhs.is_true() => {
-                        *op = assign(bin_op.out, bin_op.rhs);
-                        changes.inc();
-                    }
-                    // x && true == x
-                    Operation::Operator(Operator::And(bin_op)) if bin_op.rhs.is_true() => {
-                        *op = assign(bin_op.out, bin_op.lhs);
-                        changes.inc();
-                    }
-                    // select(true, a, b) == a
-                    Operation::Operator(Operator::Select(select)) if select.cond.is_true() => {
-                        *op = assign(select.out, select.then);
-                        changes.inc();
-                    }
-                    // select(false, a, b) == b
-                    Operation::Operator(Operator::Select(select)) if select.cond.is_false() => {
-                        *op = assign(select.out, select.or_else);
-                        changes.inc();
-                    }
+                match &mut op.operation {
+                    Operation::Operator(operator) => match operator {
+                        // 0 * x == 0
+                        Operator::Mul(bin_op) if bin_op.lhs.is_constant(0) => {
+                            op.operation = Operation::Assign(bin_op.lhs);
+                            changes.inc();
+                        }
+                        // x * 0 == 0
+                        Operator::Mul(bin_op) if bin_op.rhs.is_constant(0) => {
+                            op.operation = Operation::Assign(bin_op.rhs);
+                            changes.inc();
+                        }
+                        // 1 * x == x
+                        Operator::Mul(bin_op) if bin_op.lhs.is_constant(1) => {
+                            op.operation = Operation::Assign(bin_op.rhs);
+                            changes.inc();
+                        }
+                        // x * 1 == x
+                        Operator::Mul(bin_op) if bin_op.rhs.is_constant(1) => {
+                            op.operation = Operation::Assign(bin_op.lhs);
+                            changes.inc();
+                        }
+                        // 0 + x = x
+                        Operator::Add(bin_op) if bin_op.lhs.is_constant(0) => {
+                            op.operation = Operation::Assign(bin_op.rhs);
+                            changes.inc();
+                        }
+                        // x + 0 = x
+                        Operator::Add(bin_op) if bin_op.rhs.is_constant(0) => {
+                            op.operation = Operation::Assign(bin_op.lhs);
+                            changes.inc();
+                        }
+                        // x - 0 == x
+                        Operator::Sub(bin_op) if bin_op.rhs.is_constant(0) => {
+                            op.operation = Operation::Assign(bin_op.lhs);
+                            changes.inc();
+                        }
+                        // x / 1 == x, 0 / x == 0
+                        Operator::Div(bin_op)
+                            if bin_op.lhs.is_constant(0) || bin_op.rhs.is_constant(1) =>
+                        {
+                            op.operation = Operation::Assign(bin_op.lhs);
+                            changes.inc();
+                        }
+                        // x % 1 == 0, 0 % x == 0
+                        Operator::Modulo(bin_op)
+                            if bin_op.rhs.is_constant(1) || bin_op.lhs.is_constant(0) =>
+                        {
+                            let value = ConstantScalarValue::UInt(0).cast_to(op.item().elem());
+                            op.operation = Operation::Assign(Variable::ConstantScalar(value));
+                            changes.inc();
+                        }
+                        // true || x == true, x || true == true
+                        Operator::Or(bin_op) if bin_op.lhs.is_true() || bin_op.rhs.is_true() => {
+                            op.operation = Operation::Assign(true.into());
+                            changes.inc();
+                        }
+                        // false || x == x, x || false == x
+                        Operator::Or(bin_op) if bin_op.lhs.is_false() => {
+                            op.operation = Operation::Assign(bin_op.rhs);
+                            changes.inc();
+                        }
+                        // x || false == x
+                        Operator::Or(bin_op) if bin_op.rhs.is_false() => {
+                            op.operation = Operation::Assign(bin_op.lhs);
+                            changes.inc();
+                        }
+                        // false && x == false, x && false == false
+                        Operator::And(bin_op) if bin_op.lhs.is_false() || bin_op.rhs.is_false() => {
+                            op.operation = Operation::Assign(false.into());
+                            changes.inc();
+                        }
+                        // true && x == x
+                        Operator::And(bin_op) if bin_op.lhs.is_true() => {
+                            op.operation = Operation::Assign(bin_op.rhs);
+                            changes.inc();
+                        }
+                        // x && true == x
+                        Operator::And(bin_op) if bin_op.rhs.is_true() => {
+                            op.operation = Operation::Assign(bin_op.lhs);
+                            changes.inc();
+                        }
+                        // select(true, a, b) == a
+                        Operator::Select(select) if select.cond.is_true() => {
+                            op.operation = Operation::Assign(select.then);
+                            changes.inc();
+                        }
+                        // select(false, a, b) == b
+                        Operator::Select(select) if select.cond.is_false() => {
+                            op.operation = Operation::Assign(select.or_else);
+                            changes.inc();
+                        }
+                        _ => {}
+                    },
+
                     // Constant length to const value
-                    Operation::Metadata(Metadata::Length { var, out }) => match var {
+                    Operation::Metadata(Metadata::Length { var }) => match var {
                         Variable::ConstantArray { length, .. }
                         | Variable::SharedMemory { length, .. }
                         | Variable::LocalArray { length, .. } => {
-                            *op = assign(*out, (*length).into());
+                            op.operation = Operation::Assign((*length).into());
                             changes.inc();
                         }
                         Variable::Slice { id, depth, .. } => {
@@ -127,7 +125,7 @@ impl OptimizerPass for ConstOperandSimplify {
                                 ..
                             }) = slice
                             {
-                                *op = assign(*out, (*len).into());
+                                op.operation = Operation::Assign((*len).into());
                                 changes.inc();
                             }
                         }
@@ -140,10 +138,6 @@ impl OptimizerPass for ConstOperandSimplify {
     }
 }
 
-fn assign(out: Variable, value: Variable) -> Operation {
-    Operation::Operator(Operator::Assign(UnaryOperator { input: value, out }))
-}
-
 /// Evaluates expressions where both operands are constant and replaces them with simple constant
 /// assignments. This can often be applied as a result of assignment merging or constant operand
 /// simplification.
@@ -154,13 +148,10 @@ impl OptimizerPass for ConstEval {
         for node in opt.node_ids() {
             let ops = opt.program[node].ops.clone();
             for op in ops.borrow_mut().values_mut() {
-                let out = get_out(opt, op);
-                if let Some(out) = out {
-                    if let Some(const_eval) = try_const_eval(op) {
-                        let input = Variable::ConstantScalar(const_eval);
-                        *op = Operator::Assign(UnaryOperator { out, input }).into();
-                        changes.inc();
-                    }
+                if let Some(const_eval) = try_const_eval(op) {
+                    let input = Variable::ConstantScalar(const_eval);
+                    op.operation = Operation::Assign(input);
+                    changes.inc();
                 }
             }
         }
@@ -291,8 +282,8 @@ macro_rules! const_eval_bool {
     }};
 }
 
-fn try_const_eval(op: &mut Operation) -> Option<ConstantScalarValue> {
-    let op = match op {
+fn try_const_eval(inst: &mut Instruction) -> Option<ConstantScalarValue> {
+    let op = match &mut inst.operation {
         Operation::Operator(operator) => operator,
         _ => return None,
     };

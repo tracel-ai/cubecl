@@ -12,7 +12,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{Item, Operation, Variable},
+        ir::{Item, Instruction, Variable},
     };
 
     type ElemType = f32;
@@ -26,7 +26,7 @@ mod tests {
         assert_eq!(context.into_scope().operations, inline_macro_ref());
     }
 
-    fn inline_macro_ref() -> Vec<Operation> {
+    fn inline_macro_ref() -> Vec<Instruction> {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
         let input = context.input(0, item);

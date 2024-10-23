@@ -9,14 +9,15 @@ use crate::{
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_meta(&mut self, meta: Metadata) {
+    pub fn compile_meta(&mut self, meta: Metadata, out: Option<core::Variable>) {
+        let out = out.unwrap();
         match meta {
-            Metadata::Length { var, out } => {
+            Metadata::Length { var } => {
                 let var = self.compile_variable(var);
                 let out = self.compile_variable(out);
                 self.length(&var, Some(&out));
             }
-            Metadata::Stride { dim, var, out } => {
+            Metadata::Stride { dim, var } => {
                 let int_ty = Item::Scalar(Elem::Int(32, false));
                 let int = self.type_int(32, 0);
                 let position = match var {
@@ -54,7 +55,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 };
                 self.read_indexed_unchecked(&out, &info, &index);
             }
-            Metadata::Shape { dim, var, out } => {
+            Metadata::Shape { dim, var } => {
                 let int_ty = Item::Scalar(Elem::Int(32, false));
                 let int = self.type_int(32, 0);
                 let position = match var {

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use cubecl_core::ir::{CopyOperator, Operation, Operator, Variable};
+use cubecl_core::ir::{CopyOperator, Instruction, Operation, Operator, Variable};
 
 use crate::{AtomicCounter, Optimizer};
 
@@ -16,20 +16,20 @@ impl OptimizerPass for CopyTransform {
             let mut reads = HashMap::new();
             let mut writes = HashMap::new();
             let ops = opt.program[block].ops.clone();
-            for (idx, op) in ops.borrow().iter() {
-                match op {
+            for (idx, inst) in ops.borrow().iter() {
+                match &inst.operation {
                     Operation::Operator(Operator::Index(op))
-                        if op.lhs.is_array() && item_compatible(op.lhs.item(), op.out.item()) =>
+                        if op.lhs.is_array() && item_compatible(op.lhs.item(), inst.item()) =>
                     {
-                        if let Some(id) = as_versioned(&op.out) {
+                        if let Some(id) = as_versioned(&inst.out()) {
                             reads.insert(id, (idx, op.lhs, op.rhs));
                         }
                     }
                     Operation::Operator(Operator::IndexAssign(op))
-                        if op.out.is_array() && item_compatible(op.out.item(), op.rhs.item()) =>
+                        if inst.out().is_array() && item_compatible(inst.item(), op.rhs.item()) =>
                     {
                         if let Some(id) = as_versioned(&op.rhs) {
-                            writes.insert(id, (idx, op.out, op.lhs));
+                            writes.insert(id, (idx, inst.out(), op.lhs));
                         }
                     }
                     _ => {}
@@ -43,12 +43,11 @@ impl OptimizerPass for CopyTransform {
                 let (write_idx, out, out_index) = writes[*id];
                 ops.borrow_mut().remove(read_idx);
                 let copy = Operator::Copy(CopyOperator {
-                    out,
                     out_index,
                     input,
                     in_index,
                 });
-                ops.borrow_mut()[write_idx] = copy.into();
+                ops.borrow_mut()[write_idx] = Instruction::new(copy, out);
                 changes.inc();
             }
         }

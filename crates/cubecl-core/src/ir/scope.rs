@@ -1,8 +1,7 @@
 use crate::ir::ConstantScalarValue;
 
 use super::{
-    cpa, processing::ScopeProcessing, Elem, Item, Matrix, Operation, Operator, UnaryOperator,
-    Variable,
+    cpa, processing::ScopeProcessing, Elem, Instruction, Item, Matrix, Operation, Variable,
 };
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +16,7 @@ use serde::{Deserialize, Serialize};
 #[allow(missing_docs)]
 pub struct Scope {
     pub depth: u8,
-    pub operations: Vec<Operation>,
+    pub operations: Vec<Instruction>,
     pub locals: Vec<Variable>,
     matrices: Vec<Variable>,
     slices: Vec<Variable>,
@@ -244,7 +243,7 @@ impl Scope {
     }
 
     /// Register an [operation](Operation) into the scope.
-    pub fn register<T: Into<Operation>>(&mut self, operation: T) {
+    pub fn register<T: Into<Instruction>>(&mut self, operation: T) {
         self.operations.push(operation.into())
     }
 
@@ -289,13 +288,7 @@ impl Scope {
         let mut operations = Vec::new();
 
         for (local, scalar) in self.reads_scalar.drain(..) {
-            operations.push(
-                Operator::Assign(UnaryOperator {
-                    input: scalar,
-                    out: local,
-                })
-                .into(),
-            );
+            operations.push(Instruction::new(Operation::Assign(scalar), local));
             variables.push(local);
         }
 

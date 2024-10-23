@@ -1,7 +1,7 @@
-use crate::ir::{Item, UnaryOperator, Variable};
+use crate::ir::{Instruction, Item, UnaryOperator, Variable};
 use crate::{frontend::ExpandElement, unexpanded};
 use crate::{
-    frontend::{assign, CubeContext, CubePrimitive, CubeType},
+    frontend::{cast, CubeContext, CubePrimitive, CubeType},
     ir::Operator,
 };
 
@@ -23,7 +23,7 @@ pub trait Cast: CubePrimitive {
             <Self as CubePrimitive>::as_elem(),
             value.expand.item().vectorization,
         ));
-        assign::expand(context, value, new_var.clone().into());
+        cast::expand(context, value, new_var.clone().into());
         new_var.into()
     }
 }
@@ -53,10 +53,10 @@ pub trait BitCast: CubePrimitive {
             <Self as CubePrimitive>::as_elem(),
             var.item().vectorization,
         ));
-        context.register(Operator::Bitcast(UnaryOperator {
-            input: *value,
-            out: *new_var.clone(),
-        }));
+        context.register(Instruction::new(
+            Operator::Bitcast(UnaryOperator { input: *value }),
+            *new_var.clone(),
+        ));
         new_var.into()
     }
 }

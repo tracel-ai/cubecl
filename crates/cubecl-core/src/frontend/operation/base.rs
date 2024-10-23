@@ -1,4 +1,7 @@
-use crate::ir::{BinaryOperator, Elem, Item, Operator, UnaryOperator, Variable, Vectorization};
+use crate::ir::{
+    BinaryOperator, Elem, Instruction, Item, Operation, Operator, UnaryOperator, Variable,
+    Vectorization,
+};
 use crate::prelude::{CubeType, ExpandElementTyped};
 use crate::{
     frontend::{CubeContext, ExpandElement},
@@ -27,9 +30,9 @@ where
     let output = context.create_local_binding(item);
     let out = *output;
 
-    let op = func(BinaryOperator { lhs, rhs, out });
+    let op = func(BinaryOperator { lhs, rhs });
 
-    context.register(op);
+    context.register(Instruction::new(op, out));
 
     output
 }
@@ -54,10 +57,9 @@ where
     let op = func(BinaryOperator {
         lhs: lhs_var,
         rhs: rhs_var,
-        out: out_var,
     });
 
-    context.register(op);
+    context.register(Instruction::new(op, out_var));
 
     out
 }
@@ -81,9 +83,9 @@ where
     let output = context.create_local_binding(item);
     let out = *output;
 
-    let op = func(BinaryOperator { lhs, rhs, out });
+    let op = func(BinaryOperator { lhs, rhs });
 
-    context.register(op);
+    context.register(Instruction::new(op, out));
 
     output
 }
@@ -111,13 +113,9 @@ where
     let out = context.create_local_binding(out_item);
     let out_var = *out;
 
-    let op = func(BinaryOperator {
-        lhs,
-        rhs,
-        out: out_var,
-    });
+    let op = func(BinaryOperator { lhs, rhs });
 
-    context.register(op);
+    context.register(Instruction::new(op, out_var));
 
     out
 }
@@ -136,13 +134,9 @@ where
 
     find_vectorization(lhs_var.item().vectorization, rhs.item().vectorization);
 
-    let op = func(BinaryOperator {
-        lhs: lhs_var,
-        rhs,
-        out: lhs_var,
-    });
+    let op = func(BinaryOperator { lhs: lhs_var, rhs });
 
-    context.register(op);
+    context.register(Instruction::new(op, lhs_var));
 
     lhs
 }
@@ -157,12 +151,9 @@ where
     let out = context.create_local_binding(item);
     let out_var = *out;
 
-    let op = func(UnaryOperator {
-        input,
-        out: out_var,
-    });
+    let op = func(UnaryOperator { input });
 
-    context.register(op);
+    context.register(Instruction::new(op, out_var));
 
     out
 }
@@ -180,16 +171,16 @@ where
     let output = context.create_local_binding(out_item);
     let out = *output;
 
-    let op = func(UnaryOperator { input, out });
+    let op = func(UnaryOperator { input });
 
-    context.register(op);
+    context.register(Instruction::new(op, out));
 
     output
 }
 
 pub fn init_expand<F>(context: &mut CubeContext, input: ExpandElement, func: F) -> ExpandElement
 where
-    F: Fn(UnaryOperator) -> Operator,
+    F: Fn(Variable) -> Operation,
 {
     if input.can_mut() {
         return input;
@@ -201,12 +192,9 @@ where
     let out = context.create_local_variable(item);
     let out_var = *out;
 
-    let op = func(UnaryOperator {
-        input: input_var,
-        out: out_var,
-    });
+    let op = func(input_var);
 
-    context.register(op);
+    context.register(Instruction::new(op, out_var));
 
     out
 }
@@ -246,26 +234,29 @@ pub fn array_assign_binary_op_expand<
 
     let array_value = context.create_local_binding(array.item());
 
-    let read = Operator::Index(BinaryOperator {
-        lhs: *array,
-        rhs: *index,
-        out: *array_value,
-    });
+    let read = Instruction::new(
+        Operator::Index(BinaryOperator {
+            lhs: *array,
+            rhs: *index,
+        }),
+        *array_value,
+    );
     let array_value = array_value.consume();
     let op_out = context.create_local_binding(array.item());
-    let calculate = func(BinaryOperator {
-        lhs: array_value,
-        rhs: *value,
-        out: *op_out,
-    });
+    let calculate = Instruction::new(
+        func(BinaryOperator {
+            lhs: array_value,
+            rhs: *value,
+        }),
+        *op_out,
+    );
 
     let write = Operator::IndexAssign(BinaryOperator {
         lhs: *index,
         rhs: op_out.consume(),
-        out: *array,
     });
 
     context.register(read);
     context.register(calculate);
-    context.register(write);
+    context.register(Instruction::new(write, *array));
 }

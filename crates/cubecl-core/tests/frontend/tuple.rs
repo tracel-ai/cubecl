@@ -19,7 +19,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{Elem, Item, Operation, Variable},
+        ir::{Elem, Item, Instruction, Variable},
     };
     use pretty_assertions::assert_eq;
 
@@ -33,7 +33,7 @@ mod tests {
         assert_eq!(scope.operations, inline_macro_ref_tuple_const());
     }
 
-    fn inline_macro_ref_tuple_const() -> Vec<Operation> {
+    fn inline_macro_ref_tuple_const() -> Vec<Instruction> {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
@@ -59,7 +59,7 @@ mod tests {
         assert_eq!(scope.operations, inline_macro_ref_tuple_destructuring());
     }
 
-    fn inline_macro_ref_tuple_destructuring() -> Vec<Operation> {
+    fn inline_macro_ref_tuple_destructuring() -> Vec<Instruction> {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();

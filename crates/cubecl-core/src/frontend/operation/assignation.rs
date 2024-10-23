@@ -6,7 +6,9 @@ use crate::{
 };
 use crate::{ir, prelude::Index};
 
-pub mod assign {
+pub mod cast {
+    use ir::Instruction;
+
     use crate::prelude::ExpandElementTyped;
 
     use self::ir::{Operator, UnaryOperator};
@@ -18,14 +20,37 @@ pub mod assign {
         input: ExpandElementTyped<C>,
         output: ExpandElementTyped<C>,
     ) {
-        context.register(Operator::Assign(UnaryOperator {
-            input: *input.expand,
-            out: *output.expand,
-        }));
+        context.register(Instruction::new(
+            Operator::Cast(UnaryOperator {
+                input: *input.expand,
+            }),
+            *output.expand,
+        ));
+    }
+}
+
+pub mod assign {
+    use ir::{Instruction, Operation};
+
+    use crate::prelude::ExpandElementTyped;
+
+    use super::*;
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        input: ExpandElementTyped<C>,
+        output: ExpandElementTyped<C>,
+    ) {
+        context.register(Instruction::new(
+            Operation::Assign(*input.expand),
+            *output.expand,
+        ));
     }
 }
 
 pub mod index_assign {
+    use ir::Instruction;
+
     use crate::{
         frontend::CubeType,
         prelude::{ExpandElementTyped, SliceMut},
@@ -50,11 +75,13 @@ pub mod index_assign {
             }
             _ => index,
         };
-        context.register(Operator::IndexAssign(BinaryOperator {
-            lhs: index,
-            rhs: value.expand.into(),
-            out: array.expand.into(),
-        }));
+        context.register(Instruction::new(
+            Operator::IndexAssign(BinaryOperator {
+                lhs: index,
+                rhs: value.expand.into(),
+            }),
+            array.expand.into(),
+        ));
     }
 
     macro_rules! impl_index {

@@ -42,7 +42,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{Elem, Item, Operation, Variable},
+        ir::{Elem, Instruction, Item, Variable},
     };
 
     #[test]
@@ -103,7 +103,7 @@ mod tests {
         assert_eq!(scope.operations, inline_macro_ref_assign_deref());
     }
 
-    fn inline_macro_ref_mut_assign() -> Vec<Operation> {
+    fn inline_macro_ref_mut_assign() -> Vec<Instruction> {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
@@ -118,7 +118,7 @@ mod tests {
         scope.operations
     }
 
-    fn inline_macro_ref_mut_assign_input() -> Vec<Operation> {
+    fn inline_macro_ref_mut_assign_input() -> Vec<Instruction> {
         let mut context = CubeContext::default();
         let item = Item::new(Elem::UInt);
         let y = context.create_local_binding(item);
@@ -137,7 +137,7 @@ mod tests {
         scope.operations
     }
 
-    fn inline_macro_ref_assign_mut_input() -> Vec<Operation> {
+    fn inline_macro_ref_assign_mut_input() -> Vec<Instruction> {
         let mut context = CubeContext::default();
         let item = Item::new(Elem::UInt);
         let y = context.create_local_variable(item);
@@ -157,7 +157,7 @@ mod tests {
         scope.operations
     }
 
-    fn inline_macro_ref_assign_vectorized() -> Vec<Operation> {
+    fn inline_macro_ref_assign_vectorized() -> Vec<Instruction> {
         let mut context = CubeContext::default();
         let item = Item::vectorized(Elem::UInt, NonZero::new(4));
         let y = context.create_local_binding(item);
@@ -171,13 +171,13 @@ mod tests {
         let two: Variable = 2u32.into();
         let three: Variable = 3u32.into();
 
-        cpa!(scope, x = one);
+        cpa!(scope, x = cast(one));
         cpa!(scope, x = x + y);
 
         scope.operations
     }
 
-    fn inline_macro_ref_assign_deref() -> Vec<Operation> {
+    fn inline_macro_ref_assign_deref() -> Vec<Instruction> {
         let context = CubeContext::default();
         let mut scope = context.into_scope();
         let y = scope.create_local(Item::new(Elem::UInt));

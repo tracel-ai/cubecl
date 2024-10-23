@@ -1,5 +1,5 @@
 use crate::{
-    ir::{FmaOperator, Operation, Operator},
+    ir::{FmaOperator, Instruction, Operator},
     prelude::{CubeContext, CubePrimitive, ExpandElement},
     unexpanded,
 };
@@ -25,12 +25,10 @@ pub fn fma_expand<C: CubePrimitive>(
     let b = *b;
     let c = *c;
 
-    context.register(Operation::Operator(Operator::Fma(FmaOperator {
-        a,
-        b,
-        c,
+    context.register(Instruction::new(
+        Operator::Fma(FmaOperator { a, b, c }),
         out,
-    })));
+    ));
 
     output
 }

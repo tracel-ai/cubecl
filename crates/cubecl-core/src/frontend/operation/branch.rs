@@ -32,7 +32,7 @@ pub fn select_many<C: CubePrimitive>(
 pub mod select {
     use std::num::NonZero;
 
-    use crate::ir::Operator;
+    use crate::ir::{Instruction, Operator};
 
     use super::*;
 
@@ -57,9 +57,8 @@ pub mod select {
             cond,
             then,
             or_else,
-            out,
         });
-        context.register(select);
+        context.register(Instruction::new(select, out));
 
         output.into()
     }

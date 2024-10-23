@@ -2,8 +2,8 @@ use std::mem::transmute;
 
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_core::ir::{
-    BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Item, Loop, Operator, RangeLoop,
-    Switch, UnaryOperator, Variable,
+    BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Instruction, Item, Loop,
+    Operation, Operator, RangeLoop, Switch, Variable,
 };
 use petgraph::visit::EdgeRef;
 
@@ -261,12 +261,8 @@ impl Optimizer {
         let i = range_loop.i;
         self.program.variables.insert(i_id, i.item());
 
-        let mut assign = Operator::Assign(UnaryOperator {
-            input: range_loop.start,
-            out: i,
-        })
-        .into();
-        self.visit_operation(&mut assign, |_, _| {}, |opt, var| opt.write_var(var));
+        let mut assign = Instruction::new(Operation::Assign(range_loop.start), i);
+        self.visit_out(&mut assign.out, |opt, var| opt.write_var(var));
         self.current_block_mut().ops.borrow_mut().push(assign);
 
         let current_block = self.current_block.unwrap();
@@ -316,14 +312,13 @@ impl Optimizer {
                 false => Operator::Lower,
             };
             let tmp = self.create_temporary(Item::new(Elem::Bool));
-            self.program[header].ops.borrow_mut().push(
+            self.program[header].ops.borrow_mut().push(Instruction::new(
                 op(BinaryOperator {
                     lhs: i,
                     rhs: range_loop.end,
-                    out: tmp,
-                })
-                .into(),
-            );
+                }),
+                tmp,
+            ));
 
             *self.program[header].control_flow.borrow_mut() = ControlFlow::LoopBreak {
                 break_cond: tmp,
@@ -332,14 +327,13 @@ impl Optimizer {
                 merge: next,
             };
         }
-        self.program[current_block].ops.borrow_mut().push(
-            Operator::Add(BinaryOperator {
-                lhs: i,
-                rhs: step,
-                out: i,
-            })
-            .into(),
-        );
+        self.program[current_block]
+            .ops
+            .borrow_mut()
+            .push(Instruction::new(
+                Operator::Add(BinaryOperator { lhs: i, rhs: step }),
+                i,
+            ));
     }
 
     pub(crate) fn split_critical_edges(&mut self) {

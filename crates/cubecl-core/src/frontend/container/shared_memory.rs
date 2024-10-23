@@ -90,7 +90,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 /// Module that contains the implementation details of the index functions.
 mod indexation {
     use crate::{
-        ir::{BinaryOperator, Operator},
+        ir::{BinaryOperator, Instruction, Operator},
         prelude::{CubeIndex, CubeIndexMut},
         unexpanded,
     };
@@ -130,11 +130,13 @@ mod indexation {
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
             let out = context.create_local_binding(self.expand.item());
-            context.register(Operator::UncheckedIndex(BinaryOperator {
-                out: *out,
-                lhs: *self.expand,
-                rhs: i.expand.consume(),
-            }));
+            context.register(Instruction::new(
+                Operator::UncheckedIndex(BinaryOperator {
+                    lhs: *self.expand,
+                    rhs: i.expand.consume(),
+                }),
+                *out,
+            ));
             out.into()
         }
 
@@ -144,11 +146,13 @@ mod indexation {
             i: ExpandElementTyped<u32>,
             value: ExpandElementTyped<E>,
         ) {
-            context.register(Operator::UncheckedIndexAssign(BinaryOperator {
-                out: *self.expand,
-                lhs: i.expand.consume(),
-                rhs: value.expand.consume(),
-            }));
+            context.register(Instruction::new(
+                Operator::UncheckedIndexAssign(BinaryOperator {
+                    lhs: i.expand.consume(),
+                    rhs: value.expand.consume(),
+                }),
+                *self.expand,
+            ));
         }
     }
 }

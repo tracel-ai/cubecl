@@ -15,9 +15,9 @@ macro_rules! cpa {
     };
     // out = add(lhs, rhs)
     ($scope:expr, $out:ident = add($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Add(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Add(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs - rhs
     ($scope:expr, $out:ident = $lhs:ident - $rhs:expr) => {
@@ -25,9 +25,9 @@ macro_rules! cpa {
     };
     // out = sub(lhs, rhs)
     ($scope:expr, $out:ident = sub($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Sub(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Sub(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs * rhs
     ($scope:expr, $out:ident = $lhs:ident * $rhs:expr) => {
@@ -39,9 +39,9 @@ macro_rules! cpa {
     };
     // out = mul(lhs, rhs)
     ($scope:expr, $out:ident = mul($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Mul(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Mul(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs / rhs
     ($scope:expr, $out:ident = $lhs:ident / $rhs:expr) => {
@@ -49,9 +49,9 @@ macro_rules! cpa {
     };
     // out = div(lhs, rhs)
     ($scope:expr, $out:ident = div($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Div(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Div(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs % rhs
     ($scope:expr, $out:ident = $lhs:ident % $rhs:expr) => {
@@ -59,15 +59,15 @@ macro_rules! cpa {
     };
     // out = modulo(lhs, rhs)
     ($scope:expr, $out:ident = modulo($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Modulo(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Modulo(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = powf(lhs, rhs)
     ($scope:expr, $out:ident = powf($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Powf(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Powf(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs && rhs
     ($scope:expr, $out:ident = $lhs:ident && $rhs:expr) => {
@@ -75,9 +75,9 @@ macro_rules! cpa {
     };
     // out = and(lhs, rhs)
     ($scope:expr, $out:ident = and($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::And(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::And(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs || rhs
     ($scope:expr, $out:ident = $lhs:ident || $rhs:expr) => {
@@ -85,9 +85,9 @@ macro_rules! cpa {
     };
     // out = or(lhs, rhs)
     ($scope:expr, $out:ident = or($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Or(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Or(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = !input
     ($scope:expr, $out:ident = !$input:expr) => {
@@ -95,9 +95,9 @@ macro_rules! cpa {
     };
     // out = not(input)
     ($scope:expr, $out:ident = not($input:expr)) => {
-        $scope.register($crate::ir::Operator::Not(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Not(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = lhs & rhs
     ($scope:expr, $out: ident = $lhs:ident & $rhs:ident) => {
@@ -105,9 +105,9 @@ macro_rules! cpa {
     };
     // out = bitwise_and(lhs, rhs)
     ($scope:expr, $out:ident = bitwise_and($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::BitwiseAnd(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::BitwiseAnd(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs ^ rhs
     ($scope:expr, $out: ident = $lhs:ident ^ $rhs:ident) => {
@@ -115,18 +115,17 @@ macro_rules! cpa {
     };
     // out = bitwise_xor(lhs, rhs)
     ($scope:expr, $out:ident = bitwise_xor($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::BitwiseXor(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::BitwiseXor(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = select(cond, then, or_else)
     ($scope:expr, $out:ident = select($cond:expr, $then:expr, $or_else:expr)) => {
-        $scope.register($crate::ir::Branch::Select($crate::ir::Select{
+        $scope.register($crate::ir::Instruction::new($crate::ir::Branch::Select($crate::ir::Select{
             cond: $cond,
             then: $then,
             or_else: $or_else,
-            out: $out,
-        }));
+        }), $out));
     };
     // out = lhs << rhs
     ($scope:expr, $out: ident = $lhs:ident << $rhs:ident) => {
@@ -134,9 +133,9 @@ macro_rules! cpa {
     };
     // out = shift_left(lhs, rhs)
     ($scope:expr, $out:ident = shift_left($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::ShiftLeft(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::ShiftLeft(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs >> rhs
     ($scope:expr, $out: ident = $lhs:ident >> $rhs:ident) => {
@@ -144,9 +143,9 @@ macro_rules! cpa {
     };
     // out = shift_right(lhs, rhs)
     ($scope:expr, $out:ident = shift_right($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::ShiftRight(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::ShiftRight(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs == rhs
     ($scope:expr, $out:ident = $lhs:ident == $rhs:expr) => {
@@ -154,9 +153,9 @@ macro_rules! cpa {
     };
     // out = equal(lhs, rhs)
     ($scope:expr, $out:ident = equal($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Equal(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Equal(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs != rhs
     ($scope:expr, $out:ident = $lhs:ident != $rhs:expr) => {
@@ -164,9 +163,9 @@ macro_rules! cpa {
     };
     // out = not_equal(lhs, rhs)
     ($scope:expr, $out:ident = not_equal($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::NotEqual(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::NotEqual(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs > rhs
     ($scope:expr, $out:ident = $lhs:ident > $rhs:expr) => {
@@ -174,9 +173,9 @@ macro_rules! cpa {
     };
     // out = greater(lhs, rhs)
     ($scope:expr, $out:ident = greater($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Greater(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Greater(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs >= rhs
     ($scope:expr, $out:ident = $lhs:ident >= $rhs:expr) => {
@@ -184,9 +183,9 @@ macro_rules! cpa {
     };
     // out = greater_equal(lhs, rhs)
     ($scope:expr, $out:ident = greater_equal($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::GreaterEqual(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::GreaterEqual(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs < rhs
     ($scope:expr, $out:ident = $lhs:ident < $rhs:expr) => {
@@ -194,9 +193,9 @@ macro_rules! cpa {
     };
     // out = lower(lhs, rhs)
     ($scope:expr, $out:ident = lower($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Lower(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Lower(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs <= rhs
     ($scope:expr, $out:ident = $lhs:ident <= $rhs:expr) => {
@@ -204,21 +203,21 @@ macro_rules! cpa {
     };
     // out = lower_equal(lhs, rhs)
     ($scope:expr, $out:ident = lower_equal($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::LowerEqual(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::LowerEqual(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = max(lhs, rhs)
     ($scope:expr, $out:ident = max($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Max(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Max(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = min(lhs, rhs)
     ($scope:expr, $out:ident = min($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Min(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Min(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = lhs[rhs]
     ($scope:expr, $out:ident = $lhs:ident[$rhs:expr]) => {
@@ -226,27 +225,27 @@ macro_rules! cpa {
     };
     // out = index(lhs, rhs)
     ($scope:expr, $out:ident = index($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::ir::Operator::Index(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Index(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = unchecked(lhs[rhs])
     ($scope:expr, $out:ident = unchecked($lhs:ident[$rhs:expr])) => {
-        $scope.register($crate::ir::Operator::UncheckedIndex(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::UncheckedIndex(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out[lhs] = rhs
     ($scope:expr, $out:ident[$lhs:ident] = $rhs:expr) => {
-        $scope.register($crate::ir::Operator::IndexAssign(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::IndexAssign(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // unchecked(out[lhs]) = rhs
     ($scope:expr, unchecked($out:ident[$lhs:ident]) = $rhs:expr) => {
-        $scope.register($crate::ir::Operator::UncheckedIndexAssign(
-            cpa!(binary $lhs, $rhs, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::UncheckedIndexAssign(
+            cpa!(binary $lhs, $rhs)
+        ), $out));
     };
     // out = |input|
     ($scope:expr, $out:ident = |$input:ident|) => {
@@ -254,80 +253,80 @@ macro_rules! cpa {
     };
     // out = abs(input)
     ($scope:expr, $out:ident = abs($input:expr)) => {
-        $scope.register($crate::ir::Operator::Abs(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Abs(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = exp(input)
     ($scope:expr, $out:ident = exp($input:expr)) => {
-        $scope.register($crate::ir::Operator::Exp(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Exp(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = log(input)
     ($scope:expr, $out:ident = log($input:expr)) => {
-        $scope.register($crate::ir::Operator::Log(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Log(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = log1p(input)
     ($scope:expr, $out:ident = log1p($input:expr)) => {
-        $scope.register($crate::ir::Operator::Log1p(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Log1p(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = cos(input)
     ($scope:expr, $out:ident = cos($input:expr)) => {
-        $scope.register($crate::ir::Operator::Cos(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Cos(
+            cpa!(unary $input)
+        ), $out));
     };
     ($scope:expr, $out:ident = normalize($input:expr)) => {
-        $scope.register($crate::ir::Operator::Normalize(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Normalize(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = sin(input)
     ($scope:expr, $out:ident = sin($input:expr)) => {
-        $scope.register($crate::ir::Operator::Sin(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Sin(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = tanh(input)
     ($scope:expr, $out:ident = tanh($input:expr)) => {
-        $scope.register($crate::ir::Operator::Tanh(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Tanh(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = sqrt(input)
     ($scope:expr, $out:ident = sqrt($input:expr)) => {
-        $scope.register($crate::ir::Operator::Sqrt(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Sqrt(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = floor(input)
     ($scope:expr, $out:ident = floor($input:expr)) => {
-        $scope.register($crate::ir::Operator::Floor(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Floor(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = ceil(input)
     ($scope:expr, $out:ident = ceil($input:expr)) => {
-        $scope.register($crate::ir::Operator::Ceil(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Ceil(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = erf(input)
     ($scope:expr, $out:ident = erf($input:expr)) => {
-        $scope.register($crate::ir::Operator::Erf(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Erf(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = input
     ($scope:expr, $out:ident = $input:ident) => {
-        $scope.register($crate::ir::Operator::Assign(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operation::Assign(
+            $input
+        ), $out));
     };
     // out = vec4(a, b, c, d)
     ($scope:expr, $out:ident = vec4($a:ident,$b:ident,$c:ident,$d:ident)) => {
@@ -346,32 +345,29 @@ macro_rules! cpa {
     };
     // out = cast(input)
     ($scope:expr, $out:ident = cast($input:expr)) => {
-        $scope.register($crate::ir::Operator::Assign(
-            cpa!(unary $input, $out)
-        ));
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Cast(
+            cpa!(unary $input)
+        ), $out));
     };
     // out = shape(tensor, dim)
     ($scope:expr, $out:ident = shape($input:expr, $dim:expr)) => {
-        $scope.register($crate::ir::Metadata::Shape {
+        $scope.register($crate::ir::Instruction::new($crate::ir::Metadata::Shape {
             dim: $dim.into(),
             var: $input.into(),
-            out: $out.into(),
-        });
+        }, $out));
     };
     // out = stride(tensor, dim)
     ($scope:expr, $out:ident = stride($input:expr, $dim:expr)) => {
-        $scope.register($crate::ir::Metadata::Stride {
+        $scope.register($crate::ir::Instruction::new($crate::ir::Metadata::Stride {
             dim: $dim.into(),
             var: $input.into(),
-            out: $out.into(),
-        });
+        }, $out));
     };
     // out = len(array)
     ($scope:expr, $out:ident = len($input:expr)) => {
-        $scope.register($crate::ir::Metadata::Length {
+        $scope.register($crate::ir::Instruction::new($crate::ir::Metadata::Length {
             var: $input.into(),
-            out: $out.into(),
-        });
+        }, $out));
     };
     // range(start, end).for_each(|i, scope| { ... })
     ($scope:expr, range($start:expr, $end:expr).for_each($arg:expr)) => {
@@ -409,17 +405,15 @@ macro_rules! cpa {
     ($scope:expr, if ($cond:expr).then($arg_if:expr).else($arg_else:expr)) => {
         $crate::ir::IfElse::register($scope, $cond.into(), $arg_if, $arg_else);
     };
-    (binary $lhs:expr, $rhs:expr, $out:expr) => {
+    (binary $lhs:expr, $rhs:expr) => {
         $crate::ir::BinaryOperator {
             lhs: $lhs.into(),
             rhs: $rhs.into(),
-            out: $out.into(),
         }
     };
-    (unary $input:expr, $out:expr) => {
+    (unary $input:expr) => {
         $crate::ir::UnaryOperator {
             input: $input.into(),
-            out: $out.into(),
         }
     };
 }

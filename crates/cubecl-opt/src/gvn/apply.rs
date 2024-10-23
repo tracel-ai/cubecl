@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use cubecl_core::ir::{Operator, UnaryOperator};
+use cubecl_core::ir::{self, Operation};
 use petgraph::graph::NodeIndex;
 
 use crate::{
@@ -82,7 +82,7 @@ impl GvnPass {
                     let leaders = &mut self.block_sets.get_mut(&pred).unwrap().leaders;
                     if !leaders.contains_key(&val) {
                         let new_temp = opt.create_temporary(expr.item());
-                        let new_op = expr.to_operation(leaders, new_temp);
+                        let new_op = ir::Instruction::new(expr.to_operation(leaders), new_temp);
                         opt.program[pred].ops.borrow_mut().push(new_op);
                         leaders.insert(val, value_of_var(&new_temp).unwrap());
                         new_expr.get_mut(&pred).unwrap().insert(val);
@@ -152,13 +152,9 @@ impl GvnPass {
             for op in opt.program[block].ops.borrow_mut().values_mut() {
                 if let Some(leader) = self.values.lookup_op(op).and_then(|val| leaders.get(&val)) {
                     let var = leader.as_var();
-                    let out = op.out();
+                    let out = op.out;
                     if Some(var) != out {
-                        *op = Operator::Assign(UnaryOperator {
-                            input: var,
-                            out: out.unwrap(),
-                        })
-                        .into();
+                        op.operation = Operation::Assign(var);
                         changes.inc();
                     }
                 }

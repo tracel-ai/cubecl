@@ -10,18 +10,14 @@ use smallvec::SmallVec;
 use super::{Builtin, Constant, Expression, Local, OpId, Value};
 
 impl Expression {
-    pub fn to_operation(&self, leaders: &HashMap<u32, Value>, out: Variable) -> Operation {
+    pub fn to_operation(&self, leaders: &HashMap<u32, Value>) -> Operation {
         match self {
             Expression::Copy(val, _) => {
                 let input = leaders[val].as_var();
-                Operator::Assign(UnaryOperator { input, out }).into()
+                Operation::Assign(input)
             }
             Expression::Value(value) | Expression::Volatile(value) => {
-                Operator::Assign(UnaryOperator {
-                    input: value.as_var(),
-                    out,
-                })
-                .into()
+                Operation::Assign(value.as_var())
             }
             Expression::Instruction(instruction) => {
                 let args = instruction
@@ -33,281 +29,175 @@ impl Expression {
                     OpId::Add => Operator::Add(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Fma => Operator::Fma(FmaOperator {
                         a: args[0],
                         b: args[1],
                         c: args[2],
-                        out,
                     })
                     .into(),
                     OpId::Sub => Operator::Sub(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Mul => Operator::Mul(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Div => Operator::Div(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
-                    OpId::Abs => Operator::Abs(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Exp => Operator::Exp(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Log => Operator::Log(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Log1p => Operator::Log1p(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Cos => Operator::Cos(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Sin => Operator::Sin(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Tanh => Operator::Tanh(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Abs => Operator::Abs(UnaryOperator { input: args[0] }).into(),
+                    OpId::Exp => Operator::Exp(UnaryOperator { input: args[0] }).into(),
+                    OpId::Log => Operator::Log(UnaryOperator { input: args[0] }).into(),
+                    OpId::Log1p => Operator::Log1p(UnaryOperator { input: args[0] }).into(),
+                    OpId::Cos => Operator::Cos(UnaryOperator { input: args[0] }).into(),
+                    OpId::Sin => Operator::Sin(UnaryOperator { input: args[0] }).into(),
+                    OpId::Tanh => Operator::Tanh(UnaryOperator { input: args[0] }).into(),
                     OpId::Powf => Operator::Powf(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
-                    OpId::Sqrt => Operator::Sqrt(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Round => Operator::Round(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Floor => Operator::Floor(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Ceil => Operator::Ceil(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Erf => Operator::Erf(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Recip => Operator::Recip(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Sqrt => Operator::Sqrt(UnaryOperator { input: args[0] }).into(),
+                    OpId::Round => Operator::Round(UnaryOperator { input: args[0] }).into(),
+                    OpId::Floor => Operator::Floor(UnaryOperator { input: args[0] }).into(),
+                    OpId::Ceil => Operator::Ceil(UnaryOperator { input: args[0] }).into(),
+                    OpId::Erf => Operator::Erf(UnaryOperator { input: args[0] }).into(),
+                    OpId::Recip => Operator::Recip(UnaryOperator { input: args[0] }).into(),
                     OpId::Equal => Operator::Equal(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::NotEqual => Operator::NotEqual(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Lower => Operator::Lower(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Clamp => Operator::Clamp(ClampOperator {
                         input: args[0],
                         min_value: args[1],
                         max_value: args[2],
-                        out,
                     })
                     .into(),
                     OpId::Greater => Operator::Greater(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::LowerEqual => Operator::LowerEqual(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::GreaterEqual => Operator::GreaterEqual(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Modulo => Operator::Modulo(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Index => Operator::Index(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::InitLine => Operator::InitLine(LineInitOperator {
                         inputs: args.into_vec(),
-                        out,
                     })
                     .into(),
                     OpId::And => Operator::And(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Or => Operator::Or(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
-                    OpId::Not => Operator::Not(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Neg => Operator::Neg(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Not => Operator::Not(UnaryOperator { input: args[0] }).into(),
+                    OpId::Neg => Operator::Neg(UnaryOperator { input: args[0] }).into(),
                     OpId::Max => Operator::Max(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Min => Operator::Min(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::BitwiseAnd => Operator::BitwiseAnd(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::BitwiseOr => Operator::BitwiseOr(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::BitwiseXor => Operator::BitwiseXor(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::ShiftLeft => Operator::ShiftLeft(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::ShiftRight => Operator::ShiftRight(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Remainder => Operator::Remainder(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
-                    OpId::Magnitude => Operator::Magnitude(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Normalize => Operator::Normalize(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Magnitude => Operator::Magnitude(UnaryOperator { input: args[0] }).into(),
+                    OpId::Normalize => Operator::Normalize(UnaryOperator { input: args[0] }).into(),
                     OpId::Dot => Operator::Dot(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Select => Operator::Select(Select {
                         cond: args[0],
                         then: args[1],
                         or_else: args[2],
-                        out,
                     })
                     .into(),
-                    OpId::Bitcast => Operator::Bitcast(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Length => Metadata::Length { var: args[0], out }.into(),
+                    OpId::Bitcast => Operator::Bitcast(UnaryOperator { input: args[0] }).into(),
+                    OpId::Length => Metadata::Length { var: args[0] }.into(),
                     OpId::Shape => Metadata::Shape {
                         var: args[0],
                         dim: args[1],
-                        out,
                     }
                     .into(),
                     OpId::Stride => Metadata::Stride {
                         var: args[0],
                         dim: args[1],
-                        out,
                     }
                     .into(),
-                    OpId::Cast => Operator::Assign(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Cast => Operator::Cast(UnaryOperator { input: args[0] }).into(),
                 }
             }
             Expression::Phi(_) => unreachable!("Phi can't be made into operation"),
@@ -498,6 +388,7 @@ pub fn id_of_op(op: &Operator) -> OpId {
         Operator::Magnitude(_) => OpId::Magnitude,
         Operator::Normalize(_) => OpId::Normalize,
         Operator::Dot(_) => OpId::Dot,
+        Operator::Cast(_) => OpId::Cast,
         Operator::Bitcast(_) => OpId::Bitcast,
         _ => unreachable!(),
     }

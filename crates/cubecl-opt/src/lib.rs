@@ -32,11 +32,11 @@ use std::{
 };
 
 use cubecl_core::{
-    ir::{self as core, Branch, Operator, Variable},
+    ir::{self as core, Branch, Operation, Operator, Variable},
     CubeDim,
 };
 use cubecl_core::{
-    ir::{Item, Operation, Scope},
+    ir::{Item, Scope},
     ExecutionMode,
 };
 use gvn::GvnPass;
@@ -309,8 +309,8 @@ impl Optimizer {
         for node in self.node_ids() {
             let ops = self.program[node].ops.clone();
             for op in ops.borrow().values() {
-                if let Operation::Operator(Operator::IndexAssign(binop)) = op {
-                    if let Variable::Local { id, depth, .. } = &binop.out {
+                if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation {
+                    if let Some(Variable::Local { id, depth, .. }) = &op.out {
                         self.program.variables.remove(&(*id, *depth));
                     }
                 }
@@ -377,16 +377,15 @@ impl Optimizer {
             }
         }
 
-        let is_break = processed
-            .operations
-            .contains(&Operation::Branch(Branch::Break));
+        let is_break = processed.operations.contains(&Branch::Break.into());
 
-        for instruction in processed.operations {
-            match instruction {
-                Operation::Branch(branch) => self.parse_control_flow(branch),
+        for mut instruction in processed.operations {
+            let out = instruction.out;
+            match &mut instruction.operation {
+                Operation::Branch(branch) => self.parse_control_flow(branch.clone()),
                 Operation::Operator(Operator::Slice(slice_op)) => {
-                    let out_id = match &slice_op.out {
-                        Variable::Slice { id, depth, .. } => (*id, *depth),
+                    let out_id = match out.unwrap() {
+                        Variable::Slice { id, depth, .. } => (id, depth),
                         _ => unreachable!(),
                     };
                     let const_len = slice_op.start.as_const().zip(slice_op.end.as_const());
@@ -400,13 +399,12 @@ impl Optimizer {
                             const_len,
                         },
                     );
-                    let mut op = Operation::Operator(Operator::Slice(slice_op));
-                    self.visit_operation(&mut op, |_, _| {}, |opt, var| opt.write_var(var));
-                    self.current_block_mut().ops.borrow_mut().push(op);
+                    self.visit_out(&mut instruction.out, |opt, var| opt.write_var(var));
+                    self.current_block_mut().ops.borrow_mut().push(instruction);
                 }
-                mut other => {
-                    self.visit_operation(&mut other, |_, _| {}, |opt, var| opt.write_var(var));
-                    self.current_block_mut().ops.borrow_mut().push(other);
+                _ => {
+                    self.visit_out(&mut instruction.out, |opt, var| opt.write_var(var));
+                    self.current_block_mut().ops.borrow_mut().push(instruction);
                 }
             }
         }

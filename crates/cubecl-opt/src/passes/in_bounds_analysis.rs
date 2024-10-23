@@ -12,14 +12,15 @@ impl OptimizerPass for FindConstSliceLen {
         for block in opt.node_ids() {
             let ops = opt.program[block].ops.clone();
             for operator in ops.borrow().values() {
-                let op = match operator {
+                let op = match &operator.operation {
                     Operation::Operator(op) => op,
                     _ => continue,
                 };
                 // Only handle the simplest cases for now
                 if let Operator::Add(op) = op {
                     let mut slices = opt.program.slices.values_mut();
-                    let slice = slices.find(|it| it.end == op.out && it.const_len.is_none());
+                    let slice =
+                        slices.find(|it| it.end == operator.out() && it.const_len.is_none());
                     if let Some(slice) = slice {
                         slice.end_op = Some(Operator::Add(op.clone()).into());
                         if op.lhs == slice.start && op.rhs.as_const().is_some() {
@@ -44,8 +45,8 @@ impl OptimizerPass for InBoundsToUnchecked {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for block in opt.node_ids() {
             let ops = opt.program[block].ops.clone();
-            for operator in ops.borrow_mut().values_mut() {
-                let op = match operator {
+            for inst in ops.borrow_mut().values_mut() {
+                let op = match &inst.operation {
                     Operation::Operator(op) => op,
                     _ => continue,
                 };
@@ -55,18 +56,19 @@ impl OptimizerPass for InBoundsToUnchecked {
                             let range = range_of(opt, &op.rhs);
                             if let Some((lower, upper)) = range.lower_bound.zip(range.upper_bound) {
                                 if lower >= 0 && (upper as u32) < const_len {
-                                    *operator = Operator::UncheckedIndex(op.clone()).into();
+                                    inst.operation = Operator::UncheckedIndex(op.clone()).into();
                                     changes.inc();
                                 }
                             }
                         }
                     }
                     Operator::IndexAssign(op) => {
-                        if let Some(const_len) = const_len(opt, &op.out) {
+                        if let Some(const_len) = const_len(opt, &inst.out()) {
                             let range = range_of(opt, &op.lhs);
                             if let Some((lower, upper)) = range.lower_bound.zip(range.upper_bound) {
                                 if lower >= 0 && (upper as u32) < const_len {
-                                    *operator = Operator::UncheckedIndexAssign(op.clone()).into();
+                                    inst.operation =
+                                        Operator::UncheckedIndexAssign(op.clone()).into();
                                     changes.inc();
                                 }
                             }

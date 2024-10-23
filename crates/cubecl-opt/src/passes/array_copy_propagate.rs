@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{Item, Operation, Operator, UnaryOperator, Variable};
+use cubecl_core::ir::{Instruction, Item, Operation, Operator, Variable};
 
 use crate::{AtomicCounter, Optimizer};
 
@@ -60,7 +60,7 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
     for block in opt.node_ids() {
         let ops = opt.program[block].ops.clone();
         for op in ops.borrow().values() {
-            match op {
+            match &op.operation {
                 Operation::Operator(Operator::Index(index)) => {
                     if let Variable::LocalArray {
                         id,
@@ -81,7 +81,7 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
                         length,
                         item,
                         depth,
-                    } = assign.out
+                    } = op.out()
                     {
                         let id = (id, depth);
                         arrays.insert(id, Array { id, length, item });
@@ -105,32 +105,24 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: (u16, u8), vars: &[Variable
     for block in opt.node_ids() {
         let ops = opt.program[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {
-            match op {
+            match &mut op.operation {
                 Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
                     if let Variable::LocalArray { id, depth, .. } = index.lhs {
                         let const_index = index.rhs.as_const().unwrap().as_i64() as usize;
                         if (id, depth) == arr_id {
-                            *op = Operator::Assign(UnaryOperator {
-                                input: vars[const_index],
-                                out: index.out,
-                            })
-                            .into();
+                            op.operation = Operation::Assign(vars[const_index]);
                         }
                     }
                 }
                 Operation::Operator(
                     Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
                 ) => {
-                    if let Variable::LocalArray { id, depth, .. } = assign.out {
+                    if let Variable::LocalArray { id, depth, .. } = op.out.unwrap() {
                         let const_index = assign.lhs.as_const().unwrap().as_i64() as usize;
                         if (id, depth) == arr_id {
                             let out = vars[const_index];
                             let out_id = opt.local_variable_id(&out).unwrap();
-                            *op = Operator::Assign(UnaryOperator {
-                                input: assign.rhs,
-                                out,
-                            })
-                            .into();
+                            *op = Instruction::new(Operation::Assign(assign.rhs), out);
                             opt.program[block].writes.insert(out_id);
                         }
                     }

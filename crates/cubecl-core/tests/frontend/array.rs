@@ -89,7 +89,7 @@ mod tests {
         );
     }
 
-    fn inline_macro_ref_read_write() -> Vec<ir::Operation> {
+    fn inline_macro_ref_read_write() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
 
@@ -120,7 +120,7 @@ mod tests {
         assert_eq!(scope.operations, inline_macro_array_add_assign_expr());
     }
 
-    fn inline_macro_array_add_assign_simple() -> Vec<ir::Operation> {
+    fn inline_macro_array_add_assign_simple() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
@@ -140,7 +140,7 @@ mod tests {
         scope.operations
     }
 
-    fn inline_macro_ref_to_vectorized() -> Vec<ir::Operation> {
+    fn inline_macro_ref_to_vectorized() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
         let scalar_item = Item::new(ElemType::as_elem());
         let vectorized_item = Item::vectorized(ElemType::as_elem(), NonZero::new(2));
@@ -162,7 +162,7 @@ mod tests {
         scope.operations
     }
 
-    fn inline_macro_ref_one_to_vectorized() -> Vec<ir::Operation> {
+    fn inline_macro_ref_one_to_vectorized() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
         let scalar_item = Item::new(ElemType::as_elem());
         let unvectorized_item = Item::vectorized(ElemType::as_elem(), NonZero::new(1));
@@ -180,7 +180,7 @@ mod tests {
         scope.operations
     }
 
-    fn inline_macro_array_add_assign_expr() -> Vec<ir::Operation> {
+    fn inline_macro_array_add_assign_expr() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();

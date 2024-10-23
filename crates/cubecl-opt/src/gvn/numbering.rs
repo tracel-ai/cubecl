@@ -4,10 +4,10 @@ use std::{
 };
 
 use cubecl_core::ir::{
-    ConstantScalarValue, Elem, Item, Metadata, Operation, Operator, Subcube, Variable,
+    self, ConstantScalarValue, Elem, Item, Metadata, Operation, Operator, Variable,
 };
 
-use crate::{passes::item_compatible, PhiInstruction};
+use crate::PhiInstruction;
 
 use super::{
     convert::{id_of_meta, id_of_op, value_of_var},
@@ -20,7 +20,7 @@ impl ValueTable {
     /// don't number any expressions that depend on it.
     pub fn maybe_insert_op(
         &mut self,
-        op: &Operation,
+        op: &ir::Instruction,
         exp_gen: &mut LinkedList<(u32, Expression)>,
         added_exps: &mut HashSet<u32>,
     ) -> Result<(u32, Option<Value>, Expression), Option<Value>> {
@@ -38,7 +38,7 @@ impl ValueTable {
         Ok((num, val, expr))
     }
 
-    pub fn lookup_op(&mut self, op: &Operation) -> Option<u32> {
+    pub fn lookup_op(&mut self, op: &ir::Instruction) -> Option<u32> {
         let (expr, _) = self.create_expr(op).ok()?;
         self.expression_numbers.get(&expr).copied()
     }
@@ -104,24 +104,18 @@ impl ValueTable {
 
     fn create_expr(
         &mut self,
-        op: &Operation,
+        inst: &ir::Instruction,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
-        match op {
-            Operation::Operator(operator) => self.create_expr_op(operator),
-            Operation::Metadata(metadata) => self.create_expr_meta(metadata),
-            Operation::Subcube(op) => {
-                let val = match op {
-                    Subcube::Elect(op) => value_of_var(&op.out),
-                    Subcube::Broadcast(op) => value_of_var(&op.out),
-                    Subcube::All(op)
-                    | Subcube::Any(op)
-                    | Subcube::Sum(op)
-                    | Subcube::Prod(op)
-                    | Subcube::Min(op)
-                    | Subcube::Max(op) => value_of_var(&op.out),
-                };
-                Err(val)
+        match &inst.operation {
+            Operation::Assign(variable) => {
+                let item = inst.item();
+                let out = value_of_var(&inst.out());
+                let num = self.lookup_or_add_var(variable)?;
+                Ok((Expression::Copy(num, item), out))
             }
+            Operation::Operator(operator) => self.create_expr_op(operator, inst.out()),
+            Operation::Metadata(metadata) => self.create_expr_meta(metadata, inst.out()),
+            Operation::Subcube(_) | Operation::Atomic(_) => Err(value_of_var(&inst.out())),
             Operation::Branch(_) | Operation::Synchronization(_) | Operation::CoopMma(_) => {
                 Err(None)
             }
@@ -131,21 +125,9 @@ impl ValueTable {
     fn create_expr_op(
         &mut self,
         operator: &Operator,
+        out: Variable,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let (expr, val) = match operator {
-            Operator::Assign(op) => {
-                let item = op.out.item();
-                let is_cast = !item_compatible(op.input.item(), op.out.item());
-                let out = value_of_var(&op.out);
-                let num = self.lookup_or_add_var(&op.input)?;
-                if is_cast {
-                    let expr = Instruction::new(OpId::Cast, &[num], item);
-                    (expr.into(), out)
-                } else {
-                    (Expression::Copy(num, item), out)
-                }
-            }
-
             // Commutative binop
             Operator::Add(op)
             | Operator::Mul(op)
@@ -159,10 +141,10 @@ impl ValueTable {
             | Operator::Max(op)
             | Operator::Min(op)
             | Operator::Dot(op) => {
-                let item = op.out.item();
+                let item = out.item();
                 let mut lhs = self.lookup_or_add_var(&op.lhs)?;
                 let mut rhs = self.lookup_or_add_var(&op.rhs)?;
-                let out = value_of_var(&op.out);
+                let out = value_of_var(&out);
                 let id = id_of_op(operator);
                 if lhs > rhs {
                     swap(&mut lhs, &mut rhs);
@@ -179,10 +161,10 @@ impl ValueTable {
             | Operator::Remainder(op)
             | Operator::ShiftLeft(op)
             | Operator::ShiftRight(op) => {
-                let item = op.out.item();
+                let item = out.item();
                 let lhs = self.lookup_or_add_var(&op.lhs)?;
                 let rhs = self.lookup_or_add_var(&op.rhs)?;
-                let out = value_of_var(&op.out);
+                let out = value_of_var(&out);
                 let id = id_of_op(operator);
                 let expr = Instruction::new(id, &[lhs, rhs], item);
                 (expr.into(), out)
@@ -193,10 +175,10 @@ impl ValueTable {
             | Operator::Greater(op)
             | Operator::LowerEqual(op)
             | Operator::GreaterEqual(op) => {
-                let item = op.out.item();
+                let item = out.item();
                 let mut lhs = self.lookup_or_add_var(&op.lhs)?;
                 let mut rhs = self.lookup_or_add_var(&op.rhs)?;
-                let out = value_of_var(&op.out);
+                let out = value_of_var(&out);
                 let mut op = id_of_op(operator);
                 if lhs > rhs {
                     swap(&mut lhs, &mut rhs);
@@ -225,27 +207,27 @@ impl ValueTable {
             | Operator::Magnitude(op)
             | Operator::Normalize(op) => {
                 let input = self.lookup_or_add_var(&op.input)?;
-                let item = op.out.item();
-                let out = value_of_var(&op.out);
+                let item = out.item();
+                let out = value_of_var(&out);
                 let op = id_of_op(operator);
                 let expr = Instruction::new(op, &[input], item);
                 (expr.into(), out)
             }
-            Operator::Bitcast(op) => {
-                let item = op.out.item();
+            Operator::Bitcast(op) | Operator::Cast(op) => {
+                let item = out.item();
                 let input = self.lookup_or_add_var(&op.input)?;
-                let out = value_of_var(&op.out);
+                let out = value_of_var(&out);
                 let op = id_of_op(operator);
                 let expr = Instruction::new(op, &[input], item);
                 (expr.into(), out)
             }
 
             Operator::Fma(op) => {
-                let item = op.out.item();
+                let item = out.item();
                 let mut a = self.lookup_or_add_var(&op.a)?;
                 let mut b = self.lookup_or_add_var(&op.b)?;
                 let c = self.lookup_or_add_var(&op.c)?;
-                let out = value_of_var(&op.out);
+                let out = value_of_var(&out);
                 let op = id_of_op(operator);
                 if a > b {
                     swap(&mut a, &mut b);
@@ -254,58 +236,47 @@ impl ValueTable {
                 (expr.into(), out)
             }
             Operator::Clamp(op) => {
-                let item = op.out.item();
+                let item = out.item();
                 let val = self.lookup_or_add_var(&op.input)?;
                 let min = self.lookup_or_add_var(&op.min_value)?;
                 let max = self.lookup_or_add_var(&op.max_value)?;
-                let out = value_of_var(&op.out);
+                let out = value_of_var(&out);
                 let op = id_of_op(operator);
                 let expr = Instruction::new(op, &[val, min, max], item);
                 (expr.into(), out)
             }
             Operator::InitLine(op) => {
-                let item = op.out.item();
+                let item = out.item();
                 let operands = op.inputs.iter().map(|it| self.lookup_or_add_var(it));
                 let operands = operands.collect::<Result<Vec<_>, _>>()?;
-                let out = value_of_var(&op.out);
+                let out = value_of_var(&out);
                 let op = id_of_op(operator);
                 let expr = Instruction::new(op, &operands, item);
                 (expr.into(), out)
             }
 
             Operator::Index(op) | Operator::UncheckedIndex(op) => {
-                let out = value_of_var(&op.out);
+                let out_val = value_of_var(&out);
                 if !op.lhs.is_immutable() {
-                    Err(out)?
+                    Err(out_val)?
                 }
-                let item = op.out.item();
+                let item = out.item();
                 let lhs = self.lookup_or_add_var(&op.lhs)?;
                 let rhs = self.lookup_or_add_var(&op.rhs)?;
                 let id = id_of_op(operator);
                 let expr = Instruction::new(id, &[lhs, rhs], item);
-                (expr.into(), out)
+                (expr.into(), out_val)
             }
 
             Operator::Select(op) => {
-                let item = op.out.item();
+                let item = out.item();
                 let cond = self.lookup_or_add_var(&op.cond)?;
                 let then = self.lookup_or_add_var(&op.then)?;
                 let or_else = self.lookup_or_add_var(&op.or_else)?;
                 let expr = Instruction::new(OpId::Select, &[cond, then, or_else], item);
-                (expr.into(), value_of_var(&op.out))
+                (expr.into(), value_of_var(&out))
             }
 
-            Operator::AtomicSwap(op)
-            | Operator::AtomicAdd(op)
-            | Operator::AtomicSub(op)
-            | Operator::AtomicMax(op)
-            | Operator::AtomicMin(op)
-            | Operator::AtomicAnd(op)
-            | Operator::AtomicOr(op)
-            | Operator::AtomicXor(op) => Err(value_of_var(&op.out))?,
-            Operator::AtomicLoad(op) => Err(value_of_var(&op.out))?,
-            Operator::AtomicCompareAndSwap(op) => Err(value_of_var(&op.out))?,
-            Operator::AtomicStore(_) => Err(None)?,
             Operator::IndexAssign(_)
             | Operator::UncheckedIndexAssign(_)
             | Operator::Slice(_)
@@ -318,20 +289,21 @@ impl ValueTable {
     fn create_expr_meta(
         &mut self,
         meta: &Metadata,
+        out: Variable,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let op = id_of_meta(meta);
         let (expr, val) = match meta {
-            Metadata::Stride { dim, var, out } | Metadata::Shape { dim, var, out } => {
+            Metadata::Stride { dim, var } | Metadata::Shape { dim, var } => {
                 let item = out.item();
                 let var = self.lookup_or_add_var(var)?;
                 let dim = self.lookup_or_add_var(dim)?;
-                let out = value_of_var(out);
+                let out = value_of_var(&out);
                 let expr = Instruction::new(op, &[var, dim], item);
                 (expr, out)
             }
-            Metadata::Length { var, out } => {
+            Metadata::Length { var } => {
                 let item = out.item();
-                let out = value_of_var(out);
+                let out = value_of_var(&out);
                 let var = match var {
                     Variable::GlobalInputArray { .. }
                     | Variable::GlobalOutputArray { .. }
