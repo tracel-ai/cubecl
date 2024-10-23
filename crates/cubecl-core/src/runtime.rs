@@ -47,4 +47,5 @@ pub enum Feature {
         k: u8,
         n: u8,
     },
+    Type(Elem),
 }

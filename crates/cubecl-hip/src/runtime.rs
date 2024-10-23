@@ -1,4 +1,4 @@
-use cubecl_cpp::HipCompiler;
+use cubecl_cpp::{register_supported_types, HipCompiler};
 
 use cubecl_core::{Feature, MemoryConfiguration, Runtime};
 use cubecl_hip_sys::HIP_SUCCESS;
@@ -72,7 +72,8 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     );
     let hip_ctx = HipContext::new(memory_management, stream, ctx);
     let server = HipServer::new(hip_ctx);
-    let device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    register_supported_types(&mut device_props);
     // TODO
     // register_wmma_features(&mut device_props);
 
