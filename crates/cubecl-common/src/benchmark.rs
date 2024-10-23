@@ -34,7 +34,7 @@ pub enum TimestampsError {
     /// Collecting timestamps is disabled, make sure to enable it.
     Disabled,
     /// Collecting timestamps isn't available.
-    Unavailabled,
+    Unavailable,
     /// En unknown error occured while collecting timestamps.
     Unknown(String),
 }
@@ -179,7 +179,7 @@ pub trait Benchmark {
     /// Wait for computation to complete and return hardware reported
     /// computation duration.
     fn sync_elapsed(&self) -> TimestampsResult {
-        Err(TimestampsError::Unavailabled)
+        Err(TimestampsError::Unavailable)
     }
 
     /// Run the benchmark a number of times.
@@ -243,7 +243,7 @@ pub trait Benchmark {
                 TimestampsError::Disabled => {
                     panic!("Collecting timestamps is deactivated, make sure to enable it before running the benchmark");
                 }
-                TimestampsError::Unavailabled => start.elapsed(),
+                TimestampsError::Unavailable => start.elapsed(),
                 TimestampsError::Unknown(err) => {
                     panic!("An unknown error occured while collecting the timestamps when benchmarking: {err}");
                 }

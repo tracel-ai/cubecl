@@ -81,7 +81,7 @@ impl ComputeServer for DummyServer {
 
     #[allow(clippy::manual_async_fn)]
     fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
-        async move { Err(cubecl_runtime::TimestampsError::Unavailabled) }
+        async move { Err(cubecl_runtime::TimestampsError::Unavailable) }
     }
 
     fn memory_usage(&self) -> MemoryUsage {

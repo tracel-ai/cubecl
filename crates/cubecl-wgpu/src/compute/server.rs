@@ -192,6 +192,12 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         #[cfg(target_family = "wasm")]
         {
+            // TODO: This should work queue.on_submitted_work_done() but that
+            // is not yet implemented on wgpu https://github.com/gfx-rs/wgpu/issues/6395
+            //
+            // For now, instead do a dummy readback. This *seems* to wait for the entire
+            // queue to be done.
+
             let dummy = self.empty(32);
             let fut = self.read(dummy.binding());
 
@@ -224,7 +230,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
                     return Box::pin(async move {
                         fut.await;
-                        Err(TimestampsError::Unavailabled)
+                        Err(TimestampsError::Unavailable)
                     });
                 } else {
                     let size = 2 * size_of::<u64>() as u64;
@@ -274,13 +280,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 })
             }
             TimestampMethod::StartTime(start_time) => {
-                // TODO: This should work queue.on_submitted_work_done() but that
-                // is not yet implemented on wgpu https://github.com/gfx-rs/wgpu/issues/6395
-                //
-                // For now, instead do a dummy readback. This *seems* to wait for the entire
-                // queue to be done.
-                let dummy = self.empty(32);
-                let fut = self.read(dummy.binding());
+                let fut = self.sync_queue();
+
                 Box::pin(async move {
                     fut.await;
                     Ok(start_time.elapsed())
@@ -536,7 +537,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 },
                 Err(err) => match err {
                     TimestampsError::Disabled => Err(err),
-                    TimestampsError::Unavailabled => match profiled {
+                    TimestampsError::Unavailable => match profiled {
                         Some(profiled) => Ok(profiled),
                         None => Err(err),
                     },
