@@ -2,6 +2,7 @@ use std::{collections::HashMap, mem::take};
 
 use cubecl_core::ir::{
     BinaryOperator, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
+    VariableKind,
 };
 use stable_vec::StableVec;
 
@@ -45,9 +46,10 @@ impl OptimizerPass for CompositeMerge {
                 let op = { ops.borrow()[idx].clone() };
                 if let (
                     Operation::Operator(Operator::IndexAssign(BinaryOperator { lhs, rhs })),
-                    Some(Variable::Local { id, depth, item }),
-                ) = (op.operation, op.out)
+                    Some(VariableKind::Local { id, depth }),
+                ) = (op.operation, op.out.map(|it| it.kind))
                 {
+                    let item = op.out.unwrap().item;
                     if let Some(index) = lhs.as_const() {
                         let index = index.as_u32();
                         let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
@@ -68,7 +70,7 @@ impl OptimizerPass for CompositeMerge {
                             assert_eq!(index, 0, "Can't index into scalar");
                             opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
                                 Operation::Assign(rhs),
-                                Variable::Local { id, item, depth },
+                                Variable::new(VariableKind::Local { id, depth }, item),
                             )
                         }
                     }
@@ -91,7 +93,7 @@ fn merge_assigns(
     let last = assigns.iter().map(|it| it.0).max().unwrap();
     assigns.sort_by_key(|it| it.1);
     let inputs = assigns.iter().map(|it| it.2).collect::<Vec<_>>();
-    let out = Variable::Local { id, item, depth };
+    let out = Variable::new(VariableKind::Local { id, depth }, item);
     ops.insert(
         last,
         Instruction::new(Operator::InitLine(LineInitOperator { inputs }), out),
@@ -116,7 +118,7 @@ impl OptimizerPass for RemoveIndexScalar {
                         if let Some(index) = rhs.as_const() {
                             let index = index.as_u32();
                             let vectorization =
-                                lhs.item().vectorization.map(|it| it.get()).unwrap_or(1);
+                                lhs.item.vectorization.map(|it| it.get()).unwrap_or(1);
                             if vectorization == 1 {
                                 assert_eq!(index, 0, "Can't index into scalar");
                                 op.operation = Operation::Assign(*lhs);

@@ -12,6 +12,7 @@ mod branch;
 mod cmma;
 mod compiler;
 mod extensions;
+mod globals;
 mod instruction;
 mod item;
 mod lookups;

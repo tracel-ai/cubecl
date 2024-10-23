@@ -20,8 +20,8 @@ where
     let lhs = lhs.consume();
     let rhs = rhs.consume();
 
-    let item_lhs = lhs.item();
-    let item_rhs = rhs.item();
+    let item_lhs = lhs.item;
+    let item_rhs = rhs.item;
 
     let vectorization = find_vectorization(item_lhs.vectorization, item_rhs.vectorization);
 
@@ -76,7 +76,7 @@ where
     let lhs = lhs.consume();
     let rhs = rhs.consume();
 
-    let item_lhs = lhs.item();
+    let item_lhs = lhs.item;
 
     let item = Item::new(item_lhs.elem);
 
@@ -101,9 +101,9 @@ where
 {
     let lhs: Variable = *lhs;
     let rhs: Variable = *rhs;
-    let item = lhs.item();
+    let item = lhs.item;
 
-    find_vectorization(item.vectorization, rhs.item().vectorization);
+    find_vectorization(item.vectorization, rhs.item.vectorization);
 
     let out_item = Item {
         elem: Elem::Bool,
@@ -132,7 +132,7 @@ where
     let lhs_var: Variable = *lhs;
     let rhs: Variable = *rhs;
 
-    find_vectorization(lhs_var.item().vectorization, rhs.item().vectorization);
+    find_vectorization(lhs_var.item.vectorization, rhs.item.vectorization);
 
     let op = func(BinaryOperator { lhs: lhs_var, rhs });
 
@@ -146,7 +146,7 @@ where
     F: Fn(UnaryOperator) -> Operator,
 {
     let input = input.consume();
-    let item = input.item();
+    let item = input.item;
 
     let out = context.create_local_binding(item);
     let out_var = *out;
@@ -187,7 +187,7 @@ where
     }
 
     let input_var: Variable = *input;
-    let item = input.item();
+    let item = input.item;
 
     let out = context.create_local_variable(item);
     let out_var = *out;
@@ -232,7 +232,7 @@ pub fn array_assign_binary_op_expand<
     let index: ExpandElement = index.into();
     let value: ExpandElement = value.into();
 
-    let array_value = context.create_local_binding(array.item());
+    let array_value = context.create_local_binding(array.item);
 
     let read = Instruction::new(
         Operator::Index(BinaryOperator {
@@ -242,7 +242,7 @@ pub fn array_assign_binary_op_expand<
         *array_value,
     );
     let array_value = array_value.consume();
-    let op_out = context.create_local_binding(array.item());
+    let op_out = context.create_local_binding(array.item);
     let calculate = Instruction::new(
         func(BinaryOperator {
             lhs: array_value,

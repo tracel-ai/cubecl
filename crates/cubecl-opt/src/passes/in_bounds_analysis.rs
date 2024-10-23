@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Operation, Operator, Variable};
+use cubecl_core::ir::{Operation, Operator, Variable, VariableKind};
 
 use crate::{AtomicCounter, Optimizer};
 
@@ -82,14 +82,14 @@ impl OptimizerPass for InBoundsToUnchecked {
 }
 
 fn const_len(opt: &Optimizer, var: &Variable) -> Option<u32> {
-    match var {
-        Variable::ConstantArray { length, .. } => Some(*length),
-        Variable::SharedMemory { length, .. } => Some(*length),
-        Variable::LocalArray { length, .. } => Some(*length),
-        Variable::Slice { id, depth, .. } => opt
+    match var.kind {
+        VariableKind::ConstantArray { length, .. } => Some(length),
+        VariableKind::SharedMemory { length, .. } => Some(length),
+        VariableKind::LocalArray { length, .. } => Some(length),
+        VariableKind::Slice { id, depth } => opt
             .program
             .slices
-            .get(&(*id, *depth))
+            .get(&(id, depth))
             .and_then(|it| it.const_len),
         _ => None,
     }

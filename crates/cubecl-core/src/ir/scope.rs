@@ -2,6 +2,7 @@ use crate::ir::ConstantScalarValue;
 
 use super::{
     cpa, processing::ScopeProcessing, Elem, Instruction, Item, Matrix, Operation, Variable,
+    VariableKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -88,7 +89,7 @@ impl Scope {
             Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
         };
         let local = self.create_local(item);
-        let value = Variable::ConstantScalar(value);
+        let value = Variable::constant(value);
         cpa!(self, local = value);
         local
     }
@@ -96,11 +97,14 @@ impl Scope {
     /// Create a matrix variable
     pub fn create_matrix(&mut self, matrix: Matrix) -> Variable {
         let index = self.matrices.len() as u16;
-        let variable = Variable::Matrix {
-            id: index,
-            mat: matrix,
-            depth: self.depth,
-        };
+        let variable = Variable::new(
+            VariableKind::Matrix {
+                id: index,
+                mat: matrix,
+                depth: self.depth,
+            },
+            Item::new(matrix.elem),
+        );
         self.matrices.push(variable);
         variable
     }
@@ -108,11 +112,13 @@ impl Scope {
     /// Create a slice variable
     pub fn create_slice(&mut self, item: Item) -> Variable {
         let id = self.slices.len() as u16;
-        let variable = Variable::Slice {
-            id,
+        let variable = Variable::new(
+            VariableKind::Slice {
+                id,
+                depth: self.depth,
+            },
             item,
-            depth: self.depth,
-        };
+        );
         self.slices.push(variable);
         variable
     }
@@ -121,11 +127,13 @@ impl Scope {
     pub fn create_local<I: Into<Item>>(&mut self, item: I) -> Variable {
         let item = item.into();
         let index = self.new_local_index();
-        let local = Variable::Local {
-            id: index,
+        let local = Variable::new(
+            VariableKind::Local {
+                id: index,
+                depth: self.depth,
+            },
             item,
-            depth: self.depth,
-        };
+        );
         self.locals.push(local);
         local
     }
@@ -135,13 +143,12 @@ impl Scope {
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
     pub fn create_local_undeclared(&mut self, item: Item) -> Variable {
         let index = self.new_local_index();
-        let local = Variable::Local {
+        let local = VariableKind::Local {
             id: index,
-            item,
             depth: self.depth,
         };
         self.undeclared += 1;
-        local
+        Variable::new(local, item)
     }
 
     /// Create a new undeclared local binding, but doesn't perform the declaration.
@@ -149,13 +156,12 @@ impl Scope {
     /// Useful for temporaries and other algorithms that require the control over initialization.
     pub fn create_local_binding(&mut self, item: Item) -> Variable {
         let index = self.new_local_index();
-        let local = Variable::LocalBinding {
+        let local = VariableKind::LocalBinding {
             id: index,
-            item,
             depth: self.depth,
         };
         self.undeclared += 1;
-        local
+        Variable::new(local, item)
     }
 
     /// Reads an input array to a local variable.
@@ -174,12 +180,14 @@ impl Scope {
     ///
     /// The index refers to the scalar position for the same [element](Elem) type.
     pub fn read_scalar(&mut self, index: u16, elem: Elem) -> Variable {
-        let local = Variable::LocalBinding {
-            id: self.new_local_index(),
-            item: Item::new(elem),
-            depth: self.depth,
-        };
-        let scalar = Variable::GlobalScalar { id: index, elem };
+        let local = Variable::new(
+            VariableKind::LocalBinding {
+                id: self.new_local_index(),
+                depth: self.depth,
+            },
+            Item::new(elem),
+        );
+        let scalar = Variable::new(VariableKind::GlobalScalar { id: index }, Item::new(elem));
 
         self.reads_scalar.push((local, scalar));
 
@@ -235,8 +243,8 @@ impl Scope {
     pub fn read_globals(&self) -> Vec<(u16, ReadingStrategy)> {
         self.reads_global
             .iter()
-            .map(|(var, strategy, _, _)| match var {
-                Variable::GlobalInputArray { id, .. } => (*id, *strategy),
+            .map(|(var, strategy, _, _)| match var.kind {
+                VariableKind::GlobalInputArray { id } => (id, *strategy),
                 _ => panic!("Can only read global input arrays."),
             })
             .collect()
@@ -333,16 +341,15 @@ impl Scope {
             },
             _ => item,
         };
-        let input = Variable::GlobalInputArray {
-            id: index,
-            item: item_global,
-        };
+        let input = Variable::new(VariableKind::GlobalInputArray { id: index }, item_global);
         let index = self.new_local_index();
-        let local = Variable::Local {
-            id: index,
+        let local = Variable::new(
+            VariableKind::Local {
+                id: index,
+                depth: self.depth,
+            },
             item,
-            depth: self.depth,
-        };
+        );
         self.reads_global.push((input, strategy, local, position));
         self.locals.push(local);
         local
@@ -352,11 +359,13 @@ impl Scope {
     pub fn create_shared<I: Into<Item>>(&mut self, item: I, shared_memory_size: u32) -> Variable {
         let item = item.into();
         let index = self.new_shared_index();
-        let shared_memory = Variable::SharedMemory {
-            id: index,
+        let shared_memory = Variable::new(
+            VariableKind::SharedMemory {
+                id: index,
+                length: shared_memory_size,
+            },
             item,
-            length: shared_memory_size,
-        };
+        );
         self.shared_memories.push(shared_memory);
         shared_memory
     }
@@ -365,11 +374,13 @@ impl Scope {
     pub fn create_const_array<I: Into<Item>>(&mut self, item: I, data: Vec<Variable>) -> Variable {
         let item = item.into();
         let index = self.new_const_array_index();
-        let const_array = Variable::ConstantArray {
-            id: index,
+        let const_array = Variable::new(
+            VariableKind::ConstantArray {
+                id: index,
+                length: data.len() as u32,
+            },
             item,
-            length: data.len() as u32,
-        };
+        );
         self.const_arrays.push((const_array, data));
         const_array
     }
@@ -378,12 +389,14 @@ impl Scope {
     pub fn create_local_array<I: Into<Item>>(&mut self, item: I, array_size: u32) -> Variable {
         let item = item.into();
         let index = self.new_local_array_index();
-        let local_array = Variable::LocalArray {
-            id: index,
+        let local_array = Variable::new(
+            VariableKind::LocalArray {
+                id: index,
+                depth: self.depth,
+                length: array_size,
+            },
             item,
-            depth: self.depth,
-            length: array_size,
-        };
+        );
         self.local_arrays.push(local_array);
         local_array
     }

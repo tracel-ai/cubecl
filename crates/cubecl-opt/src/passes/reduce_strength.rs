@@ -143,7 +143,7 @@ impl OptimizerPass for ReduceStrength {
 }
 
 fn is_pow2(var: Variable) -> bool {
-    var.item().elem() == Elem::UInt
+    var.item.elem() == Elem::UInt
         && var
             .as_const()
             .map(|it| it.as_u32().is_power_of_two())

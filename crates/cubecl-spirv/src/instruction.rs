@@ -39,7 +39,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let out = out.unwrap();
         match op {
             Operator::Index(op) => {
-                let is_atomic = op.lhs.item().elem.is_atomic();
+                let is_atomic = op.lhs.item.elem.is_atomic();
                 let value = self.compile_variable(op.lhs);
                 let index = self.compile_variable(op.rhs);
                 let out = self.compile_variable(out);
@@ -84,12 +84,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write_indexed_unchecked(&out, &index, value_id);
             }
             Operator::Slice(op) => {
-                let item = self.compile_item(op.input.item());
+                let item = self.compile_item(op.input.item);
                 let input = self.compile_variable(op.input);
                 let start = self.compile_variable(op.start);
                 let end = self.compile_variable(op.end);
-                let out = match out {
-                    core::Variable::Slice { id, depth, .. } => (id, depth),
+                let out = match out.kind {
+                    core::VariableKind::Slice { id, depth } => (id, depth),
                     _ => unreachable!(),
                 };
 
@@ -254,7 +254,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Operator::Dot(op) => {
-                if op.lhs.item().vectorization.map(|it| it.get()).unwrap_or(1) == 1 {
+                if op.lhs.item.vectorization.map(|it| it.get()).unwrap_or(1) == 1 {
                     self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                         match out_ty.elem() {
                             Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
@@ -510,7 +510,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .into_iter()
                     .map(|it| self.read(&it))
                     .collect::<Vec<_>>();
-                let item = self.compile_item(out.item());
+                let item = self.compile_item(out.item);
                 let out = self.compile_variable(out);
                 let out_id = self.write_id(&out);
                 let ty = item.id(self);

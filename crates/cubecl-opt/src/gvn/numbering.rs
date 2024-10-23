@@ -4,7 +4,7 @@ use std::{
 };
 
 use cubecl_core::ir::{
-    self, ConstantScalarValue, Elem, Item, Metadata, Operation, Operator, Variable,
+    self, ConstantScalarValue, Elem, Item, Metadata, Operation, Operator, Variable, VariableKind,
 };
 
 use crate::PhiInstruction;
@@ -141,7 +141,7 @@ impl ValueTable {
             | Operator::Max(op)
             | Operator::Min(op)
             | Operator::Dot(op) => {
-                let item = out.item();
+                let item = out.item;
                 let mut lhs = self.lookup_or_add_var(&op.lhs)?;
                 let mut rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&out);
@@ -161,7 +161,7 @@ impl ValueTable {
             | Operator::Remainder(op)
             | Operator::ShiftLeft(op)
             | Operator::ShiftRight(op) => {
-                let item = out.item();
+                let item = out.item;
                 let lhs = self.lookup_or_add_var(&op.lhs)?;
                 let rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&out);
@@ -175,7 +175,7 @@ impl ValueTable {
             | Operator::Greater(op)
             | Operator::LowerEqual(op)
             | Operator::GreaterEqual(op) => {
-                let item = out.item();
+                let item = out.item;
                 let mut lhs = self.lookup_or_add_var(&op.lhs)?;
                 let mut rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&out);
@@ -207,14 +207,14 @@ impl ValueTable {
             | Operator::Magnitude(op)
             | Operator::Normalize(op) => {
                 let input = self.lookup_or_add_var(&op.input)?;
-                let item = out.item();
+                let item = out.item;
                 let out = value_of_var(&out);
                 let op = id_of_op(operator);
                 let expr = Instruction::new(op, &[input], item);
                 (expr.into(), out)
             }
             Operator::Bitcast(op) | Operator::Cast(op) => {
-                let item = out.item();
+                let item = out.item;
                 let input = self.lookup_or_add_var(&op.input)?;
                 let out = value_of_var(&out);
                 let op = id_of_op(operator);
@@ -223,7 +223,7 @@ impl ValueTable {
             }
 
             Operator::Fma(op) => {
-                let item = out.item();
+                let item = out.item;
                 let mut a = self.lookup_or_add_var(&op.a)?;
                 let mut b = self.lookup_or_add_var(&op.b)?;
                 let c = self.lookup_or_add_var(&op.c)?;
@@ -236,7 +236,7 @@ impl ValueTable {
                 (expr.into(), out)
             }
             Operator::Clamp(op) => {
-                let item = out.item();
+                let item = out.item;
                 let val = self.lookup_or_add_var(&op.input)?;
                 let min = self.lookup_or_add_var(&op.min_value)?;
                 let max = self.lookup_or_add_var(&op.max_value)?;
@@ -246,7 +246,7 @@ impl ValueTable {
                 (expr.into(), out)
             }
             Operator::InitLine(op) => {
-                let item = out.item();
+                let item = out.item;
                 let operands = op.inputs.iter().map(|it| self.lookup_or_add_var(it));
                 let operands = operands.collect::<Result<Vec<_>, _>>()?;
                 let out = value_of_var(&out);
@@ -260,7 +260,7 @@ impl ValueTable {
                 if !op.lhs.is_immutable() {
                     Err(out_val)?
                 }
-                let item = out.item();
+                let item = out.item;
                 let lhs = self.lookup_or_add_var(&op.lhs)?;
                 let rhs = self.lookup_or_add_var(&op.rhs)?;
                 let id = id_of_op(operator);
@@ -269,7 +269,7 @@ impl ValueTable {
             }
 
             Operator::Select(op) => {
-                let item = out.item();
+                let item = out.item;
                 let cond = self.lookup_or_add_var(&op.cond)?;
                 let then = self.lookup_or_add_var(&op.then)?;
                 let or_else = self.lookup_or_add_var(&op.or_else)?;
@@ -294,7 +294,7 @@ impl ValueTable {
         let op = id_of_meta(meta);
         let (expr, val) = match meta {
             Metadata::Stride { dim, var } | Metadata::Shape { dim, var } => {
-                let item = out.item();
+                let item = out.item;
                 let var = self.lookup_or_add_var(var)?;
                 let dim = self.lookup_or_add_var(dim)?;
                 let out = value_of_var(&out);
@@ -302,18 +302,17 @@ impl ValueTable {
                 (expr, out)
             }
             Metadata::Length { var } => {
-                let item = out.item();
+                let item = out.item;
                 let out = value_of_var(&out);
-                let var = match var {
-                    Variable::GlobalInputArray { .. }
-                    | Variable::GlobalOutputArray { .. }
-                    | Variable::Slice { .. }
-                    | Variable::GlobalScalar { .. } => self.lookup_or_add_var(var)?,
-                    Variable::ConstantArray { length, .. }
-                    | Variable::SharedMemory { length, .. }
-                    | Variable::LocalArray { length, .. } => {
-                        let constant =
-                            Variable::ConstantScalar(ConstantScalarValue::UInt(*length as u64));
+                let var = match var.kind {
+                    VariableKind::GlobalInputArray { .. }
+                    | VariableKind::GlobalOutputArray { .. }
+                    | VariableKind::Slice { .. }
+                    | VariableKind::GlobalScalar { .. } => self.lookup_or_add_var(var)?,
+                    VariableKind::ConstantArray { length, .. }
+                    | VariableKind::SharedMemory { length, .. }
+                    | VariableKind::LocalArray { length, .. } => {
+                        let constant = Variable::constant(ConstantScalarValue::UInt(length as u64));
                         let num = self.lookup_or_add_var(&constant)?;
                         let expr = Expression::Copy(num, Item::new(Elem::UInt));
                         return Ok((expr, out));

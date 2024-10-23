@@ -1,7 +1,7 @@
 use std::mem::transmute;
 
 use crate::{
-    item::{Elem, HasId, Item},
+    item::{Elem, Item},
     lookups::Array,
     SpirvCompiler, SpirvTarget,
 };
@@ -11,7 +11,7 @@ use cubecl_core::{
 };
 use rspirv::{
     dr::Builder,
-    spirv::{BuiltIn, StorageClass, Word},
+    spirv::{StorageClass, Word},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -292,8 +292,9 @@ pub enum Globals {
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_variable(&mut self, variable: core::Variable) -> Variable {
-        match variable {
-            core::Variable::ConstantScalar(value) => {
+        let item = variable.item;
+        match variable.kind {
+            core::VariableKind::ConstantScalar(value) => {
                 let item = self.compile_item(core::Item::new(value.elem()));
                 let elem_id = item.id(self);
                 let map_val = value.into();
@@ -329,218 +330,43 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::ConstantScalar(id, map_val, item.elem())
                 }
             }
-            core::Variable::Slice { id, depth, .. } => self
+            core::VariableKind::Slice { id, depth, .. } => self
                 .state
                 .slices
                 .get(&(id, depth))
                 .expect("Tried accessing non-existing slice")
                 .into(),
-            core::Variable::GlobalInputArray { id, item } => {
+            core::VariableKind::GlobalInputArray { id } => {
                 let id = self.state.inputs[id as usize];
                 Variable::GlobalInputArray(id, self.compile_item(item))
             }
-            core::Variable::GlobalOutputArray { id, item } => {
+            core::VariableKind::GlobalOutputArray { id } => {
                 let id = self.state.outputs[id as usize];
                 Variable::GlobalOutputArray(id, self.compile_item(item))
             }
-            core::Variable::GlobalScalar { id, elem } => self.global_scalar(id, elem),
-            core::Variable::Local { id, item, depth } => {
+            core::VariableKind::GlobalScalar { id } => self.global_scalar(id, item.elem),
+            core::VariableKind::Local { id, depth } => {
                 let item = self.compile_item(item);
                 let var = self.get_local((id, depth), &item);
                 Variable::Local { id: var, item }
             }
-            core::Variable::Versioned {
-                id,
-                item,
-                depth,
-                version,
-            } => {
+            core::VariableKind::Versioned { id, depth, version } => {
                 let item = self.compile_item(item);
                 let id = (id, depth, version);
                 Variable::Versioned { id, item }
             }
-            core::Variable::LocalBinding { id, item, depth } => {
+            core::VariableKind::LocalBinding { id, depth } => {
                 let item = self.compile_item(item);
                 let id = (id, depth);
                 Variable::LocalBinding { id, item }
             }
-            core::Variable::UnitPos => Variable::LocalInvocationIndex(self.get_or_insert_global(
-                Globals::LocalInvocationIndex,
-                |b| {
-                    let id = b.load_builtin(
-                        BuiltIn::LocalInvocationIndex,
-                        Item::Scalar(Elem::Int(32, false)),
-                    );
-                    b.debug_name(id, "UNIT_POS");
-                    id
-                },
-            )),
-            core::Variable::UnitPosX => Variable::LocalInvocationIdX(self.get_or_insert_global(
-                Globals::LocalInvocationIdX,
-                |b| {
-                    let id = b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 0);
-                    b.debug_name(id, "UNIT_POS_X");
-                    id
-                },
-            )),
-            core::Variable::UnitPosY => Variable::LocalInvocationIdY(self.get_or_insert_global(
-                Globals::LocalInvocationIdY,
-                |b| {
-                    let id = b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 1);
-                    b.debug_name(id, "UNIT_POS_Y");
-                    id
-                },
-            )),
-            core::Variable::UnitPosZ => Variable::LocalInvocationIdZ(self.get_or_insert_global(
-                Globals::LocalInvocationIdZ,
-                |b| {
-                    let id = b.extract(Globals::LocalInvocationId, BuiltIn::LocalInvocationId, 2);
-                    b.debug_name(id, "UNIT_POS_Z");
-                    id
-                },
-            )),
-            core::Variable::CubePosX => {
-                Variable::WorkgroupIdX(self.get_or_insert_global(Globals::WorkgroupIdX, |b| {
-                    let id = b.extract(Globals::WorkgroupId, BuiltIn::WorkgroupId, 0);
-                    b.debug_name(id, "CUBE_POS_X");
-                    id
-                }))
-            }
-            core::Variable::CubePosY => {
-                Variable::WorkgroupIdY(self.get_or_insert_global(Globals::WorkgroupIdY, |b| {
-                    let id = b.extract(Globals::WorkgroupId, BuiltIn::WorkgroupId, 1);
-                    b.debug_name(id, "CUBE_POS_Y");
-                    id
-                }))
-            }
-            core::Variable::CubePosZ => {
-                Variable::WorkgroupIdZ(self.get_or_insert_global(Globals::WorkgroupIdZ, |b| {
-                    let id = b.extract(Globals::WorkgroupId, BuiltIn::WorkgroupId, 2);
-                    b.debug_name(id, "CUBE_POS_Z");
-                    id
-                }))
-            }
-            core::Variable::CubeDim => Variable::WorkgroupSize(self.state.cube_size),
-            core::Variable::CubeDimX => Variable::WorkgroupSizeX(self.state.cube_dims[0]),
-            core::Variable::CubeDimY => Variable::WorkgroupSizeY(self.state.cube_dims[1]),
-            core::Variable::CubeDimZ => Variable::WorkgroupSizeZ(self.state.cube_dims[2]),
-            core::Variable::CubeCount => Variable::WorkgroupSize(self.get_or_insert_global(
-                Globals::NumWorkgroupsTotal,
-                |b: &mut SpirvCompiler<T>| {
-                    let int = b.type_int(32, 0);
-                    let x = b.compile_variable(core::Variable::CubeCountX).id(b);
-                    let y = b.compile_variable(core::Variable::CubeCountY).id(b);
-                    let z = b.compile_variable(core::Variable::CubeCountZ).id(b);
-                    let count = b.i_mul(int, None, x, y).unwrap();
-                    let count = b.i_mul(int, None, count, z).unwrap();
-                    b.debug_name(count, "CUBE_COUNT");
-                    count
-                },
-            )),
-            core::Variable::CubeCountX => {
-                Variable::NumWorkgroupsX(self.get_or_insert_global(Globals::NumWorkgroupsX, |b| {
-                    let id = b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 0);
-                    b.debug_name(id, "CUBE_COUNT_X");
-                    id
-                }))
-            }
-            core::Variable::CubeCountY => {
-                Variable::NumWorkgroupsY(self.get_or_insert_global(Globals::NumWorkgroupsY, |b| {
-                    let id = b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 1);
-                    b.debug_name(id, "CUBE_COUNT_Y");
-                    id
-                }))
-            }
-            core::Variable::CubeCountZ => {
-                Variable::NumWorkgroupsZ(self.get_or_insert_global(Globals::NumWorkgroupsZ, |b| {
-                    let id = b.extract(Globals::NumWorkgroups, BuiltIn::NumWorkgroups, 2);
-                    b.debug_name(id, "CUBE_COUNT_Z");
-                    id
-                }))
-            }
-            core::Variable::SubcubeDim => {
-                let id = self.get_or_insert_global(Globals::SubgroupSize, |b| {
-                    let id =
-                        b.load_builtin(BuiltIn::SubgroupSize, Item::Scalar(Elem::Int(32, false)));
-                    b.debug_name(id, "SUBCUBE_DIM");
-                    id
-                });
-                Variable::SubgroupSize(id)
-            }
-            core::Variable::CubePos => {
-                let id = self.get_or_insert_global(Globals::WorkgroupIndex, |b| {
-                    let x = b.compile_variable(core::Variable::CubePosX).id(b);
-                    let y = b.compile_variable(core::Variable::CubePosY).id(b);
-                    let z = b.compile_variable(core::Variable::CubePosZ).id(b);
-
-                    let groups_x = b.compile_variable(core::Variable::CubeCountX).id(b);
-                    let groups_y = b.compile_variable(core::Variable::CubeCountY).id(b);
-                    let ty = u32::id(b);
-                    let id = b.i_mul(ty, None, z, groups_y).unwrap();
-                    let id = b.i_add(ty, None, id, y).unwrap();
-                    let id = b.i_mul(ty, None, id, groups_x).unwrap();
-                    let id = b.i_add(ty, None, id, x).unwrap();
-                    b.debug_name(id, "CUBE_POS");
-                    id
-                });
-                Variable::WorkgroupId(id)
-            }
-            core::Variable::AbsolutePos => {
-                let id = self.get_or_insert_global(Globals::GlobalInvocationIndex, |b| {
-                    let x = b.compile_variable(core::Variable::AbsolutePosX).id(b);
-                    let y = b.compile_variable(core::Variable::AbsolutePosY).id(b);
-                    let z = b.compile_variable(core::Variable::AbsolutePosZ).id(b);
-
-                    let groups_x = b.compile_variable(core::Variable::CubeCountX).id(b);
-                    let groups_y = b.compile_variable(core::Variable::CubeCountY).id(b);
-                    let size_x = b.state.cube_dims[0];
-                    let size_y = b.state.cube_dims[1];
-                    let ty = u32::id(b);
-                    let size_x = b.i_mul(ty, None, groups_x, size_x).unwrap();
-                    let size_y = b.i_mul(ty, None, groups_y, size_y).unwrap();
-                    let id = b.i_mul(ty, None, z, size_y).unwrap();
-                    let id = b.i_add(ty, None, id, y).unwrap();
-                    let id = b.i_mul(ty, None, id, size_x).unwrap();
-                    let id = b.i_add(ty, None, id, x).unwrap();
-                    b.debug_name(id, "ABSOLUTE_POS");
-                    id
-                });
-                Variable::GlobalInvocationIndex(id)
-            }
-            core::Variable::AbsolutePosX => {
-                let id = self.get_or_insert_global(Globals::GlobalInvocationIdX, |b| {
-                    let id = b.extract(Globals::GlobalInvocationId, BuiltIn::GlobalInvocationId, 0);
-                    b.debug_name(id, "ABSOLUTE_POS_X");
-                    id
-                });
-
-                Variable::GlobalInvocationIdX(id)
-            }
-            core::Variable::AbsolutePosY => {
-                let id = self.get_or_insert_global(Globals::GlobalInvocationIdY, |b| {
-                    let id = b.extract(Globals::GlobalInvocationId, BuiltIn::GlobalInvocationId, 1);
-                    b.debug_name(id, "ABSOLUTE_POS_Y");
-                    id
-                });
-
-                Variable::GlobalInvocationIdY(id)
-            }
-            core::Variable::AbsolutePosZ => {
-                let id = self.get_or_insert_global(Globals::GlobalInvocationIdZ, |b| {
-                    let id = b.extract(Globals::GlobalInvocationId, BuiltIn::GlobalInvocationId, 2);
-                    b.debug_name(id, "ABSOLUTE_POS_Z");
-                    id
-                });
-
-                Variable::GlobalInvocationIdZ(id)
-            }
-            core::Variable::Rank => Variable::Rank(self.rank()),
-            core::Variable::ConstantArray { id, item, length } => {
+            core::VariableKind::Builtin(builtin) => self.compile_builtin(builtin),
+            core::VariableKind::ConstantArray { id, length } => {
                 let item = self.compile_item(item);
                 let id = self.state.const_arrays[id as usize].id;
                 Variable::ConstantArray(id, item, length)
             }
-            core::Variable::SharedMemory { id, item, length } => {
+            core::VariableKind::SharedMemory { id, length } => {
                 let item = self.compile_item(item);
                 let id = if let Some(arr) = self.state.shared_memories.get(&id) {
                     arr.id
@@ -556,12 +382,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 };
                 Variable::SharedMemory(id, item, length)
             }
-            core::Variable::LocalArray {
-                id,
-                item,
-                depth,
-                length,
-            } => {
+            core::VariableKind::LocalArray { id, depth, length } => {
                 let item = self.compile_item(item);
                 let id = if let Some(arr) = self.state.local_arrays.get(&(id, depth)) {
                     arr.id
@@ -580,7 +401,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 };
                 Variable::LocalArray(id, item, length)
             }
-            core::Variable::Matrix { id, mat, depth } => {
+            core::VariableKind::Matrix { id, mat, depth } => {
                 let elem = self.compile_item(core::Item::new(mat.elem)).elem();
                 if self.state.matrices.contains_key(&(id, depth)) {
                     Variable::CoopMatrix(id, depth, elem)
@@ -885,25 +706,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             IndexedVariable::Scalar(var) => self.write(&var, value),
         }
-    }
-
-    fn extract(&mut self, global: Globals, builtin: BuiltIn, idx: u32) -> Word {
-        let composite_id = self.vec_global(global, builtin);
-        let ty = Elem::Int(32, false).id(self);
-        self.composite_extract(ty, None, composite_id, vec![idx])
-            .unwrap()
-    }
-
-    fn vec_global(&mut self, global: Globals, builtin: BuiltIn) -> Word {
-        let item = Item::Vector(Elem::Int(32, false), 3);
-
-        self.get_or_insert_global(global, |b| b.load_builtin(builtin, item))
-    }
-
-    fn load_builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
-        let item_id = item.id(self);
-        let id = self.builtin(builtin, item);
-        self.load(item_id, None, id, None, vec![]).unwrap()
     }
 }
 

@@ -420,43 +420,43 @@ macro_rules! cpa {
 
 impl From<bool> for Variable {
     fn from(value: bool) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::Bool(value))
+        Variable::constant(ConstantScalarValue::Bool(value))
     }
 }
 
 impl From<i32> for Variable {
     fn from(value: i32) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::Int(value as i64, IntKind::I32))
+        Variable::constant(ConstantScalarValue::Int(value as i64, IntKind::I32))
     }
 }
 
 impl From<i64> for Variable {
     fn from(value: i64) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::Int(value, IntKind::I64))
+        Variable::constant(ConstantScalarValue::Int(value, IntKind::I64))
     }
 }
 
 impl From<f32> for Variable {
     fn from(value: f32) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::Float(value as f64, FloatKind::F32))
+        Variable::constant(ConstantScalarValue::Float(value as f64, FloatKind::F32))
     }
 }
 
 impl From<f64> for Variable {
     fn from(value: f64) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::Float(value, FloatKind::F64))
+        Variable::constant(ConstantScalarValue::Float(value, FloatKind::F64))
     }
 }
 
 impl From<u32> for Variable {
     fn from(value: u32) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::UInt(value as u64))
+        Variable::constant(ConstantScalarValue::UInt(value as u64))
     }
 }
 
 impl From<usize> for Variable {
     fn from(value: usize) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::UInt(value as u64))
+        Variable::constant(ConstantScalarValue::UInt(value as u64))
     }
 }
 

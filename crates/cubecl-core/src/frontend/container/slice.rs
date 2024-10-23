@@ -160,7 +160,7 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item());
+            let out = context.create_local_binding(self.expand.item);
             context.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
@@ -178,7 +178,7 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item());
+            let out = context.create_local_binding(self.expand.item);
             context.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
@@ -463,7 +463,7 @@ pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
     end: S2, // Todo use it to get the length.
 ) -> ExpandElement {
     let input = input.into();
-    let out = context.create_slice(input.item());
+    let out = context.create_slice(input.item);
 
     context.register(Instruction::new(
         Operator::Slice(ir::SliceOperator {

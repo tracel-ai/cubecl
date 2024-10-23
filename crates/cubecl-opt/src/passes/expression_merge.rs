@@ -52,7 +52,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
             if let Operation::Assign(input) = op.operation {
                 if input.is_immutable()
                     && op.out().is_immutable()
-                    && item_compatible(input.item(), op.item())
+                    && item_compatible(input.item, op.item())
                 {
                     opt.visit_all(
                         |_, var| {

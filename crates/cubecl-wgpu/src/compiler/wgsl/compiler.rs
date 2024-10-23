@@ -231,37 +231,36 @@ impl WgslCompiler {
     }
 
     pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
-        match value {
-            cube::Variable::GlobalInputArray { id, item } => {
+        let item = value.item;
+        match value.kind {
+            cube::VariableKind::GlobalInputArray { id } => {
                 wgsl::Variable::GlobalInputArray(id, Self::compile_item(item))
             }
-            cube::Variable::GlobalScalar { id, elem } => {
-                wgsl::Variable::GlobalScalar(id, Self::compile_elem(elem), elem)
+            cube::VariableKind::GlobalScalar { id } => {
+                wgsl::Variable::GlobalScalar(id, Self::compile_elem(item.elem), item.elem)
             }
-            cube::Variable::Local { id, item, depth }
-            | cube::Variable::Versioned {
-                id, item, depth, ..
-            } => wgsl::Variable::Local {
+            cube::VariableKind::Local { id, depth }
+            | cube::VariableKind::Versioned { id, depth, .. } => wgsl::Variable::Local {
                 id,
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::Variable::LocalBinding { id, item, .. } => wgsl::Variable::LocalBinding {
+            cube::VariableKind::LocalBinding { id, .. } => wgsl::Variable::LocalBinding {
                 id,
                 item: Self::compile_item(item),
             },
-            cube::Variable::Slice { id, item, depth } => wgsl::Variable::Slice {
+            cube::VariableKind::Slice { id, depth } => wgsl::Variable::Slice {
                 id,
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::Variable::GlobalOutputArray { id, item } => {
+            cube::VariableKind::GlobalOutputArray { id } => {
                 wgsl::Variable::GlobalOutputArray(id, Self::compile_item(item))
             }
-            cube::Variable::ConstantScalar(value) => {
+            cube::VariableKind::ConstantScalar(value) => {
                 wgsl::Variable::ConstantScalar(value, Self::compile_elem(value.elem()))
             }
-            cube::Variable::SharedMemory { id, item, length } => {
+            cube::VariableKind::SharedMemory { id, length } => {
                 let item = Self::compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
@@ -269,16 +268,11 @@ impl WgslCompiler {
                 }
                 wgsl::Variable::SharedMemory(id, item, length)
             }
-            cube::Variable::ConstantArray { id, item, length } => {
+            cube::VariableKind::ConstantArray { id, length } => {
                 let item = Self::compile_item(item);
                 wgsl::Variable::ConstantArray(id, item, length)
             }
-            cube::Variable::LocalArray {
-                id,
-                item,
-                depth,
-                length,
-            } => {
+            cube::VariableKind::LocalArray { id, depth, length } => {
                 let item = Self::compile_item(item);
                 if !self.local_arrays.iter().any(|s| s.index == id) {
                     self.local_arrays
@@ -286,86 +280,88 @@ impl WgslCompiler {
                 }
                 wgsl::Variable::LocalArray(id, item, depth, length)
             }
-            cube::Variable::AbsolutePos => {
-                self.id = true;
-                wgsl::Variable::Id
-            }
-            cube::Variable::Rank => {
-                self.rank = true;
-                wgsl::Variable::Rank
-            }
-            cube::Variable::UnitPos => {
-                self.local_invocation_index = true;
-                wgsl::Variable::LocalInvocationIndex
-            }
-            cube::Variable::UnitPosX => {
-                self.local_invocation_id = true;
-                wgsl::Variable::LocalInvocationIdX
-            }
-            cube::Variable::UnitPosY => {
-                self.local_invocation_id = true;
-                wgsl::Variable::LocalInvocationIdY
-            }
-            cube::Variable::UnitPosZ => {
-                self.local_invocation_id = true;
-                wgsl::Variable::LocalInvocationIdZ
-            }
-            cube::Variable::CubePosX => {
-                self.workgroup_id = true;
-                wgsl::Variable::WorkgroupIdX
-            }
-            cube::Variable::CubePosY => {
-                self.workgroup_id = true;
-                wgsl::Variable::WorkgroupIdY
-            }
-            cube::Variable::CubePosZ => {
-                self.workgroup_id = true;
-                wgsl::Variable::WorkgroupIdZ
-            }
-            cube::Variable::AbsolutePosX => {
-                self.global_invocation_id = true;
-                wgsl::Variable::GlobalInvocationIdX
-            }
-            cube::Variable::AbsolutePosY => {
-                self.global_invocation_id = true;
-                wgsl::Variable::GlobalInvocationIdY
-            }
-            cube::Variable::AbsolutePosZ => {
-                self.global_invocation_id = true;
-                wgsl::Variable::GlobalInvocationIdZ
-            }
-            cube::Variable::CubeDimX => wgsl::Variable::WorkgroupSizeX,
-            cube::Variable::CubeDimY => wgsl::Variable::WorkgroupSizeY,
-            cube::Variable::CubeDimZ => wgsl::Variable::WorkgroupSizeZ,
-            cube::Variable::CubeCountX => {
-                self.num_workgroups = true;
-                wgsl::Variable::NumWorkgroupsX
-            }
-            cube::Variable::CubeCountY => {
-                self.num_workgroups = true;
-                wgsl::Variable::NumWorkgroupsY
-            }
-            cube::Variable::CubeCountZ => {
-                self.num_workgroups = true;
-                wgsl::Variable::NumWorkgroupsZ
-            }
-            cube::Variable::CubePos => {
-                self.workgroup_id_no_axis = true;
-                wgsl::Variable::WorkgroupId
-            }
-            cube::Variable::CubeDim => {
-                self.workgroup_size_no_axis = true;
-                wgsl::Variable::WorkgroupSize
-            }
-            cube::Variable::CubeCount => {
-                self.num_workgroup_no_axis = true;
-                wgsl::Variable::NumWorkgroups
-            }
-            cube::Variable::SubcubeDim => {
-                self.subgroup_size = true;
-                wgsl::Variable::SubgroupSize
-            }
-            cube::Variable::Matrix { .. } => {
+            cube::VariableKind::Builtin(builtin) => match builtin {
+                cube::Builtin::AbsolutePos => {
+                    self.id = true;
+                    wgsl::Variable::Id
+                }
+                cube::Builtin::Rank => {
+                    self.rank = true;
+                    wgsl::Variable::Rank
+                }
+                cube::Builtin::UnitPos => {
+                    self.local_invocation_index = true;
+                    wgsl::Variable::LocalInvocationIndex
+                }
+                cube::Builtin::UnitPosX => {
+                    self.local_invocation_id = true;
+                    wgsl::Variable::LocalInvocationIdX
+                }
+                cube::Builtin::UnitPosY => {
+                    self.local_invocation_id = true;
+                    wgsl::Variable::LocalInvocationIdY
+                }
+                cube::Builtin::UnitPosZ => {
+                    self.local_invocation_id = true;
+                    wgsl::Variable::LocalInvocationIdZ
+                }
+                cube::Builtin::CubePosX => {
+                    self.workgroup_id = true;
+                    wgsl::Variable::WorkgroupIdX
+                }
+                cube::Builtin::CubePosY => {
+                    self.workgroup_id = true;
+                    wgsl::Variable::WorkgroupIdY
+                }
+                cube::Builtin::CubePosZ => {
+                    self.workgroup_id = true;
+                    wgsl::Variable::WorkgroupIdZ
+                }
+                cube::Builtin::AbsolutePosX => {
+                    self.global_invocation_id = true;
+                    wgsl::Variable::GlobalInvocationIdX
+                }
+                cube::Builtin::AbsolutePosY => {
+                    self.global_invocation_id = true;
+                    wgsl::Variable::GlobalInvocationIdY
+                }
+                cube::Builtin::AbsolutePosZ => {
+                    self.global_invocation_id = true;
+                    wgsl::Variable::GlobalInvocationIdZ
+                }
+                cube::Builtin::CubeDimX => wgsl::Variable::WorkgroupSizeX,
+                cube::Builtin::CubeDimY => wgsl::Variable::WorkgroupSizeY,
+                cube::Builtin::CubeDimZ => wgsl::Variable::WorkgroupSizeZ,
+                cube::Builtin::CubeCountX => {
+                    self.num_workgroups = true;
+                    wgsl::Variable::NumWorkgroupsX
+                }
+                cube::Builtin::CubeCountY => {
+                    self.num_workgroups = true;
+                    wgsl::Variable::NumWorkgroupsY
+                }
+                cube::Builtin::CubeCountZ => {
+                    self.num_workgroups = true;
+                    wgsl::Variable::NumWorkgroupsZ
+                }
+                cube::Builtin::CubePos => {
+                    self.workgroup_id_no_axis = true;
+                    wgsl::Variable::WorkgroupId
+                }
+                cube::Builtin::CubeDim => {
+                    self.workgroup_size_no_axis = true;
+                    wgsl::Variable::WorkgroupSize
+                }
+                cube::Builtin::CubeCount => {
+                    self.num_workgroup_no_axis = true;
+                    wgsl::Variable::NumWorkgroups
+                }
+                cube::Builtin::SubcubeDim => {
+                    self.subgroup_size = true;
+                    wgsl::Variable::SubgroupSize
+                }
+            },
+            cube::VariableKind::Matrix { .. } => {
                 panic!("Cooperative matrix-multiply and accumulate not supported.")
             }
         }
@@ -379,7 +375,7 @@ impl WgslCompiler {
             .drain(..)
             .map(|(var, values)| ConstantArray {
                 index: var.index().unwrap(),
-                item: Self::compile_item(var.item()),
+                item: Self::compile_item(var.item),
                 size: values.len() as u32,
                 values: values
                     .into_iter()
@@ -393,7 +389,7 @@ impl WgslCompiler {
 
         for var in processing.variables {
             // We don't declare slices.
-            if let cube::Variable::Slice { .. } = var {
+            if let cube::VariableKind::Slice { .. } = var.kind {
                 continue;
             }
 
@@ -544,9 +540,9 @@ impl WgslCompiler {
         match metadata {
             cube::Metadata::Stride { dim, var } => {
                 self.stride = true;
-                let position = match var {
-                    cube::Variable::GlobalInputArray { id, .. } => id as usize,
-                    cube::Variable::GlobalOutputArray { id, .. } => self.num_inputs + id as usize,
+                let position = match var.kind {
+                    cube::VariableKind::GlobalInputArray { id } => id as usize,
+                    cube::VariableKind::GlobalOutputArray { id } => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
                 wgsl::Instruction::Stride {
@@ -557,9 +553,9 @@ impl WgslCompiler {
             }
             cube::Metadata::Shape { dim, var } => {
                 self.shape = true;
-                let position = match var {
-                    cube::Variable::GlobalInputArray { id, .. } => id as usize,
-                    cube::Variable::GlobalOutputArray { id, .. } => self.num_inputs + id as usize,
+                let position = match var.kind {
+                    cube::VariableKind::GlobalInputArray { id } => id as usize,
+                    cube::VariableKind::GlobalOutputArray { id } => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a shape, got {:?}", var),
                 };
                 wgsl::Instruction::Shape {

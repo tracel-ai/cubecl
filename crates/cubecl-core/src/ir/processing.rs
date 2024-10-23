@@ -1,6 +1,8 @@
 use crate::prelude::AtomicOp;
 
-use super::{Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, Variable};
+use super::{
+    Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, Variable, VariableKind,
+};
 
 /// Information necessary when compiling a scope.
 pub struct ScopeProcessing {
@@ -315,18 +317,18 @@ impl ScopeProcessing {
 }
 
 fn sanitize_constant_scalar_ref_var(var: &mut Variable, reference: &Variable) {
-    let elem = reference.item().elem();
+    let elem = reference.item.elem();
     sanitize_constant_scalar_ref_elem(var, elem);
 }
 
 fn sanitize_constant_scalar_ref_elem(var: &mut Variable, elem: Elem) {
-    if let Variable::ConstantScalar(scalar) = var {
+    if let VariableKind::ConstantScalar(scalar) = var.kind {
         if scalar.elem() != elem {
             *var = match scalar {
-                super::ConstantScalarValue::Int(val, _) => elem.constant_from_i64(*val),
-                super::ConstantScalarValue::Float(val, _) => elem.constant_from_f64(*val),
-                super::ConstantScalarValue::UInt(val) => elem.constant_from_u64(*val),
-                super::ConstantScalarValue::Bool(val) => elem.constant_from_bool(*val),
+                super::ConstantScalarValue::Int(val, _) => elem.constant_from_i64(val),
+                super::ConstantScalarValue::Float(val, _) => elem.constant_from_f64(val),
+                super::ConstantScalarValue::UInt(val) => elem.constant_from_u64(val),
+                super::ConstantScalarValue::Bool(val) => elem.constant_from_bool(val),
             };
         }
     }

@@ -107,8 +107,8 @@ mod vectorization {
             vectorization_factor: u32,
         ) -> <Self as CubeType>::ExpandType {
             let size = size.value();
-            let size = match size {
-                crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
+            let size = match size.kind {
+                crate::ir::VariableKind::ConstantScalar(value) => value.as_u32(),
                 _ => panic!("Shared memory need constant initialization value"),
             };
             context
@@ -131,7 +131,7 @@ mod vectorization {
                 .expect("Vectorization must be comptime")
                 .as_u32();
             let var = self.expand.clone();
-            let item = Item::vectorized(var.item().elem(), NonZero::new(factor as u8));
+            let item = Item::vectorized(var.item.elem(), NonZero::new(factor as u8));
 
             let new_var = if factor == 1 {
                 let new_var = context.create_local_binding(item);
@@ -228,7 +228,7 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item());
+            let out = context.create_local_binding(self.expand.item);
             context.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,

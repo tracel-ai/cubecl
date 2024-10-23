@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{Instruction, Item, Operation, Operator, Variable};
+use cubecl_core::ir::{Instruction, Item, Operation, Operator, Variable, VariableKind};
 
 use crate::{AtomicCounter, Optimizer};
 
@@ -38,7 +38,7 @@ impl OptimizerPass for CopyPropagateArray {
                 .collect::<Vec<_>>();
             for var in &vars {
                 let local_id = opt.local_variable_id(var).unwrap();
-                opt.program.variables.insert(local_id, var.item());
+                opt.program.variables.insert(local_id, var.item);
             }
             replace_const_arrays(opt, arr_id, &vars);
             changes.inc();
@@ -62,28 +62,18 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
         for op in ops.borrow().values() {
             match &op.operation {
                 Operation::Operator(Operator::Index(index)) => {
-                    if let Variable::LocalArray {
-                        id,
-                        length,
-                        item,
-                        depth,
-                    } = index.lhs
-                    {
+                    if let VariableKind::LocalArray { id, length, depth } = index.lhs.kind {
                         let id = (id, depth);
+                        let item = index.lhs.item;
                         arrays.insert(id, Array { id, length, item });
                         let is_const = index.rhs.as_const().is_some();
                         *track_consts.entry(id).or_insert(is_const) &= is_const;
                     }
                 }
                 Operation::Operator(Operator::IndexAssign(assign)) => {
-                    if let Variable::LocalArray {
-                        id,
-                        length,
-                        item,
-                        depth,
-                    } = op.out()
-                    {
+                    if let VariableKind::LocalArray { id, length, depth } = op.out().kind {
                         let id = (id, depth);
+                        let item = op.out().item;
                         arrays.insert(id, Array { id, length, item });
                         let is_const = assign.lhs.as_const().is_some();
                         *track_consts.entry(id).or_insert(is_const) &= is_const;
@@ -107,7 +97,7 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: (u16, u8), vars: &[Variable
         for op in ops.borrow_mut().values_mut() {
             match &mut op.operation {
                 Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
-                    if let Variable::LocalArray { id, depth, .. } = index.lhs {
+                    if let VariableKind::LocalArray { id, depth, .. } = index.lhs.kind {
                         let const_index = index.rhs.as_const().unwrap().as_i64() as usize;
                         if (id, depth) == arr_id {
                             op.operation = Operation::Assign(vars[const_index]);
@@ -117,7 +107,7 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: (u16, u8), vars: &[Variable
                 Operation::Operator(
                     Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
                 ) => {
-                    if let Variable::LocalArray { id, depth, .. } = op.out.unwrap() {
+                    if let VariableKind::LocalArray { id, depth, .. } = op.out.unwrap().kind {
                         let const_index = assign.lhs.as_const().unwrap().as_i64() as usize;
                         if (id, depth) == arr_id {
                             let out = vars[const_index];

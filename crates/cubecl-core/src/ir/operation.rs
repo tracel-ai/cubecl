@@ -45,7 +45,7 @@ impl Instruction {
     }
 
     pub fn item(&self) -> Item {
-        self.out().item()
+        self.out().item
     }
 }
 

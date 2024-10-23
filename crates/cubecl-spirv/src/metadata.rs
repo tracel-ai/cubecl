@@ -20,9 +20,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Metadata::Stride { dim, var } => {
                 let int_ty = Item::Scalar(Elem::Int(32, false));
                 let int = self.type_int(32, 0);
-                let position = match var {
-                    core::Variable::GlobalInputArray { id, .. } => id as usize,
-                    core::Variable::GlobalOutputArray { id, .. } => {
+                let position = match var.kind {
+                    core::VariableKind::GlobalInputArray { id } => id as usize,
+                    core::VariableKind::GlobalOutputArray { id } => {
                         self.state.inputs.len() + id as usize
                     }
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
@@ -58,9 +58,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Metadata::Shape { dim, var } => {
                 let int_ty = Item::Scalar(Elem::Int(32, false));
                 let int = self.type_int(32, 0);
-                let position = match var {
-                    core::Variable::GlobalInputArray { id, .. } => id as usize,
-                    core::Variable::GlobalOutputArray { id, .. } => {
+                let position = match var.kind {
+                    core::VariableKind::GlobalInputArray { id } => id as usize,
+                    core::VariableKind::GlobalOutputArray { id } => {
                         self.state.inputs.len() + id as usize
                     }
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),

@@ -21,7 +21,7 @@ pub trait Cast: CubePrimitive {
 
         let new_var = context.create_local_binding(Item::vectorized(
             <Self as CubePrimitive>::as_elem(),
-            value.expand.item().vectorization,
+            value.expand.item.vectorization,
         ));
         cast::expand(context, value, new_var.clone().into());
         new_var.into()
@@ -51,7 +51,7 @@ pub trait BitCast: CubePrimitive {
         let var: Variable = *value;
         let new_var = context.create_local_binding(Item::vectorized(
             <Self as CubePrimitive>::as_elem(),
-            var.item().vectorization,
+            var.item.vectorization,
         ));
         context.register(Instruction::new(
             Operator::Bitcast(UnaryOperator { input: *value }),

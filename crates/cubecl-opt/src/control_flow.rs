@@ -3,7 +3,7 @@ use std::mem::transmute;
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_core::ir::{
     BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Instruction, Item, Loop,
-    Operation, Operator, RangeLoop, Switch, Variable,
+    Operation, Operator, RangeLoop, Switch, Variable, VariableKind,
 };
 use petgraph::visit::EdgeRef;
 
@@ -252,14 +252,14 @@ impl Optimizer {
     fn parse_for_loop(&mut self, range_loop: RangeLoop) {
         let step = range_loop
             .step
-            .unwrap_or(Variable::ConstantScalar(ConstantScalarValue::UInt(1)));
+            .unwrap_or(Variable::constant(ConstantScalarValue::UInt(1)));
 
-        let i_id = match range_loop.i {
-            Variable::Local { id, depth, .. } => (id, depth),
+        let i_id = match range_loop.i.kind {
+            VariableKind::Local { id, depth, .. } => (id, depth),
             _ => unreachable!(),
         };
         let i = range_loop.i;
-        self.program.variables.insert(i_id, i.item());
+        self.program.variables.insert(i_id, i.item);
 
         let mut assign = Instruction::new(Operation::Assign(range_loop.start), i);
         self.visit_out(&mut assign.out, |opt, var| opt.write_var(var));
@@ -304,8 +304,7 @@ impl Optimizer {
         self.current_block = Some(next);
 
         // For loop constructs
-        self.program
-            .insert_phi(header, i_id, range_loop.start.item());
+        self.program.insert_phi(header, i_id, range_loop.start.item);
         {
             let op = match range_loop.inclusive {
                 true => Operator::LowerEqual,

@@ -4,7 +4,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use cubecl_core::ir::{ConstantScalarValue, Variable};
+use cubecl_core::ir::{ConstantScalarValue, VariableKind};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{visit_noop, AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer};
@@ -33,10 +33,10 @@ fn search_loop(opt: &mut Optimizer) -> bool {
             opt.visit_out(&mut op.out, |_, var| {
                 // Exclude outputs
                 if !matches!(
-                    var,
-                    Variable::GlobalOutputArray { .. }
-                        | Variable::Slice { .. }
-                        | Variable::GlobalInputArray { .. }
+                    var.kind,
+                    VariableKind::GlobalOutputArray { .. }
+                        | VariableKind::Slice { .. }
+                        | VariableKind::GlobalInputArray { .. }
                 ) {
                     out = Some(*var);
                 }

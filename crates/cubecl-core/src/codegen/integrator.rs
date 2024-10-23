@@ -4,7 +4,7 @@ use super::Compiler;
 use crate::{
     ir::{
         Binding, CubeDim, Elem, Item, KernelDefinition, Location, ReadingStrategy, Scope, Variable,
-        Vectorization, Visibility,
+        VariableKind, Vectorization, Visibility,
     },
     Runtime,
 };
@@ -399,15 +399,15 @@ impl KernelIntegrator {
                         size: None,
                     });
                     self.expansion.scope.write_global(
-                        Variable::Local {
-                            id: local,
+                        Variable::new(
+                            VariableKind::Local {
+                                id: local,
+
+                                depth: self.expansion.scope.depth,
+                            },
                             item,
-                            depth: self.expansion.scope.depth,
-                        },
-                        Variable::GlobalOutputArray {
-                            id: index,
-                            item: item_adapted,
-                        },
+                        ),
+                        Variable::new(VariableKind::GlobalOutputArray { id: index }, item_adapted),
                         position,
                     );
                     index += 1;
@@ -419,15 +419,17 @@ impl KernelIntegrator {
                     position,
                 } => {
                     self.expansion.scope.write_global(
-                        Variable::Local {
-                            id: local,
+                        Variable::new(
+                            VariableKind::Local {
+                                id: local,
+                                depth: self.expansion.scope.depth,
+                            },
                             item,
-                            depth: self.expansion.scope.depth,
-                        },
-                        Variable::GlobalInputArray {
-                            id: input,
-                            item: bool_item(item),
-                        },
+                        ),
+                        Variable::new(
+                            VariableKind::GlobalInputArray { id: input },
+                            bool_item(item),
+                        ),
                         position,
                     );
                 }

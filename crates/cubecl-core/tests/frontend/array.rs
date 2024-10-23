@@ -40,7 +40,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{self, Elem, Item, Variable},
+        ir::{self, Elem, Item, Variable, VariableKind},
     };
 
     type ElemType = f32;
@@ -126,10 +126,10 @@ mod tests {
         let mut scope = context.into_scope();
         let local = scope.create_local(Item::new(Elem::UInt));
 
-        let array = Variable::GlobalInputArray {
-            id: 0,
-            item: Item::new(Elem::UInt),
-        };
+        let array = Variable::new(
+            VariableKind::GlobalInputArray { id: 0 },
+            Item::new(Elem::UInt),
+        );
         let index: Variable = 1u32.into();
         let value: Variable = 1u32.into();
 
@@ -186,10 +186,10 @@ mod tests {
         let mut scope = context.into_scope();
         let local = scope.create_local(Item::new(Elem::UInt));
 
-        let array = Variable::GlobalInputArray {
-            id: 0,
-            item: Item::new(Elem::UInt),
-        };
+        let array = Variable::new(
+            VariableKind::GlobalInputArray { id: 0 },
+            Item::new(Elem::UInt),
+        );
         let index: Variable = 6u32.into();
         let value: Variable = 1u32.into();
 

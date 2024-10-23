@@ -32,7 +32,7 @@ use std::{
 };
 
 use cubecl_core::{
-    ir::{self as core, Branch, Operation, Operator, Variable},
+    ir::{self as core, Branch, Operation, Operator, Variable, VariableKind},
     CubeDim,
 };
 use cubecl_core::{
@@ -310,7 +310,7 @@ impl Optimizer {
             let ops = self.program[node].ops.clone();
             for op in ops.borrow().values() {
                 if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation {
-                    if let Some(Variable::Local { id, depth, .. }) = &op.out {
+                    if let VariableKind::Local { id, depth } = &op.out().kind {
                         self.program.variables.remove(&(*id, *depth));
                     }
                 }
@@ -372,8 +372,8 @@ impl Optimizer {
         let processed = scope.process();
 
         for var in processed.variables {
-            if let Variable::Local { id, item, depth } = var {
-                self.program.variables.insert((id, depth), item);
+            if let VariableKind::Local { id, depth } = var.kind {
+                self.program.variables.insert((id, depth), var.item);
             }
         }
 
@@ -384,8 +384,8 @@ impl Optimizer {
             match &mut instruction.operation {
                 Operation::Branch(branch) => self.parse_control_flow(branch.clone()),
                 Operation::Operator(Operator::Slice(slice_op)) => {
-                    let out_id = match out.unwrap() {
-                        Variable::Slice { id, depth, .. } => (id, depth),
+                    let out_id = match out.unwrap().kind {
+                        VariableKind::Slice { id, depth } => (id, depth),
                         _ => unreachable!(),
                     };
                     let const_len = slice_op.start.as_const().zip(slice_op.end.as_const());
@@ -414,9 +414,9 @@ impl Optimizer {
 
     /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
     pub fn local_variable_id(&mut self, variable: &core::Variable) -> Option<(u16, u8)> {
-        match variable {
-            core::Variable::Local { id, depth, item } if !item.elem.is_atomic() => {
-                Some((*id, *depth))
+        match variable.kind {
+            core::VariableKind::Local { id, depth } if !variable.item.elem.is_atomic() => {
+                Some((id, depth))
             }
             _ => None,
         }
@@ -426,11 +426,13 @@ impl Optimizer {
     /// Collisions with existing locals, since binding counter is no longer available.
     pub fn create_temporary(&self, item: Item) -> Variable {
         let next_id = self.program.temp_id.inc() as u16;
-        Variable::LocalBinding {
-            id: u16::MAX - next_id,
+        Variable::new(
+            VariableKind::LocalBinding {
+                id: u16::MAX - next_id,
+                depth: u8::MAX,
+            },
             item,
-            depth: u8::MAX,
-        }
+        )
     }
 
     pub(crate) fn ret(&mut self) -> NodeIndex {
@@ -452,7 +454,7 @@ pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}
 mod test {
     use cubecl_core::{
         self as cubecl,
-        ir::{Elem, HybridAllocator, Item, Variable},
+        ir::{Elem, HybridAllocator, Item, Variable, VariableKind},
         prelude::{Array, CubeContext, ExpandElement},
     };
     use cubecl_core::{cube, CubeDim, ExecutionMode};
@@ -476,18 +478,18 @@ mod test {
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
         let mut ctx = CubeContext::root(HybridAllocator::default());
-        let x = ExpandElement::Plain(Variable::GlobalScalar {
-            id: 0,
-            elem: Elem::UInt,
-        });
-        let cond = ExpandElement::Plain(Variable::GlobalScalar {
-            id: 1,
-            elem: Elem::UInt,
-        });
-        let arr = ExpandElement::Plain(Variable::GlobalOutputArray {
-            id: 0,
-            item: Item::new(Elem::UInt),
-        });
+        let x = ExpandElement::Plain(Variable::new(
+            VariableKind::GlobalScalar { id: 0 },
+            Item::new(Elem::UInt),
+        ));
+        let cond = ExpandElement::Plain(Variable::new(
+            VariableKind::GlobalScalar { id: 1 },
+            Item::new(Elem::UInt),
+        ));
+        let arr = ExpandElement::Plain(Variable::new(
+            VariableKind::GlobalOutputArray { id: 0 },
+            Item::new(Elem::UInt),
+        ));
 
         pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());
         let scope = ctx.into_scope();

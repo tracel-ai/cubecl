@@ -1,4 +1,6 @@
-use cubecl_core::ir::{ConstantScalarValue, Instruction, Metadata, Operation, Operator, Variable};
+use cubecl_core::ir::{
+    ConstantScalarValue, Instruction, Metadata, Operation, Operator, Variable, VariableKind,
+};
 
 use crate::{AtomicCounter, Optimizer, Slice};
 
@@ -64,7 +66,7 @@ impl OptimizerPass for ConstOperandSimplify {
                             if bin_op.rhs.is_constant(1) || bin_op.lhs.is_constant(0) =>
                         {
                             let value = ConstantScalarValue::UInt(0).cast_to(op.item().elem());
-                            op.operation = Operation::Assign(Variable::ConstantScalar(value));
+                            op.operation = Operation::Assign(Variable::constant(value));
                             changes.inc();
                         }
                         // true || x == true, x || true == true
@@ -111,15 +113,15 @@ impl OptimizerPass for ConstOperandSimplify {
                     },
 
                     // Constant length to const value
-                    Operation::Metadata(Metadata::Length { var }) => match var {
-                        Variable::ConstantArray { length, .. }
-                        | Variable::SharedMemory { length, .. }
-                        | Variable::LocalArray { length, .. } => {
-                            op.operation = Operation::Assign((*length).into());
+                    Operation::Metadata(Metadata::Length { var }) => match var.kind {
+                        VariableKind::ConstantArray { length, .. }
+                        | VariableKind::SharedMemory { length, .. }
+                        | VariableKind::LocalArray { length, .. } => {
+                            op.operation = Operation::Assign(length.into());
                             changes.inc();
                         }
-                        Variable::Slice { id, depth, .. } => {
-                            let slice = opt.program.slices.get(&(*id, *depth));
+                        VariableKind::Slice { id, depth } => {
+                            let slice = opt.program.slices.get(&(id, depth));
                             if let Some(Slice {
                                 const_len: Some(len),
                                 ..
@@ -149,7 +151,7 @@ impl OptimizerPass for ConstEval {
             let ops = opt.program[node].ops.clone();
             for op in ops.borrow_mut().values_mut() {
                 if let Some(const_eval) = try_const_eval(op) {
-                    let input = Variable::ConstantScalar(const_eval);
+                    let input = Variable::constant(const_eval);
                     op.operation = Operation::Assign(input);
                     changes.inc();
                 }

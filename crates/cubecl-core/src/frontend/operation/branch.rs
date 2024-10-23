@@ -50,7 +50,7 @@ pub mod select {
         let vf = u8::max(vf, then.vectorization_factor());
         let vf = u8::max(vf, or_else.vectorization_factor());
 
-        let output = context.create_local_binding(then.item().vectorize(NonZero::new(vf)));
+        let output = context.create_local_binding(then.item.vectorize(NonZero::new(vf)));
         let out = *output;
 
         let select = Operator::Select(Select {

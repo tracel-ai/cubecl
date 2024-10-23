@@ -518,13 +518,3 @@ impl std::fmt::Display for Elem {
         }
     }
 }
-
-pub trait HasId {
-    fn id<T: SpirvTarget>(b: &mut SpirvCompiler<T>) -> Word;
-}
-
-impl HasId for u32 {
-    fn id<T: SpirvTarget>(b: &mut SpirvCompiler<T>) -> Word {
-        Elem::Int(32, false).id(b)
-    }
-}

@@ -78,7 +78,7 @@ mod fill {
             context: &mut CubeContext,
             value: ExpandElementTyped<P>,
         ) -> Self {
-            let length = self.expand.item().vectorization;
+            let length = self.expand.item.vectorization;
             let output = context.create_local_binding(Item::vectorized(P::as_elem(), length));
 
             cast::expand::<P>(context, value, output.clone().into());
@@ -155,7 +155,7 @@ mod size {
         /// Comptime version of [size](Line::size).
         pub fn size(&self) -> u32 {
             self.expand
-                .item()
+                .item
                 .vectorization
                 .unwrap_or(NonZero::new(1).unwrap())
                 .get() as u32

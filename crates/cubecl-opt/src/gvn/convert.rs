@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use cubecl_core::ir::{
-    BinaryOperator, ClampOperator, ConstantScalarValue, FmaOperator, LineInitOperator, Metadata,
-    Operation, Operator, Select, UnaryOperator, Variable,
+    BinaryOperator, ClampOperator, ConstantScalarValue, FmaOperator, Item, LineInitOperator,
+    Metadata, Operation, Operator, Select, UnaryOperator, Variable, VariableKind,
 };
 use float_ord::FloatOrd;
 use smallvec::SmallVec;
 
-use super::{Builtin, Constant, Expression, Local, OpId, Value};
+use super::{Constant, Expression, Local, OpId, Value};
 
 impl Expression {
     pub fn to_operation(&self, leaders: &HashMap<u32, Value>) -> Operation {
@@ -208,135 +208,86 @@ impl Expression {
 impl Value {
     pub(crate) fn as_var(&self) -> Variable {
         match self {
-            Value::Constant(val) => Variable::ConstantScalar((*val).into()),
+            Value::Constant(val) => Variable::constant((*val).into()),
             Value::Local(Local {
                 id,
                 depth,
                 version: 0,
                 item,
-            }) => Variable::LocalBinding {
-                id: *id,
-                item: *item,
-                depth: *depth,
-            },
+            }) => Variable::new(
+                VariableKind::LocalBinding {
+                    id: *id,
+                    depth: *depth,
+                },
+                *item,
+            ),
             Value::Local(Local {
                 id,
                 depth,
                 version,
                 item,
-            }) => Variable::Versioned {
-                id: *id,
-                item: *item,
-                depth: *depth,
-                version: *version,
-            },
-            Value::Input(id, item) => Variable::GlobalInputArray {
-                id: *id,
-                item: *item,
-            },
-            Value::Scalar(id, elem) => Variable::GlobalScalar {
-                id: *id,
-                elem: *elem,
-            },
-            Value::ConstArray(id, item, len) => Variable::ConstantArray {
-                id: *id,
-                item: *item,
-                length: *len,
-            },
-            Value::Builtin(builtin) => builtin.as_var(),
-            Value::Output(id, item) => Variable::GlobalOutputArray {
-                id: *id,
-                item: *item,
-            },
-            Value::Slice(id, depth, item) => Variable::Slice {
-                id: *id,
-                item: *item,
-                depth: *depth,
-            },
-        }
-    }
-}
-
-impl Builtin {
-    pub fn as_var(&self) -> Variable {
-        match self {
-            Builtin::Rank => Variable::Rank,
-            Builtin::UnitPos => Variable::UnitPos,
-            Builtin::UnitPosX => Variable::UnitPosX,
-            Builtin::UnitPosY => Variable::UnitPosY,
-            Builtin::UnitPosZ => Variable::UnitPosZ,
-            Builtin::CubePos => Variable::CubePos,
-            Builtin::CubePosX => Variable::CubePosX,
-            Builtin::CubePosY => Variable::CubePosY,
-            Builtin::CubePosZ => Variable::CubePosZ,
-            Builtin::CubeDim => Variable::CubeDim,
-            Builtin::CubeDimX => Variable::CubeDimX,
-            Builtin::CubeDimY => Variable::CubeDimY,
-            Builtin::CubeDimZ => Variable::CubeDimZ,
-            Builtin::CubeCount => Variable::CubeCount,
-            Builtin::CubeCountX => Variable::CubeCountX,
-            Builtin::CubeCountY => Variable::CubeCountY,
-            Builtin::CubeCountZ => Variable::CubeCountZ,
-            Builtin::SubcubeDim => Variable::SubcubeDim,
-            Builtin::AbsolutePos => Variable::AbsolutePos,
-            Builtin::AbsolutePosX => Variable::AbsolutePosX,
-            Builtin::AbsolutePosY => Variable::AbsolutePosY,
-            Builtin::AbsolutePosZ => Variable::AbsolutePosZ,
+            }) => Variable::new(
+                VariableKind::Versioned {
+                    id: *id,
+                    depth: *depth,
+                    version: *version,
+                },
+                *item,
+            ),
+            Value::Input(id, item) => {
+                Variable::new(VariableKind::GlobalInputArray { id: *id }, *item)
+            }
+            Value::Scalar(id, elem) => {
+                Variable::new(VariableKind::GlobalScalar { id: *id }, Item::new(*elem))
+            }
+            Value::ConstArray(id, item, len) => Variable::new(
+                VariableKind::ConstantArray {
+                    id: *id,
+                    length: *len,
+                },
+                *item,
+            ),
+            Value::Builtin(builtin) => Variable::builtin(*builtin),
+            Value::Output(id, item) => {
+                Variable::new(VariableKind::GlobalOutputArray { id: *id }, *item)
+            }
+            Value::Slice(id, depth, item) => Variable::new(
+                VariableKind::Slice {
+                    id: *id,
+                    depth: *depth,
+                },
+                *item,
+            ),
         }
     }
 }
 
 pub fn value_of_var(var: &Variable) -> Option<Value> {
-    let val = match var {
-        Variable::GlobalInputArray { id, item } => Value::Input(*id, *item),
-        Variable::GlobalScalar { id, elem } => Value::Scalar(*id, *elem),
-        Variable::GlobalOutputArray { id, item } => Value::Output(*id, *item),
-        Variable::Versioned {
+    let item = var.item;
+    let val = match var.kind {
+        VariableKind::GlobalInputArray { id } => Value::Input(id, item),
+        VariableKind::GlobalScalar { id } => Value::Scalar(id, item.elem),
+        VariableKind::GlobalOutputArray { id } => Value::Output(id, item),
+        VariableKind::Versioned { id, depth, version } => Value::Local(Local {
             id,
             depth,
             version,
             item,
-        } => Value::Local(Local {
-            id: *id,
-            depth: *depth,
-            version: *version,
-            item: *item,
         }),
-        Variable::LocalBinding { id, depth, item } => Value::Local(Local {
-            id: *id,
-            depth: *depth,
+        VariableKind::LocalBinding { id, depth } => Value::Local(Local {
+            id,
+            depth,
             version: 0,
-            item: *item,
+            item,
         }),
-        Variable::ConstantScalar(val) => Value::Constant((*val).into()),
-        Variable::ConstantArray { id, item, length } => Value::ConstArray(*id, *item, *length),
-        Variable::Local { .. }
-        | Variable::SharedMemory { .. }
-        | Variable::LocalArray { .. }
-        | Variable::Matrix { .. } => None?,
-        Variable::Slice { id, depth, item } => Value::Slice(*id, *depth, *item),
-        Variable::Rank => Value::Builtin(Builtin::Rank),
-        Variable::UnitPos => Value::Builtin(Builtin::UnitPos),
-        Variable::UnitPosX => Value::Builtin(Builtin::UnitPosX),
-        Variable::UnitPosY => Value::Builtin(Builtin::UnitPosY),
-        Variable::UnitPosZ => Value::Builtin(Builtin::UnitPosZ),
-        Variable::CubePos => Value::Builtin(Builtin::CubePos),
-        Variable::CubePosX => Value::Builtin(Builtin::CubePosX),
-        Variable::CubePosY => Value::Builtin(Builtin::CubePosY),
-        Variable::CubePosZ => Value::Builtin(Builtin::CubePosZ),
-        Variable::CubeDim => Value::Builtin(Builtin::CubeDim),
-        Variable::CubeDimX => Value::Builtin(Builtin::CubeDimX),
-        Variable::CubeDimY => Value::Builtin(Builtin::CubeDimY),
-        Variable::CubeDimZ => Value::Builtin(Builtin::CubeDimZ),
-        Variable::CubeCount => Value::Builtin(Builtin::CubeCount),
-        Variable::CubeCountX => Value::Builtin(Builtin::CubeCountX),
-        Variable::CubeCountY => Value::Builtin(Builtin::CubeCountY),
-        Variable::CubeCountZ => Value::Builtin(Builtin::CubeCountZ),
-        Variable::SubcubeDim => Value::Builtin(Builtin::SubcubeDim),
-        Variable::AbsolutePos => Value::Builtin(Builtin::AbsolutePos),
-        Variable::AbsolutePosX => Value::Builtin(Builtin::AbsolutePosX),
-        Variable::AbsolutePosY => Value::Builtin(Builtin::AbsolutePosY),
-        Variable::AbsolutePosZ => Value::Builtin(Builtin::AbsolutePosZ),
+        VariableKind::ConstantScalar(val) => Value::Constant(val.into()),
+        VariableKind::ConstantArray { id, length } => Value::ConstArray(id, item, length),
+        VariableKind::Local { .. }
+        | VariableKind::SharedMemory { .. }
+        | VariableKind::LocalArray { .. }
+        | VariableKind::Matrix { .. } => None?,
+        VariableKind::Slice { id, depth } => Value::Slice(id, depth, item),
+        VariableKind::Builtin(builtin) => Value::Builtin(builtin),
     };
     Some(val)
 }

@@ -127,7 +127,7 @@ impl<D: Dialect> CppCompiler<D> {
             .drain(..)
             .map(|(var, values)| super::ConstArray {
                 index: var.index().unwrap(),
-                item: self.compile_item(var.item()),
+                item: self.compile_item(var.item),
                 size: values.len() as u32,
                 values: values
                     .into_iter()
@@ -140,7 +140,7 @@ impl<D: Dialect> CppCompiler<D> {
         let processing = scope.process();
 
         for var in processing.variables {
-            if let gpu::Variable::Slice { .. } = var {
+            if let gpu::VariableKind::Slice { .. } = var.kind {
                 continue;
             }
             instructions.push(Instruction::DeclareVariable {
@@ -286,9 +286,9 @@ impl<D: Dialect> CppCompiler<D> {
         match metadata {
             gpu::Metadata::Stride { dim, var } => {
                 self.stride = true;
-                let position = match var {
-                    gpu::Variable::GlobalInputArray { id, .. } => id as usize,
-                    gpu::Variable::GlobalOutputArray { id, .. } => self.num_inputs + id as usize,
+                let position = match var.kind {
+                    gpu::VariableKind::GlobalInputArray { id } => id as usize,
+                    gpu::VariableKind::GlobalOutputArray { id } => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
                 Instruction::Stride {
@@ -299,9 +299,9 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Metadata::Shape { dim, var } => {
                 self.shape = true;
-                let position = match var {
-                    gpu::Variable::GlobalInputArray { id, .. } => id as usize,
-                    gpu::Variable::GlobalOutputArray { id, .. } => self.num_inputs + id as usize,
+                let position = match var.kind {
+                    gpu::VariableKind::GlobalInputArray { id } => id as usize,
+                    gpu::VariableKind::GlobalOutputArray { id } => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a shape, got {:?}", var),
                 };
                 Instruction::Shape {
@@ -573,7 +573,7 @@ impl<D: Dialect> CppCompiler<D> {
                 out: out.unwrap(),
             }),
             gpu::Operator::Recip(op) => {
-                let elem = op.input.item().elem();
+                let elem = op.input.item.elem();
                 let lhs = match elem {
                     gpu::Elem::Float(kind) => ConstantScalarValue::Float(1.0, kind),
                     gpu::Elem::Int(kind) => ConstantScalarValue::Int(1, kind),
@@ -680,42 +680,41 @@ impl<D: Dialect> CppCompiler<D> {
     }
 
     fn compile_variable(&mut self, value: gpu::Variable) -> super::Variable {
-        match value {
-            gpu::Variable::GlobalInputArray { id, item } => {
+        let item = value.item;
+        match value.kind {
+            gpu::VariableKind::GlobalInputArray { id } => {
                 super::Variable::GlobalInputArray(id, self.compile_item(item))
             }
-            gpu::Variable::GlobalScalar { id, elem } => {
-                super::Variable::GlobalScalar(id, self.compile_elem(elem), elem)
+            gpu::VariableKind::GlobalScalar { id } => {
+                super::Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
-            gpu::Variable::Local { id, item, depth } => super::Variable::Local {
+            gpu::VariableKind::Local { id, depth } => super::Variable::Local {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::Versioned {
-                id, item, depth, ..
-            } => super::Variable::Local {
+            gpu::VariableKind::Versioned { id, depth, .. } => super::Variable::Local {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::LocalBinding { id, item, depth } => super::Variable::ConstLocal {
+            gpu::VariableKind::LocalBinding { id, depth } => super::Variable::ConstLocal {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::Slice { id, item, depth } => super::Variable::Slice {
+            gpu::VariableKind::Slice { id, depth } => super::Variable::Slice {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::GlobalOutputArray { id, item } => {
+            gpu::VariableKind::GlobalOutputArray { id } => {
                 super::Variable::GlobalOutputArray(id, self.compile_item(item))
             }
-            gpu::Variable::ConstantScalar(value) => {
+            gpu::VariableKind::ConstantScalar(value) => {
                 super::Variable::ConstantScalar(value, self.compile_elem(value.elem()))
             }
-            gpu::Variable::SharedMemory { id, item, length } => {
+            gpu::VariableKind::SharedMemory { id, length } => {
                 let item = self.compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
@@ -723,52 +722,62 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 super::Variable::SharedMemory(id, item, length)
             }
-            gpu::Variable::ConstantArray { id, item, length } => {
+            gpu::VariableKind::ConstantArray { id, length } => {
                 let item = self.compile_item(item);
                 super::Variable::ConstantArray(id, item, length)
             }
-            gpu::Variable::AbsolutePos => {
-                self.settings.idx_global = true;
-                super::Variable::IdxGlobal
-            }
-            gpu::Variable::Rank => {
-                self.rank = true;
-                super::Variable::Rank
-            }
-            gpu::Variable::UnitPos => {
-                self.settings.thread_idx_global = true;
-                super::Variable::ThreadIdxGlobal
-            }
-            gpu::Variable::UnitPosX => super::Variable::ThreadIdxX,
-            gpu::Variable::UnitPosY => super::Variable::ThreadIdxY,
-            gpu::Variable::UnitPosZ => super::Variable::ThreadIdxZ,
-            gpu::Variable::CubePosX => super::Variable::BlockIdxX,
-            gpu::Variable::CubePosY => super::Variable::BlockIdxY,
-            gpu::Variable::CubePosZ => super::Variable::BlockIdxZ,
-            gpu::Variable::AbsolutePosX => {
-                self.settings.absolute_idx.0 = true;
-                super::Variable::AbsoluteIdxX
-            }
-            gpu::Variable::AbsolutePosY => {
-                self.settings.absolute_idx.1 = true;
-                super::Variable::AbsoluteIdxY
-            }
-            gpu::Variable::AbsolutePosZ => {
-                self.settings.absolute_idx.2 = true;
-                super::Variable::AbsoluteIdxZ
-            }
-            gpu::Variable::CubeDimX => super::Variable::BlockDimX,
-            gpu::Variable::CubeDimY => super::Variable::BlockDimY,
-            gpu::Variable::CubeDimZ => super::Variable::BlockDimZ,
-            gpu::Variable::CubeCountX => super::Variable::GridDimX,
-            gpu::Variable::CubeCountY => super::Variable::GridDimY,
-            gpu::Variable::CubeCountZ => super::Variable::GridDimZ,
-            gpu::Variable::LocalArray {
-                id,
-                item,
-                depth,
-                length,
-            } => {
+            gpu::VariableKind::Builtin(builtin) => match builtin {
+                gpu::Builtin::AbsolutePos => {
+                    self.settings.idx_global = true;
+                    super::Variable::IdxGlobal
+                }
+                gpu::Builtin::Rank => {
+                    self.rank = true;
+                    super::Variable::Rank
+                }
+                gpu::Builtin::UnitPos => {
+                    self.settings.thread_idx_global = true;
+                    super::Variable::ThreadIdxGlobal
+                }
+                gpu::Builtin::UnitPosX => super::Variable::ThreadIdxX,
+                gpu::Builtin::UnitPosY => super::Variable::ThreadIdxY,
+                gpu::Builtin::UnitPosZ => super::Variable::ThreadIdxZ,
+                gpu::Builtin::CubePosX => super::Variable::BlockIdxX,
+                gpu::Builtin::CubePosY => super::Variable::BlockIdxY,
+                gpu::Builtin::CubePosZ => super::Variable::BlockIdxZ,
+                gpu::Builtin::AbsolutePosX => {
+                    self.settings.absolute_idx.0 = true;
+                    super::Variable::AbsoluteIdxX
+                }
+                gpu::Builtin::AbsolutePosY => {
+                    self.settings.absolute_idx.1 = true;
+                    super::Variable::AbsoluteIdxY
+                }
+                gpu::Builtin::AbsolutePosZ => {
+                    self.settings.absolute_idx.2 = true;
+                    super::Variable::AbsoluteIdxZ
+                }
+                gpu::Builtin::CubeDimX => super::Variable::BlockDimX,
+                gpu::Builtin::CubeDimY => super::Variable::BlockDimY,
+                gpu::Builtin::CubeDimZ => super::Variable::BlockDimZ,
+                gpu::Builtin::CubeCountX => super::Variable::GridDimX,
+                gpu::Builtin::CubeCountY => super::Variable::GridDimY,
+                gpu::Builtin::CubeCountZ => super::Variable::GridDimZ,
+                gpu::Builtin::CubePos => {
+                    self.settings.block_idx_global = true;
+                    super::Variable::BlockIdxGlobal
+                }
+                gpu::Builtin::CubeDim => {
+                    self.settings.block_dim_global = true;
+                    super::Variable::BlockDimGlobal
+                }
+                gpu::Builtin::CubeCount => {
+                    self.settings.grid_dim_global = true;
+                    super::Variable::GridDimGlobal
+                }
+                gpu::Builtin::SubcubeDim => super::Variable::WarpSize,
+            },
+            gpu::VariableKind::LocalArray { id, depth, length } => {
                 let item = self.compile_item(item);
                 if !self
                     .local_arrays
@@ -780,20 +789,7 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 super::Variable::LocalArray(id, item, depth, length)
             }
-            gpu::Variable::CubePos => {
-                self.settings.block_idx_global = true;
-                super::Variable::BlockIdxGlobal
-            }
-            gpu::Variable::CubeDim => {
-                self.settings.block_dim_global = true;
-                super::Variable::BlockDimGlobal
-            }
-            gpu::Variable::CubeCount => {
-                self.settings.grid_dim_global = true;
-                super::Variable::GridDimGlobal
-            }
-            gpu::Variable::SubcubeDim => super::Variable::WarpSize,
-            gpu::Variable::Matrix { id, mat, depth } => {
+            gpu::VariableKind::Matrix { id, mat, depth } => {
                 self.wmma = true;
                 super::Variable::WmmaFragment {
                     id,

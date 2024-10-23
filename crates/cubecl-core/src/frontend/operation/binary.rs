@@ -226,7 +226,7 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
                 rhs: ExpandElementTyped<Self>,
             ) -> ExpandElementTyped<Self> {
                 let lhs: ExpandElement = lhs.into();
-                let mut item = lhs.item();
+                let mut item = lhs.item;
                 item.vectorization = $out_vectorization;
                 binary_expand_fixed_output(context, lhs, rhs.into(), item, $operator).into()
             }
@@ -236,7 +236,7 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
         $(impl ExpandElementTyped<$type> {
             pub fn $method_name_expand(self, context: &mut CubeContext, rhs: ExpandElementTyped<$type>) -> ExpandElementTyped<$type> {
                 let lhs: ExpandElement = self.into();
-                let mut item = lhs.item();
+                let mut item = lhs.item;
                 item.vectorization = $out_vectorization;
                 binary_expand_fixed_output(context, lhs, rhs.into(), item, $operator).into()
             }

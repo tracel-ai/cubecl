@@ -17,7 +17,10 @@ pub struct Tensor<T: CubeType> {
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
     use super::*;
-    use crate::{ir::Instruction, prelude::Array};
+    use crate::{
+        ir::{Builtin, Instruction},
+        prelude::Array,
+    };
 
     impl<T: CubeType> Tensor<T> {
         /// Obtain the stride of input at dimension dim
@@ -126,7 +129,7 @@ mod metadata {
 
         // Expand method of [rank](Tensor::rank).
         pub fn __expand_rank_method(self, _context: &mut CubeContext) -> ExpandElementTyped<u32> {
-            ExpandElement::Plain(Variable::Rank).into()
+            ExpandElement::Plain(Variable::builtin(Builtin::Rank)).into()
         }
     }
 }
@@ -172,7 +175,7 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item());
+            let out = context.create_local_binding(self.expand.item);
             context.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
@@ -229,7 +232,7 @@ mod line {
         /// Comptime version of [size](Tensor::line_size).
         pub fn line_size(&self) -> u32 {
             self.expand
-                .item()
+                .item
                 .vectorization
                 .unwrap_or(NonZero::new(1).unwrap())
                 .get() as u32

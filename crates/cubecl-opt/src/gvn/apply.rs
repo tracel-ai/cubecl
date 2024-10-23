@@ -100,7 +100,7 @@ impl GvnPass {
             let new_phis = new_phis
                 .into_iter()
                 .map(|entries| PhiInstruction {
-                    out: opt.create_temporary(entries[0].value.item()),
+                    out: opt.create_temporary(entries[0].value.item),
                     entries,
                 })
                 .collect::<Vec<_>>();
