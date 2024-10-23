@@ -53,13 +53,6 @@ impl Optimizer {
         match branch {
             Branch::If(if_) => self.parse_if(*if_),
             Branch::IfElse(if_else) => self.parse_if_else(if_else),
-            Branch::Select(mut select) => {
-                self.find_writes_select(&mut select);
-                self.current_block_mut()
-                    .ops
-                    .borrow_mut()
-                    .push(Branch::Select(select).into());
-            }
             Branch::Switch(switch) => self.parse_switch(*switch),
             Branch::RangeLoop(range_loop) => {
                 self.parse_for_loop(*range_loop);

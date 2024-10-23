@@ -16,7 +16,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, op: Operation) {
         match op {
             Operation::Operator(operator) => self.compile_operator(operator),
-            Operation::Branch(branch) => self.compile_branch(branch),
+            Operation::Branch(_) => unreachable!("Branches shouldn't exist in optimized IR"),
             Operation::Metadata(meta) => self.compile_meta(meta),
             Operation::Subcube(subcube) => self.compile_subcube(subcube),
             Operation::Synchronization(sync) => self.compile_sync(sync),
@@ -763,6 +763,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap();
                 }
             }
+            Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, op.out),
         }
     }
 
@@ -934,5 +935,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         };
         let pos = erf(self, input);
         self.select(ty, Some(out), cond, neg, pos).unwrap();
+    }
+
+    pub fn compile_select(
+        &mut self,
+        cond: core::Variable,
+        then: core::Variable,
+        or_else: core::Variable,
+        out: core::Variable,
+    ) {
+        let cond = self.compile_variable(cond);
+        let then = self.compile_variable(then);
+        let or_else = self.compile_variable(or_else);
+        let out = self.compile_variable(out);
+
+        let out_ty = out.item();
+        let ty = out_ty.id(self);
+
+        let cond_id = self.read(&cond);
+        let then = self.read_as(&then, &out_ty);
+        let or_else = self.read_as(&or_else, &out_ty);
+        let out_id = self.write_id(&out);
+
+        self.select(ty, Some(out_id), cond_id, then, or_else)
+            .unwrap();
+        self.write(&out, out_id);
     }
 }

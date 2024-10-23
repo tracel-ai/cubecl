@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    Branch, ConstantScalarValue, Metadata, Operation, Operator, UnaryOperator, Variable,
+    ConstantScalarValue, Metadata, Operation, Operator, UnaryOperator, Variable,
 };
 
 use crate::{AtomicCounter, Optimizer, Slice};
@@ -103,12 +103,12 @@ impl OptimizerPass for ConstOperandSimplify {
                         changes.inc();
                     }
                     // select(true, a, b) == a
-                    Operation::Branch(Branch::Select(select)) if select.cond.is_true() => {
+                    Operation::Operator(Operator::Select(select)) if select.cond.is_true() => {
                         *op = assign(select.out, select.then);
                         changes.inc();
                     }
                     // select(false, a, b) == b
-                    Operation::Branch(Branch::Select(select)) if select.cond.is_false() => {
+                    Operation::Operator(Operator::Select(select)) if select.cond.is_false() => {
                         *op = assign(select.out, select.or_else);
                         changes.inc();
                     }

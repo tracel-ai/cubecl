@@ -483,12 +483,6 @@ impl WgslCompiler {
                 instructions_if: self.compile_scope(&mut op.scope_if),
                 instructions_else: self.compile_scope(&mut op.scope_else),
             }),
-            cube::Branch::Select(op) => instructions.push(wgsl::Instruction::Select {
-                cond: self.compile_variable(op.cond),
-                then: self.compile_variable(op.then),
-                or_else: self.compile_variable(op.or_else),
-                out: self.compile_variable(op.out),
-            }),
             cube::Branch::Switch(mut op) => instructions.push(wgsl::Instruction::Switch {
                 value: self.compile_variable(op.value),
                 instructions_default: self.compile_scope(&mut op.scope_default),
@@ -875,6 +869,12 @@ impl WgslCompiler {
                 out: self.compile_variable(op.out),
                 out_index: self.compile_variable(op.out_index),
                 len: op.len,
+            },
+            cube::Operator::Select(op) => wgsl::Instruction::Select {
+                cond: self.compile_variable(op.cond),
+                then: self.compile_variable(op.then),
+                or_else: self.compile_variable(op.or_else),
+                out: self.compile_variable(op.out),
             },
         }
     }

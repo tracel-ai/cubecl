@@ -340,12 +340,6 @@ impl<D: Dialect> CppCompiler<D> {
                     })
                     .collect(),
             }),
-            gpu::Branch::Select(op) => instructions.push(Instruction::Select {
-                cond: self.compile_variable(op.cond),
-                then: self.compile_variable(op.then),
-                or_else: self.compile_variable(op.or_else),
-                out: self.compile_variable(op.out),
-            }),
             gpu::Branch::Return => instructions.push(Instruction::Return),
             gpu::Branch::Break => instructions.push(Instruction::Break),
             gpu::Branch::RangeLoop(mut range_loop) => instructions.push(Instruction::RangeLoop {
@@ -590,6 +584,12 @@ impl<D: Dialect> CppCompiler<D> {
                 out: self.compile_variable(op.out),
                 out_index: self.compile_variable(op.out_index),
                 len: op.len,
+            }),
+            gpu::Operator::Select(op) => instructions.push(Instruction::Select {
+                cond: self.compile_variable(op.cond),
+                then: self.compile_variable(op.then),
+                or_else: self.compile_variable(op.or_else),
+                out: self.compile_variable(op.out),
             }),
         };
     }

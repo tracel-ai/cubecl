@@ -244,6 +244,11 @@ impl ScopeProcessing {
                     sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
                     sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
                 }
+                Operator::Select(op) => {
+                    sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
+                    sanitize_constant_scalar_ref_var(&mut op.then, &op.out);
+                    sanitize_constant_scalar_ref_var(&mut op.or_else, &op.out);
+                }
             },
             Operation::Metadata(op) => match op {
                 Metadata::Stride { dim, .. } => {

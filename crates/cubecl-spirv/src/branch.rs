@@ -1,5 +1,4 @@
-use cubecl_core::ir::Branch;
-use cubecl_core::ir::{self as core, Select};
+use cubecl_core::ir as core;
 use cubecl_opt::{ControlFlow, NodeIndex};
 use rspirv::{
     dr::Operand,
@@ -9,18 +8,6 @@ use rspirv::{
 use crate::{item::Item, variable::Variable, SpirvCompiler, SpirvTarget};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_branch(&mut self, branch: Branch) {
-        if let Branch::Select(Select {
-            cond,
-            then,
-            or_else,
-            out,
-        }) = branch
-        {
-            self.compile_select(cond, then, or_else, out)
-        }
-    }
-
     pub fn compile_read_bound(
         &mut self,
         arr: &Variable,
@@ -129,31 +116,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         self.begin_block(Some(next)).unwrap();
         self.state.end_labels.insert(current_block, next);
-    }
-
-    fn compile_select(
-        &mut self,
-        cond: core::Variable,
-        then: core::Variable,
-        or_else: core::Variable,
-        out: core::Variable,
-    ) {
-        let cond = self.compile_variable(cond);
-        let then = self.compile_variable(then);
-        let or_else = self.compile_variable(or_else);
-        let out = self.compile_variable(out);
-
-        let out_ty = out.item();
-        let ty = out_ty.id(self);
-
-        let cond_id = self.read(&cond);
-        let then = self.read_as(&then, &out_ty);
-        let or_else = self.read_as(&or_else, &out_ty);
-        let out_id = self.write_id(&out);
-
-        self.select(ty, Some(out_id), cond_id, then, or_else)
-            .unwrap();
-        self.write(&out, out_id);
     }
 
     pub fn compile_control_flow(&mut self, control_flow: ControlFlow) {

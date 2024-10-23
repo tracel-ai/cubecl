@@ -11,8 +11,6 @@ pub enum Branch {
     If(Box<If>),
     /// An if else statement.
     IfElse(Box<IfElse>),
-    // A select statement/ternary
-    Select(Select),
     /// A switch statement
     Switch(Box<Switch>),
     /// A range loop.
@@ -30,11 +28,6 @@ impl Display for Branch {
         match self {
             Branch::If(if_) => write!(f, "if({})", if_.cond),
             Branch::IfElse(if_else) => write!(f, "if({})", if_else.cond),
-            Branch::Select(select) => write!(
-                f,
-                "{} = select({}, {}, {})",
-                select.out, select.cond, select.then, select.or_else
-            ),
             Branch::Switch(switch) => write!(
                 f,
                 "switch({}) {:?}",

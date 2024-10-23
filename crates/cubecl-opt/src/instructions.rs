@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    BinaryOperator, Branch, CoopMma, Metadata, Operation, Operator, Select, Subcube, UnaryOperator,
+    BinaryOperator, CoopMma, Metadata, Operation, Operator, Select, Subcube, UnaryOperator,
     Variable,
 };
 
@@ -11,8 +11,8 @@ impl Optimizer {
     pub fn visit_operation(
         &mut self,
         op: &mut Operation,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
-        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+        visit_read: impl FnMut(&mut Self, &mut Variable),
+        visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
             Operation::Operator(operator) => self.visit_operator(operator, visit_read, visit_write),
@@ -21,13 +21,6 @@ impl Optimizer {
             Operation::Synchronization(_) => {}
             Operation::Subcube(subcube) => self.visit_subcube(subcube, visit_read, visit_write),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read, visit_write),
-            // Procedures get compiled out before visiting
-            Operation::Branch(Branch::Select(select)) => {
-                visit_read(self, &mut select.cond);
-                visit_read(self, &mut select.then);
-                visit_read(self, &mut select.or_else);
-                visit_write(self, &mut select.out);
-            }
             Operation::Branch(_) => unreachable!(),
         }
     }
@@ -145,6 +138,12 @@ impl Optimizer {
                 visit_read(self, &mut copy_bulk_operator.in_index);
                 visit_read(self, &mut copy_bulk_operator.out_index);
                 visit_write(self, &mut copy_bulk_operator.out);
+            }
+            Operator::Select(select) => {
+                visit_read(self, &mut select.cond);
+                visit_read(self, &mut select.then);
+                visit_read(self, &mut select.or_else);
+                visit_write(self, &mut select.out);
             }
         }
     }

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::{Branch, CoopMma, Subcube, Synchronization, Variable};
+use super::{Branch, CoopMma, Select, Subcube, Synchronization, Variable};
 use serde::{Deserialize, Serialize};
 
 /// All operations that can be used in a GPU compute shader.
@@ -40,7 +40,6 @@ impl Operation {
         match self {
             Operation::Operator(operator) => operator.out(),
             Operation::Metadata(metadata) => metadata.out(),
-            Operation::Branch(Branch::Select(op)) => Some(op.out),
             Operation::Branch(_) => None,
             Operation::Synchronization(_) => None,
             Operation::Subcube(subcube) => subcube.out(),
@@ -116,6 +115,8 @@ pub enum Operator {
     Magnitude(UnaryOperator),
     Normalize(UnaryOperator),
     Dot(BinaryOperator),
+    // A select statement/ternary
+    Select(Select),
 }
 
 impl Operator {
@@ -186,6 +187,7 @@ impl Operator {
             Operator::InitLine(line_init_operator) => line_init_operator.out,
             Operator::AtomicCompareAndSwap(op) => op.out,
             Operator::Fma(fma_operator) => fma_operator.out,
+            Operator::Select(select) => select.out,
         };
         Some(val)
     }
@@ -285,6 +287,9 @@ impl Display for Operator {
                     .map(|input| format!("{input}"))
                     .collect::<Vec<_>>();
                 write!(f, "{} = vec({})", init.out, inits.join(", "))
+            }
+            Operator::Select(op) => {
+                write!(f, "{} = {} ? {} : {}", op.out, op.cond, op.then, op.or_else)
             }
         }
     }

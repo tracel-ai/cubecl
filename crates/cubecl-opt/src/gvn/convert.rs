@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use cubecl_core::ir::{
-    BinaryOperator, Branch, ClampOperator, ConstantScalarValue, FmaOperator, LineInitOperator,
-    Metadata, Operation, Operator, Select, UnaryOperator, Variable,
+    BinaryOperator, ClampOperator, ConstantScalarValue, FmaOperator, LineInitOperator, Metadata,
+    Operation, Operator, Select, UnaryOperator, Variable,
 };
 use float_ord::FloatOrd;
 use smallvec::SmallVec;
@@ -278,7 +278,7 @@ impl Expression {
                         out,
                     })
                     .into(),
-                    OpId::Select => Branch::Select(Select {
+                    OpId::Select => Operator::Select(Select {
                         cond: args[0],
                         then: args[1],
                         or_else: args[2],

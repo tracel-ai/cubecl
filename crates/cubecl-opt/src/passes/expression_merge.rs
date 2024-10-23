@@ -1,6 +1,6 @@
 use std::{cell::RefCell, mem::take};
 
-use cubecl_core::ir::{Branch, Item, Metadata, Operation, Operator, UnaryOperator, Variable};
+use cubecl_core::ir::{Item, Metadata, Operation, Operator, UnaryOperator, Variable};
 use stable_vec::StableVec;
 
 use crate::{visit_noop, AtomicCounter, Optimizer};
@@ -166,16 +166,6 @@ fn rhs_eq(lhs: &Operation, rhs: &Operation) -> bool {
     match (lhs, rhs) {
         (Operation::Operator(lhs), Operation::Operator(rhs)) => operator_rhs_eq(lhs, rhs),
         (Operation::Metadata(lhs), Operation::Metadata(rhs)) => metadata_rhs_eq(lhs, rhs),
-        (Operation::Branch(lhs), Operation::Branch(rhs)) => branch_rhs_eq(lhs, rhs),
-        _ => false,
-    }
-}
-
-fn branch_rhs_eq(lhs: &Branch, rhs: &Branch) -> bool {
-    match (lhs, rhs) {
-        (Branch::Select(lhs), Branch::Select(rhs)) => {
-            lhs.cond == rhs.cond && lhs.then == rhs.then && lhs.or_else == rhs.or_else
-        }
         _ => false,
     }
 }
@@ -240,6 +230,9 @@ fn operator_rhs_eq(lhs: &Operator, rhs: &Operator) -> bool {
             lhs.a == rhs.a && lhs.b == rhs.b && lhs.c == rhs.c
         }
         (Operator::InitLine(lhs), Operator::InitLine(rhs)) => lhs.inputs == rhs.inputs,
+        (Operator::Select(lhs), Operator::Select(rhs)) => {
+            lhs.cond == rhs.cond && lhs.then == rhs.then && lhs.or_else == rhs.or_else
+        }
         _ => false,
     }
 }

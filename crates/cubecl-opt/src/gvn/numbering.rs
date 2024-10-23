@@ -4,7 +4,7 @@ use std::{
 };
 
 use cubecl_core::ir::{
-    Branch, ConstantScalarValue, Elem, Item, Metadata, Operation, Operator, Subcube, Variable,
+    ConstantScalarValue, Elem, Item, Metadata, Operation, Operator, Subcube, Variable,
 };
 
 use crate::{passes::item_compatible, PhiInstruction};
@@ -121,14 +121,6 @@ impl ValueTable {
                     | Subcube::Max(op) => value_of_var(&op.out),
                 };
                 Err(val)
-            }
-            Operation::Branch(Branch::Select(op)) => {
-                let item = op.out.item();
-                let cond = self.lookup_or_add_var(&op.cond)?;
-                let then = self.lookup_or_add_var(&op.then)?;
-                let or_else = self.lookup_or_add_var(&op.or_else)?;
-                let expr = Instruction::new(OpId::Select, &[cond, then, or_else], item);
-                Ok((expr.into(), value_of_var(&op.out)))
             }
             Operation::Branch(_) | Operation::Synchronization(_) | Operation::CoopMma(_) => {
                 Err(None)
@@ -292,6 +284,15 @@ impl ValueTable {
                 let id = id_of_op(operator);
                 let expr = Instruction::new(id, &[lhs, rhs], item);
                 (expr.into(), out)
+            }
+
+            Operator::Select(op) => {
+                let item = op.out.item();
+                let cond = self.lookup_or_add_var(&op.cond)?;
+                let then = self.lookup_or_add_var(&op.then)?;
+                let or_else = self.lookup_or_add_var(&op.or_else)?;
+                let expr = Instruction::new(OpId::Select, &[cond, then, or_else], item);
+                (expr.into(), value_of_var(&op.out))
             }
 
             Operator::AtomicSwap(op)
