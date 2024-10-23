@@ -1,4 +1,5 @@
 use cubecl::{calculate_cube_count_elemwise, frontend, prelude::*};
+use cubecl_runtime::TimestampsResult;
 use std::marker::PhantomData;
 
 #[cfg(feature = "cuda")]
@@ -7,7 +8,6 @@ use half::f16;
 use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
-use std::time::Duration;
 
 #[cube(launch)]
 fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
@@ -65,8 +65,12 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         .to_lowercase()
     }
 
-    fn sync(&self) -> Duration {
+    fn sync(&self) {
         future::block_on(self.client.sync())
+    }
+
+    fn sync_elapsed(&self) -> TimestampsResult {
+        future::block_on(self.client.sync_elapsed())
     }
 }
 
@@ -88,15 +92,18 @@ enum MatmulKind {
 
 #[allow(dead_code)]
 fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
+    let client = R::client(&device);
+    client.enable_timestamps();
+
     let bench = UnaryBench::<R, E> {
         shape: vec![32, 512, 2048],
         vectorization,
-        client: R::client(&device),
+        client,
         device,
         _e: PhantomData,
     };
     println!("{}", bench.name());
-    println!("{}", bench.run(TimingMethod::Full));
+    println!("{}", bench.run(TimingMethod::DeviceOnly));
 }
 
 fn main() {
