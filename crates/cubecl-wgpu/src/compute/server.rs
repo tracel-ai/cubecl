@@ -33,6 +33,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     storage_locked: MemoryLock,
     duration_profiled: Option<Duration>,
     timestamps: KernelTimestamps,
+    timestamps_num_enabled: usize,
     _compiler: PhantomData<C>,
 }
 
@@ -107,6 +108,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             poll: WgpuPoll::new(device.clone()),
             duration_profiled: None,
             timestamps,
+            timestamps_num_enabled: 0,
             _compiler: PhantomData,
         }
     }
@@ -556,13 +558,19 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn enable_timestamps(&mut self) {
+        self.timestamps_num_enabled += 1;
         self.timestamps.enable(&self.device);
     }
 
     fn disable_timestamps(&mut self) {
-        // Only disable timestamps if profiling isn't enabled.
-        if self.logger.profile_level().is_none() {
-            self.timestamps.disable();
+        if self.timestamps_num_enabled <= 1 {
+            // Only disable timestamps if profiling isn't enabled.
+            if self.logger.profile_level().is_none() {
+                self.timestamps.disable();
+            }
+            self.timestamps_num_enabled = 0;
+        } else {
+            self.timestamps_num_enabled -= 1;
         }
     }
 }

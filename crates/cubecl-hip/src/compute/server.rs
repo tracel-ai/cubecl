@@ -34,6 +34,7 @@ pub(crate) struct HipContext {
     memory_management: MemoryManagement<HipStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
     timestamps: KernelTimestamps,
+    timestamps_num_enabled: usize,
 }
 
 #[derive(Debug)]
@@ -254,12 +255,18 @@ impl ComputeServer for HipServer {
     }
 
     fn enable_timestamps(&mut self) {
+        self.ctx.timestamps_num_enabled += 1;
         self.ctx.timestamps.enable();
     }
 
     fn disable_timestamps(&mut self) {
-        if self.logger.profile_level().is_none() {
-            self.ctx.timestamps.disable();
+        if self.ctx.timestamps_num_enabled <= 1 {
+            if self.logger.profile_level().is_none() {
+                self.ctx.timestamps.disable();
+            }
+            self.ctx.timestamps_num_enabled = 0;
+        } else {
+            self.ctx.timestamps_num_enabled -= 1;
         }
     }
 }
@@ -276,6 +283,7 @@ impl HipContext {
             stream,
             context,
             timestamps: KernelTimestamps::Disabled,
+            timestamps_num_enabled: 0,
         }
     }
 

@@ -36,6 +36,7 @@ pub(crate) struct CudaContext {
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     timestamps: KernelTimestamps,
+    timestamps_num_enabled: usize,
     pub(crate) arch: u32,
 }
 
@@ -252,12 +253,18 @@ impl ComputeServer for CudaServer {
     }
 
     fn enable_timestamps(&mut self) {
+        self.ctx.timestamps_num_enabled += 1;
         self.ctx.timestamps.enable();
     }
 
     fn disable_timestamps(&mut self) {
-        if self.logger.profile_level().is_none() {
-            self.ctx.timestamps.disable();
+        if self.ctx.timestamps_num_enabled <= 1 {
+            if self.logger.profile_level().is_none() {
+                self.ctx.timestamps.disable();
+            }
+            self.ctx.timestamps_num_enabled = 0;
+        } else {
+            self.ctx.timestamps_num_enabled -= 1;
         }
     }
 }
@@ -276,6 +283,7 @@ impl CudaContext {
             stream,
             arch,
             timestamps: KernelTimestamps::Disabled,
+            timestamps_num_enabled: 0,
         }
     }
 
