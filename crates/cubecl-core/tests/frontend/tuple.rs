@@ -19,7 +19,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{Elem, Item, Instruction, Variable},
+        ir::{Elem, Instruction, Item, Variable},
     };
     use pretty_assertions::assert_eq;
 

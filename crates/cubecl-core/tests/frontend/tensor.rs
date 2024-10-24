@@ -12,7 +12,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{Item, Instruction, Variable},
+        ir::{Instruction, Item, Variable},
     };
 
     type ElemType = f32;
