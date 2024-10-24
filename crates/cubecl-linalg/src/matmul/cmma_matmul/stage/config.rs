@@ -14,9 +14,6 @@ pub struct CmmaStageMatmulConfig<T: TmmConfig> {
     lhs_stage_dim: StageDim,
     rhs_stage_dim: StageDim,
     out_stage_dim: StageDim,
-    lhs_line_size: u32,
-    rhs_line_size: u32,
-    out_line_size: u32,
     num_planes: u32,
     tiling_order: TilingOrderConfig,
 }
@@ -31,11 +28,7 @@ impl<T: TmmConfig> SmmConfig for CmmaStageMatmulConfig<T> {
     }
 
     fn line_size(&self, ident: Ident) -> u32 {
-        match ident {
-            Ident::Lhs => self.lhs_line_size,
-            Ident::Rhs => self.rhs_line_size,
-            Ident::Out => self.out_line_size,
-        }
+        self.tmm_config.line_size(ident)
     }
 
     fn stage_dim(&self, ident: Ident) -> StageDim {
@@ -71,9 +64,6 @@ impl<T: TmmConfig> CmmaStageMatmulConfig<T> {
         lhs_stage_dim: StageDim,
         rhs_stage_dim: StageDim,
         out_stage_dim: StageDim,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
         num_planes: u32,
         tiling_order: TilingOrderConfig,
     ) -> Self {
@@ -82,9 +72,6 @@ impl<T: TmmConfig> CmmaStageMatmulConfig<T> {
             lhs_stage_dim,
             rhs_stage_dim,
             out_stage_dim,
-            lhs_line_size,
-            rhs_line_size,
-            out_line_size,
             num_planes,
             tiling_order,
         }

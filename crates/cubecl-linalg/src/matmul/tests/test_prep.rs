@@ -78,15 +78,19 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
         panic!("Dynamic cube count unsupported")
     };
 
-    let t = T::new(plane_dim, problem.lhs_layout, problem.rhs_layout);
+    let t = T::new(
+        plane_dim,
+        problem.lhs_layout,
+        problem.rhs_layout,
+        problem.lhs_line_size as u32,
+        problem.rhs_line_size as u32,
+        problem.out_line_size as u32,
+    );
     let s = S::new(
         t,
         lhs_stage_dim,
         rhs_stage_dim,
         out_stage_dim,
-        problem.lhs_line_size as u32,
-        problem.rhs_line_size as u32,
-        problem.out_line_size as u32,
         num_planes,
         advanded_config.tiling_order,
     );

@@ -51,11 +51,11 @@ macro_rules! impl_matmul_instruction {
                 }
             }
 
-            fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs) {
+            fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] _config: T) {
                 fill(slice, lhs);
             }
 
-            fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs) {
+            fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] _config: T) {
                 fill(slice, rhs)
             }
 
@@ -74,7 +74,7 @@ macro_rules! impl_matmul_instruction {
                 out
             }
 
-            fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>) {
+            fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>, #[comptime] _config: T) {
                 let line_size = Line::size(&slice[0]);
 
                 for i in 0..out.x * out.y / line_size {
