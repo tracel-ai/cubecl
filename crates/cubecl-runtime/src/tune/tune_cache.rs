@@ -108,11 +108,11 @@ impl<K: AutotuneKey> TuneCache<K> {
 
         #[cfg(autotune_persistent_cache)]
         if val.checksum_checked {
-            return TuneCacheResult::Hit {
+            TuneCacheResult::Hit {
                 fastest_index: val.fastest_index,
-            };
+            }
         } else {
-            return TuneCacheResult::Unchecked;
+            TuneCacheResult::Unchecked
         }
 
         #[cfg(not(autotune_persistent_cache))]

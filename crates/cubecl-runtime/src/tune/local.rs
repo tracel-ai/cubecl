@@ -101,12 +101,11 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             let map = state.get_or_insert_with(Default::default);
 
             if let Some(tuner) = map.get_mut(id) {
-                match tuner.fastest_with_checksum(autotune_operation_set.as_ref()) {
-                    TuneCacheResult::Hit { fastest_index } => {
-                        let op = autotune_operation_set.fastest(fastest_index);
-                        return op.execute();
-                    }
-                    _ => {}
+                if let TuneCacheResult::Hit { fastest_index } =
+                    tuner.fastest_with_checksum(autotune_operation_set.as_ref())
+                {
+                    let op = autotune_operation_set.fastest(fastest_index);
+                    return op.execute();
                 }
             }
         }
