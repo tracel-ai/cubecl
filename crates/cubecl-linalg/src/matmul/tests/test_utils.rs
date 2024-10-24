@@ -43,6 +43,7 @@ pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
     let mut seed = 12345;
 
     (0..num_elements).map(|_| lcg(&mut seed)).collect()
+    // (0..num_elements).map(|i| i as f32).collect()
 }
 
 pub(crate) fn matmul_cpu_reference(lhs: &[f32], rhs: &[f32], problem: MatmulProblem) -> Vec<f32> {

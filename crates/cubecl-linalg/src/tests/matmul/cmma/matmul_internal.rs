@@ -18,6 +18,7 @@ macro_rules! testgen_cmma_internal {
         use cubecl_linalg::matmul::cmma_matmul::tile::{
             $i_16x16x16, $i_32x8x16, $i_8x32x16,
         };
+        use cubecl_linalg::matmul::cmma_matmul::tile::PlaneMma32x32x32;
         use cubecl_linalg::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
         use cubecl_linalg::matmul::matmul_stage::StageMatmul;
         use cubecl_linalg::matmul::matmul_tile::TileMatmul;
@@ -463,6 +464,31 @@ macro_rules! testgen_cmma_internal {
             );
 
             test_global_matmul_g16x16x16_S1x1x1_unlined::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_plane_mma() {
+            matmul_test!(
+                test_plane_mma,
+                MatmulProblem {
+                    m: 32,
+                    n: 32,
+                    k: 32,
+                    b: vec![],
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(32, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                S1x1x1,
+                PlaneMma32x32x32,
+                AdvancedConfig::default()
+            );
+
+            test_plane_mma::<TestRuntime>(&Default::default())
         }
 
         #[test]

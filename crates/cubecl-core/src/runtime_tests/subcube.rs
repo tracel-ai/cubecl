@@ -65,14 +65,25 @@ pub fn kernel_elect(output: &mut Tensor<f32>) {
     }
 }
 
+// #[cube(launch)]
+// pub fn kernel_broadcast(output: &mut Tensor<f32>) {
+//     let val = output[UNIT_POS];
+//     let val2 = subcube_broadcast(val, 2);
+
+//     if UNIT_POS == 0 {
+//         output[0] = val2;
+//     }
+// }
+
 #[cube(launch)]
 pub fn kernel_broadcast(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_broadcast(val, 2);
-
-    if UNIT_POS == 0 {
-        output[0] = val2;
+    let mut val2 = 0.;
+    for i in 0..4 {
+        val2 += f32::abs(subcube_broadcast(val, i));
     }
+
+    output[UNIT_POS] = val2;
 }
 
 pub fn test_subcube_sum<TestRuntime: Runtime>(

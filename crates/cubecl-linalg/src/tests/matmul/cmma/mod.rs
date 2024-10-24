@@ -31,7 +31,7 @@ macro_rules! testgen_cmma_mock {
             f32,
             f32,
             f32,
-            16
+            32
         );
     };
 }
