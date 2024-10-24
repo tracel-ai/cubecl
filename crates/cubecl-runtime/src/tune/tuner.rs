@@ -18,7 +18,7 @@ use crate::client::ComputeClient;
 use crate::server::ComputeServer;
 use crate::tune::{AutotuneOperation, AutotuneOperationSet, TuneBenchmark, TuneCache};
 
-use super::AutotuneKey;
+use super::{AutotuneKey, TuneCacheResult};
 
 /// An error that occurred during benchmarking. If other benches succeeded, ignore this bench and
 /// continue gracefully. If all benches fail, panic.
@@ -55,8 +55,8 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Fetch the fastest autotune operation index for an autotune key.
-    pub fn autotune_fastest(&self, key: &K) -> Option<usize> {
-        self.tune_cache.find_fastest(key)
+    pub fn fastest(&self, key: &K) -> TuneCacheResult {
+        self.tune_cache.fastest(key)
     }
 
     /// Registers the [results](AutotuneResult) from [execute_autotune()](Self::execute_autotune).
@@ -74,6 +74,15 @@ impl<K: AutotuneKey> Tuner<K> {
         let op = result.set.fastest(result.fastest_index);
 
         AutotuneOperation::execute(op)
+    }
+
+    #[cfg(autotune_persistent_cache)]
+    /// Fetch the fastest autotune operation index for an autotune key and validate the checksum.
+    pub fn fastest_with_checksum<Out: Send>(
+        &mut self,
+        set: &dyn AutotuneOperationSet<K, Out>,
+    ) -> TuneCacheResult {
+        self.tune_cache.fastest_with_checksum(set)
     }
 
     /// Execute the fastest autotune operation if known, otherwise perform some benchmarks before.
