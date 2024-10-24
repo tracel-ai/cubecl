@@ -519,7 +519,7 @@ macro_rules! testgen_cmma_internal {
         #[test]
         pub fn test_plane_mma_16_16_8() {
             matmul_test!(
-                test_plane_mma_16_16_16,
+                test_plane_mma_16_16_8,
                 MatmulProblem {
                     m: 16,
                     n: 16,
@@ -538,13 +538,13 @@ macro_rules! testgen_cmma_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_16_16_16::<TestRuntime>(&Default::default())
+            test_plane_mma_16_16_8::<TestRuntime>(&Default::default())
         }
 
         #[test]
         pub fn test_plane_mma_16_16_32() {
             matmul_test!(
-                test_plane_mma_16_16_16,
+                test_plane_mma_16_16_32,
                 MatmulProblem {
                     m: 16,
                     n: 16,
@@ -563,7 +563,7 @@ macro_rules! testgen_cmma_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_16_16_16::<TestRuntime>(&Default::default())
+            test_plane_mma_16_16_32::<TestRuntime>(&Default::default())
         }
 
 
