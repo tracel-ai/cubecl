@@ -5,7 +5,7 @@ use petgraph::visit::EdgeRef;
 
 use crate::{
     gvn::{BlockSets, Constant, Expression, Instruction, Local, OpId, Value, ValueTable},
-    passes::{get_out, var_id},
+    passes::var_id,
     ControlFlow,
 };
 
@@ -75,8 +75,7 @@ impl Display for Optimizer {
             }
 
             for op in bb.ops.borrow_mut().values_mut() {
-                let out = get_out(&mut self.clone(), op);
-                let id = out.and_then(|var| var_id(&var));
+                let id = op.out.and_then(|var| var_id(&var));
                 let range = id.and_then(|id| self.program.int_ranges.get(&id));
                 let range = range.map(|it| format!(" range: {it};")).unwrap_or_default();
 

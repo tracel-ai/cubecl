@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use petgraph::graph::NodeIndex;
 
-use crate::{visit_noop, Optimizer};
+use crate::Optimizer;
 
 #[derive(Clone)]
 struct BlockSets {
@@ -56,21 +56,17 @@ impl Optimizer {
 
         for op in ops.borrow_mut().values_mut().rev() {
             // Reads must be tracked after writes
-            self.visit_operation(op, visit_noop, |opt, var| {
+            self.visit_out(&mut op.out, |opt, var| {
                 if let Some(id) = opt.local_variable_id(var) {
                     kill.insert(id);
                     gen.remove(&id);
                 }
             });
-            self.visit_operation(
-                op,
-                |opt, var| {
-                    if let Some(id) = opt.local_variable_id(var) {
-                        gen.insert(id);
-                    }
-                },
-                visit_noop,
-            );
+            self.visit_operation(&mut op.operation, |opt, var| {
+                if let Some(id) = opt.local_variable_id(var) {
+                    gen.insert(id);
+                }
+            });
         }
 
         BlockSets { gen, kill }

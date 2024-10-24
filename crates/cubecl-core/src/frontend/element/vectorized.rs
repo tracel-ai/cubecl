@@ -63,7 +63,7 @@ impl Vectorized for ExpandElement {
             ExpandElement::Plain(var) => var,
         };
 
-        var.item().vectorization.map(|it| it.get()).unwrap_or(1) as u32
+        var.item.vectorization.map(|it| it.get()).unwrap_or(1) as u32
     }
 
     fn vectorize(self, _factor: u32) -> Self {
@@ -78,7 +78,7 @@ impl Vectorized for &ExpandElement {
             ExpandElement::Plain(var) => var,
         };
 
-        var.item().vectorization.map(|it| it.get()).unwrap_or(1) as u32
+        var.item.vectorization.map(|it| it.get()).unwrap_or(1) as u32
     }
 
     fn vectorize(self, _factor: u32) -> Self {
@@ -96,7 +96,7 @@ pub mod vectorization_of {
 
     pub fn expand<C: CubeType>(_context: &mut CubeContext, element: ExpandElementTyped<C>) -> u32 {
         let elem: ExpandElement = element.into();
-        elem.item()
+        elem.item
             .vectorization
             .map(|it| it.get() as u32)
             .unwrap_or(1)

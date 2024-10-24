@@ -1,13 +1,57 @@
+use std::fmt::Display;
+
+use serde::{Deserialize, Serialize};
+
 use super::{
     init_expand_element, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime, LaunchArgExpand,
     Numeric,
 };
 use crate::{
     frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement},
-    ir::{BinaryOperator, CompareAndSwapOperator, Elem, IntKind, Item, Operator, UnaryOperator},
+    ir::{
+        BinaryOperator, CompareAndSwapOperator, Elem, Instruction, IntKind, Item, Operation,
+        UnaryOperator,
+    },
     prelude::KernelBuilder,
     unexpanded,
 };
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AtomicOp {
+    Load(UnaryOperator),
+    Store(UnaryOperator),
+    Swap(BinaryOperator),
+    Add(BinaryOperator),
+    Sub(BinaryOperator),
+    Max(BinaryOperator),
+    Min(BinaryOperator),
+    And(BinaryOperator),
+    Or(BinaryOperator),
+    Xor(BinaryOperator),
+    CompareAndSwap(CompareAndSwapOperator),
+}
+
+impl Display for AtomicOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AtomicOp::Load(op) => write!(f, "atomic_load({})", op.input),
+            AtomicOp::Store(op) => write!(f, "atomic_store({})", op.input),
+            AtomicOp::Swap(op) => {
+                write!(f, "atomic_swap({}, {})", op.lhs, op.rhs)
+            }
+            AtomicOp::Add(op) => write!(f, "atomic_add({}, {})", op.lhs, op.rhs),
+            AtomicOp::Sub(op) => write!(f, "atomic_sub({}, {})", op.lhs, op.rhs),
+            AtomicOp::Max(op) => write!(f, "atomic_max({}, {})", op.lhs, op.rhs),
+            AtomicOp::Min(op) => write!(f, "atomic_min({}, {})", op.lhs, op.rhs),
+            AtomicOp::And(op) => write!(f, "atomic_and({}, {})", op.lhs, op.rhs),
+            AtomicOp::Or(op) => write!(f, "atomic_or({}, {})", op.lhs, op.rhs),
+            AtomicOp::Xor(op) => write!(f, "atomic_xor({}, {})", op.lhs, op.rhs),
+            AtomicOp::CompareAndSwap(op) => {
+                write!(f, "compare_and_swap({}, {}, {})", op.input, op.cmp, op.val)
+            }
+        }
+    }
+}
 
 /// An atomic type. Represents an shared value that can be operated on atomically.
 pub trait Atomic: Sized + CubeType
@@ -100,10 +144,10 @@ where
     ) -> <Self::Primitive as CubeType>::ExpandType {
         let pointer: ExpandElement = pointer.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicLoad(UnaryOperator {
-            input: *pointer,
-            out: *new_var,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::Load(UnaryOperator { input: *pointer }),
+            *new_var,
+        ));
         new_var.into()
     }
 
@@ -114,10 +158,10 @@ where
     ) {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        context.register(Operator::AtomicStore(UnaryOperator {
-            input: *value,
-            out: *ptr,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::Store(UnaryOperator { input: *value }),
+            *ptr,
+        ));
     }
 
     fn __expand_swap(
@@ -128,11 +172,13 @@ where
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicSwap(BinaryOperator {
-            lhs: *ptr,
-            rhs: *value,
-            out: *new_var,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::Swap(BinaryOperator {
+                lhs: *ptr,
+                rhs: *value,
+            }),
+            *new_var,
+        ));
         new_var.into()
     }
 
@@ -146,12 +192,14 @@ where
         let cmp: ExpandElement = cmp.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicCompareAndSwap(CompareAndSwapOperator {
-            out: *new_var,
-            input: *pointer,
-            cmp: *cmp,
-            val: *value,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::CompareAndSwap(CompareAndSwapOperator {
+                input: *pointer,
+                cmp: *cmp,
+                val: *value,
+            }),
+            *new_var,
+        ));
         new_var.into()
     }
 
@@ -163,11 +211,13 @@ where
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicAdd(BinaryOperator {
-            lhs: *ptr,
-            rhs: *value,
-            out: *new_var,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::Add(BinaryOperator {
+                lhs: *ptr,
+                rhs: *value,
+            }),
+            *new_var,
+        ));
         new_var.into()
     }
 
@@ -179,11 +229,13 @@ where
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicSub(BinaryOperator {
-            lhs: *ptr,
-            rhs: *value,
-            out: *new_var,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::Sub(BinaryOperator {
+                lhs: *ptr,
+                rhs: *value,
+            }),
+            *new_var,
+        ));
         new_var.into()
     }
 
@@ -195,11 +247,13 @@ where
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicMax(BinaryOperator {
-            lhs: *ptr,
-            rhs: *value,
-            out: *new_var,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::Max(BinaryOperator {
+                lhs: *ptr,
+                rhs: *value,
+            }),
+            *new_var,
+        ));
         new_var.into()
     }
 
@@ -211,11 +265,13 @@ where
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicMin(BinaryOperator {
-            lhs: *ptr,
-            rhs: *value,
-            out: *new_var,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::Min(BinaryOperator {
+                lhs: *ptr,
+                rhs: *value,
+            }),
+            *new_var,
+        ));
         new_var.into()
     }
 
@@ -227,11 +283,13 @@ where
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicAnd(BinaryOperator {
-            lhs: *ptr,
-            rhs: *value,
-            out: *new_var,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::And(BinaryOperator {
+                lhs: *ptr,
+                rhs: *value,
+            }),
+            *new_var,
+        ));
         new_var.into()
     }
 
@@ -243,11 +301,13 @@ where
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicOr(BinaryOperator {
-            lhs: *ptr,
-            rhs: *value,
-            out: *new_var,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::Or(BinaryOperator {
+                lhs: *ptr,
+                rhs: *value,
+            }),
+            *new_var,
+        ));
         new_var.into()
     }
 
@@ -259,11 +319,13 @@ where
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
         let new_var = context.create_local_binding(Item::new(Self::Primitive::as_elem()));
-        context.register(Operator::AtomicXor(BinaryOperator {
-            lhs: *ptr,
-            rhs: *value,
-            out: *new_var,
-        }));
+        context.register(Instruction::new(
+            AtomicOp::Xor(BinaryOperator {
+                lhs: *ptr,
+                rhs: *value,
+            }),
+            *new_var,
+        ));
         new_var.into()
     }
 }
@@ -370,4 +432,10 @@ impl Atomic for AtomicI64 {
 }
 impl Atomic for AtomicU32 {
     type Primitive = u32;
+}
+
+impl From<AtomicOp> for Operation {
+    fn from(value: AtomicOp) -> Self {
+        Operation::Atomic(value)
+    }
 }

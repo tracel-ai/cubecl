@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
-use cubecl_core::ir::{Operation, Variable};
+use cubecl_core::ir::{Instruction, Variable};
 use petgraph::graph::NodeIndex;
 use stable_vec::StableVec;
 
@@ -26,7 +26,7 @@ pub struct BasicBlock {
     /// The dominance frontiers of this block (where phi nodes must be inserted).
     pub(crate) dom_frontiers: HashSet<NodeIndex>,
     /// A stable list of operations performed in this block.
-    pub ops: Rc<RefCell<StableVec<Operation>>>,
+    pub ops: Rc<RefCell<StableVec<Instruction>>>,
     /// The control flow that terminates this block.
     pub control_flow: Rc<RefCell<ControlFlow>>,
 }
@@ -50,7 +50,7 @@ impl Optimizer {
                 visit_write(self, &mut phi.out);
             }
             for op in ops.borrow_mut().values_mut() {
-                self.visit_operation(op, visit_read.clone(), visit_write.clone());
+                self.visit_instruction(op, visit_read.clone(), visit_write.clone());
             }
             match &mut *control_flow.borrow_mut() {
                 ControlFlow::IfElse { cond, .. } => visit_read(self, cond),

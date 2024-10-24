@@ -40,7 +40,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{self, Elem, Item, Variable},
+        ir::{self, Elem, Item, Variable, VariableKind},
     };
 
     type ElemType = f32;
@@ -89,7 +89,7 @@ mod tests {
         );
     }
 
-    fn inline_macro_ref_read_write() -> Vec<ir::Operation> {
+    fn inline_macro_ref_read_write() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
 
@@ -120,16 +120,13 @@ mod tests {
         assert_eq!(scope.operations, inline_macro_array_add_assign_expr());
     }
 
-    fn inline_macro_array_add_assign_simple() -> Vec<ir::Operation> {
+    fn inline_macro_array_add_assign_simple() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
         let local = scope.create_local(Item::new(Elem::UInt));
 
-        let array = Variable::GlobalInputArray {
-            id: 0,
-            item: Item::new(Elem::UInt),
-        };
+        let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(Elem::UInt));
         let index: Variable = 1u32.into();
         let value: Variable = 1u32.into();
 
@@ -140,7 +137,7 @@ mod tests {
         scope.operations
     }
 
-    fn inline_macro_ref_to_vectorized() -> Vec<ir::Operation> {
+    fn inline_macro_ref_to_vectorized() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
         let scalar_item = Item::new(ElemType::as_elem());
         let vectorized_item = Item::vectorized(ElemType::as_elem(), NonZero::new(2));
@@ -162,7 +159,7 @@ mod tests {
         scope.operations
     }
 
-    fn inline_macro_ref_one_to_vectorized() -> Vec<ir::Operation> {
+    fn inline_macro_ref_one_to_vectorized() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
         let scalar_item = Item::new(ElemType::as_elem());
         let unvectorized_item = Item::vectorized(ElemType::as_elem(), NonZero::new(1));
@@ -180,16 +177,13 @@ mod tests {
         scope.operations
     }
 
-    fn inline_macro_array_add_assign_expr() -> Vec<ir::Operation> {
+    fn inline_macro_array_add_assign_expr() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
         let local = scope.create_local(Item::new(Elem::UInt));
 
-        let array = Variable::GlobalInputArray {
-            id: 0,
-            item: Item::new(Elem::UInt),
-        };
+        let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(Elem::UInt));
         let index: Variable = 6u32.into();
         let value: Variable = 1u32.into();
 

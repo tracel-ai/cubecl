@@ -16,7 +16,7 @@ macro_rules! constant {
 
             /// Expansion of the constant variable.
             pub fn expand(_context: &mut CubeContext) -> ExpandElementTyped<u32> {
-                ExpandElementTyped::new(ExpandElement::Plain($var))
+                ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin($var)))
             }
         }
     };
@@ -24,7 +24,7 @@ macro_rules! constant {
 
 constant!(
     SUBCUBE_DIM,
-    crate::ir::Variable::SubcubeDim,
+    crate::ir::Builtin::SubcubeDim,
     r"
 The total amount of working units in a subcube.
 "
@@ -32,7 +32,7 @@ The total amount of working units in a subcube.
 
 constant!(
     UNIT_POS,
-    crate::ir::Variable::UnitPos,
+    crate::ir::Builtin::UnitPos,
     r"
 The position of the working unit inside the cube, without regards to axis.
 "
@@ -40,7 +40,7 @@ The position of the working unit inside the cube, without regards to axis.
 
 constant!(
     UNIT_POS_X,
-    crate::ir::Variable::UnitPosX,
+    crate::ir::Builtin::UnitPosX,
     r"
 The position of the working unit inside the cube along the X axis.
 "
@@ -48,7 +48,7 @@ The position of the working unit inside the cube along the X axis.
 
 constant!(
     UNIT_POS_Y,
-    crate::ir::Variable::UnitPosY,
+    crate::ir::Builtin::UnitPosY,
     r"
 The position of the working unit inside the cube along the Y axis.
 "
@@ -56,7 +56,7 @@ The position of the working unit inside the cube along the Y axis.
 
 constant!(
     UNIT_POS_Z,
-    crate::ir::Variable::UnitPosZ,
+    crate::ir::Builtin::UnitPosZ,
     r"
 The position of the working unit inside the cube along the Z axis.
 "
@@ -64,7 +64,7 @@ The position of the working unit inside the cube along the Z axis.
 
 constant!(
     CUBE_DIM,
-    crate::ir::Variable::CubeDim,
+    crate::ir::Builtin::CubeDim,
     r"
 The total amount of working units in a cube.
 "
@@ -72,7 +72,7 @@ The total amount of working units in a cube.
 
 constant!(
     CUBE_DIM_X,
-    crate::ir::Variable::CubeDimX,
+    crate::ir::Builtin::CubeDimX,
     r"
 The dimension of the cube along the X axis.
 "
@@ -80,7 +80,7 @@ The dimension of the cube along the X axis.
 
 constant!(
     CUBE_DIM_Y,
-    crate::ir::Variable::CubeDimY,
+    crate::ir::Builtin::CubeDimY,
     r"
 The dimension of the cube along the Y axis.
 "
@@ -88,7 +88,7 @@ The dimension of the cube along the Y axis.
 
 constant!(
     CUBE_DIM_Z,
-    crate::ir::Variable::CubeDimZ,
+    crate::ir::Builtin::CubeDimZ,
     r"
 The dimension of the cube along the Z axis.
 "
@@ -96,7 +96,7 @@ The dimension of the cube along the Z axis.
 
 constant!(
     CUBE_POS,
-    crate::ir::Variable::CubePos,
+    crate::ir::Builtin::CubePos,
     r"
 The cube position, without regards to axis.
 "
@@ -104,7 +104,7 @@ The cube position, without regards to axis.
 
 constant!(
     CUBE_POS_X,
-    crate::ir::Variable::CubePosX,
+    crate::ir::Builtin::CubePosX,
     r"
 The cube position along the X axis.
 "
@@ -112,7 +112,7 @@ The cube position along the X axis.
 
 constant!(
     CUBE_POS_Y,
-    crate::ir::Variable::CubePosY,
+    crate::ir::Builtin::CubePosY,
     r"
 The cube position along the Y axis.
 "
@@ -120,14 +120,14 @@ The cube position along the Y axis.
 
 constant!(
     CUBE_POS_Z,
-    crate::ir::Variable::CubePosZ,
+    crate::ir::Builtin::CubePosZ,
     r"
 The cube position along the Z axis.
 "
 );
 constant!(
     CUBE_COUNT,
-    crate::ir::Variable::CubeCount,
+    crate::ir::Builtin::CubeCount,
     r"
 The number of cubes launched.
 "
@@ -135,7 +135,7 @@ The number of cubes launched.
 
 constant!(
     CUBE_COUNT_X,
-    crate::ir::Variable::CubeCountX,
+    crate::ir::Builtin::CubeCountX,
     r"
 The number of cubes launched along the X axis.
 "
@@ -143,7 +143,7 @@ The number of cubes launched along the X axis.
 
 constant!(
     CUBE_COUNT_Y,
-    crate::ir::Variable::CubeCountY,
+    crate::ir::Builtin::CubeCountY,
     r"
 The number of cubes launched along the Y axis.
 "
@@ -151,7 +151,7 @@ The number of cubes launched along the Y axis.
 
 constant!(
     CUBE_COUNT_Z,
-    crate::ir::Variable::CubeCountZ,
+    crate::ir::Builtin::CubeCountZ,
     r"
 The number of cubes launched along the Z axis.
 "
@@ -159,7 +159,7 @@ The number of cubes launched along the Z axis.
 
 constant!(
     ABSOLUTE_POS,
-    crate::ir::Variable::AbsolutePos,
+    crate::ir::Builtin::AbsolutePos,
     r"
 The position of the working unit in the whole cube kernel, without regards to cubes and axis.
 "
@@ -167,7 +167,7 @@ The position of the working unit in the whole cube kernel, without regards to cu
 
 constant!(
     ABSOLUTE_POS_X,
-    crate::ir::Variable::AbsolutePosX,
+    crate::ir::Builtin::AbsolutePosX,
     r"
 The index of the working unit in the whole cube kernel along the X axis, without regards to cubes.
 "
@@ -175,7 +175,7 @@ The index of the working unit in the whole cube kernel along the X axis, without
 
 constant!(
     ABSOLUTE_POS_Y,
-    crate::ir::Variable::AbsolutePosY,
+    crate::ir::Builtin::AbsolutePosY,
     r"
 The index of the working unit in the whole cube kernel along the Y axis, without regards to cubes.
 "
@@ -183,7 +183,7 @@ The index of the working unit in the whole cube kernel along the Y axis, without
 
 constant!(
     ABSOLUTE_POS_Z,
-    crate::ir::Variable::AbsolutePosZ,
+    crate::ir::Builtin::AbsolutePosZ,
     r"
 The index of the working unit in the whole cube kernel along the Z axis, without regards to cubes.
 "

@@ -11,7 +11,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{Elem, Item, Variable},
+        ir::{Builtin, Elem, Item, Variable},
     };
 
     type ElemType = f32;
@@ -38,7 +38,7 @@ mod tests {
         let x = scope.create_local(Item::new(Elem::UInt));
         let y = scope.create_local(item);
 
-        let id = Variable::AbsolutePos;
+        let id = Variable::builtin(Builtin::AbsolutePos);
         cpa!(&mut scope, x = id + 4u32);
         cpa!(&mut scope, y = input[x]);
 

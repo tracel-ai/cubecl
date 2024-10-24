@@ -1,7 +1,7 @@
 use super::{CubeContext, CubePrimitive, ExpandElement};
-use crate::prelude::ExpandElementTyped;
+use crate::{ir::Operation, prelude::ExpandElementTyped};
 use crate::{
-    ir::{Elem, InitOperator, Item, Operation, Subcube, UnaryOperator},
+    ir::{Elem, Instruction, Item, Subcube, UnaryOperator},
     unexpanded,
 };
 
@@ -20,7 +20,7 @@ pub mod subcube_elect {
         let output = context.create_local_binding(Item::new(Elem::Bool));
         let out = *output;
 
-        context.register(Operation::Subcube(Subcube::Elect(InitOperator { out })));
+        context.register(Instruction::new(Subcube::Elect, out));
 
         output.into()
     }
@@ -44,14 +44,15 @@ pub mod subcube_broadcast {
         value: ExpandElementTyped<E>,
         id: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<E> {
-        let output = context.create_local_binding(value.expand.item());
+        let output = context.create_local_binding(value.expand.item);
         let out = *output;
         let lhs = *value.expand;
         let rhs = *id.expand;
 
-        context.register(Operation::Subcube(Subcube::Broadcast(
-            crate::ir::BinaryOperator { lhs, rhs, out },
-        )));
+        context.register(Instruction::new(
+            Subcube::Broadcast(crate::ir::BinaryOperator { lhs, rhs }),
+            out,
+        ));
 
         output.into()
     }
@@ -73,15 +74,12 @@ pub mod subcube_sum {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local_binding(elem.item());
+        let output = context.create_local_binding(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Operation::Subcube(Subcube::Sum(UnaryOperator {
-            input,
-            out,
-        })));
+        context.register(Instruction::new(Subcube::Sum(UnaryOperator { input }), out));
 
         output.into()
     }
@@ -102,15 +100,15 @@ pub mod subcube_prod {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local_binding(elem.item());
+        let output = context.create_local_binding(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Operation::Subcube(Subcube::Prod(UnaryOperator {
-            input,
+        context.register(Instruction::new(
+            Subcube::Prod(UnaryOperator { input }),
             out,
-        })));
+        ));
 
         output.into()
     }
@@ -131,15 +129,12 @@ pub mod subcube_max {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local_binding(elem.item());
+        let output = context.create_local_binding(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Operation::Subcube(Subcube::Max(UnaryOperator {
-            input,
-            out,
-        })));
+        context.register(Instruction::new(Subcube::Max(UnaryOperator { input }), out));
 
         output.into()
     }
@@ -160,15 +155,12 @@ pub mod subcube_min {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local_binding(elem.item());
+        let output = context.create_local_binding(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Operation::Subcube(Subcube::Min(UnaryOperator {
-            input,
-            out,
-        })));
+        context.register(Instruction::new(Subcube::Min(UnaryOperator { input }), out));
 
         output.into()
     }
@@ -190,15 +182,12 @@ pub mod subcube_all {
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local_binding(elem.item());
+        let output = context.create_local_binding(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Operation::Subcube(Subcube::All(UnaryOperator {
-            input,
-            out,
-        })));
+        context.register(Instruction::new(Subcube::All(UnaryOperator { input }), out));
 
         output.into()
     }
@@ -220,16 +209,19 @@ pub mod subcube_any {
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local_binding(elem.item());
+        let output = context.create_local_binding(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Operation::Subcube(Subcube::Any(UnaryOperator {
-            input,
-            out,
-        })));
+        context.register(Instruction::new(Subcube::Any(UnaryOperator { input }), out));
 
         output.into()
+    }
+}
+
+impl From<Subcube> for Operation {
+    fn from(value: Subcube) -> Self {
+        Operation::Subcube(value)
     }
 }
