@@ -1,5 +1,7 @@
 use super::{AutotuneKey, AutotuneOperationSet, Tuner};
-use crate::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
+use crate::{
+    channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
+};
 use core::{fmt::Display, hash::Hash};
 use hashbrown::HashMap;
 
@@ -57,15 +59,25 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         // This makes us potentially check the cache twice, but allows to avoid
         // locking the state if the cache is hit.
         let mut should_init = true;
+        #[cfg(autotune_persistent_cache)]
+        let mut should_perform_checksum = false;
+
         if let Some(state) = self.state.read().as_ref() {
             if let Some(tuner) = state.get(id) {
                 // Tuner exists for the given ID.
                 should_init = false;
 
                 let key = autotune_operation_set.key();
-                if let Some(index) = tuner.autotune_fastest(&key) {
-                    let op = autotune_operation_set.fastest(index);
-                    return op.execute();
+                match tuner.fastest(&key) {
+                    TuneCacheResult::Hit { fastest_index } => {
+                        let op = autotune_operation_set.fastest(fastest_index);
+                        return op.execute();
+                    }
+                    TuneCacheResult::Miss => {}
+                    #[cfg(autotune_persistent_cache)]
+                    TuneCacheResult::Unchecked => {
+                        should_perform_checksum = true;
+                    }
                 }
             }
         }
@@ -80,6 +92,23 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                 let tuner = Tuner::new(&name, &id.to_string());
                 map.insert(id.clone(), tuner);
             };
+        }
+
+        // When loading the first time the result of an autotune set, we need to verify the checksum.
+        #[cfg(autotune_persistent_cache)]
+        if should_perform_checksum {
+            let mut state = self.state.write();
+            let map = state.get_or_insert_with(Default::default);
+
+            if let Some(tuner) = map.get_mut(id) {
+                match tuner.fastest_with_checksum(autotune_operation_set.as_ref()) {
+                    TuneCacheResult::Hit { fastest_index } => {
+                        let op = autotune_operation_set.fastest(fastest_index);
+                        return op.execute();
+                    }
+                    _ => {}
+                }
+            }
         }
 
         // Running benchmarks shound't lock the tuner, since an autotune operation can recursively use the
@@ -115,13 +144,13 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
     }
 
     /// Return the autotune result given a key.
-    pub fn autotune_result(&self, id: &ID, key: &AK) -> Option<usize> {
+    pub fn autotune_result(&self, id: &ID, key: &AK) -> TuneCacheResult {
         if let Some(state) = self.state.read().as_ref() {
             if let Some(tuner) = state.get(id) {
-                return tuner.autotune_fastest(key);
+                return tuner.fastest(key);
             }
         }
 
-        None
+        TuneCacheResult::Miss
     }
 }
