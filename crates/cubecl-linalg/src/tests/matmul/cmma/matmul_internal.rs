@@ -18,7 +18,7 @@ macro_rules! testgen_cmma_internal {
         use cubecl_linalg::matmul::cmma_matmul::tile::{
             $i_16x16x16, $i_32x8x16, $i_8x32x16,
         };
-        use cubecl_linalg::matmul::cmma_matmul::tile::{PlaneMma32x32x32, PlaneMma16x16x16};
+        use cubecl_linalg::matmul::cmma_matmul::tile::{PlaneMma32x32x32, PlaneMma16x16x16, PlaneMma16x16x8, PlaneMma16x16x32};
         use cubecl_linalg::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
         use cubecl_linalg::matmul::matmul_stage::StageMatmul;
         use cubecl_linalg::matmul::matmul_tile::TileMatmul;
@@ -515,6 +515,57 @@ macro_rules! testgen_cmma_internal {
 
             test_plane_mma_16_16_16::<TestRuntime>(&Default::default())
         }
+
+        #[test]
+        pub fn test_plane_mma_16_16_8() {
+            matmul_test!(
+                test_plane_mma_16_16_16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 8,
+                    b: vec![],
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(32, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                S1x1x1,
+                PlaneMma16x16x8,
+                AdvancedConfig::default()
+            );
+
+            test_plane_mma_16_16_16::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_plane_mma_16_16_32() {
+            matmul_test!(
+                test_plane_mma_16_16_16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 32,
+                    b: vec![],
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                },
+                CubeDim::new(32, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                S1x1x1,
+                PlaneMma16x16x32,
+                AdvancedConfig::default()
+            );
+
+            test_plane_mma_16_16_16::<TestRuntime>(&Default::default())
+        }
+
 
         #[test]
         pub fn test_global_matmul_g16x16x16_S1x1x1_line2() {

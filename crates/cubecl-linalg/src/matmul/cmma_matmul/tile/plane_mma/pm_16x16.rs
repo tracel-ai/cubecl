@@ -9,6 +9,8 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 pub type PlaneMma16x16x16<I, O, T> = PlaneMma16x16<I, O, T, 16>;
+pub type PlaneMma16x16x8<I, O, T> = PlaneMma16x16<I, O, T, 8>;
+pub type PlaneMma16x16x32<I, O, T> = PlaneMma16x16<I, O, T, 32>;
 
 pub struct PlaneMma16x16<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> {
     _input: PhantomData<I>,
@@ -43,25 +45,25 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
         // TODO config
         let plane_dim = 32;
 
-        let k_jump = plane_dim / Self::K;
-        let row_division = plane_dim / Self::M;
+        let k_jump = plane_dim / Self::N;
         let num_jumps = Self::K / k_jump;
-        for k_iter in 0..num_jumps {
-            let b_kp = rhs[k_iter];
-            let compute_width = Self::N / row_division;
-            let offset = Self::plane_unit() % row_division * compute_width;
+        let row_division = plane_dim / Self::M;
+        let compute_width = Self::N / row_division;
+        let unit_offset = Self::plane_unit() % row_division * compute_width;
 
-            #[unroll]
-            for k_ in 0..k_jump {
-                let k = k_iter * k_jump + k_;
-                let a_pk = lhs[k];
+        // #[unroll]
+        for k_outer in 0..num_jumps {
+            let b_kp = rhs[k_outer];
 
-                #[unroll]
-                for n_ in 0..compute_width {
-                    let n = offset + n_;
-                    let unit_to_read = n + k_ * Self::N;
+            // #[unroll]
+            for k_inner in 0..k_jump {
+                let a_pk = lhs[k_outer * k_jump + k_inner];
+
+                // #[unroll]
+                for n_iter in 0..compute_width {
+                    let unit_to_read = k_inner * Self::N + n_iter + unit_offset;
                     let b_kn = subcube_broadcast::<I>(b_kp, unit_to_read);
-                    out[n_] += O::cast_from(a_pk * b_kn);
+                    out[n_iter] += O::cast_from(a_pk * b_kn);
                 }
             }
         }
@@ -72,11 +74,7 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
     }
 
     fn init_rhs(#[comptime] config: T) -> Self::Rhs {
-        // 32/16 = 2
-        let k_jump = config.plane_dim() / Self::K;
-        // 16/2 = 8
-        let num_jumps = Self::K / k_jump;
-        Array::new(num_jumps)
+        Array::new(Self::K * Self::N / config.plane_dim())
     }
 
     fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: T) {
@@ -129,7 +127,6 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
         // TODO config
         let plane_dim = 32;
 
-        // 16 * 16 / 32 = 8
         let len = Self::M * Self::N / plane_dim;
         let mut acc = Array::new(len);
         for i in 0..len {
@@ -154,13 +151,8 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
         let row = unit / row_division;
         let row_offset = row * Self::N / line_size;
 
-        // if UNIT_POS_X % 2 == 1 {
         let offset = unit % row_division * num_lines;
-        for col_ in 0..num_lines {
-            let col = col_;
-            // let line = if comptime!(line_size == 1) {
-            //     Line::cast_from(out[col])
-            // } else {
+        for col in 0..num_lines {
             let line = {
                 let mut line = Line::<C>::empty(line_size);
                 for j in 0..line_size {
@@ -171,7 +163,6 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
 
             slice[row_offset + col + offset] = line;
         }
-        // }
     }
 }
 
@@ -185,21 +176,14 @@ fn fill_parallel<E: Numeric>(
     #[comptime] line_size: u32,
     #[comptime] plane_dim: u32,
 ) {
-    // 16/4 = 4
     let num_lines = k / line_size;
-    // 32/16 = 2
     let row_division = plane_dim / num_rows;
-    // 0..31/2 = 0..15
     let row = unit / row_division;
 
-    // for col in 0..4
     for col in 0..num_lines {
-        // 0..15 * 4 + 0..4 = 0....60 + 0..4 = 0..64
         let line = slice_from[row * num_lines + col];
         #[unroll]
-        // for line_idx = 0..4
         for line_idx in 0..line_size {
-            // 0..4 * 4 + 0..4 = 0....12 + 0..4 = 0..15
             slice_to[col * line_size + line_idx] = line[line_idx];
         }
     }
@@ -209,38 +193,26 @@ fn fill_parallel<E: Numeric>(
 fn fill_perpendicular<E: Numeric>(
     slice_from: &Slice<'_, Line<E>>,
     slice_to: &mut SliceMut<'_, E>,
-    unit: u32,                 // 0..31
-    #[comptime] num_cols: u32, // 16
-    #[comptime] k: u32,        // 16
+    unit: u32,
+    #[comptime] num_cols: u32,
+    #[comptime] k: u32,
     #[comptime] line_size: u32,
     #[comptime] plane_dim: u32,
 ) {
-    // 0 or 1
     let k_row_alt = unit / num_cols;
-    // 0..15
     let col = unit % num_cols;
 
-    // 16/4 = 4
     let num_lines = num_cols / line_size;
-    // 0..15/4 = 0..4
     let col_idx = col / line_size;
-    // 0..15%4 = 0..4
     let line_idx = col % line_size;
 
-    // 32/16=2
     let row_jump = plane_dim / num_cols;
 
-    // 0..(16 / 2)=0..8
     #[unroll]
     for k_iter in 0..k / row_jump {
-        // 2 * 0..8 + 0..1 = 0..15
         let k_row = row_jump * k_iter + k_row_alt;
-        // 0..15 * 4 = 0....64
         let row_offset = k_row * num_lines;
-        // 0....64 + 0..4 = 0..64
         let offset_with_col = row_offset + col_idx;
-        // at line_idx=0..4 -> 256 elements
-        // k_iter = 0..8, times 32 units -> 256 elements
         slice_to[k_iter] = slice_from[offset_with_col][line_idx];
     }
 }
