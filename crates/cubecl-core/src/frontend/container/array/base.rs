@@ -107,8 +107,8 @@ mod vectorization {
             vectorization_factor: u32,
         ) -> <Self as CubeType>::ExpandType {
             let size = size.value();
-            let size = match size {
-                crate::ir::Variable::ConstantScalar(value) => value.as_u32(),
+            let size = match size.kind {
+                crate::ir::VariableKind::ConstantScalar(value) => value.as_u32(),
                 _ => panic!("Shared memory need constant initialization value"),
             };
             context
@@ -131,7 +131,7 @@ mod vectorization {
                 .expect("Vectorization must be comptime")
                 .as_u32();
             let var = self.expand.clone();
-            let item = Item::vectorized(var.item().elem(), NonZero::new(factor as u8));
+            let item = Item::vectorized(var.item.elem(), NonZero::new(factor as u8));
 
             let new_var = if factor == 1 {
                 let new_var = context.create_local_binding(item);
@@ -160,6 +160,8 @@ mod vectorization {
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
+    use crate::ir::Instruction;
+
     use super::*;
 
     impl<E: CubeType> Array<E> {
@@ -174,10 +176,12 @@ mod metadata {
         // Expand method of [len](Array::len).
         pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
             let out = context.create_local_binding(Item::new(u32::as_elem()));
-            context.register(Metadata::Length {
-                var: self.expand.into(),
-                out: out.clone().into(),
-            });
+            context.register(Instruction::new(
+                Metadata::Length {
+                    var: self.expand.into(),
+                },
+                out.clone().into(),
+            ));
             out.into()
         }
     }
@@ -186,7 +190,7 @@ mod metadata {
 /// Module that contains the implementation details of the index functions.
 mod indexation {
     use crate::{
-        ir::{BinaryOperator, Operator},
+        ir::{BinaryOperator, Instruction, Operator},
         prelude::{CubeIndex, CubeIndexMut},
     };
 
@@ -224,12 +228,14 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item());
-            context.register(Operator::UncheckedIndex(BinaryOperator {
-                out: *out,
-                lhs: *self.expand,
-                rhs: i.expand.consume(),
-            }));
+            let out = context.create_local_binding(self.expand.item);
+            context.register(Instruction::new(
+                Operator::UncheckedIndex(BinaryOperator {
+                    lhs: *self.expand,
+                    rhs: i.expand.consume(),
+                }),
+                *out,
+            ));
             out.into()
         }
 
@@ -239,11 +245,13 @@ mod indexation {
             i: ExpandElementTyped<u32>,
             value: ExpandElementTyped<E>,
         ) {
-            context.register(Operator::UncheckedIndexAssign(BinaryOperator {
-                out: *self.expand,
-                lhs: i.expand.consume(),
-                rhs: value.expand.consume(),
-            }));
+            context.register(Instruction::new(
+                Operator::UncheckedIndexAssign(BinaryOperator {
+                    lhs: i.expand.consume(),
+                    rhs: value.expand.consume(),
+                }),
+                *self.expand,
+            ));
         }
     }
 }

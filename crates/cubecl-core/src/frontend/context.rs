@@ -1,4 +1,4 @@
-use crate::ir::{self, Elem, Item, Operation, ReusingAllocator, Scope, Variable};
+use crate::ir::{self, Elem, Instruction, Item, ReusingAllocator, Scope, Variable, VariableKind};
 use crate::{frontend::ExpandElement, ir::LocalAllocator};
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -31,7 +31,7 @@ impl CubeContext {
         }
     }
 
-    pub fn register<O: Into<Operation>>(&mut self, op: O) {
+    pub fn register<O: Into<Instruction>>(&mut self, op: O) {
         self.scope.borrow_mut().register(op)
     }
 
@@ -98,18 +98,24 @@ impl CubeContext {
 
     /// Obtain the index-th input
     pub fn input(&mut self, id: u16, item: Item) -> ExpandElement {
-        ExpandElement::Plain(crate::ir::Variable::GlobalInputArray { id, item })
+        ExpandElement::Plain(crate::ir::Variable::new(
+            VariableKind::GlobalInputArray(id),
+            item,
+        ))
     }
 
     /// Obtain the index-th output
     pub fn output(&mut self, id: u16, item: Item) -> ExpandElement {
-        let var = crate::ir::Variable::GlobalOutputArray { id, item };
+        let var = crate::ir::Variable::new(VariableKind::GlobalOutputArray(id), item);
         self.scope.borrow_mut().write_global_custom(var);
         ExpandElement::Plain(var)
     }
 
     /// Obtain the index-th scalar
     pub fn scalar(&self, id: u16, elem: Elem) -> ExpandElement {
-        ExpandElement::Plain(crate::ir::Variable::GlobalScalar { id, elem })
+        ExpandElement::Plain(crate::ir::Variable::new(
+            VariableKind::GlobalScalar(id),
+            Item::new(elem),
+        ))
     }
 }

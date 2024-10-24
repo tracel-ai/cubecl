@@ -10,6 +10,7 @@ mod subcube;
 mod synchronization;
 mod variable;
 
+pub use super::frontend::AtomicOp;
 pub use branch::*;
 pub use cmma::*;
 pub use kernel::*;

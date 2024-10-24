@@ -8,63 +8,53 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[allow(missing_docs)]
-pub enum Variable {
-    Rank,
-    GlobalInputArray {
-        id: u16,
-        item: Item,
-    },
-    GlobalScalar {
-        id: u16,
-        elem: Elem,
-    },
-    GlobalOutputArray {
-        id: u16,
-        item: Item,
-    },
-    Local {
-        id: u16,
-        item: Item,
-        depth: u8,
-    },
-    Versioned {
-        id: u16,
-        item: Item,
-        depth: u8,
-        version: u16,
-    },
-    LocalBinding {
-        id: u16,
-        item: Item,
-        depth: u8,
-    },
+pub struct Variable {
+    pub kind: VariableKind,
+    pub item: Item,
+}
+
+impl Variable {
+    pub fn new(kind: VariableKind, item: Item) -> Self {
+        Self { kind, item }
+    }
+
+    pub fn builtin(builtin: Builtin) -> Self {
+        Self::new(VariableKind::Builtin(builtin), Item::new(Elem::UInt))
+    }
+
+    pub fn constant(scalar: ConstantScalarValue) -> Self {
+        let elem = match scalar {
+            ConstantScalarValue::Int(_, int_kind) => Elem::Int(int_kind),
+            ConstantScalarValue::Float(_, float_kind) => Elem::Float(float_kind),
+            ConstantScalarValue::UInt(_) => Elem::UInt,
+            ConstantScalarValue::Bool(_) => Elem::Bool,
+        };
+        Self::new(VariableKind::ConstantScalar(scalar), Item::new(elem))
+    }
+}
+
+type Id = u16;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum VariableKind {
+    GlobalInputArray(Id),
+    GlobalOutputArray(Id),
+    GlobalScalar(Id),
+    Local { id: Id, depth: u8 },
+    Versioned { id: Id, depth: u8, version: u16 },
+    LocalBinding { id: Id, depth: u8 },
     ConstantScalar(ConstantScalarValue),
-    ConstantArray {
-        id: u16,
-        item: Item,
-        length: u32,
-    },
-    SharedMemory {
-        id: u16,
-        item: Item,
-        length: u32,
-    },
-    LocalArray {
-        id: u16,
-        item: Item,
-        depth: u8,
-        length: u32,
-    },
-    Matrix {
-        id: u16,
-        mat: Matrix,
-        depth: u8,
-    },
-    Slice {
-        id: u16,
-        item: Item,
-        depth: u8,
-    },
+    ConstantArray { id: Id, length: u32 },
+    SharedMemory { id: Id, length: u32 },
+    LocalArray { id: Id, depth: u8, length: u32 },
+    Matrix { id: Id, mat: Matrix, depth: u8 },
+    Slice { id: Id, depth: u8 },
+    Builtin(Builtin),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Builtin {
+    Rank,
     UnitPos,
     UnitPosX,
     UnitPosY,
@@ -92,41 +82,20 @@ impl Variable {
     /// Whether a variable is always immutable. Used for optimizations to determine whether it's
     /// safe to inline/merge
     pub fn is_immutable(&self) -> bool {
-        match self {
-            Variable::GlobalOutputArray { .. } => false,
-            Variable::Local { .. } => false,
-            Variable::SharedMemory { .. } => false,
-            Variable::Matrix { .. } => false,
-            Variable::Slice { .. } => false,
-            Variable::LocalArray { .. } => false,
-            Variable::GlobalInputArray { .. } => false,
-            Variable::GlobalScalar { .. } => true,
-            Variable::Versioned { .. } => true,
-            Variable::LocalBinding { .. } => true,
-            Variable::ConstantScalar(_) => true,
-            Variable::ConstantArray { .. } => true,
-            Variable::Rank => true,
-            Variable::UnitPos => true,
-            Variable::UnitPosX => true,
-            Variable::UnitPosY => true,
-            Variable::UnitPosZ => true,
-            Variable::CubePos => true,
-            Variable::CubePosX => true,
-            Variable::CubePosY => true,
-            Variable::CubePosZ => true,
-            Variable::CubeDim => true,
-            Variable::CubeDimX => true,
-            Variable::CubeDimY => true,
-            Variable::CubeDimZ => true,
-            Variable::CubeCount => true,
-            Variable::CubeCountX => true,
-            Variable::CubeCountY => true,
-            Variable::CubeCountZ => true,
-            Variable::SubcubeDim => true,
-            Variable::AbsolutePos => true,
-            Variable::AbsolutePosX => true,
-            Variable::AbsolutePosY => true,
-            Variable::AbsolutePosZ => true,
+        match self.kind {
+            VariableKind::GlobalOutputArray { .. } => false,
+            VariableKind::Local { .. } => false,
+            VariableKind::SharedMemory { .. } => false,
+            VariableKind::Matrix { .. } => false,
+            VariableKind::Slice { .. } => false,
+            VariableKind::LocalArray { .. } => false,
+            VariableKind::GlobalInputArray { .. } => false,
+            VariableKind::GlobalScalar { .. } => true,
+            VariableKind::Versioned { .. } => true,
+            VariableKind::LocalBinding { .. } => true,
+            VariableKind::ConstantScalar(_) => true,
+            VariableKind::ConstantArray { .. } => true,
+            VariableKind::Builtin(_) => true,
         }
     }
 
@@ -134,39 +103,39 @@ impl Variable {
     /// [`Elem`]s when indexed?
     pub fn is_array(&self) -> bool {
         matches!(
-            self,
-            Variable::GlobalInputArray { .. }
-                | Variable::GlobalOutputArray { .. }
-                | Variable::ConstantArray { .. }
-                | Variable::SharedMemory { .. }
-                | Variable::LocalArray { .. }
-                | Variable::Matrix { .. }
-                | Variable::Slice { .. }
+            self.kind,
+            VariableKind::GlobalInputArray { .. }
+                | VariableKind::GlobalOutputArray { .. }
+                | VariableKind::ConstantArray { .. }
+                | VariableKind::SharedMemory { .. }
+                | VariableKind::LocalArray { .. }
+                | VariableKind::Matrix { .. }
+                | VariableKind::Slice { .. }
         )
     }
 
     /// Determines if the value is a constant with the specified value (converted if necessary)
     pub fn is_constant(&self, value: i64) -> bool {
-        match self {
-            Variable::ConstantScalar(ConstantScalarValue::Int(val, _)) => *val == value,
-            Variable::ConstantScalar(ConstantScalarValue::UInt(val, _)) => *val as i64 == value,
-            Variable::ConstantScalar(ConstantScalarValue::Float(val, _)) => *val == value as f64,
+        match self.kind {
+            VariableKind::ConstantScalar(ConstantScalarValue::Int(val, _)) => val == value,
+            VariableKind::ConstantScalar(ConstantScalarValue::UInt(val, _)) => val as i64 == value,
+            VariableKind::ConstantScalar(ConstantScalarValue::Float(val, _)) => val == value as f64,
             _ => false,
         }
     }
 
     /// Determines if the value is a boolean constant with the `true` value
     pub fn is_true(&self) -> bool {
-        match self {
-            Variable::ConstantScalar(ConstantScalarValue::Bool(val)) => *val,
+        match self.kind {
+            VariableKind::ConstantScalar(ConstantScalarValue::Bool(val)) => val,
             _ => false,
         }
     }
 
     /// Determines if the value is a boolean constant with the `false` value
     pub fn is_false(&self) -> bool {
-        match self {
-            Variable::ConstantScalar(ConstantScalarValue::Bool(val)) => !(*val),
+        match self.kind {
+            VariableKind::ConstantScalar(ConstantScalarValue::Bool(val)) => !val,
             _ => false,
         }
     }
@@ -372,90 +341,29 @@ impl Display for ConstantScalarValue {
 
 impl Variable {
     pub fn vectorization_factor(&self) -> u8 {
-        self.item().vectorization.map(NonZero::get).unwrap_or(1u8)
+        self.item.vectorization.map(NonZero::get).unwrap_or(1u8)
     }
     pub fn index(&self) -> Option<u16> {
-        match self {
-            Variable::GlobalInputArray { id, .. } => Some(*id),
-            Variable::GlobalScalar { id, .. } => Some(*id),
-            Variable::Local { id, .. } => Some(*id),
-            Variable::Versioned { id, .. } => Some(*id),
-            Variable::LocalBinding { id, .. } => Some(*id),
-            Variable::Slice { id, .. } => Some(*id),
-            Variable::GlobalOutputArray { id, .. } => Some(*id),
-            Variable::ConstantScalar { .. } => None,
-            Variable::ConstantArray { id, .. } => Some(*id),
-            Variable::SharedMemory { id, .. } => Some(*id),
-            Variable::LocalArray { id, .. } => Some(*id),
-            Variable::Matrix { id, .. } => Some(*id),
-            Variable::AbsolutePos => None,
-            Variable::UnitPos => None,
-            Variable::UnitPosX => None,
-            Variable::UnitPosY => None,
-            Variable::UnitPosZ => None,
-            Variable::Rank => None,
-            Variable::CubePosX => None,
-            Variable::CubePosY => None,
-            Variable::CubePosZ => None,
-            Variable::AbsolutePosX => None,
-            Variable::AbsolutePosY => None,
-            Variable::AbsolutePosZ => None,
-            Variable::CubeDimX => None,
-            Variable::CubeDimY => None,
-            Variable::CubeDimZ => None,
-            Variable::CubeCountX => None,
-            Variable::CubeCountY => None,
-            Variable::CubeCountZ => None,
-            Variable::CubePos => None,
-            Variable::CubeCount => None,
-            Variable::CubeDim => None,
-            Variable::SubcubeDim => None,
-        }
-    }
-
-    /// Fetch the item of the variable.
-    pub fn item(&self) -> Item {
-        match self {
-            Variable::GlobalInputArray { item, .. } => *item,
-            Variable::GlobalOutputArray { item, .. } => *item,
-            Variable::GlobalScalar { elem, .. } => Item::new(*elem),
-            Variable::Local { item, .. } => *item,
-            Variable::Versioned { item, .. } => *item,
-            Variable::LocalBinding { item, .. } => *item,
-            Variable::ConstantScalar(value) => Item::new(value.elem()),
-            Variable::ConstantArray { item, .. } => *item,
-            Variable::SharedMemory { item, .. } => *item,
-            Variable::LocalArray { item, .. } => *item,
-            Variable::Slice { item, .. } => *item,
-            Variable::Matrix { mat, .. } => Item::new(mat.elem),
-            Variable::AbsolutePos => Item::new(u32::as_elem()),
-            Variable::Rank => Item::new(u32::as_elem()),
-            Variable::UnitPos => Item::new(u32::as_elem()),
-            Variable::UnitPosX => Item::new(u32::as_elem()),
-            Variable::UnitPosY => Item::new(u32::as_elem()),
-            Variable::UnitPosZ => Item::new(u32::as_elem()),
-            Variable::CubePosX => Item::new(u32::as_elem()),
-            Variable::CubePosY => Item::new(u32::as_elem()),
-            Variable::CubePosZ => Item::new(u32::as_elem()),
-            Variable::AbsolutePosX => Item::new(Elem::UInt),
-            Variable::AbsolutePosY => Item::new(u32::as_elem()),
-            Variable::AbsolutePosZ => Item::new(Elem::UInt),
-            Variable::CubeDimX => Item::new(Elem::UInt),
-            Variable::CubeDimY => Item::new(Elem::UInt),
-            Variable::CubeDimZ => Item::new(Elem::UInt),
-            Variable::CubeCountX => Item::new(Elem::UInt),
-            Variable::CubeCountY => Item::new(Elem::UInt),
-            Variable::CubeCountZ => Item::new(Elem::UInt),
-            Variable::CubePos => Item::new(Elem::UInt),
-            Variable::CubeCount => Item::new(Elem::UInt),
-            Variable::CubeDim => Item::new(Elem::UInt),
-            Variable::SubcubeDim => Item::new(Elem::UInt),
+        match self.kind {
+            VariableKind::GlobalInputArray(id) => Some(id),
+            VariableKind::GlobalScalar(id) => Some(id),
+            VariableKind::Local { id, .. } => Some(id),
+            VariableKind::Versioned { id, .. } => Some(id),
+            VariableKind::LocalBinding { id, .. } => Some(id),
+            VariableKind::Slice { id, .. } => Some(id),
+            VariableKind::GlobalOutputArray(id) => Some(id),
+            VariableKind::ConstantScalar(_) => None,
+            VariableKind::ConstantArray { id, .. } => Some(id),
+            VariableKind::SharedMemory { id, .. } => Some(id),
+            VariableKind::LocalArray { id, .. } => Some(id),
+            VariableKind::Matrix { id, .. } => Some(id),
+            VariableKind::Builtin(_) => None,
         }
     }
 
     pub fn as_const(&self) -> Option<ConstantScalarValue> {
-        match self {
-            Variable::ConstantScalar(constant) => Some(*constant),
+        match self.kind {
+            VariableKind::ConstantScalar(constant) => Some(constant),
             _ => None,
         }
     }
@@ -463,22 +371,22 @@ impl Variable {
 
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Variable::GlobalInputArray { id, .. } => write!(f, "input({id})"),
-            Variable::GlobalScalar { id, .. } => write!(f, "scalar({id})"),
-            Variable::GlobalOutputArray { id, .. } => write!(f, "output({id})"),
-            Variable::ConstantScalar(constant) => write!(f, "{constant}"),
-            Variable::Local { id, depth, .. } => write!(f, "local({id}, {depth})"),
-            Variable::Versioned {
-                id, depth, version, ..
-            } => write!(f, "local({id}, {depth}).v{version}"),
-            Variable::LocalBinding { id, depth, .. } => write!(f, "binding({id}, {depth})"),
-            Variable::ConstantArray { id, .. } => write!(f, "const_array({id})"),
-            Variable::SharedMemory { id, .. } => write!(f, "shared({id})"),
-            Variable::LocalArray { id, .. } => write!(f, "array({id})"),
-            Variable::Matrix { id, depth, .. } => write!(f, "matrix({id}, {depth})"),
-            Variable::Slice { id, depth, .. } => write!(f, "slice({id}, {depth})"),
-            builtin => write!(f, "{builtin:?}"),
+        match self.kind {
+            VariableKind::GlobalInputArray(id) => write!(f, "input({id})"),
+            VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),
+            VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
+            VariableKind::ConstantScalar(constant) => write!(f, "{constant}"),
+            VariableKind::Local { id, depth } => write!(f, "local({id}, {depth})"),
+            VariableKind::Versioned { id, depth, version } => {
+                write!(f, "local({id}, {depth}).v{version}")
+            }
+            VariableKind::LocalBinding { id, depth } => write!(f, "binding({id}, {depth})"),
+            VariableKind::ConstantArray { id, .. } => write!(f, "const_array({id})"),
+            VariableKind::SharedMemory { id, .. } => write!(f, "shared({id})"),
+            VariableKind::LocalArray { id, .. } => write!(f, "array({id})"),
+            VariableKind::Matrix { id, depth, .. } => write!(f, "matrix({id}, {depth})"),
+            VariableKind::Slice { id, depth } => write!(f, "slice({id}, {depth})"),
+            VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
         }
     }
 }

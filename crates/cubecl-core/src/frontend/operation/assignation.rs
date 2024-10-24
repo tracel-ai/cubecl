@@ -6,7 +6,9 @@ use crate::{
 };
 use crate::{ir, prelude::Index};
 
-pub mod assign {
+pub mod cast {
+    use ir::Instruction;
+
     use crate::prelude::ExpandElementTyped;
 
     use self::ir::{Operator, UnaryOperator};
@@ -18,14 +20,37 @@ pub mod assign {
         input: ExpandElementTyped<C>,
         output: ExpandElementTyped<C>,
     ) {
-        context.register(Operator::Assign(UnaryOperator {
-            input: *input.expand,
-            out: *output.expand,
-        }));
+        context.register(Instruction::new(
+            Operator::Cast(UnaryOperator {
+                input: *input.expand,
+            }),
+            *output.expand,
+        ));
+    }
+}
+
+pub mod assign {
+    use ir::{Instruction, Operation};
+
+    use crate::prelude::ExpandElementTyped;
+
+    use super::*;
+
+    pub fn expand<C: CubeType>(
+        context: &mut CubeContext,
+        input: ExpandElementTyped<C>,
+        output: ExpandElementTyped<C>,
+    ) {
+        context.register(Instruction::new(
+            Operation::Assign(*input.expand),
+            *output.expand,
+        ));
     }
 }
 
 pub mod index_assign {
+    use ir::{Instruction, VariableKind};
+
     use crate::{
         frontend::CubeType,
         prelude::{ExpandElementTyped, SliceMut},
@@ -44,17 +69,19 @@ pub mod index_assign {
         A::Output: CubeType + Sized,
     {
         let index: Variable = index.expand.into();
-        let index = match index {
-            Variable::ConstantScalar(value) => {
-                Variable::ConstantScalar(ir::ConstantScalarValue::UInt(value.as_u64()))
+        let index = match index.kind {
+            VariableKind::ConstantScalar(value) => {
+                Variable::constant(ir::ConstantScalarValue::UInt(value.as_u64()))
             }
             _ => index,
         };
-        context.register(Operator::IndexAssign(BinaryOperator {
-            lhs: index,
-            rhs: value.expand.into(),
-            out: array.expand.into(),
-        }));
+        context.register(Instruction::new(
+            Operator::IndexAssign(BinaryOperator {
+                lhs: index,
+                rhs: value.expand.into(),
+            }),
+            array.expand.into(),
+        ));
     }
 
     macro_rules! impl_index {
@@ -79,6 +106,8 @@ pub mod index_assign {
 }
 
 pub mod index {
+    use ir::VariableKind;
+
     use crate::{
         frontend::{
             operation::base::{binary_expand, binary_expand_no_vec},
@@ -101,16 +130,16 @@ pub mod index {
     {
         let index: ExpandElement = index.into();
         let index_var: Variable = *index;
-        let index = match index_var {
-            Variable::ConstantScalar(value) => ExpandElement::Plain(Variable::ConstantScalar(
+        let index = match index_var.kind {
+            VariableKind::ConstantScalar(value) => ExpandElement::Plain(Variable::constant(
                 ir::ConstantScalarValue::UInt(value.as_u64()),
             )),
             _ => index,
         };
         let array: ExpandElement = array.into();
         let var: Variable = *array;
-        let var = match var {
-            Variable::Local { .. } | Variable::LocalBinding { .. } => {
+        let var = match var.kind {
+            VariableKind::Local { .. } | VariableKind::LocalBinding { .. } => {
                 binary_expand_no_vec(context, array, index, Operator::Index)
             }
             _ => binary_expand(context, array, index, Operator::Index),

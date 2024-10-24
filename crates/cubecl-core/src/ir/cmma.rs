@@ -36,10 +36,9 @@ pub struct Matrix {
 #[allow(missing_docs)]
 pub enum CoopMma {
     /// Fill the matrix with the value.
-    Fill { mat: Variable, value: Variable },
+    Fill { value: Variable },
     /// Load the value into the matrix given the stride.
     Load {
-        mat: Variable,
         value: Variable,
         stride: Variable,
         layout: Option<MatrixLayout>,
@@ -51,11 +50,9 @@ pub enum CoopMma {
         mat_a: Variable,
         mat_b: Variable,
         mat_c: Variable,
-        mat_d: Variable,
     },
     /// Store the matrix in an output variable following the stride and the layout.
     Store {
-        output: Variable,
         mat: Variable,
         stride: Variable,
         layout: MatrixLayout,
@@ -65,9 +62,8 @@ pub enum CoopMma {
 impl Display for CoopMma {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CoopMma::Fill { mat, value } => write!(f, "matrix_fill({}, {})", mat, value),
+            CoopMma::Fill { value } => write!(f, "{}", value),
             CoopMma::Load {
-                mat,
                 value,
                 stride,
                 layout,
@@ -75,31 +71,21 @@ impl Display for CoopMma {
                 let layout = layout
                     .map(|it| format!(", layout: {it:?}"))
                     .unwrap_or(String::new());
-                write!(
-                    f,
-                    "matrix_load({}, {}, stride: {}{layout})",
-                    mat, value, stride
-                )
+                write!(f, "matrix_load({}, stride: {}{layout})", value, stride)
             }
             CoopMma::Execute {
                 mat_a,
                 mat_b,
                 mat_c,
-                mat_d,
-            } => write!(
-                f,
-                "{} = execute_cmma({}, {}, {})",
-                mat_d, mat_a, mat_b, mat_c
-            ),
+            } => write!(f, "execute_cmma({}, {}, {})", mat_a, mat_b, mat_c),
             CoopMma::Store {
-                output,
                 mat,
                 stride,
                 layout,
             } => write!(
                 f,
-                "matrix_store({}, {}, stride: {}, layout: {:?})",
-                mat, output, stride, layout
+                "matrix_store({}, stride: {}, layout: {:?})",
+                mat, stride, layout
             ),
         }
     }

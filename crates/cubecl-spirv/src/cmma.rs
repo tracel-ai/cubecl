@@ -10,30 +10,28 @@ use rspirv::spirv::{
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_cmma(&mut self, cmma: CoopMma) {
+    pub fn compile_cmma(&mut self, cmma: CoopMma, out: Option<core::Variable>) {
         self.capabilities.insert(Capability::CooperativeMatrixKHR);
+        let out = out.unwrap();
         match cmma {
-            CoopMma::Fill { mat, value } => self.compile_fill(mat, value),
+            CoopMma::Fill { value } => self.compile_fill(out, value),
             CoopMma::Load {
-                mat,
                 value,
                 stride,
                 layout,
                 ..
-            } => self.compile_load(mat, value, stride, layout),
+            } => self.compile_load(out, value, stride, layout),
             CoopMma::Execute {
                 mat_a,
                 mat_b,
                 mat_c,
-                mat_d,
-            } => self.compile_execute(mat_a, mat_b, mat_c, mat_d),
+            } => self.compile_execute(mat_a, mat_b, mat_c, out),
             CoopMma::Store {
-                output,
                 mat,
                 stride,
                 layout,
                 ..
-            } => self.compile_store(mat, output, stride, layout),
+            } => self.compile_store(mat, out, stride, layout),
         }
     }
 

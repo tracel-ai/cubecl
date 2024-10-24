@@ -7,7 +7,7 @@ use std::{
 
 use crate::prelude::ExpandElement;
 
-use super::{Item, Scope, Variable};
+use super::{Item, Scope, Variable, VariableKind};
 
 type ScopeRef = Rc<RefCell<Scope>>;
 
@@ -55,12 +55,12 @@ impl VariablePool {
     /// Insert a new variable in the map, which is classified by Item
     pub fn insert(&self, var: ExpandElement) {
         let mut map = self.map.borrow_mut();
-        let item = var.item();
+        let item = var.item;
 
         if let Some(variables) = map.get_mut(&item) {
             variables.push(var.clone());
         } else {
-            map.insert(var.item(), vec![var.clone()]);
+            map.insert(var.item, vec![var.clone()]);
         }
     }
 }
@@ -124,7 +124,10 @@ impl LocalAllocator for HybridAllocator {
     fn create_local_binding(&self, _root: ScopeRef, scope: ScopeRef, item: Item) -> ExpandElement {
         let id = self.ssa_index.fetch_add(1, Ordering::AcqRel);
         let depth = scope.borrow().depth;
-        ExpandElement::Plain(Variable::LocalBinding { id, item, depth })
+        ExpandElement::Plain(Variable::new(
+            VariableKind::LocalBinding { id, depth },
+            item,
+        ))
     }
 
     fn create_local_undeclared(
@@ -135,6 +138,6 @@ impl LocalAllocator for HybridAllocator {
     ) -> ExpandElement {
         let id = self.ssa_index.fetch_add(1, Ordering::AcqRel);
         let depth = scope.borrow().depth;
-        ExpandElement::Plain(Variable::Local { id, item, depth })
+        ExpandElement::Plain(Variable::new(VariableKind::Local { id, depth }, item))
     }
 }

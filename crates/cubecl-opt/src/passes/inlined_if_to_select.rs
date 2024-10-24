@@ -1,6 +1,6 @@
 use std::mem::take;
 
-use cubecl_core::ir::{Branch, Operation, Select};
+use cubecl_core::ir::{Instruction, Operator, Select};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{passes::update_references, AtomicCounter, ControlFlow, Optimizer};
@@ -46,15 +46,16 @@ impl OptimizerPass for EmptyBranchToSelect {
                                 let then = phi.entries.iter().find(|it| it.block == then).unwrap();
                                 let or_else =
                                     phi.entries.iter().find(|it| it.block == or_else).unwrap();
-                                Branch::Select(Select {
-                                    cond,
-                                    then: then.value,
-                                    or_else: or_else.value,
-                                    out: phi.out,
-                                })
-                                .into()
+                                Instruction::new(
+                                    Operator::Select(Select {
+                                        cond,
+                                        then: then.value,
+                                        or_else: or_else.value,
+                                    }),
+                                    phi.out,
+                                )
                             })
-                            .collect::<Vec<Operation>>();
+                            .collect::<Vec<Instruction>>();
                         selects.extend(
                             take(&mut *opt.program[merge].ops.borrow_mut())
                                 .into_iter()

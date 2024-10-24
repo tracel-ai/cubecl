@@ -49,7 +49,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    ir::{self, Operation},
+    ir::{self, Instruction, Operation},
     unexpanded,
 };
 
@@ -239,10 +239,10 @@ pub mod fill {
         value: ExpandElementTyped<C>,
     ) {
         let value: ExpandElement = value.into();
-        context.register(Operation::CoopMma(ir::CoopMma::Fill {
-            mat: *mat.elem,
-            value: *value,
-        }));
+        context.register(Instruction::new(
+            ir::CoopMma::Fill { value: *value },
+            *mat.elem,
+        ));
     }
 }
 
@@ -271,12 +271,14 @@ pub mod load {
             "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
         );
 
-        context.register(Operation::CoopMma(ir::CoopMma::Load {
-            mat: *mat.elem,
-            value: *value.expand,
-            stride: *stride,
-            layout: None,
-        }));
+        context.register(Instruction::new(
+            ir::CoopMma::Load {
+                value: *value.expand,
+                stride: *stride,
+                layout: None,
+            },
+            *mat.elem,
+        ));
     }
 }
 
@@ -307,12 +309,14 @@ pub mod load_with_layout {
     ) {
         let stride: ExpandElement = stride.into();
 
-        context.register(Operation::CoopMma(ir::CoopMma::Load {
-            mat: *mat.elem,
-            value: *value.expand,
-            stride: *stride,
-            layout: Some(layout),
-        }));
+        context.register(Instruction::new(
+            ir::CoopMma::Load {
+                value: *value.expand,
+                stride: *stride,
+                layout: Some(layout),
+            },
+            *mat.elem,
+        ));
     }
 }
 
@@ -342,12 +346,14 @@ pub mod store {
     ) {
         let stride: ExpandElement = stride.into();
 
-        context.register(Operation::CoopMma(ir::CoopMma::Store {
-            output: *output.expand,
-            mat: *mat.elem,
-            stride: *stride,
-            layout,
-        }));
+        context.register(Instruction::new(
+            ir::CoopMma::Store {
+                mat: *mat.elem,
+                stride: *stride,
+                layout,
+            },
+            *output.expand,
+        ));
     }
 }
 
@@ -374,11 +380,19 @@ pub mod execute {
         mat_c: MatrixExpand,
         mat_d: MatrixExpand,
     ) {
-        context.register(Operation::CoopMma(ir::CoopMma::Execute {
-            mat_a: *mat_a.elem,
-            mat_b: *mat_b.elem,
-            mat_c: *mat_c.elem,
-            mat_d: *mat_d.elem,
-        }));
+        context.register(Instruction::new(
+            ir::CoopMma::Execute {
+                mat_a: *mat_a.elem,
+                mat_b: *mat_b.elem,
+                mat_c: *mat_c.elem,
+            },
+            *mat_d.elem,
+        ));
+    }
+}
+
+impl From<ir::CoopMma> for Operation {
+    fn from(value: ir::CoopMma) -> Self {
+        Operation::CoopMma(value)
     }
 }

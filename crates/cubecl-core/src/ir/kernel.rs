@@ -1,4 +1,4 @@
-use super::{ConstantScalarValue, Scope, Variable};
+use super::{ConstantScalarValue, Scope, Variable, VariableKind};
 use crate::SUBCUBE_DIM_APPROX;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
@@ -71,7 +71,7 @@ impl Elem {
     ///
     /// The output will have the same type as the element.
     pub fn constant_from_f64(&self, val: f64) -> Variable {
-        Variable::ConstantScalar(match self {
+        Variable::constant(match self {
             Elem::Float(kind) => ConstantScalarValue::Float(val, *kind),
             Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
@@ -84,7 +84,7 @@ impl Elem {
     ///
     /// The output will have the same type as the element.
     pub fn constant_from_i64(&self, val: i64) -> Variable {
-        Variable::ConstantScalar(match self {
+        Variable::constant(match self {
             Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
             Elem::Int(kind) => ConstantScalarValue::Int(val, *kind),
             Elem::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
@@ -97,7 +97,7 @@ impl Elem {
     ///
     /// The output will have the same type as the element.
     pub fn constant_from_u64(&self, val: u64) -> Variable {
-        Variable::ConstantScalar(match self {
+        Variable::constant(match self {
             Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
             Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::UInt(kind) => ConstantScalarValue::UInt(val, *kind),
@@ -110,7 +110,7 @@ impl Elem {
     ///
     /// The output will have the same type as the element.
     pub fn constant_from_bool(&self, val: bool) -> Variable {
-        Variable::ConstantScalar(match self {
+        Variable::constant(match self {
             Elem::Float(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
             Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
@@ -122,8 +122,8 @@ impl Elem {
 
     /// Ensure that the variable provided, when a constant, is the same type as elem.
     pub fn from_constant(&self, constant: Variable) -> Variable {
-        let value = match constant {
-            Variable::ConstantScalar(value) => value,
+        let value = match constant.kind {
+            VariableKind::ConstantScalar(value) => value,
             _ => return constant,
         };
 

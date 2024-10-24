@@ -1,7 +1,4 @@
-use crate::{
-    ir::{Branch, Select},
-    prelude::*,
-};
+use crate::{ir::Select, prelude::*};
 use crate::{
     prelude::{CubePrimitive, Line},
     unexpanded,
@@ -35,6 +32,8 @@ pub fn select_many<C: CubePrimitive>(
 pub mod select {
     use std::num::NonZero;
 
+    use crate::ir::{Instruction, Operator};
+
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
@@ -51,16 +50,15 @@ pub mod select {
         let vf = u8::max(vf, then.vectorization_factor());
         let vf = u8::max(vf, or_else.vectorization_factor());
 
-        let output = context.create_local_binding(then.item().vectorize(NonZero::new(vf)));
+        let output = context.create_local_binding(then.item.vectorize(NonZero::new(vf)));
         let out = *output;
 
-        let select = Branch::Select(Select {
+        let select = Operator::Select(Select {
             cond,
             then,
             or_else,
-            out,
         });
-        context.register(select);
+        context.register(Instruction::new(select, out));
 
         output.into()
     }

@@ -1,27 +1,23 @@
 use std::collections::HashMap;
 
 use cubecl_core::ir::{
-    BinaryOperator, Branch, ClampOperator, ConstantScalarValue, FmaOperator, LineInitOperator,
-    Metadata, Operation, Operator, Select, UnaryOperator, Variable,
+    BinaryOperator, ClampOperator, ConstantScalarValue, FmaOperator, Item, LineInitOperator,
+    Metadata, Operation, Operator, Select, UnaryOperator, Variable, VariableKind,
 };
 use float_ord::FloatOrd;
 use smallvec::SmallVec;
 
-use super::{Builtin, Constant, Expression, Local, OpId, Value};
+use super::{Constant, Expression, Local, OpId, Value};
 
 impl Expression {
-    pub fn to_operation(&self, leaders: &HashMap<u32, Value>, out: Variable) -> Operation {
+    pub fn to_operation(&self, leaders: &HashMap<u32, Value>) -> Operation {
         match self {
             Expression::Copy(val, _) => {
                 let input = leaders[val].as_var();
-                Operator::Assign(UnaryOperator { input, out }).into()
+                Operation::Assign(input)
             }
             Expression::Value(value) | Expression::Volatile(value) => {
-                Operator::Assign(UnaryOperator {
-                    input: value.as_var(),
-                    out,
-                })
-                .into()
+                Operation::Assign(value.as_var())
             }
             Expression::Instruction(instruction) => {
                 let args = instruction
@@ -33,281 +29,175 @@ impl Expression {
                     OpId::Add => Operator::Add(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Fma => Operator::Fma(FmaOperator {
                         a: args[0],
                         b: args[1],
                         c: args[2],
-                        out,
                     })
                     .into(),
                     OpId::Sub => Operator::Sub(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Mul => Operator::Mul(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Div => Operator::Div(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
-                    OpId::Abs => Operator::Abs(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Exp => Operator::Exp(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Log => Operator::Log(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Log1p => Operator::Log1p(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Cos => Operator::Cos(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Sin => Operator::Sin(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Tanh => Operator::Tanh(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Abs => Operator::Abs(UnaryOperator { input: args[0] }).into(),
+                    OpId::Exp => Operator::Exp(UnaryOperator { input: args[0] }).into(),
+                    OpId::Log => Operator::Log(UnaryOperator { input: args[0] }).into(),
+                    OpId::Log1p => Operator::Log1p(UnaryOperator { input: args[0] }).into(),
+                    OpId::Cos => Operator::Cos(UnaryOperator { input: args[0] }).into(),
+                    OpId::Sin => Operator::Sin(UnaryOperator { input: args[0] }).into(),
+                    OpId::Tanh => Operator::Tanh(UnaryOperator { input: args[0] }).into(),
                     OpId::Powf => Operator::Powf(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
-                    OpId::Sqrt => Operator::Sqrt(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Round => Operator::Round(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Floor => Operator::Floor(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Ceil => Operator::Ceil(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Erf => Operator::Erf(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Recip => Operator::Recip(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Sqrt => Operator::Sqrt(UnaryOperator { input: args[0] }).into(),
+                    OpId::Round => Operator::Round(UnaryOperator { input: args[0] }).into(),
+                    OpId::Floor => Operator::Floor(UnaryOperator { input: args[0] }).into(),
+                    OpId::Ceil => Operator::Ceil(UnaryOperator { input: args[0] }).into(),
+                    OpId::Erf => Operator::Erf(UnaryOperator { input: args[0] }).into(),
+                    OpId::Recip => Operator::Recip(UnaryOperator { input: args[0] }).into(),
                     OpId::Equal => Operator::Equal(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::NotEqual => Operator::NotEqual(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Lower => Operator::Lower(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Clamp => Operator::Clamp(ClampOperator {
                         input: args[0],
                         min_value: args[1],
                         max_value: args[2],
-                        out,
                     })
                     .into(),
                     OpId::Greater => Operator::Greater(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::LowerEqual => Operator::LowerEqual(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::GreaterEqual => Operator::GreaterEqual(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Modulo => Operator::Modulo(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Index => Operator::Index(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::InitLine => Operator::InitLine(LineInitOperator {
                         inputs: args.into_vec(),
-                        out,
                     })
                     .into(),
                     OpId::And => Operator::And(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Or => Operator::Or(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
-                    OpId::Not => Operator::Not(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Neg => Operator::Neg(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Not => Operator::Not(UnaryOperator { input: args[0] }).into(),
+                    OpId::Neg => Operator::Neg(UnaryOperator { input: args[0] }).into(),
                     OpId::Max => Operator::Max(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Min => Operator::Min(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::BitwiseAnd => Operator::BitwiseAnd(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::BitwiseOr => Operator::BitwiseOr(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::BitwiseXor => Operator::BitwiseXor(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::ShiftLeft => Operator::ShiftLeft(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::ShiftRight => Operator::ShiftRight(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
                     OpId::Remainder => Operator::Remainder(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
-                    OpId::Magnitude => Operator::Magnitude(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Normalize => Operator::Normalize(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Magnitude => Operator::Magnitude(UnaryOperator { input: args[0] }).into(),
+                    OpId::Normalize => Operator::Normalize(UnaryOperator { input: args[0] }).into(),
                     OpId::Dot => Operator::Dot(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
-                        out,
                     })
                     .into(),
-                    OpId::Select => Branch::Select(Select {
+                    OpId::Select => Operator::Select(Select {
                         cond: args[0],
                         then: args[1],
                         or_else: args[2],
-                        out,
                     })
                     .into(),
-                    OpId::Bitcast => Operator::Bitcast(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
-                    OpId::Length => Metadata::Length { var: args[0], out }.into(),
+                    OpId::Bitcast => Operator::Bitcast(UnaryOperator { input: args[0] }).into(),
+                    OpId::Length => Metadata::Length { var: args[0] }.into(),
                     OpId::Shape => Metadata::Shape {
                         var: args[0],
                         dim: args[1],
-                        out,
                     }
                     .into(),
                     OpId::Stride => Metadata::Stride {
                         var: args[0],
                         dim: args[1],
-                        out,
                     }
                     .into(),
-                    OpId::Cast => Operator::Assign(UnaryOperator {
-                        input: args[0],
-                        out,
-                    })
-                    .into(),
+                    OpId::Cast => Operator::Cast(UnaryOperator { input: args[0] }).into(),
                 }
             }
             Expression::Phi(_) => unreachable!("Phi can't be made into operation"),
@@ -318,135 +208,82 @@ impl Expression {
 impl Value {
     pub(crate) fn as_var(&self) -> Variable {
         match self {
-            Value::Constant(val) => Variable::ConstantScalar((*val).into()),
+            Value::Constant(val) => Variable::constant((*val).into()),
             Value::Local(Local {
                 id,
                 depth,
                 version: 0,
                 item,
-            }) => Variable::LocalBinding {
-                id: *id,
-                item: *item,
-                depth: *depth,
-            },
+            }) => Variable::new(
+                VariableKind::LocalBinding {
+                    id: *id,
+                    depth: *depth,
+                },
+                *item,
+            ),
             Value::Local(Local {
                 id,
                 depth,
                 version,
                 item,
-            }) => Variable::Versioned {
-                id: *id,
-                item: *item,
-                depth: *depth,
-                version: *version,
-            },
-            Value::Input(id, item) => Variable::GlobalInputArray {
-                id: *id,
-                item: *item,
-            },
-            Value::Scalar(id, elem) => Variable::GlobalScalar {
-                id: *id,
-                elem: *elem,
-            },
-            Value::ConstArray(id, item, len) => Variable::ConstantArray {
-                id: *id,
-                item: *item,
-                length: *len,
-            },
-            Value::Builtin(builtin) => builtin.as_var(),
-            Value::Output(id, item) => Variable::GlobalOutputArray {
-                id: *id,
-                item: *item,
-            },
-            Value::Slice(id, depth, item) => Variable::Slice {
-                id: *id,
-                item: *item,
-                depth: *depth,
-            },
-        }
-    }
-}
-
-impl Builtin {
-    pub fn as_var(&self) -> Variable {
-        match self {
-            Builtin::Rank => Variable::Rank,
-            Builtin::UnitPos => Variable::UnitPos,
-            Builtin::UnitPosX => Variable::UnitPosX,
-            Builtin::UnitPosY => Variable::UnitPosY,
-            Builtin::UnitPosZ => Variable::UnitPosZ,
-            Builtin::CubePos => Variable::CubePos,
-            Builtin::CubePosX => Variable::CubePosX,
-            Builtin::CubePosY => Variable::CubePosY,
-            Builtin::CubePosZ => Variable::CubePosZ,
-            Builtin::CubeDim => Variable::CubeDim,
-            Builtin::CubeDimX => Variable::CubeDimX,
-            Builtin::CubeDimY => Variable::CubeDimY,
-            Builtin::CubeDimZ => Variable::CubeDimZ,
-            Builtin::CubeCount => Variable::CubeCount,
-            Builtin::CubeCountX => Variable::CubeCountX,
-            Builtin::CubeCountY => Variable::CubeCountY,
-            Builtin::CubeCountZ => Variable::CubeCountZ,
-            Builtin::SubcubeDim => Variable::SubcubeDim,
-            Builtin::AbsolutePos => Variable::AbsolutePos,
-            Builtin::AbsolutePosX => Variable::AbsolutePosX,
-            Builtin::AbsolutePosY => Variable::AbsolutePosY,
-            Builtin::AbsolutePosZ => Variable::AbsolutePosZ,
+            }) => Variable::new(
+                VariableKind::Versioned {
+                    id: *id,
+                    depth: *depth,
+                    version: *version,
+                },
+                *item,
+            ),
+            Value::Input(id, item) => Variable::new(VariableKind::GlobalInputArray(*id), *item),
+            Value::Scalar(id, elem) => {
+                Variable::new(VariableKind::GlobalScalar(*id), Item::new(*elem))
+            }
+            Value::ConstArray(id, item, len) => Variable::new(
+                VariableKind::ConstantArray {
+                    id: *id,
+                    length: *len,
+                },
+                *item,
+            ),
+            Value::Builtin(builtin) => Variable::builtin(*builtin),
+            Value::Output(id, item) => Variable::new(VariableKind::GlobalOutputArray(*id), *item),
+            Value::Slice(id, depth, item) => Variable::new(
+                VariableKind::Slice {
+                    id: *id,
+                    depth: *depth,
+                },
+                *item,
+            ),
         }
     }
 }
 
 pub fn value_of_var(var: &Variable) -> Option<Value> {
-    let val = match var {
-        Variable::GlobalInputArray { id, item } => Value::Input(*id, *item),
-        Variable::GlobalScalar { id, elem } => Value::Scalar(*id, *elem),
-        Variable::GlobalOutputArray { id, item } => Value::Output(*id, *item),
-        Variable::Versioned {
+    let item = var.item;
+    let val = match var.kind {
+        VariableKind::GlobalInputArray(id) => Value::Input(id, item),
+        VariableKind::GlobalOutputArray(id) => Value::Output(id, item),
+        VariableKind::GlobalScalar(id) => Value::Scalar(id, item.elem),
+        VariableKind::Versioned { id, depth, version } => Value::Local(Local {
             id,
             depth,
             version,
             item,
-        } => Value::Local(Local {
-            id: *id,
-            depth: *depth,
-            version: *version,
-            item: *item,
         }),
-        Variable::LocalBinding { id, depth, item } => Value::Local(Local {
-            id: *id,
-            depth: *depth,
+        VariableKind::LocalBinding { id, depth } => Value::Local(Local {
+            id,
+            depth,
             version: 0,
-            item: *item,
+            item,
         }),
-        Variable::ConstantScalar(val) => Value::Constant((*val).into()),
-        Variable::ConstantArray { id, item, length } => Value::ConstArray(*id, *item, *length),
-        Variable::Local { .. }
-        | Variable::SharedMemory { .. }
-        | Variable::LocalArray { .. }
-        | Variable::Matrix { .. } => None?,
-        Variable::Slice { id, depth, item } => Value::Slice(*id, *depth, *item),
-        Variable::Rank => Value::Builtin(Builtin::Rank),
-        Variable::UnitPos => Value::Builtin(Builtin::UnitPos),
-        Variable::UnitPosX => Value::Builtin(Builtin::UnitPosX),
-        Variable::UnitPosY => Value::Builtin(Builtin::UnitPosY),
-        Variable::UnitPosZ => Value::Builtin(Builtin::UnitPosZ),
-        Variable::CubePos => Value::Builtin(Builtin::CubePos),
-        Variable::CubePosX => Value::Builtin(Builtin::CubePosX),
-        Variable::CubePosY => Value::Builtin(Builtin::CubePosY),
-        Variable::CubePosZ => Value::Builtin(Builtin::CubePosZ),
-        Variable::CubeDim => Value::Builtin(Builtin::CubeDim),
-        Variable::CubeDimX => Value::Builtin(Builtin::CubeDimX),
-        Variable::CubeDimY => Value::Builtin(Builtin::CubeDimY),
-        Variable::CubeDimZ => Value::Builtin(Builtin::CubeDimZ),
-        Variable::CubeCount => Value::Builtin(Builtin::CubeCount),
-        Variable::CubeCountX => Value::Builtin(Builtin::CubeCountX),
-        Variable::CubeCountY => Value::Builtin(Builtin::CubeCountY),
-        Variable::CubeCountZ => Value::Builtin(Builtin::CubeCountZ),
-        Variable::SubcubeDim => Value::Builtin(Builtin::SubcubeDim),
-        Variable::AbsolutePos => Value::Builtin(Builtin::AbsolutePos),
-        Variable::AbsolutePosX => Value::Builtin(Builtin::AbsolutePosX),
-        Variable::AbsolutePosY => Value::Builtin(Builtin::AbsolutePosY),
-        Variable::AbsolutePosZ => Value::Builtin(Builtin::AbsolutePosZ),
+        VariableKind::ConstantScalar(val) => Value::Constant(val.into()),
+        VariableKind::ConstantArray { id, length } => Value::ConstArray(id, item, length),
+        VariableKind::Local { .. }
+        | VariableKind::SharedMemory { .. }
+        | VariableKind::LocalArray { .. }
+        | VariableKind::Matrix { .. } => None?,
+        VariableKind::Slice { id, depth } => Value::Slice(id, depth, item),
+        VariableKind::Builtin(builtin) => Value::Builtin(builtin),
     };
     Some(val)
 }
@@ -498,6 +335,7 @@ pub fn id_of_op(op: &Operator) -> OpId {
         Operator::Magnitude(_) => OpId::Magnitude,
         Operator::Normalize(_) => OpId::Normalize,
         Operator::Dot(_) => OpId::Dot,
+        Operator::Cast(_) => OpId::Cast,
         Operator::Bitcast(_) => OpId::Bitcast,
         _ => unreachable!(),
     }

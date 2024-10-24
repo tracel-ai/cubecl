@@ -488,33 +488,48 @@ mod tests {
                 _ => 2,
             };
             format!(
-                "[Operator({ops_name}(BinaryOperator {{ \
-                lhs: Local {{ id: 0, item: Item {{ \
-                    elem: {in_type}, \
-                    vectorization: None \
-                }}, depth: 0 }}, \
-                rhs: Local {{ id: 1, item: Item {{ \
-                    elem: {in_type}, \
-                    vectorization: None \
-                }}, depth: 0 }}, \
-                out: Local {{ id: {out_number}, item: Item {{ \
-                    elem: {out_type}, \
-                    vectorization: None \
-                }}, depth: 0 }} \
-            }}))]"
+                "[Instruction {{ out: Some(Variable {{ \
+                    kind: Local {{ id: {out_number}, depth: 0 }}, \
+                    item: Item {{ \
+                        elem: {out_type}, \
+                        vectorization: None \
+                    }} \
+                }}), \
+                operation: Operator({ops_name}(BinaryOperator {{ \
+                lhs: Variable {{ \
+                    kind: Local {{ id: 0, depth: 0 }}, \
+                    item: Item {{ \
+                        elem: {in_type}, \
+                        vectorization: None \
+                    }} \
+                }}, \
+                rhs: Variable {{ \
+                    kind: Local {{ id: 1, depth: 0 }}, \
+                    item: Item {{ \
+                        elem: {in_type}, \
+                        vectorization: None \
+                    }} \
+                }} \
+            }})) }}]"
             )
         } else {
             format!(
-                "[Operator({ops_name}(UnaryOperator {{ \
-                input: Local {{ id: 0, item: Item {{ \
-                    elem: {in_type}, \
-                    vectorization: None \
-                }}, depth: 0 }}, \
-                out: Local {{ id: 0, item: Item {{ \
-                    elem: {out_type}, \
-                    vectorization: None \
-                }}, depth: 0 }} \
-            }}))]"
+                "[Instruction {{ out: Some(Variable {{ \
+                    kind: Local {{ id: 0, depth: 0 }}, \
+                    item: Item {{ \
+                        elem: {out_type}, \
+                        vectorization: None \
+                    }} \
+                }}), \
+                operation: Operator({ops_name}(UnaryOperator {{ \
+                input: Variable {{ \
+                    kind: Local {{ id: 0, depth: 0 }}, \
+                    item: Item {{ \
+                        elem: {in_type}, \
+                        vectorization: None \
+                    }} \
+                }} \
+            }})) }}]"
             )
         }
     }
