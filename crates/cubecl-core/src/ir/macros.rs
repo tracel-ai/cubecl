@@ -430,6 +430,18 @@ impl From<bool> for Variable {
     }
 }
 
+impl From<i8> for Variable {
+    fn from(value: i8) -> Self {
+        Variable::ConstantScalar(ConstantScalarValue::Int(value as i64, IntKind::I8))
+    }
+}
+
+impl From<i16> for Variable {
+    fn from(value: i16) -> Self {
+        Variable::ConstantScalar(ConstantScalarValue::Int(value as i64, IntKind::I16))
+    }
+}
+
 impl From<i32> for Variable {
     fn from(value: i32) -> Self {
         Variable::ConstantScalar(ConstantScalarValue::Int(value as i64, IntKind::I32))

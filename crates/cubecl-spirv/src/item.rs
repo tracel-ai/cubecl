@@ -323,10 +323,26 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.capabilities.insert(Capability::Float64);
                 Elem::Float(64)
             }
+            core::Elem::Int(IntKind::I8) => {
+                self.capabilities.insert(Capability::Int8);
+                Elem::Int(8, true)
+            }
+            core::Elem::Int(IntKind::I16) => {
+                self.capabilities.insert(Capability::Int16);
+                Elem::Int(16, true)
+            }
             core::Elem::Int(IntKind::I32) => Elem::Int(32, true),
             core::Elem::Int(IntKind::I64) => {
                 self.capabilities.insert(Capability::Int64);
                 Elem::Int(64, true)
+            }
+            core::Elem::AtomicInt(IntKind::I8) => {
+                self.capabilities.insert(Capability::Int8);
+                Elem::Int(8, true)
+            }
+            core::Elem::AtomicInt(IntKind::I16) => {
+                self.capabilities.insert(Capability::Int16);
+                Elem::Int(16, true)
             }
             core::Elem::AtomicInt(IntKind::I32) => Elem::Int(32, true),
             core::Elem::AtomicInt(IntKind::I64) => {

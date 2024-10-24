@@ -40,6 +40,8 @@ pub enum FloatKind {
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub enum IntKind {
+    I8,
+    I16,
     I32,
     I64,
 }
@@ -133,10 +135,14 @@ impl Elem {
                 FloatKind::F64 => core::mem::size_of::<f64>(),
             },
             Elem::Int(kind) => match kind {
+                IntKind::I8 => core::mem::size_of::<i8>(),
+                IntKind::I16 => core::mem::size_of::<i16>(),
                 IntKind::I32 => core::mem::size_of::<i32>(),
                 IntKind::I64 => core::mem::size_of::<i64>(),
             },
             Elem::AtomicInt(kind) => match kind {
+                IntKind::I8 => core::mem::size_of::<i8>(),
+                IntKind::I16 => core::mem::size_of::<i16>(),
                 IntKind::I32 => core::mem::size_of::<i32>(),
                 IntKind::I64 => core::mem::size_of::<i64>(),
             },
@@ -174,10 +180,14 @@ impl Display for Elem {
                 FloatKind::F64 => f.write_str("f64"),
             },
             Self::Int(kind) => match kind {
+                IntKind::I8 => f.write_str("i8"),
+                IntKind::I16 => f.write_str("i16"),
                 IntKind::I32 => f.write_str("i32"),
                 IntKind::I64 => f.write_str("i64"),
             },
             Self::AtomicInt(kind) => match kind {
+                IntKind::I8 => f.write_str("atomic<i8>"),
+                IntKind::I16 => f.write_str("atomic<i16>"),
                 IntKind::I32 => f.write_str("atomic<i32>"),
                 IntKind::I64 => f.write_str("atomic<i64>"),
             },

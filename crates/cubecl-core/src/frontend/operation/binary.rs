@@ -265,6 +265,8 @@ impl_binary_func!(
     bf16,
     f32,
     f64,
+    i8,
+    i16,
     i32,
     i64,
     u32
@@ -279,6 +281,8 @@ impl_binary_func!(
     bf16,
     f32,
     f64,
+    i8,
+    i16,
     i32,
     i64,
     u32
@@ -293,6 +297,8 @@ impl_binary_func!(
     bf16,
     f32,
     f64,
+    i8,
+    i16,
     i32,
     i64,
     u32
@@ -308,6 +314,8 @@ impl_binary_func_fixed_output_vectorization!(
     bf16,
     f32,
     f64,
+    i8,
+    i16,
     i32,
     i64,
     u32

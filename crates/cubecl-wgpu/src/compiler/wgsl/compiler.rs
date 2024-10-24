@@ -237,13 +237,13 @@ impl WgslCompiler {
             },
             cube::Elem::Int(i) => match i {
                 cube::IntKind::I32 => wgsl::Elem::I32,
-                cube::IntKind::I64 => panic!("i64 is not a valid WgpuElement"),
+                kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::Elem::UInt => wgsl::Elem::U32,
             cube::Elem::Bool => wgsl::Elem::Bool,
             cube::Elem::AtomicInt(i) => match i {
                 cube::IntKind::I32 => wgsl::Elem::AtomicI32,
-                cube::IntKind::I64 => panic!("atomic<i64> is not a valid WgpuElement"),
+                kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),
             },
             cube::Elem::AtomicUInt => wgsl::Elem::AtomicU32,
         }

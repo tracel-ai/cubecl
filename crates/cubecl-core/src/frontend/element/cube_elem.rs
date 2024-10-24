@@ -38,5 +38,7 @@ impl_into_expand_element!(u32);
 impl_into_expand_element!(usize);
 impl_into_expand_element!(bool);
 impl_into_expand_element!(f32);
+impl_into_expand_element!(i8);
+impl_into_expand_element!(i16);
 impl_into_expand_element!(i32);
 impl_into_expand_element!(i64);

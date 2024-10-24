@@ -7,11 +7,15 @@ use super::{Fragment, COUNTER_TMP_VAR};
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum Elem {
     F32,
+    F64,
     F16,
     F162,
     BF16,
     BF162,
+    I8,
+    I16,
     I32,
+    I64,
     U32,
     Bool,
     Atomic(AtomicKind),
@@ -44,9 +48,13 @@ impl Display for Elem {
             Elem::F16 => f.write_str("__half"),
             Elem::F162 => f.write_str("__half2"),
             Elem::F32 => f.write_str("float"),
+            Elem::F64 => f.write_str("double"),
             Elem::BF16 => f.write_str("__nv_bfloat16"),
             Elem::BF162 => f.write_str("__nv_bfloat162"),
+            Elem::I8 => f.write_str("char"),
+            Elem::I16 => f.write_str("short"),
             Elem::I32 => f.write_str("int"),
+            Elem::I64 => f.write_str("int64"),
             Elem::U32 => f.write_str("uint"),
             Elem::Bool => f.write_str("bool"),
             Elem::Atomic(inner) => inner.fmt(f),
@@ -194,6 +202,8 @@ impl Display for Variable {
             // precision related problems.
             Variable::ConstantScalar(number, elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
+                    gpu::IntKind::I8 => write!(f, "{elem}({})", *val as i32),
+                    gpu::IntKind::I16 => write!(f, "{elem}({})", *val as i32),
                     gpu::IntKind::I32 => write!(f, "{elem}({})", *val as i32),
                     gpu::IntKind::I64 => write!(f, "{elem}({})", *val),
                 },
@@ -508,16 +518,20 @@ impl Item {
 impl Elem {
     pub fn size(&self) -> usize {
         match self {
-            Self::F16 => core::mem::size_of::<f16>(),
-            Self::F162 => 2 * core::mem::size_of::<f16>(),
-            Self::BF162 => 2 * core::mem::size_of::<bf16>(),
-            Self::BF16 => core::mem::size_of::<bf16>(),
-            Self::F32 => core::mem::size_of::<f32>(),
-            Self::I32 => core::mem::size_of::<i32>(),
-            Self::U32 => core::mem::size_of::<u32>(),
-            Self::Bool => core::mem::size_of::<bool>(),
-            Self::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
-            Self::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
+            Elem::F16 => core::mem::size_of::<f16>(),
+            Elem::F162 => 2 * core::mem::size_of::<f16>(),
+            Elem::BF162 => 2 * core::mem::size_of::<bf16>(),
+            Elem::BF16 => core::mem::size_of::<bf16>(),
+            Elem::F32 => core::mem::size_of::<f32>(),
+            Elem::F64 => core::mem::size_of::<f64>(),
+            Elem::I8 => core::mem::size_of::<i8>(),
+            Elem::I16 => core::mem::size_of::<i16>(),
+            Elem::I32 => core::mem::size_of::<i32>(),
+            Elem::I64 => core::mem::size_of::<i64>(),
+            Elem::U32 => core::mem::size_of::<u32>(),
+            Elem::Bool => core::mem::size_of::<bool>(),
+            Elem::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
+            Elem::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
         }
     }
 }

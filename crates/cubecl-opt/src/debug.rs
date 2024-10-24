@@ -247,6 +247,8 @@ impl Display for Local {
 impl Display for Constant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Constant::Int(val, IntKind::I8) => write!(f, "{val}i8"),
+            Constant::Int(val, IntKind::I16) => write!(f, "{val}i16"),
             Constant::Int(val, IntKind::I32) => write!(f, "{val}i32"),
             Constant::Int(val, IntKind::I64) => write!(f, "{val}i64"),
             Constant::Float(val, FloatKind::BF16) => write!(f, "{}bf16", val.0),

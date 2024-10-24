@@ -90,6 +90,8 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         }
 
         f.write_str("typedef unsigned int uint;\n")?;
+        f.write_str("typedef unsigned long long int uint64;\n")?;
+        f.write_str("typedef long long int int64;\n")?;
 
         for item in self.items.iter() {
             let elem = item.elem;

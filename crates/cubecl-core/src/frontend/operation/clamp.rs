@@ -40,6 +40,8 @@ impl Clamp for f16 {}
 impl Clamp for bf16 {}
 impl Clamp for f32 {}
 impl Clamp for f64 {}
+impl Clamp for i8 {}
+impl Clamp for i16 {}
 impl Clamp for i32 {}
 impl Clamp for i64 {}
 impl Clamp for u32 {}

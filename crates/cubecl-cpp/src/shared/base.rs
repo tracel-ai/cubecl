@@ -793,15 +793,17 @@ impl<D: Dialect> CppCompiler<D> {
                     super::Elem::BF16
                 }
                 gpu::FloatKind::F32 => super::Elem::F32,
-                gpu::FloatKind::F64 => panic!("f64 isn't supported yet"),
+                gpu::FloatKind::F64 => super::Elem::F64,
             },
             gpu::Elem::Int(kind) => match kind {
+                gpu::IntKind::I8 => super::Elem::I8,
+                gpu::IntKind::I16 => super::Elem::I16,
                 gpu::IntKind::I32 => super::Elem::I32,
-                gpu::IntKind::I64 => panic!("i64 isn't supported yet"),
+                gpu::IntKind::I64 => super::Elem::I64,
             },
             gpu::Elem::AtomicInt(kind) => match kind {
                 gpu::IntKind::I32 => super::Elem::Atomic(super::AtomicKind::I32),
-                gpu::IntKind::I64 => panic!("atomic<i64> isn't supported yet"),
+                _ => panic!("atomic<{}> isn't supported yet", value),
             },
             gpu::Elem::UInt => super::Elem::U32,
             gpu::Elem::AtomicUInt => super::Elem::Atomic(super::AtomicKind::U32),
@@ -849,8 +851,14 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
 
     let supported_types = [
         Elem::UInt,
+        Elem::Int(IntKind::I8),
+        Elem::Int(IntKind::I16),
         Elem::Int(IntKind::I32),
+        Elem::Int(IntKind::I64),
+        Elem::AtomicInt(IntKind::I8),
+        Elem::AtomicInt(IntKind::I16),
         Elem::AtomicInt(IntKind::I32),
+        Elem::AtomicInt(IntKind::I64),
         Elem::AtomicUInt,
         Elem::Float(FloatKind::BF16),
         Elem::Float(FloatKind::F16),

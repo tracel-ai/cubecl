@@ -100,11 +100,11 @@ impl From<ConstantScalarValue> for ConstVal {
     fn from(value: ConstantScalarValue) -> Self {
         unsafe {
             match value {
-                ConstantScalarValue::Int(val, IntKind::I32) => {
-                    ConstVal::Bit32(transmute::<i32, u32>(val as i32))
-                }
                 ConstantScalarValue::Int(val, IntKind::I64) => {
                     ConstVal::Bit64(transmute::<i64, u64>(val))
+                }
+                ConstantScalarValue::Int(val, _) => {
+                    ConstVal::Bit32(transmute::<i32, u32>(val as i32))
                 }
                 ConstantScalarValue::Float(val, FloatKind::F64) => ConstVal::Bit64(val.to_bits()),
                 ConstantScalarValue::Float(val, FloatKind::F32) => {
@@ -303,12 +303,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 } else {
                     let id = match value {
                         core::ConstantScalarValue::Int(val, kind) => match kind {
-                            core::IntKind::I32 => self.constant_bit32(elem_id, unsafe {
-                                transmute::<i32, u32>(val as i32)
-                            }),
                             core::IntKind::I64 => {
                                 self.constant_bit64(elem_id, unsafe { transmute::<i64, u64>(val) })
                             }
+                            _ => self.constant_bit32(elem_id, unsafe {
+                                transmute::<i32, u32>(val as i32)
+                            }),
                         },
                         core::ConstantScalarValue::Float(val, kind) => match kind {
                             core::FloatKind::F16 | core::FloatKind::F32 => {

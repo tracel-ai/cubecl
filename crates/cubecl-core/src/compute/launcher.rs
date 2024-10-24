@@ -20,6 +20,8 @@ pub struct KernelLauncher<R: Runtime> {
     scalar_u32: ScalarState<u32>,
     scalar_i64: ScalarState<i64>,
     scalar_i32: ScalarState<i32>,
+    scalar_i16: ScalarState<i16>,
+    scalar_i8: ScalarState<i8>,
     scalar_order: Vec<Elem>,
     pub settings: KernelSettings,
     runtime: PhantomData<R>,
@@ -40,6 +42,18 @@ impl<R: Runtime> KernelLauncher<R> {
     pub fn register_u32(&mut self, scalar: u32) {
         self.register_scalar(Elem::UInt);
         self.scalar_u32.push(scalar);
+    }
+
+    /// Register a i32 scalar to be launched.
+    pub fn register_i8(&mut self, scalar: i8) {
+        self.register_scalar(Elem::Int(IntKind::I8));
+        self.scalar_i8.push(scalar);
+    }
+
+    /// Register a i32 scalar to be launched.
+    pub fn register_i16(&mut self, scalar: i16) {
+        self.register_scalar(Elem::Int(IntKind::I16));
+        self.scalar_i16.push(scalar);
     }
 
     /// Register a i32 scalar to be launched.
@@ -130,10 +144,14 @@ impl<R: Runtime> KernelLauncher<R> {
                     FloatKind::F64 => self.scalar_f64.register::<R>(client, &mut bindings),
                 },
                 Elem::Int(kind) => match kind {
+                    IntKind::I8 => self.scalar_i8.register::<R>(client, &mut bindings),
+                    IntKind::I16 => self.scalar_i16.register::<R>(client, &mut bindings),
                     IntKind::I32 => self.scalar_i32.register::<R>(client, &mut bindings),
                     IntKind::I64 => self.scalar_i64.register::<R>(client, &mut bindings),
                 },
                 Elem::AtomicInt(kind) => match kind {
+                    IntKind::I8 => self.scalar_i8.register::<R>(client, &mut bindings),
+                    IntKind::I16 => self.scalar_i16.register::<R>(client, &mut bindings),
                     IntKind::I32 => self.scalar_i32.register::<R>(client, &mut bindings),
                     IntKind::I64 => self.scalar_i64.register::<R>(client, &mut bindings),
                 },
@@ -327,6 +345,8 @@ impl<R: Runtime> Default for KernelLauncher<R> {
             scalar_u32: ScalarState::Empty,
             scalar_i64: ScalarState::Empty,
             scalar_i32: ScalarState::Empty,
+            scalar_i16: ScalarState::Empty,
+            scalar_i8: ScalarState::Empty,
             scalar_order: Vec::new(),
             settings: Default::default(),
             runtime: PhantomData,

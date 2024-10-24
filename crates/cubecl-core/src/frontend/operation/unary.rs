@@ -79,6 +79,8 @@ impl_unary_func!(
     bf16,
     f32,
     f64,
+    i8,
+    i16,
     i32,
     i64,
     u32

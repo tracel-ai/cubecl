@@ -158,6 +158,8 @@ macro_rules! from_const {
 
 from_const!(u32);
 from_const!(i64);
+from_const!(i8);
+from_const!(i16);
 from_const!(i32);
 from_const!(f64);
 from_const!(f32);

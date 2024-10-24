@@ -354,6 +354,8 @@ impl ConstantScalarValue {
 impl Display for ConstantScalarValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ConstantScalarValue::Int(val, IntKind::I8) => write!(f, "{val}i8"),
+            ConstantScalarValue::Int(val, IntKind::I16) => write!(f, "{val}i16"),
             ConstantScalarValue::Int(val, IntKind::I32) => write!(f, "{val}i32"),
             ConstantScalarValue::Int(val, IntKind::I64) => write!(f, "{val}i64"),
             ConstantScalarValue::Float(val, FloatKind::BF16) => write!(f, "{val}bf16"),

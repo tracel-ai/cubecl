@@ -302,7 +302,7 @@ impl Display for Variable {
             Variable::ConstantScalar(number, _elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
                     IntKind::I32 => write!(f, "{}i", *val as i32),
-                    IntKind::I64 => write!(f, "{}i", { *val }),
+                    _ => unimplemented!("{:?} not supported in WGSL", kind),
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
                     FloatKind::F16 => {

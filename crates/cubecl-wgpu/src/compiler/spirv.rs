@@ -281,8 +281,12 @@ fn register_types(props: &mut DeviceProperties<Feature>) {
 
     let supported_types = [
         Elem::UInt,
+        Elem::Int(IntKind::I8),
+        Elem::Int(IntKind::I16),
         Elem::Int(IntKind::I32),
         Elem::Int(IntKind::I64),
+        Elem::AtomicInt(IntKind::I8),
+        Elem::AtomicInt(IntKind::I16),
         Elem::AtomicInt(IntKind::I32),
         Elem::AtomicInt(IntKind::I64),
         Elem::AtomicUInt,
