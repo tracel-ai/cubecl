@@ -59,7 +59,7 @@ impl<K: AutotuneKey> Tuner<K> {
         self.tune_cache.find_fastest(key)
     }
 
-    /// Register the [result](AutotuneResult) after finishing the benchmarks.
+    /// Registers the [results](AutotuneResult) from [execute_autotune()](Self::execute_autotune).
     pub fn register_autotune<Out: Send>(&mut self, result: AutotuneResult<K, Out>) -> Out {
         self.tune_cache
             .cache_insert(result.key.clone(), result.fastest_index);
@@ -91,11 +91,11 @@ impl<K: AutotuneKey> Tuner<K> {
         self.start_autotuning(send, set.as_ref(), client);
 
         if let Ok(msg) = rec.try_recv() {
-            return AutotuneResult {
+            AutotuneResult {
                 key: msg.key,
                 fastest_index: msg.fastest_index,
                 set,
-            };
+            }
         } else {
             panic!("Unable to perform autotune.");
         }

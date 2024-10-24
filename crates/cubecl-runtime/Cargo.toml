@@ -55,7 +55,6 @@ spin = { workspace = true, features = [
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
-async-lock = { version = "3.4.0" }
 
 [dev-dependencies]
 rand = { workspace = true }

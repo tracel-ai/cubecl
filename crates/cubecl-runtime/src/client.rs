@@ -22,9 +22,6 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 #[derive(new, Debug)]
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
-    // #[cfg(not(target_family = "wasm"))]
-    // timestamp_lock: cubecl_common::stub::Mutex<()>,
-    // #[cfg(target_family = "wasm")]
     timestamp_lock: async_lock::Mutex<()>,
 }
 
@@ -48,7 +45,6 @@ where
 {
     /// Create a new client.
     pub fn new(channel: Channel, properties: DeviceProperties<Server::Feature>) -> Self {
-        // let state = ComputeClientState::new(properties, cubecl_common::stub::Mutex::new(()));
         let state = ComputeClientState::new(properties, async_lock::Mutex::new(()));
         Self {
             channel,
@@ -132,18 +128,28 @@ where
         self.channel.memory_usage()
     }
 
-    /// Profile a function.
+    /// When executing operation within the profile scope, you can call
+    /// [sync_elapsed](Self::sync_elapsed) safely even in multithreaded workloads.
+    /// Creates a profiling scope that enables safe timing measurements in concurrent contexts.
+    ///
+    /// Operations executed within this scope can safely call [`sync_elapsed()`](Self::sync_elapsed)
+    /// to measure elapsed time, even in multithreaded environments. The measurements are
+    /// thread-safe and properly synchronized.
     pub async fn profile<O, Fut, Func>(&self, func: Func) -> O
     where
         Fut: Future<Output = O>,
         Func: FnOnce() -> Fut,
     {
         let lock = &self.state.timestamp_lock;
-        // let guard = lock.lock().unwrap();
         let guard = lock.lock().await;
 
         self.channel.enable_timestamps();
 
+        // Reset the client's timestamp state.
+        self.sync_elapsed().await.ok();
+
+        // We can't simply receive a future, since we need to make sure the future doesn't start
+        // before the lock, which might be the case on `wasm`.
         let fut = func();
         let output = fut.await;
 
@@ -153,11 +159,24 @@ where
         output
     }
 
-    /// Eanble timestamps collection on the server.
+    /// Enable timestamp collection on the server for performance profiling.
+    ///
+    /// This feature records precise timing data for server operations, which can be used
+    /// for performance analysis and benchmarking.
     ///
     /// # Warning
     ///
-    /// Only use it when performing benchmarks since it's going to slow down a lot throughput.
+    /// This should only be used during development and benchmarking, not in production,
+    /// as it significantly impacts server throughput and performance. The overhead comes
+    /// from frequent timestamp collection and storage.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// server.enable_timestamps();
+    /// // Run your benchmarks/operations
+    /// let duration = server.sync_elapsed();
+    /// ```
     pub fn enable_timestamps(&self) {
         self.channel.enable_timestamps();
     }

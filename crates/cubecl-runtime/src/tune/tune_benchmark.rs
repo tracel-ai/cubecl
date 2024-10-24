@@ -32,7 +32,6 @@ impl<S: ComputeServer, C: ComputeChannel<S>, Out> TuneBenchmark<S, C, Out> {
             .profile(|| async {
                 let num_samples = 10;
                 let mut durations = vec![];
-                let _ = self.client.sync_elapsed().await;
 
                 for _ in 0..num_samples {
                     AutotuneOperation::execute(self.operation.clone());
