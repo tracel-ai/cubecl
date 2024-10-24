@@ -32,6 +32,7 @@ cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }
+async-lock = { version = "3.4.0" }
 
 # Persistent cache deps - has to match the autotune_persistent_cache cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
@@ -54,6 +55,7 @@ spin = { workspace = true, features = [
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
+async-lock = { version = "3.4.0" }
 
 [dev-dependencies]
 rand = { workspace = true }

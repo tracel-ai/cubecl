@@ -6,11 +6,18 @@ use crate::dummy::DummyKernel;
 
 const SLEEP_MS: u64 = 1;
 
+#[derive(Debug)]
 pub struct DummyElementwiseAdditionSlowWrong;
+#[derive(Debug)]
 pub struct DummyElementwiseMultiplication;
+#[derive(Debug)]
 pub struct DummyElementwiseMultiplicationSlowWrong;
+
+#[derive(Debug)]
 pub struct CacheTestFastOn3;
+#[derive(Debug)]
 pub struct CacheTestSlowOn3;
+#[derive(Debug)]
 pub struct ParameteredKernel;
 
 impl DummyKernel for DummyElementwiseAdditionSlowWrong {

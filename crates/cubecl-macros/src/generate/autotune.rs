@@ -159,6 +159,7 @@ impl AutotuneOperations {
         let ty = self.ty.as_ref();
         let fields = &self.input_fields;
         quote! {
+            #[derive(Debug)]
             pub struct #name #generics #where_clause {
                 #ty
                 #(#fields),*
@@ -346,6 +347,7 @@ impl AutotuneOperations {
             .iter()
             .filter(|it| it.ident.as_ref().unwrap() != key);
         quote! {
+            #[derive(Debug)]
             pub struct #name #generics #where_clause {
                 #ty
                 #(#fields),*

@@ -1,3 +1,5 @@
+use core::future::Future;
+
 use crate::{
     channel::ComputeChannel,
     memory_management::MemoryUsage,
@@ -14,7 +16,16 @@ use cubecl_common::benchmark::TimestampsResult;
 #[derive(Debug)]
 pub struct ComputeClient<Server: ComputeServer, Channel> {
     channel: Channel,
-    properties: Arc<DeviceProperties<Server::Feature>>,
+    state: Arc<ComputeClientState<Server>>,
+}
+
+#[derive(new, Debug)]
+struct ComputeClientState<Server: ComputeServer> {
+    properties: DeviceProperties<Server::Feature>,
+    // #[cfg(not(target_family = "wasm"))]
+    // timestamp_lock: cubecl_common::stub::Mutex<()>,
+    // #[cfg(target_family = "wasm")]
+    timestamp_lock: async_lock::Mutex<()>,
 }
 
 impl<S, C> Clone for ComputeClient<S, C>
@@ -25,7 +36,7 @@ where
     fn clone(&self) -> Self {
         Self {
             channel: self.channel.clone(),
-            properties: self.properties.clone(),
+            state: self.state.clone(),
         }
     }
 }
@@ -37,9 +48,11 @@ where
 {
     /// Create a new client.
     pub fn new(channel: Channel, properties: DeviceProperties<Server::Feature>) -> Self {
+        // let state = ComputeClientState::new(properties, cubecl_common::stub::Mutex::new(()));
+        let state = ComputeClientState::new(properties, async_lock::Mutex::new(()));
         Self {
             channel,
-            properties: Arc::new(properties),
+            state: Arc::new(state),
         }
     }
 
@@ -111,7 +124,7 @@ where
 
     /// Get the features supported by the compute server.
     pub fn properties(&self) -> &DeviceProperties<Server::Feature> {
-        self.properties.as_ref()
+        &self.state.properties
     }
 
     /// Get the current memory usage of this client.
@@ -119,13 +132,33 @@ where
         self.channel.memory_usage()
     }
 
-    /// Enable collecting timestamps.
-    pub fn enable_timestamps(&self) {
+    /// Profile a function.
+    pub async fn profile<O, Fut, Func>(&self, func: Func) -> O
+    where
+        Fut: Future<Output = O>,
+        Func: FnOnce() -> Fut,
+    {
+        let lock = &self.state.timestamp_lock;
+        // let guard = lock.lock().unwrap();
+        let guard = lock.lock().await;
+
         self.channel.enable_timestamps();
+
+        let fut = func();
+        let output = fut.await;
+
+        self.channel.disable_timestamps();
+
+        core::mem::drop(guard);
+        output
     }
 
-    /// Disable collecting timestamps.
-    pub fn disable_timestamps(&self) {
-        self.channel.disable_timestamps();
+    /// Eanble timestamps collection on the server.
+    ///
+    /// # Warning
+    ///
+    /// Only use it when performing benchmarks since it's going to slow down a lot throughput.
+    pub fn enable_timestamps(&self) {
+        self.channel.enable_timestamps();
     }
 }

@@ -54,11 +54,15 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
     {
+        let mut should_init = true;
+
         // We avoid locking in write mode when possible.
         // (this makes us potentially check the cache twice, but allows to avoid
         // locking the state if the cache is hit)
         if let Some(state) = self.state.read().as_ref() {
             if let Some(tuner) = state.get(id) {
+                should_init = false;
+
                 let key = autotune_operation_set.key();
                 if let Some(index) = tuner.autotune_fastest(&key) {
                     let op = autotune_operation_set.fastest(index);
@@ -67,20 +71,45 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             }
         }
 
-        // We have to run the autotune.
-        let mut state = self.state.write();
-        let map = state.get_or_insert_with(Default::default);
+        if should_init {
+            let mut state = self.state.write();
+            let map = state.get_or_insert_with(Default::default);
 
-        let tuner = if let Some(tuner) = map.get_mut(id) {
-            tuner
-        } else {
-            let name = self.name.replace("::", "-");
-            let tuner = Tuner::new(&name, &id.to_string());
-            map.insert(id.clone(), tuner);
-            map.get_mut(id).unwrap()
-        };
+            if !map.contains_key(id) {
+                let name = self.name.replace("::", "-");
+                let tuner = Tuner::new(&name, &id.to_string());
+                map.insert(id.clone(), tuner);
+            };
+        }
 
-        tuner.execute_autotune(autotune_operation_set, client)
+        // Running benchmarks shound't lock the tuner, since an autotune can recursively use the
+        // same tuner.
+        //
+        // # Example
+        //
+        // ```
+        // tune_1 start
+        // tune_2 start
+        // tune_2 save
+        // tune_1 save
+        // ```
+        let mut result = None;
+        if let Some(state) = self.state.read().as_ref() {
+            if let Some(tuner) = state.get(id) {
+                result = Some(tuner.execute_autotune(autotune_operation_set, client));
+            }
+        }
+
+        if let Some(result) = result {
+            let mut state = self.state.write();
+            let map = state.get_or_insert_with(Default::default);
+
+            if let Some(tuner) = map.get_mut(id) {
+                return tuner.register_autotune(result);
+            }
+        }
+
+        panic!("Unable to autotune");
     }
 
     /// Return the autotune result given a key.
