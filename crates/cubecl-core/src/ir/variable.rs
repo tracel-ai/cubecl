@@ -1,7 +1,9 @@
 use std::fmt::Display;
 use std::num::NonZero;
 
-use super::{Elem, FloatKind, IntKind, Item, Matrix};
+use crate::prelude::CubePrimitive;
+
+use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -147,7 +149,7 @@ impl Variable {
     pub fn is_constant(&self, value: i64) -> bool {
         match self {
             Variable::ConstantScalar(ConstantScalarValue::Int(val, _)) => *val == value,
-            Variable::ConstantScalar(ConstantScalarValue::UInt(val)) => *val as i64 == value,
+            Variable::ConstantScalar(ConstantScalarValue::UInt(val, _)) => *val as i64 == value,
             Variable::ConstantScalar(ConstantScalarValue::Float(val, _)) => *val == value as f64,
             _ => false,
         }
@@ -177,7 +179,7 @@ impl Variable {
 pub enum ConstantScalarValue {
     Int(i64, IntKind),
     Float(f64, FloatKind),
-    UInt(u64),
+    UInt(u64, UIntKind),
     Bool(bool),
 }
 
@@ -426,17 +428,17 @@ impl Variable {
             Variable::LocalArray { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::Matrix { mat, .. } => Item::new(mat.elem),
-            Variable::AbsolutePos => Item::new(Elem::UInt),
-            Variable::Rank => Item::new(Elem::UInt),
-            Variable::UnitPos => Item::new(Elem::UInt),
-            Variable::UnitPosX => Item::new(Elem::UInt),
-            Variable::UnitPosY => Item::new(Elem::UInt),
-            Variable::UnitPosZ => Item::new(Elem::UInt),
-            Variable::CubePosX => Item::new(Elem::UInt),
-            Variable::CubePosY => Item::new(Elem::UInt),
-            Variable::CubePosZ => Item::new(Elem::UInt),
+            Variable::AbsolutePos => Item::new(u32::as_elem()),
+            Variable::Rank => Item::new(u32::as_elem()),
+            Variable::UnitPos => Item::new(u32::as_elem()),
+            Variable::UnitPosX => Item::new(u32::as_elem()),
+            Variable::UnitPosY => Item::new(u32::as_elem()),
+            Variable::UnitPosZ => Item::new(u32::as_elem()),
+            Variable::CubePosX => Item::new(u32::as_elem()),
+            Variable::CubePosY => Item::new(u32::as_elem()),
+            Variable::CubePosZ => Item::new(u32::as_elem()),
             Variable::AbsolutePosX => Item::new(Elem::UInt),
-            Variable::AbsolutePosY => Item::new(Elem::UInt),
+            Variable::AbsolutePosY => Item::new(u32::as_elem()),
             Variable::AbsolutePosZ => Item::new(Elem::UInt),
             Variable::CubeDimX => Item::new(Elem::UInt),
             Variable::CubeDimY => Item::new(Elem::UInt),

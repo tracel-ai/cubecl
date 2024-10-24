@@ -173,7 +173,7 @@ mod metadata {
     impl<T: CubeType> ExpandElementTyped<Array<T>> {
         // Expand method of [len](Array::len).
         pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-            let out = context.create_local_binding(Item::new(Elem::UInt));
+            let out = context.create_local_binding(Item::new(u32::as_elem()));
             context.register(Metadata::Length {
                 var: self.expand.into(),
                 out: out.clone().into(),

@@ -1,7 +1,10 @@
-use crate::frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric};
 use crate::ir::Elem;
 use crate::prelude::{KernelBuilder, KernelLauncher};
 use crate::Runtime;
+use crate::{
+    frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric},
+    ir::UIntKind,
+};
 
 use super::{
     init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime,
@@ -20,7 +23,7 @@ impl ExpandElementBaseInit for u32 {
 
 impl CubePrimitive for u32 {
     fn as_elem() -> Elem {
-        Elem::UInt
+        Elem::UInt(UIntKind::U32)
     }
 }
 

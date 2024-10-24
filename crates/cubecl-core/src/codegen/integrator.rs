@@ -3,8 +3,8 @@ use std::num::NonZero;
 use super::Compiler;
 use crate::{
     ir::{
-        Binding, CubeDim, Elem, Item, KernelDefinition, Location, ReadingStrategy, Scope, Variable,
-        Vectorization, Visibility,
+        Binding, CubeDim, Elem, Item, KernelDefinition, Location, ReadingStrategy, Scope, UIntKind,
+        Variable, Vectorization, Visibility,
     },
     Runtime,
 };
@@ -318,7 +318,7 @@ impl KernelIntegrator {
         named.push((
             "info".to_string(),
             Binding {
-                item: Item::new(Elem::UInt),
+                item: Item::new(Elem::UInt(UIntKind::U32)),
                 visibility: Visibility::Read,
                 location: Location::Storage,
                 size: None, // We avoid putting the length here since it will force a new kernel
@@ -515,7 +515,7 @@ fn bool_item(ty: Item) -> Item {
 pub fn bool_elem(elem: Elem) -> Elem {
     match elem {
         // U32 are used for bool tensors
-        Elem::Bool => Elem::UInt,
+        Elem::Bool => Elem::UInt(UIntKind::U32),
         _ => elem,
     }
 }
