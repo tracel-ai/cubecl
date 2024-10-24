@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::{Elem, Variable};
+use super::{Dialect, Elem, Variable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum FragmentIdent {
@@ -16,41 +16,44 @@ pub enum FragmentLayout {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
-pub struct Fragment {
+pub struct Fragment<D: Dialect> {
     pub ident: FragmentIdent,
     pub m: u8,
     pub n: u8,
     pub k: u8,
-    pub elem: Elem,
+    pub elem: Elem<D>,
     pub layout: Option<FragmentLayout>,
 }
 
 /// Warp Matrix-Multiply and Accumulate Instruction.
 #[derive(Debug, Clone, Copy)]
-pub enum WmmaInstruction {
+pub enum WmmaInstruction<D: Dialect> {
     /// Fill the fragment with the value.
-    Fill { frag: Variable, value: Variable },
+    Fill {
+        frag: Variable<D>,
+        value: Variable<D>,
+    },
     /// Load the value into the fragment given the stride.
     Load {
-        frag: Variable,
-        value: Variable,
-        stride: Variable,
+        frag: Variable<D>,
+        value: Variable<D>,
+        stride: Variable<D>,
         layout: Option<FragmentLayout>,
     },
     /// Executes D=A*B+C;
     ///
     /// For implementing a matmul, `D=C` : `C+=A*B`
     Execute {
-        frag_a: Variable,
-        frag_b: Variable,
-        frag_c: Variable,
-        frag_d: Variable,
+        frag_a: Variable<D>,
+        frag_b: Variable<D>,
+        frag_c: Variable<D>,
+        frag_d: Variable<D>,
     },
     /// Store the fragment in an output variable following the stride and the layout.
     Store {
-        output: Variable,
-        frag: Variable,
-        stride: Variable,
+        output: Variable<D>,
+        frag: Variable<D>,
+        stride: Variable<D>,
         layout: FragmentLayout,
     },
 }
@@ -74,7 +77,7 @@ impl Display for FragmentIdent {
     }
 }
 
-impl Display for Fragment {
+impl<D: Dialect> Display for Fragment<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.layout {
             Some(layout) => write!(
@@ -91,7 +94,7 @@ impl Display for Fragment {
     }
 }
 
-impl Display for WmmaInstruction {
+impl<D: Dialect> Display for WmmaInstruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WmmaInstruction::Fill { frag, value } => {

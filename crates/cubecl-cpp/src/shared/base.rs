@@ -1,4 +1,5 @@
-use std::{collections::HashSet, fmt::Debug, marker::PhantomData, num::NonZero};
+use std::hash::Hash;
+use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_core::{
     cpa,
@@ -14,19 +15,21 @@ use super::{Instruction, VariableSettings, WarpInstruction};
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
 
-pub trait Dialect: Default + Clone + Debug + Send + Sync + 'static {
+pub trait Dialect: Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static {
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_bf16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug, Default)]
 pub struct CppCompiler<D: Dialect> {
-    shared_memories: Vec<super::SharedMemory>,
-    const_arrays: Vec<super::ConstArray>,
-    local_arrays: Vec<super::LocalArray>,
+    shared_memories: Vec<super::SharedMemory<D>>,
+    const_arrays: Vec<super::ConstArray<D>>,
+    local_arrays: Vec<super::LocalArray<D>>,
     rank: bool,
     wrap_size_checked: bool,
     wmma: bool,
@@ -36,10 +39,9 @@ pub struct CppCompiler<D: Dialect> {
     stride: bool,
     num_inputs: usize,
     num_outputs: usize,
-    items: HashSet<super::Item>,
+    items: HashSet<super::Item<D>>,
     strategy: ExecutionMode,
     settings: VariableSettings,
-    dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Compiler for CppCompiler<D> {
@@ -115,11 +117,10 @@ impl<D: Dialect> CppCompiler<D> {
             bf16: self.bf16,
             f16: self.f16,
             items: self.items,
-            dialect: PhantomData,
         }
     }
 
-    fn compile_scope(&mut self, scope: &mut gpu::Scope) -> Vec<Instruction> {
+    fn compile_scope(&mut self, scope: &mut gpu::Scope) -> Vec<Instruction<D>> {
         let mut instructions = Vec::new();
 
         let const_arrays = scope
@@ -158,7 +159,7 @@ impl<D: Dialect> CppCompiler<D> {
 
     fn compile_operation(
         &mut self,
-        instructions: &mut Vec<Instruction>,
+        instructions: &mut Vec<Instruction<D>>,
         operation: gpu::Operation,
         scope: &mut gpu::Scope,
     ) {
@@ -227,7 +228,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_cmma(&mut self, cmma: gpu::CoopMma) -> Instruction {
+    fn compile_cmma(&mut self, cmma: gpu::CoopMma) -> Instruction<D> {
         match cmma {
             gpu::CoopMma::Fill { mat: frag, value } => {
                 Instruction::Wmma(super::WmmaInstruction::Fill {
@@ -273,7 +274,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_metadata(&mut self, metadata: gpu::Metadata) -> Instruction {
+    fn compile_metadata(&mut self, metadata: gpu::Metadata) -> Instruction<D> {
         match metadata {
             gpu::Metadata::Stride { dim, var, out } => {
                 self.stride = true;
@@ -318,7 +319,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_branch(&mut self, instructions: &mut Vec<Instruction>, branch: gpu::Branch) {
+    fn compile_branch(&mut self, instructions: &mut Vec<Instruction<D>>, branch: gpu::Branch) {
         match branch {
             gpu::Branch::If(mut op) => instructions.push(Instruction::If {
                 cond: self.compile_variable(op.cond),
@@ -365,7 +366,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_instruction(
         &mut self,
         value: gpu::Operator,
-        instructions: &mut Vec<Instruction>,
+        instructions: &mut Vec<Instruction<D>>,
         scope: &mut gpu::Scope,
     ) {
         match value {
@@ -594,7 +595,7 @@ impl<D: Dialect> CppCompiler<D> {
         };
     }
 
-    fn compile_binary(&mut self, value: gpu::BinaryOperator) -> super::BinaryInstruction {
+    fn compile_binary(&mut self, value: gpu::BinaryOperator) -> super::BinaryInstruction<D> {
         super::BinaryInstruction {
             lhs: self.compile_variable(value.lhs),
             rhs: self.compile_variable(value.rhs),
@@ -602,14 +603,14 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_unary(&mut self, value: gpu::UnaryOperator) -> super::UnaryInstruction {
+    fn compile_unary(&mut self, value: gpu::UnaryOperator) -> super::UnaryInstruction<D> {
         super::UnaryInstruction {
             input: self.compile_variable(value.input),
             out: self.compile_variable(value.out),
         }
     }
 
-    fn compile_variable(&mut self, value: gpu::Variable) -> super::Variable {
+    fn compile_variable(&mut self, value: gpu::Variable) -> super::Variable<D> {
         match value {
             gpu::Variable::GlobalInputArray { id, item } => {
                 super::Variable::GlobalInputArray(id, self.compile_item(item))
@@ -734,7 +735,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_matrix(&mut self, matrix: gpu::Matrix) -> super::Fragment {
+    fn compile_matrix(&mut self, matrix: gpu::Matrix) -> super::Fragment<D> {
         super::Fragment {
             ident: self.compile_matrix_ident(matrix.ident),
             m: matrix.m,
@@ -764,14 +765,14 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_binding(&mut self, binding: gpu::Binding) -> super::Binding {
+    fn compile_binding(&mut self, binding: gpu::Binding) -> super::Binding<D> {
         super::Binding {
             item: self.compile_item(binding.item),
             size: binding.size,
         }
     }
 
-    fn compile_item(&mut self, item: gpu::Item) -> super::Item {
+    fn compile_item(&mut self, item: gpu::Item) -> super::Item<D> {
         let item = super::Item::new(
             self.compile_elem(item.elem),
             item.vectorization.map(NonZero::get).unwrap_or(1).into(),
@@ -781,7 +782,7 @@ impl<D: Dialect> CppCompiler<D> {
         item
     }
 
-    fn compile_elem(&mut self, value: gpu::Elem) -> super::Elem {
+    fn compile_elem(&mut self, value: gpu::Elem) -> super::Elem<D> {
         match value {
             gpu::Elem::Float(kind) => match kind {
                 gpu::FloatKind::F16 => {

@@ -2,10 +2,10 @@ use cubecl_core::ir::{self as gpu, ConstantScalarValue};
 use half::{bf16, f16};
 use std::fmt::Display;
 
-use super::{Fragment, COUNTER_TMP_VAR};
+use super::{Dialect, Fragment, COUNTER_TMP_VAR};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
-pub enum Elem {
+pub enum Elem<D: Dialect> {
     F32,
     F16,
     F162,
@@ -15,6 +15,7 @@ pub enum Elem {
     U32,
     Bool,
     Atomic(AtomicKind),
+    _Dialect(std::marker::PhantomData<D>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
@@ -33,28 +34,29 @@ impl Display for AtomicKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
-pub struct Item {
-    pub(crate) elem: Elem,
+pub struct Item<D: Dialect> {
+    pub(crate) elem: Elem<D>,
     pub(crate) vectorization: usize,
 }
 
-impl Display for Elem {
+impl<D: Dialect> Display for Elem<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Elem::F16 => f.write_str("__half"),
             Elem::F162 => f.write_str("__half2"),
             Elem::F32 => f.write_str("float"),
-            Elem::BF16 => f.write_str("__nv_bfloat16"),
-            Elem::BF162 => f.write_str("__nv_bfloat162"),
+            Elem::BF16 => D::bfloat16_type_name(f),
+            Elem::BF162 => D::bfloat162_type_name(f),
             Elem::I32 => f.write_str("int"),
             Elem::U32 => f.write_str("uint"),
             Elem::Bool => f.write_str("bool"),
             Elem::Atomic(inner) => inner.fmt(f),
+            Elem::_Dialect(_) => Ok(()),
         }
     }
 }
 
-impl Display for Item {
+impl<D: Dialect> Display for Item<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if 1 == self.vectorization {
             return write!(f, "{}", self.elem);
@@ -64,21 +66,21 @@ impl Display for Item {
     }
 }
 
-pub trait Component: Display + FmtLeft {
-    fn item(&self) -> Item;
+pub trait Component<D: Dialect>: Display + FmtLeft {
+    fn item(&self) -> Item<D>;
     fn is_const(&self) -> bool;
-    fn index(&self, index: usize) -> IndexedVariable;
-    fn elem(&self) -> Elem {
+    fn index(&self, index: usize) -> IndexedVariable<D>;
+    fn elem(&self) -> Elem<D> {
         *self.item().elem()
     }
 }
 
-impl Component for IndexedVariable {
-    fn item(&self) -> Item {
+impl<D: Dialect> Component<D> for IndexedVariable<D> {
+    fn item(&self) -> Item<D> {
         self.var.item()
     }
 
-    fn index(&self, index: usize) -> IndexedVariable {
+    fn index(&self, index: usize) -> IndexedVariable<D> {
         self.var.index(index)
     }
 
@@ -86,12 +88,13 @@ impl Component for IndexedVariable {
         matches!(self.var, Variable::ConstLocal { .. })
     }
 }
-impl Component for Variable {
-    fn index(&self, index: usize) -> IndexedVariable {
+
+impl<D: Dialect> Component<D> for Variable<D> {
+    fn index(&self, index: usize) -> IndexedVariable<D> {
         self.index(index)
     }
 
-    fn item(&self) -> Item {
+    fn item(&self) -> Item<D> {
         match self {
             Variable::GlobalInputArray(_, e) => *e,
             Variable::GlobalOutputArray(_, e) => *e,
@@ -140,18 +143,30 @@ impl Component for Variable {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Variable {
+pub enum Variable<D: Dialect> {
     WarpSize,
-    GlobalInputArray(u16, Item),
-    GlobalOutputArray(u16, Item),
-    GlobalScalar(u16, Elem, gpu::Elem),
-    ConstantArray(u16, Item, u32),
-    ConstantScalar(ConstantScalarValue, Elem),
-    Local { id: u16, item: Item, depth: u8 },
-    ConstLocal { id: u16, item: Item, depth: u8 },
-    Slice { id: u16, item: Item, depth: u8 },
-    SharedMemory(u16, Item, u32),
-    LocalArray(u16, Item, u8, u32),
+    GlobalInputArray(u16, Item<D>),
+    GlobalOutputArray(u16, Item<D>),
+    GlobalScalar(u16, Elem<D>, gpu::Elem),
+    ConstantArray(u16, Item<D>, u32),
+    ConstantScalar(ConstantScalarValue, Elem<D>),
+    Local {
+        id: u16,
+        item: Item<D>,
+        depth: u8,
+    },
+    ConstLocal {
+        id: u16,
+        item: Item<D>,
+        depth: u8,
+    },
+    Slice {
+        id: u16,
+        item: Item<D>,
+        depth: u8,
+    },
+    SharedMemory(u16, Item<D>, u32),
+    LocalArray(u16, Item<D>, u8, u32),
     IdxGlobal,
     ThreadIdxGlobal,
     ThreadIdxX,
@@ -173,11 +188,18 @@ pub enum Variable {
     GridDimX,
     GridDimY,
     GridDimZ,
-    WmmaFragment { id: u16, frag: Fragment, depth: u8 },
-    Tmp { id: u16, item: Item },
+    WmmaFragment {
+        id: u16,
+        frag: Fragment<D>,
+        depth: u8,
+    },
+    Tmp {
+        id: u16,
+        item: Item<D>,
+    },
 }
 
-impl Display for Variable {
+impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
@@ -252,17 +274,17 @@ impl Display for Variable {
 }
 
 #[derive(new)]
-pub struct OptimizedArgs<const N: usize> {
-    pub args: [Variable; N],
+pub struct OptimizedArgs<const N: usize, D: Dialect> {
+    pub args: [Variable<D>; N],
     pub optimization_factor: Option<usize>,
 }
 
-impl Variable {
+impl<D: Dialect> Variable<D> {
     pub fn is_optimized(&self) -> bool {
         self.item().is_optimized()
     }
 
-    pub fn tmp(item: Item) -> Self {
+    pub fn tmp(item: Item<D>) -> Self {
         let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         Variable::Tmp {
@@ -271,7 +293,7 @@ impl Variable {
         }
     }
 
-    pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N> {
+    pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N, D> {
         let args_after = args.map(|a| a.optimized());
 
         let item_reference_after = args_after[0].item();
@@ -380,7 +402,7 @@ impl Variable {
         }
     }
 
-    pub fn index(&self, index: usize) -> IndexedVariable {
+    pub fn index(&self, index: usize) -> IndexedVariable<D> {
         IndexedVariable {
             var: *self,
             index,
@@ -393,7 +415,7 @@ pub trait FmtLeft: Display {
     fn fmt_left(&self) -> String;
 }
 
-impl FmtLeft for Variable {
+impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
         match self {
             Self::ConstLocal { item, .. } => format!("const {item} {self}"),
@@ -403,7 +425,7 @@ impl FmtLeft for Variable {
     }
 }
 
-impl FmtLeft for IndexedVariable {
+impl<D: Dialect> FmtLeft for IndexedVariable<D> {
     fn fmt_left(&self) -> String {
         match self.var {
             Variable::ConstLocal { item, .. } => format!("const {item} {self}"),
@@ -420,13 +442,13 @@ impl FmtLeft for &String {
 }
 
 #[derive(Debug, Clone)]
-pub struct IndexedVariable {
-    var: Variable,
+pub struct IndexedVariable<D: Dialect> {
+    var: Variable<D>,
     optimized: bool,
     index: usize,
 }
 
-impl Display for IndexedVariable {
+impl<D: Dialect> Display for IndexedVariable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let var = &self.var;
         let ref_ = matches!(var, Variable::ConstLocal { .. })
@@ -452,8 +474,8 @@ impl Display for IndexedVariable {
         }
     }
 }
-impl Item {
-    pub fn elem(&self) -> &Elem {
+impl<D: Dialect> Item<D> {
+    pub fn elem(&self) -> &Elem<D> {
         &self.elem
     }
 
@@ -465,13 +487,13 @@ impl Item {
         }
     }
 
-    pub fn new(elem: Elem, vectorization: usize) -> Self {
+    pub fn new(elem: Elem<D>, vectorization: usize) -> Self {
         Self {
             elem,
             vectorization,
         }
     }
-    pub fn scalar(elem: Elem) -> Self {
+    pub fn scalar(elem: Elem<D>) -> Self {
         Self {
             elem,
             vectorization: 1,
@@ -482,7 +504,7 @@ impl Item {
         matches!(self.elem, Elem::F162 | Elem::BF162)
     }
 
-    pub fn optimized(&self) -> Item {
+    pub fn optimized(&self) -> Item<D> {
         if self.vectorization == 1 {
             return *self;
         }
@@ -505,7 +527,7 @@ impl Item {
     }
 }
 
-impl Elem {
+impl<D: Dialect> Elem<D> {
     pub fn size(&self) -> usize {
         match self {
             Self::F16 => core::mem::size_of::<f16>(),
@@ -518,6 +540,7 @@ impl Elem {
             Self::Bool => core::mem::size_of::<bool>(),
             Self::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
             Self::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
+            Self::_Dialect(_) => 0,
         }
     }
 }

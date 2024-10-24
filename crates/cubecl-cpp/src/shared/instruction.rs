@@ -1,186 +1,188 @@
 use crate::shared::FmtLeft;
 
-use super::{binary::*, unary::*, Component, Elem, Variable, WarpInstruction, WmmaInstruction};
-use std::fmt::Display;
+use super::{
+    binary::*, unary::*, Component, Dialect, Elem, Variable, WarpInstruction, WmmaInstruction,
+};
+use std::{fmt::Display, marker::PhantomData};
 
 #[derive(Debug, Clone)]
-pub struct BinaryInstruction {
-    pub lhs: Variable,
-    pub rhs: Variable,
-    pub out: Variable,
+pub struct BinaryInstruction<D: Dialect> {
+    pub lhs: Variable<D>,
+    pub rhs: Variable<D>,
+    pub out: Variable<D>,
 }
 
 #[derive(Debug, Clone)]
-pub struct UnaryInstruction {
-    pub input: Variable,
-    pub out: Variable,
+pub struct UnaryInstruction<D: Dialect> {
+    pub input: Variable<D>,
+    pub out: Variable<D>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Instruction {
+pub enum Instruction<D: Dialect> {
     Length {
-        input: Variable,
-        out: Variable,
+        input: Variable<D>,
+        out: Variable<D>,
         num_inputs: usize,
         num_outputs: usize,
     },
     SliceLength {
-        input: Variable,
-        out: Variable,
+        input: Variable<D>,
+        out: Variable<D>,
     },
     DeclareVariable {
-        var: Variable,
+        var: Variable<D>,
     },
-    Modulo(BinaryInstruction),
-    Remainder(BinaryInstruction),
-    Add(BinaryInstruction),
+    Modulo(BinaryInstruction<D>),
+    Remainder(BinaryInstruction<D>),
+    Add(BinaryInstruction<D>),
     Fma {
-        a: Variable,
-        b: Variable,
-        c: Variable,
-        out: Variable,
+        a: Variable<D>,
+        b: Variable<D>,
+        c: Variable<D>,
+        out: Variable<D>,
     },
-    Div(BinaryInstruction),
-    Mul(BinaryInstruction),
-    Sub(BinaryInstruction),
-    Index(BinaryInstruction),
-    IndexAssign(BinaryInstruction),
+    Div(BinaryInstruction<D>),
+    Mul(BinaryInstruction<D>),
+    Sub(BinaryInstruction<D>),
+    Index(BinaryInstruction<D>),
+    IndexAssign(BinaryInstruction<D>),
     CheckedIndex {
-        len: Variable,
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        len: Variable<D>,
+        lhs: Variable<D>,
+        rhs: Variable<D>,
+        out: Variable<D>,
     },
-    Assign(UnaryInstruction),
+    Assign(UnaryInstruction<D>),
     RangeLoop {
-        i: Variable,
-        start: Variable,
-        end: Variable,
-        step: Option<Variable>,
+        i: Variable<D>,
+        start: Variable<D>,
+        end: Variable<D>,
+        step: Option<Variable<D>>,
         inclusive: bool,
         instructions: Vec<Self>,
     },
     VecInit {
-        inputs: Vec<Variable>,
-        out: Variable,
+        inputs: Vec<Variable<D>>,
+        out: Variable<D>,
     },
     Loop {
         instructions: Vec<Self>,
     },
     If {
-        cond: Variable,
+        cond: Variable<D>,
         instructions: Vec<Self>,
     },
     IfElse {
-        cond: Variable,
+        cond: Variable<D>,
         instructions_if: Vec<Self>,
         instructions_else: Vec<Self>,
     },
     Select {
-        cond: Variable,
-        then: Variable,
-        or_else: Variable,
-        out: Variable,
+        cond: Variable<D>,
+        then: Variable<D>,
+        or_else: Variable<D>,
+        out: Variable<D>,
     },
     Switch {
-        value: Variable,
+        value: Variable<D>,
         instructions_default: Vec<Self>,
-        instructions_cases: Vec<(Variable, Vec<Self>)>,
+        instructions_cases: Vec<(Variable<D>, Vec<Self>)>,
     },
     Slice {
-        input: Variable,
-        start: Variable,
-        end: Variable,
-        out: Variable,
+        input: Variable<D>,
+        start: Variable<D>,
+        end: Variable<D>,
+        out: Variable<D>,
     },
     Return,
     Break,
     Stride {
-        dim: Variable,
+        dim: Variable<D>,
         position: usize,
-        out: Variable,
+        out: Variable<D>,
     },
     Shape {
-        dim: Variable,
+        dim: Variable<D>,
         position: usize,
-        out: Variable,
+        out: Variable<D>,
     },
-    Equal(BinaryInstruction),
-    NotEqual(BinaryInstruction),
-    Lower(BinaryInstruction),
-    Greater(BinaryInstruction),
-    LowerEqual(BinaryInstruction),
-    GreaterEqual(BinaryInstruction),
-    Erf(UnaryInstruction),
-    BitwiseOr(BinaryInstruction),
-    BitwiseAnd(BinaryInstruction),
-    BitwiseXor(BinaryInstruction),
-    ShiftLeft(BinaryInstruction),
-    ShiftRight(BinaryInstruction),
-    Abs(UnaryInstruction),
-    Exp(UnaryInstruction),
-    Log(UnaryInstruction),
-    Log1p(UnaryInstruction),
-    Cos(UnaryInstruction),
-    Sin(UnaryInstruction),
-    Tanh(UnaryInstruction),
-    Powf(BinaryInstruction),
-    Sqrt(UnaryInstruction),
-    Min(BinaryInstruction),
-    Max(BinaryInstruction),
-    Not(UnaryInstruction),
-    Or(BinaryInstruction),
-    And(BinaryInstruction),
+    Equal(BinaryInstruction<D>),
+    NotEqual(BinaryInstruction<D>),
+    Lower(BinaryInstruction<D>),
+    Greater(BinaryInstruction<D>),
+    LowerEqual(BinaryInstruction<D>),
+    GreaterEqual(BinaryInstruction<D>),
+    Erf(UnaryInstruction<D>),
+    BitwiseOr(BinaryInstruction<D>),
+    BitwiseAnd(BinaryInstruction<D>),
+    BitwiseXor(BinaryInstruction<D>),
+    ShiftLeft(BinaryInstruction<D>),
+    ShiftRight(BinaryInstruction<D>),
+    Abs(UnaryInstruction<D>),
+    Exp(UnaryInstruction<D>),
+    Log(UnaryInstruction<D>),
+    Log1p(UnaryInstruction<D>),
+    Cos(UnaryInstruction<D>),
+    Sin(UnaryInstruction<D>),
+    Tanh(UnaryInstruction<D>),
+    Powf(BinaryInstruction<D>),
+    Sqrt(UnaryInstruction<D>),
+    Min(BinaryInstruction<D>),
+    Max(BinaryInstruction<D>),
+    Not(UnaryInstruction<D>),
+    Or(BinaryInstruction<D>),
+    And(BinaryInstruction<D>),
     Clamp {
-        input: Variable,
-        min_value: Variable,
-        max_value: Variable,
-        out: Variable,
+        input: Variable<D>,
+        min_value: Variable<D>,
+        max_value: Variable<D>,
+        out: Variable<D>,
     },
     SyncThreads,
     ThreadFence,
-    Round(UnaryInstruction),
-    Ceil(UnaryInstruction),
-    Floor(UnaryInstruction),
-    Wrap(WarpInstruction),
-    Wmma(WmmaInstruction),
-    Bitcast(UnaryInstruction),
-    AtomicLoad(UnaryInstruction),
-    AtomicStore(UnaryInstruction),
-    AtomicSwap(BinaryInstruction),
-    AtomicAdd(BinaryInstruction),
-    AtomicSub(BinaryInstruction),
-    AtomicMax(BinaryInstruction),
-    AtomicMin(BinaryInstruction),
-    AtomicAnd(BinaryInstruction),
-    AtomicOr(BinaryInstruction),
-    AtomicXor(BinaryInstruction),
+    Round(UnaryInstruction<D>),
+    Ceil(UnaryInstruction<D>),
+    Floor(UnaryInstruction<D>),
+    Wrap(WarpInstruction<D>),
+    Wmma(WmmaInstruction<D>),
+    Bitcast(UnaryInstruction<D>),
+    AtomicLoad(UnaryInstruction<D>),
+    AtomicStore(UnaryInstruction<D>),
+    AtomicSwap(BinaryInstruction<D>),
+    AtomicAdd(BinaryInstruction<D>),
+    AtomicSub(BinaryInstruction<D>),
+    AtomicMax(BinaryInstruction<D>),
+    AtomicMin(BinaryInstruction<D>),
+    AtomicAnd(BinaryInstruction<D>),
+    AtomicOr(BinaryInstruction<D>),
+    AtomicXor(BinaryInstruction<D>),
     AtomicCAS {
-        input: Variable,
-        cmp: Variable,
-        val: Variable,
-        out: Variable,
+        input: Variable<D>,
+        cmp: Variable<D>,
+        val: Variable<D>,
+        out: Variable<D>,
     },
-    Negate(UnaryInstruction),
-    Magnitude(UnaryInstruction),
-    Normalize(UnaryInstruction),
-    Dot(BinaryInstruction),
+    Negate(UnaryInstruction<D>),
+    Magnitude(UnaryInstruction<D>),
+    Normalize(UnaryInstruction<D>),
+    Dot(BinaryInstruction<D>),
     Copy {
-        input: Variable,
-        in_index: Variable,
-        out: Variable,
-        out_index: Variable,
+        input: Variable<D>,
+        in_index: Variable<D>,
+        out: Variable<D>,
+        out_index: Variable<D>,
     },
     CopyBulk {
-        input: Variable,
-        in_index: Variable,
-        out: Variable,
-        out_index: Variable,
+        input: Variable<D>,
+        in_index: Variable<D>,
+        out: Variable<D>,
+        out_index: Variable<D>,
         len: u32,
     },
 }
 
-impl Display for Instruction {
+impl<D: Dialect> Display for Instruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Instruction::Return => f.write_str("return;"),
@@ -551,15 +553,17 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
     }
 }
 
-struct Fma;
+struct Fma<D: Dialect> {
+    dialect: PhantomData<D>,
+}
 
-impl Fma {
+impl<D: Dialect> Fma<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        a: &Variable,
-        b: &Variable,
-        c: &Variable,
-        out: &Variable,
+        a: &Variable<D>,
+        b: &Variable<D>,
+        c: &Variable<D>,
+        out: &Variable<D>,
     ) -> core::fmt::Result {
         let out_item = out.item();
         let num = out_item.vectorization;
@@ -582,15 +586,17 @@ impl Fma {
     }
 }
 
-struct Clamp;
+struct Clamp<D: Dialect> {
+    dialect: PhantomData<D>,
+}
 
-impl Clamp {
+impl<D: Dialect> Clamp<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable,
-        min_value: &Variable,
-        max_value: &Variable,
-        out: &Variable,
+        input: &Variable<D>,
+        min_value: &Variable<D>,
+        max_value: &Variable<D>,
+        out: &Variable<D>,
     ) -> core::fmt::Result {
         let input = input.optimized();
         let min_value = min_value.optimized();
@@ -617,14 +623,16 @@ impl Clamp {
     }
 }
 
-struct Remainder;
+struct Remainder<D: Dialect> {
+    dialect: PhantomData<D>,
+}
 
-impl Remainder {
+impl<D: Dialect> Remainder<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
     ) -> core::fmt::Result {
         let lhs = lhs.optimized();
         let rhs = rhs.optimized();
@@ -648,13 +656,15 @@ impl Remainder {
     }
 }
 
-struct Magnitude;
+struct Magnitude<D: Dialect> {
+    dialect: PhantomData<D>,
+}
 
-impl Magnitude {
+impl<D: Dialect> Magnitude<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
+        input: &Variable<D>,
+        out: &Variable<D>,
     ) -> core::fmt::Result {
         let num = input.item().vectorization;
         let elem = input.elem();
@@ -674,13 +684,15 @@ impl Magnitude {
     }
 }
 
-struct Normalize;
+struct Normalize<D: Dialect> {
+    dialect: PhantomData<D>,
+}
 
-impl Normalize {
+impl<D: Dialect> Normalize<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
+        input: &Variable<D>,
+        out: &Variable<D>,
     ) -> core::fmt::Result {
         let num = input.item().vectorization;
         let elem = input.elem();
@@ -714,14 +726,16 @@ impl Normalize {
     }
 }
 
-struct Dot;
+struct Dot<D: Dialect> {
+    dialect: PhantomData<D>,
+}
 
-impl Dot {
+impl<D: Dialect> Dot<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
     ) -> core::fmt::Result {
         let num = lhs.item().vectorization;
 
@@ -738,12 +752,12 @@ impl Dot {
     }
 }
 
-struct EnsureBoolArg<'a, V: Display> {
+struct EnsureBoolArg<'a, V: Display, D: Dialect> {
     var: &'a V,
-    elem: &'a Elem,
+    elem: &'a Elem<D>,
 }
 
-impl<'a, V: Display> Display for EnsureBoolArg<'a, V> {
+impl<'a, V: Display, D: Dialect> Display for EnsureBoolArg<'a, V, D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.elem != &Elem::Bool {
             write!(f, "bool({})", self.var)
