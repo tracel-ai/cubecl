@@ -1,13 +1,13 @@
-use super::{Instruction, Variable};
+use super::{Dialect, Instruction, Variable};
 use std::fmt::Display;
 
 /// A body is composed of a list of [instructions](Instruction).
 #[derive(Debug, Clone)]
-pub struct Body {
-    pub instructions: Vec<Instruction>,
-    pub shared_memories: Vec<super::SharedMemory>,
-    pub const_arrays: Vec<super::ConstArray>,
-    pub local_arrays: Vec<super::LocalArray>,
+pub struct Body<D: Dialect> {
+    pub instructions: Vec<Instruction<D>>,
+    pub shared_memories: Vec<super::SharedMemory<D>>,
+    pub const_arrays: Vec<super::ConstArray<D>>,
+    pub local_arrays: Vec<super::LocalArray<D>>,
     pub stride: bool,
     pub shape: bool,
     pub rank: bool,
@@ -26,7 +26,7 @@ pub struct VariableSettings {
     pub grid_dim_global: bool,
 }
 
-impl Display for Body {
+impl<D: Dialect> Display for Body<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.settings.idx_global
             || self.settings.absolute_idx.0

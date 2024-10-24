@@ -1,14 +1,14 @@
 use crate::shared::FmtLeft;
 
-use super::{Component, Elem, Item, Variable};
-use std::fmt::{Display, Formatter};
+use super::{Component, Dialect, Elem, Item, Variable};
+use std::{fmt::{Display, Formatter}, marker::PhantomData};
 
-pub trait Binary {
+pub trait Binary<D: Dialect> {
     fn format(
         f: &mut Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
     ) -> std::fmt::Result {
         let out_item = out.item();
         if out.item().vectorization == 1 {
@@ -25,17 +25,17 @@ pub trait Binary {
         f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
-        item: Item,
+        item: Item<D>,
     ) -> std::fmt::Result
     where
-        Lhs: Component,
-        Rhs: Component;
+        Lhs: Component<D>,
+        Rhs: Component<D>;
 
     fn unroll_vec(
         f: &mut Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
     ) -> core::fmt::Result {
         let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
         let [lhs, rhs, out_optimized] = optimized.args;
@@ -48,7 +48,7 @@ pub trait Binary {
             None => item_out_optimized.vectorization,
         };
 
-        let mut write_op = |lhs: &Variable, rhs: &Variable, out: &Variable, item_out: Item| {
+        let mut write_op = |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
             let out = out.fmt_left();
             writeln!(f, "{out} = {item_out}{{")?;
             for i in 0..index {
@@ -85,12 +85,12 @@ macro_rules! operator {
     ($name:ident, $op:expr) => {
         pub struct $name;
 
-        impl Binary for $name {
+        impl<D: Dialect> Binary<D> for $name {
             fn format_scalar<Lhs: Display, Rhs: Display>(
                 f: &mut std::fmt::Formatter<'_>,
                 lhs: Lhs,
                 rhs: Rhs,
-                _item: Item,
+                _item: Item<D>,
             ) -> std::fmt::Result {
                 write!(f, "{lhs} {} {rhs}", $op)
             }
@@ -102,12 +102,12 @@ macro_rules! function {
     ($name:ident, $op:expr) => {
         pub struct $name;
 
-        impl Binary for $name {
+        impl<D: Dialect> Binary<D> for $name {
             fn format_scalar<Lhs: Display, Rhs: Display>(
                 f: &mut std::fmt::Formatter<'_>,
                 lhs: Lhs,
                 rhs: Rhs,
-                _item: Item,
+                _item: Item<D>,
             ) -> std::fmt::Result {
                 write!(f, "{}({lhs}, {rhs})", $op)
             }
@@ -141,16 +141,16 @@ function!(Min, "min");
 pub struct IndexAssign;
 pub struct Index;
 
-impl Binary for IndexAssign {
+impl<D: Dialect> Binary<D> for IndexAssign {
     fn format_scalar<Lhs, Rhs>(
         f: &mut Formatter<'_>,
         _lhs: Lhs,
         rhs: Rhs,
-        item_out: Item,
+        item_out: Item<D>,
     ) -> std::fmt::Result
     where
-        Lhs: Component,
-        Rhs: Component,
+        Lhs: Component<D>,
+        Rhs: Component<D>,
     {
         let item_rhs = rhs.item();
 
@@ -187,9 +187,9 @@ impl Binary for IndexAssign {
 
     fn unroll_vec(
         f: &mut Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
     ) -> std::fmt::Result {
         let item_lhs = lhs.item();
         let out_item = out.item();
@@ -208,9 +208,9 @@ impl Binary for IndexAssign {
 
     fn format(
         f: &mut Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
     ) -> std::fmt::Result {
         if matches!(out, Variable::Local { .. } | Variable::ConstLocal { .. }) {
             return IndexAssignVector::format(f, lhs, rhs, out);
@@ -228,12 +228,12 @@ impl Binary for IndexAssign {
     }
 }
 
-impl Binary for Index {
+impl<D: Dialect> Binary<D> for Index {
     fn format(
         f: &mut Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
     ) -> std::fmt::Result {
         if matches!(lhs, Variable::Local { .. } | Variable::ConstLocal { .. }) {
             return IndexVector::format(f, lhs, rhs, out);
@@ -254,11 +254,11 @@ impl Binary for Index {
         f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
-        item_out: Item,
+        item_out: Item<D>,
     ) -> std::fmt::Result
     where
-        Lhs: Component,
-        Rhs: Component,
+        Lhs: Component<D>,
+        Rhs: Component<D>,
     {
         let item_lhs = lhs.item();
 
@@ -293,7 +293,9 @@ impl Binary for Index {
 /// float item = var[0]; // We want that.
 /// float item = var.x; // So we compile to that.
 /// ```
-struct IndexVector;
+struct IndexVector<D: Dialect> {
+    dialect: PhantomData<D>,
+}
 
 /// The goal is to support indexing of vectorized types.
 ///
@@ -305,14 +307,16 @@ struct IndexVector;
 /// var[0] = 1.0; // We want that.
 /// var.x = 1.0;  // So we compile to that.
 /// ```
-struct IndexAssignVector;
+struct IndexAssignVector<D: Dialect> {
+    dialect: PhantomData<D>,
+}
 
-impl IndexVector {
+impl<D: Dialect> IndexVector<D> {
     fn format(
         f: &mut Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
     ) -> std::fmt::Result {
         let index = match rhs {
             Variable::ConstantScalar(value, _elem) => value.as_usize(),
@@ -331,12 +335,12 @@ impl IndexVector {
     }
 }
 
-impl IndexAssignVector {
+impl<D: Dialect> IndexAssignVector<D> {
     fn format(
         f: &mut Formatter<'_>,
-        lhs: &Variable,
-        rhs: &Variable,
-        out: &Variable,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
     ) -> std::fmt::Result {
         let index = match lhs {
             Variable::ConstantScalar(value, _) => value.as_usize(),

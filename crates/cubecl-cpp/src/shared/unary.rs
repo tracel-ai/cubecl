@@ -1,11 +1,11 @@
-use super::{Component, Elem, FmtLeft, Variable};
+use super::{Component, Dialect, Elem, FmtLeft, Variable};
 use std::fmt::Display;
 
-pub trait Unary {
+pub trait Unary<D: Dialect> {
     fn format(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
+        input: &Variable<D>,
+        out: &Variable<D>,
     ) -> std::fmt::Result {
         let item = out.item();
 
@@ -18,20 +18,20 @@ pub trait Unary {
         }
     }
 
-    fn format_scalar<Input: Component>(
+    fn format_scalar<Input: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        elem: Elem,
+        elem: Elem<D>,
     ) -> std::fmt::Result;
 
     fn unroll_vec(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
-        elem: Elem,
+        input: &Variable<D>,
+        out: &Variable<D>,
+        elem: Elem<D>,
         index: usize,
     ) -> std::fmt::Result {
-        let mut write_op = |index, elem, input: &Variable, out: &Variable| {
+        let mut write_op = |index, elem, input: &Variable<D>, out: &Variable<D>| {
             let out_item = out.item();
             let out = out.fmt_left();
             writeln!(f, "{out} = {out_item}{{")?;
@@ -80,9 +80,9 @@ pub trait Unary {
     }
 }
 
-pub trait FunctionFmt {
+pub trait FunctionFmt<D: Dialect> {
     fn base_function_name() -> &'static str;
-    fn function_name(elem: Elem) -> String {
+    fn function_name(elem: Elem<D>) -> String {
         if Self::half_support() {
             match elem {
                 Elem::F16 | Elem::BF16 => return format!("h{}", Self::base_function_name()),
@@ -96,7 +96,7 @@ pub trait FunctionFmt {
     fn format_unary<Input: Display>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        elem: Elem,
+        elem: Elem<D>,
     ) -> std::fmt::Result {
         if Self::half_support() {
             return write!(f, "{}({input})", Self::function_name(elem));
@@ -120,7 +120,7 @@ macro_rules! function {
     ($name:ident, $func:expr, $half_support:expr) => {
         pub struct $name;
 
-        impl FunctionFmt for $name {
+        impl<D: Dialect> FunctionFmt<D> for $name {
             fn base_function_name() -> &'static str {
                 $func
             }
@@ -129,11 +129,11 @@ macro_rules! function {
             }
         }
 
-        impl Unary for $name {
+        impl<D: Dialect> Unary<D> for $name {
             fn format_scalar<Input: Display>(
                 f: &mut std::fmt::Formatter<'_>,
                 input: Input,
-                elem: Elem,
+                elem: Elem<D>,
             ) -> std::fmt::Result {
                 Self::format_unary(f, input, elem)
             }
@@ -161,14 +161,14 @@ function!(Abs, "abs", false);
 
 pub struct Not;
 
-impl Unary for Not {
+impl<D: Dialect> Unary<D> for Not {
     fn format_scalar<Input>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _elem: Elem,
+        _elem: Elem<D>,
     ) -> std::fmt::Result
     where
-        Input: Component,
+        Input: Component<D>,
     {
         write!(f, "!{input}")
     }
@@ -176,11 +176,11 @@ impl Unary for Not {
 
 pub struct Assign;
 
-impl Unary for Assign {
+impl<D: Dialect> Unary<D> for Assign {
     fn format(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable,
-        out: &Variable,
+        input: &Variable<D>,
+        out: &Variable<D>,
     ) -> std::fmt::Result {
         let item = out.item();
 
@@ -196,10 +196,10 @@ impl Unary for Assign {
     fn format_scalar<Input>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        elem: Elem,
+        elem: Elem<D>,
     ) -> std::fmt::Result
     where
-        Input: Component,
+        Input: Component<D>,
     {
         // Cast only when necessary.
         if elem != input.elem() {
