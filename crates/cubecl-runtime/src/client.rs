@@ -172,7 +172,7 @@ where
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// server.enable_timestamps();
     /// // Run your benchmarks/operations
     /// let duration = server.sync_elapsed();

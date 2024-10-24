@@ -31,7 +31,7 @@ impl<S: ComputeServer, C: ComputeChannel<S>, Out> TuneBenchmark<S, C, Out> {
             .client
             .profile(|| async {
                 let num_samples = 10;
-                let mut durations = vec![];
+                let mut durations = Vec::with_capacity(num_samples);
 
                 for _ in 0..num_samples {
                     AutotuneOperation::execute(self.operation.clone());
