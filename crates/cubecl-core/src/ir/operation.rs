@@ -240,6 +240,8 @@ impl Display for Operator {
             Operator::Select(op) => {
                 write!(f, "{} ? {} : {}", op.cond, op.then, op.or_else)
             }
+            Operator::Cast(op) => write!(f, "cast({})", op.input),
+            Operator::Bitcast(op) => write!(f, "bitcast({})", op.input),
         }
     }
 }
