@@ -42,7 +42,7 @@ pub trait AutotuneOperationSet<K: Send + Sync + 'static, Output = ()>: Send + Sy
 }
 
 /// Contains operation to run and inputs on which to run it
-pub trait AutotuneOperation<Output = ()> {
+pub trait AutotuneOperation<Output = ()>: core::fmt::Debug {
     /// Runs the operation
     fn execute(self: Box<Self>) -> Output;
 
