@@ -8,18 +8,24 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-pub type PlaneMma16x16x16<I, O, T> = PlaneMma16x16<I, O, T, 16>;
-pub type PlaneMma16x16x8<I, O, T> = PlaneMma16x16<I, O, T, 8>;
-pub type PlaneMma16x16x32<I, O, T> = PlaneMma16x16<I, O, T, 32>;
+pub type PlaneMma16x16x16<I, O, T> = PlaneMma<I, O, T, 16, 16, 16>;
+pub type PlaneMma16x16x8<I, O, T> = PlaneMma<I, O, T, 16, 16, 8>;
+pub type PlaneMma16x16x32<I, O, T> = PlaneMma<I, O, T, 16, 16, 32>;
+pub type PlaneMma32x8x16<I, O, T> = PlaneMma<I, O, T, 32, 8, 16>;
+pub type PlaneMma8x32x16<I, O, T> = PlaneMma<I, O, T, 8, 32, 16>;
+pub type PlaneMma32x32x32<I, O, T> = PlaneMma<I, O, T, 32, 32, 32>;
 
-pub struct PlaneMma16x16<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> {
+pub struct PlaneMma<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32>
+{
     _input: PhantomData<I>,
     _output: PhantomData<O>,
     _config: PhantomData<T>,
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> PlaneMapper for PlaneMma16x16<I, O, T, K> {
+impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32> PlaneMapper
+    for PlaneMma<I, O, T, M, N, K>
+{
     fn plane_id() -> u32 {
         UNIT_POS_Y
     }
@@ -30,11 +36,11 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> PlaneMapper for PlaneMm
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
-    for PlaneMma16x16<I, O, T, K>
+impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32>
+    TileMatmul<I, O, T> for PlaneMma<I, O, T, M, N, K>
 {
-    const M: u32 = 16;
-    const N: u32 = 16;
+    const M: u32 = M;
+    const N: u32 = N;
     const K: u32 = K;
 
     type Lhs = Array<I>;
@@ -194,6 +200,9 @@ fn fill_perpendicular<E: Numeric>(
     #[comptime] line_size: u32,
     #[comptime] plane_dim: u32,
 ) {
+    // TODO: this loads a line then keeps only one element
+    // Should reinterpret as unlined
+
     let k_row_alt = unit / num_cols;
     let col = unit % num_cols;
 
@@ -212,13 +221,14 @@ fn fill_perpendicular<E: Numeric>(
     }
 }
 
-impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> Matmul<I, O>
-    for PlaneMma16x16<I, O, T, K>
+impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32> Matmul<I, O>
+    for PlaneMma<I, O, T, M, N, K>
 {
     type Config = T;
 
     fn check_config(config: Self::Config) {
-        assert!(config.plane_dim() == 32);
-        assert!(K % 2 == 0 && K > 0)
+        let plane_dim = config.plane_dim();
+        assert!(M * N % plane_dim == 0);
+        assert!(K * N % plane_dim == 0);
     }
 }

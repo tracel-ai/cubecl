@@ -25,9 +25,9 @@ macro_rules! testgen_cmma_mock {
         use super::*;
 
         cubecl_linalg::testgen_cmma_internal!(
-            DummyUnitInstruction16_16_16,
-            DummyUnitInstruction32_8_16,
-            DummyUnitInstruction8_32_16,
+            PlaneMma16x16x16,
+            PlaneMma32x8x16,
+            PlaneMma8x32x16,
             f32,
             f32,
             f32,
