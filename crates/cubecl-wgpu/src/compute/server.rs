@@ -1,5 +1,6 @@
 use std::{future::Future, marker::PhantomData, num::NonZero, pin::Pin, time::Duration};
 
+use super::poll::WgpuPoll;
 use super::WgpuStorage;
 use crate::compiler::base::WgpuCompiler;
 use alloc::sync::Arc;
@@ -10,85 +11,11 @@ use cubecl_runtime::{
     memory_management::{MemoryHandle, MemoryLock, MemoryManagement},
     server::{self, ComputeServer},
     storage::{BindingResource, ComputeStorage},
-    ExecutionMode,
+    ExecutionMode, TimestampsError, TimestampsResult,
 };
 use hashbrown::HashMap;
 use web_time::Instant;
 use wgpu::{CommandEncoder, ComputePass, ComputePipeline, QuerySet, QuerySetDescriptor, QueryType};
-
-#[cfg(not(target_family = "wasm"))]
-mod poll {
-    use std::thread::JoinHandle;
-
-    #[derive(Debug)]
-    pub struct WgpuPoll {
-        active_handle: std::sync::Arc<()>,
-        cancel_sender: std::sync::mpsc::Sender<()>,
-        poll_thread: JoinHandle<()>,
-    }
-
-    impl WgpuPoll {
-        pub fn new(device: std::sync::Arc<wgpu::Device>) -> Self {
-            let active_handle = std::sync::Arc::new(());
-            let thread_check = active_handle.clone();
-
-            let (cancel_sender, cancel_receiver) = std::sync::mpsc::channel();
-            let poll_thread = std::thread::spawn(move || loop {
-                // Check whether the WgpuPoll, this thread, and something else is holding
-                // a handle.
-                if std::sync::Arc::strong_count(&thread_check) > 2 {
-                    device.poll(wgpu::MaintainBase::Poll);
-                } else {
-                    // Do not cancel thread while someone still needs to poll.
-                    if cancel_receiver.try_recv().is_ok() {
-                        break;
-                    }
-
-                    std::thread::park();
-                }
-                std::thread::yield_now();
-            });
-
-            Self {
-                active_handle,
-                cancel_sender,
-                poll_thread,
-            }
-        }
-        /// Get a handle, as long as it's alive the polling will be active.
-        pub fn start_polling(&self) -> std::sync::Arc<()> {
-            let handle = self.active_handle.clone();
-            self.poll_thread.thread().unpark();
-            handle
-        }
-    }
-
-    impl Drop for WgpuPoll {
-        fn drop(&mut self) {
-            self.cancel_sender
-                .send(())
-                .expect("Failed to shutdown polling thread.");
-            self.poll_thread.thread().unpark();
-        }
-    }
-}
-
-// On Wasm, the browser handles the polling loop, so we don't need anything.
-#[cfg(target_family = "wasm")]
-mod poll {
-    #[derive(Debug)]
-    pub struct WgpuPoll {}
-    impl WgpuPoll {
-        pub fn new(_device: alloc::sync::Arc<wgpu::Device>) -> Self {
-            Self {}
-        }
-        pub fn start_polling(&self) -> alloc::sync::Arc<()> {
-            alloc::sync::Arc::new(())
-        }
-    }
-}
-
-pub use poll::WgpuPoll;
 
 /// Wgpu compute server.
 #[derive(Debug)]
@@ -104,11 +31,45 @@ pub struct WgpuServer<C: WgpuCompiler> {
     logger: DebugLogger,
     poll: WgpuPoll,
     storage_locked: MemoryLock,
-
-    duration_profiled: Duration,
-    command_start_time: Option<Instant>,
-    query_set: Option<QuerySet>,
+    duration_profiled: Option<Duration>,
+    timestamps: KernelTimestamps,
     _compiler: PhantomData<C>,
+}
+
+#[derive(Debug)]
+enum KernelTimestamps {
+    Native { query_set: QuerySet, init: bool },
+    Inferred { start_time: Instant },
+    Disabled,
+}
+
+impl KernelTimestamps {
+    fn enable(&mut self, device: &wgpu::Device) {
+        if !matches!(self, Self::Disabled) {
+            return;
+        }
+
+        if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+            let query_set = device.create_query_set(&QuerySetDescriptor {
+                label: Some("CubeCL profile queries"),
+                ty: QueryType::Timestamp,
+                count: 2,
+            });
+
+            *self = Self::Native {
+                query_set,
+                init: false,
+            };
+        } else {
+            *self = Self::Inferred {
+                start_time: Instant::now(),
+            };
+        };
+    }
+
+    fn disable(&mut self) {
+        *self = Self::Disabled;
+    }
 }
 
 fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
@@ -125,15 +86,12 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         queue: Arc<wgpu::Queue>,
         tasks_max: usize,
     ) -> Self {
-        let queries = if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
-            Some(device.create_query_set(&QuerySetDescriptor {
-                label: Some("CubeCL profile queries"),
-                ty: QueryType::Timestamp,
-                count: 2,
-            }))
-        } else {
-            None
-        };
+        let logger = DebugLogger::default();
+        let mut timestamps = KernelTimestamps::Disabled;
+
+        if logger.profile_level().is_some() {
+            timestamps.enable(&device);
+        }
 
         Self {
             memory_management,
@@ -145,11 +103,10 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             storage_locked: MemoryLock::default(),
             pipelines: HashMap::new(),
             tasks_max,
-            logger: DebugLogger::default(),
+            logger,
             poll: WgpuPoll::new(device.clone()),
-            query_set: queries,
-            command_start_time: None,
-            duration_profiled: Duration::from_secs(0),
+            duration_profiled: None,
+            timestamps,
             _compiler: PhantomData,
         }
     }
@@ -230,47 +187,106 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
     }
 
-    fn sync_queue(&mut self) -> Pin<Box<dyn Future<Output = Duration> + Send + 'static>> {
-        self.clear_compute_pass();
-        let Some(start_time) = self.command_start_time.take() else {
-            return Box::pin(async move { Duration::from_secs_f64(0.0) });
-        };
+    fn sync_queue(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        self.flush();
 
-        if let Some(queries) = self.query_set.as_ref() {
-            let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-
-            let size = 2 * size_of::<u64>() as u64;
-            let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size,
-                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
-                mapped_at_creation: false,
-            });
-
-            self.encoder.resolve_query_set(queries, 0..2, &resolved, 0);
-            let fut = self.read_wgpu_buffer(&resolved, 0, size);
-
-            Box::pin(async move {
-                let data = fut
-                    .await
-                    .chunks_exact(8)
-                    .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
-                    .collect::<Vec<_>>();
-                let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
-                Duration::from_secs_f64(delta as f64 * period)
-            })
-        } else {
+        #[cfg(target_family = "wasm")]
+        {
             // TODO: This should work queue.on_submitted_work_done() but that
             // is not yet implemented on wgpu https://github.com/gfx-rs/wgpu/issues/6395
             //
             // For now, instead do a dummy readback. This *seems* to wait for the entire
             // queue to be done.
+
             let dummy = self.empty(32);
             let fut = self.read(dummy.binding());
+
             Box::pin(async move {
                 fut.await;
-                start_time.elapsed()
             })
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            self.device.poll(wgpu::MaintainBase::Wait);
+            Box::pin(async move {})
+        }
+    }
+
+    fn sync_queue_elapsed(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = TimestampsResult> + Send + 'static>> {
+        self.clear_compute_pass();
+
+        enum TimestampMethod {
+            Buffer(wgpu::Buffer, u64),
+            StartTime(Instant),
+        }
+
+        let method = match &mut self.timestamps {
+            KernelTimestamps::Native { query_set, init } => {
+                if !*init {
+                    let fut = self.sync_queue();
+
+                    return Box::pin(async move {
+                        fut.await;
+                        Err(TimestampsError::Unavailable)
+                    });
+                } else {
+                    let size = 2 * size_of::<u64>() as u64;
+                    let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: None,
+                        size,
+                        usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
+                        mapped_at_creation: false,
+                    });
+
+                    self.encoder
+                        .resolve_query_set(query_set, 0..2, &resolved, 0);
+                    *init = false;
+                    TimestampMethod::Buffer(resolved, size)
+                }
+            }
+            KernelTimestamps::Inferred { start_time } => {
+                let mut instant = Instant::now();
+                core::mem::swap(&mut instant, start_time);
+                TimestampMethod::StartTime(instant)
+            }
+            KernelTimestamps::Disabled => {
+                let fut = self.sync_queue();
+
+                return Box::pin(async move {
+                    fut.await;
+                    Err(TimestampsError::Disabled)
+                });
+            }
+        };
+
+        match method {
+            TimestampMethod::Buffer(resolved, size) => {
+                let period = self.queue.get_timestamp_period() as f64 * 1e-9;
+                let fut = self.read_wgpu_buffer(&resolved, 0, size);
+
+                Box::pin(async move {
+                    let data = fut
+                        .await
+                        .chunks_exact(8)
+                        .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                        .collect::<Vec<_>>();
+                    let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
+                    let duration = Duration::from_secs_f64(delta as f64 * period);
+
+                    Ok(duration)
+                })
+            }
+            TimestampMethod::StartTime(start_time) => {
+                let fut = self.sync_queue();
+
+                Box::pin(async move {
+                    fut.await;
+                    Ok(start_time.elapsed())
+                })
+            }
         }
     }
 }
@@ -312,11 +328,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     /// This is important, otherwise the compute passes are going to be too small and we won't be able to
     /// fully utilize the GPU.
     fn create(&mut self, data: &[u8]) -> server::Handle {
-        let num_bytes = data.len();
+        let num_bytes = data.len() as u64;
 
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
-        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let align = wgpu::COPY_BUFFER_ALIGNMENT;
         let aligned_len = num_bytes.div_ceil(align) * align;
 
         // Reserve memory on some storage we haven't yet used this command queue for compute
@@ -325,7 +341,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             .memory_management
             .reserve(aligned_len, Some(&self.storage_locked));
 
-        if let Some(len) = NonZero::new(aligned_len as u64) {
+        if let Some(len) = NonZero::new(aligned_len) {
             let resource_handle = self.memory_management.get(memory.clone().binding());
 
             // Dont re-use this handle for writing until the queue is flushed. All writes
@@ -345,7 +361,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
-        server::Handle::new(self.memory_management.reserve(size, None), None, None)
+        server::Handle::new(
+            self.memory_management.reserve(size as u64, None),
+            None,
+            None,
+        )
     }
 
     unsafe fn execute(
@@ -364,8 +384,14 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
 
         if profile_level.is_some() {
-            let fut = self.sync_queue();
-            self.duration_profiled += future::block_on(fut);
+            let fut = self.sync_queue_elapsed();
+            if let Ok(duration) = future::block_on(fut) {
+                if let Some(profiled) = &mut self.duration_profiled {
+                    *profiled += duration;
+                } else {
+                    self.duration_profiled = Some(duration);
+                }
+            }
         }
 
         // Start execution.
@@ -406,17 +432,17 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             // Write out timestamps. The first compute pass writes both a start and end timestamp.
             // the second timestamp writes out only an end stamp.
             let timestamps =
-                self.query_set
-                    .as_ref()
-                    .map(|query_set| wgpu::ComputePassTimestampWrites {
+                if let KernelTimestamps::Native { query_set, init } = &mut self.timestamps {
+                    let result = Some(wgpu::ComputePassTimestampWrites {
                         query_set,
-                        beginning_of_pass_write_index: if self.command_start_time.is_none() {
-                            Some(0)
-                        } else {
-                            None
-                        },
+                        beginning_of_pass_write_index: if !*init { Some(0) } else { None },
                         end_of_pass_write_index: Some(1),
                     });
+                    *init = true;
+                    result
+                } else {
+                    None
+                };
 
             self.encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -427,11 +453,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         });
 
         self.tasks_count += 1;
-
-        // Record the start time of the first compute pass.
-        if self.command_start_time.is_none() {
-            self.command_start_time = Some(Instant::now());
-        }
 
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
@@ -458,22 +479,27 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             let (name, kernel_id) = profile_info.unwrap();
 
             // Execute the task.
-            let duration = future::block_on(self.sync_queue());
-            self.duration_profiled += duration;
+            if let Ok(duration) = future::block_on(self.sync_queue_elapsed()) {
+                if let Some(profiled) = &mut self.duration_profiled {
+                    *profiled += duration;
+                } else {
+                    self.duration_profiled = Some(duration);
+                }
 
-            let info = match level {
-                ProfileLevel::Basic | ProfileLevel::Medium => {
-                    if let Some(val) = name.split("<").next() {
-                        val.split("::").last().unwrap_or(name).to_string()
-                    } else {
-                        name.to_string()
+                let info = match level {
+                    ProfileLevel::Basic | ProfileLevel::Medium => {
+                        if let Some(val) = name.split("<").next() {
+                            val.split("::").last().unwrap_or(name).to_string()
+                        } else {
+                            name.to_string()
+                        }
                     }
-                }
-                ProfileLevel::Full => {
-                    format!("{name}: {kernel_id} CubeCount {count:?}")
-                }
-            };
-            self.logger.register_profiled(info, duration);
+                    ProfileLevel::Full => {
+                        format!("{name}: {kernel_id} CubeCount {count:?}")
+                    }
+                };
+                self.logger.register_profiled(info, duration);
+            }
         }
     }
 
@@ -493,16 +519,50 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
         self.logger.profile_summary();
 
-        let future = self.sync_queue();
+        self.sync_queue()
+    }
+
+    /// Returns the total time of GPU work this sync completes.
+    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
+        self.logger.profile_summary();
+
+        let future = self.sync_queue_elapsed();
         let profiled = self.duration_profiled;
-        self.duration_profiled = Duration::from_secs(0);
-        async move { future.await + profiled }
+        self.duration_profiled = None;
+
+        async move {
+            match future.await {
+                Ok(duration) => match profiled {
+                    Some(profiled) => Ok(duration + profiled),
+                    None => Ok(duration),
+                },
+                Err(err) => match err {
+                    TimestampsError::Disabled => Err(err),
+                    TimestampsError::Unavailable => match profiled {
+                        Some(profiled) => Ok(profiled),
+                        None => Err(err),
+                    },
+                    TimestampsError::Unknown(_) => Err(err),
+                },
+            }
+        }
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
         self.memory_management.memory_usage()
+    }
+
+    fn enable_timestamps(&mut self) {
+        self.timestamps.enable(&self.device);
+    }
+
+    fn disable_timestamps(&mut self) {
+        // Only disable timestamps if profiling isn't enabled.
+        if self.logger.profile_level().is_none() {
+            self.timestamps.disable();
+        }
     }
 }

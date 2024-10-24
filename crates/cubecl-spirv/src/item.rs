@@ -1,6 +1,6 @@
 use std::mem::transmute;
 
-use cubecl_core::ir as core;
+use cubecl_core::ir::{self as core, FloatKind, IntKind};
 use rspirv::spirv::{Capability, CooperativeMatrixUse, Decoration, Scope, StorageClass, Word};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
@@ -276,12 +276,7 @@ impl Elem {
             Elem::Void => b.type_void(),
             Elem::Bool => b.type_bool(),
             Elem::Int(width, _) => b.type_int(*width, 0),
-            Elem::Float(width) => {
-                if *width == 16 {
-                    b.capabilities.insert(Capability::Float16);
-                }
-                b.type_float(*width)
-            }
+            Elem::Float(width) => b.type_float(*width),
         };
         if b.debug && !b.state.debug_types.contains(&id) {
             b.debug_name(id, format!("{self}"));
@@ -317,13 +312,29 @@ impl Elem {
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_item(&mut self, item: core::Item) -> Item {
-        let size = item.elem.size() as u32 * 8;
         let elem = match item.elem {
-            core::Elem::Float(_) => Elem::Float(size),
-            core::Elem::Int(_) => Elem::Int(size, true),
-            core::Elem::AtomicInt(_) => Elem::Int(size, true),
-            core::Elem::UInt => Elem::Int(size, false),
-            core::Elem::AtomicUInt => Elem::Int(size, false),
+            core::Elem::Float(core::FloatKind::BF16) => panic!("BFloat16 not supported in SPIR-V"),
+            core::Elem::Float(FloatKind::F16) => {
+                self.capabilities.insert(Capability::Float16);
+                Elem::Float(16)
+            }
+            core::Elem::Float(FloatKind::F32) => Elem::Float(32),
+            core::Elem::Float(FloatKind::F64) => {
+                self.capabilities.insert(Capability::Float64);
+                Elem::Float(64)
+            }
+            core::Elem::Int(IntKind::I32) => Elem::Int(32, true),
+            core::Elem::Int(IntKind::I64) => {
+                self.capabilities.insert(Capability::Int64);
+                Elem::Int(64, true)
+            }
+            core::Elem::AtomicInt(IntKind::I32) => Elem::Int(32, true),
+            core::Elem::AtomicInt(IntKind::I64) => {
+                self.capabilities.insert(Capability::Int64Atomics);
+                Elem::Int(64, true)
+            }
+            core::Elem::UInt => Elem::Int(32, false),
+            core::Elem::AtomicUInt => Elem::Int(32, false),
             core::Elem::Bool => Elem::Bool,
         };
         let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);

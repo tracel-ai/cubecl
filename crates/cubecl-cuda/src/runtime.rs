@@ -16,7 +16,7 @@ use crate::{
     compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
 };
-use cubecl_cpp::CudaCompiler;
+use cubecl_cpp::{register_supported_types, CudaCompiler};
 
 /// The values that control how a WGPU Runtime will perform its calculations.
 #[derive(Default)]
@@ -64,7 +64,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
         cudarc::driver::sys::lib().cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
-        bytes.assume_init()
+        bytes.assume_init() as u64
     };
     let storage = CudaStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
@@ -80,6 +80,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
     let mut server = CudaServer::new(cuda_ctx);
     let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    register_supported_types(&mut device_props);
     register_wmma_features(&mut device_props, server.arch_version());
 
     ComputeClient::new(MutexComputeChannel::new(server), device_props)

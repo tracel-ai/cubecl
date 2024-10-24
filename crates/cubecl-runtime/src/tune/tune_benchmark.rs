@@ -1,7 +1,7 @@
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
-use cubecl_common::benchmark::BenchmarkDurations;
+use cubecl_common::benchmark::{BenchmarkDurations, TimingMethod};
 
 use super::AutotuneOperation;
 use alloc::boxed::Box;
@@ -22,16 +22,30 @@ impl<Out> Clone for Box<dyn AutotuneOperation<Out>> {
 impl<S: ComputeServer, C: ComputeChannel<S>, Out> TuneBenchmark<S, C, Out> {
     /// Benchmark how long this operation takes for a number of samples.
     pub async fn sample_durations(&self) -> BenchmarkDurations {
-        let num_samples = 10;
+        // If the inner operation need autotuning as well, we need to call it before.
+        AutotuneOperation::execute(self.operation.clone());
+        let _ = self.client.sync().await;
 
+        let num_samples = 10;
         let mut durations = vec![];
+        self.client.enable_timestamps();
         for _ in 0..num_samples {
-            self.client.sync().await;
+            let _ = self.client.sync_elapsed().await;
             AutotuneOperation::execute(self.operation.clone());
             // For benchmarks - we need to wait for all tasks to complete before returning.
-            let duration = self.client.sync().await;
+            let duration = self
+                .client
+                .sync_elapsed()
+                .await
+                .expect("Timestamps to be enabled");
             durations.push(duration);
         }
-        BenchmarkDurations { durations }
+
+        self.client.disable_timestamps();
+
+        BenchmarkDurations {
+            timing_method: TimingMethod::DeviceOnly,
+            durations,
+        }
     }
 }

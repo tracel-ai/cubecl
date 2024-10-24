@@ -136,8 +136,8 @@ pub fn create_client<C: WgpuCompiler>(
 ) -> ComputeClient<WgpuServer<C>, MutexComputeChannel<WgpuServer<C>>> {
     let limits = device_wgpu.limits();
     let mem_props = MemoryDeviceProperties {
-        max_page_size: limits.max_storage_buffer_binding_size as usize,
-        alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as usize),
+        max_page_size: limits.max_storage_buffer_binding_size as u64,
+        alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
     };
 
     let memory_management = init_memory_management(

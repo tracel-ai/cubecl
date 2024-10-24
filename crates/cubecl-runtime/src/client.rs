@@ -7,7 +7,7 @@ use crate::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::stub::Duration;
+use cubecl_common::benchmark::TimestampsResult;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
@@ -100,8 +100,13 @@ where
     }
 
     /// Wait for the completion of every task in the server.
-    pub async fn sync(&self) -> Duration {
+    pub async fn sync(&self) {
         self.channel.sync().await
+    }
+
+    /// Wait for the completion of every task in the server.
+    pub async fn sync_elapsed(&self) -> TimestampsResult {
+        self.channel.sync_elapsed().await
     }
 
     /// Get the features supported by the compute server.
@@ -112,5 +117,15 @@ where
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
         self.channel.memory_usage()
+    }
+
+    /// Enable collecting timestamps.
+    pub fn enable_timestamps(&self) {
+        self.channel.enable_timestamps();
+    }
+
+    /// Disable collecting timestamps.
+    pub fn disable_timestamps(&self) {
+        self.channel.disable_timestamps();
     }
 }

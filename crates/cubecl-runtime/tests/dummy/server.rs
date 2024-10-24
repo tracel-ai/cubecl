@@ -1,8 +1,9 @@
-use cubecl_common::stub::Duration;
+use cubecl_runtime::{TimestampsError, TimestampsResult};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
 
+use super::DummyKernel;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::storage::{BindingResource, ComputeStorage};
@@ -12,16 +13,35 @@ use cubecl_runtime::{
     storage::BytesStorage,
     ExecutionMode,
 };
-use derive_new::new;
-
-use super::DummyKernel;
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
 /// It uses simple memory management with a bytes storage on CPU, without asynchronous tasks.
-#[derive(new, Debug)]
+#[derive(Debug)]
 pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
-    computation_start: Option<Instant>,
+    timestamps: KernelTimestamps,
+}
+
+#[derive(Debug)]
+enum KernelTimestamps {
+    Inferred { start_time: Instant },
+    Disabled,
+}
+
+impl KernelTimestamps {
+    fn enable(&mut self) {
+        if !matches!(self, Self::Disabled) {
+            return;
+        }
+
+        *self = Self::Inferred {
+            start_time: Instant::now(),
+        };
+    }
+
+    fn disable(&mut self) {
+        *self = Self::Disabled;
+    }
 }
 
 impl ComputeServer for DummyServer {
@@ -52,7 +72,11 @@ impl ComputeServer for DummyServer {
     }
 
     fn empty(&mut self, size: usize) -> Handle {
-        Handle::new(self.memory_management.reserve(size, None), None, None)
+        Handle::new(
+            self.memory_management.reserve(size as u64, None),
+            None,
+            None,
+        )
     }
 
     unsafe fn execute(
@@ -62,10 +86,6 @@ impl ComputeServer for DummyServer {
         bindings: Vec<Binding>,
         _mode: ExecutionMode,
     ) {
-        if self.computation_start.is_none() {
-            self.computation_start = Some(Instant::now());
-        }
-
         let bind_resources = bindings
             .into_iter()
             .map(|binding| self.get_resource(binding))
@@ -81,17 +101,42 @@ impl ComputeServer for DummyServer {
     }
 
     #[allow(clippy::manual_async_fn)]
-    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
-        // Nothing to do with dummy backend.
-        let duration = self
-            .computation_start
-            .map(|f| f.elapsed())
-            .unwrap_or(Duration::from_secs_f32(0.0));
-        self.computation_start = None;
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+        async move {}
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
+        let duration = match &mut self.timestamps {
+            KernelTimestamps::Inferred { start_time } => {
+                let duration = start_time.elapsed();
+                *start_time = Instant::now();
+                Ok(duration)
+            }
+            KernelTimestamps::Disabled => Err(TimestampsError::Disabled),
+        };
+
         async move { duration }
     }
 
     fn memory_usage(&self) -> MemoryUsage {
         self.memory_management.memory_usage()
+    }
+
+    fn enable_timestamps(&mut self) {
+        self.timestamps.enable();
+    }
+
+    fn disable_timestamps(&mut self) {
+        self.timestamps.disable();
+    }
+}
+
+impl DummyServer {
+    pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
+        Self {
+            memory_management,
+            timestamps: KernelTimestamps::Disabled,
+        }
     }
 }

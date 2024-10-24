@@ -1,4 +1,4 @@
-use cubecl_cpp::HipCompiler;
+use cubecl_cpp::{register_supported_types, HipCompiler};
 
 use cubecl_core::{Feature, MemoryConfiguration, Runtime};
 use cubecl_hip_sys::HIP_SUCCESS;
@@ -30,7 +30,7 @@ static RUNTIME: ComputeRuntime<HipDevice, Server, MutexComputeChannel<Server>> =
 type Server = HipServer;
 type Channel = MutexComputeChannel<Server>;
 
-const MEMORY_OFFSET_ALIGNMENT: usize = 32;
+const MEMORY_OFFSET_ALIGNMENT: u64 = 32;
 
 fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let mut ctx: cubecl_hip_sys::hipCtx_t = std::ptr::null_mut();
@@ -62,7 +62,7 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     };
     let storage = HipStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
-        max_page_size: max_memory / 4,
+        max_page_size: max_memory as u64 / 4,
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
     let memory_management = MemoryManagement::from_configuration(
@@ -72,7 +72,8 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     );
     let hip_ctx = HipContext::new(memory_management, stream, ctx);
     let server = HipServer::new(hip_ctx);
-    let device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    register_supported_types(&mut device_props);
     // TODO
     // register_wmma_features(&mut device_props);
 

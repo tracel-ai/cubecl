@@ -5,9 +5,9 @@ use cubecl_core::{
     ir::{
         self as gpu, ConstantScalarValue, Elem, Item, Metadata, ReusingAllocator, Scope, Variable,
     },
-    Compiler,
+    Compiler, Feature,
 };
-use cubecl_runtime::ExecutionMode;
+use cubecl_runtime::{DeviceProperties, ExecutionMode};
 
 use super::{Instruction, UnaryInstruction, VariableSettings, WarpInstruction};
 
@@ -904,4 +904,23 @@ fn has_length(var: &gpu::Variable) -> bool {
             | gpu::VariableKind::GlobalOutputArray { .. }
             | gpu::VariableKind::Slice { .. }
     )
+}
+
+pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
+    use cubecl_core::ir::{Elem, FloatKind, IntKind};
+
+    let supported_types = [
+        Elem::UInt,
+        Elem::Int(IntKind::I32),
+        Elem::AtomicInt(IntKind::I32),
+        Elem::AtomicUInt,
+        Elem::Float(FloatKind::BF16),
+        Elem::Float(FloatKind::F16),
+        Elem::Float(FloatKind::F32),
+        Elem::Bool,
+    ];
+
+    for ty in supported_types {
+        props.register_feature(Feature::Type(ty));
+    }
 }
