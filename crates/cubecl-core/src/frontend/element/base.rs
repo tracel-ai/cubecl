@@ -158,7 +158,10 @@ macro_rules! from_const {
     };
 }
 
+from_const!(u8);
+from_const!(u16);
 from_const!(u32);
+from_const!(u64);
 from_const!(i64);
 from_const!(i8);
 from_const!(i16);

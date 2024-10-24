@@ -1,5 +1,6 @@
 use cubecl_core::ir::{
-    ConstantScalarValue, Instruction, Metadata, Operation, Operator, Variable, VariableKind,
+    ConstantScalarValue, Instruction, Metadata, Operation, Operator, UIntKind, Variable,
+    VariableKind,
 };
 
 use crate::{AtomicCounter, Optimizer, Slice};
@@ -65,7 +66,8 @@ impl OptimizerPass for ConstOperandSimplify {
                         Operator::Modulo(bin_op)
                             if bin_op.rhs.is_constant(1) || bin_op.lhs.is_constant(0) =>
                         {
-                            let value = ConstantScalarValue::UInt(0).cast_to(op.item().elem());
+                            let value = ConstantScalarValue::UInt(0, UIntKind::U32)
+                                .cast_to(op.item().elem());
                             op.operation = Operation::Assign(Variable::constant(value));
                             changes.inc();
                         }
@@ -171,7 +173,7 @@ macro_rules! const_eval {
             Some(match (lhs, rhs) {
                 (Int(lhs, kind), Int(rhs, _)) => ConstantScalarValue::Int(lhs $op rhs, kind),
                 (Float(lhs, kind), Float(rhs, _)) => ConstantScalarValue::Float(lhs $op rhs, kind),
-                (UInt(lhs), UInt(rhs)) => ConstantScalarValue::UInt(lhs $op rhs),
+                (UInt(lhs, kind), UInt(rhs, _)) => ConstantScalarValue::UInt(lhs $op rhs, kind),
                 _ => unreachable!(),
             })
         } else {
@@ -207,7 +209,7 @@ macro_rules! const_eval_int {
             let rhs = rhs.cast_to(lhs.elem());
             Some(match (lhs, rhs) {
                 (Int(lhs, kind), Int(rhs, _)) => ConstantScalarValue::Int(lhs $op rhs, kind),
-                (UInt(lhs), UInt(rhs)) => ConstantScalarValue::UInt(lhs $op rhs),
+                (UInt(lhs, kind), UInt(rhs, _)) => ConstantScalarValue::UInt(lhs $op rhs, kind),
                 _ => unreachable!(),
             })
         } else {
@@ -258,7 +260,7 @@ macro_rules! const_eval_cmp {
             Some(match (lhs, rhs) {
                 (Int(lhs, _), Int(rhs, _)) => ConstantScalarValue::Bool(lhs $op rhs),
                 (Float(lhs, _), Float(rhs, _)) => ConstantScalarValue::Bool(lhs $op rhs),
-                (UInt(lhs), UInt(rhs)) => ConstantScalarValue::Bool(lhs $op rhs),
+                (UInt(lhs, _), UInt(rhs, _)) => ConstantScalarValue::Bool(lhs $op rhs),
                 _ => unreachable!(),
             })
         } else {
@@ -314,7 +316,9 @@ fn try_const_eval(inst: &mut Instruction) -> Option<ConstantScalarValue> {
                     (Float(lhs, kind), Float(rhs, _)) => {
                         ConstantScalarValue::Float(lhs.max(rhs), kind)
                     }
-                    (UInt(lhs), UInt(rhs)) => ConstantScalarValue::UInt(lhs.max(rhs)),
+                    (UInt(lhs, kind), UInt(rhs, _)) => {
+                        ConstantScalarValue::UInt(lhs.max(rhs), kind)
+                    }
                     _ => unreachable!(),
                 })
             } else {
@@ -330,7 +334,9 @@ fn try_const_eval(inst: &mut Instruction) -> Option<ConstantScalarValue> {
                     (Float(lhs, kind), Float(rhs, _)) => {
                         ConstantScalarValue::Float(lhs.min(rhs), kind)
                     }
-                    (UInt(lhs), UInt(rhs)) => ConstantScalarValue::UInt(lhs.min(rhs)),
+                    (UInt(lhs, kind), UInt(rhs, _)) => {
+                        ConstantScalarValue::UInt(lhs.min(rhs), kind)
+                    }
                     _ => unreachable!(),
                 })
             } else {
@@ -412,7 +418,9 @@ fn try_const_eval(inst: &mut Instruction) -> Option<ConstantScalarValue> {
                     (Float(a, kind), Float(b, _), Float(c, _)) => {
                         ConstantScalarValue::Float(a.clamp(b, c), kind)
                     }
-                    (UInt(a), UInt(b), UInt(c)) => ConstantScalarValue::UInt(a.clamp(b, c)),
+                    (UInt(a, kind), UInt(b, _), UInt(c, _)) => {
+                        ConstantScalarValue::UInt(a.clamp(b, c), kind)
+                    }
                     _ => unreachable!(),
                 }
             })

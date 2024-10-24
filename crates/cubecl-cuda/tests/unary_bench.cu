@@ -1,4 +1,8 @@
+typedef unsigned char uint8;
+typedef unsigned short uint16;
 typedef unsigned int uint;
+typedef unsigned long long int uint64;
+typedef long long int int64;
 
 struct __align__(16) float_4 {
   float i_0;

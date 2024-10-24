@@ -114,7 +114,7 @@ mod empty {
                     ConstantScalarValue::Float(val, _) => NonZero::new(val as i64)
                         .map(|val| val.get() as u8)
                         .map(|val| NonZero::new(val).unwrap()),
-                    ConstantScalarValue::UInt(val) => NonZero::new(val as u8),
+                    ConstantScalarValue::UInt(val, _) => NonZero::new(val as u8),
                     ConstantScalarValue::Bool(_) => None,
                 },
                 None => None,

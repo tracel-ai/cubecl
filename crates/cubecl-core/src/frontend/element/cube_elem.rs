@@ -34,7 +34,10 @@ macro_rules! impl_into_expand_element {
     };
 }
 
+impl_into_expand_element!(u8);
+impl_into_expand_element!(u16);
 impl_into_expand_element!(u32);
+impl_into_expand_element!(u64);
 impl_into_expand_element!(usize);
 impl_into_expand_element!(bool);
 impl_into_expand_element!(f32);

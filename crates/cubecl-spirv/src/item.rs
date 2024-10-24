@@ -1,6 +1,6 @@
 use std::mem::transmute;
 
-use cubecl_core::ir::{self as core, FloatKind, IntKind};
+use cubecl_core::ir::{self as core, FloatKind, IntKind, UIntKind};
 use rspirv::spirv::{Capability, CooperativeMatrixUse, Decoration, Scope, StorageClass, Word};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
@@ -349,8 +349,33 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.capabilities.insert(Capability::Int64Atomics);
                 Elem::Int(64, true)
             }
-            core::Elem::UInt => Elem::Int(32, false),
-            core::Elem::AtomicUInt => Elem::Int(32, false),
+            core::Elem::UInt(UIntKind::U64) => {
+                self.capabilities.insert(Capability::Int64);
+                Elem::Int(64, false)
+            }
+            core::Elem::UInt(UIntKind::U32) => Elem::Int(32, false),
+            core::Elem::UInt(UIntKind::U16) => {
+                self.capabilities.insert(Capability::Int16);
+                Elem::Int(16, false)
+            }
+            core::Elem::UInt(UIntKind::U8) => {
+                self.capabilities.insert(Capability::Int8);
+                Elem::Int(8, false)
+            }
+            core::Elem::AtomicUInt(UIntKind::U8) => {
+                self.capabilities.insert(Capability::Int8);
+                Elem::Int(8, false)
+            }
+            core::Elem::AtomicUInt(UIntKind::U16) => {
+                self.capabilities.insert(Capability::Int16);
+                Elem::Int(16, false)
+            }
+            core::Elem::AtomicUInt(UIntKind::U32) => Elem::Int(32, false),
+            core::Elem::AtomicUInt(UIntKind::U64) => {
+                self.capabilities.insert(Capability::Int64);
+                self.capabilities.insert(Capability::Int64Atomics);
+                Elem::Int(64, false)
+            }
             core::Elem::Bool => Elem::Bool,
         };
         let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
@@ -407,25 +432,25 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 (core::ConstantScalarValue::Float(val, _), Elem::Float(_)) => {
                     ConstVal::Bit32((val as f32).to_bits())
                 }
-                (core::ConstantScalarValue::UInt(val), Elem::Bool) => {
+                (core::ConstantScalarValue::UInt(val, _), Elem::Bool) => {
                     ConstVal::Bit32((val == 1) as u32)
                 }
-                (core::ConstantScalarValue::UInt(val), Elem::Int(64, false)) => {
+                (core::ConstantScalarValue::UInt(val, _), Elem::Int(64, false)) => {
                     ConstVal::Bit64(val)
                 }
-                (core::ConstantScalarValue::UInt(val), Elem::Int(64, true)) => {
+                (core::ConstantScalarValue::UInt(val, _), Elem::Int(64, true)) => {
                     ConstVal::Bit64(val as i64 as u64) //clip sign bit
                 }
-                (core::ConstantScalarValue::UInt(val), Elem::Int(_, false)) => {
+                (core::ConstantScalarValue::UInt(val, _), Elem::Int(_, false)) => {
                     ConstVal::Bit32(val as u32)
                 }
-                (core::ConstantScalarValue::UInt(val), Elem::Int(_, true)) => {
+                (core::ConstantScalarValue::UInt(val, _), Elem::Int(_, true)) => {
                     ConstVal::Bit32(val as i32 as u32) //clip sign bit
                 }
-                (core::ConstantScalarValue::UInt(val), Elem::Float(64)) => {
+                (core::ConstantScalarValue::UInt(val, _), Elem::Float(64)) => {
                     ConstVal::Bit64((val as f64).to_bits())
                 }
-                (core::ConstantScalarValue::UInt(val), Elem::Float(_)) => {
+                (core::ConstantScalarValue::UInt(val, _), Elem::Float(_)) => {
                     ConstVal::Bit32((val as f32).to_bits())
                 }
                 (core::ConstantScalarValue::Bool(val), Elem::Bool) => ConstVal::Bit32(val as u32),

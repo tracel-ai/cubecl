@@ -1,6 +1,6 @@
 use crate::ir::ConstantScalarValue;
 
-use super::{FloatKind, IntKind, Variable};
+use super::{FloatKind, IntKind, UIntKind, Variable};
 
 #[macro_export(local_inner_macros)]
 /// Cube Pseudo Assembly.
@@ -426,13 +426,13 @@ impl From<bool> for Variable {
 
 impl From<i8> for Variable {
     fn from(value: i8) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::Int(value as i64, IntKind::I8))
+        Variable::constant(ConstantScalarValue::Int(value as i64, IntKind::I8))
     }
 }
 
 impl From<i16> for Variable {
     fn from(value: i16) -> Self {
-        Variable::ConstantScalar(ConstantScalarValue::Int(value as i64, IntKind::I16))
+        Variable::constant(ConstantScalarValue::Int(value as i64, IntKind::I16))
     }
 }
 
@@ -460,15 +460,33 @@ impl From<f64> for Variable {
     }
 }
 
+impl From<u8> for Variable {
+    fn from(value: u8) -> Self {
+        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U8))
+    }
+}
+
+impl From<u16> for Variable {
+    fn from(value: u16) -> Self {
+        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U16))
+    }
+}
+
 impl From<u32> for Variable {
     fn from(value: u32) -> Self {
-        Variable::constant(ConstantScalarValue::UInt(value as u64))
+        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U32))
+    }
+}
+
+impl From<u64> for Variable {
+    fn from(value: u64) -> Self {
+        Variable::constant(ConstantScalarValue::UInt(value, UIntKind::U64))
     }
 }
 
 impl From<usize> for Variable {
     fn from(value: usize) -> Self {
-        Variable::constant(ConstantScalarValue::UInt(value as u64))
+        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U32))
     }
 }
 

@@ -6,7 +6,7 @@ use crate::frontend::{
 use crate::prelude::SizedContainer;
 use crate::{
     frontend::CubeType,
-    ir::{Elem, Item, Metadata},
+    ir::{Item, Metadata},
     unexpanded,
 };
 use crate::{

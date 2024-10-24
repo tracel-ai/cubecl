@@ -83,7 +83,10 @@ impl_unary_func!(
     i16,
     i32,
     i64,
-    u32
+    u8,
+    u16,
+    u32,
+    u64
 );
 impl_unary_func!(Exp, exp, __expand_exp, Operator::Exp, f16, bf16, f32, f64);
 impl_unary_func!(Log, log, __expand_log, Operator::Log, f16, bf16, f32, f64);

@@ -313,7 +313,7 @@ impl Display for Variable {
                     }
                     FloatKind::F32 | FloatKind::F64 => f.write_str(&format_number(*val)),
                 },
-                ConstantScalarValue::UInt(val) => write!(f, "{}u", *val as u32),
+                ConstantScalarValue::UInt(val, _) => write!(f, "{}u", *val as u32),
                 ConstantScalarValue::Bool(val) => write!(f, "{}", val),
             },
             Variable::SharedMemory(number, _, _) => {

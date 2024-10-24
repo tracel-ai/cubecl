@@ -16,7 +16,10 @@ pub enum Elem {
     I16,
     I32,
     I64,
+    U8,
+    U16,
     U32,
+    U64,
     Bool,
     Atomic(AtomicKind),
 }
@@ -55,7 +58,10 @@ impl Display for Elem {
             Elem::I16 => f.write_str("short"),
             Elem::I32 => f.write_str("int"),
             Elem::I64 => f.write_str("int64"),
+            Elem::U8 => f.write_str("uint8"),
+            Elem::U16 => f.write_str("uint16"),
             Elem::U32 => f.write_str("uint"),
+            Elem::U64 => f.write_str("uint64"),
             Elem::Bool => f.write_str("bool"),
             Elem::Atomic(inner) => inner.fmt(f),
         }
@@ -202,8 +208,8 @@ impl Display for Variable {
             // precision related problems.
             Variable::ConstantScalar(number, elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
-                    gpu::IntKind::I8 => write!(f, "{elem}({})", *val as i32),
-                    gpu::IntKind::I16 => write!(f, "{elem}({})", *val as i32),
+                    gpu::IntKind::I8 => write!(f, "{elem}({})", *val as i8),
+                    gpu::IntKind::I16 => write!(f, "{elem}({})", *val as i16),
                     gpu::IntKind::I32 => write!(f, "{elem}({})", *val as i32),
                     gpu::IntKind::I64 => write!(f, "{elem}({})", *val),
                 },
@@ -217,9 +223,12 @@ impl Display for Variable {
                     gpu::FloatKind::F32 => write!(f, "{elem}({:?})", *val as f32),
                     gpu::FloatKind::F64 => write!(f, "{elem}({:?})", *val),
                 },
-                ConstantScalarValue::UInt(val) => {
-                    write!(f, "{elem}({})", *val as u32)
-                }
+                ConstantScalarValue::UInt(val, kind) => match kind {
+                    gpu::UIntKind::U8 => write!(f, "{elem}({})", *val as u8),
+                    gpu::UIntKind::U16 => write!(f, "{elem}({})", *val as u16),
+                    gpu::UIntKind::U32 => write!(f, "{elem}({})", *val as u32),
+                    gpu::UIntKind::U64 => write!(f, "{elem}({})", *val),
+                },
                 ConstantScalarValue::Bool(val) => write!(f, "{}", val),
             },
             Variable::SharedMemory(number, _, _) => {
@@ -528,7 +537,10 @@ impl Elem {
             Elem::I16 => core::mem::size_of::<i16>(),
             Elem::I32 => core::mem::size_of::<i32>(),
             Elem::I64 => core::mem::size_of::<i64>(),
+            Elem::U8 => core::mem::size_of::<u8>(),
+            Elem::U16 => core::mem::size_of::<u16>(),
             Elem::U32 => core::mem::size_of::<u32>(),
+            Elem::U64 => core::mem::size_of::<u64>(),
             Elem::Bool => core::mem::size_of::<bool>(),
             Elem::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
             Elem::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),

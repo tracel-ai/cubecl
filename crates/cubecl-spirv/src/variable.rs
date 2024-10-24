@@ -116,7 +116,7 @@ impl From<ConstantScalarValue> for ConstVal {
                 ConstantScalarValue::Float(_, FloatKind::BF16) => {
                     panic!("bf16 not supported in SPIR-V")
                 }
-                ConstantScalarValue::UInt(val) => ConstVal::Bit32(val as u32),
+                ConstantScalarValue::UInt(val, _) => ConstVal::Bit32(val as u32),
                 ConstantScalarValue::Bool(val) => ConstVal::Bit32(val as u32),
             }
         }
@@ -318,7 +318,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             core::FloatKind::BF16 => unimplemented!("BF16 not yet supported"),
                             core::FloatKind::F64 => self.constant_bit64(elem_id, val.to_bits()),
                         },
-                        core::ConstantScalarValue::UInt(val) => {
+                        core::ConstantScalarValue::UInt(val, _) => {
                             self.constant_bit32(elem_id, val as u32)
                         }
                         core::ConstantScalarValue::Bool(val) => match val {

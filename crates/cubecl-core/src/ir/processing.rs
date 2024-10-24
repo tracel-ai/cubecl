@@ -1,4 +1,4 @@
-use crate::prelude::AtomicOp;
+use crate::prelude::{AtomicOp, CubePrimitive};
 
 use super::{
     Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, Variable, VariableKind,
@@ -133,23 +133,23 @@ impl ScopeProcessing {
                     }
                     Operator::Slice(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt);
-                        sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.start, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(&mut op.end, u32::as_elem());
                     }
                     Operator::Index(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.rhs, u32::as_elem());
                     }
                     Operator::UncheckedIndex(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.rhs, u32::as_elem());
                     }
                     Operator::IndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.lhs, u32::as_elem());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
                     Operator::UncheckedIndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.lhs, u32::as_elem());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
                     Operator::And(op) => {
@@ -214,13 +214,13 @@ impl ScopeProcessing {
                     }
                     Operator::Copy(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
-                        sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.in_index, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(&mut op.out_index, u32::as_elem());
                     }
                     Operator::CopyBulk(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
-                        sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(&mut op.in_index, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(&mut op.out_index, u32::as_elem());
                     }
                     Operator::Select(op) => {
                         sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
@@ -263,10 +263,10 @@ impl ScopeProcessing {
                 },
                 Operation::Metadata(op) => match op {
                     Metadata::Stride { dim, .. } => {
-                        sanitize_constant_scalar_ref_elem(dim, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(dim, u32::as_elem());
                     }
                     Metadata::Shape { dim, .. } => {
-                        sanitize_constant_scalar_ref_elem(dim, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(dim, u32::as_elem());
                     }
                     Metadata::Length { .. } => {
                         // Nothing to do
@@ -283,7 +283,7 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.end, &op.start);
                         sanitize_constant_scalar_ref_var(&mut op.i, &op.start);
                         if let Some(step) = &mut op.step {
-                            sanitize_constant_scalar_ref_elem(step, Elem::UInt);
+                            sanitize_constant_scalar_ref_elem(step, u32::as_elem());
                         }
                     }
                     _ => {
@@ -302,13 +302,13 @@ impl ScopeProcessing {
                     }
                     CoopMma::Load { value, stride, .. } => {
                         sanitize_constant_scalar_ref_var(value, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(stride, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(stride, u32::as_elem());
                     }
                     CoopMma::Execute { .. } => {
                         // Nothing to do.
                     }
                     CoopMma::Store { stride, .. } => {
-                        sanitize_constant_scalar_ref_elem(stride, Elem::UInt);
+                        sanitize_constant_scalar_ref_elem(stride, u32::as_elem());
                     }
                 },
             });
@@ -327,7 +327,7 @@ fn sanitize_constant_scalar_ref_elem(var: &mut Variable, elem: Elem) {
             *var = match scalar {
                 super::ConstantScalarValue::Int(val, _) => elem.constant_from_i64(val),
                 super::ConstantScalarValue::Float(val, _) => elem.constant_from_f64(val),
-                super::ConstantScalarValue::UInt(val) => elem.constant_from_u64(val),
+                super::ConstantScalarValue::UInt(val, _) => elem.constant_from_u64(val),
                 super::ConstantScalarValue::Bool(val) => elem.constant_from_bool(val),
             };
         }

@@ -10,7 +10,7 @@ use crate::{
     frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement},
     ir::{
         BinaryOperator, CompareAndSwapOperator, Elem, Instruction, IntKind, Item, Operation,
-        UnaryOperator,
+        UIntKind, UnaryOperator,
     },
     prelude::KernelBuilder,
     unexpanded,
@@ -400,7 +400,7 @@ impl CubeType for AtomicU32 {
 
 impl CubePrimitive for AtomicU32 {
     fn as_elem() -> Elem {
-        Elem::AtomicUInt
+        Elem::AtomicUInt(UIntKind::U32)
     }
 }
 
@@ -420,7 +420,7 @@ impl LaunchArgExpand for AtomicU32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(Elem::AtomicUInt).into()
+        builder.scalar(Elem::AtomicUInt(UIntKind::U32)).into()
     }
 }
 

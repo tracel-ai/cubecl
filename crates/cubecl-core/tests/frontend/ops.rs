@@ -294,8 +294,8 @@ mod tests {
             #[test]
             fn $test_name() {
                 let mut context = CubeContext::default();
-                let x = context.create_local_binding(Item::new(Elem::UInt));
-                let y = context.create_local_binding(Item::new(Elem::UInt));
+                let x = context.create_local_binding(Item::new(u32::as_elem()));
+                let y = context.create_local_binding(Item::new(u32::as_elem()));
 
                 $op_expand(&mut context, x.into(), y.into());
 
@@ -471,7 +471,7 @@ mod tests {
     }
 
     fn ref_ops_binary_u32(ops_name: &str) -> String {
-        ref_ops_template(ops_name, "UInt", "UInt", true, false)
+        ref_ops_template(ops_name, "UInt(U32)", "UInt(U32)", true, false)
     }
 
     fn ref_ops_template(

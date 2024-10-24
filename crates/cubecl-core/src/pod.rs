@@ -1,4 +1,4 @@
-use crate::ir::{Elem, FloatKind, IntKind};
+use crate::ir::{Elem, FloatKind, IntKind, UIntKind};
 
 /// The base element trait for the jit backend.
 pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemuck::Pod {
@@ -27,7 +27,7 @@ impl CubeElement for u32 {
         bytemuck::cast_slice(bytes)
     }
     fn cube_elem() -> Elem {
-        Elem::UInt
+        Elem::UInt(UIntKind::U32)
     }
     fn maximum_value() -> Self {
         u32::MAX

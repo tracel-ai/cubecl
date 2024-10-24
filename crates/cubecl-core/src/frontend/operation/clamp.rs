@@ -43,4 +43,7 @@ impl Clamp for i8 {}
 impl Clamp for i16 {}
 impl Clamp for i32 {}
 impl Clamp for i64 {}
+impl Clamp for u8 {}
+impl Clamp for u16 {}
 impl Clamp for u32 {}
+impl Clamp for u64 {}

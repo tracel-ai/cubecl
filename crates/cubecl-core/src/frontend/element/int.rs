@@ -141,16 +141,6 @@ impl Int for u32 {
     }
 }
 
-impl Vectorized for u32 {
-    fn vectorization_factor(&self) -> u32 {
-        1
-    }
-
-    fn vectorize(self, _factor: u32) -> Self {
-        unexpanded!()
-    }
-}
-
 impl ScalarArgSettings for i8 {
     fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
         settings.register_i8(*self);

@@ -269,7 +269,10 @@ impl_binary_func!(
     i16,
     i32,
     i64,
-    u32
+    u8,
+    u16,
+    u32,
+    u64
 );
 impl_binary_func!(
     Min,
@@ -285,7 +288,10 @@ impl_binary_func!(
     i16,
     i32,
     i64,
-    u32
+    u8,
+    u16,
+    u32,
+    u64
 );
 impl_binary_func!(
     Remainder,
@@ -301,7 +307,10 @@ impl_binary_func!(
     i16,
     i32,
     i64,
-    u32
+    u8,
+    u16,
+    u32,
+    u64
 );
 impl_binary_func_fixed_output_vectorization!(
     Dot,
@@ -318,5 +327,8 @@ impl_binary_func_fixed_output_vectorization!(
     i16,
     i32,
     i64,
-    u32
+    u8,
+    u16,
+    u32,
+    u64
 );

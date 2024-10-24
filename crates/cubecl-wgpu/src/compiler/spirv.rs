@@ -13,7 +13,7 @@ use cubecl_core::{
     channel::MutexComputeChannel,
     client::ComputeClient,
     future,
-    ir::{Elem, FloatKind, IntKind},
+    ir::{Elem, FloatKind, IntKind, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
     ExecutionMode, Feature, Runtime,
@@ -277,10 +277,13 @@ fn request_device(
 }
 
 fn register_types(props: &mut DeviceProperties<Feature>) {
-    use cubecl_core::ir::{Elem, FloatKind, IntKind};
+    use cubecl_core::ir::{Elem, FloatKind, IntKind, UIntKind};
 
     let supported_types = [
-        Elem::UInt,
+        Elem::UInt(UIntKind::U8),
+        Elem::UInt(UIntKind::U16),
+        Elem::UInt(UIntKind::U32),
+        Elem::UInt(UIntKind::U64),
         Elem::Int(IntKind::I8),
         Elem::Int(IntKind::I16),
         Elem::Int(IntKind::I32),
@@ -289,7 +292,10 @@ fn register_types(props: &mut DeviceProperties<Feature>) {
         Elem::AtomicInt(IntKind::I16),
         Elem::AtomicInt(IntKind::I32),
         Elem::AtomicInt(IntKind::I64),
-        Elem::AtomicUInt,
+        Elem::AtomicUInt(UIntKind::U8),
+        Elem::AtomicUInt(UIntKind::U16),
+        Elem::AtomicUInt(UIntKind::U32),
+        Elem::AtomicUInt(UIntKind::U64),
         Elem::Float(FloatKind::F16),
         Elem::Float(FloatKind::F32),
         Elem::Float(FloatKind::F64),
@@ -306,9 +312,14 @@ fn conv_type(vk_ty: ComponentTypeKHR) -> Option<Elem> {
         ComponentTypeKHR::FLOAT16 => Elem::Float(FloatKind::F16),
         ComponentTypeKHR::FLOAT32 => Elem::Float(FloatKind::F32),
         ComponentTypeKHR::FLOAT64 => Elem::Float(FloatKind::F64),
+        ComponentTypeKHR::SINT8 => Elem::Int(IntKind::I8),
+        ComponentTypeKHR::SINT16 => Elem::Int(IntKind::I16),
         ComponentTypeKHR::SINT32 => Elem::Int(IntKind::I32),
         ComponentTypeKHR::SINT64 => Elem::Int(IntKind::I64),
-        ComponentTypeKHR::UINT32 => Elem::UInt,
+        ComponentTypeKHR::UINT8 => Elem::UInt(UIntKind::U8),
+        ComponentTypeKHR::UINT16 => Elem::UInt(UIntKind::U16),
+        ComponentTypeKHR::UINT32 => Elem::UInt(UIntKind::U32),
+        ComponentTypeKHR::UINT64 => Elem::UInt(UIntKind::U64),
         _ => None?,
     };
     Some(ty)

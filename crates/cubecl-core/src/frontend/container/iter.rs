@@ -1,7 +1,8 @@
 use crate::{
     ir::{Branch, Item, RangeLoop},
     prelude::{
-        index, CubeContext, CubeIndex, CubeType, ExpandElement, ExpandElementTyped, Iterable,
+        index, CubeContext, CubeIndex, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped,
+        Iterable,
     },
 };
 
