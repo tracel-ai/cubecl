@@ -75,6 +75,12 @@ impl Display for Instruction {
             Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
                 write!(f, "unchecked {}[{}] = {}", self.out(), op.lhs, op.rhs)
             }
+            Operation::Operator(Operator::Cast(op)) => {
+                write!(f, "{} = cast<{}>({})", self.out(), self.item(), op.input)
+            }
+            Operation::Operator(Operator::Bitcast(op)) => {
+                write!(f, "{} = bitcast<{}>({})", self.out(), self.item(), op.input)
+            }
             _ => {
                 if let Some(out) = self.out {
                     write!(f, "{out} = {}", self.operation)
@@ -192,7 +198,6 @@ impl Display for Operator {
             Operator::Greater(op) => write!(f, "{} > {}", op.lhs, op.rhs),
             Operator::LowerEqual(op) => write!(f, "{} <= {}", op.lhs, op.rhs),
             Operator::GreaterEqual(op) => write!(f, "{} >= {}", op.lhs, op.rhs),
-            Operator::Cast(op) => write!(f, "{}", op.input),
             Operator::Modulo(op) => write!(f, "{} % {}", op.lhs, op.rhs),
             Operator::Index(op) => write!(f, "{}[{}]", op.lhs, op.rhs),
             Operator::Copy(op) => write!(f, "[{}] = {}[{}]", op.out_index, op.input, op.in_index),
@@ -221,7 +226,6 @@ impl Display for Operator {
             Operator::ShiftLeft(op) => write!(f, "{} << {}", op.lhs, op.rhs),
             Operator::ShiftRight(op) => write!(f, "{} >> {}", op.lhs, op.rhs),
             Operator::Remainder(op) => write!(f, "{} rem {}", op.lhs, op.rhs),
-            Operator::Bitcast(op) => write!(f, "bitcast({})", op.input),
             Operator::Magnitude(op) => write!(f, "{}.length()", op.input),
             Operator::Normalize(op) => write!(f, "{}.normalize()", op.input),
             Operator::Dot(op) => write!(f, "{}.dot({})", op.lhs, op.rhs),
