@@ -60,7 +60,7 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
-        let mut acc = SMM::acc_init_zeros();
+        let mut acc = SMM::acc_init_zeros(config.to_smm_config());
 
         for _ in 0..num_loops {
             let lhs_stage_reader = &LhsTensorLoader::fill_stage(&mut lhs_loader, config);

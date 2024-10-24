@@ -70,17 +70,22 @@ where
                 TMM::fill_rhs(tile_rhs, &mut instruction_rhs, config.to_tmm_config());
 
                 let accumulator = acc.index_mut(accumulator_iter);
-                TMM::execute(&instruction_lhs, &instruction_rhs, accumulator);
+                TMM::execute(
+                    &instruction_lhs,
+                    &instruction_rhs,
+                    accumulator,
+                    config.to_tmm_config(),
+                );
             }
         }
     }
 
-    fn acc_init_zeros() -> Self::Accumulator {
+    fn acc_init_zeros(#[comptime] config: S) -> Self::Accumulator {
         let mut accumulators = Sequence::<TMM::Out>::new();
 
         #[unroll]
         for _ in 0..StageSize::NUM_N {
-            accumulators.push(TMM::init_output());
+            accumulators.push(TMM::init_output(config.to_tmm_config()));
         }
 
         accumulators

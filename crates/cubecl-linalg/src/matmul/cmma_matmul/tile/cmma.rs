@@ -42,7 +42,7 @@ macro_rules! impl_matmul_instruction {
             type Rhs = Fragment<I>;
             type Out = Fragment<O>;
 
-            fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out) {
+            fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] _config: T) {
                 execute::<I, O>(lhs, rhs, out);
             }
 
@@ -62,7 +62,7 @@ macro_rules! impl_matmul_instruction {
                 fill_rhs(slice, rhs);
             }
 
-            fn init_output() -> Self::Out {
+            fn init_output(#[comptime] _config: T) -> Self::Out {
                 init_output(Self::M, Self::N, Self::K)
             }
 

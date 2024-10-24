@@ -41,25 +41,23 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
     type Rhs = Array<I>;
     type Out = Array<O>;
 
-    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out) {
-        // TODO config
-        let plane_dim = 32;
+    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: T) {
+        let k_jump = config.plane_dim() / Self::N;
+        let row_division = config.plane_dim() / Self::M;
 
-        let k_jump = plane_dim / Self::N;
         let num_jumps = Self::K / k_jump;
-        let row_division = plane_dim / Self::M;
         let compute_width = Self::N / row_division;
+
         let unit_offset = Self::plane_unit() % row_division * compute_width;
 
-        // #[unroll]
+        #[unroll]
         for k_outer in 0..num_jumps {
             let b_kp = rhs[k_outer];
 
-            // #[unroll]
+            #[unroll]
             for k_inner in 0..k_jump {
                 let a_pk = lhs[k_outer * k_jump + k_inner];
 
-                // #[unroll]
                 for n_iter in 0..compute_width {
                     let unit_to_read = k_inner * Self::N + n_iter + unit_offset;
                     let b_kn = subcube_broadcast::<I>(b_kp, unit_to_read);
@@ -123,11 +121,8 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
         }
     }
 
-    fn init_output() -> Self::Out {
-        // TODO config
-        let plane_dim = 32;
-
-        let len = Self::M * Self::N / plane_dim;
+    fn init_output(#[comptime] config: T) -> Self::Out {
+        let len = Self::M * Self::N / config.plane_dim();
         let mut acc = Array::new(len);
         for i in 0..len {
             acc[i] = O::from_int(0);

@@ -29,7 +29,12 @@ macro_rules! impl_matmul_instruction {
             type Rhs = OwnedTile<I>;
             type Out = OwnedTile<O>;
 
-            fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out) {
+            fn execute(
+                lhs: &Self::Lhs,
+                rhs: &Self::Rhs,
+                out: &mut Self::Out,
+                #[comptime] _config: T,
+            ) {
                 execute::<I, O>(lhs, rhs, out);
             }
 
@@ -59,7 +64,7 @@ macro_rules! impl_matmul_instruction {
                 fill(slice, rhs)
             }
 
-            fn init_output() -> Self::Out {
+            fn init_output(#[comptime] _config: T) -> Self::Out {
                 let mut out = OwnedTile::<O> {
                     handle: Array::<O>::new(Self::M * Self::N),
                     x: Self::M.runtime(),
@@ -74,7 +79,11 @@ macro_rules! impl_matmul_instruction {
                 out
             }
 
-            fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>, #[comptime] _config: T) {
+            fn read_output<C: Numeric>(
+                out: &Self::Out,
+                slice: &mut SliceMut<'_, Line<C>>,
+                #[comptime] _config: T,
+            ) {
                 let line_size = Line::size(&slice[0]);
 
                 for i in 0..out.x * out.y / line_size {

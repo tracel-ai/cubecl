@@ -39,7 +39,7 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
     type Rhs = Array<I>;
     type Out = Array<O>;
 
-    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out) {
+    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] _config: T) {
         for k in 0..Self::K {
             let a_pk = lhs[k];
             let b_kp = rhs[k];
@@ -100,7 +100,7 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const K: u32> TileMatmul<I, O, T>
         }
     }
 
-    fn init_output() -> Self::Out {
+    fn init_output(#[comptime] _config: T) -> Self::Out {
         let mut acc = Array::new(Self::N);
         for i in 0..Self::N {
             acc[i] = O::from_int(0);

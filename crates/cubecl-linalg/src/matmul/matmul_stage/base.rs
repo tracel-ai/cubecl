@@ -22,7 +22,7 @@ pub trait StageMatmul<
 
     fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, #[comptime] config: S);
 
-    fn acc_init_zeros() -> Self::Accumulator;
+    fn acc_init_zeros(#[comptime] config: S) -> Self::Accumulator;
 
     fn acc_read<Out: StageWriter<O, G>, G: GmmConfig>(
         acc: &Self::Accumulator,
