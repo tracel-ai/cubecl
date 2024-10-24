@@ -150,9 +150,21 @@ pub enum Variable<D: Dialect> {
     GlobalScalar(u16, Elem<D>, gpu::Elem),
     ConstantArray(u16, Item<D>, u32),
     ConstantScalar(ConstantScalarValue, Elem<D>),
-    Local { id: u16, item: Item<D>, depth: u8 },
-    ConstLocal { id: u16, item: Item<D>, depth: u8 },
-    Slice { id: u16, item: Item<D>, depth: u8 },
+    Local {
+        id: u16,
+        item: Item<D>,
+        depth: u8,
+    },
+    ConstLocal {
+        id: u16,
+        item: Item<D>,
+        depth: u8,
+    },
+    Slice {
+        id: u16,
+        item: Item<D>,
+        depth: u8,
+    },
     SharedMemory(u16, Item<D>, u32),
     LocalArray(u16, Item<D>, u8, u32),
     IdxGlobal,
@@ -176,8 +188,15 @@ pub enum Variable<D: Dialect> {
     GridDimX,
     GridDimY,
     GridDimZ,
-    WmmaFragment { id: u16, frag: Fragment<D>, depth: u8 },
-    Tmp { id: u16, item: Item<D> },
+    WmmaFragment {
+        id: u16,
+        frag: Fragment<D>,
+        depth: u8,
+    },
+    Tmp {
+        id: u16,
+        item: Item<D>,
+    },
 }
 
 impl<D: Dialect> Display for Variable<D> {

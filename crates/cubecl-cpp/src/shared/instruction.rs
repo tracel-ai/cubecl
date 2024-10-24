@@ -1,6 +1,8 @@
 use crate::shared::FmtLeft;
 
-use super::{binary::*, unary::*, Component, Dialect, Elem, Variable, WarpInstruction, WmmaInstruction};
+use super::{
+    binary::*, unary::*, Component, Dialect, Elem, Variable, WarpInstruction, WmmaInstruction,
+};
 use std::{fmt::Display, marker::PhantomData};
 
 #[derive(Debug, Clone)]

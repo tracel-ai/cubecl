@@ -342,11 +342,8 @@ impl HipContext {
         let mut options: Vec<*const i8> = vec![include_option_cstr.as_ptr()];
         unsafe {
             let options_ptr = options.as_mut_ptr();
-            let status = cubecl_hip_sys::hiprtcCompileProgram(
-                program,
-                options.len() as i32,
-                options_ptr,
-            );
+            let status =
+                cubecl_hip_sys::hiprtcCompileProgram(program, options.len() as i32, options_ptr);
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 let mut log_size: usize = 0;
                 let status =

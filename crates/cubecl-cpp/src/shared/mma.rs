@@ -29,7 +29,10 @@ pub struct Fragment<D: Dialect> {
 #[derive(Debug, Clone, Copy)]
 pub enum WmmaInstruction<D: Dialect> {
     /// Fill the fragment with the value.
-    Fill { frag: Variable<D>, value: Variable<D> },
+    Fill {
+        frag: Variable<D>,
+        value: Variable<D>,
+    },
     /// Load the value into the fragment given the stride.
     Load {
         frag: Variable<D>,

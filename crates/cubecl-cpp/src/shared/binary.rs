@@ -1,7 +1,10 @@
 use crate::shared::FmtLeft;
 
 use super::{Component, Dialect, Elem, Item, Variable};
-use std::{fmt::{Display, Formatter}, marker::PhantomData};
+use std::{
+    fmt::{Display, Formatter},
+    marker::PhantomData,
+};
 
 pub trait Binary<D: Dialect> {
     fn format(
@@ -48,19 +51,20 @@ pub trait Binary<D: Dialect> {
             None => item_out_optimized.vectorization,
         };
 
-        let mut write_op = |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
-            let out = out.fmt_left();
-            writeln!(f, "{out} = {item_out}{{")?;
-            for i in 0..index {
-                let lhsi = lhs.index(i);
-                let rhsi = rhs.index(i);
+        let mut write_op =
+            |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {item_out}{{")?;
+                for i in 0..index {
+                    let lhsi = lhs.index(i);
+                    let rhsi = rhs.index(i);
 
-                Self::format_scalar(f, lhsi, rhsi, item_out)?;
-                f.write_str(", ")?;
-            }
+                    Self::format_scalar(f, lhsi, rhsi, item_out)?;
+                    f.write_str(", ")?;
+                }
 
-            f.write_str("};\n")
-        };
+                f.write_str("};\n")
+            };
 
         if item_out_original == item_out_optimized {
             write_op(&lhs, &rhs, out, item_out_optimized)
