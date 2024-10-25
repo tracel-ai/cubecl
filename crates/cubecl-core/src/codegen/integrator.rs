@@ -221,7 +221,7 @@ impl InputInfo {
     pub fn item(&self) -> Item {
         match self {
             Self::Array { item, .. } => *item,
-            Self::Scalar { elem, size: _ } => Item::new(*elem),
+            Self::Scalar { elem, .. } => Item::new(*elem),
         }
     }
 }

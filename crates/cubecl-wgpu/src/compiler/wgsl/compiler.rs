@@ -943,11 +943,11 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
                     register_extension(wgsl::Extension::Powf(out.item()));
                 }
             }
-            wgsl::Instruction::Erf { input, out: _ } => {
+            wgsl::Instruction::Erf { input, .. } => {
                 register_extension(wgsl::Extension::Erf(input.item()));
             }
             #[cfg(target_os = "macos")]
-            wgsl::Instruction::Tanh { input, out: _ } => {
+            wgsl::Instruction::Tanh { input, .. } => {
                 register_extension(wgsl::Extension::SafeTanh(input.item()))
             }
             wgsl::Instruction::If { instructions, .. } => {
