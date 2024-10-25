@@ -138,20 +138,20 @@ impl From<f32> for ConstVal {
 impl Variable {
     pub fn id<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>) -> Word {
         match self {
-            Self::GlobalInputArray(id, _)
+            Self::Versioned { id, .. } => b.get_versioned(*id),
+            Self::LocalBinding { id, .. } => b.get_binding(*id),
+            Self::Slice { ptr, .. } => ptr.id(b),
+            Self::Raw(id, _)
+            | Self::Named { id, .. }
+            | Self::GlobalInputArray(id, _)
             | Self::GlobalOutputArray(id, _)
             | Self::GlobalScalar(id, _)
             | Self::ConstantScalar(id, _, _)
-            | Self::Local { id, .. } => *id,
-            Self::Versioned { id, .. } => b.get_versioned(*id),
-            Self::LocalBinding { id, .. } => b.get_binding(*id),
-            Self::Raw(id, _) | Self::Named { id, .. } => *id,
-            Self::Slice { ptr, .. } => ptr.id(b),
-            Self::SharedMemory(id, _, _)
+            | Self::Local { id, .. }
+            | Self::SharedMemory(id, _, _)
             | Self::ConstantArray(id, _, _)
-            | Self::LocalArray(id, _, _) => *id,
-            Self::CoopMatrix(_, _, _) => unimplemented!("Can't get ID from matrix var"),
-            Self::SubgroupSize(id)
+            | Self::LocalArray(id, _, _)
+            | Self::SubgroupSize(id)
             | Self::Id(id)
             | Self::LocalInvocationIndex(id)
             | Self::LocalInvocationIdX(id)
@@ -174,14 +174,18 @@ impl Variable {
             | Self::NumWorkgroupsX(id)
             | Self::NumWorkgroupsY(id)
             | Self::NumWorkgroupsZ(id) => *id,
+            Self::CoopMatrix(_, _, _) => unimplemented!("Can't get ID from matrix var"),
         }
     }
 
     pub fn item(&self) -> Item {
         match self {
-            Self::GlobalInputArray(_, item) | Self::GlobalOutputArray(_, item) => item.clone(),
-            Self::GlobalScalar(_, elem) | Self::ConstantScalar(_, _, elem) => Item::Scalar(*elem),
-            Self::Local { item, .. }
+            Self::GlobalScalar(_, elem)
+            | Self::ConstantScalar(_, _, elem)
+            | Self::CoopMatrix(_, _, elem) => Item::Scalar(*elem),
+            Self::GlobalInputArray(_, item)
+            | Self::GlobalOutputArray(_, item)
+            | Self::Local { item, .. }
             | Self::Versioned { item, .. }
             | Self::LocalBinding { item, .. }
             | Self::Named { item, .. }
@@ -189,7 +193,7 @@ impl Variable {
             | Self::SharedMemory(_, item, _)
             | Self::ConstantArray(_, item, _)
             | Self::LocalArray(_, item, _) => item.clone(),
-            Self::CoopMatrix(_, _, elem) => Item::Scalar(*elem),
+
             _ => Item::Scalar(Elem::Int(32, false)), // builtin
         }
     }
@@ -199,12 +203,12 @@ impl Variable {
             Self::LocalBinding {
                 item: Item::Vector(elem, _),
                 ..
-            } => Item::Scalar(*elem),
-            Self::Local {
+            }
+            | Self::Local {
                 item: Item::Vector(elem, _),
                 ..
-            } => Item::Scalar(*elem),
-            Self::Versioned {
+            }
+            | Self::Versioned {
                 item: Item::Vector(elem, _),
                 ..
             } => Item::Scalar(*elem),
