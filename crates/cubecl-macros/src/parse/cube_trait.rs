@@ -54,8 +54,8 @@ impl CubeTraitItem {
 
     pub fn func(&self) -> Option<&KernelSignature> {
         match self {
-            CubeTraitItem::Fn(func) => Some(func),
-            CubeTraitItem::Other => None,
+            Self::Fn(func) => Some(func),
+            Self::Other => None,
         }
     }
 }

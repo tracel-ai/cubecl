@@ -159,38 +159,44 @@ pub struct Block {
 impl Expression {
     pub fn ty(&self) -> Option<Type> {
         match self {
-            Expression::Binary { ty, .. } => ty.clone(),
-            Expression::Unary { ty, .. } => ty.clone(),
-            Expression::Variable(var) => var.ty.clone(),
-            Expression::Literal { ty, .. } => Some(ty.clone()),
-            Expression::Assignment { ty, .. } => ty.clone(),
-            Expression::Verbatim { .. } => None,
-            Expression::Block(block) => block.ty.clone(),
-            Expression::FunctionCall { .. } => None,
-            Expression::Break { .. } => None,
-            Expression::Cast { to, .. } => Some(to.clone()),
-            Expression::Continue { .. } => None,
-            Expression::ForLoop { .. } => None,
-            Expression::FieldAccess { .. } => None,
-            Expression::MethodCall { .. } => None,
-            Expression::Path { .. } => None,
-            Expression::Range { start, .. } => start.ty(),
-            Expression::Loop { .. } => None,
-            Expression::If { then_block, .. } => then_block.ty.clone(),
-            Expression::Switch { default, .. } => default.ty.clone(),
-            Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
-            Expression::Array { .. } => None,
-            Expression::Index { .. } => None,
-            Expression::Tuple { .. } => None,
-            Expression::Slice { expr, .. } => expr.ty(),
-            Expression::ArrayInit { init, .. } => init.ty(),
-            Expression::VerbatimTerminated { .. } => None,
-            Expression::Reference { inner } => inner.ty(),
-            Expression::StructInit { .. } => None,
-            Expression::Closure { .. } => None,
-            Expression::Keyword { .. } => None,
-            Expression::CompilerIntrinsic { .. } => None,
-            Expression::ConstMatch { .. } => None,
+            Self::Binary { ty, .. } | Self::Unary { ty, .. } | Self::Assignment { ty, .. } => {
+                ty.clone()
+            }
+            Self::Variable(var) => var.ty.clone(),
+            Self::Literal { ty, .. } => Some(ty.clone()),
+
+            Self::Block(block) => block.ty.clone(),
+
+            Self::Cast { to, .. } => Some(to.clone()),
+
+            Self::Range { start, .. } => start.ty(),
+
+            Self::If { then_block, .. } => then_block.ty.clone(),
+            Self::Switch { default, .. } => default.ty.clone(),
+            Self::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
+
+            Self::Slice { expr, .. } => expr.ty(),
+            Self::ArrayInit { init, .. } => init.ty(),
+
+            Self::Reference { inner } => inner.ty(),
+            Self::Verbatim { .. }
+            | Self::FunctionCall { .. }
+            | Self::Break { .. }
+            | Self::Array { .. }
+            | Self::Index { .. }
+            | Self::Tuple { .. }
+            | Self::Continue { .. }
+            | Self::ForLoop { .. }
+            | Self::FieldAccess { .. }
+            | Self::MethodCall { .. }
+            | Self::Path { .. }
+            | Self::Loop { .. }
+            | Self::VerbatimTerminated { .. }
+            | Self::StructInit { .. }
+            | Self::Closure { .. }
+            | Self::Keyword { .. }
+            | Self::CompilerIntrinsic { .. }
+            | Self::ConstMatch { .. } => None,
         }
     }
 

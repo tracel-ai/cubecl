@@ -355,7 +355,7 @@ impl DebugLoggerKind {
     {
         match self {
             #[cfg(feature = "std")]
-            DebugLoggerKind::File(file, option) => {
+            Self::File(file, option) => {
                 match option {
                     DebugOptions::Debug | DebugOptions::All(_) => {
                         file.log(&arg);
@@ -365,7 +365,7 @@ impl DebugLoggerKind {
                 arg
             }
             #[cfg(feature = "std")]
-            DebugLoggerKind::Stdout(option) => {
+            Self::Stdout(option) => {
                 match option {
                     DebugOptions::Debug | DebugOptions::All(_) => {
                         println!("{arg}");
@@ -374,7 +374,7 @@ impl DebugLoggerKind {
                 };
                 arg
             }
-            DebugLoggerKind::None => arg,
+            Self::None => arg,
         }
     }
 }
