@@ -324,7 +324,7 @@ macro_rules! cpa {
     };
     // out = input
     ($scope:expr, $out:ident = $input:ident) => {
-        $scope.register($crate::ir::Instruction::new($crate::ir::Operation::Assign(
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operation::Copy(
             $input
         ), $out));
     };

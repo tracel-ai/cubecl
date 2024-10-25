@@ -296,7 +296,7 @@ impl Scope {
         let mut operations = Vec::new();
 
         for (local, scalar) in self.reads_scalar.drain(..) {
-            operations.push(Instruction::new(Operation::Assign(scalar), local));
+            operations.push(Instruction::new(Operation::Copy(scalar), local));
             variables.push(local);
         }
 

@@ -108,7 +108,7 @@ impl ValueTable {
         inst: &ir::Instruction,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         match &inst.operation {
-            Operation::Assign(variable) => {
+            Operation::Copy(variable) => {
                 let item = inst.item();
                 let out = value_of_var(&inst.out());
                 let num = self.lookup_or_add_var(variable)?;
@@ -281,8 +281,8 @@ impl ValueTable {
             Operator::IndexAssign(_)
             | Operator::UncheckedIndexAssign(_)
             | Operator::Slice(_)
-            | Operator::CopyBulk(_)
-            | Operator::Copy(_) => Err(None)?,
+            | Operator::CopyMemoryBulk(_)
+            | Operator::CopyMemory(_) => Err(None)?,
         };
         Ok((expr, val))
     }

@@ -69,7 +69,7 @@ impl OptimizerPass for CompositeMerge {
                         } else {
                             assert_eq!(index, 0, "Can't index into scalar");
                             opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
-                                Operation::Assign(rhs),
+                                Operation::Copy(rhs),
                                 Variable::new(VariableKind::Local { id, depth }, item),
                             )
                         }
@@ -121,7 +121,7 @@ impl OptimizerPass for RemoveIndexScalar {
                                 lhs.item.vectorization.map(|it| it.get()).unwrap_or(1);
                             if vectorization == 1 {
                                 assert_eq!(index, 0, "Can't index into scalar");
-                                op.operation = Operation::Assign(*lhs);
+                                op.operation = Operation::Copy(*lhs);
                                 changes.inc();
                             }
                         }

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[allow(dead_code, missing_docs, clippy::large_enum_variant)] // Some variants might not be used with different flags
 pub enum Operation {
-    Assign(Variable),
+    Copy(Variable),
     Operator(Operator),
     Atomic(AtomicOp),
     Metadata(Metadata),
@@ -52,17 +52,17 @@ impl Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.operation {
-            Operation::Operator(Operator::Copy(op)) => write!(
+            Operation::Operator(Operator::CopyMemory(op)) => write!(
                 f,
-                "copy({}[{}], {}[{}])",
+                "copy_mem({}[{}], {}[{}])",
                 self.out(),
                 op.out_index,
                 op.input,
                 op.in_index
             ),
-            Operation::Operator(Operator::CopyBulk(op)) => write!(
+            Operation::Operator(Operator::CopyMemoryBulk(op)) => write!(
                 f,
-                "copy_bulk({}[{}], {}[{}], {})",
+                "copy_mem_bulk({}[{}], {}[{}], {})",
                 self.out(),
                 op.out_index,
                 op.input,
@@ -102,7 +102,7 @@ impl Display for Operation {
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
             Operation::Subcube(subcube) => write!(f, "{subcube}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
-            Operation::Assign(variable) => write!(f, "{variable}"),
+            Operation::Copy(variable) => write!(f, "{variable}"),
         }
     }
 }
@@ -140,8 +140,8 @@ pub enum Operator {
     Cast(UnaryOperator),
     Modulo(BinaryOperator),
     Index(BinaryOperator),
-    Copy(CopyOperator),
-    CopyBulk(CopyBulkOperator),
+    CopyMemory(CopyMemoryOperator),
+    CopyMemoryBulk(CopyMemoryBulkOperator),
     Slice(SliceOperator),
     UncheckedIndex(BinaryOperator),
     IndexAssign(BinaryOperator),
@@ -200,8 +200,10 @@ impl Display for Operator {
             Operator::GreaterEqual(op) => write!(f, "{} >= {}", op.lhs, op.rhs),
             Operator::Modulo(op) => write!(f, "{} % {}", op.lhs, op.rhs),
             Operator::Index(op) => write!(f, "{}[{}]", op.lhs, op.rhs),
-            Operator::Copy(op) => write!(f, "[{}] = {}[{}]", op.out_index, op.input, op.in_index),
-            Operator::CopyBulk(op) => write!(
+            Operator::CopyMemory(op) => {
+                write!(f, "[{}] = {}[{}]", op.out_index, op.input, op.in_index)
+            }
+            Operator::CopyMemoryBulk(op) => write!(
                 f,
                 "memcpy([{}], {}[{}], {})",
                 op.input, op.in_index, op.out_index, op.len
@@ -296,7 +298,7 @@ pub struct LineInitOperator {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[allow(missing_docs)]
-pub struct CopyOperator {
+pub struct CopyMemoryOperator {
     pub out_index: Variable,
     pub input: Variable,
     pub in_index: Variable,
@@ -304,7 +306,7 @@ pub struct CopyOperator {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[allow(missing_docs)]
-pub struct CopyBulkOperator {
+pub struct CopyMemoryBulkOperator {
     pub out_index: Variable,
     pub input: Variable,
     pub in_index: Variable,

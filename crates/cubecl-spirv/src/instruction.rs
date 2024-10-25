@@ -15,7 +15,7 @@ use crate::{
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, inst: Instruction) {
         match inst.operation {
-            Operation::Assign(var) => {
+            Operation::Copy(var) => {
                 let input = self.compile_variable(var);
                 let out = self.compile_variable(inst.out());
                 let ty = out.item().id(self);
@@ -517,7 +517,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.composite_construct(ty, Some(out_id), values).unwrap();
                 self.write(&out, out_id);
             }
-            Operator::Copy(op) => {
+            Operator::CopyMemory(op) => {
                 let input = self.compile_variable(op.input);
                 let in_index = self.compile_variable(op.in_index);
                 let out = self.compile_variable(out);
@@ -538,7 +538,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap();
                 }
             }
-            Operator::CopyBulk(op) => {
+            Operator::CopyMemoryBulk(op) => {
                 self.capabilities.insert(Capability::Addresses);
                 let input = self.compile_variable(op.input);
                 let in_index = self.compile_variable(op.in_index);

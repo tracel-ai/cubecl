@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use cubecl_core::ir::{CopyOperator, Instruction, Operation, Operator, Variable, VariableKind};
+use cubecl_core::ir::{
+    CopyMemoryOperator, Instruction, Operation, Operator, Variable, VariableKind,
+};
 
 use crate::{AtomicCounter, Optimizer};
 
@@ -42,7 +44,7 @@ impl OptimizerPass for CopyTransform {
                 let (read_idx, input, in_index) = reads[*id];
                 let (write_idx, out, out_index) = writes[*id];
                 ops.borrow_mut().remove(read_idx);
-                let copy = Operator::Copy(CopyOperator {
+                let copy = Operator::CopyMemory(CopyMemoryOperator {
                     out_index,
                     input,
                     in_index,

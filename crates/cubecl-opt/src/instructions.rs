@@ -36,7 +36,7 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
-            Operation::Assign(variable) => visit_read(self, variable),
+            Operation::Copy(variable) => visit_read(self, variable),
             Operation::Operator(operator) => self.visit_operator(operator, visit_read),
             Operation::Atomic(atomic) => self.visit_atomic(atomic, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
@@ -126,12 +126,12 @@ impl Optimizer {
                     visit_read(self, input)
                 }
             }
-            Operator::Copy(copy_operator) => {
+            Operator::CopyMemory(copy_operator) => {
                 visit_read(self, &mut copy_operator.input);
                 visit_read(self, &mut copy_operator.in_index);
                 visit_read(self, &mut copy_operator.out_index);
             }
-            Operator::CopyBulk(copy_bulk_operator) => {
+            Operator::CopyMemoryBulk(copy_bulk_operator) => {
                 visit_read(self, &mut copy_bulk_operator.input);
                 visit_read(self, &mut copy_bulk_operator.in_index);
                 visit_read(self, &mut copy_bulk_operator.out_index);

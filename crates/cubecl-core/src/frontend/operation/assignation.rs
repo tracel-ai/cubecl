@@ -42,7 +42,7 @@ pub mod assign {
         output: ExpandElementTyped<C>,
     ) {
         context.register(Instruction::new(
-            Operation::Assign(*input.expand),
+            Operation::Copy(*input.expand),
             *output.expand,
         ));
     }
