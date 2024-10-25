@@ -3,7 +3,7 @@ use cubecl_core::{
     ir::{self as core, BinaryOperator, UnaryOperator},
     ExecutionMode,
 };
-use rspirv::spirv::{Capability, Word};
+use rspirv::spirv::{Capability, Decoration, Word};
 
 use crate::{
     item::{Elem, Item},
@@ -136,6 +136,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Bool => b.logical_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, _) => b.i_equal(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_equal(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_equal(ty, Some(out), lhs, rhs)
+                        }
                         Elem::Void => unreachable!(),
                     }
                     .unwrap();
@@ -147,6 +151,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Bool => b.logical_not_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, _) => b.i_not_equal(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_not_equal(ty, Some(out), lhs, rhs)
+                        }
                         Elem::Void => unreachable!(),
                     }
                     .unwrap();
@@ -158,6 +166,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Int(_, false) => b.u_less_than(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_less_than(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_less_than(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_less_than(ty, Some(out), lhs, rhs)
+                        }
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -169,6 +181,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Int(_, false) => b.u_less_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_less_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_less_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_less_than_equal(ty, Some(out), lhs, rhs)
+                        }
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -180,6 +196,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Int(_, false) => b.u_greater_than(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_greater_than(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_greater_than(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_greater_than(ty, Some(out), lhs, rhs)
+                        }
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -191,6 +211,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Int(_, false) => b.u_greater_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_greater_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Float(_) => b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs)
+                        }
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -201,6 +225,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_add(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_add(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         _ => unreachable!(),
                     };
                 });
@@ -210,6 +238,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_sub(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_sub(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_sub(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         _ => unreachable!(),
                     };
                 });
@@ -219,6 +251,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_mul(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_mul(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         _ => unreachable!(),
                     };
                 });
@@ -229,6 +265,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Int(_, false) => b.u_div(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Int(_, true) => b.s_div(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_div(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_div(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         _ => unreachable!(),
                     };
                 });
@@ -239,6 +279,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Int(_, true) => b.s_mod(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_mod(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         _ => unreachable!(),
                     };
                 });
@@ -249,6 +293,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Int(_, true) => b.s_rem(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_rem(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_rem(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         _ => unreachable!(),
                     };
                 });
@@ -259,6 +307,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         match out_ty.elem() {
                             Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
                             Elem::Float(_) => b.f_mul(ty, Some(out), lhs, rhs).unwrap(),
+                            Elem::Relaxed => {
+                                b.decorate(out, Decoration::RelaxedPrecision, []);
+                                b.f_mul(ty, Some(out), lhs, rhs).unwrap()
+                            }
                             _ => unreachable!(),
                         };
                     });
@@ -289,7 +341,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         (Elem::Int(_, true), Elem::Int(_, true)) => {
                             self.s_dot(ty, Some(out_id), lhs_id, rhs_id, None)
                         }
-                        (Elem::Float(_), Elem::Float(_)) => {
+                        (Elem::Float(_), Elem::Float(_))
+                        | (Elem::Relaxed, Elem::Float(_))
+                        | (Elem::Float(_), Elem::Relaxed) => {
+                            self.dot(ty, Some(out_id), lhs_id, rhs_id)
+                        }
+                        (Elem::Relaxed, Elem::Relaxed) => {
+                            self.decorate(out_id, Decoration::RelaxedPrecision, []);
                             self.dot(ty, Some(out_id), lhs_id, rhs_id)
                         }
                         _ => unreachable!(),
@@ -304,6 +362,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let c = self.compile_variable(op.c);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
+                let relaxed = matches!(
+                    (a.item().elem(), b.item().elem(), c.item().elem()),
+                    (Elem::Relaxed, Elem::Relaxed, Elem::Relaxed)
+                );
 
                 let a_id = self.read_as(&a, &out_ty);
                 let b_id = self.read_as(&b, &out_ty);
@@ -314,6 +376,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let mul = self.f_mul(ty, None, a_id, b_id).unwrap();
                 self.f_add(ty, Some(out_id), mul, c_id).unwrap();
+                if relaxed {
+                    self.decorate(mul, Decoration::RelaxedPrecision, []);
+                    self.decorate(out_id, Decoration::RelaxedPrecision, []);
+                }
                 self.write(&out, out_id);
             }
             Operator::Recip(op) => {
@@ -342,6 +408,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match out_ty.elem() {
                         Elem::Int(_, true) => b.s_negate(ty, Some(out), input).unwrap(),
                         Elem::Float(_) => b.f_negate(ty, Some(out), input).unwrap(),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_negate(ty, Some(out), input).unwrap()
+                        }
                         _ => unreachable!(),
                     };
                 });
@@ -396,6 +466,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match out_ty.elem() {
                         Elem::Int(_, _) => T::s_abs(b, ty, input, out),
                         Elem::Float(_) => T::f_abs(b, ty, input, out),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            T::f_abs(b, ty, input, out)
+                        }
                         _ => unreachable!(),
                     }
                 });
@@ -413,8 +487,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let add = match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, None, input, one).unwrap(),
                         Elem::Float(_) => b.f_add(ty, None, input, one).unwrap(),
+                        Elem::Relaxed => {
+                            let out = b.f_add(ty, None, input, one).unwrap();
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            out
+                        }
                         _ => unreachable!(),
                     };
+                    b.decorate(out, Decoration::RelaxedPrecision, []);
                     T::log(b, ty, add, out)
                 });
             }
@@ -431,6 +511,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Item::Vector(_, factor) => Item::Vector(Elem::Bool, factor).id(b),
                         _ => unreachable!(),
                     };
+                    let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
                     let zero = out_ty.const_u32(b, 0);
                     let one = out_ty.const_u32(b, 1);
                     let two = out_ty.const_u32(b, 2);
@@ -449,6 +530,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let pow2_neg = b.f_negate(ty, None, pow2).unwrap();
                     let default = b.id();
                     T::pow(b, ty, lhs, rhs, default);
+                    if relaxed {
+                        b.decorate(modulo, Decoration::RelaxedPrecision, []);
+                        b.decorate(is_zero, Decoration::RelaxedPrecision, []);
+                        b.decorate(abs, Decoration::RelaxedPrecision, []);
+                        b.decorate(even, Decoration::RelaxedPrecision, []);
+                        b.decorate(cond2_0, Decoration::RelaxedPrecision, []);
+                        b.decorate(cond2_1, Decoration::RelaxedPrecision, []);
+                        b.decorate(neg_lhs, Decoration::RelaxedPrecision, []);
+                        b.decorate(pow2, Decoration::RelaxedPrecision, []);
+                        b.decorate(pow2_neg, Decoration::RelaxedPrecision, []);
+                        b.decorate(default, Decoration::RelaxedPrecision, []);
+                    }
                     let sel1 = b.select(ty, None, cond2, pow2_neg, default).unwrap();
                     b.select(ty, Some(out), is_zero, even, sel1).unwrap();
                 })
@@ -479,6 +572,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Elem::Int(_, false) => T::u_clamp(self, ty, input, min, max, out_id),
                     Elem::Int(_, true) => T::s_clamp(self, ty, input, min, max, out_id),
                     Elem::Float(_) => T::f_clamp(self, ty, input, min, max, out_id),
+                    Elem::Relaxed => {
+                        self.decorate(out_id, Decoration::RelaxedPrecision, []);
+                        T::f_clamp(self, ty, input, min, max, out_id)
+                    }
                     _ => unreachable!(),
                 }
                 self.write(&out, out_id);
@@ -489,6 +586,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Elem::Int(_, false) => T::u_max(b, ty, lhs, rhs, out),
                     Elem::Int(_, true) => T::s_max(b, ty, lhs, rhs, out),
                     Elem::Float(_) => T::f_max(b, ty, lhs, rhs, out),
+                    Elem::Relaxed => {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                        T::f_max(b, ty, lhs, rhs, out)
+                    }
                     _ => unreachable!(),
                 }
             }),
@@ -497,6 +598,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Elem::Int(_, false) => T::u_min(b, ty, lhs, rhs, out),
                     Elem::Int(_, true) => T::s_min(b, ty, lhs, rhs, out),
                     Elem::Float(_) => T::f_min(b, ty, lhs, rhs, out),
+                    Elem::Relaxed => {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                        T::f_min(b, ty, lhs, rhs, out)
+                    }
                     _ => unreachable!(),
                 }
             }),

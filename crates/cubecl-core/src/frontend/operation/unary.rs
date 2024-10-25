@@ -3,6 +3,7 @@ use half::{bf16, f16};
 use crate::{
     frontend::CubeContext,
     ir::Operator,
+    minf16,
     prelude::{CubePrimitive, ExpandElement, ExpandElementTyped},
     tf32, unexpanded,
 };
@@ -77,6 +78,7 @@ impl_unary_func!(
     Operator::Abs,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64,
@@ -96,6 +98,7 @@ impl_unary_func!(
     Operator::Exp,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -107,6 +110,7 @@ impl_unary_func!(
     Operator::Log,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -118,6 +122,7 @@ impl_unary_func!(
     Operator::Log1p,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -129,6 +134,7 @@ impl_unary_func!(
     Operator::Cos,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -140,6 +146,7 @@ impl_unary_func!(
     Operator::Sin,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -151,6 +158,7 @@ impl_unary_func!(
     Operator::Tanh,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -162,6 +170,7 @@ impl_unary_func!(
     Operator::Sqrt,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -173,6 +182,7 @@ impl_unary_func!(
     Operator::Round,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -184,6 +194,7 @@ impl_unary_func!(
     Operator::Floor,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -195,6 +206,7 @@ impl_unary_func!(
     Operator::Ceil,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -206,6 +218,7 @@ impl_unary_func!(
     Operator::Erf,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -217,6 +230,7 @@ impl_unary_func!(
     Operator::Recip,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -229,6 +243,7 @@ impl_unary_func_fixed_out_vectorization!(
     None,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64
@@ -240,6 +255,7 @@ impl_unary_func!(
     Operator::Normalize,
     f16,
     bf16,
+    minf16,
     tf32,
     f32,
     f64

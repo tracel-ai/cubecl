@@ -15,6 +15,7 @@ version = "0.2.0"
 
 [workspace.dependencies]
 derive-new = { version = "0.6.0", default-features = false }
+derive_more = { version = "1", default-features = false }
 log = { default-features = false, version = "0.4.22" }
 
 serde = { version = "1.0.204", default-features = false, features = [

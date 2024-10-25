@@ -1,4 +1,8 @@
-use crate::ir::{Elem, FloatKind, IntKind, UIntKind};
+use crate::{
+    ir::{Elem, FloatKind, IntKind, UIntKind},
+    minf16,
+    prelude::Numeric,
+};
 
 /// The base element trait for the jit backend.
 pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemuck::Pod {
@@ -141,5 +145,26 @@ impl CubeElement for half::bf16 {
     }
     fn minimum_value() -> Self {
         half::bf16::MIN
+    }
+}
+
+impl CubeElement for minf16 {
+    fn type_name() -> &'static str {
+        "minf16"
+    }
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+    fn cube_elem() -> Elem {
+        Elem::Float(FloatKind::Relaxed)
+    }
+    fn maximum_value() -> Self {
+        minf16::MAX
+    }
+    fn minimum_value() -> Self {
+        minf16::MIN
     }
 }
