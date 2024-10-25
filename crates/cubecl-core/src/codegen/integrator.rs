@@ -220,11 +220,11 @@ impl InputInfo {
     #[allow(dead_code)]
     pub fn item(&self) -> Item {
         match self {
-            InputInfo::Array {
+            Self::Array {
                 item,
                 visibility: _,
             } => *item,
-            InputInfo::Scalar { elem, size: _ } => Item::new(*elem),
+            Self::Scalar { elem, size: _ } => Item::new(*elem),
         }
     }
 }

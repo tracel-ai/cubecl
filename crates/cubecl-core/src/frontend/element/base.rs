@@ -321,14 +321,14 @@ impl ExpandElement {
     /// If the element can be mutated inplace, potentially reusing the register.
     pub fn can_mut(&self) -> bool {
         match self {
-            ExpandElement::Managed(var) => {
+            Self::Managed(var) => {
                 if let Variable::Local { .. } = var.as_ref() {
                     Rc::strong_count(var) <= 2
                 } else {
                     false
                 }
             }
-            ExpandElement::Plain(_) => false,
+            Self::Plain(_) => false,
         }
     }
 
@@ -343,8 +343,8 @@ impl core::ops::Deref for ExpandElement {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            ExpandElement::Managed(var) => var.as_ref(),
-            ExpandElement::Plain(var) => var,
+            Self::Managed(var) => var.as_ref(),
+            Self::Plain(var) => var,
         }
     }
 }

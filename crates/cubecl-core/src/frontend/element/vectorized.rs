@@ -59,8 +59,8 @@ impl<T: CubeType> Vectorized for &mut Tensor<T> {
 impl Vectorized for ExpandElement {
     fn vectorization_factor(&self) -> u32 {
         let var = match self {
-            ExpandElement::Managed(var) => var,
-            ExpandElement::Plain(var) => var,
+            Self::Managed(var) => var,
+            Self::Plain(var) => var,
         };
 
         var.item().vectorization.map(|it| it.get()).unwrap_or(1) as u32

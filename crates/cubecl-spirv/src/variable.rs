@@ -193,7 +193,6 @@ impl Variable {
             | Self::SharedMemory(_, item, _)
             | Self::ConstantArray(_, item, _)
             | Self::LocalArray(_, item, _) => item.clone(),
-
             _ => Item::Scalar(Elem::Int(32, false)), // builtin
         }
     }
