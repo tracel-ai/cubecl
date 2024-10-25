@@ -1,44 +1,44 @@
 use std::fmt::Display;
 
-use super::Variable;
+use super::{Dialect, Variable};
 
 #[derive(Clone, Debug)]
-pub enum WarpInstruction {
+pub enum WarpInstruction<D: Dialect> {
     ReduceSum {
-        input: Variable,
-        out: Variable,
+        input: Variable<D>,
+        out: Variable<D>,
     },
     ReduceProd {
-        input: Variable,
-        out: Variable,
+        input: Variable<D>,
+        out: Variable<D>,
     },
     ReduceMax {
-        input: Variable,
-        out: Variable,
+        input: Variable<D>,
+        out: Variable<D>,
     },
     ReduceMin {
-        input: Variable,
-        out: Variable,
+        input: Variable<D>,
+        out: Variable<D>,
     },
     Elect {
-        out: Variable,
+        out: Variable<D>,
     },
     All {
-        input: Variable,
-        out: Variable,
+        input: Variable<D>,
+        out: Variable<D>,
     },
     Any {
-        input: Variable,
-        out: Variable,
+        input: Variable<D>,
+        out: Variable<D>,
     },
     Broadcast {
-        input: Variable,
-        id: Variable,
-        out: Variable,
+        input: Variable<D>,
+        id: Variable<D>,
+        out: Variable<D>,
     },
 }
 
-impl Display for WarpInstruction {
+impl<D: Dialect> Display for WarpInstruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WarpInstruction::ReduceSum { input, out } => reduce_operator(f, input, out, "+="),
@@ -101,10 +101,10 @@ unsigned int leader = __ffs(mask) - 1;
     }
 }
 
-fn reduce_operator(
+fn reduce_operator<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    input: &Variable,
-    out: &Variable,
+    input: &Variable<D>,
+    out: &Variable<D>,
     op: &str,
 ) -> core::fmt::Result {
     write!(
