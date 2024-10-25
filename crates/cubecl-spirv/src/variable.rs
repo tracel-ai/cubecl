@@ -83,15 +83,15 @@ pub enum ConstVal {
 impl ConstVal {
     pub fn as_u64(&self) -> u64 {
         match self {
-            ConstVal::Bit32(val) => *val as u64,
-            ConstVal::Bit64(val) => *val,
+            Self::Bit32(val) => *val as u64,
+            Self::Bit64(val) => *val,
         }
     }
 
     pub fn as_u32(&self) -> u32 {
         match self {
-            ConstVal::Bit32(val) => *val,
-            ConstVal::Bit64(_) => panic!("Truncating 64 bit variable to 32 bit"),
+            Self::Bit32(val) => *val,
+            Self::Bit64(_) => panic!("Truncating 64 bit variable to 32 bit"),
         }
     }
 }
@@ -101,23 +101,23 @@ impl From<ConstantScalarValue> for ConstVal {
         unsafe {
             match value {
                 ConstantScalarValue::Int(val, IntKind::I32) => {
-                    ConstVal::Bit32(transmute::<i32, u32>(val as i32))
+                    Self::Bit32(transmute::<i32, u32>(val as i32))
                 }
                 ConstantScalarValue::Int(val, IntKind::I64) => {
-                    ConstVal::Bit64(transmute::<i64, u64>(val))
+                    Self::Bit64(transmute::<i64, u64>(val))
                 }
-                ConstantScalarValue::Float(val, FloatKind::F64) => ConstVal::Bit64(val.to_bits()),
+                ConstantScalarValue::Float(val, FloatKind::F64) => Self::Bit64(val.to_bits()),
                 ConstantScalarValue::Float(val, FloatKind::F32) => {
-                    ConstVal::Bit32((val as f32).to_bits())
+                    Self::Bit32((val as f32).to_bits())
                 }
                 ConstantScalarValue::Float(val, FloatKind::F16) => {
-                    ConstVal::Bit32((val as f32).to_bits())
+                    Self::Bit32((val as f32).to_bits())
                 }
                 ConstantScalarValue::Float(_, FloatKind::BF16) => {
                     panic!("bf16 not supported in SPIR-V")
                 }
-                ConstantScalarValue::UInt(val) => ConstVal::Bit32(val as u32),
-                ConstantScalarValue::Bool(val) => ConstVal::Bit32(val as u32),
+                ConstantScalarValue::UInt(val) => Self::Bit32(val as u32),
+                ConstantScalarValue::Bool(val) => Self::Bit32(val as u32),
             }
         }
     }
@@ -125,89 +125,86 @@ impl From<ConstantScalarValue> for ConstVal {
 
 impl From<u32> for ConstVal {
     fn from(value: u32) -> Self {
-        ConstVal::Bit32(value)
+        Self::Bit32(value)
     }
 }
 
 impl From<f32> for ConstVal {
     fn from(value: f32) -> Self {
-        ConstVal::Bit32(value.to_bits())
+        Self::Bit32(value.to_bits())
     }
 }
 
 impl Variable {
     pub fn id<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>) -> Word {
         match self {
-            Variable::GlobalInputArray(id, _) => *id,
-            Variable::GlobalOutputArray(id, _) => *id,
-            Variable::GlobalScalar(id, _) => *id,
-            Variable::ConstantScalar(id, _, _) => *id,
-            Variable::Local { id, .. } => *id,
-            Variable::Versioned { id, .. } => b.get_versioned(*id),
-            Variable::LocalBinding { id, .. } => b.get_binding(*id),
-            Variable::Raw(id, _) => *id,
-            Variable::Named { id, .. } => *id,
-            Variable::Slice { ptr, .. } => ptr.id(b),
-            Variable::SharedMemory(id, _, _) => *id,
-            Variable::ConstantArray(id, _, _) => *id,
-            Variable::LocalArray(id, _, _) => *id,
-            Variable::CoopMatrix(_, _, _) => unimplemented!("Can't get ID from matrix var"),
-            Variable::SubgroupSize(id) => *id,
-            Variable::Id(id) => *id,
-            Variable::LocalInvocationIndex(id) => *id,
-            Variable::LocalInvocationIdX(id) => *id,
-            Variable::LocalInvocationIdY(id) => *id,
-            Variable::LocalInvocationIdZ(id) => *id,
-            Variable::Rank(id) => *id,
-            Variable::WorkgroupId(id) => *id,
-            Variable::WorkgroupIdX(id) => *id,
-            Variable::WorkgroupIdY(id) => *id,
-            Variable::WorkgroupIdZ(id) => *id,
-            Variable::GlobalInvocationIndex(id) => *id,
-            Variable::GlobalInvocationIdX(id) => *id,
-            Variable::GlobalInvocationIdY(id) => *id,
-            Variable::GlobalInvocationIdZ(id) => *id,
-            Variable::WorkgroupSize(id) => *id,
-            Variable::WorkgroupSizeX(id) => *id,
-            Variable::WorkgroupSizeY(id) => *id,
-            Variable::WorkgroupSizeZ(id) => *id,
-            Variable::NumWorkgroups(id) => *id,
-            Variable::NumWorkgroupsX(id) => *id,
-            Variable::NumWorkgroupsY(id) => *id,
-            Variable::NumWorkgroupsZ(id) => *id,
+            Self::GlobalInputArray(id, _)
+            | Self::GlobalOutputArray(id, _)
+            | Self::GlobalScalar(id, _)
+            | Self::ConstantScalar(id, _, _)
+            | Self::Local { id, .. } => *id,
+            Self::Versioned { id, .. } => b.get_versioned(*id),
+            Self::LocalBinding { id, .. } => b.get_binding(*id),
+            Self::Raw(id, _) | Self::Named { id, .. } => *id,
+            Self::Slice { ptr, .. } => ptr.id(b),
+            Self::SharedMemory(id, _, _)
+            | Self::ConstantArray(id, _, _)
+            | Self::LocalArray(id, _, _) => *id,
+            Self::CoopMatrix(_, _, _) => unimplemented!("Can't get ID from matrix var"),
+            Self::SubgroupSize(id)
+            | Self::Id(id)
+            | Self::LocalInvocationIndex(id)
+            | Self::LocalInvocationIdX(id)
+            | Self::LocalInvocationIdY(id)
+            | Self::LocalInvocationIdZ(id)
+            | Self::Rank(id)
+            | Self::WorkgroupId(id)
+            | Self::WorkgroupIdX(id)
+            | Self::WorkgroupIdY(id)
+            | Self::WorkgroupIdZ(id)
+            | Self::GlobalInvocationIndex(id)
+            | Self::GlobalInvocationIdX(id)
+            | Self::GlobalInvocationIdY(id)
+            | Self::GlobalInvocationIdZ(id)
+            | Self::WorkgroupSize(id)
+            | Self::WorkgroupSizeX(id)
+            | Self::WorkgroupSizeY(id)
+            | Self::WorkgroupSizeZ(id)
+            | Self::NumWorkgroups(id)
+            | Self::NumWorkgroupsX(id)
+            | Self::NumWorkgroupsY(id)
+            | Self::NumWorkgroupsZ(id) => *id,
         }
     }
 
     pub fn item(&self) -> Item {
         match self {
-            Variable::GlobalInputArray(_, item) => item.clone(),
-            Variable::GlobalOutputArray(_, item) => item.clone(),
-            Variable::GlobalScalar(_, elem) => Item::Scalar(*elem),
-            Variable::ConstantScalar(_, _, elem) => Item::Scalar(*elem),
-            Variable::Local { item, .. } => item.clone(),
-            Variable::Versioned { item, .. } => item.clone(),
-            Variable::LocalBinding { item, .. } => item.clone(),
-            Variable::Named { item, .. } => item.clone(),
-            Variable::Slice { item, .. } => item.clone(),
-            Variable::SharedMemory(_, item, _) => item.clone(),
-            Variable::ConstantArray(_, item, _) => item.clone(),
-            Variable::LocalArray(_, item, _) => item.clone(),
-            Variable::CoopMatrix(_, _, elem) => Item::Scalar(*elem),
+            Self::GlobalInputArray(_, item) | Self::GlobalOutputArray(_, item) => item.clone(),
+            Self::GlobalScalar(_, elem) | Self::ConstantScalar(_, _, elem) => Item::Scalar(*elem),
+            Self::Local { item, .. }
+            | Self::Versioned { item, .. }
+            | Self::LocalBinding { item, .. }
+            | Self::Named { item, .. }
+            | Self::Slice { item, .. }
+            | Self::SharedMemory(_, item, _)
+            | Self::ConstantArray(_, item, _)
+            | Self::LocalArray(_, item, _) => item.clone(),
+            Self::CoopMatrix(_, _, elem) => Item::Scalar(*elem),
             _ => Item::Scalar(Elem::Int(32, false)), // builtin
         }
     }
 
     pub fn indexed_item(&self) -> Item {
         match self {
-            Variable::LocalBinding {
+            Self::LocalBinding {
                 item: Item::Vector(elem, _),
                 ..
             } => Item::Scalar(*elem),
-            Variable::Local {
+            Self::Local {
                 item: Item::Vector(elem, _),
                 ..
             } => Item::Scalar(*elem),
-            Variable::Versioned {
+            Self::Versioned {
                 item: Item::Vector(elem, _),
                 ..
             } => Item::Scalar(*elem),
@@ -222,31 +219,31 @@ impl Variable {
     pub fn has_len(&self) -> bool {
         matches!(
             self,
-            Variable::GlobalInputArray(_, _)
-                | Variable::GlobalOutputArray(_, _)
-                | Variable::Named {
+            Self::GlobalInputArray(_, _)
+                | Self::GlobalOutputArray(_, _)
+                | Self::Named {
                     is_array: false,
                     ..
                 }
-                | Variable::Slice { .. }
-                | Variable::SharedMemory(_, _, _)
-                | Variable::ConstantArray(_, _, _)
-                | Variable::LocalArray(_, _, _)
+                | Self::Slice { .. }
+                | Self::SharedMemory(_, _, _)
+                | Self::ConstantArray(_, _, _)
+                | Self::LocalArray(_, _, _)
         )
     }
 
     pub fn as_const(&self) -> Option<ConstVal> {
-        match self {
-            Self::ConstantScalar(_, val, _) => Some(*val),
-            _ => None,
-        }
+        let Self::ConstantScalar(_, val, _) = self else {
+            return None;
+        };
+        Some(*val)
     }
 
     pub fn as_binding(&self) -> Option<(u16, u8)> {
-        match self {
-            Self::LocalBinding { id, .. } => Some(*id),
-            _ => None,
-        }
+        let Self::LocalBinding { id, .. } = self else {
+            return None;
+        };
+        Some(*id)
     }
 }
 
