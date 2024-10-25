@@ -96,44 +96,41 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::GlobalInputArray(_, e) => *e,
-            Variable::GlobalOutputArray(_, e) => *e,
-            Variable::SharedMemory(_, e, _) => *e,
-            Variable::ConstantArray(_, e, _) => *e,
-            Variable::Local { item, .. } => *item,
-            Variable::ConstLocal { item, .. } => *item,
-            Variable::Slice { item, .. } => *item,
-            Variable::ConstantScalar(_, e) => Item::scalar(*e),
-            Variable::GlobalScalar(_, e, _) => Item::scalar(*e),
-            Variable::IdxGlobal => Item::scalar(Elem::U32),
-            Variable::ThreadIdxGlobal => Item::scalar(Elem::U32),
-            Variable::ThreadIdxX => Item::scalar(Elem::U32),
-            Variable::ThreadIdxY => Item::scalar(Elem::U32),
-            Variable::ThreadIdxZ => Item::scalar(Elem::U32),
-            Variable::Rank => Item::scalar(Elem::U32),
-            Variable::BlockIdxX => Item::scalar(Elem::U32),
-            Variable::BlockIdxY => Item::scalar(Elem::U32),
-            Variable::BlockIdxZ => Item::scalar(Elem::U32),
-            Variable::AbsoluteIdxX => Item::scalar(Elem::U32),
-            Variable::AbsoluteIdxY => Item::scalar(Elem::U32),
-            Variable::AbsoluteIdxZ => Item::scalar(Elem::U32),
-            Variable::BlockDimX => Item::scalar(Elem::U32),
-            Variable::BlockDimY => Item::scalar(Elem::U32),
-            Variable::BlockDimZ => Item::scalar(Elem::U32),
-            Variable::GridDimX => Item::scalar(Elem::U32),
-            Variable::GridDimY => Item::scalar(Elem::U32),
-            Variable::GridDimZ => Item::scalar(Elem::U32),
-            Variable::LocalArray(_, e, _, _) => *e,
-            Variable::WarpSize => Item::scalar(Elem::U32),
-            Variable::WmmaFragment {
-                id: _,
-                frag,
-                depth: _,
-            } => Item::scalar(frag.elem),
-            Variable::BlockIdxGlobal => Item::scalar(Elem::U32),
-            Variable::BlockDimGlobal => Item::scalar(Elem::U32),
-            Variable::GridDimGlobal => Item::scalar(Elem::U32),
-            Variable::Tmp { item, .. } => *item,
+            Self::GlobalInputArray(_, e)
+            | Self::GlobalOutputArray(_, e)
+            | Self::SharedMemory(_, e, _)
+            | Self::ConstantArray(_, e, _) => *e,
+            Self::Local { item, .. } | Self::ConstLocal { item, .. } | Self::Slice { item, .. } => {
+                *item
+            }
+            Self::ConstantScalar(_, e) | Self::GlobalScalar(_, e, _) => Item::scalar(*e),
+            Self::IdxGlobal
+            | Self::ThreadIdxGlobal
+            | Self::ThreadIdxX
+            | Self::ThreadIdxY
+            | Self::ThreadIdxZ
+            | Self::Rank
+            | Self::BlockIdxX
+            | Self::BlockIdxY
+            | Self::BlockIdxZ
+            | Self::AbsoluteIdxX
+            | Self::AbsoluteIdxY
+            | Self::AbsoluteIdxZ
+            | Self::BlockDimX
+            | Self::BlockDimY
+            | Self::BlockDimZ
+            | Self::GridDimX
+            | Self::GridDimY
+            | Self::BlockIdxGlobal
+            | Self::BlockDimGlobal
+            | Self::GridDimGlobal
+            | Self::WarpSize
+            | Self::GridDimZ => Item::scalar(Elem::U32),
+            Self::LocalArray(_, e, _, _) => *e,
+
+            Self::WmmaFragment { frag, .. } => Item::scalar(frag.elem),
+
+            Self::Tmp { item, .. } => *item,
         }
     }
 
@@ -202,19 +199,19 @@ pub enum Variable<D: Dialect> {
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
-            Variable::Local { id, depth, .. } => f.write_fmt(format_args!("l_{depth}_{id}")),
-            Variable::ConstLocal { id, depth, .. } => f.write_fmt(format_args!("ssa_{depth}_{id}")),
-            Variable::Slice { id, item: _, depth } => {
+            Self::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
+            Self::Local { id, depth, .. } => f.write_fmt(format_args!("l_{depth}_{id}")),
+            Self::ConstLocal { id, depth, .. } => f.write_fmt(format_args!("ssa_{depth}_{id}")),
+            Self::Slice { id, depth, .. } => {
                 write!(f, "slice_{depth}_{id}")
             }
-            Variable::GlobalOutputArray(number, _) => write!(f, "output_{number}"),
-            Variable::GlobalScalar(number, _, elem) => {
+            Self::GlobalOutputArray(number, _) => write!(f, "output_{number}"),
+            Self::GlobalScalar(number, _, elem) => {
                 write!(f, "scalars_{elem}[{number}]")
             }
             // We do the conversion in Rust and then render the number to avoid overflow or other
             // precision related problems.
-            Variable::ConstantScalar(number, elem) => match number {
+            Self::ConstantScalar(number, elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
                     gpu::IntKind::I32 => write!(f, "{elem}({})", *val as i32),
                     gpu::IntKind::I64 => write!(f, "{elem}({})", *val),
@@ -234,40 +231,38 @@ impl<D: Dialect> Display for Variable<D> {
                 }
                 ConstantScalarValue::Bool(val) => write!(f, "{}", val),
             },
-            Variable::SharedMemory(number, _, _) => {
+            Self::SharedMemory(number, _, _) => {
                 write!(f, "shared_memory_{number}")
             }
-            Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
-            Variable::ThreadIdxGlobal => f.write_str("threadIdxGlobal"),
-            Variable::ThreadIdxX => f.write_str("threadIdx.x"),
-            Variable::ThreadIdxY => f.write_str("threadIdx.y"),
-            Variable::ThreadIdxZ => f.write_str("threadIdx.z"),
-            Variable::Rank => f.write_str("rank"),
-            Variable::BlockIdxGlobal => f.write_str("blockIdxGlobal"),
-            Variable::BlockIdxX => f.write_str("blockIdx.x"),
-            Variable::BlockIdxY => f.write_str("blockIdx.y"),
-            Variable::BlockIdxZ => f.write_str("blockIdx.z"),
-            Variable::BlockDimGlobal => f.write_str("blockDimGlobal"),
-            Variable::BlockDimX => f.write_str("blockDim.x"),
-            Variable::BlockDimY => f.write_str("blockDim.y"),
-            Variable::BlockDimZ => f.write_str("blockDim.z"),
-            Variable::IdxGlobal => f.write_str("idxGlobal"),
-            Variable::GridDimX => f.write_str("gridDim.x"),
-            Variable::GridDimY => f.write_str("gridDim.y"),
-            Variable::GridDimZ => f.write_str("gridDim.z"),
-            Variable::AbsoluteIdxX => f.write_str("absoluteIdx.x"),
-            Variable::AbsoluteIdxY => f.write_str("absoluteIdx.y"),
-            Variable::AbsoluteIdxZ => f.write_str("absoluteIdx.z"),
-            Variable::LocalArray(id, _item, depth, _size) => {
+            Self::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
+            Self::ThreadIdxGlobal => f.write_str("threadIdxGlobal"),
+            Self::ThreadIdxX => f.write_str("threadIdx.x"),
+            Self::ThreadIdxY => f.write_str("threadIdx.y"),
+            Self::ThreadIdxZ => f.write_str("threadIdx.z"),
+            Self::Rank => f.write_str("rank"),
+            Self::BlockIdxGlobal => f.write_str("blockIdxGlobal"),
+            Self::BlockIdxX => f.write_str("blockIdx.x"),
+            Self::BlockIdxY => f.write_str("blockIdx.y"),
+            Self::BlockIdxZ => f.write_str("blockIdx.z"),
+            Self::BlockDimGlobal => f.write_str("blockDimGlobal"),
+            Self::BlockDimX => f.write_str("blockDim.x"),
+            Self::BlockDimY => f.write_str("blockDim.y"),
+            Self::BlockDimZ => f.write_str("blockDim.z"),
+            Self::IdxGlobal => f.write_str("idxGlobal"),
+            Self::GridDimX => f.write_str("gridDim.x"),
+            Self::GridDimY => f.write_str("gridDim.y"),
+            Self::GridDimZ => f.write_str("gridDim.z"),
+            Self::AbsoluteIdxX => f.write_str("absoluteIdx.x"),
+            Self::AbsoluteIdxY => f.write_str("absoluteIdx.y"),
+            Self::AbsoluteIdxZ => f.write_str("absoluteIdx.z"),
+            Self::LocalArray(id, _item, depth, _size) => {
                 write!(f, "l_arr_{}_{}", id, depth)
             }
-            Variable::WarpSize => f.write_str("warpSize"),
-            Variable::WmmaFragment {
-                id: index,
-                frag: _,
-                depth,
+            Self::WarpSize => f.write_str("warpSize"),
+            Self::WmmaFragment {
+                id: index, depth, ..
             } => write!(f, "frag_{index}_{depth}"),
-            Variable::GridDimGlobal => f.write_str("gridDimGlobal"),
+            Self::GridDimGlobal => f.write_str("gridDimGlobal"),
             Self::Tmp { id, .. } => write!(f, "_tmp_{id}"),
         }
     }

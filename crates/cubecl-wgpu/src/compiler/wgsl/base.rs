@@ -275,8 +275,9 @@ impl Display for Variable {
             Self::Named { name, .. } => f.write_str(name),
             Self::Slice {
                 id: index,
-                item: _,
+
                 depth: scope_depth,
+                ..
             } => write!(f, "slice_{scope_depth}_{index}"),
             Self::GlobalOutputArray(number, _) => {
                 write!(f, "output_{number}_global")

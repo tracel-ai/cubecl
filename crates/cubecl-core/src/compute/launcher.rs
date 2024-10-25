@@ -194,7 +194,7 @@ impl<R: Runtime> TensorState<R> {
                 bindings,
                 metadata,
                 lengths,
-                runtime: _,
+                ..
             } => (bindings, metadata, lengths),
         };
 
@@ -277,7 +277,7 @@ impl<R: Runtime> TensorState<R> {
             bindings,
             mut metadata,
             lengths,
-            runtime: _,
+            ..
         } = self
         {
             if R::require_array_lengths() {

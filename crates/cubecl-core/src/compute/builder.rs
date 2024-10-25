@@ -23,7 +23,7 @@ impl KernelBuilder {
     pub fn scalar(&mut self, elem: Elem) -> ExpandElement {
         let index = match self.indices.get_mut(&elem) {
             Some(index) => match self.inputs.get_mut(*index).unwrap() {
-                InputInfo::Scalar { elem: _, size } => {
+                InputInfo::Scalar { size, .. } => {
                     *size += 1;
                     *size as u16 - 1
                 }

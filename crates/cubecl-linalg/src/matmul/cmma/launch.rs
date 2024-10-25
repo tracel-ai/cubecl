@@ -38,11 +38,7 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
 ) {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => true,
-        MatrixLayout::MildlyPermuted {
-            transposed: _,
-            batch_swap: _,
-        } => false,
-        MatrixLayout::HighlyPermuted => false,
+        MatrixLayout::MildlyPermuted { .. } | MatrixLayout::HighlyPermuted => false,
     };
 
     let lhs_correct_layout = check_layout(&lhs);

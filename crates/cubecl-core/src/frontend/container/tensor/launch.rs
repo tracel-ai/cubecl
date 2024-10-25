@@ -82,8 +82,8 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
             TensorArg::Handle {
-                handle: _,
                 vectorization_factor,
+                ..
             } => TensorCompilationArg {
                 inplace: None,
                 vectorisation: Vectorization::Some(NonZero::new(*vectorization_factor).unwrap()),
@@ -127,11 +127,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
 
 impl<'a, R: Runtime> ArgSettings<R> for TensorArg<'a, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
-        if let TensorArg::Handle {
-            handle,
-            vectorization_factor: _,
-        } = self
-        {
+        if let Self::Handle { handle, .. } = self {
             launcher.register_tensor(handle)
         }
     }

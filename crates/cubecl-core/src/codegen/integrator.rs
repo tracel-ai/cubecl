@@ -220,10 +220,7 @@ impl InputInfo {
     #[allow(dead_code)]
     pub fn item(&self) -> Item {
         match self {
-            Self::Array {
-                item,
-                visibility: _,
-            } => *item,
+            Self::Array { item, .. } => *item,
             Self::Scalar { elem, size: _ } => Item::new(*elem),
         }
     }
@@ -446,10 +443,7 @@ impl KernelIntegrator {
         let (item, local, position) = match output {
             OutputInfo::ArrayWrite { item, local, position } => (item, local, position),
             OutputInfo::InputArrayWrite {
-                item: _,
-                input,
-                local: _,
-                position: _,
+                input, ..
             } => {
                 assert_eq!(
                     *input, mapping.pos_input as u16,
@@ -457,7 +451,7 @@ impl KernelIntegrator {
                 );
                 return;
             }
-            OutputInfo::Array { item: _ } => panic!("Can't register an inplace operation for an array that isn't using a defined writing strategy."),
+            OutputInfo::Array { .. } => panic!("Can't register an inplace operation for an array that isn't using a defined writing strategy."),
         };
 
         let item = match self.input_bindings.get_mut(mapping.pos_input) {
