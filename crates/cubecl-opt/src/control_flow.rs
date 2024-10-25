@@ -261,7 +261,7 @@ impl Optimizer {
         let i = range_loop.i;
         self.program.variables.insert(i_id, i.item);
 
-        let mut assign = Instruction::new(Operation::Assign(range_loop.start), i);
+        let mut assign = Instruction::new(Operation::Copy(range_loop.start), i);
         self.visit_out(&mut assign.out, |opt, var| opt.write_var(var));
         self.current_block_mut().ops.borrow_mut().push(assign);
 

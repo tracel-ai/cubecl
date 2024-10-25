@@ -154,7 +154,7 @@ impl GvnPass {
                     let var = leader.as_var();
                     let out = op.out;
                     if Some(var) != out {
-                        op.operation = Operation::Assign(var);
+                        op.operation = Operation::Copy(var);
                         changes.inc();
                     }
                 }

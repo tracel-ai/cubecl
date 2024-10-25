@@ -30,7 +30,7 @@ impl ScopeProcessing {
         self.operations
             .iter_mut()
             .for_each(|inst| match &mut inst.operation {
-                Operation::Assign(op) => {
+                Operation::Copy(op) => {
                     sanitize_constant_scalar_ref_var(op, &inst.out.unwrap());
                 }
                 Operation::Operator(op) => match op {
@@ -212,12 +212,12 @@ impl ScopeProcessing {
                     Operator::InitLine(_) => {
                         // TODO: Sanitize based on elem
                     }
-                    Operator::Copy(op) => {
+                    Operator::CopyMemory(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
                         sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);
                     }
-                    Operator::CopyBulk(op) => {
+                    Operator::CopyMemoryBulk(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_elem(&mut op.in_index, Elem::UInt);
                         sanitize_constant_scalar_ref_elem(&mut op.out_index, Elem::UInt);

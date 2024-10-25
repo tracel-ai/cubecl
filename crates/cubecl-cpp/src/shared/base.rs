@@ -164,7 +164,7 @@ impl<D: Dialect> CppCompiler<D> {
     ) {
         let out = instruction.out;
         match instruction.operation {
-            gpu::Operation::Assign(variable) => {
+            gpu::Operation::Copy(variable) => {
                 instructions.push(Instruction::Assign(UnaryInstruction {
                     input: self.compile_variable(variable),
                     out: self.compile_variable(out.unwrap()),
@@ -627,13 +627,13 @@ impl<D: Dialect> CppCompiler<D> {
                     .collect(),
                 out: self.compile_variable(out),
             }),
-            gpu::Operator::Copy(op) => instructions.push(Instruction::Copy {
+            gpu::Operator::CopyMemory(op) => instructions.push(Instruction::Copy {
                 input: self.compile_variable(op.input),
                 in_index: self.compile_variable(op.in_index),
                 out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
             }),
-            gpu::Operator::CopyBulk(op) => instructions.push(Instruction::CopyBulk {
+            gpu::Operator::CopyMemoryBulk(op) => instructions.push(Instruction::CopyBulk {
                 input: self.compile_variable(op.input),
                 in_index: self.compile_variable(op.in_index),
                 out: self.compile_variable(out),
