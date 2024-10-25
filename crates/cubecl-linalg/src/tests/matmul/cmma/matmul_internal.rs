@@ -749,8 +749,8 @@ macro_rules! testgen_cmma_internal {
             matmul_test!(
                 test_plane_mma_T8x32x16_row_col,
                 MatmulProblem {
-                    m: 32,
-                    n: 8,
+                    m: 8,
+                    n: 32,
                     k: 16,
                     b: vec![],
                     lhs_layout: MatrixLayout::RowMajor,
@@ -762,7 +762,7 @@ macro_rules! testgen_cmma_internal {
                 CubeDim::new(32, 1, 1),
                 CubeCount::Static(1, 1, 1),
                 S1x1x1,
-                $i_32x8x16,
+                $i_8x32x16,
                 AdvancedConfig::default()
             );
 
@@ -775,8 +775,8 @@ macro_rules! testgen_cmma_internal {
             matmul_test!(
                 test_plane_mma_T8x32x16_col_row,
                 MatmulProblem {
-                    m: 32,
-                    n: 8,
+                    m: 8,
+                    n: 32,
                     k: 16,
                     b: vec![],
                     lhs_layout: MatrixLayout::ColMajor,
@@ -788,7 +788,7 @@ macro_rules! testgen_cmma_internal {
                 CubeDim::new(32, 1, 1),
                 CubeCount::Static(1, 1, 1),
                 S1x1x1,
-                $i_32x8x16,
+                $i_8x32x16,
                 AdvancedConfig::default()
             );
 
@@ -801,8 +801,8 @@ macro_rules! testgen_cmma_internal {
             matmul_test!(
                 test_plane_mma_T8x32x16_col_col,
                 MatmulProblem {
-                    m: 32,
-                    n: 8,
+                    m: 8,
+                    n: 32,
                     k: 16,
                     b: vec![],
                     lhs_layout: MatrixLayout::ColMajor,
@@ -814,7 +814,7 @@ macro_rules! testgen_cmma_internal {
                 CubeDim::new(32, 1, 1),
                 CubeCount::Static(1, 1, 1),
                 S1x1x1,
-                $i_32x8x16,
+                $i_8x32x16,
                 AdvancedConfig::default()
             );
 

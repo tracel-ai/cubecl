@@ -83,7 +83,7 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: 
 
     fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: T) {
         match comptime!(config.layout(Ident::Lhs)) {
-            MatrixLayout::RowMajor => fill_parallel(
+            MatrixLayout::RowMajor => fill_parallel_lhs(
                 slice,
                 lhs.as_slice_mut(),
                 Self::plane_unit(),
@@ -92,7 +92,7 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: 
                 config.line_size(Ident::Lhs),
                 config.plane_dim(),
             ),
-            MatrixLayout::ColMajor => fill_perpendicular(
+            MatrixLayout::ColMajor => fill_perpendicular_lhs(
                 slice,
                 lhs.as_slice_mut(),
                 Self::plane_unit(),
@@ -106,7 +106,7 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: 
 
     fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: T) {
         match comptime!(config.layout(Ident::Rhs)) {
-            MatrixLayout::RowMajor => fill_perpendicular::<I>(
+            MatrixLayout::RowMajor => fill_perpendicular_rhs(
                 slice,
                 rhs.as_slice_mut(),
                 Self::plane_unit(),
@@ -115,7 +115,7 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: 
                 config.line_size(Ident::Rhs),
                 config.plane_dim(),
             ),
-            MatrixLayout::ColMajor => fill_parallel(
+            MatrixLayout::ColMajor => fill_parallel_rhs(
                 slice,
                 rhs.as_slice_mut(),
                 Self::plane_unit(),
@@ -168,19 +168,20 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: 
 }
 
 #[cube]
-fn fill_parallel<E: Numeric>(
+fn fill_parallel_lhs<E: Numeric>(
     slice_from: &Slice<'_, Line<E>>,
     slice_to: &mut SliceMut<'_, E>,
     unit: u32,
-    num_rows: u32,
-    k: u32,
+    #[comptime] m: u32,
+    #[comptime] k: u32,
     #[comptime] line_size: u32,
     #[comptime] plane_dim: u32,
 ) {
     let num_lines = k / line_size;
-    let row_division = plane_dim / num_rows;
+    let row_division = plane_dim / m;
     let row = unit / row_division;
 
+    #[unroll]
     for col in 0..num_lines {
         let line = slice_from[row * num_lines + col];
         #[unroll]
@@ -191,11 +192,35 @@ fn fill_parallel<E: Numeric>(
 }
 
 #[cube]
-fn fill_perpendicular<E: Numeric>(
+fn fill_perpendicular_lhs<E: Numeric>(
     slice_from: &Slice<'_, Line<E>>,
     slice_to: &mut SliceMut<'_, E>,
     unit: u32,
-    #[comptime] num_cols: u32,
+    #[comptime] m: u32,
+    #[comptime] k: u32,
+    #[comptime] line_size: u32,
+    #[comptime] plane_dim: u32,
+) {
+    let num_lines = m / line_size;
+    let row_division = plane_dim / m;
+    let row = unit / row_division;
+
+    let row_idx = row / line_size;
+    let line_idx = row % line_size;
+
+    #[unroll]
+    for col in 0..k {
+        let val = slice_from[row_idx + col * num_lines][line_idx];
+        slice_to[col] = val;
+    }
+}
+
+#[cube]
+fn fill_perpendicular_rhs<E: Numeric>(
+    slice_from: &Slice<'_, Line<E>>,
+    slice_to: &mut SliceMut<'_, E>,
+    unit: u32,
+    #[comptime] n: u32,
     #[comptime] k: u32,
     #[comptime] line_size: u32,
     #[comptime] plane_dim: u32,
@@ -203,14 +228,14 @@ fn fill_perpendicular<E: Numeric>(
     // TODO: this loads a line then keeps only one element
     // Should reinterpret as unlined
 
-    let k_row_alt = unit / num_cols;
-    let col = unit % num_cols;
+    let k_row_alt = unit / n;
+    let col = unit % n;
 
-    let num_lines = num_cols / line_size;
+    let num_lines = n / line_size;
     let col_idx = col / line_size;
     let line_idx = col % line_size;
 
-    let row_jump = plane_dim / num_cols;
+    let row_jump = plane_dim / n;
 
     #[unroll]
     for k_iter in 0..k / row_jump {
@@ -218,6 +243,31 @@ fn fill_perpendicular<E: Numeric>(
         let row_offset = k_row * num_lines;
         let offset_with_col = row_offset + col_idx;
         slice_to[k_iter] = slice_from[offset_with_col][line_idx];
+    }
+}
+
+#[cube]
+fn fill_parallel_rhs<E: Numeric>(
+    slice_from: &Slice<'_, Line<E>>,
+    slice_to: &mut SliceMut<'_, E>,
+    unit: u32,
+    #[comptime] n: u32,
+    #[comptime] k: u32,
+    #[comptime] line_size: u32,
+    #[comptime] plane_dim: u32,
+) {
+    let k_row_alt = unit / n;
+    let col = unit % n;
+    let row_jump = plane_dim / n;
+
+    #[unroll]
+    for k_iter in 0..k / row_jump {
+        let row = row_jump * k_iter + k_row_alt;
+        let row_index = row / line_size;
+        let line_idx = row % line_size;
+        let col_offset = col * k / line_size;
+        let offset = row_index + col_offset;
+        slice_to[k_iter] = slice_from[offset][line_idx];
     }
 }
 
