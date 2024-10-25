@@ -124,24 +124,24 @@ pub enum Expression {
 impl Expression {
     pub fn depends_on(&self) -> SmallVec<[u32; 4]> {
         match self {
-            Expression::Instruction(instruction) => instruction.args.clone(),
-            Expression::Copy(val, _) => SmallVec::from_slice(&[*val]),
-            Expression::Phi(_) | Expression::Volatile(_) | Expression::Value(_) => SmallVec::new(),
+            Self::Instruction(instruction) => instruction.args.clone(),
+            Self::Copy(val, _) => SmallVec::from_slice(&[*val]),
+            Self::Phi(_) | Self::Volatile(_) | Self::Value(_) => SmallVec::new(),
         }
     }
 
     /// Whether the expression is a trivial copy (which does not need to be hoisted since it's free)
     pub fn is_simple(&self) -> bool {
-        matches!(self, Expression::Copy(_, _))
+        matches!(self, Self::Copy(_, _))
     }
 
     pub fn item(&self) -> Item {
         match self {
-            Expression::Instruction(instruction) => instruction.item,
-            Expression::Copy(_, item) => *item,
-            Expression::Value(value) => value.item(),
-            Expression::Volatile(value) => value.item(),
-            Expression::Phi(entries) => entries[0].0.item(),
+            Self::Instruction(instruction) => instruction.item,
+            Self::Copy(_, item) => *item,
+            Self::Value(value) => value.item(),
+            Self::Volatile(value) => value.item(),
+            Self::Phi(entries) => entries[0].0.item(),
         }
     }
 }
@@ -149,14 +149,14 @@ impl Expression {
 impl Value {
     pub fn item(&self) -> Item {
         match self {
-            Value::Constant(constant) => constant.item(),
-            Value::Local(local) => local.item,
-            Value::Input(_, item) => *item,
-            Value::Scalar(_, elem) => Item::new(*elem),
-            Value::ConstArray(_, item, _) => *item,
-            Value::Builtin(_) => Item::new(Elem::UInt),
-            Value::Output(_, item) => *item,
-            Value::Slice(_, _, item) => *item,
+            Self::Constant(constant) => constant.item(),
+            Self::Local(local) => local.item,
+            Self::Scalar(_, elem) => Item::new(*elem),
+            Self::Builtin(_) => Item::new(Elem::UInt),
+            Self::Input(_, item)
+            | Self::ConstArray(_, item, _)
+            | Self::Output(_, item)
+            | Self::Slice(_, _, item) => *item,
         }
     }
 }
@@ -170,7 +170,7 @@ impl Constant {
 
 impl From<Instruction> for Expression {
     fn from(value: Instruction) -> Self {
-        Expression::Instruction(value)
+        Self::Instruction(value)
     }
 }
 

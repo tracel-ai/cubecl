@@ -44,8 +44,8 @@ const MB: usize = 1024 * 1024;
 impl MemoryPool for DynamicPool {
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         match self {
-            DynamicPool::Sliced(m) => m.get(binding),
-            DynamicPool::Exclusive(m) => m.get(binding),
+            Self::Sliced(m) => m.get(binding),
+            Self::Exclusive(m) => m.get(binding),
         }
     }
 
@@ -56,35 +56,35 @@ impl MemoryPool for DynamicPool {
         locked: Option<&MemoryLock>,
     ) -> SliceHandle {
         match self {
-            DynamicPool::Sliced(m) => m.reserve(storage, size, locked),
-            DynamicPool::Exclusive(m) => m.reserve(storage, size, locked),
+            Self::Sliced(m) => m.reserve(storage, size, locked),
+            Self::Exclusive(m) => m.reserve(storage, size, locked),
         }
     }
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
         match self {
-            DynamicPool::Sliced(m) => m.alloc(storage, size),
-            DynamicPool::Exclusive(m) => m.alloc(storage, size),
+            Self::Sliced(m) => m.alloc(storage, size),
+            Self::Exclusive(m) => m.alloc(storage, size),
         }
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
         match self {
-            DynamicPool::Sliced(m) => m.get_memory_usage(),
-            DynamicPool::Exclusive(m) => m.get_memory_usage(),
+            Self::Sliced(m) => m.get_memory_usage(),
+            Self::Exclusive(m) => m.get_memory_usage(),
         }
     }
 
     fn max_alloc_size(&self) -> u64 {
         match self {
-            DynamicPool::Sliced(m) => m.max_alloc_size(),
-            DynamicPool::Exclusive(m) => m.max_alloc_size(),
+            Self::Sliced(m) => m.max_alloc_size(),
+            Self::Exclusive(m) => m.max_alloc_size(),
         }
     }
     fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
         match self {
-            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr),
-            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr),
+            Self::Sliced(m) => m.cleanup(storage, alloc_nr),
+            Self::Exclusive(m) => m.cleanup(storage, alloc_nr),
         }
     }
 }

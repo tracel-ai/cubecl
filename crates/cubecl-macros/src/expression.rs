@@ -196,68 +196,68 @@ impl Expression {
 
     pub fn is_const(&self) -> bool {
         match self {
-            Expression::Literal { .. } => true,
-            Expression::Path { .. } => true,
-            Expression::Verbatim { .. } => true,
-            Expression::VerbatimTerminated { .. } => true,
-            Expression::Variable(var) => var.is_const,
-            Expression::FieldAccess { base, .. } => base.is_const(),
-            Expression::Reference { inner } => inner.is_const(),
-            Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
-            Expression::Tuple { elements, .. } => elements.iter().all(|it| it.is_const()),
-            Expression::CompilerIntrinsic { .. } => true,
+            Self::Literal { .. }
+            | Self::Path { .. }
+            | Self::Verbatim { .. }
+            | Self::VerbatimTerminated { .. }
+            | Self::CompilerIntrinsic { .. } => true,
+            Self::Variable(var) => var.is_const,
+            Self::FieldAccess { base, .. } => base.is_const(),
+            Self::Reference { inner } => inner.is_const(),
+            Self::Array { elements, .. } | Self::Tuple { elements, .. } => {
+                elements.iter().all(|it| it.is_const())
+            }
+
             _ => false,
         }
     }
 
     pub fn as_const(&self, context: &mut Context) -> Option<TokenStream> {
         match self {
-            Expression::Literal { value, .. } => Some(quote![#value]),
-            Expression::Verbatim { tokens, .. } => Some(tokens.clone()),
-            Expression::VerbatimTerminated { tokens, .. } => Some(tokens.clone()),
-            Expression::Variable(ManagedVar {
+            Self::Literal { value, .. } => Some(quote![#value]),
+            Self::Verbatim { tokens, .. } => Some(tokens.clone()),
+            Self::VerbatimTerminated { tokens, .. } => Some(tokens.clone()),
+            Self::Variable(ManagedVar {
                 name,
                 is_const: true,
                 ..
             }) => Some(quote![#name.clone()]),
-            Expression::Path { path, .. } => Some(quote![#path]),
-            Expression::Array { elements, .. } => {
+            Self::Path { path, .. } => Some(quote![#path]),
+            Self::Array { elements, .. } => {
                 let elements = elements
                     .iter()
                     .map(|it| it.as_const(context))
                     .collect::<Option<Vec<_>>>()?;
                 Some(quote![[#(#elements),*]])
             }
-            Expression::Tuple { elements, .. } => {
+            Self::Tuple { elements, .. } => {
                 let elements = elements
                     .iter()
                     .map(|it| it.as_const(context))
                     .collect::<Option<Vec<_>>>()?;
                 Some(quote![(#(#elements),*)])
             }
-            Expression::FieldAccess { base, field, .. } => {
+            Self::FieldAccess { base, field, .. } => {
                 base.as_const(context).map(|base| quote![#base.#field])
             }
-            Expression::Reference { inner } => inner.as_const(context).map(|base| quote![&#base]),
-            Expression::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
+            Self::Reference { inner } => inner.as_const(context).map(|base| quote![&#base]),
+            Self::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
             _ => None,
         }
     }
 
     pub fn as_index(&self) -> Option<(&Expression, &Expression)> {
         match self {
-            Expression::Index { expr, index, .. } => Some((&**expr, &**index)),
+            Self::Index { expr, index, .. } => Some((&**expr, &**index)),
             _ => None,
         }
     }
 
     pub fn needs_terminator(&self) -> bool {
         match self {
-            Expression::If { then_block, .. } => then_block.ret.is_some(),
-            Expression::Block(block) => block.ret.is_some(),
-            Expression::ForLoop { .. } => false,
-            Expression::Loop { .. } => false,
-            Expression::VerbatimTerminated { .. } => false,
+            Self::If { then_block, .. } => then_block.ret.is_some(),
+            Self::Block(block) => block.ret.is_some(),
+            Self::ForLoop { .. } | Self::Loop { .. } | Self::VerbatimTerminated { .. } => false,
             _ => true,
         }
     }

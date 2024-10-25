@@ -323,10 +323,10 @@ impl DebugLoggerKind {
     fn profile_level(&self) -> Option<ProfileLevel> {
         let option = match self {
             #[cfg(feature = "std")]
-            DebugLoggerKind::File(_, option) => option,
+            Self::File(_, option) => option,
             #[cfg(feature = "std")]
-            DebugLoggerKind::Stdout(option) => option,
-            DebugLoggerKind::None => {
+            Self::Stdout(option) => option,
+            Self::None => {
                 return None;
             }
         };

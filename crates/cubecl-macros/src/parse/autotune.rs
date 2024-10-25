@@ -43,8 +43,8 @@ pub enum Anchor {
 impl Anchor {
     pub fn max(&self) -> TokenStream {
         match self {
-            Anchor::Unlimited => quote![None],
-            Anchor::Max(value) => quote![Some(#value)],
+            Self::Unlimited => quote![None],
+            Self::Max(value) => quote![Some(#value)],
         }
     }
 }

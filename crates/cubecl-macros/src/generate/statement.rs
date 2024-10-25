@@ -7,7 +7,7 @@ use crate::{expression::Expression, paths::frontend_type, scope::Context, statem
 impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
-            Statement::Local { variable, init } => {
+            Self::Local { variable, init } => {
                 let cube_type = frontend_type("CubeType");
                 let name = &variable.name;
                 let is_mut = variable.is_mut || init.as_deref().map(is_mut_owned).unwrap_or(false);
@@ -51,7 +51,7 @@ impl Statement {
                     quote![let #mutable #name #ty;]
                 }
             }
-            Statement::Expression {
+            Self::Expression {
                 expression,
                 terminated,
             } => {
@@ -63,7 +63,7 @@ impl Statement {
                     quote![#expression #terminator]
                 }
             }
-            Statement::Skip => TokenStream::new(),
+            Self::Skip => TokenStream::new(),
         }
     }
 }

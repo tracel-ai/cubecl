@@ -67,8 +67,7 @@ pub enum KernelReturns {
 impl KernelReturns {
     pub fn ty(&self) -> Type {
         match self {
-            KernelReturns::ExpandType(ty) => ty.clone(),
-            KernelReturns::Plain(ty) => ty.clone(),
+            Self::ExpandType(ty) | Self::Plain(ty) => ty.clone(),
         }
     }
 }

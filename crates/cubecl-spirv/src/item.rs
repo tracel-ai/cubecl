@@ -82,25 +82,25 @@ impl Item {
 
     pub fn size(&self) -> u32 {
         match self {
-            Item::Scalar(elem) => elem.size(),
-            Item::Vector(elem, factor) => elem.size() * *factor,
-            Item::Array(item, len) => item.size() * *len,
-            Item::RuntimeArray(item) => item.size(),
-            Item::Struct(vec) => vec.iter().map(|it| it.size()).sum(),
-            Item::Pointer(_, item) => item.size(),
-            Item::CoopMatrix { ty, .. } => ty.size(),
+            Self::Scalar(elem) => elem.size(),
+            Self::Vector(elem, factor) => elem.size() * *factor,
+            Self::Array(item, len) => item.size() * *len,
+            Self::RuntimeArray(item) => item.size(),
+            Self::Struct(vec) => vec.iter().map(|it| it.size()).sum(),
+            Self::Pointer(_, item) => item.size(),
+            Self::CoopMatrix { ty, .. } => ty.size(),
         }
     }
 
     pub fn elem(&self) -> Elem {
         match self {
-            Item::Scalar(elem) => *elem,
-            Item::Vector(elem, _) => *elem,
-            Item::Array(item, _) => item.elem(),
-            Item::RuntimeArray(item) => item.elem(),
-            Item::Struct(_) => Elem::Void,
-            Item::Pointer(_, item) => item.elem(),
-            Item::CoopMatrix { ty, .. } => *ty,
+            Self::Scalar(elem) => *elem,
+            Self::Vector(elem, _) => *elem,
+            Self::Array(item, _) => item.elem(),
+            Self::RuntimeArray(item) => item.elem(),
+            Self::Struct(_) => Elem::Void,
+            Self::Pointer(_, item) => item.elem(),
+            Self::CoopMatrix { ty, .. } => *ty,
         }
     }
 
@@ -109,22 +109,29 @@ impl Item {
         b.get_or_insert_const(value, self.clone(), |b| {
             let ty = self.id(b);
             match self {
-                Item::Scalar(_) => scalar,
-                Item::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
-                Item::Array(item, len) => {
+                Self::Value(value) => value.item(),
+                ::Scalar(_) => scalar,
+                Self::Value(value) => value.item(),
+                ::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
+                Self::Value(value) => value.item(),
+                ::Array(item, len) => {
                     let elem = item.constant(b, value);
                     b.constant_composite(ty, (0..*len).map(|_| elem))
                 }
-                Item::RuntimeArray(_) => unimplemented!("Can't create constant runtime array"),
-                Item::Struct(elems) => {
+                Self::Value(value) => value.item(),
+                ::RuntimeArray(_) => unimplemented!("Can't create constant runtime array"),
+                Self::Value(value) => value.item(),
+                ::Struct(elems) => {
                     let items = elems
                         .iter()
                         .map(|item| item.constant(b, value))
                         .collect::<Vec<_>>();
                     b.constant_composite(ty, items)
                 }
-                Item::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
-                Item::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
+                Self::Value(value) => value.item(),
+                ::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
+                Self::Value(value) => value.item(),
+                ::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
             }
         })
     }
@@ -273,10 +280,10 @@ pub enum Elem {
 impl Elem {
     pub fn id<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>) -> Word {
         let id = match self {
-            Elem::Void => b.type_void(),
-            Elem::Bool => b.type_bool(),
-            Elem::Int(width, _) => b.type_int(*width, 0),
-            Elem::Float(width) => b.type_float(*width),
+            Self::Void => b.type_void(),
+            Self::Bool => b.type_bool(),
+            Self::Int(width, _) => b.type_int(*width, 0),
+            Self::Float(width) => b.type_float(*width),
         };
         if b.debug && !b.state.debug_types.contains(&id) {
             b.debug_name(id, format!("{self}"));
@@ -287,10 +294,10 @@ impl Elem {
 
     pub fn size(&self) -> u32 {
         match self {
-            Elem::Void => 0,
-            Elem::Bool => 1,
-            Elem::Int(size, _) => *size / 8,
-            Elem::Float(size) => *size / 8,
+            Self::Void => 0,
+            Self::Bool => 1,
+            Self::Int(size, _) => *size / 8,
+            Self::Float(size) => *size / 8,
         }
     }
 
@@ -298,13 +305,13 @@ impl Elem {
         b.get_or_insert_const(value, Item::Scalar(*self), |b| {
             let ty = self.id(b);
             match self {
-                Elem::Void => unreachable!(),
-                Elem::Bool if value.as_u64() == 1 => b.constant_true(ty),
-                Elem::Bool => b.constant_false(ty),
-                Elem::Int(64, _) => b.constant_bit64(ty, value.as_u64()),
-                Elem::Int(_, _) => b.constant_bit32(ty, value.as_u32()),
-                Elem::Float(64) => b.constant_bit64(ty, value.as_u64()),
-                Elem::Float(_) => b.constant_bit32(ty, value.as_u32()),
+                Self::Void => unreachable!(),
+                Self::Bool if value.as_u64() == 1 => b.constant_true(ty),
+                Self::Bool => b.constant_false(ty),
+                Self::Int(64, _) => b.constant_bit64(ty, value.as_u64()),
+                Self::Int(_, _) => b.constant_bit32(ty, value.as_u32()),
+                Self::Float(64) => b.constant_bit64(ty, value.as_u64()),
+                Self::Float(_) => b.constant_bit32(ty, value.as_u32()),
             }
         })
     }
@@ -501,19 +508,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 impl std::fmt::Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Item::Scalar(elem) => write!(f, "{elem}"),
-            Item::Vector(elem, factor) => write!(f, "vec{factor}<{elem}>"),
-            Item::Array(item, len) => write!(f, "array<{item}, {len}>"),
-            Item::RuntimeArray(item) => write!(f, "array<{item}>"),
-            Item::Struct(members) => {
+            Self::Scalar(elem) => write!(f, "{elem}"),
+            Self::Vector(elem, factor) => write!(f, "vec{factor}<{elem}>"),
+            Self::Array(item, len) => write!(f, "array<{item}, {len}>"),
+            Self::RuntimeArray(item) => write!(f, "array<{item}>"),
+            Self::Struct(members) => {
                 write!(f, "struct<")?;
                 for item in members {
                     write!(f, "{item}")?;
                 }
                 f.write_str(">")
             }
-            Item::Pointer(class, item) => write!(f, "ptr<{class:?}, {item}>"),
-            Item::CoopMatrix { ty, ident, .. } => write!(f, "matrix<{ty}, {ident:?}>"),
+            Self::Pointer(class, item) => write!(f, "ptr<{class:?}, {item}>"),
+            Self::CoopMatrix { ty, ident, .. } => write!(f, "matrix<{ty}, {ident:?}>"),
         }
     }
 }
