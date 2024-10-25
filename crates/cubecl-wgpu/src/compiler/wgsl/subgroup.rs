@@ -41,32 +41,32 @@ pub enum Subgroup {
 impl Display for Subgroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Subgroup::Elect { out } => writeln!(f, "{out} = subgroupElect();"),
-            Subgroup::All { input, out } => {
+            Self::Elect { out } => writeln!(f, "{out} = subgroupElect();"),
+            Self::All { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupAll({input});")
             }
-            Subgroup::Any { input, out } => {
+            Self::Any { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupAny({input});")
             }
-            Subgroup::Broadcast { lhs, rhs, out } => {
+            Self::Broadcast { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupBroadcast({lhs}, {rhs});")
             }
-            Subgroup::Sum { input, out } => {
+            Self::Sum { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupAdd({input});")
             }
-            Subgroup::Prod { input, out } => {
+            Self::Prod { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupMul({input});")
             }
-            Subgroup::Min { input, out } => {
+            Self::Min { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupMin({input});")
             }
-            Subgroup::Max { input, out } => {
+            Self::Max { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupMax({input});")
             }
