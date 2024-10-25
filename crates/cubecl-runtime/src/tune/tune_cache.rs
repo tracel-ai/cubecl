@@ -66,6 +66,10 @@ pub enum TuneCacheResult {
     /// An operation is found, but checksum isn't done.
     #[cfg(autotune_persistent_cache)]
     Unchecked,
+    /// On wasm, we can't block to get the fastest index, thefore the first call to autotune will
+    /// spawn an async task that will get resolved at some point.
+    #[cfg(target_family = "wasm")]
+    Deferred,
 }
 
 impl<K: AutotuneKey> TuneCache<K> {

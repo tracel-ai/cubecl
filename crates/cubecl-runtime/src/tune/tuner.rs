@@ -2,6 +2,7 @@ use async_channel::Sender;
 use cubecl_common::future;
 
 use core::future::Future;
+use core::marker::PhantomData;
 use core::{any::Any, mem::ManuallyDrop};
 use cubecl_common::stub::Duration;
 
@@ -31,6 +32,27 @@ type BenchError = ManuallyDrop<Box<dyn Any + Send>>;
 /// Executes autotune benchmarking and caching
 pub struct Tuner<K: AutotuneKey> {
     tune_cache: TuneCache<K>,
+    #[cfg(target_family = "wasm")]
+    wasm_restuls: wasm_fix::WasmDeferResults<K>,
+}
+
+#[cfg(target_family = "wasm")]
+mod wasm_fix {
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct WasmDeferResults<K> {
+        pub(crate) sender: async_channel::Sender<AutotuneMessage<K>>,
+        pub(crate) receiver: async_channel::Receiver<AutotuneMessage<K>>,
+    }
+
+    impl<K> WasmDeferResults<K> {
+        pub fn new() -> Self {
+            let (sender, receiver) = async_channel::bounded(1);
+
+            Self { sender, receiver }
+        }
+    }
 }
 
 struct AutotuneMessage<K> {
@@ -39,11 +61,25 @@ struct AutotuneMessage<K> {
 }
 
 /// Result from running benchmarks.
-pub struct AutotuneResult<K, Out> {
+pub struct AutotuneResponse<K, Out> {
     key: K,
     fastest_index: usize,
     set: Box<dyn AutotuneOperationSet<K, Out>>,
 }
+
+/// Error from running autotune.
+pub enum AutotuneError<K, Out> {
+    /// The autotune tasks is spawn asynchonously, but can't be block to know the result.
+    ///
+    /// Should fall back on the default operation.
+    #[cfg(target_family = "wasm")]
+    Deferred(Box<dyn AutotuneOperationSet<K, Out>>),
+    /// An unknown error happended.
+    Unknown(String, (PhantomData<K>, PhantomData<Out>)),
+}
+
+/// Result returned from running autotune.
+pub type AutotuneResult<K, Out> = Result<AutotuneResponse<K, Out>, AutotuneError<K, Out>>;
 
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
@@ -51,6 +87,8 @@ impl<K: AutotuneKey> Tuner<K> {
     pub fn new(name: &str, device_id: &str) -> Self {
         Self {
             tune_cache: TuneCache::new(name, device_id),
+            #[cfg(target_family = "wasm")]
+            wasm_restuls: wasm_fix::WasmDeferResults::new(),
         }
     }
 
@@ -59,8 +97,24 @@ impl<K: AutotuneKey> Tuner<K> {
         self.tune_cache.fastest(key)
     }
 
+    /// Resolve async autotune launches.
+    #[cfg(target_family = "wasm")]
+    pub fn resolve(&mut self, key: &K) -> usize {
+        let mut output = 0;
+
+        while let Ok(msg) = self.wasm_restuls.receiver.try_recv() {
+            if key == &msg.key {
+                output = msg.fastest_index;
+            }
+            self.tune_cache
+                .cache_insert(msg.key.clone(), msg.fastest_index);
+        }
+
+        output
+    }
+
     /// Registers the [results](AutotuneResult) from [execute_autotune()](Self::execute_autotune).
-    pub fn register_autotune<Out: Send>(&mut self, result: AutotuneResult<K, Out>) -> Out {
+    pub fn register_autotune<Out: Send>(&mut self, result: AutotuneResponse<K, Out>) -> Out {
         self.tune_cache
             .cache_insert(result.key.clone(), result.fastest_index);
 
@@ -95,18 +149,29 @@ impl<K: AutotuneKey> Tuner<K> {
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
     {
-        let (send, rec) = async_channel::bounded(1);
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let (send, rec) = async_channel::bounded(1);
 
-        self.start_autotuning(send, set.as_ref(), client);
+            self.start_autotuning(send, set.as_ref(), client);
 
-        if let Ok(msg) = rec.try_recv() {
-            AutotuneResult {
-                key: msg.key,
-                fastest_index: msg.fastest_index,
-                set,
+            match rec.try_recv() {
+                Ok(msg) => Ok(AutotuneResponse {
+                    key: msg.key,
+                    fastest_index: msg.fastest_index,
+                    set,
+                }),
+                Err(err) => Err(AutotuneError::Unknown(
+                    format!("Failed to run autotune {err:?}"),
+                    Default::default(),
+                )),
             }
-        } else {
-            panic!("Unable to perform autotune.");
+        }
+
+        #[cfg(target_family = "wasm")]
+        {
+            self.start_autotuning(self.wasm_restuls.sender.clone(), set.as_ref(), client);
+            Err(AutotuneError::Deferred(set))
         }
     }
 
