@@ -212,17 +212,17 @@ impl Item {
         let cast_elem = |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>| -> Word {
             match (self.elem(), other.elem()) {
                 (Elem::Bool, Elem::Int(_, _)) => {
-                    let one = other.constant(b, 1u32.into());
-                    let zero = other.constant(b, 0u32.into());
+                    let one = other.const_u32(b, 1);
+                    let zero = other.const_u32(b, 0);
                     b.select(ty, out_id, obj, one, zero).unwrap()
                 }
                 (Elem::Bool, Elem::Float(_)) => {
-                    let one = other.constant(b, 1f32.into());
-                    let zero = other.constant(b, 0f32.into());
+                    let one = other.const_u32(b, 1);
+                    let zero = other.const_u32(b, 0);
                     b.select(ty, out_id, obj, one, zero).unwrap()
                 }
                 (Elem::Int(_, _), Elem::Bool) => {
-                    let one = self.constant(b, 1u32.into());
+                    let one = self.const_u32(b, 1);
                     b.i_equal(ty, out_id, obj, one).unwrap()
                 }
                 (Elem::Int(width_self, signed_self), Elem::Int(width_other, signed_other)) => {
@@ -237,7 +237,7 @@ impl Item {
                 (Elem::Int(_, false), Elem::Float(_)) => b.convert_u_to_f(ty, out_id, obj).unwrap(),
                 (Elem::Int(_, true), Elem::Float(_)) => b.convert_s_to_f(ty, out_id, obj).unwrap(),
                 (Elem::Float(_), Elem::Bool) => {
-                    let one = self.constant(b, 1f32.into());
+                    let one = self.const_u32(b, 1);
                     b.i_equal(ty, out_id, obj, one).unwrap()
                 }
                 (Elem::Float(_), Elem::Int(_, false)) => b.convert_f_to_u(ty, out_id, obj).unwrap(),

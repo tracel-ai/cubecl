@@ -1,13 +1,13 @@
-use crate as cubecl;
+use crate::{self as cubecl, as_bytes, as_type};
 
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn kernel_different_rank(lhs: &Tensor<f32>, rhs: &Tensor<f32>, output: &mut Tensor<f32>) {
+pub fn kernel_different_rank<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, output: &mut Tensor<F>) {
     output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS] + rhs[ABSOLUTE_POS];
 }
 
-pub fn test_kernel_different_rank_first_biggest<R: Runtime>(
+pub fn test_kernel_different_rank_first_biggest<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
     let shape_lhs = vec![2, 2, 2];
@@ -18,14 +18,14 @@ pub fn test_kernel_different_rank_first_biggest<R: Runtime>(
     let strides_rhs = vec![1];
     let strides_out = vec![4, 1];
 
-    test_kernel_different_rank::<R>(
+    test_kernel_different_rank::<R, F>(
         client,
         (shape_lhs, shape_rhs, shape_out),
         (strides_lhs, strides_rhs, strides_out),
     );
 }
 
-pub fn test_kernel_different_rank_last_biggest<R: Runtime>(
+pub fn test_kernel_different_rank_last_biggest<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
     let shape_lhs = vec![2, 4];
@@ -36,23 +36,23 @@ pub fn test_kernel_different_rank_last_biggest<R: Runtime>(
     let strides_rhs = vec![1];
     let strides_out = vec![8, 4, 1];
 
-    test_kernel_different_rank::<R>(
+    test_kernel_different_rank::<R, F>(
         client,
         (shape_lhs, shape_rhs, shape_out),
         (strides_lhs, strides_rhs, strides_out),
     );
 }
 
-fn test_kernel_different_rank<R: Runtime>(
+fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
     (shape_lhs, shape_rhs, shape_out): (Vec<usize>, Vec<usize>, Vec<usize>),
     (strides_lhs, strides_rhs, strides_out): (Vec<usize>, Vec<usize>, Vec<usize>),
 ) {
     let vectorisation = 2;
 
-    let handle_lhs = client.create(f32::as_bytes(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]));
-    let handle_rhs = client.create(f32::as_bytes(&[3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]));
-    let handle_out = client.create(f32::as_bytes(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+    let handle_lhs = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+    let handle_rhs = client.create(as_bytes![F: 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
+    let handle_out = client.create(as_bytes![F: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
 
     let lhs =
         unsafe { TensorArg::from_raw_parts(&handle_lhs, &strides_lhs, &shape_lhs, vectorisation) };
@@ -61,7 +61,7 @@ fn test_kernel_different_rank<R: Runtime>(
     let out =
         unsafe { TensorArg::from_raw_parts(&handle_out, &strides_out, &shape_out, vectorisation) };
 
-    kernel_different_rank::launch::<R>(
+    kernel_different_rank::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
@@ -71,9 +71,12 @@ fn test_kernel_different_rank<R: Runtime>(
     );
 
     let actual = client.read(handle_out.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = F::from_bytes(&actual);
 
-    assert_eq!(actual, &[3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0]);
+    assert_eq!(
+        actual,
+        as_type![F: 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0]
+    );
 }
 
 #[allow(missing_docs)]
@@ -87,6 +90,7 @@ macro_rules! testgen_different_rank {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::different_rank::test_kernel_different_rank_first_biggest::<
                 TestRuntime,
+                FloatT,
             >(client);
         }
 
@@ -95,6 +99,7 @@ macro_rules! testgen_different_rank {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::different_rank::test_kernel_different_rank_last_biggest::<
                 TestRuntime,
+                FloatT,
             >(client);
         }
     };

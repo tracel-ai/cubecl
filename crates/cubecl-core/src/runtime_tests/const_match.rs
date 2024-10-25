@@ -1,39 +1,51 @@
-use crate as cubecl;
+use core::hash;
+use std::fmt::Debug;
+
+use crate::{self as cubecl, as_bytes};
 
 use cubecl::prelude::*;
 
 #[derive(CubeType, Clone, Hash, PartialEq, Eq, Debug)]
-pub enum Operation {
-    IndexAssign(u32, u32),
+pub enum Operation<U: Int + hash::Hash + Eq + Debug> {
+    IndexAssign(u32, U),
 }
 
 #[cube(launch)]
-pub fn kernel_const_match_simple(output: &mut Array<f32>, #[comptime] op: Operation) {
+pub fn kernel_const_match_simple<F: Float, U: Int + hash::Hash + Eq + Debug>(
+    output: &mut Array<F>,
+    #[comptime] op: Operation<U>,
+) {
     match op {
         Operation::IndexAssign(index, value) => {
-            output[index.runtime()] = f32::cast_from(value.runtime());
+            output[index.runtime()] = F::cast_from(value.runtime());
         }
     };
 }
 
-pub fn test_kernel_const_match<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
+pub fn test_kernel_const_match<
+    R: Runtime,
+    F: Float + CubeElement,
+    U: Int + hash::Hash + Eq + Debug,
+>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    let handle = client.create(as_bytes![F: 0.0, 1.0]);
 
     let index = 1;
     let value = 5.0;
 
-    kernel_const_match_simple::launch::<R>(
+    kernel_const_match_simple::launch::<F, U, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(1, 1, 1),
         unsafe { ArrayArg::from_raw_parts(&handle, 2, 1) },
-        Operation::IndexAssign(index as u32, value as u32),
+        Operation::IndexAssign(index as u32, U::new(value as i64)),
     );
 
     let actual = client.read(handle.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = F::from_bytes(&actual);
 
-    assert_eq!(actual[index], value);
+    assert_eq!(actual[index], F::new(value));
 }
 
 #[allow(missing_docs)]
@@ -45,7 +57,11 @@ macro_rules! testgen_const_match {
         #[test]
         fn test_const_match() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::const_match::test_kernel_const_match::<TestRuntime>(client);
+            cubecl_core::runtime_tests::const_match::test_kernel_const_match::<
+                TestRuntime,
+                FloatT,
+                UintT,
+            >(client);
         }
     };
 }

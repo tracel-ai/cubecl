@@ -1,61 +1,63 @@
-use crate as cubecl;
+use crate::{self as cubecl, as_bytes};
 
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn kernel_switch_simple(output: &mut Array<f32>, case: u32) {
+pub fn kernel_switch_simple<F: Float>(output: &mut Array<F>, case: u32) {
     if UNIT_POS == 0 {
         match case {
             0 => {
-                output[0] = 1.0;
+                output[0] = F::new(1.0);
             }
             1 => {
-                output[0] = 3.0;
+                output[0] = F::new(3.0);
             }
             _ => {
-                output[0] = 5.0;
+                output[0] = F::new(5.0);
             }
         }
     }
 }
 
 #[cube(launch)]
-pub fn kernel_switch_value_expr(output: &mut Array<f32>, case: u32) {
+pub fn kernel_switch_value_expr<F: Float>(output: &mut Array<F>, case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
-            0 => 1.0f32,
-            1 => 3.0f32,
-            _ => 5.0f32,
+            0 => F::new(1.0f32),
+            1 => F::new(3.0f32),
+            _ => F::new(5.0f32),
         };
         output[0] = value;
     }
 }
 
 #[cube(launch)]
-pub fn kernel_switch_or_arm(output: &mut Array<f32>, case: u32) {
+pub fn kernel_switch_or_arm<F: Float>(output: &mut Array<F>, case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
-            0 => 1.0f32,
-            1 | 2 => 3.0f32,
-            _ => 5.0f32,
+            0 => F::new(1.0f32),
+            1 | 2 => F::new(3.0f32),
+            _ => F::new(5.0f32),
         };
         output[0] = value;
     }
 }
 
 #[cube(launch)]
-pub fn kernel_select(output: &mut Array<f32>, cond: u32) {
+pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
     if UNIT_POS == 0 {
-        output[0] = select(cond == 1, 3.0, 5.0);
+        output[0] = select(cond == 1, F::new(3.0), F::new(5.0));
     }
 }
 
-pub fn test_switch_statement<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
+pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    let handle = client.create(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
 
-    kernel_switch_simple::launch::<R>(
+    kernel_switch_simple::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
@@ -64,17 +66,19 @@ pub fn test_switch_statement<R: Runtime>(client: ComputeClient<R::Server, R::Cha
     );
 
     let actual = client.read(handle.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = F::from_bytes(&actual);
 
-    assert_eq!(actual[0], 1.0);
+    assert_eq!(actual[0], F::new(1.0));
 }
 
-pub fn test_switch_used_as_value<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
+pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    let handle = client.create(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
 
-    kernel_switch_value_expr::launch::<R>(
+    kernel_switch_value_expr::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
@@ -83,17 +87,19 @@ pub fn test_switch_used_as_value<R: Runtime>(client: ComputeClient<R::Server, R:
     );
 
     let actual = client.read(handle.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = F::from_bytes(&actual);
 
-    assert_eq!(actual[0], 3.0);
+    assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_switch_default<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
+pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    let handle = client.create(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
 
-    kernel_switch_value_expr::launch::<R>(
+    kernel_switch_value_expr::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
@@ -102,17 +108,19 @@ pub fn test_switch_default<R: Runtime>(client: ComputeClient<R::Server, R::Chann
     );
 
     let actual = client.read(handle.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = F::from_bytes(&actual);
 
-    assert_eq!(actual[0], 5.0);
+    assert_eq!(actual[0], F::new(5.0));
 }
 
-pub fn test_switch_or_branch<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
+pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    let handle = client.create(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
 
-    kernel_switch_or_arm::launch::<R>(
+    kernel_switch_or_arm::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
@@ -121,19 +129,22 @@ pub fn test_switch_or_branch<R: Runtime>(client: ComputeClient<R::Server, R::Cha
     );
 
     let actual = client.read(handle.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = F::from_bytes(&actual);
 
-    assert_eq!(actual[0], 3.0);
+    assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_select<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, cond: bool) {
-    let handle = client.create(f32::as_bytes(&[0.0]));
+pub fn test_select<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+    cond: bool,
+) {
+    let handle = client.create(as_bytes![F: 0.0]);
 
     let vectorization = 1;
 
     let cond_u32 = if cond { 1 } else { 0 };
 
-    kernel_select::launch::<R>(
+    kernel_select::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
@@ -142,12 +153,12 @@ pub fn test_select<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, con
     );
 
     let actual = client.read(handle.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = F::from_bytes(&actual);
 
     if cond {
-        assert_eq!(actual[0], 3.0);
+        assert_eq!(actual[0], F::new(3.0));
     } else {
-        assert_eq!(actual[0], 5.0);
+        assert_eq!(actual[0], F::new(5.0));
     }
 }
 
@@ -160,37 +171,43 @@ macro_rules! testgen_branch {
         #[test]
         fn test_switch_statement() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_switch_statement::<TestRuntime>(client);
+            cubecl_core::runtime_tests::branch::test_switch_statement::<TestRuntime, FloatT>(
+                client,
+            );
         }
 
         #[test]
         fn test_switch_used_as_value() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_switch_used_as_value::<TestRuntime>(client);
+            cubecl_core::runtime_tests::branch::test_switch_used_as_value::<TestRuntime, FloatT>(
+                client,
+            );
         }
 
         #[test]
         fn test_switch_default() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_switch_default::<TestRuntime>(client);
+            cubecl_core::runtime_tests::branch::test_switch_default::<TestRuntime, FloatT>(client);
         }
 
         #[test]
         fn test_switch_or_branch() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_switch_or_branch::<TestRuntime>(client);
+            cubecl_core::runtime_tests::branch::test_switch_or_branch::<TestRuntime, FloatT>(
+                client,
+            );
         }
 
         #[test]
         fn test_select_true() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_select::<TestRuntime>(client, true);
+            cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatT>(client, true);
         }
 
         #[test]
         fn test_select_false() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_select::<TestRuntime>(client, false);
+            cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatT>(client, false);
         }
     };
 }

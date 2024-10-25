@@ -7,7 +7,7 @@ use crate::{
 use crate::{ir::Elem, unexpanded};
 
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime,
+    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntoRuntime,
     LaunchArgExpand, ScalarArgSettings, Vectorized,
 };
 
@@ -53,6 +53,18 @@ macro_rules! declare_uint {
         impl Numeric for $primitive {
             const MAX: Self = $primitive::MAX;
             const MIN: Self = $primitive::MIN;
+        }
+
+        impl Int for $primitive {
+            const BITS: u32 = $primitive::BITS;
+
+            fn new(val: i64) -> Self {
+                val as $primitive
+            }
+
+            fn vectorized(val: i64, _vectorization: u32) -> Self {
+                Self::new(val)
+            }
         }
 
         impl Vectorized for $primitive {
