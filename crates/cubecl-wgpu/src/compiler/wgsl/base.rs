@@ -84,42 +84,34 @@ pub struct IndexedVariable {
 
 impl Variable {
     pub fn is_always_scalar(&self) -> bool {
-        match self {
-            Self::GlobalScalar(_, _, _) => true,
-            Self::ConstantScalar(_, _) => true,
-            Self::LocalScalar { .. } => true,
-            Self::Id => true,
-            Self::LocalInvocationIndex => true,
-            Self::LocalInvocationIdX => true,
-            Self::LocalInvocationIdY => true,
-            Self::LocalInvocationIdZ => true,
-            Self::Rank => true,
-            Self::GlobalInputArray(_, _) => false,
-            Self::GlobalOutputArray(_, _) => false,
-            Self::SharedMemory(_, _, _) => false,
-            Self::ConstantArray(_, _, _) => false,
-            Self::LocalArray(_, _, _, _) => false,
-            Self::Local { .. } => false,
-            Self::LocalBinding { .. } => false,
-            Self::Named { .. } => false,
-            Self::Slice { .. } => false,
-            Self::WorkgroupIdX => true,
-            Self::WorkgroupIdY => true,
-            Self::WorkgroupIdZ => true,
-            Self::GlobalInvocationIdX => true,
-            Self::GlobalInvocationIdY => true,
-            Self::GlobalInvocationIdZ => true,
-            Self::WorkgroupSizeX => true,
-            Self::WorkgroupSizeY => true,
-            Self::WorkgroupSizeZ => true,
-            Self::NumWorkgroupsX => true,
-            Self::NumWorkgroupsY => true,
-            Self::NumWorkgroupsZ => true,
-            Self::WorkgroupId => true,
-            Self::WorkgroupSize => true,
-            Self::NumWorkgroups => true,
-            Self::SubgroupSize => true,
-        }
+        matches!(
+            self,
+            Self::GlobalScalar(_, _, _)
+                | Self::ConstantScalar(_, _)
+                | Self::LocalScalar { .. }
+                | Self::Id
+                | Self::LocalInvocationIndex
+                | Self::LocalInvocationIdX
+                | Self::LocalInvocationIdY
+                | Self::LocalInvocationIdZ
+                | Self::Rank
+                | Self::WorkgroupIdX
+                | Self::WorkgroupIdY
+                | Self::WorkgroupIdZ
+                | Self::GlobalInvocationIdX
+                | Self::GlobalInvocationIdY
+                | Self::GlobalInvocationIdZ
+                | Self::WorkgroupSizeX
+                | Self::WorkgroupSizeY
+                | Self::WorkgroupSizeZ
+                | Self::NumWorkgroupsX
+                | Self::NumWorkgroupsY
+                | Self::NumWorkgroupsZ
+                | Self::WorkgroupId
+                | Self::WorkgroupSize
+                | Self::NumWorkgroups
+                | Self::SubgroupSize
+        )
     }
     pub fn index(&self, index: usize) -> IndexedVariable {
         IndexedVariable {
@@ -129,55 +121,53 @@ impl Variable {
     }
     pub fn is_atomic(&self) -> bool {
         match self {
-            Self::GlobalInputArray(_, item) => item.elem().is_atomic(),
-            Self::GlobalOutputArray(_, item) => item.elem().is_atomic(),
-            Self::GlobalScalar(_, elem, _) => elem.is_atomic(),
-            Self::Local { item, .. } => item.elem().is_atomic(),
-            Self::Named { item, .. } => item.elem().is_atomic(),
-            Self::Slice { item, .. } => item.elem().is_atomic(),
-            Self::LocalScalar { elem, .. } => elem.is_atomic(),
-            Self::SharedMemory(_, item, _) => item.elem().is_atomic(),
-            Self::LocalArray(_, item, _, _) => item.elem().is_atomic(),
+            Self::LocalScalar { elem, .. } | Self::GlobalScalar(_, elem, _) => elem.is_atomic(),
+            Self::GlobalInputArray(_, item)
+            | Self::GlobalOutputArray(_, item)
+            | Self::Local { item, .. }
+            | Self::Named { item, .. }
+            | Self::Slice { item, .. }
+            | Self::SharedMemory(_, item, _)
+            | Self::LocalArray(_, item, _, _) => item.elem().is_atomic(),
             _ => false,
         }
     }
 
     pub fn item(&self) -> Item {
         match self {
-            Self::GlobalInputArray(_, e) => *e,
-            Self::GlobalOutputArray(_, e) => *e,
-            Self::SharedMemory(_, e, _) => *e,
-            Self::ConstantArray(_, e, _) => *e,
-            Self::LocalArray(_, e, _, _) => *e,
-            Self::Local { item, .. } => *item,
-            Self::LocalBinding { item, .. } => *item,
-            Self::Slice { item, .. } => *item,
-            Self::Named { item, .. } => *item,
-            Self::ConstantScalar(_, e) => Item::Scalar(*e),
-            Self::GlobalScalar(_, e, _) => Item::Scalar(*e),
+            Self::GlobalInputArray(_, e)
+            | Self::GlobalOutputArray(_, e)
+            | Self::SharedMemory(_, e, _)
+            | Self::ConstantArray(_, e, _)
+            | Self::LocalArray(_, e, _, _) => *e,
+            Self::Local { item, .. }
+            | Self::LocalBinding { item, .. }
+            | Self::Slice { item, .. }
+            | Self::Named { item, .. } => *item,
+            Self::ConstantScalar(_, e) | Self::GlobalScalar(_, e, _) => Item::Scalar(*e),
             Self::LocalScalar { elem, .. } => Item::Scalar(*elem),
-            Self::Id |
-            Self::LocalInvocationIndex |
-            Self::LocalInvocationIdX |
-            Self::LocalInvocationIdY |
-            Self::LocalInvocationIdZ |
-            Self::Rank |
-            Self::WorkgroupId |
-            Self::WorkgroupIdX |
-            Self::WorkgroupIdY |
-            Self::WorkgroupIdZ |
-            Self::GlobalInvocationIdX |
-            Self::GlobalInvocationIdY |
-            Self::GlobalInvocationIdZ |
-            Self::WorkgroupSize |
-            Self::WorkgroupSizeX |
-            Self::WorkgroupSizeY |
-            Self::WorkgroupSizeZ |
-            Self::NumWorkgroups |
-            Self::NumWorkgroupsX |
-            Self::NumWorkgroupsY |
-            Self::NumWorkgroupsZ |
-            Self::SubgroupSize => Item::Scalar(Elem::U32),
+            Self::Id
+            | Self::LocalInvocationIndex
+            | Self::LocalInvocationIdX
+            | Self::LocalInvocationIdY
+            | Self::LocalInvocationIdZ
+            | Self::Rank
+            | Self::WorkgroupId
+            | Self::WorkgroupIdX
+            | Self::WorkgroupIdY
+            | Self::WorkgroupIdZ
+            | Self::GlobalInvocationIdX
+            | Self::GlobalInvocationIdY
+            | Self::GlobalInvocationIdZ
+            | Self::WorkgroupSize
+            | Self::WorkgroupSizeX
+            | Self::WorkgroupSizeY
+            | Self::WorkgroupSizeZ
+            | Self::NumWorkgroups
+            | Self::NumWorkgroupsX
+            | Self::NumWorkgroupsY
+            | Self::NumWorkgroupsZ
+            | Self::SubgroupSize => Item::Scalar(Elem::U32),
         }
     }
     pub fn elem(&self) -> Elem {
@@ -196,10 +186,7 @@ impl Variable {
 impl Item {
     pub fn elem(&self) -> &Elem {
         match self {
-            Item::Vec4(e) |
-            Item::Vec3(e) |
-            Item::Vec2(e) |
-            Item::Scalar(e) => e,
+            Item::Vec4(e) | Item::Vec3(e) | Item::Vec2(e) | Item::Scalar(e) => e,
         }
     }
 
