@@ -85,40 +85,40 @@ pub struct IndexedVariable {
 impl Variable {
     pub fn is_always_scalar(&self) -> bool {
         match self {
-            Variable::GlobalScalar(_, _, _) => true,
-            Variable::ConstantScalar(_, _) => true,
-            Variable::LocalScalar { .. } => true,
-            Variable::Id => true,
-            Variable::LocalInvocationIndex => true,
-            Variable::LocalInvocationIdX => true,
-            Variable::LocalInvocationIdY => true,
-            Variable::LocalInvocationIdZ => true,
-            Variable::Rank => true,
-            Variable::GlobalInputArray(_, _) => false,
-            Variable::GlobalOutputArray(_, _) => false,
-            Variable::SharedMemory(_, _, _) => false,
-            Variable::ConstantArray(_, _, _) => false,
-            Variable::LocalArray(_, _, _, _) => false,
-            Variable::Local { .. } => false,
-            Variable::LocalBinding { .. } => false,
-            Variable::Named { .. } => false,
-            Variable::Slice { .. } => false,
-            Variable::WorkgroupIdX => true,
-            Variable::WorkgroupIdY => true,
-            Variable::WorkgroupIdZ => true,
-            Variable::GlobalInvocationIdX => true,
-            Variable::GlobalInvocationIdY => true,
-            Variable::GlobalInvocationIdZ => true,
-            Variable::WorkgroupSizeX => true,
-            Variable::WorkgroupSizeY => true,
-            Variable::WorkgroupSizeZ => true,
-            Variable::NumWorkgroupsX => true,
-            Variable::NumWorkgroupsY => true,
-            Variable::NumWorkgroupsZ => true,
-            Variable::WorkgroupId => true,
-            Variable::WorkgroupSize => true,
-            Variable::NumWorkgroups => true,
-            Variable::SubgroupSize => true,
+            Self::GlobalScalar(_, _, _) => true,
+            Self::ConstantScalar(_, _) => true,
+            Self::LocalScalar { .. } => true,
+            Self::Id => true,
+            Self::LocalInvocationIndex => true,
+            Self::LocalInvocationIdX => true,
+            Self::LocalInvocationIdY => true,
+            Self::LocalInvocationIdZ => true,
+            Self::Rank => true,
+            Self::GlobalInputArray(_, _) => false,
+            Self::GlobalOutputArray(_, _) => false,
+            Self::SharedMemory(_, _, _) => false,
+            Self::ConstantArray(_, _, _) => false,
+            Self::LocalArray(_, _, _, _) => false,
+            Self::Local { .. } => false,
+            Self::LocalBinding { .. } => false,
+            Self::Named { .. } => false,
+            Self::Slice { .. } => false,
+            Self::WorkgroupIdX => true,
+            Self::WorkgroupIdY => true,
+            Self::WorkgroupIdZ => true,
+            Self::GlobalInvocationIdX => true,
+            Self::GlobalInvocationIdY => true,
+            Self::GlobalInvocationIdZ => true,
+            Self::WorkgroupSizeX => true,
+            Self::WorkgroupSizeY => true,
+            Self::WorkgroupSizeZ => true,
+            Self::NumWorkgroupsX => true,
+            Self::NumWorkgroupsY => true,
+            Self::NumWorkgroupsZ => true,
+            Self::WorkgroupId => true,
+            Self::WorkgroupSize => true,
+            Self::NumWorkgroups => true,
+            Self::SubgroupSize => true,
         }
     }
     pub fn index(&self, index: usize) -> IndexedVariable {
@@ -129,15 +129,15 @@ impl Variable {
     }
     pub fn is_atomic(&self) -> bool {
         match self {
-            Variable::GlobalInputArray(_, item) => item.elem().is_atomic(),
-            Variable::GlobalOutputArray(_, item) => item.elem().is_atomic(),
-            Variable::GlobalScalar(_, elem, _) => elem.is_atomic(),
-            Variable::Local { item, .. } => item.elem().is_atomic(),
-            Variable::Named { item, .. } => item.elem().is_atomic(),
-            Variable::Slice { item, .. } => item.elem().is_atomic(),
-            Variable::LocalScalar { elem, .. } => elem.is_atomic(),
-            Variable::SharedMemory(_, item, _) => item.elem().is_atomic(),
-            Variable::LocalArray(_, item, _, _) => item.elem().is_atomic(),
+            Self::GlobalInputArray(_, item) => item.elem().is_atomic(),
+            Self::GlobalOutputArray(_, item) => item.elem().is_atomic(),
+            Self::GlobalScalar(_, elem, _) => elem.is_atomic(),
+            Self::Local { item, .. } => item.elem().is_atomic(),
+            Self::Named { item, .. } => item.elem().is_atomic(),
+            Self::Slice { item, .. } => item.elem().is_atomic(),
+            Self::LocalScalar { elem, .. } => elem.is_atomic(),
+            Self::SharedMemory(_, item, _) => item.elem().is_atomic(),
+            Self::LocalArray(_, item, _, _) => item.elem().is_atomic(),
             _ => false,
         }
     }
@@ -254,10 +254,10 @@ impl Display for Elem {
 impl Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Item::Vec4(elem) => write!(f, "vec4<{elem}>"),
-            Item::Vec3(elem) => write!(f, "vec3<{elem}>"),
-            Item::Vec2(elem) => write!(f, "vec2<{elem}>"),
-            Item::Scalar(elem) => write!(f, "{elem}"),
+            Self::Vec4(elem) => write!(f, "vec4<{elem}>"),
+            Self::Vec3(elem) => write!(f, "vec3<{elem}>"),
+            Self::Vec2(elem) => write!(f, "vec2<{elem}>"),
+            Self::Scalar(elem) => write!(f, "{elem}"),
         }
     }
 }
@@ -271,35 +271,35 @@ fn format_number(num: f64) -> String {
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalInputArray(number, _) => {
+            Self::GlobalInputArray(number, _) => {
                 write!(f, "input_{number}_global")
             }
-            Variable::LocalScalar {
+            Self::LocalScalar {
                 id: index,
                 depth: scope_depth,
                 ..
             } => write!(f, "s_{scope_depth}_{index}"),
-            Variable::Local {
+            Self::Local {
                 id: index,
                 depth: scope_depth,
                 ..
             } => write!(f, "l_{scope_depth}_{index}"),
-            Variable::LocalBinding { id: index, .. } => write!(f, "_{index}"),
-            Variable::Named { name, .. } => f.write_str(name),
-            Variable::Slice {
+            Self::LocalBinding { id: index, .. } => write!(f, "_{index}"),
+            Self::Named { name, .. } => f.write_str(name),
+            Self::Slice {
                 id: index,
                 item: _,
                 depth: scope_depth,
             } => write!(f, "slice_{scope_depth}_{index}"),
-            Variable::GlobalOutputArray(number, _) => {
+            Self::GlobalOutputArray(number, _) => {
                 write!(f, "output_{number}_global")
             }
-            Variable::GlobalScalar(number, _, elem) => {
+            Self::GlobalScalar(number, _, elem) => {
                 write!(f, "scalars_{elem}[{number}]")
             }
             // We do the conversion in Rust and then render the number to avoid overflow or other
             // precision related problems.
-            Variable::ConstantScalar(number, _elem) => match number {
+            Self::ConstantScalar(number, _elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
                     IntKind::I32 => write!(f, "{}i", *val as i32),
                     IntKind::I64 => write!(f, "{}i", { *val }),
@@ -316,35 +316,35 @@ impl Display for Variable {
                 ConstantScalarValue::UInt(val) => write!(f, "{}u", *val as u32),
                 ConstantScalarValue::Bool(val) => write!(f, "{}", val),
             },
-            Variable::SharedMemory(number, _, _) => {
+            Self::SharedMemory(number, _, _) => {
                 write!(f, "shared_memory_{number}")
             }
-            Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
-            Variable::LocalArray(number, _, scope_depth, _) => {
+            Self::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
+            Self::LocalArray(number, _, scope_depth, _) => {
                 write!(f, "a_{scope_depth}_{number}")
             }
-            Variable::Id => f.write_str("id"),
-            Variable::LocalInvocationIndex => f.write_str("local_idx"),
-            Variable::LocalInvocationIdX => f.write_str("local_invocation_id.x"),
-            Variable::LocalInvocationIdY => f.write_str("local_invocation_id.y"),
-            Variable::LocalInvocationIdZ => f.write_str("local_invocation_id.z"),
-            Variable::Rank => f.write_str("rank"),
-            Variable::WorkgroupId => f.write_str("workgroup_id_no_axis"),
-            Variable::WorkgroupIdX => f.write_str("workgroup_id.x"),
-            Variable::WorkgroupIdY => f.write_str("workgroup_id.y"),
-            Variable::WorkgroupIdZ => f.write_str("workgroup_id.z"),
-            Variable::GlobalInvocationIdX => f.write_str("global_id.x"),
-            Variable::GlobalInvocationIdY => f.write_str("global_id.y"),
-            Variable::GlobalInvocationIdZ => f.write_str("global_id.z"),
-            Variable::WorkgroupSizeX => f.write_str("WORKGROUP_SIZE_X"),
-            Variable::WorkgroupSizeY => f.write_str("WORKGROUP_SIZE_Y"),
-            Variable::WorkgroupSizeZ => f.write_str("WORKGROUP_SIZE_Z"),
-            Variable::NumWorkgroupsX => f.write_str("num_workgroups.x"),
-            Variable::NumWorkgroupsY => f.write_str("num_workgroups.y"),
-            Variable::NumWorkgroupsZ => f.write_str("num_workgroups.z"),
-            Variable::WorkgroupSize => f.write_str("workgroup_size_no_axis"),
-            Variable::NumWorkgroups => f.write_str("num_workgroups_no_axis"),
-            Variable::SubgroupSize => f.write_str("subgroup_size"),
+            Self::Id => f.write_str("id"),
+            Self::LocalInvocationIndex => f.write_str("local_idx"),
+            Self::LocalInvocationIdX => f.write_str("local_invocation_id.x"),
+            Self::LocalInvocationIdY => f.write_str("local_invocation_id.y"),
+            Self::LocalInvocationIdZ => f.write_str("local_invocation_id.z"),
+            Self::Rank => f.write_str("rank"),
+            Self::WorkgroupId => f.write_str("workgroup_id_no_axis"),
+            Self::WorkgroupIdX => f.write_str("workgroup_id.x"),
+            Self::WorkgroupIdY => f.write_str("workgroup_id.y"),
+            Self::WorkgroupIdZ => f.write_str("workgroup_id.z"),
+            Self::GlobalInvocationIdX => f.write_str("global_id.x"),
+            Self::GlobalInvocationIdY => f.write_str("global_id.y"),
+            Self::GlobalInvocationIdZ => f.write_str("global_id.z"),
+            Self::WorkgroupSizeX => f.write_str("WORKGROUP_SIZE_X"),
+            Self::WorkgroupSizeY => f.write_str("WORKGROUP_SIZE_Y"),
+            Self::WorkgroupSizeZ => f.write_str("WORKGROUP_SIZE_Z"),
+            Self::NumWorkgroupsX => f.write_str("num_workgroups.x"),
+            Self::NumWorkgroupsY => f.write_str("num_workgroups.y"),
+            Self::NumWorkgroupsZ => f.write_str("num_workgroups.z"),
+            Self::WorkgroupSize => f.write_str("workgroup_size_no_axis"),
+            Self::NumWorkgroups => f.write_str("num_workgroups_no_axis"),
+            Self::SubgroupSize => f.write_str("subgroup_size"),
         }
     }
 }
@@ -366,7 +366,7 @@ impl Display for IndexedVariable {
 impl Variable {
     pub fn fmt_left(&self) -> String {
         match self {
-            Variable::LocalBinding { id, .. } => {
+            Self::LocalBinding { id, .. } => {
                 format!("let _{id}")
             }
             var => format!("{}", var),

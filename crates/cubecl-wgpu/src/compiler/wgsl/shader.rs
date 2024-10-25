@@ -250,8 +250,8 @@ var<{}, {}> {}: {};
 impl Display for Location {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Location::Storage => f.write_str("storage"),
-            Location::Workgroup => f.write_str("workgroup"),
+            Self::Storage => f.write_str("storage"),
+            Self::Workgroup => f.write_str("workgroup"),
         }
     }
 }
@@ -260,7 +260,7 @@ impl Display for Visibility {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             #[cfg(exclusive_memory_only)]
-            Visibility::Read => f.write_str("read"),
+            Self::Read => f.write_str("read"),
             _ => f.write_str("read_write"),
         }
     }

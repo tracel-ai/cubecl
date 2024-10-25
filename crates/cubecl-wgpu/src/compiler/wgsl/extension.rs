@@ -15,12 +15,12 @@ pub enum Extension {
 impl Display for Extension {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Extension::PowfScalar(elem) => format_powf_scalar(f, elem),
-            Extension::PowfPrimitive(elem) => format_powf_primitive(f, elem),
-            Extension::Powf(elem) => format_powf(f, elem),
-            Extension::Erf(elem) => format_erf(f, elem),
+            Self::PowfScalar(elem) => format_powf_scalar(f, elem),
+            Self::PowfPrimitive(elem) => format_powf_primitive(f, elem),
+            Self::Powf(elem) => format_powf(f, elem),
+            Self::Erf(elem) => format_erf(f, elem),
             #[cfg(target_os = "macos")]
-            Extension::SafeTanh(elem) => format_safe_tanh(f, elem),
+            Self::SafeTanh(elem) => format_safe_tanh(f, elem),
         }
     }
 }
