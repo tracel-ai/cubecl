@@ -322,42 +322,38 @@ impl<D: Dialect> Variable<D> {
 
     pub fn optimized(&self) -> Self {
         match self {
-            Variable::GlobalInputArray(id, item) => {
-                Variable::GlobalInputArray(*id, item.optimized())
-            }
-            Variable::GlobalOutputArray(id, item) => {
-                Variable::GlobalOutputArray(*id, item.optimized())
-            }
-            Variable::Local { id, item, depth } => Variable::Local {
+            Self::GlobalInputArray(id, item) => Self::GlobalInputArray(*id, item.optimized()),
+            Self::GlobalOutputArray(id, item) => Self::GlobalOutputArray(*id, item.optimized()),
+            Self::Local { id, item, depth } => Self::Local {
                 id: *id,
                 item: item.optimized(),
                 depth: *depth,
             },
-            Variable::ConstLocal { id, item, depth } => Variable::ConstLocal {
+            Self::ConstLocal { id, item, depth } => Self::ConstLocal {
                 id: *id,
                 item: item.optimized(),
                 depth: *depth,
             },
-            Variable::Slice { id, item, depth } => Variable::Slice {
+            Self::Slice { id, item, depth } => Self::Slice {
                 id: *id,
                 item: item.optimized(),
                 depth: *depth,
             },
-            Variable::SharedMemory(id, item, size) => {
+            Self::SharedMemory(id, item, size) => {
                 let before = item.vectorization;
                 let item = item.optimized();
                 let after = item.vectorization;
                 let scaling = (before / after) as u32;
 
-                Variable::SharedMemory(*id, item, size / scaling)
+                Self::SharedMemory(*id, item, size / scaling)
             }
-            Variable::LocalArray(id, item, vec, size) => {
+            Self::LocalArray(id, item, vec, size) => {
                 let before = item.vectorization;
                 let item = item.optimized();
                 let after = item.vectorization;
                 let scaling = (before / after) as u32;
 
-                Variable::LocalArray(*id, item.optimized(), *vec, size / scaling)
+                Self::LocalArray(*id, item.optimized(), *vec, size / scaling)
             }
             _ => *self,
         }
@@ -365,40 +361,40 @@ impl<D: Dialect> Variable<D> {
 
     pub fn is_always_scalar(&self) -> bool {
         match self {
-            Variable::GlobalScalar(_, _, _) => true,
-            Variable::ConstantScalar(_, _) => true,
-            Variable::IdxGlobal => true,
-            Variable::ThreadIdxGlobal => true,
-            Variable::ThreadIdxX => true,
-            Variable::ThreadIdxY => true,
-            Variable::ThreadIdxZ => true,
-            Variable::Rank => true,
-            Variable::GlobalInputArray(_, _) => false,
-            Variable::GlobalOutputArray(_, _) => false,
-            Variable::SharedMemory(_, _, _) => false,
-            Variable::ConstantArray(_, _, _) => false,
-            Variable::Local { .. } => false,
-            Variable::ConstLocal { .. } => false,
-            Variable::Slice { .. } => false,
-            Variable::BlockIdxX => true,
-            Variable::BlockIdxY => true,
-            Variable::BlockIdxZ => true,
-            Variable::AbsoluteIdxX => true,
-            Variable::AbsoluteIdxY => true,
-            Variable::AbsoluteIdxZ => true,
-            Variable::BlockDimX => true,
-            Variable::BlockDimY => true,
-            Variable::BlockDimZ => true,
-            Variable::GridDimX => true,
-            Variable::GridDimY => true,
-            Variable::GridDimZ => true,
-            Variable::LocalArray(_, _, _, _) => false,
-            Variable::WarpSize => true,
-            Variable::WmmaFragment { .. } => false,
-            Variable::BlockIdxGlobal => true,
-            Variable::BlockDimGlobal => true,
-            Variable::GridDimGlobal => true,
-            Variable::Tmp { .. } => false,
+            Self::ConstantArray(_, _, _)
+            | Self::ConstLocal { .. }
+            | Self::GlobalInputArray(_, _)
+            | Self::GlobalOutputArray(_, _)
+            | Self::Local { .. }
+            | Self::LocalArray(_, _, _, _)
+            | Self::SharedMemory(_, _, _)
+            | Self::Slice { .. }
+            | Self::Tmp { .. }
+            | Self::WmmaFragment { .. } => false,
+            Self::AbsoluteIdxX
+            | Self::AbsoluteIdxY
+            | Self::AbsoluteIdxZ
+            | Self::BlockDimGlobal
+            | Self::BlockDimX
+            | Self::BlockDimY
+            | Self::BlockDimZ
+            | Self::BlockIdxGlobal
+            | Self::BlockIdxX
+            | Self::BlockIdxY
+            | Self::BlockIdxZ
+            | Self::ConstantScalar(_, _)
+            | Self::GlobalScalar(_, _, _)
+            | Self::GridDimGlobal
+            | Self::GridDimX
+            | Self::GridDimY
+            | Self::GridDimZ
+            | Self::IdxGlobal
+            | Self::Rank
+            | Self::ThreadIdxGlobal
+            | Self::ThreadIdxX
+            | Self::ThreadIdxY
+            | Self::ThreadIdxZ
+            | Self::WarpSize => true,
         }
     }
 
@@ -419,7 +415,7 @@ impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
         match self {
             Self::ConstLocal { item, .. } => format!("const {item} {self}"),
-            Variable::Tmp { item, .. } => format!("{item} {self}"),
+            Self::Tmp { item, .. } => format!("{item} {self}"),
             var => format!("{var}"),
         }
     }

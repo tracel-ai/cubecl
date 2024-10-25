@@ -31,10 +31,8 @@ impl RasterizationStrategy {
         let cubes_for_cols = f32::ceil(num_cols as f32 / b_n as f32) as u32;
 
         match self {
-            RasterizationStrategy::RowMajor | RasterizationStrategy::Swizzle => {
-                (cubes_for_cols, cubes_for_rows)
-            }
-            RasterizationStrategy::ColMajor => (cubes_for_rows, cubes_for_cols),
+            Self::RowMajor | Self::Swizzle => (cubes_for_cols, cubes_for_rows),
+            Self::ColMajor => (cubes_for_rows, cubes_for_cols),
         }
     }
 }
@@ -86,16 +84,16 @@ pub enum MainLoopStrategy {
 impl MainLoopStrategy {
     pub(crate) fn get_num_load_planes(&self, num_compute_planes: u32) -> u32 {
         match self {
-            MainLoopStrategy::Standard => num_compute_planes,
-            MainLoopStrategy::Split(num_load_planes) => *num_load_planes,
+            Self::Standard => num_compute_planes,
+            Self::Split(num_load_planes) => *num_load_planes,
         }
     }
 
     pub(crate) fn get_num_planes(&self, num_compute_planes: u32) -> u32 {
         num_compute_planes
             + match self {
-                MainLoopStrategy::Standard => 0,
-                MainLoopStrategy::Split(num_load) => *num_load,
+                Self::Standard => 0,
+                Self::Split(num_load) => *num_load,
             }
     }
 }
@@ -145,8 +143,8 @@ pub enum NumComputePlanesStrategy {
 impl NumComputePlanesStrategy {
     pub(crate) fn get_num_compute_planes(&self, num_tiles_m: u32, num_tiles_k: u32) -> u32 {
         match self {
-            NumComputePlanesStrategy::NumTilesLhs => num_tiles_m * num_tiles_k,
-            NumComputePlanesStrategy::NumTilesM => num_tiles_m,
+            Self::NumTilesLhs => num_tiles_m * num_tiles_k,
+            Self::NumTilesM => num_tiles_m,
         }
     }
 

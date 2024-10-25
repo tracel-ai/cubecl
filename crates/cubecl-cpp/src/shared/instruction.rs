@@ -185,17 +185,17 @@ pub enum Instruction<D: Dialect> {
 impl<D: Dialect> Display for Instruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Instruction::Return => f.write_str("return;"),
-            Instruction::Break => f.write_str("break;"),
-            Instruction::DeclareVariable { var } => match var {
+            Self::Return => f.write_str("return;"),
+            Self::Break => f.write_str("break;"),
+            Self::DeclareVariable { var } => match var {
                 Variable::WmmaFragment { frag, .. } => writeln!(f, "{frag} {var};"),
                 _ => {
                     let item = var.item();
                     writeln!(f, "{item} {var};")
                 }
             },
-            Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Slice {
+            Self::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Slice {
                 input,
                 start,
                 end,
@@ -205,17 +205,17 @@ impl<D: Dialect> Display for Instruction<D> {
                 writeln!(f, "const uint {out}_length = {end} - {start};")?;
                 writeln!(f, "{item} *{out} = {input} + {start};")
             }
-            Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Modulo(inst) => Modulo::format(f, &inst.lhs, &inst.rhs, &inst.out),
-            Instruction::BitwiseOr(it) => BitwiseOr::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::BitwiseAnd(it) => BitwiseAnd::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::BitwiseXor(it) => BitwiseXor::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::CheckedIndex { len, lhs, rhs, out } => {
+            Self::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Modulo(inst) => Modulo::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Self::BitwiseOr(it) => BitwiseOr::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::BitwiseAnd(it) => BitwiseAnd::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::BitwiseXor(it) => BitwiseXor::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::CheckedIndex { len, lhs, rhs, out } => {
                 let item_out = out.item();
                 if let Elem::Atomic(inner) = item_out.elem {
                     write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
@@ -230,8 +230,8 @@ impl<D: Dialect> Display for Instruction<D> {
                     }
                 }
             }
-            Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Copy {
+            Self::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Copy {
                 input,
                 in_index,
                 out,
@@ -239,7 +239,7 @@ impl<D: Dialect> Display for Instruction<D> {
             } => {
                 writeln!(f, "{out}[{out_index}] = {input}[{in_index}];")
             }
-            Instruction::CopyBulk {
+            Self::CopyBulk {
                 input,
                 in_index,
                 out,
@@ -251,8 +251,8 @@ impl<D: Dialect> Display for Instruction<D> {
                 }
                 Ok(())
             }
-            Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
-            Instruction::RangeLoop {
+            Self::Assign(it) => Assign::format(f, &it.input, &it.out),
+            Self::RangeLoop {
                 i,
                 start,
                 end,
@@ -279,21 +279,21 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 f.write_str("}\n")
             }
 
-            Instruction::Loop { instructions } => {
+            Self::Loop { instructions } => {
                 writeln!(f, "while (true) {{")?;
                 for i in instructions {
                     write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
-            Instruction::If { cond, instructions } => {
+            Self::If { cond, instructions } => {
                 writeln!(f, "if ({cond}) {{")?;
                 for i in instructions {
                     write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
-            Instruction::IfElse {
+            Self::IfElse {
                 cond,
                 instructions_if,
                 instructions_else,
@@ -308,7 +308,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("}\n")
             }
-            Instruction::Select {
+            Self::Select {
                 cond,
                 then,
                 or_else,
@@ -350,7 +350,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
                 }
             }
-            Instruction::Switch {
+            Self::Switch {
                 value,
                 instructions_default,
                 instructions_cases,
@@ -369,51 +369,51 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("}\n}\n")
             }
-            Instruction::Stride { dim, position, out } => {
+            Self::Stride { dim, position, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = info[({position} * rank_2) + {dim} + 1];")
             }
-            Instruction::Shape { dim, position, out } => {
+            Self::Shape { dim, position, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = info[({position} * rank_2) + rank + {dim} + 1];")
             }
-            Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Lower(it) => Lower::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Greater(it) => Greater::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::LowerEqual(it) => LowerEqual::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::GreaterEqual(it) => GreaterEqual::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Erf(it) => Erf::format(f, &it.input, &it.out),
-            Instruction::Abs(it) => Abs::format(f, &it.input, &it.out),
-            Instruction::Exp(it) => Exp::format(f, &it.input, &it.out),
-            Instruction::Log(it) => Log::format(f, &it.input, &it.out),
-            Instruction::Log1p(it) => Log1p::format(f, &it.input, &it.out),
-            Instruction::Cos(it) => Cos::format(f, &it.input, &it.out),
-            Instruction::Sin(it) => Sin::format(f, &it.input, &it.out),
-            Instruction::Tanh(it) => Tanh::format(f, &it.input, &it.out),
-            Instruction::Powf(it) => Powf::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Sqrt(it) => Sqrt::format(f, &it.input, &it.out),
-            Instruction::Max(it) => Max::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Min(it) => Min::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Not(it) => Not::format(f, &it.input, &it.out),
-            Instruction::Or(it) => Or::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::And(it) => And::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Clamp {
+            Self::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Lower(it) => Lower::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Greater(it) => Greater::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::LowerEqual(it) => LowerEqual::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::GreaterEqual(it) => GreaterEqual::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Erf(it) => Erf::format(f, &it.input, &it.out),
+            Self::Abs(it) => Abs::format(f, &it.input, &it.out),
+            Self::Exp(it) => Exp::format(f, &it.input, &it.out),
+            Self::Log(it) => Log::format(f, &it.input, &it.out),
+            Self::Log1p(it) => Log1p::format(f, &it.input, &it.out),
+            Self::Cos(it) => Cos::format(f, &it.input, &it.out),
+            Self::Sin(it) => Sin::format(f, &it.input, &it.out),
+            Self::Tanh(it) => Tanh::format(f, &it.input, &it.out),
+            Self::Powf(it) => Powf::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Sqrt(it) => Sqrt::format(f, &it.input, &it.out),
+            Self::Max(it) => Max::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Min(it) => Min::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Not(it) => Not::format(f, &it.input, &it.out),
+            Self::Or(it) => Or::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::And(it) => And::format(f, &it.lhs, &it.rhs, &it.out),
+            Self::Clamp {
                 input,
                 min_value,
                 max_value,
                 out,
             } => Clamp::format(f, input, min_value, max_value, out),
-            Instruction::SyncThreads => f.write_str("__syncthreads();\n"),
-            Instruction::ThreadFence => f.write_str("__threadfence();\n"),
-            Instruction::Round(it) => Round::format(f, &it.input, &it.out),
-            Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),
-            Instruction::Floor(it) => Floor::format(f, &it.input, &it.out),
-            Instruction::SliceLength { input, out } => {
+            Self::SyncThreads => f.write_str("__syncthreads();\n"),
+            Self::ThreadFence => f.write_str("__threadfence();\n"),
+            Self::Round(it) => Round::format(f, &it.input, &it.out),
+            Self::Ceil(it) => Ceil::format(f, &it.input, &it.out),
+            Self::Floor(it) => Floor::format(f, &it.input, &it.out),
+            Self::SliceLength { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {input}_length;")
             }
-            Instruction::Length {
+            Self::Length {
                 input,
                 out,
                 num_inputs,
@@ -437,10 +437,10 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     "{out} = info[({offset} * 2 * info[0]) + {index}] / {factor};"
                 )
             }
-            Instruction::Wrap(it) => write!(f, "{it}"),
-            Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
-            Instruction::Wmma(it) => write!(f, "{it}"),
-            Instruction::Bitcast(UnaryInstruction { input, out }) => {
+            Self::Wrap(it) => write!(f, "{it}"),
+            Self::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
+            Self::Wmma(it) => write!(f, "{it}"),
+            Self::Bitcast(UnaryInstruction { input, out }) => {
                 let out_elem = out.elem();
                 let out = out.fmt_left();
                 match (input.elem(), out_elem) {
@@ -483,7 +483,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     _ => panic!("Unsupported type for bitcasting"),
                 }
             }
-            Instruction::AtomicCAS {
+            Self::AtomicCAS {
                 input,
                 cmp,
                 val,
@@ -492,55 +492,55 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicCAS({input}, {cmp}, {val});")
             }
-            Instruction::AtomicSwap(BinaryInstruction { lhs, rhs, out }) => {
+            Self::AtomicSwap(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicExch({lhs}, {rhs});")
             }
-            Instruction::AtomicAdd(BinaryInstruction { lhs, rhs, out }) => {
+            Self::AtomicAdd(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicAdd({lhs}, {rhs});")
             }
-            Instruction::AtomicSub(BinaryInstruction { lhs, rhs, out }) => {
+            Self::AtomicSub(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicSub({lhs}, {rhs});")
             }
-            Instruction::AtomicMax(BinaryInstruction { lhs, rhs, out }) => {
+            Self::AtomicMax(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicMax({lhs}, {rhs});")
             }
-            Instruction::AtomicMin(BinaryInstruction { lhs, rhs, out }) => {
+            Self::AtomicMin(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicMin({lhs}, {rhs});")
             }
-            Instruction::AtomicAnd(BinaryInstruction { lhs, rhs, out }) => {
+            Self::AtomicAnd(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicAnd({lhs}, {rhs});")
             }
-            Instruction::AtomicOr(BinaryInstruction { lhs, rhs, out }) => {
+            Self::AtomicOr(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicOr({lhs}, {rhs});")
             }
-            Instruction::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
+            Self::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicXor({lhs}, {rhs});")
             }
-            Instruction::AtomicLoad(UnaryInstruction { input, out }) => {
+            Self::AtomicLoad(UnaryInstruction { input, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicAdd({input}, 0);")
             }
-            Instruction::AtomicStore(UnaryInstruction { input, out }) => {
+            Self::AtomicStore(UnaryInstruction { input, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "atomicExch({out}, {input});")
             }
-            Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
-            Instruction::Negate(UnaryInstruction { input, out }) => {
+            Self::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Self::Negate(UnaryInstruction { input, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = !{input};")
             }
-            Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
-            Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
-            Instruction::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
-            Instruction::VecInit { inputs, out } => {
+            Self::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
+            Self::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
+            Self::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Self::VecInit { inputs, out } => {
                 let item = out.item();
                 let inputs = inputs
                     .iter()

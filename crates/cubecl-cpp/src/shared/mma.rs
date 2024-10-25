@@ -61,8 +61,8 @@ pub enum WmmaInstruction<D: Dialect> {
 impl Display for FragmentLayout {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FragmentLayout::ColMajor => f.write_str("nvcuda::wmma::col_major"),
-            FragmentLayout::RowMajor => f.write_str("nvcuda::wmma::row_major"),
+            Self::ColMajor => f.write_str("nvcuda::wmma::col_major"),
+            Self::RowMajor => f.write_str("nvcuda::wmma::row_major"),
         }
     }
 }
@@ -70,9 +70,9 @@ impl Display for FragmentLayout {
 impl Display for FragmentIdent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FragmentIdent::A => f.write_str("nvcuda::wmma::matrix_a"),
-            FragmentIdent::B => f.write_str("nvcuda::wmma::matrix_b"),
-            FragmentIdent::Accumulator => f.write_str("nvcuda::wmma::accumulator"),
+            Self::A => f.write_str("nvcuda::wmma::matrix_a"),
+            Self::B => f.write_str("nvcuda::wmma::matrix_b"),
+            Self::Accumulator => f.write_str("nvcuda::wmma::accumulator"),
         }
     }
 }
@@ -97,10 +97,10 @@ impl<D: Dialect> Display for Fragment<D> {
 impl<D: Dialect> Display for WmmaInstruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WmmaInstruction::Fill { frag, value } => {
+            Self::Fill { frag, value } => {
                 writeln!(f, "nvcuda::wmma::fill_fragment({frag}, {value});")
             }
-            WmmaInstruction::Load {
+            Self::Load {
                 frag,
                 value,
                 stride,
@@ -109,7 +109,7 @@ impl<D: Dialect> Display for WmmaInstruction<D> {
                 f,
                 "nvcuda::wmma::load_matrix_sync({frag}, {value}, {stride});"
             ),
-            WmmaInstruction::Load {
+            Self::Load {
                 frag,
                 value,
                 stride,
@@ -124,7 +124,7 @@ impl<D: Dialect> Display for WmmaInstruction<D> {
                     "nvcuda::wmma::load_matrix_sync({frag}, {value}, {stride}, {layout});"
                 )
             }
-            WmmaInstruction::Execute {
+            Self::Execute {
                 frag_a,
                 frag_b,
                 frag_c,
@@ -133,7 +133,7 @@ impl<D: Dialect> Display for WmmaInstruction<D> {
                 f,
                 "nvcuda::wmma::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
             ),
-            WmmaInstruction::Store {
+            Self::Store {
                 output,
                 frag,
                 stride,
