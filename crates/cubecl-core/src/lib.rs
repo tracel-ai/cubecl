@@ -35,6 +35,7 @@ pub const SUBCUBE_DIM_APPROX: usize = 16;
 use crate::ir::KernelDefinition;
 use frontend::LaunchArg;
 
+pub use prelude::tf32;
 pub use prelude::CubeCount;
 pub use prelude::CubeDim;
 

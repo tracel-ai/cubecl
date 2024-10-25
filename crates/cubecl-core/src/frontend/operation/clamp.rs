@@ -3,7 +3,7 @@ use half::{bf16, f16};
 use crate::{
     ir::{ClampOperator, Operator},
     prelude::{CubeContext, CubePrimitive, ExpandElement},
-    unexpanded,
+    tf32, unexpanded,
 };
 
 use super::unary_expand;
@@ -37,6 +37,7 @@ pub trait Clamp: CubePrimitive + Sized {
 
 impl Clamp for f16 {}
 impl Clamp for bf16 {}
+impl Clamp for tf32 {}
 impl Clamp for f32 {}
 impl Clamp for f64 {}
 impl Clamp for i8 {}

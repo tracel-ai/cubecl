@@ -10,6 +10,11 @@ use crate::{
 
 use super::Numeric;
 
+mod relaxed;
+mod tensor_float;
+
+pub use tensor_float::*;
+
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
     Numeric

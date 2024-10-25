@@ -1,10 +1,10 @@
-use crate::frontend::CubeType;
 use crate::frontend::{CubeContext, CubePrimitive, ExpandElement, ExpandElementTyped};
 use crate::ir::Operator;
 use crate::{
     frontend::operation::base::{binary_expand, binary_expand_fixed_output},
     unexpanded,
 };
+use crate::{frontend::CubeType, tf32};
 use half::{bf16, f16};
 
 pub mod add {
@@ -252,6 +252,7 @@ impl_binary_func!(
     Operator::Powf,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );
@@ -263,6 +264,7 @@ impl_binary_func!(
     Operator::Max,
     f16,
     bf16,
+    tf32,
     f32,
     f64,
     i8,
@@ -282,6 +284,7 @@ impl_binary_func!(
     Operator::Min,
     f16,
     bf16,
+    tf32,
     f32,
     f64,
     i8,
@@ -301,6 +304,7 @@ impl_binary_func!(
     Operator::Remainder,
     f16,
     bf16,
+    tf32,
     f32,
     f64,
     i8,
@@ -321,6 +325,7 @@ impl_binary_func_fixed_output_vectorization!(
     None,
     f16,
     bf16,
+    tf32,
     f32,
     f64,
     i8,

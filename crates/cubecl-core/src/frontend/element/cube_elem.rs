@@ -1,7 +1,7 @@
 use crate::frontend::{CubeType, ExpandElement};
 use crate::ir::{Elem, Variable};
 
-use super::{ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
+use super::{tf32, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
 
 /// Form of CubeType that encapsulates all primitive types:
 /// Numeric, UInt, Bool
@@ -40,6 +40,7 @@ impl_into_expand_element!(u32);
 impl_into_expand_element!(u64);
 impl_into_expand_element!(usize);
 impl_into_expand_element!(bool);
+impl_into_expand_element!(tf32);
 impl_into_expand_element!(f32);
 impl_into_expand_element!(i8);
 impl_into_expand_element!(i16);

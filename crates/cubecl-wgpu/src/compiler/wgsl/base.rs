@@ -305,13 +305,12 @@ impl Display for Variable {
                     _ => unimplemented!("{:?} not supported in WGSL", kind),
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
-                    FloatKind::F16 => {
+                    FloatKind::F16 | FloatKind::BF16 | FloatKind::TF32 => {
                         todo!("Unsupported")
                     }
-                    FloatKind::BF16 => {
-                        todo!("Unsupported")
+                    FloatKind::F32 | FloatKind::Relaxed | FloatKind::F64 => {
+                        f.write_str(&format_number(*val))
                     }
-                    FloatKind::F32 | FloatKind::F64 => f.write_str(&format_number(*val)),
                 },
                 ConstantScalarValue::UInt(val, _) => write!(f, "{}u", *val as u32),
                 ConstantScalarValue::Bool(val) => write!(f, "{}", val),

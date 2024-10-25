@@ -4,7 +4,7 @@ use crate::{
     frontend::CubeContext,
     ir::Operator,
     prelude::{CubePrimitive, ExpandElement, ExpandElementTyped},
-    unexpanded,
+    tf32, unexpanded,
 };
 
 use super::base::{unary_expand, unary_expand_fixed_output};
@@ -77,6 +77,7 @@ impl_unary_func!(
     Operator::Abs,
     f16,
     bf16,
+    tf32,
     f32,
     f64,
     i8,
@@ -88,8 +89,28 @@ impl_unary_func!(
     u32,
     u64
 );
-impl_unary_func!(Exp, exp, __expand_exp, Operator::Exp, f16, bf16, f32, f64);
-impl_unary_func!(Log, log, __expand_log, Operator::Log, f16, bf16, f32, f64);
+impl_unary_func!(
+    Exp,
+    exp,
+    __expand_exp,
+    Operator::Exp,
+    f16,
+    bf16,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    Log,
+    log,
+    __expand_log,
+    Operator::Log,
+    f16,
+    bf16,
+    tf32,
+    f32,
+    f64
+);
 impl_unary_func!(
     Log1p,
     log1p,
@@ -97,11 +118,32 @@ impl_unary_func!(
     Operator::Log1p,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );
-impl_unary_func!(Cos, cos, __expand_cos, Operator::Cos, f16, bf16, f32, f64);
-impl_unary_func!(Sin, sin, __expand_sin, Operator::Sin, f16, bf16, f32, f64);
+impl_unary_func!(
+    Cos,
+    cos,
+    __expand_cos,
+    Operator::Cos,
+    f16,
+    bf16,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    Sin,
+    sin,
+    __expand_sin,
+    Operator::Sin,
+    f16,
+    bf16,
+    tf32,
+    f32,
+    f64
+);
 impl_unary_func!(
     Tanh,
     tanh,
@@ -109,6 +151,7 @@ impl_unary_func!(
     Operator::Tanh,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );
@@ -119,6 +162,7 @@ impl_unary_func!(
     Operator::Sqrt,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );
@@ -129,6 +173,7 @@ impl_unary_func!(
     Operator::Round,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );
@@ -139,6 +184,7 @@ impl_unary_func!(
     Operator::Floor,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );
@@ -149,10 +195,21 @@ impl_unary_func!(
     Operator::Ceil,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );
-impl_unary_func!(Erf, erf, __expand_erf, Operator::Erf, f16, bf16, f32, f64);
+impl_unary_func!(
+    Erf,
+    erf,
+    __expand_erf,
+    Operator::Erf,
+    f16,
+    bf16,
+    tf32,
+    f32,
+    f64
+);
 impl_unary_func!(
     Recip,
     recip,
@@ -160,6 +217,7 @@ impl_unary_func!(
     Operator::Recip,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );
@@ -171,6 +229,7 @@ impl_unary_func_fixed_out_vectorization!(
     None,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );
@@ -181,6 +240,7 @@ impl_unary_func!(
     Operator::Normalize,
     f16,
     bf16,
+    tf32,
     f32,
     f64
 );

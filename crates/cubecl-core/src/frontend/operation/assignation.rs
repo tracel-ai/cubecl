@@ -54,6 +54,7 @@ pub mod index_assign {
     use crate::{
         frontend::CubeType,
         prelude::{ExpandElementTyped, SliceMut},
+        tf32,
     };
 
     use self::ir::{BinaryOperator, Operator, Variable};
@@ -100,7 +101,7 @@ pub mod index_assign {
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index_vec!(i64, i32, i16, i8, f16, bf16, f32, f64, u64, u32, u16, u8);
+    impl_index_vec!(i64, i32, i16, i8, f16, bf16, tf32, f32, f64, u64, u32, u16, u8);
 
     impl<'a, E: CubeType, I: Index> CubeIndexMut<I> for SliceMut<'a, E> {}
 }
@@ -114,6 +115,7 @@ pub mod index {
             CubeType,
         },
         prelude::{ExpandElementTyped, Slice, SliceMut},
+        tf32,
     };
 
     use self::ir::{Operator, Variable};
@@ -168,7 +170,7 @@ pub mod index {
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index_vec!(i64, i32, i16, i8, f16, bf16, f32, f64, u64, u32, u16, u8);
+    impl_index_vec!(i64, i32, i16, i8, f16, tf32, bf16, f32, f64, u64, u32, u16, u8);
 
     impl<'a, E: CubeType, I: Index> CubeIndex<I> for Slice<'a, E> {
         type Output = E;

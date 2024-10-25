@@ -252,6 +252,8 @@ impl Display for Constant {
             Constant::Int(val, IntKind::I64) => write!(f, "{val}i64"),
             Constant::Float(val, FloatKind::BF16) => write!(f, "{}bf16", val.0),
             Constant::Float(val, FloatKind::F16) => write!(f, "{}f16", val.0),
+            Constant::Float(val, FloatKind::Relaxed) => write!(f, "{}minf16", val.0),
+            Constant::Float(val, FloatKind::TF32) => write!(f, "{}tf32", val.0),
             Constant::Float(val, FloatKind::F32) => write!(f, "{}f32", val.0),
             Constant::Float(val, FloatKind::F64) => write!(f, "{}f64", val.0),
             Constant::UInt(val, UIntKind::U8) => write!(f, "{val}u8"),

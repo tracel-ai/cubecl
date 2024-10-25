@@ -298,6 +298,7 @@ fn register_types(props: &mut DeviceProperties<Feature>) {
         Elem::AtomicUInt(UIntKind::U64),
         Elem::Float(FloatKind::F16),
         Elem::Float(FloatKind::F32),
+        Elem::Float(FloatKind::Relaxed),
         Elem::Float(FloatKind::F64),
         Elem::Bool,
     ];

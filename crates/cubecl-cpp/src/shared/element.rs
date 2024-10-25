@@ -1,4 +1,7 @@
-use cubecl_core::ir::{self as gpu, ConstantScalarValue};
+use cubecl_core::{
+    ir::{self as gpu, ConstantScalarValue},
+    tf32,
+};
 use half::{bf16, f16};
 use std::fmt::Display;
 
@@ -6,6 +9,7 @@ use super::{Dialect, Fragment, COUNTER_TMP_VAR};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum Elem<D: Dialect> {
+    TF32,
     F32,
     F64,
     F16,
@@ -55,6 +59,7 @@ impl<D: Dialect> Display for Elem<D> {
             Elem::F64 => f.write_str("double"),
             Elem::BF16 => D::bfloat16_type_name(f),
             Elem::BF162 => D::bfloat162_type_name(f),
+            Elem::TF32 => f.write_str("float"),
             Elem::I8 => f.write_str("char"),
             Elem::I16 => f.write_str("short"),
             Elem::I32 => f.write_str("int"),
@@ -242,6 +247,8 @@ impl<D: Dialect> Display for Variable<D> {
                     gpu::FloatKind::BF16 => {
                         write!(f, "{elem}({:?})", half::bf16::from_f64(*val))
                     }
+                    gpu::FloatKind::Relaxed => write!(f, "{elem}({:?})", *val as f32),
+                    gpu::FloatKind::TF32 => write!(f, "{elem}({:?})", *val as f32),
                     gpu::FloatKind::F32 => write!(f, "{elem}({:?})", *val as f32),
                     gpu::FloatKind::F64 => write!(f, "{elem}({:?})", *val),
                 },
@@ -553,6 +560,7 @@ impl<D: Dialect> Elem<D> {
             Elem::F162 => 2 * core::mem::size_of::<f16>(),
             Elem::BF162 => 2 * core::mem::size_of::<bf16>(),
             Elem::BF16 => core::mem::size_of::<bf16>(),
+            Elem::TF32 => core::mem::size_of::<tf32>(),
             Elem::F32 => core::mem::size_of::<f32>(),
             Elem::F64 => core::mem::size_of::<f64>(),
             Elem::I8 => core::mem::size_of::<i8>(),

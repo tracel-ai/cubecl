@@ -80,6 +80,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         if self.wmma_activated {
             D::include_wmma(f)?;
         }
+
         if self.bf16 {
             D::include_bf16(f)?;
         }

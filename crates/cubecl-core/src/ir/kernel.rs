@@ -33,7 +33,9 @@ pub enum Visibility {
 pub enum FloatKind {
     F16,
     BF16,
+    Relaxed,
     F32,
+    TF32,
     F64,
 }
 
@@ -142,6 +144,8 @@ impl Elem {
                 FloatKind::BF16 => core::mem::size_of::<half::bf16>(),
                 FloatKind::F32 => core::mem::size_of::<f32>(),
                 FloatKind::F64 => core::mem::size_of::<f64>(),
+                FloatKind::Relaxed => core::mem::size_of::<f32>(),
+                FloatKind::TF32 => core::mem::size_of::<f32>(),
             },
             Elem::Int(kind) => match kind {
                 IntKind::I8 => core::mem::size_of::<i8>(),
@@ -195,6 +199,8 @@ impl Display for Elem {
             Self::Float(kind) => match kind {
                 FloatKind::F16 => f.write_str("f16"),
                 FloatKind::BF16 => f.write_str("bf16"),
+                FloatKind::Relaxed => f.write_str("minf16"),
+                FloatKind::TF32 => f.write_str("tf32"),
                 FloatKind::F32 => f.write_str("f32"),
                 FloatKind::F64 => f.write_str("f64"),
             },

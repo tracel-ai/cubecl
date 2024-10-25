@@ -1,4 +1,4 @@
-use crate::ir::ConstantScalarValue;
+use crate::{ir::ConstantScalarValue, tf32};
 
 use super::{FloatKind, IntKind, UIntKind, Variable};
 
@@ -445,6 +445,12 @@ impl From<i32> for Variable {
 impl From<i64> for Variable {
     fn from(value: i64) -> Self {
         Variable::constant(ConstantScalarValue::Int(value, IntKind::I64))
+    }
+}
+
+impl From<tf32> for Variable {
+    fn from(value: tf32) -> Self {
+        Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::TF32))
     }
 }
 

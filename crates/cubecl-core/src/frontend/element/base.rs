@@ -1,4 +1,5 @@
 use super::{CubePrimitive, Numeric, Vectorized};
+use crate::tf32;
 use crate::{
     ir::{ConstantScalarValue, Elem, FloatKind, Item, Operation, Variable, VariableKind},
     prelude::{
@@ -167,6 +168,7 @@ from_const!(i8);
 from_const!(i16);
 from_const!(i32);
 from_const!(f64);
+from_const!(tf32);
 from_const!(f32);
 from_const!(bool);
 
