@@ -234,18 +234,9 @@ impl OutputInfo {
     #[allow(dead_code)]
     pub fn item(&self) -> Item {
         match self {
-            OutputInfo::ArrayWrite {
-                item,
-                local: _,
-                position: _,
-            } => *item,
-            OutputInfo::InputArrayWrite {
-                item,
-                input: _,
-                local: _,
-                position: _,
-            } => *item,
-            OutputInfo::Array { item } => *item,
+            Self::ArrayWrite { item, .. }
+            | Self::InputArrayWrite { item, .. }
+            | Self::Array { item } => *item,
         }
     }
 }
@@ -278,18 +269,9 @@ impl OutputInfo {
     #[allow(dead_code)]
     pub fn elem_size<R: Runtime>(&self) -> usize {
         let elem = match self {
-            OutputInfo::ArrayWrite {
-                item,
-                local: _,
-                position: _,
-            } => bool_elem(item.elem()),
-            OutputInfo::InputArrayWrite {
-                item,
-                input: _,
-                local: _,
-                position: _,
-            } => bool_elem(item.elem()),
-            OutputInfo::Array { item } => bool_elem(item.elem()),
+            Self::ArrayWrite { item, .. }
+            | Self::InputArrayWrite { item, .. }
+            | Self::Array { item } => bool_elem(item.elem()),
         };
         <R::Compiler as Compiler>::elem_size(elem)
     }

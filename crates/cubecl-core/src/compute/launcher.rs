@@ -307,8 +307,8 @@ impl<T: NoUninit> ScalarState<T> {
         bindings: &mut Vec<Binding>,
     ) {
         match self {
-            ScalarState::Empty => (),
-            ScalarState::Some(values) => {
+            Self::Empty => (),
+            Self::Some(values) => {
                 let handle = client.create(bytemuck::cast_slice(values));
                 bindings.push(handle.binding());
             }
