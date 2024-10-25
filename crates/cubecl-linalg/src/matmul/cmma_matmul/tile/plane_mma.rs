@@ -149,20 +149,28 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: 
         let num_lines = compute_width / line_size;
 
         let unit = Self::plane_unit();
+
         let row = unit / row_division;
         let row_offset = row * Self::N / line_size;
 
-        let offset = unit % row_division * num_lines;
-        for col in 0..num_lines {
-            let line = {
+        let offset = row_offset + unit % row_division * num_lines;
+
+        if comptime!(line_size == 1) {
+            for col in 0..num_lines {
+                slice[col + offset] = Line::cast_from(out[col]);
+            }
+            // TODO: very obscure bug, fails on wgpu if we don't do the loop twice
+            for col in 0..num_lines {
+                slice[col + offset] = Line::cast_from(out[col]);
+            }
+        } else {
+            for col in 0..num_lines {
                 let mut line = Line::<C>::empty(line_size);
                 for j in 0..line_size {
                     line[j] = C::cast_from(out[col * line_size + j]);
                 }
-                line
-            };
-
-            slice[row_offset + col + offset] = line;
+                slice[col + offset] = line;
+            }
         }
     }
 }
@@ -184,9 +192,13 @@ fn fill_parallel_lhs<E: Numeric>(
     #[unroll]
     for col in 0..num_lines {
         let line = slice_from[row * num_lines + col];
-        #[unroll]
-        for line_idx in 0..line_size {
-            slice_to[col * line_size + line_idx] = line[line_idx];
+        if comptime!(line_size == 1) {
+            slice_to[col * line_size] = E::cast_from(line);
+        } else {
+            #[unroll]
+            for line_idx in 0..line_size {
+                slice_to[col * line_size + line_idx] = line[line_idx];
+            }
         }
     }
 }
@@ -210,8 +222,11 @@ fn fill_perpendicular_lhs<E: Numeric>(
 
     #[unroll]
     for col in 0..k {
-        let val = slice_from[row_idx + col * num_lines][line_idx];
-        slice_to[col] = val;
+        slice_to[col] = if comptime!(line_size == 1) {
+            E::cast_from(slice_from[row_idx + col * num_lines])
+        } else {
+            slice_from[row_idx + col * num_lines][line_idx]
+        };
     }
 }
 
@@ -242,7 +257,11 @@ fn fill_perpendicular_rhs<E: Numeric>(
         let k_row = row_jump * k_iter + k_row_alt;
         let row_offset = k_row * num_lines;
         let offset_with_col = row_offset + col_idx;
-        slice_to[k_iter] = slice_from[offset_with_col][line_idx];
+        slice_to[k_iter] = if comptime!(line_size == 1) {
+            E::cast_from(slice_from[offset_with_col])
+        } else {
+            slice_from[offset_with_col][line_idx]
+        };
     }
 }
 
@@ -267,7 +286,11 @@ fn fill_parallel_rhs<E: Numeric>(
         let line_idx = row % line_size;
         let col_offset = col * k / line_size;
         let offset = row_index + col_offset;
-        slice_to[k_iter] = slice_from[offset][line_idx];
+        slice_to[k_iter] = if comptime!(line_size == 1) {
+            E::cast_from(slice_from[offset])
+        } else {
+            slice_from[offset][line_idx]
+        }
     }
 }
 
