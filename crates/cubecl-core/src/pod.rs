@@ -60,6 +60,27 @@ impl CubeElement for i32 {
     }
 }
 
+impl CubeElement for f64 {
+    fn type_name() -> &'static str {
+        "f64"
+    }
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+    fn cube_elem() -> Elem {
+        Elem::Float(FloatKind::F64)
+    }
+    fn maximum_value() -> Self {
+        f64::MAX
+    }
+    fn minimum_value() -> Self {
+        f64::MIN
+    }
+}
+
 impl CubeElement for f32 {
     fn type_name() -> &'static str {
         "f32"

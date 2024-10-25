@@ -17,7 +17,14 @@ pub mod unary;
 #[macro_export]
 macro_rules! testgen_all {
     () => {
+        cubecl_core::testgen_all!(f32, i32, u32);
+    };
+    ($float:ident, $int:ident, $uint: ident) => {
         use cubecl_core::prelude::*;
+
+        type FloatT = $float;
+        type IntT = $int;
+        type UintT = $uint;
 
         cubecl_core::testgen_subcube!();
         cubecl_core::testgen_launch!();
@@ -33,5 +40,18 @@ macro_rules! testgen_all {
         cubecl_core::testgen_binary!();
         cubecl_core::testgen_different_rank!();
         cubecl_core::testgen_const_match!();
+    };
+    ($f_def:ident: [$($float:ident),*], $i_def:ident: [$($int:ident),*], $u_def:ident: [$($uint:ident),*]) => {
+        ::paste::paste! {
+            $(mod [<$float _ty>] {
+                $crate::testgen_all!($float, $i_def, $u_def);
+            })*
+            $(mod [<$int _ty>] {
+                $crate::testgen_all!($f_def, $int, $u_def);
+            })*
+            $(mod [<$uint _ty>] {
+                $crate::testgen_all!($f_def, $i_def, $uint);
+            })*
+        }
     };
 }

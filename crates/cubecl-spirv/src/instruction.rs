@@ -694,7 +694,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
         .id(self);
         let mut cast =
-            |val: f64| self.static_cast(ConstVal::Bit64(val.to_bits()), &Elem::Float(64), &out_ty);
+            |val: f64| self.static_cast(ConstVal::from_float(val, 64), &Elem::Float(64), &out_ty);
         let p = cast(0.3275911);
         let a1 = cast(0.254829592);
         let a2 = cast(-0.284496736);
