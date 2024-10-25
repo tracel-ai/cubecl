@@ -94,12 +94,10 @@ impl Item {
 
     pub fn elem(&self) -> Elem {
         match self {
-            Self::Scalar(elem) => *elem,
-            Self::Vector(elem, _) => *elem,
-            Self::Array(item, _) => item.elem(),
-            Self::RuntimeArray(item) => item.elem(),
+            Self::Scalar(elem) | Self::Vector(elem, _) => *elem,
+            Self::Array(item, _) | Self::Pointer(_, item) | Self::RuntimeArray(item) => item.elem(),
             Self::Struct(_) => Elem::Void,
-            Self::Pointer(_, item) => item.elem(),
+
             Self::CoopMatrix { ty, .. } => *ty,
         }
     }
@@ -109,29 +107,22 @@ impl Item {
         b.get_or_insert_const(value, self.clone(), |b| {
             let ty = self.id(b);
             match self {
-                Self::Value(value) => value.item(),
-                ::Scalar(_) => scalar,
-                Self::Value(value) => value.item(),
-                ::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
-                Self::Value(value) => value.item(),
-                ::Array(item, len) => {
+                Self::Scalar(_) => scalar,
+                Self::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
+                Self::Array(item, len) => {
                     let elem = item.constant(b, value);
                     b.constant_composite(ty, (0..*len).map(|_| elem))
                 }
-                Self::Value(value) => value.item(),
-                ::RuntimeArray(_) => unimplemented!("Can't create constant runtime array"),
-                Self::Value(value) => value.item(),
-                ::Struct(elems) => {
+                Self::RuntimeArray(_) => unimplemented!("Can't create constant runtime array"),
+                Self::Struct(elems) => {
                     let items = elems
                         .iter()
                         .map(|item| item.constant(b, value))
                         .collect::<Vec<_>>();
                     b.constant_composite(ty, items)
                 }
-                Self::Value(value) => value.item(),
-                ::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
-                Self::Value(value) => value.item(),
-                ::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
+                Self::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
+                Self::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
             }
         })
     }
