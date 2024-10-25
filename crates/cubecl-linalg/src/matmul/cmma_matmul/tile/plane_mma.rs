@@ -186,8 +186,7 @@ fn fill_parallel_lhs<E: Numeric>(
     #[comptime] plane_dim: u32,
 ) {
     let num_lines = k / line_size;
-    let row_division = plane_dim / m;
-    let row = unit / row_division;
+    let row = unit * m / plane_dim;
 
     #[unroll]
     for col in 0..num_lines {
@@ -214,18 +213,18 @@ fn fill_perpendicular_lhs<E: Numeric>(
     #[comptime] plane_dim: u32,
 ) {
     let num_lines = m / line_size;
-    let row_division = plane_dim / m;
-    let row = unit / row_division;
+    let row = unit * m / plane_dim;
 
     let row_idx = row / line_size;
     let line_idx = row % line_size;
 
     #[unroll]
     for col in 0..k {
+        let line = slice_from[row_idx + col * num_lines];
         slice_to[col] = if comptime!(line_size == 1) {
-            E::cast_from(slice_from[row_idx + col * num_lines])
+            E::cast_from(line)
         } else {
-            slice_from[row_idx + col * num_lines][line_idx]
+            line[line_idx]
         };
     }
 }
@@ -240,9 +239,6 @@ fn fill_perpendicular_rhs<E: Numeric>(
     #[comptime] line_size: u32,
     #[comptime] plane_dim: u32,
 ) {
-    // TODO: this loads a line then keeps only one element
-    // Should reinterpret as unlined
-
     let k_row_alt = unit / n;
     let col = unit % n;
 
@@ -255,12 +251,13 @@ fn fill_perpendicular_rhs<E: Numeric>(
     #[unroll]
     for k_iter in 0..k / row_jump {
         let k_row = row_jump * k_iter + k_row_alt;
-        let row_offset = k_row * num_lines;
-        let offset_with_col = row_offset + col_idx;
+        let offset = k_row * num_lines + col_idx;
+        let line = slice_from[offset];
+
         slice_to[k_iter] = if comptime!(line_size == 1) {
-            E::cast_from(slice_from[offset_with_col])
+            E::cast_from(line)
         } else {
-            slice_from[offset_with_col][line_idx]
+            line[line_idx]
         };
     }
 }
@@ -278,18 +275,19 @@ fn fill_parallel_rhs<E: Numeric>(
     let k_row_alt = unit / n;
     let col = unit % n;
     let row_jump = plane_dim / n;
+    let col_offset = col * k / line_size;
 
     #[unroll]
     for k_iter in 0..k / row_jump {
         let row = row_jump * k_iter + k_row_alt;
         let row_index = row / line_size;
-        let line_idx = row % line_size;
-        let col_offset = col * k / line_size;
         let offset = row_index + col_offset;
+        let line = slice_from[offset];
         slice_to[k_iter] = if comptime!(line_size == 1) {
-            E::cast_from(slice_from[offset])
+            E::cast_from(line)
         } else {
-            slice_from[offset][line_idx]
+            let line_idx = row % line_size;
+            line[line_idx]
         }
     }
 }
