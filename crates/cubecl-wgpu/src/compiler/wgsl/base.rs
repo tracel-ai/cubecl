@@ -155,28 +155,28 @@ impl Variable {
             Self::Named { item, .. } => *item,
             Self::ConstantScalar(_, e) => Item::Scalar(*e),
             Self::GlobalScalar(_, e, _) => Item::Scalar(*e),
-            Self::Id => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIndex => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIdX => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIdY => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIdZ => Item::Scalar(Elem::U32),
-            Self::Rank => Item::Scalar(Elem::U32),
             Self::LocalScalar { elem, .. } => Item::Scalar(*elem),
-            Self::WorkgroupId => Item::Scalar(Elem::U32),
-            Self::WorkgroupIdX => Item::Scalar(Elem::U32),
-            Self::WorkgroupIdY => Item::Scalar(Elem::U32),
-            Self::WorkgroupIdZ => Item::Scalar(Elem::U32),
-            Self::GlobalInvocationIdX => Item::Scalar(Elem::U32),
-            Self::GlobalInvocationIdY => Item::Scalar(Elem::U32),
-            Self::GlobalInvocationIdZ => Item::Scalar(Elem::U32),
-            Self::WorkgroupSize => Item::Scalar(Elem::U32),
-            Self::WorkgroupSizeX => Item::Scalar(Elem::U32),
-            Self::WorkgroupSizeY => Item::Scalar(Elem::U32),
-            Self::WorkgroupSizeZ => Item::Scalar(Elem::U32),
-            Self::NumWorkgroups => Item::Scalar(Elem::U32),
-            Self::NumWorkgroupsX => Item::Scalar(Elem::U32),
-            Self::NumWorkgroupsY => Item::Scalar(Elem::U32),
-            Self::NumWorkgroupsZ => Item::Scalar(Elem::U32),
+            Self::Id |
+            Self::LocalInvocationIndex |
+            Self::LocalInvocationIdX |
+            Self::LocalInvocationIdY |
+            Self::LocalInvocationIdZ |
+            Self::Rank |
+            Self::WorkgroupId |
+            Self::WorkgroupIdX |
+            Self::WorkgroupIdY |
+            Self::WorkgroupIdZ |
+            Self::GlobalInvocationIdX |
+            Self::GlobalInvocationIdY |
+            Self::GlobalInvocationIdZ |
+            Self::WorkgroupSize |
+            Self::WorkgroupSizeX |
+            Self::WorkgroupSizeY |
+            Self::WorkgroupSizeZ |
+            Self::NumWorkgroups |
+            Self::NumWorkgroupsX |
+            Self::NumWorkgroupsY |
+            Self::NumWorkgroupsZ |
             Self::SubgroupSize => Item::Scalar(Elem::U32),
         }
     }
@@ -196,9 +196,9 @@ impl Variable {
 impl Item {
     pub fn elem(&self) -> &Elem {
         match self {
-            Item::Vec4(e) => e,
-            Item::Vec3(e) => e,
-            Item::Vec2(e) => e,
+            Item::Vec4(e) |
+            Item::Vec3(e) |
+            Item::Vec2(e) |
             Item::Scalar(e) => e,
         }
     }
