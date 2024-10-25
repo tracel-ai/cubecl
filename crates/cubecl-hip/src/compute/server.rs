@@ -10,16 +10,17 @@ use cubecl_hip_sys::{hiprtcResult_HIPRTC_SUCCESS, HIP_SUCCESS};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::ExecutionMode;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
+use cubecl_runtime::{ExecutionMode, TimestampsError, TimestampsResult};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::future::Future;
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct HipServer {
@@ -33,7 +34,7 @@ pub(crate) struct HipContext {
     stream: cubecl_hip_sys::hipStream_t,
     memory_management: MemoryManagement<HipStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
-    work_start_time: Option<Instant>,
+    timestamps: KernelTimestamps,
 }
 
 #[derive(Debug)]
@@ -42,6 +43,28 @@ struct HipCompiledKernel {
     func: cubecl_hip_sys::hipFunction_t,
     cube_dim: CubeDim,
     shared_mem_bytes: usize,
+}
+
+#[derive(Debug)]
+enum KernelTimestamps {
+    Inferred { start_time: Instant },
+    Disabled,
+}
+
+impl KernelTimestamps {
+    fn enable(&mut self) {
+        if !matches!(self, Self::Disabled) {
+            return;
+        }
+
+        *self = Self::Inferred {
+            start_time: Instant::now(),
+        };
+    }
+
+    fn disable(&mut self) {
+        *self = Self::Disabled;
+    }
 }
 
 unsafe impl Send for HipServer {}
@@ -193,16 +216,29 @@ impl ComputeServer for HipServer {
 
     fn flush(&mut self) {}
 
-    fn sync(&mut self) -> impl Future<Output = Duration> + 'static {
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
         self.logger.profile_summary();
 
         let ctx = self.get_context();
         ctx.sync();
-        let duration = ctx
-            .work_start_time
-            .map(|t| t.elapsed())
-            .unwrap_or(Duration::from_secs_f32(0.0));
-        ctx.work_start_time = None;
+        async move {}
+    }
+
+    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
+        self.logger.profile_summary();
+
+        let ctx = self.get_context();
+        ctx.sync();
+
+        let duration = match &mut ctx.timestamps {
+            KernelTimestamps::Inferred { start_time } => {
+                let duration = start_time.elapsed();
+                *start_time = Instant::now();
+                Ok(duration)
+            }
+            KernelTimestamps::Disabled => Err(TimestampsError::Disabled),
+        };
+
         async move { duration }
     }
 
@@ -217,6 +253,16 @@ impl ComputeServer for HipServer {
             ),
         )
     }
+
+    fn enable_timestamps(&mut self) {
+        self.ctx.timestamps.enable();
+    }
+
+    fn disable_timestamps(&mut self) {
+        if self.logger.profile_level().is_none() {
+            self.ctx.timestamps.disable();
+        }
+    }
 }
 
 impl HipContext {
@@ -230,7 +276,7 @@ impl HipContext {
             module_names: HashMap::new(),
             stream,
             context,
-            work_start_time: None,
+            timestamps: KernelTimestamps::Disabled,
         }
     }
 
@@ -289,8 +335,15 @@ impl HipContext {
             program
         };
         // Compile HIP program
+        // options
+        let include_path = include_path();
+        let include_option = format!("-I{}", include_path.display());
+        let include_option_cstr = CString::new(include_option).unwrap();
+        let mut options: Vec<*const i8> = vec![include_option_cstr.as_ptr()];
         unsafe {
-            let status = cubecl_hip_sys::hiprtcCompileProgram(program, 0, std::ptr::null_mut());
+            let options_ptr = options.as_mut_ptr();
+            let status =
+                cubecl_hip_sys::hiprtcCompileProgram(program, options.len() as i32, options_ptr);
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 let mut log_size: usize = 0;
                 let status =
@@ -401,12 +454,14 @@ impl HipContext {
 }
 
 impl HipServer {
-    /// Create a new cuda server.
-    pub(crate) fn new(ctx: HipContext) -> Self {
-        Self {
-            ctx,
-            logger: DebugLogger::default(),
+    /// Create a new hip server.
+    pub(crate) fn new(mut ctx: HipContext) -> Self {
+        let logger = DebugLogger::default();
+        if logger.profile_level().is_some() {
+            ctx.timestamps.enable();
         }
+
+        Self { ctx, logger }
     }
 
     fn get_context(&mut self) -> &mut HipContext {
@@ -419,4 +474,33 @@ impl HipServer {
         };
         (&mut self.ctx, &mut self.logger)
     }
+}
+
+fn include_path() -> PathBuf {
+    let error_msg = "
+        ROCm HIP installation not found.
+        Please ensure that ROCm is installed with HIP runtimes and development libraries and the ROCM_PATH or HIP_PATH environment variable is set correctly.
+        Note: Default path is /opt/rocm which may not be correct.
+    ";
+    let path = hip_path().expect(error_msg);
+    let result = path.join("include");
+    let hip_include = result.join("hip");
+    if !hip_include.exists() || !hip_include.is_dir() {
+        panic!("{error_msg}");
+    }
+    result
+}
+
+fn hip_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("CUBECL_ROCM_PATH") {
+        return Some(PathBuf::from(path));
+    }
+    if let Ok(path) = std::env::var("ROCM_PATH") {
+        return Some(PathBuf::from(path));
+    }
+    if let Ok(path) = std::env::var("HIP_PATH") {
+        return Some(PathBuf::from(path));
+    }
+    // Default path (only Linux is supported for now)
+    Some(PathBuf::from("/opt/rocm"))
 }

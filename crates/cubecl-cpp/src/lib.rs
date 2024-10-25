@@ -3,6 +3,8 @@ extern crate derive_new;
 
 mod shared;
 
+pub use shared::register_supported_types;
+
 /// Format CPP code.
 pub mod formatter;
 

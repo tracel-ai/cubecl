@@ -27,6 +27,7 @@ derive-new = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 spin = { workspace = true }         # using in place of use std::sync::Mutex;
+log = { workspace = true }
 
 # Only activate futures for std env
 futures-lite = { workspace = true, features = ["std"], default-features = false, optional = true }
@@ -36,7 +37,7 @@ embassy-futures = { version = "0.1.1" }
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
-portable-atomic = { workspace = true, features = ["unsafe-assume-single-core"] }
+portable-atomic = { workspace = true }
 spin = { workspace = true, features = [
     "mutex",
     "spin_mutex",

@@ -96,10 +96,6 @@ pub struct MemoryManagement<Storage> {
     alloc_reserve_count: u64,
 }
 
-fn round_up_to_multiple(value: u64, multiple: u64) -> u64 {
-    ((value + multiple - 1) / multiple) * multiple
-}
-
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
@@ -130,7 +126,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 while current >= 32 * MB {
                     current /= 4;
                     // Make sure every pool has an aligned size.
-                    current = round_up_to_multiple(current, memory_alignment);
+                    current = current.next_multiple_of(memory_alignment);
 
                     pools.push(MemoryPoolOptions {
                         page_size: current,
@@ -162,7 +158,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 let sizes: BTreeSet<_> = EXP_BIN_SIZES
                     .iter()
                     .copied()
-                    .map(|size| round_up_to_multiple(size, memory_alignment))
+                    .map(|size| size.next_multiple_of(memory_alignment))
                     .take_while(|&size| size < properties.max_page_size)
                     .collect();
 

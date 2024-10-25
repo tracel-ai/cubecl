@@ -1,3 +1,5 @@
+use core::future::Future;
+
 use crate::{
     channel::ComputeChannel,
     memory_management::MemoryUsage,
@@ -7,14 +9,20 @@ use crate::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::stub::Duration;
+use cubecl_common::benchmark::TimestampsResult;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
 #[derive(Debug)]
 pub struct ComputeClient<Server: ComputeServer, Channel> {
     channel: Channel,
-    properties: Arc<DeviceProperties<Server::Feature>>,
+    state: Arc<ComputeClientState<Server>>,
+}
+
+#[derive(new, Debug)]
+struct ComputeClientState<Server: ComputeServer> {
+    properties: DeviceProperties<Server::Feature>,
+    timestamp_lock: async_lock::Mutex<()>,
 }
 
 impl<S, C> Clone for ComputeClient<S, C>
@@ -25,7 +33,7 @@ where
     fn clone(&self) -> Self {
         Self {
             channel: self.channel.clone(),
-            properties: self.properties.clone(),
+            state: self.state.clone(),
         }
     }
 }
@@ -37,9 +45,10 @@ where
 {
     /// Create a new client.
     pub fn new(channel: Channel, properties: DeviceProperties<Server::Feature>) -> Self {
+        let state = ComputeClientState::new(properties, async_lock::Mutex::new(()));
         Self {
             channel,
-            properties: Arc::new(properties),
+            state: Arc::new(state),
         }
     }
 
@@ -100,17 +109,75 @@ where
     }
 
     /// Wait for the completion of every task in the server.
-    pub async fn sync(&self) -> Duration {
+    pub async fn sync(&self) {
         self.channel.sync().await
+    }
+
+    /// Wait for the completion of every task in the server.
+    pub async fn sync_elapsed(&self) -> TimestampsResult {
+        self.channel.sync_elapsed().await
     }
 
     /// Get the features supported by the compute server.
     pub fn properties(&self) -> &DeviceProperties<Server::Feature> {
-        self.properties.as_ref()
+        &self.state.properties
     }
 
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
         self.channel.memory_usage()
+    }
+
+    /// When executing operation within the profile scope, you can call
+    /// [sync_elapsed](Self::sync_elapsed) safely even in multithreaded workloads.
+    /// Creates a profiling scope that enables safe timing measurements in concurrent contexts.
+    ///
+    /// Operations executed within this scope can safely call [`sync_elapsed()`](Self::sync_elapsed)
+    /// to measure elapsed time, even in multithreaded environments. The measurements are
+    /// thread-safe and properly synchronized.
+    pub async fn profile<O, Fut, Func>(&self, func: Func) -> O
+    where
+        Fut: Future<Output = O>,
+        Func: FnOnce() -> Fut,
+    {
+        let lock = &self.state.timestamp_lock;
+        let guard = lock.lock().await;
+
+        self.channel.enable_timestamps();
+
+        // Reset the client's timestamp state.
+        self.sync_elapsed().await.ok();
+
+        // We can't simply receive a future, since we need to make sure the future doesn't start
+        // before the lock, which might be the case on `wasm`.
+        let fut = func();
+        let output = fut.await;
+
+        self.channel.disable_timestamps();
+
+        core::mem::drop(guard);
+        output
+    }
+
+    /// Enable timestamp collection on the server for performance profiling.
+    ///
+    /// This feature records precise timing data for server operations, which can be used
+    /// for performance analysis and benchmarking.
+    ///
+    /// # Warning
+    ///
+    /// This should only be used during development and benchmarking, not in production,
+    /// as it significantly impacts server throughput and performance. The overhead comes
+    /// from frequent timestamp collection and storage.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// server.enable_timestamps();
+    /// // Run your benchmarks/operations
+    /// let duration = server.sync_elapsed();
+    /// ```
+    pub fn enable_timestamps(&self) {
+        self.channel.enable_timestamps();
     }
 }
