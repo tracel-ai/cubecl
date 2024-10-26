@@ -1,4 +1,4 @@
-use crate::{ir::ConstantScalarValue, minf16, tf32};
+use crate::{flex32, ir::ConstantScalarValue, tf32};
 use half::{bf16, f16};
 
 use super::{FloatKind, IntKind, UIntKind, Variable};
@@ -461,8 +461,8 @@ impl From<bf16> for Variable {
     }
 }
 
-impl From<minf16> for Variable {
-    fn from(value: minf16) -> Self {
+impl From<flex32> for Variable {
+    fn from(value: flex32) -> Self {
         Variable::constant(ConstantScalarValue::Float(
             value.to_f64(),
             FloatKind::Relaxed,

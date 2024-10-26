@@ -2,7 +2,7 @@ use half::{bf16, f16};
 
 use crate::{
     ir::{ClampOperator, Operator},
-    minf16,
+    flex32,
     prelude::{CubeContext, CubePrimitive, ExpandElement},
     tf32, unexpanded,
 };
@@ -38,7 +38,7 @@ pub trait Clamp: CubePrimitive + Sized {
 
 impl Clamp for f16 {}
 impl Clamp for bf16 {}
-impl Clamp for minf16 {}
+impl Clamp for flex32 {}
 impl Clamp for tf32 {}
 impl Clamp for f32 {}
 impl Clamp for f64 {}

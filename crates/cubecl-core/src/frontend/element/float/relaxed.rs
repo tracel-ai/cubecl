@@ -51,15 +51,15 @@ use super::{
     Debug,
     Display,
 )]
-pub struct minf16(f32);
+pub struct flex32(f32);
 
-impl minf16 {
+impl flex32 {
     pub const fn from_f32(val: f32) -> Self {
-        minf16(val)
+        flex32(val)
     }
 
     pub const fn from_f64(val: f64) -> Self {
-        minf16(val as f32)
+        flex32(val as f32)
     }
 
     pub const fn to_f32(self) -> f32 {
@@ -70,66 +70,66 @@ impl minf16 {
         self.0 as f64
     }
 
-    pub fn total_cmp(&self, other: &minf16) -> Ordering {
+    pub fn total_cmp(&self, other: &flex32) -> Ordering {
         self.0.total_cmp(&other.0)
     }
 }
 
-impl Mul for minf16 {
-    type Output = minf16;
+impl Mul for flex32 {
+    type Output = flex32;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        minf16(self.0 * rhs.0)
+        flex32(self.0 * rhs.0)
     }
 }
 
-impl Div for minf16 {
-    type Output = minf16;
+impl Div for flex32 {
+    type Output = flex32;
 
     fn div(self, rhs: Self) -> Self::Output {
-        minf16(self.0 / rhs.0)
+        flex32(self.0 / rhs.0)
     }
 }
 
-impl Rem for minf16 {
-    type Output = minf16;
+impl Rem for flex32 {
+    type Output = flex32;
 
     fn rem(self, rhs: Self) -> Self::Output {
-        minf16(self.0 % rhs.0)
+        flex32(self.0 % rhs.0)
     }
 }
 
-impl MulAssign for minf16 {
+impl MulAssign for flex32 {
     fn mul_assign(&mut self, rhs: Self) {
         self.0 *= rhs.0;
     }
 }
 
-impl DivAssign for minf16 {
+impl DivAssign for flex32 {
     fn div_assign(&mut self, rhs: Self) {
         self.0 /= rhs.0;
     }
 }
 
-impl RemAssign for minf16 {
+impl RemAssign for flex32 {
     fn rem_assign(&mut self, rhs: Self) {
         self.0 %= rhs.0;
     }
 }
 
-impl From<f32> for minf16 {
+impl From<f32> for flex32 {
     fn from(value: f32) -> Self {
         Self::from_f32(value)
     }
 }
 
-impl From<minf16> for f32 {
-    fn from(val: minf16) -> Self {
+impl From<flex32> for f32 {
+    fn from(val: flex32) -> Self {
         val.to_f32()
     }
 }
 
-impl ToPrimitive for minf16 {
+impl ToPrimitive for flex32 {
     fn to_i64(&self) -> Option<i64> {
         Some((*self).to_f32() as i64)
     }
@@ -147,36 +147,36 @@ impl ToPrimitive for minf16 {
     }
 }
 
-impl NumCast for minf16 {
+impl NumCast for flex32 {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
-        Some(minf16::from_f32(n.to_f32()?))
+        Some(flex32::from_f32(n.to_f32()?))
     }
 }
 
-impl CubeType for minf16 {
-    type ExpandType = ExpandElementTyped<minf16>;
+impl CubeType for flex32 {
+    type ExpandType = ExpandElementTyped<flex32>;
 }
 
-impl CubePrimitive for minf16 {
+impl CubePrimitive for flex32 {
     /// Return the element type to use on GPU
     fn as_elem() -> Elem {
         Elem::Float(FloatKind::Relaxed)
     }
 }
 
-impl IntoRuntime for minf16 {
+impl IntoRuntime for flex32 {
     fn __expand_runtime_method(self, context: &mut CubeContext) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = self.into();
         Init::init(expand, context)
     }
 }
 
-impl Numeric for minf16 {
-    const MAX: Self = minf16::from_f32(f32::MAX);
-    const MIN: Self = minf16::from_f32(f32::MIN);
+impl Numeric for flex32 {
+    const MAX: Self = flex32::from_f32(f32::MAX);
+    const MIN: Self = flex32::from_f32(f32::MIN);
 }
 
-impl Vectorized for minf16 {
+impl Vectorized for flex32 {
     fn vectorization_factor(&self) -> u32 {
         1
     }
@@ -186,18 +186,18 @@ impl Vectorized for minf16 {
     }
 }
 
-impl ExpandElementBaseInit for minf16 {
+impl ExpandElementBaseInit for flex32 {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
     }
 }
 
-impl Float for minf16 {
+impl Float for flex32 {
     const DIGITS: u32 = 32;
 
-    const EPSILON: Self = minf16::from_f32(half::f16::EPSILON.to_f32_const());
+    const EPSILON: Self = flex32::from_f32(half::f16::EPSILON.to_f32_const());
 
-    const INFINITY: Self = minf16::from_f32(f32::INFINITY);
+    const INFINITY: Self = flex32::from_f32(f32::INFINITY);
 
     const MANTISSA_DIGITS: u32 = f32::MANTISSA_DIGITS;
 
@@ -211,16 +211,16 @@ impl Float for minf16 {
     /// One greater than the minimum possible normal [`v`] power of 2 exponent
     const MIN_EXP: i32 = f32::MIN_EXP;
 
-    const MIN_POSITIVE: Self = minf16(f32::MIN_POSITIVE);
+    const MIN_POSITIVE: Self = flex32(f32::MIN_POSITIVE);
 
-    const NAN: Self = minf16::from_f32(f32::NAN);
+    const NAN: Self = flex32::from_f32(f32::NAN);
 
-    const NEG_INFINITY: Self = minf16::from_f32(f32::NEG_INFINITY);
+    const NEG_INFINITY: Self = flex32::from_f32(f32::NEG_INFINITY);
 
     const RADIX: u32 = 2;
 
     fn new(val: f32) -> Self {
-        minf16::from_f32(val)
+        flex32::from_f32(val)
     }
 
     fn vectorized(_val: f32, _vectorization: u32) -> Self {
@@ -244,47 +244,47 @@ impl Float for minf16 {
     }
 }
 
-impl LaunchArgExpand for minf16 {
+impl LaunchArgExpand for flex32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(minf16::as_elem()).into()
+        builder.scalar(flex32::as_elem()).into()
     }
 }
 
-impl ScalarArgSettings for minf16 {
+impl ScalarArgSettings for flex32 {
     fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
         settings.register_f32(self.0);
     }
 }
 
-impl num_traits::Float for minf16 {
+impl num_traits::Float for flex32 {
     fn nan() -> Self {
-        minf16(f32::nan())
+        flex32(f32::nan())
     }
 
     fn infinity() -> Self {
-        minf16(f32::infinity())
+        flex32(f32::infinity())
     }
 
     fn neg_infinity() -> Self {
-        minf16(f32::neg_infinity())
+        flex32(f32::neg_infinity())
     }
 
     fn neg_zero() -> Self {
-        minf16(f32::neg_zero())
+        flex32(f32::neg_zero())
     }
 
     fn min_value() -> Self {
-        minf16(f32::min_value())
+        flex32(f32::min_value())
     }
 
     fn min_positive_value() -> Self {
-        minf16(f32::min_positive_value())
+        flex32(f32::min_positive_value())
     }
 
     fn max_value() -> Self {
-        minf16(f32::max_value())
+        flex32(f32::max_value())
     }
 
     fn is_nan(self) -> bool {
@@ -308,31 +308,31 @@ impl num_traits::Float for minf16 {
     }
 
     fn floor(self) -> Self {
-        minf16(self.0.floor())
+        flex32(self.0.floor())
     }
 
     fn ceil(self) -> Self {
-        minf16(self.0.ceil())
+        flex32(self.0.ceil())
     }
 
     fn round(self) -> Self {
-        minf16(self.0.round())
+        flex32(self.0.round())
     }
 
     fn trunc(self) -> Self {
-        minf16(self.0.trunc())
+        flex32(self.0.trunc())
     }
 
     fn fract(self) -> Self {
-        minf16(self.0.fract())
+        flex32(self.0.fract())
     }
 
     fn abs(self) -> Self {
-        minf16(self.0.abs())
+        flex32(self.0.abs())
     }
 
     fn signum(self) -> Self {
-        minf16(self.0.signum())
+        flex32(self.0.signum())
     }
 
     fn is_sign_positive(self) -> bool {
@@ -344,132 +344,132 @@ impl num_traits::Float for minf16 {
     }
 
     fn mul_add(self, a: Self, b: Self) -> Self {
-        minf16(self.0.mul_add(a.0, b.0))
+        flex32(self.0.mul_add(a.0, b.0))
     }
 
     fn recip(self) -> Self {
-        minf16(self.0.recip())
+        flex32(self.0.recip())
     }
 
     fn powi(self, n: i32) -> Self {
-        minf16(self.0.powi(n))
+        flex32(self.0.powi(n))
     }
 
     fn powf(self, n: Self) -> Self {
-        minf16(self.0.powf(n.0))
+        flex32(self.0.powf(n.0))
     }
 
     fn sqrt(self) -> Self {
-        minf16(self.0.sqrt())
+        flex32(self.0.sqrt())
     }
 
     fn exp(self) -> Self {
-        minf16(self.0.exp())
+        flex32(self.0.exp())
     }
 
     fn exp2(self) -> Self {
-        minf16(self.0.exp2())
+        flex32(self.0.exp2())
     }
 
     fn ln(self) -> Self {
-        minf16(self.0.ln())
+        flex32(self.0.ln())
     }
 
     fn log(self, base: Self) -> Self {
-        minf16(self.0.log(base.0))
+        flex32(self.0.log(base.0))
     }
 
     fn log2(self) -> Self {
-        minf16(self.0.log2())
+        flex32(self.0.log2())
     }
 
     fn log10(self) -> Self {
-        minf16(self.0.log10())
+        flex32(self.0.log10())
     }
 
     fn max(self, other: Self) -> Self {
-        minf16(self.0.max(other.0))
+        flex32(self.0.max(other.0))
     }
 
     fn min(self, other: Self) -> Self {
-        minf16(self.0.min(other.0))
+        flex32(self.0.min(other.0))
     }
 
     fn abs_sub(self, other: Self) -> Self {
-        minf16((self.0 - other.0).abs())
+        flex32((self.0 - other.0).abs())
     }
 
     fn cbrt(self) -> Self {
-        minf16(self.0.cbrt())
+        flex32(self.0.cbrt())
     }
 
     fn hypot(self, other: Self) -> Self {
-        minf16(self.0.hypot(other.0))
+        flex32(self.0.hypot(other.0))
     }
 
     fn sin(self) -> Self {
-        minf16(self.0.sin())
+        flex32(self.0.sin())
     }
 
     fn cos(self) -> Self {
-        minf16(self.0.cos())
+        flex32(self.0.cos())
     }
 
     fn tan(self) -> Self {
-        minf16(self.0.tan())
+        flex32(self.0.tan())
     }
 
     fn asin(self) -> Self {
-        minf16(self.0.asin())
+        flex32(self.0.asin())
     }
 
     fn acos(self) -> Self {
-        minf16(self.0.acos())
+        flex32(self.0.acos())
     }
 
     fn atan(self) -> Self {
-        minf16(self.0.atan())
+        flex32(self.0.atan())
     }
 
     fn atan2(self, other: Self) -> Self {
-        minf16(self.0.atan2(other.0))
+        flex32(self.0.atan2(other.0))
     }
 
     fn sin_cos(self) -> (Self, Self) {
         let (a, b) = self.0.sin_cos();
-        (minf16(a), minf16(b))
+        (flex32(a), flex32(b))
     }
 
     fn exp_m1(self) -> Self {
-        minf16(self.0.exp_m1())
+        flex32(self.0.exp_m1())
     }
 
     fn ln_1p(self) -> Self {
-        minf16(self.0.ln_1p())
+        flex32(self.0.ln_1p())
     }
 
     fn sinh(self) -> Self {
-        minf16(self.0.sinh())
+        flex32(self.0.sinh())
     }
 
     fn cosh(self) -> Self {
-        minf16(self.0.cosh())
+        flex32(self.0.cosh())
     }
 
     fn tanh(self) -> Self {
-        minf16(self.0.tanh())
+        flex32(self.0.tanh())
     }
 
     fn asinh(self) -> Self {
-        minf16(self.0.asinh())
+        flex32(self.0.asinh())
     }
 
     fn acosh(self) -> Self {
-        minf16(self.0.acosh())
+        flex32(self.0.acosh())
     }
 
     fn atanh(self) -> Self {
-        minf16(self.0.atanh())
+        flex32(self.0.atanh())
     }
 
     fn integer_decode(self) -> (u64, i16, i8) {
@@ -477,23 +477,23 @@ impl num_traits::Float for minf16 {
     }
 }
 
-impl Num for minf16 {
+impl Num for flex32 {
     type FromStrRadixErr = <f32 as Num>::FromStrRadixErr;
 
     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
-        Ok(minf16(f32::from_str_radix(str, radix)?))
+        Ok(flex32(f32::from_str_radix(str, radix)?))
     }
 }
 
-impl One for minf16 {
+impl One for flex32 {
     fn one() -> Self {
-        minf16(1.0)
+        flex32(1.0)
     }
 }
 
-impl Zero for minf16 {
+impl Zero for flex32 {
     fn zero() -> Self {
-        minf16(0.0)
+        flex32(0.0)
     }
 
     fn is_zero(&self) -> bool {

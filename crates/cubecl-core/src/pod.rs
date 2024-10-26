@@ -1,6 +1,6 @@
 use crate::{
     ir::{Elem, FloatKind, IntKind, UIntKind},
-    minf16,
+    flex32,
     prelude::Numeric,
 };
 
@@ -280,7 +280,7 @@ impl CubeElement for half::bf16 {
     }
 }
 
-impl CubeElement for minf16 {
+impl CubeElement for flex32 {
     fn type_name() -> &'static str {
         "minf16"
     }
@@ -294,9 +294,9 @@ impl CubeElement for minf16 {
         Elem::Float(FloatKind::Relaxed)
     }
     fn maximum_value() -> Self {
-        minf16::MAX
+        flex32::MAX
     }
     fn minimum_value() -> Self {
-        minf16::MIN
+        flex32::MIN
     }
 }

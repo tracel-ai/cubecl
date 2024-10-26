@@ -1,4 +1,4 @@
-use super::{minf16, CubePrimitive, Numeric, Vectorized};
+use super::{flex32, CubePrimitive, Numeric, Vectorized};
 use crate::tf32;
 use crate::{
     ir::{ConstantScalarValue, Elem, Item, Operation, Variable, VariableKind},
@@ -170,7 +170,7 @@ from_const!(i32);
 from_const!(f64);
 from_const!(f16);
 from_const!(bf16);
-from_const!(minf16);
+from_const!(flex32);
 from_const!(tf32);
 from_const!(f32);
 from_const!(bool);
