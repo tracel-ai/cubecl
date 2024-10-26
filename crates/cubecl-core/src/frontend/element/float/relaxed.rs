@@ -1,5 +1,6 @@
 use core::f32;
 use std::{
+    cmp::Ordering,
     num::NonZero,
     ops::{Div, DivAssign, Mul, MulAssign, Rem, RemAssign},
 };
@@ -67,6 +68,10 @@ impl minf16 {
 
     pub const fn to_f64(self) -> f64 {
         self.0 as f64
+    }
+
+    pub fn total_cmp(&self, other: &minf16) -> Ordering {
+        self.0.total_cmp(&other.0)
     }
 }
 

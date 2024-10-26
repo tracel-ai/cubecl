@@ -484,17 +484,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operator::Log1p(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
                     let add = match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, None, input, one).unwrap(),
-                        Elem::Float(_) => b.f_add(ty, None, input, one).unwrap(),
-                        Elem::Relaxed => {
-                            let out = b.f_add(ty, None, input, one).unwrap();
-                            b.decorate(out, Decoration::RelaxedPrecision, []);
-                            out
-                        }
+                        Elem::Float(_) | Elem::Relaxed => b.f_add(ty, None, input, one).unwrap(),
                         _ => unreachable!(),
                     };
-                    b.decorate(out, Decoration::RelaxedPrecision, []);
+                    if relaxed {
+                        b.decorate(add, Decoration::RelaxedPrecision, []);
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
                     T::log(b, ty, add, out)
                 });
             }
