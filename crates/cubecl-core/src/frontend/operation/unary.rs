@@ -1,9 +1,9 @@
 use half::{bf16, f16};
 
 use crate::{
+    flex32,
     frontend::CubeContext,
     ir::Operator,
-    flex32,
     prelude::{CubePrimitive, ExpandElement, ExpandElementTyped},
     tf32, unexpanded,
 };

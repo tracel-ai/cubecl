@@ -1,6 +1,6 @@
 use crate::{
-    ir::{Elem, FloatKind, IntKind, UIntKind},
     flex32,
+    ir::{Elem, FloatKind, IntKind, UIntKind},
     prelude::Numeric,
 };
 

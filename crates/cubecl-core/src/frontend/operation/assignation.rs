@@ -52,8 +52,8 @@ pub mod index_assign {
     use ir::{Instruction, UIntKind, VariableKind};
 
     use crate::{
-        frontend::CubeType,
         flex32,
+        frontend::CubeType,
         prelude::{ExpandElementTyped, SliceMut},
         tf32,
     };
@@ -111,11 +111,11 @@ pub mod index {
     use ir::{UIntKind, VariableKind};
 
     use crate::{
+        flex32,
         frontend::{
             operation::base::{binary_expand, binary_expand_no_vec},
             CubeType,
         },
-        flex32,
         prelude::{ExpandElementTyped, Slice, SliceMut},
         tf32,
     };
