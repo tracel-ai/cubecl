@@ -572,7 +572,7 @@ impl Display for Instruction {
             Instruction::Tanh { input, out } => {
                 let out = out.fmt_left();
                 #[cfg(target_os = "macos")]
-                let result = write!(f, "{out} = safe_tanh({input});\n");
+                let result = writeln!(f, "{out} = safe_tanh({input});");
                 #[cfg(not(target_os = "macos"))]
                 let result = writeln!(f, "{out} = tanh({input});");
 
