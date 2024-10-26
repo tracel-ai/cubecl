@@ -452,13 +452,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
             // Extension functions
             Operator::Normalize(op) => {
-                self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
                     T::normalize(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
                 });
             }
             Operator::Magnitude(op) => {
-                self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
                     T::magnitude(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
                 });
             }
             Operator::Abs(op) => {
@@ -475,12 +481,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Operator::Exp(op) => {
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
-                    T::exp(b, ty, input, out)
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    T::exp(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
                 });
             }
-            Operator::Log(op) => self
-                .compile_unary_op_cast(op, out, |b, _, ty, input, out| T::log(b, ty, input, out)),
+            Operator::Log(op) => {
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    T::log(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
             Operator::Log1p(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
@@ -497,12 +512,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     T::log(b, ty, add, out)
                 });
             }
-            Operator::Cos(op) => self
-                .compile_unary_op_cast(op, out, |b, _, ty, input, out| T::cos(b, ty, input, out)),
-            Operator::Sin(op) => self
-                .compile_unary_op_cast(op, out, |b, _, ty, input, out| T::sin(b, ty, input, out)),
-            Operator::Tanh(op) => self
-                .compile_unary_op_cast(op, out, |b, _, ty, input, out| T::tanh(b, ty, input, out)),
+            Operator::Cos(op) => {
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    T::cos(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
+            Operator::Sin(op) => {
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    T::sin(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
+            Operator::Tanh(op) => {
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    T::tanh(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
             Operator::Powf(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                     let bool = match out_ty {
@@ -530,29 +563,50 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let default = b.id();
                     T::pow(b, ty, lhs, rhs, default);
                     if relaxed {
-                        b.decorate(modulo, Decoration::RelaxedPrecision, []);
-                        b.decorate(is_zero, Decoration::RelaxedPrecision, []);
-                        b.decorate(abs, Decoration::RelaxedPrecision, []);
-                        b.decorate(even, Decoration::RelaxedPrecision, []);
-                        b.decorate(cond2_0, Decoration::RelaxedPrecision, []);
-                        b.decorate(cond2_1, Decoration::RelaxedPrecision, []);
-                        b.decorate(neg_lhs, Decoration::RelaxedPrecision, []);
-                        b.decorate(pow2, Decoration::RelaxedPrecision, []);
-                        b.decorate(pow2_neg, Decoration::RelaxedPrecision, []);
-                        b.decorate(default, Decoration::RelaxedPrecision, []);
+                        let ids = [
+                            modulo, is_zero, abs, even, cond2_0, cond2_1, neg_lhs, pow2, pow2_neg,
+                            default,
+                        ];
+                        for id in ids {
+                            b.decorate(id, Decoration::RelaxedPrecision, []);
+                        }
                     }
                     let sel1 = b.select(ty, None, cond2, pow2_neg, default).unwrap();
                     b.select(ty, Some(out), is_zero, even, sel1).unwrap();
                 })
             }
-            Operator::Sqrt(op) => self
-                .compile_unary_op_cast(op, out, |b, _, ty, input, out| T::sqrt(b, ty, input, out)),
-            Operator::Round(op) => self
-                .compile_unary_op_cast(op, out, |b, _, ty, input, out| T::round(b, ty, input, out)),
-            Operator::Floor(op) => self
-                .compile_unary_op_cast(op, out, |b, _, ty, input, out| T::floor(b, ty, input, out)),
-            Operator::Ceil(op) => self
-                .compile_unary_op_cast(op, out, |b, _, ty, input, out| T::ceil(b, ty, input, out)),
+            Operator::Sqrt(op) => {
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    T::sqrt(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
+            Operator::Round(op) => {
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    T::round(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
+            Operator::Floor(op) => {
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    T::floor(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
+            Operator::Ceil(op) => {
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    T::ceil(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
             Operator::Clamp(op) => {
                 let input = self.compile_variable(op.input);
                 let min = self.compile_variable(op.min_value);
@@ -797,6 +851,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             _ => unreachable!(),
         }
         .id(self);
+        let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
         let mut cast =
             |val: f64| self.static_cast(ConstVal::from_float(val, 64), &Elem::Float(64), &out_ty);
         let p = cast(0.3275911);
@@ -833,6 +888,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             T::exp(b, ty, ret_1, ret_2);
             let ret_3 = mul(b, tmp, t);
             let ret_4 = mul(b, ret_2, ret_3);
+            if relaxed {
+                let ids = [
+                    abs, t_0, t_1, t, tmp_1, tmp_2, tmp_3, tmp_4, tmp_5, tmp_6, tmp_7, tmp, ret_0,
+                    ret_1, ret_2, ret_3, ret_4,
+                ];
+                for id in ids {
+                    b.decorate(id, Decoration::RelaxedPrecision, []);
+                }
+            }
             b.f_sub(ty, None, one, ret_4).unwrap()
         };
 
@@ -840,9 +904,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let neg = {
             let neg_in = self.f_negate(ty, None, input).unwrap();
             let res = erf(self, neg_in);
+            if relaxed {
+                self.decorate(neg_in, Decoration::RelaxedPrecision, []);
+                self.decorate(res, Decoration::RelaxedPrecision, []);
+            }
             self.f_negate(ty, None, res).unwrap()
         };
         let pos = erf(self, input);
+        if relaxed {
+            self.decorate(cond, Decoration::RelaxedPrecision, []);
+            self.decorate(neg, Decoration::RelaxedPrecision, []);
+            self.decorate(pos, Decoration::RelaxedPrecision, []);
+        }
         self.select(ty, Some(out), cond, neg, pos).unwrap();
     }
 
