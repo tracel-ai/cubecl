@@ -147,15 +147,20 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         offset: u64,
         size: u64,
     ) -> impl Future<Output = Vec<u8>> + 'static {
+        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+        // memory is 32 bytes aligned (see WgpuStorage).
+        let align = wgpu::COPY_BUFFER_ALIGNMENT;
+        let aligned_len = size.div_ceil(align) * align;
+
         let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size,
+            size: aligned_len,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         self.encoder
-            .copy_buffer_to_buffer(buffer, offset, &staging_buffer, 0, size);
+            .copy_buffer_to_buffer(buffer, offset, &staging_buffer, 0, aligned_len);
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
         self.flush();
@@ -180,7 +185,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
             let result = {
                 let data = staging_buffer.slice(..).get_mapped_range();
-                bytemuck::cast_slice(&data).to_vec()
+                bytemuck::cast_slice(&data[0..(size as usize)]).to_vec()
             };
             staging_buffer.unmap();
             result
