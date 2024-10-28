@@ -41,9 +41,9 @@ pub enum WarpInstruction<D: Dialect> {
 impl<D: Dialect> Display for WarpInstruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WarpInstruction::ReduceSum { input, out } => reduce_operator(f, input, out, "+="),
-            WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
-            WarpInstruction::ReduceMax { input, out } => write!(
+            Self::ReduceSum { input, out } => reduce_operator(f, input, out, "+="),
+            Self::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
+            Self::ReduceMax { input, out } => write!(
                 f,
                 "
 {out} = {input};
@@ -54,7 +54,7 @@ for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
 }}
                     "
             ),
-            WarpInstruction::ReduceMin { input, out } => write!(
+            Self::ReduceMin { input, out } => write!(
                 f,
                 "
 {out} = {input};
@@ -65,7 +65,7 @@ for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
 }}
                     "
             ),
-            WarpInstruction::Elect { out } => write!(
+            Self::Elect { out } => write!(
                 f,
                 "
 unsigned int mask = __activemask();
@@ -73,7 +73,7 @@ unsigned int leader = __ffs(mask) - 1;
 {out} = threadIdx.x % warpSize == leader;
             "
             ),
-            WarpInstruction::All { input, out } => write!(
+            Self::All { input, out } => write!(
                 f,
                 "
     {out} = {input};
@@ -82,7 +82,7 @@ unsigned int leader = __ffs(mask) - 1;
 }}
 "
             ),
-            WarpInstruction::Any { input, out } => write!(
+            Self::Any { input, out } => write!(
                 f,
                 "
     {out} = {input};
@@ -91,7 +91,7 @@ unsigned int leader = __ffs(mask) - 1;
 }}
 "
             ),
-            WarpInstruction::Broadcast { input, id, out } => write!(
+            Self::Broadcast { input, id, out } => write!(
                 f,
                 "
 {out} = __shfl_sync(0xFFFFFFFF, {input}, {id});

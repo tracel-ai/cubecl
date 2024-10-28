@@ -170,8 +170,8 @@ pub enum CubeCount {
 impl Debug for CubeCount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CubeCount::Static(x, y, z) => f.write_fmt(format_args!("({x}, {y}, {z})")),
-            CubeCount::Dynamic(_) => f.write_str("binding"),
+            Self::Static(x, y, z) => f.write_fmt(format_args!("({x}, {y}, {z})")),
+            Self::Dynamic(_) => f.write_str("binding"),
         }
     }
 }

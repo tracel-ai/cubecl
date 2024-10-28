@@ -42,7 +42,7 @@ pub struct RangeExpand<I: Int> {
 
 impl<I: Int> RangeExpand<I> {
     pub fn new(start: ExpandElementTyped<I>, end: ExpandElementTyped<I>, inclusive: bool) -> Self {
-        RangeExpand {
+        Self {
             start,
             end,
             inclusive,

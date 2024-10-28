@@ -10,7 +10,7 @@
 /// let device_gpu_1 = WgpuDevice::DiscreteGpu(0); // First discrete GPU found.
 /// let device_gpu_2 = WgpuDevice::DiscreteGpu(1);  // Second discrete GPU found.
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Default)]
 pub enum WgpuDevice {
     /// Discrete GPU with the given index. The index is the index of the discrete GPU in the list
     /// of all discrete GPUs found on the system.
@@ -40,6 +40,7 @@ pub enum WgpuDevice {
     ///
     /// A device might be identified as [Other](wgpu::DeviceType::Other) by [wgpu](wgpu), in this case, we chose this device over
     /// `IntegratedGpu` since it's often a discrete GPU.
+    #[default]
     BestAvailable,
 
     /// Use an externally created, existing, wgpu setup. This is helpful when using CubeCL in conjunction
@@ -47,10 +48,4 @@ pub enum WgpuDevice {
     ///
     /// The device is indexed by the global wgpu [adapter ID](wgpu::Device::global_id).
     Existing(wgpu::Id<wgpu::Device>),
-}
-
-impl Default for WgpuDevice {
-    fn default() -> Self {
-        Self::BestAvailable
-    }
 }

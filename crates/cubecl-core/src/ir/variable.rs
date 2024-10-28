@@ -91,40 +91,40 @@ impl Variable {
     /// safe to inline/merge
     pub fn is_immutable(&self) -> bool {
         match self {
-            Variable::GlobalOutputArray { .. } => false,
-            Variable::Local { .. } => false,
-            Variable::SharedMemory { .. } => false,
-            Variable::Matrix { .. } => false,
-            Variable::Slice { .. } => false,
-            Variable::LocalArray { .. } => false,
-            Variable::GlobalInputArray { .. } => false,
-            Variable::GlobalScalar { .. } => true,
-            Variable::Versioned { .. } => true,
-            Variable::LocalBinding { .. } => true,
-            Variable::ConstantScalar(_) => true,
-            Variable::ConstantArray { .. } => true,
-            Variable::Rank => true,
-            Variable::UnitPos => true,
-            Variable::UnitPosX => true,
-            Variable::UnitPosY => true,
-            Variable::UnitPosZ => true,
-            Variable::CubePos => true,
-            Variable::CubePosX => true,
-            Variable::CubePosY => true,
-            Variable::CubePosZ => true,
-            Variable::CubeDim => true,
-            Variable::CubeDimX => true,
-            Variable::CubeDimY => true,
-            Variable::CubeDimZ => true,
-            Variable::CubeCount => true,
-            Variable::CubeCountX => true,
-            Variable::CubeCountY => true,
-            Variable::CubeCountZ => true,
-            Variable::SubcubeDim => true,
-            Variable::AbsolutePos => true,
-            Variable::AbsolutePosX => true,
-            Variable::AbsolutePosY => true,
-            Variable::AbsolutePosZ => true,
+            Self::GlobalOutputArray { .. }
+            | Self::Local { .. }
+            | Self::SharedMemory { .. }
+            | Self::Matrix { .. }
+            | Self::Slice { .. }
+            | Self::LocalArray { .. }
+            | Self::GlobalInputArray { .. } => false,
+            Self::GlobalScalar { .. }
+            | Self::Versioned { .. }
+            | Self::LocalBinding { .. }
+            | Self::ConstantScalar(_)
+            | Self::ConstantArray { .. }
+            | Self::Rank
+            | Self::UnitPos
+            | Self::UnitPosX
+            | Self::UnitPosY
+            | Self::UnitPosZ
+            | Self::CubePos
+            | Self::CubePosX
+            | Self::CubePosY
+            | Self::CubePosZ
+            | Self::CubeDim
+            | Self::CubeDimX
+            | Self::CubeDimY
+            | Self::CubeDimZ
+            | Self::CubeCount
+            | Self::CubeCountX
+            | Self::CubeCountY
+            | Self::CubeCountZ
+            | Self::SubcubeDim
+            | Self::AbsolutePos
+            | Self::AbsolutePosX
+            | Self::AbsolutePosY
+            | Self::AbsolutePosZ => true,
         }
     }
 
@@ -133,13 +133,13 @@ impl Variable {
     pub fn is_array(&self) -> bool {
         matches!(
             self,
-            Variable::GlobalInputArray { .. }
-                | Variable::GlobalOutputArray { .. }
-                | Variable::ConstantArray { .. }
-                | Variable::SharedMemory { .. }
-                | Variable::LocalArray { .. }
-                | Variable::Matrix { .. }
-                | Variable::Slice { .. }
+            Self::GlobalInputArray { .. }
+                | Self::GlobalOutputArray { .. }
+                | Self::ConstantArray { .. }
+                | Self::SharedMemory { .. }
+                | Self::LocalArray { .. }
+                | Self::Matrix { .. }
+                | Self::Slice { .. }
         )
     }
 

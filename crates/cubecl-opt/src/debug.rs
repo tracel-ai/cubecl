@@ -223,14 +223,14 @@ impl Display for ValueTable {
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Constant(constant) => write!(f, "{constant}"),
-            Value::Local(local) => write!(f, "{local}"),
-            Value::Input(id, _) => write!(f, "input({id})"),
-            Value::Scalar(id, elem) => write!(f, "scalar({elem}, {id})"),
-            Value::ConstArray(id, _, _) => write!(f, "const_array({id})"),
-            Value::Builtin(builtin) => write!(f, "{builtin:?}"),
-            Value::Output(id, _) => write!(f, "output({id})"),
-            Value::Slice(id, depth, _) => write!(f, "slice({id}, {depth})"),
+            Self::Constant(constant) => write!(f, "{constant}"),
+            Self::Local(local) => write!(f, "{local}"),
+            Self::Input(id, _) => write!(f, "input({id})"),
+            Self::Scalar(id, elem) => write!(f, "scalar({elem}, {id})"),
+            Self::ConstArray(id, _, _) => write!(f, "const_array({id})"),
+            Self::Builtin(builtin) => write!(f, "{builtin:?}"),
+            Self::Output(id, _) => write!(f, "output({id})"),
+            Self::Slice(id, depth, _) => write!(f, "slice({id}, {depth})"),
         }
     }
 }
@@ -247,14 +247,14 @@ impl Display for Local {
 impl Display for Constant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Constant::Int(val, IntKind::I32) => write!(f, "{val}i32"),
-            Constant::Int(val, IntKind::I64) => write!(f, "{val}i64"),
-            Constant::Float(val, FloatKind::BF16) => write!(f, "{}bf16", val.0),
-            Constant::Float(val, FloatKind::F16) => write!(f, "{}f16", val.0),
-            Constant::Float(val, FloatKind::F32) => write!(f, "{}f32", val.0),
-            Constant::Float(val, FloatKind::F64) => write!(f, "{}f64", val.0),
-            Constant::UInt(val) => write!(f, "{val}u32"),
-            Constant::Bool(val) => write!(f, "{val}"),
+            Self::Int(val, IntKind::I32) => write!(f, "{val}i32"),
+            Self::Int(val, IntKind::I64) => write!(f, "{val}i64"),
+            Self::Float(val, FloatKind::BF16) => write!(f, "{}bf16", val.0),
+            Self::Float(val, FloatKind::F16) => write!(f, "{}f16", val.0),
+            Self::Float(val, FloatKind::F32) => write!(f, "{}f32", val.0),
+            Self::Float(val, FloatKind::F64) => write!(f, "{}f64", val.0),
+            Self::UInt(val) => write!(f, "{val}u32"),
+            Self::Bool(val) => write!(f, "{val}"),
         }
     }
 }
@@ -262,11 +262,11 @@ impl Display for Constant {
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expression::Instruction(instruction) => write!(f, "{instruction}"),
-            Expression::Copy(val, _) => write!(f, "copy({val})"),
-            Expression::Value(value) => write!(f, "{value}"),
-            Expression::Volatile(value) => write!(f, "volatile({value})"),
-            Expression::Phi(entries) => write!(
+            Self::Instruction(instruction) => write!(f, "{instruction}"),
+            Self::Copy(val, _) => write!(f, "copy({val})"),
+            Self::Value(value) => write!(f, "{value}"),
+            Self::Volatile(value) => write!(f, "volatile({value})"),
+            Self::Phi(entries) => write!(
                 f,
                 "phi({})",
                 entries

@@ -934,7 +934,7 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
     // Since not all instructions are native to WGSL, we need to add the custom ones.
     for instruction in instructions {
         match instruction {
-            wgsl::Instruction::Powf { lhs: _, rhs, out } => {
+            wgsl::Instruction::Powf { rhs, out, .. } => {
                 register_extension(wgsl::Extension::PowfPrimitive(out.item()));
 
                 if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
@@ -943,17 +943,14 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
                     register_extension(wgsl::Extension::Powf(out.item()));
                 }
             }
-            wgsl::Instruction::Erf { input, out: _ } => {
+            wgsl::Instruction::Erf { input, .. } => {
                 register_extension(wgsl::Extension::Erf(input.item()));
             }
             #[cfg(target_os = "macos")]
-            wgsl::Instruction::Tanh { input, out: _ } => {
+            wgsl::Instruction::Tanh { input, .. } => {
                 register_extension(wgsl::Extension::SafeTanh(input.item()))
             }
-            wgsl::Instruction::If {
-                cond: _,
-                instructions,
-            } => {
+            wgsl::Instruction::If { instructions, .. } => {
                 for extension in register_extensions(instructions) {
                     register_extension(extension);
                 }

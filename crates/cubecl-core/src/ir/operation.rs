@@ -25,12 +25,12 @@ pub enum Operation {
 impl Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Operation::Operator(operator) => write!(f, "{operator}"),
-            Operation::Metadata(metadata) => write!(f, "{metadata}"),
-            Operation::Branch(branch) => write!(f, "{branch}"),
-            Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
-            Operation::Subcube(subcube) => write!(f, "{subcube}"),
-            Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
+            Self::Operator(operator) => write!(f, "{operator}"),
+            Self::Metadata(metadata) => write!(f, "{metadata}"),
+            Self::Branch(branch) => write!(f, "{branch}"),
+            Self::Synchronization(synchronization) => write!(f, "{synchronization}"),
+            Self::Subcube(subcube) => write!(f, "{subcube}"),
+            Self::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
         }
     }
 }
@@ -38,13 +38,13 @@ impl Display for Operation {
 impl Operation {
     pub fn out(&self) -> Option<Variable> {
         match self {
-            Operation::Operator(operator) => operator.out(),
-            Operation::Metadata(metadata) => metadata.out(),
-            Operation::Branch(Branch::Select(op)) => Some(op.out),
-            Operation::Branch(_) => None,
-            Operation::Synchronization(_) => None,
-            Operation::Subcube(subcube) => subcube.out(),
-            Operation::CoopMma(_) => None,
+            Self::Operator(operator) => operator.out(),
+            Self::Metadata(metadata) => metadata.out(),
+            Self::Branch(Branch::Select(op)) => Some(op.out),
+            Self::Branch(_) => None,
+            Self::Synchronization(_) => None,
+            Self::Subcube(subcube) => subcube.out(),
+            Self::CoopMma(_) => None,
         }
     }
 }
@@ -120,165 +120,165 @@ pub enum Operator {
 
 impl Operator {
     pub fn out(&self) -> Option<Variable> {
-        let val = match self {
-            Operator::Add(binary_operator)
-            | Operator::Sub(binary_operator)
-            | Operator::Mul(binary_operator)
-            | Operator::Div(binary_operator)
-            | Operator::Powf(binary_operator)
-            | Operator::Equal(binary_operator)
-            | Operator::NotEqual(binary_operator)
-            | Operator::Lower(binary_operator)
-            | Operator::Greater(binary_operator)
-            | Operator::LowerEqual(binary_operator)
-            | Operator::GreaterEqual(binary_operator)
-            | Operator::Modulo(binary_operator)
-            | Operator::Index(binary_operator)
-            | Operator::UncheckedIndex(binary_operator)
-            | Operator::IndexAssign(binary_operator)
-            | Operator::UncheckedIndexAssign(binary_operator)
-            | Operator::Max(binary_operator)
-            | Operator::Min(binary_operator)
-            | Operator::BitwiseAnd(binary_operator)
-            | Operator::BitwiseOr(binary_operator)
-            | Operator::BitwiseXor(binary_operator)
-            | Operator::ShiftLeft(binary_operator)
-            | Operator::ShiftRight(binary_operator)
-            | Operator::Remainder(binary_operator)
-            | Operator::And(binary_operator)
-            | Operator::Or(binary_operator)
-            | Operator::AtomicSwap(binary_operator)
-            | Operator::AtomicAdd(binary_operator)
-            | Operator::AtomicSub(binary_operator)
-            | Operator::AtomicMax(binary_operator)
-            | Operator::AtomicMin(binary_operator)
-            | Operator::AtomicAnd(binary_operator)
-            | Operator::AtomicOr(binary_operator)
-            | Operator::AtomicXor(binary_operator)
-            | Operator::Dot(binary_operator) => binary_operator.out,
+        match self {
+            Self::Add(binary_operator)
+            | Self::Sub(binary_operator)
+            | Self::Mul(binary_operator)
+            | Self::Div(binary_operator)
+            | Self::Powf(binary_operator)
+            | Self::Equal(binary_operator)
+            | Self::NotEqual(binary_operator)
+            | Self::Lower(binary_operator)
+            | Self::Greater(binary_operator)
+            | Self::LowerEqual(binary_operator)
+            | Self::GreaterEqual(binary_operator)
+            | Self::Modulo(binary_operator)
+            | Self::Index(binary_operator)
+            | Self::UncheckedIndex(binary_operator)
+            | Self::IndexAssign(binary_operator)
+            | Self::UncheckedIndexAssign(binary_operator)
+            | Self::Max(binary_operator)
+            | Self::Min(binary_operator)
+            | Self::BitwiseAnd(binary_operator)
+            | Self::BitwiseOr(binary_operator)
+            | Self::BitwiseXor(binary_operator)
+            | Self::ShiftLeft(binary_operator)
+            | Self::ShiftRight(binary_operator)
+            | Self::Remainder(binary_operator)
+            | Self::And(binary_operator)
+            | Self::Or(binary_operator)
+            | Self::AtomicSwap(binary_operator)
+            | Self::AtomicAdd(binary_operator)
+            | Self::AtomicSub(binary_operator)
+            | Self::AtomicMax(binary_operator)
+            | Self::AtomicMin(binary_operator)
+            | Self::AtomicAnd(binary_operator)
+            | Self::AtomicOr(binary_operator)
+            | Self::AtomicXor(binary_operator)
+            | Self::Dot(binary_operator) => binary_operator.out,
 
-            Operator::Abs(unary_operator)
-            | Operator::Exp(unary_operator)
-            | Operator::Log(unary_operator)
-            | Operator::Log1p(unary_operator)
-            | Operator::Cos(unary_operator)
-            | Operator::Sin(unary_operator)
-            | Operator::Tanh(unary_operator)
-            | Operator::Sqrt(unary_operator)
-            | Operator::Round(unary_operator)
-            | Operator::Floor(unary_operator)
-            | Operator::Ceil(unary_operator)
-            | Operator::Erf(unary_operator)
-            | Operator::Recip(unary_operator)
-            | Operator::Assign(unary_operator)
-            | Operator::Not(unary_operator)
-            | Operator::Neg(unary_operator)
-            | Operator::Bitcast(unary_operator)
-            | Operator::AtomicLoad(unary_operator)
-            | Operator::AtomicStore(unary_operator)
-            | Operator::Magnitude(unary_operator)
-            | Operator::Normalize(unary_operator) => unary_operator.out,
+            Self::Abs(unary_operator)
+            | Self::Exp(unary_operator)
+            | Self::Log(unary_operator)
+            | Self::Log1p(unary_operator)
+            | Self::Cos(unary_operator)
+            | Self::Sin(unary_operator)
+            | Self::Tanh(unary_operator)
+            | Self::Sqrt(unary_operator)
+            | Self::Round(unary_operator)
+            | Self::Floor(unary_operator)
+            | Self::Ceil(unary_operator)
+            | Self::Erf(unary_operator)
+            | Self::Recip(unary_operator)
+            | Self::Assign(unary_operator)
+            | Self::Not(unary_operator)
+            | Self::Neg(unary_operator)
+            | Self::Bitcast(unary_operator)
+            | Self::AtomicLoad(unary_operator)
+            | Self::AtomicStore(unary_operator)
+            | Self::Magnitude(unary_operator)
+            | Self::Normalize(unary_operator) => unary_operator.out,
 
-            Operator::Clamp(clamp_operator) => clamp_operator.out,
-            Operator::Copy(copy_operator) => copy_operator.out,
-            Operator::CopyBulk(copy_bulk_operator) => copy_bulk_operator.out,
-            Operator::Slice(slice_operator) => slice_operator.out,
-            Operator::InitLine(line_init_operator) => line_init_operator.out,
-            Operator::AtomicCompareAndSwap(op) => op.out,
-            Operator::Fma(fma_operator) => fma_operator.out,
-        };
-        Some(val)
+            Self::Clamp(clamp_operator) => clamp_operator.out,
+            Self::Copy(copy_operator) => copy_operator.out,
+            Self::CopyBulk(copy_bulk_operator) => copy_bulk_operator.out,
+            Self::Slice(slice_operator) => slice_operator.out,
+            Self::InitLine(line_init_operator) => line_init_operator.out,
+            Self::AtomicCompareAndSwap(op) => op.out,
+            Self::Fma(fma_operator) => fma_operator.out,
+        }
+        .into()
     }
 }
 
 impl Display for Operator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Operator::Add(op) => write!(f, "{} = {} + {}", op.out, op.lhs, op.rhs),
-            Operator::Fma(op) => write!(f, "{} = {} * {} + {}", op.out, op.a, op.b, op.c),
-            Operator::Sub(op) => write!(f, "{} = {} - {}", op.out, op.lhs, op.rhs),
-            Operator::Mul(op) => write!(f, "{} = {} * {}", op.out, op.lhs, op.rhs),
-            Operator::Div(op) => write!(f, "{} = {} / {}", op.out, op.lhs, op.rhs),
-            Operator::Abs(op) => write!(f, "{} = {}.abs()", op.out, op.input),
-            Operator::Exp(op) => write!(f, "{} = {}.exp()", op.out, op.input),
-            Operator::Log(op) => write!(f, "{} = {}.log()", op.out, op.input),
-            Operator::Log1p(op) => write!(f, "{} = {}.log_1p()", op.out, op.input),
-            Operator::Cos(op) => write!(f, "{} = {}.cos()", op.out, op.input),
-            Operator::Sin(op) => write!(f, "{} = {}.sin()", op.out, op.input),
-            Operator::Tanh(op) => write!(f, "{} = {}.tanh()", op.out, op.input),
-            Operator::Powf(op) => write!(f, "{} = {}.pow({})", op.out, op.lhs, op.rhs),
-            Operator::Sqrt(op) => write!(f, "{} = {}.sqrt()", op.out, op.input),
-            Operator::Round(op) => write!(f, "{} = {}.round()", op.out, op.input),
-            Operator::Floor(op) => write!(f, "{} = {}.floor()", op.out, op.input),
-            Operator::Ceil(op) => write!(f, "{} = {}.ceil()", op.out, op.input),
-            Operator::Erf(op) => write!(f, "{} = {}.erf()", op.out, op.input),
-            Operator::Recip(op) => write!(f, "{} = {}.recip()", op.out, op.input),
-            Operator::Equal(op) => write!(f, "{} = {} == {}", op.out, op.lhs, op.rhs),
-            Operator::NotEqual(op) => write!(f, "{} = {} != {}", op.out, op.lhs, op.rhs),
-            Operator::Lower(op) => write!(f, "{} = {} < {}", op.out, op.lhs, op.rhs),
-            Operator::Clamp(op) => write!(
+            Self::Add(op) => write!(f, "{} = {} + {}", op.out, op.lhs, op.rhs),
+            Self::Fma(op) => write!(f, "{} = {} * {} + {}", op.out, op.a, op.b, op.c),
+            Self::Sub(op) => write!(f, "{} = {} - {}", op.out, op.lhs, op.rhs),
+            Self::Mul(op) => write!(f, "{} = {} * {}", op.out, op.lhs, op.rhs),
+            Self::Div(op) => write!(f, "{} = {} / {}", op.out, op.lhs, op.rhs),
+            Self::Abs(op) => write!(f, "{} = {}.abs()", op.out, op.input),
+            Self::Exp(op) => write!(f, "{} = {}.exp()", op.out, op.input),
+            Self::Log(op) => write!(f, "{} = {}.log()", op.out, op.input),
+            Self::Log1p(op) => write!(f, "{} = {}.log_1p()", op.out, op.input),
+            Self::Cos(op) => write!(f, "{} = {}.cos()", op.out, op.input),
+            Self::Sin(op) => write!(f, "{} = {}.sin()", op.out, op.input),
+            Self::Tanh(op) => write!(f, "{} = {}.tanh()", op.out, op.input),
+            Self::Powf(op) => write!(f, "{} = {}.pow({})", op.out, op.lhs, op.rhs),
+            Self::Sqrt(op) => write!(f, "{} = {}.sqrt()", op.out, op.input),
+            Self::Round(op) => write!(f, "{} = {}.round()", op.out, op.input),
+            Self::Floor(op) => write!(f, "{} = {}.floor()", op.out, op.input),
+            Self::Ceil(op) => write!(f, "{} = {}.ceil()", op.out, op.input),
+            Self::Erf(op) => write!(f, "{} = {}.erf()", op.out, op.input),
+            Self::Recip(op) => write!(f, "{} = {}.recip()", op.out, op.input),
+            Self::Equal(op) => write!(f, "{} = {} == {}", op.out, op.lhs, op.rhs),
+            Self::NotEqual(op) => write!(f, "{} = {} != {}", op.out, op.lhs, op.rhs),
+            Self::Lower(op) => write!(f, "{} = {} < {}", op.out, op.lhs, op.rhs),
+            Self::Clamp(op) => write!(
                 f,
                 "{} = {}.clamp({}, {})",
                 op.out, op.input, op.min_value, op.max_value
             ),
-            Operator::Greater(op) => write!(f, "{} = {} > {}", op.out, op.lhs, op.rhs),
-            Operator::LowerEqual(op) => write!(f, "{} = {} <= {}", op.out, op.lhs, op.rhs),
-            Operator::GreaterEqual(op) => write!(f, "{} = {} >= {}", op.out, op.lhs, op.rhs),
-            Operator::Assign(op) => write!(f, "{} = {}", op.out, op.input),
-            Operator::Modulo(op) => write!(f, "{} = {} % {}", op.out, op.lhs, op.rhs),
-            Operator::Index(op) => write!(f, "{} = {}[{}]", op.out, op.lhs, op.rhs),
-            Operator::Copy(op) => write!(
+            Self::Greater(op) => write!(f, "{} = {} > {}", op.out, op.lhs, op.rhs),
+            Self::LowerEqual(op) => write!(f, "{} = {} <= {}", op.out, op.lhs, op.rhs),
+            Self::GreaterEqual(op) => write!(f, "{} = {} >= {}", op.out, op.lhs, op.rhs),
+            Self::Assign(op) => write!(f, "{} = {}", op.out, op.input),
+            Self::Modulo(op) => write!(f, "{} = {} % {}", op.out, op.lhs, op.rhs),
+            Self::Index(op) => write!(f, "{} = {}[{}]", op.out, op.lhs, op.rhs),
+            Self::Copy(op) => write!(
                 f,
                 "{}[{}] = {}[{}]",
                 op.out, op.out_index, op.input, op.in_index
             ),
-            Operator::CopyBulk(op) => write!(
+            Self::CopyBulk(op) => write!(
                 f,
                 "memcpy({}[{}], {}[{}], {})",
                 op.out, op.input, op.in_index, op.out_index, op.len
             ),
-            Operator::Slice(op) => write!(f, "{} = {}[{}..{}]", op.out, op.input, op.start, op.end),
-            Operator::UncheckedIndex(op) => {
+            Self::Slice(op) => write!(f, "{} = {}[{}..{}]", op.out, op.input, op.start, op.end),
+            Self::UncheckedIndex(op) => {
                 write!(f, "{} = unchecked {}[{}]", op.out, op.lhs, op.rhs)
             }
-            Operator::IndexAssign(op) => write!(f, "{}[{}] = {}", op.out, op.lhs, op.rhs),
-            Operator::UncheckedIndexAssign(op) => {
+            Self::IndexAssign(op) => write!(f, "{}[{}] = {}", op.out, op.lhs, op.rhs),
+            Self::UncheckedIndexAssign(op) => {
                 write!(f, "unchecked {}[{}] = {}", op.out, op.lhs, op.rhs)
             }
-            Operator::And(op) => write!(f, "{} = {} && {}", op.out, op.lhs, op.rhs),
-            Operator::Or(op) => write!(f, "{} = {} || {}", op.out, op.lhs, op.rhs),
-            Operator::Not(op) => write!(f, "{} = !{}", op.out, op.input),
-            Operator::Neg(op) => write!(f, "{} = -{}", op.out, op.input),
-            Operator::Max(op) => write!(f, "{} = {}.max({})", op.out, op.lhs, op.rhs),
-            Operator::Min(op) => write!(f, "{} = {}.min({})", op.out, op.lhs, op.rhs),
-            Operator::BitwiseAnd(op) => write!(f, "{} = {} & {}", op.out, op.lhs, op.rhs),
-            Operator::BitwiseOr(op) => write!(f, "{} = {} | {}", op.out, op.lhs, op.rhs),
-            Operator::BitwiseXor(op) => write!(f, "{} = {} ^ {}", op.out, op.lhs, op.rhs),
-            Operator::ShiftLeft(op) => write!(f, "{} = {} << {}", op.out, op.lhs, op.rhs),
-            Operator::ShiftRight(op) => write!(f, "{} = {} >> {}", op.out, op.lhs, op.rhs),
-            Operator::Remainder(op) => write!(f, "{} = {} rem {}", op.out, op.lhs, op.rhs),
-            Operator::Bitcast(op) => write!(f, "{} = bitcast({})", op.out, op.input),
-            Operator::AtomicLoad(op) => write!(f, "{} = atomic_load({})", op.out, op.input),
-            Operator::AtomicStore(op) => write!(f, "atomic_store({}, {})", op.out, op.input),
-            Operator::AtomicSwap(op) => {
+            Self::And(op) => write!(f, "{} = {} && {}", op.out, op.lhs, op.rhs),
+            Self::Or(op) => write!(f, "{} = {} || {}", op.out, op.lhs, op.rhs),
+            Self::Not(op) => write!(f, "{} = !{}", op.out, op.input),
+            Self::Neg(op) => write!(f, "{} = -{}", op.out, op.input),
+            Self::Max(op) => write!(f, "{} = {}.max({})", op.out, op.lhs, op.rhs),
+            Self::Min(op) => write!(f, "{} = {}.min({})", op.out, op.lhs, op.rhs),
+            Self::BitwiseAnd(op) => write!(f, "{} = {} & {}", op.out, op.lhs, op.rhs),
+            Self::BitwiseOr(op) => write!(f, "{} = {} | {}", op.out, op.lhs, op.rhs),
+            Self::BitwiseXor(op) => write!(f, "{} = {} ^ {}", op.out, op.lhs, op.rhs),
+            Self::ShiftLeft(op) => write!(f, "{} = {} << {}", op.out, op.lhs, op.rhs),
+            Self::ShiftRight(op) => write!(f, "{} = {} >> {}", op.out, op.lhs, op.rhs),
+            Self::Remainder(op) => write!(f, "{} = {} rem {}", op.out, op.lhs, op.rhs),
+            Self::Bitcast(op) => write!(f, "{} = bitcast({})", op.out, op.input),
+            Self::AtomicLoad(op) => write!(f, "{} = atomic_load({})", op.out, op.input),
+            Self::AtomicStore(op) => write!(f, "atomic_store({}, {})", op.out, op.input),
+            Self::AtomicSwap(op) => {
                 write!(f, "{} = atomic_swap({}, {})", op.out, op.lhs, op.rhs)
             }
-            Operator::AtomicAdd(op) => write!(f, "{} = atomic_add({}, {})", op.out, op.lhs, op.rhs),
-            Operator::AtomicSub(op) => write!(f, "{} = atomic_sub({}, {})", op.out, op.lhs, op.rhs),
-            Operator::AtomicMax(op) => write!(f, "{} = atomic_max({}, {})", op.out, op.lhs, op.rhs),
-            Operator::AtomicMin(op) => write!(f, "{} = atomic_min({}, {})", op.out, op.lhs, op.rhs),
-            Operator::AtomicAnd(op) => write!(f, "{} = atomic_and({}, {})", op.out, op.lhs, op.rhs),
-            Operator::AtomicOr(op) => write!(f, "{} = atomic_or({}, {})", op.out, op.lhs, op.rhs),
-            Operator::AtomicXor(op) => write!(f, "{} = atomic_xor({}, {})", op.out, op.lhs, op.rhs),
-            Operator::AtomicCompareAndSwap(op) => write!(
+            Self::AtomicAdd(op) => write!(f, "{} = atomic_add({}, {})", op.out, op.lhs, op.rhs),
+            Self::AtomicSub(op) => write!(f, "{} = atomic_sub({}, {})", op.out, op.lhs, op.rhs),
+            Self::AtomicMax(op) => write!(f, "{} = atomic_max({}, {})", op.out, op.lhs, op.rhs),
+            Self::AtomicMin(op) => write!(f, "{} = atomic_min({}, {})", op.out, op.lhs, op.rhs),
+            Self::AtomicAnd(op) => write!(f, "{} = atomic_and({}, {})", op.out, op.lhs, op.rhs),
+            Self::AtomicOr(op) => write!(f, "{} = atomic_or({}, {})", op.out, op.lhs, op.rhs),
+            Self::AtomicXor(op) => write!(f, "{} = atomic_xor({}, {})", op.out, op.lhs, op.rhs),
+            Self::AtomicCompareAndSwap(op) => write!(
                 f,
                 "{} = compare_and_swap({}, {}, {})",
                 op.out, op.input, op.cmp, op.val
             ),
-            Operator::Magnitude(op) => write!(f, "{} = {}.length()", op.out, op.input),
-            Operator::Normalize(op) => write!(f, "{} = {}.normalize()", op.out, op.input),
-            Operator::Dot(op) => write!(f, "{} = {}.dot({})", op.out, op.lhs, op.rhs),
-            Operator::InitLine(init) => {
+            Self::Magnitude(op) => write!(f, "{} = {}.length()", op.out, op.input),
+            Self::Normalize(op) => write!(f, "{} = {}.normalize()", op.out, op.input),
+            Self::Dot(op) => write!(f, "{} = {}.dot({})", op.out, op.lhs, op.rhs),
+            Self::InitLine(init) => {
                 let inits = init
                     .inputs
                     .iter()
@@ -314,21 +314,19 @@ pub enum Metadata {
 
 impl Metadata {
     pub fn out(&self) -> Option<Variable> {
-        let val = match self {
-            Metadata::Stride { out, .. } => *out,
-            Metadata::Shape { out, .. } => *out,
-            Metadata::Length { out, .. } => *out,
-        };
-        Some(val)
+        match self {
+            Self::Stride { out, .. } | Self::Shape { out, .. } | Self::Length { out, .. } => *out,
+        }
+        .into()
     }
 }
 
 impl Display for Metadata {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Metadata::Stride { dim, var, out } => write!(f, "{} = {}.strides[{}]", out, var, dim),
-            Metadata::Shape { dim, var, out } => write!(f, "{} = {}.shape[{}]", out, var, dim),
-            Metadata::Length { var, out } => write!(f, "{} = {}.len()", out, var),
+            Self::Stride { dim, var, out } => write!(f, "{} = {}.strides[{}]", out, var, dim),
+            Self::Shape { dim, var, out } => write!(f, "{} = {}.shape[{}]", out, var, dim),
+            Self::Length { var, out } => write!(f, "{} = {}.len()", out, var),
         }
     }
 }
@@ -432,7 +430,7 @@ pub struct FmaOperator {
 
 impl From<Operator> for Operation {
     fn from(val: Operator) -> Self {
-        Operation::Operator(val)
+        Self::Operator(val)
     }
 }
 
@@ -450,6 +448,6 @@ impl From<Synchronization> for Operation {
 
 impl From<Metadata> for Operation {
     fn from(val: Metadata) -> Self {
-        Operation::Metadata(val)
+        Self::Metadata(val)
     }
 }

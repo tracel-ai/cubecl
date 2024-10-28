@@ -28,14 +28,14 @@ pub enum Branch {
 impl Display for Branch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Branch::If(if_) => write!(f, "if({})", if_.cond),
-            Branch::IfElse(if_else) => write!(f, "if({})", if_else.cond),
-            Branch::Select(select) => write!(
+            Self::If(if_) => write!(f, "if({})", if_.cond),
+            Self::IfElse(if_else) => write!(f, "if({})", if_else.cond),
+            Self::Select(select) => write!(
                 f,
                 "{} = select({}, {}, {})",
                 select.out, select.cond, select.then, select.or_else
             ),
-            Branch::Switch(switch) => write!(
+            Self::Switch(switch) => write!(
                 f,
                 "switch({}) {:?}",
                 switch.value,
@@ -45,7 +45,7 @@ impl Display for Branch {
                     .map(|case| format!("{}", case.0))
                     .collect::<Vec<_>>(),
             ),
-            Branch::RangeLoop(range_loop) => write!(
+            Self::RangeLoop(range_loop) => write!(
                 f,
                 "for({} in {}{}{})",
                 range_loop.i,
@@ -53,9 +53,9 @@ impl Display for Branch {
                 if range_loop.inclusive { "..=" } else { ".." },
                 range_loop.end
             ),
-            Branch::Loop(_) => write!(f, "loop{{}}"),
-            Branch::Return => write!(f, "return"),
-            Branch::Break => write!(f, "break"),
+            Self::Loop(_) => write!(f, "loop{{}}"),
+            Self::Return => write!(f, "return"),
+            Self::Break => write!(f, "break"),
         }
     }
 }

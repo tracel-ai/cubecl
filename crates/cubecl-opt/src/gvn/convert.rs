@@ -12,18 +12,16 @@ use super::{Builtin, Constant, Expression, Local, OpId, Value};
 impl Expression {
     pub fn to_operation(&self, leaders: &HashMap<u32, Value>, out: Variable) -> Operation {
         match self {
-            Expression::Copy(val, _) => {
+            Self::Copy(val, _) => {
                 let input = leaders[val].as_var();
                 Operator::Assign(UnaryOperator { input, out }).into()
             }
-            Expression::Value(value) | Expression::Volatile(value) => {
-                Operator::Assign(UnaryOperator {
-                    input: value.as_var(),
-                    out,
-                })
-                .into()
-            }
-            Expression::Instruction(instruction) => {
+            Self::Value(value) | Self::Volatile(value) => Operator::Assign(UnaryOperator {
+                input: value.as_var(),
+                out,
+            })
+            .into(),
+            Self::Instruction(instruction) => {
                 let args = instruction
                     .args
                     .iter()
@@ -310,7 +308,7 @@ impl Expression {
                     .into(),
                 }
             }
-            Expression::Phi(_) => unreachable!("Phi can't be made into operation"),
+            Self::Phi(_) => unreachable!("Phi can't be made into operation"),
         }
     }
 }
@@ -318,8 +316,8 @@ impl Expression {
 impl Value {
     pub(crate) fn as_var(&self) -> Variable {
         match self {
-            Value::Constant(val) => Variable::ConstantScalar((*val).into()),
-            Value::Local(Local {
+            Self::Constant(val) => Variable::ConstantScalar((*val).into()),
+            Self::Local(Local {
                 id,
                 depth,
                 version: 0,
@@ -329,7 +327,7 @@ impl Value {
                 item: *item,
                 depth: *depth,
             },
-            Value::Local(Local {
+            Self::Local(Local {
                 id,
                 depth,
                 version,
@@ -340,25 +338,25 @@ impl Value {
                 depth: *depth,
                 version: *version,
             },
-            Value::Input(id, item) => Variable::GlobalInputArray {
+            Self::Input(id, item) => Variable::GlobalInputArray {
                 id: *id,
                 item: *item,
             },
-            Value::Scalar(id, elem) => Variable::GlobalScalar {
+            Self::Scalar(id, elem) => Variable::GlobalScalar {
                 id: *id,
                 elem: *elem,
             },
-            Value::ConstArray(id, item, len) => Variable::ConstantArray {
+            Self::ConstArray(id, item, len) => Variable::ConstantArray {
                 id: *id,
                 item: *item,
                 length: *len,
             },
-            Value::Builtin(builtin) => builtin.as_var(),
-            Value::Output(id, item) => Variable::GlobalOutputArray {
+            Self::Builtin(builtin) => builtin.as_var(),
+            Self::Output(id, item) => Variable::GlobalOutputArray {
                 id: *id,
                 item: *item,
             },
-            Value::Slice(id, depth, item) => Variable::Slice {
+            Self::Slice(id, depth, item) => Variable::Slice {
                 id: *id,
                 item: *item,
                 depth: *depth,
@@ -370,28 +368,28 @@ impl Value {
 impl Builtin {
     pub fn as_var(&self) -> Variable {
         match self {
-            Builtin::Rank => Variable::Rank,
-            Builtin::UnitPos => Variable::UnitPos,
-            Builtin::UnitPosX => Variable::UnitPosX,
-            Builtin::UnitPosY => Variable::UnitPosY,
-            Builtin::UnitPosZ => Variable::UnitPosZ,
-            Builtin::CubePos => Variable::CubePos,
-            Builtin::CubePosX => Variable::CubePosX,
-            Builtin::CubePosY => Variable::CubePosY,
-            Builtin::CubePosZ => Variable::CubePosZ,
-            Builtin::CubeDim => Variable::CubeDim,
-            Builtin::CubeDimX => Variable::CubeDimX,
-            Builtin::CubeDimY => Variable::CubeDimY,
-            Builtin::CubeDimZ => Variable::CubeDimZ,
-            Builtin::CubeCount => Variable::CubeCount,
-            Builtin::CubeCountX => Variable::CubeCountX,
-            Builtin::CubeCountY => Variable::CubeCountY,
-            Builtin::CubeCountZ => Variable::CubeCountZ,
-            Builtin::SubcubeDim => Variable::SubcubeDim,
-            Builtin::AbsolutePos => Variable::AbsolutePos,
-            Builtin::AbsolutePosX => Variable::AbsolutePosX,
-            Builtin::AbsolutePosY => Variable::AbsolutePosY,
-            Builtin::AbsolutePosZ => Variable::AbsolutePosZ,
+            Self::Rank => Variable::Rank,
+            Self::UnitPos => Variable::UnitPos,
+            Self::UnitPosX => Variable::UnitPosX,
+            Self::UnitPosY => Variable::UnitPosY,
+            Self::UnitPosZ => Variable::UnitPosZ,
+            Self::CubePos => Variable::CubePos,
+            Self::CubePosX => Variable::CubePosX,
+            Self::CubePosY => Variable::CubePosY,
+            Self::CubePosZ => Variable::CubePosZ,
+            Self::CubeDim => Variable::CubeDim,
+            Self::CubeDimX => Variable::CubeDimX,
+            Self::CubeDimY => Variable::CubeDimY,
+            Self::CubeDimZ => Variable::CubeDimZ,
+            Self::CubeCount => Variable::CubeCount,
+            Self::CubeCountX => Variable::CubeCountX,
+            Self::CubeCountY => Variable::CubeCountY,
+            Self::CubeCountZ => Variable::CubeCountZ,
+            Self::SubcubeDim => Variable::SubcubeDim,
+            Self::AbsolutePos => Variable::AbsolutePos,
+            Self::AbsolutePosX => Variable::AbsolutePosX,
+            Self::AbsolutePosY => Variable::AbsolutePosY,
+            Self::AbsolutePosZ => Variable::AbsolutePosZ,
         }
     }
 }

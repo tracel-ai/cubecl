@@ -65,8 +65,8 @@ pub enum CoopMma {
 impl Display for CoopMma {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CoopMma::Fill { mat, value } => write!(f, "matrix_fill({}, {})", mat, value),
-            CoopMma::Load {
+            Self::Fill { mat, value } => write!(f, "matrix_fill({}, {})", mat, value),
+            Self::Load {
                 mat,
                 value,
                 stride,
@@ -81,7 +81,7 @@ impl Display for CoopMma {
                     mat, value, stride
                 )
             }
-            CoopMma::Execute {
+            Self::Execute {
                 mat_a,
                 mat_b,
                 mat_c,
@@ -91,7 +91,7 @@ impl Display for CoopMma {
                 "{} = execute_cmma({}, {}, {})",
                 mat_d, mat_a, mat_b, mat_c
             ),
-            CoopMma::Store {
+            Self::Store {
                 output,
                 mat,
                 stride,

@@ -65,11 +65,7 @@ pub enum ArrayArg<'a, R: Runtime> {
 
 impl<'a, R: Runtime> ArgSettings<R> for ArrayArg<'a, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
-        if let ArrayArg::Handle {
-            handle,
-            vectorization_factor: _,
-        } = self
-        {
+        if let Self::Handle { handle, .. } = self {
             launcher.register_array(handle)
         }
     }
@@ -129,8 +125,8 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
             ArrayArg::Handle {
-                handle: _,
                 vectorization_factor,
+                ..
             } => ArrayCompilationArg {
                 inplace: None,
                 vectorisation: Vectorization::Some(NonZero::new(*vectorization_factor).unwrap()),

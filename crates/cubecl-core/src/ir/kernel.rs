@@ -61,12 +61,12 @@ impl Elem {
     /// The output will have the same type as the element.
     pub fn constant_from_f64(&self, val: f64) -> Variable {
         Variable::ConstantScalar(match self {
-            Elem::Float(kind) => ConstantScalarValue::Float(val, *kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::UInt => ConstantScalarValue::UInt(val as u64),
-            Elem::Bool => ConstantScalarValue::Bool(val > 0.0),
-            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
+            Self::Float(kind) => ConstantScalarValue::Float(val, *kind),
+            Self::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Self::UInt => ConstantScalarValue::UInt(val as u64),
+            Self::Bool => ConstantScalarValue::Bool(val > 0.0),
+            Self::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Self::AtomicUInt => ConstantScalarValue::UInt(val as u64),
         })
     }
     /// Create a constant scalar from a signed integer.
@@ -74,12 +74,12 @@ impl Elem {
     /// The output will have the same type as the element.
     pub fn constant_from_i64(&self, val: i64) -> Variable {
         Variable::ConstantScalar(match self {
-            Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val, *kind),
-            Elem::UInt => ConstantScalarValue::UInt(val as u64),
-            Elem::Bool => ConstantScalarValue::Bool(val > 0),
-            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val, *kind),
-            Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
+            Self::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
+            Self::Int(kind) => ConstantScalarValue::Int(val, *kind),
+            Self::UInt => ConstantScalarValue::UInt(val as u64),
+            Self::Bool => ConstantScalarValue::Bool(val > 0),
+            Self::AtomicInt(kind) => ConstantScalarValue::Int(val, *kind),
+            Self::AtomicUInt => ConstantScalarValue::UInt(val as u64),
         })
     }
     /// Create a constant scalar from a unsigned integer.
@@ -87,12 +87,12 @@ impl Elem {
     /// The output will have the same type as the element.
     pub fn constant_from_u64(&self, val: u64) -> Variable {
         Variable::ConstantScalar(match self {
-            Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::UInt => ConstantScalarValue::UInt(val),
-            Elem::Bool => ConstantScalarValue::Bool(val > 0),
-            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::AtomicUInt => ConstantScalarValue::UInt(val),
+            Self::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
+            Self::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Self::UInt => ConstantScalarValue::UInt(val),
+            Self::Bool => ConstantScalarValue::Bool(val > 0),
+            Self::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Self::AtomicUInt => ConstantScalarValue::UInt(val),
         })
     }
     /// Create a constant scalar from a boolean.
@@ -100,12 +100,12 @@ impl Elem {
     /// The output will have the same type as the element.
     pub fn constant_from_bool(&self, val: bool) -> Variable {
         Variable::ConstantScalar(match self {
-            Elem::Float(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::UInt => ConstantScalarValue::UInt(val as u64),
-            Elem::AtomicUInt => ConstantScalarValue::UInt(val as u64),
-            Elem::Bool => ConstantScalarValue::Bool(val),
+            Self::Float(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
+            Self::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Self::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            Self::UInt => ConstantScalarValue::UInt(val as u64),
+            Self::AtomicUInt => ConstantScalarValue::UInt(val as u64),
+            Self::Bool => ConstantScalarValue::Bool(val),
         })
     }
 
@@ -126,34 +126,34 @@ impl Elem {
     /// Get the size in bytes.
     pub fn size(&self) -> usize {
         match self {
-            Elem::Float(kind) => match kind {
+            Self::Float(kind) => match kind {
                 FloatKind::F16 => core::mem::size_of::<half::f16>(),
                 FloatKind::BF16 => core::mem::size_of::<half::bf16>(),
                 FloatKind::F32 => core::mem::size_of::<f32>(),
                 FloatKind::F64 => core::mem::size_of::<f64>(),
             },
-            Elem::Int(kind) => match kind {
+            Self::Int(kind) => match kind {
                 IntKind::I32 => core::mem::size_of::<i32>(),
                 IntKind::I64 => core::mem::size_of::<i64>(),
             },
-            Elem::AtomicInt(kind) => match kind {
+            Self::AtomicInt(kind) => match kind {
                 IntKind::I32 => core::mem::size_of::<i32>(),
                 IntKind::I64 => core::mem::size_of::<i64>(),
             },
-            Elem::UInt => core::mem::size_of::<u32>(),
-            Elem::AtomicUInt => core::mem::size_of::<u32>(),
-            Elem::Bool => core::mem::size_of::<bool>(),
+            Self::UInt => core::mem::size_of::<u32>(),
+            Self::AtomicUInt => core::mem::size_of::<u32>(),
+            Self::Bool => core::mem::size_of::<bool>(),
         }
     }
 
     pub fn is_atomic(&self) -> bool {
-        matches!(self, Elem::AtomicInt(_) | Elem::AtomicUInt)
+        matches!(self, Self::AtomicInt(_) | Self::AtomicUInt)
     }
 
     pub fn is_int(&self) -> bool {
         matches!(
             self,
-            Elem::Int(_) | Elem::AtomicInt(_) | Elem::UInt | Elem::AtomicUInt
+            Self::Int(_) | Self::AtomicInt(_) | Self::UInt | Self::AtomicUInt
         )
     }
 }

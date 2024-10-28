@@ -359,11 +359,11 @@ pub enum Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Instruction::DeclareVariable { var } => {
+            Self::DeclareVariable { var } => {
                 let item = var.item();
                 writeln!(f, "var {var}: {item};")
             }
-            Instruction::Add { lhs, rhs, out } => {
+            Self::Add { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular addition on atomic");
                     writeln!(f, "atomicAdd({out}, {rhs});")
@@ -372,7 +372,7 @@ impl Display for Instruction {
                     writeln!(f, "{out} = {lhs} + {rhs};")
                 }
             }
-            Instruction::Slice {
+            Self::Slice {
                 input,
                 start,
                 end,
@@ -382,11 +382,11 @@ impl Display for Instruction {
                 writeln!(f, "let {out}_length = {end} - {start};")?;
                 writeln!(f, "let {out}_ptr = &{input};")
             }
-            Instruction::Fma { a, b, c, out } => {
+            Self::Fma { a, b, c, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = fma({a}, {b}, {c});")
             }
-            Instruction::Min { lhs, rhs, out } => {
+            Self::Min { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular min on atomic");
                     writeln!(f, "atomicMin({out}, {rhs});")
@@ -395,7 +395,7 @@ impl Display for Instruction {
                     writeln!(f, "{out} = min({lhs}, {rhs});")
                 }
             }
-            Instruction::Max { lhs, rhs, out } => {
+            Self::Max { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular max on atomic");
                     writeln!(f, "atomicMax({out}, {rhs});")
@@ -404,7 +404,7 @@ impl Display for Instruction {
                     writeln!(f, "{out} = max({lhs}, {rhs});")
                 }
             }
-            Instruction::And { lhs, rhs, out } => {
+            Self::And { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular and on atomic");
                     writeln!(f, "atomicAnd({out}, {rhs});")
@@ -413,7 +413,7 @@ impl Display for Instruction {
                     writeln!(f, "{out} = {lhs} && {rhs};")
                 }
             }
-            Instruction::Or { lhs, rhs, out } => {
+            Self::Or { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular or on atomic");
                     writeln!(f, "atomicOr({out}, {rhs});")
@@ -422,11 +422,11 @@ impl Display for Instruction {
                     writeln!(f, "{out} = {lhs} || {rhs};")
                 }
             }
-            Instruction::Not { input, out } => {
+            Self::Not { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = !{input};")
             }
-            Instruction::Index { lhs, rhs, out } => match lhs {
+            Self::Index { lhs, rhs, out } => match lhs {
                 Variable::Slice { item, .. } => {
                     let offset = Variable::Named {
                         name: format!("{lhs}_offset"),
@@ -442,7 +442,7 @@ impl Display for Instruction {
                 }
                 _ => index(f, lhs, rhs, out, None),
             },
-            Instruction::Copy {
+            Self::Copy {
                 input,
                 in_index,
                 out,
@@ -462,7 +462,7 @@ impl Display for Instruction {
                 };
                 writeln!(f, "{lhs} = {rhs};")
             }
-            Instruction::CopyBulk {
+            Self::CopyBulk {
                 input,
                 in_index,
                 out,
@@ -486,11 +486,11 @@ impl Display for Instruction {
                 }
                 Ok(())
             }
-            Instruction::Modulo { lhs, rhs, out } => {
+            Self::Modulo { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} % {rhs};")
             }
-            Instruction::Remainder { lhs, rhs, out } => {
+            Self::Remainder { lhs, rhs, out } => {
                 let f_type = match lhs.item() {
                     Item::Vec4(_) => Item::Vec4(Elem::F32),
                     Item::Vec3(_) => Item::Vec3(Elem::F32),
@@ -504,7 +504,7 @@ impl Display for Instruction {
                 let floor = f_type.fmt_cast_to(ty, format!("floor({lhs} / {rhs})"));
                 writeln!(f, "{out} = {lhs} - {rhs} * {floor};")
             }
-            Instruction::Sub { lhs, rhs, out } => {
+            Self::Sub { lhs, rhs, out } => {
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular sub on atomic");
                     writeln!(f, "atomicSub({out}, {rhs});")
@@ -513,27 +513,27 @@ impl Display for Instruction {
                     writeln!(f, "{out} = {lhs} - {rhs};")
                 }
             }
-            Instruction::Mul { lhs, rhs, out } => {
+            Self::Mul { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} * {rhs};")
             }
-            Instruction::Div { lhs, rhs, out } => {
+            Self::Div { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} / {rhs};")
             }
-            Instruction::Abs { input, out } => {
+            Self::Abs { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = abs({input});")
             }
-            Instruction::Exp { input, out } => {
+            Self::Exp { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = exp({input});")
             }
-            Instruction::Log { input, out } => {
+            Self::Log { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = log({input});")
             }
-            Instruction::Clamp {
+            Self::Clamp {
                 input,
                 min_value,
                 max_value,
@@ -544,7 +544,7 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = clamp({input}, {min}, {max});")
             }
-            Instruction::Powf { lhs, rhs, out } => {
+            Self::Powf { lhs, rhs, out } => {
                 if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
                     let out = out.fmt_left();
                     writeln!(f, "{out} = powf_scalar({lhs}, {rhs});")
@@ -553,23 +553,23 @@ impl Display for Instruction {
                     writeln!(f, "{out} = powf({lhs}, {rhs});")
                 }
             }
-            Instruction::Sqrt { input, out } => {
+            Self::Sqrt { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sqrt({input});")
             }
-            Instruction::Log1p { input, out } => {
+            Self::Log1p { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = log({input} + 1.0);")
             }
-            Instruction::Cos { input, out } => {
+            Self::Cos { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = cos({input});")
             }
-            Instruction::Sin { input, out } => {
+            Self::Sin { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sin({input});")
             }
-            Instruction::Tanh { input, out } => {
+            Self::Tanh { input, out } => {
                 let out = out.fmt_left();
                 #[cfg(target_os = "macos")]
                 let result = writeln!(f, "{out} = safe_tanh({input});");
@@ -578,21 +578,21 @@ impl Display for Instruction {
 
                 result
             }
-            Instruction::Erf { input, out } => {
+            Self::Erf { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = erf({input});")
             }
-            Instruction::Recip { input, out } => {
+            Self::Recip { input, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = 1.0 / {input};")
             }
-            Instruction::Equal { lhs, rhs, out } => comparison(lhs, rhs, out, "==", f),
-            Instruction::Lower { lhs, rhs, out } => comparison(lhs, rhs, out, "<", f),
-            Instruction::Greater { lhs, rhs, out } => comparison(lhs, rhs, out, ">", f),
-            Instruction::LowerEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "<=", f),
-            Instruction::GreaterEqual { lhs, rhs, out } => comparison(lhs, rhs, out, ">=", f),
-            Instruction::NotEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "!=", f),
-            Instruction::Assign { input, out } => {
+            Self::Equal { lhs, rhs, out } => comparison(lhs, rhs, out, "==", f),
+            Self::Lower { lhs, rhs, out } => comparison(lhs, rhs, out, "<", f),
+            Self::Greater { lhs, rhs, out } => comparison(lhs, rhs, out, ">", f),
+            Self::LowerEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "<=", f),
+            Self::GreaterEqual { lhs, rhs, out } => comparison(lhs, rhs, out, ">=", f),
+            Self::NotEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "!=", f),
+            Self::Assign { input, out } => {
                 let vec_left = out.item().vectorization_factor();
                 let vec_right = input.item().vectorization_factor();
                 if out.elem().is_atomic() {
@@ -616,18 +616,18 @@ impl Display for Instruction {
                     writeln!(f, "{out} = {input};")
                 }
             }
-            Instruction::Stride { dim, position, out } => {
+            Self::Stride { dim, position, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = info[({position}u * rank_2) + {dim} + 1u];")
             }
-            Instruction::Shape { dim, position, out } => {
+            Self::Shape { dim, position, out } => {
                 let out = out.fmt_left();
                 writeln!(
                     f,
                     "{out} = info[({position}u * rank_2) + rank + {dim} + 1u];"
                 )
             }
-            Instruction::RangeLoop {
+            Self::RangeLoop {
                 i,
                 start,
                 end,
@@ -654,7 +654,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 
                 f.write_str("}\n")
             }
-            Instruction::IndexAssign { lhs, rhs, out } => {
+            Self::IndexAssign { lhs, rhs, out } => {
                 if let Variable::Slice { item, .. } = out {
                     let offset = Variable::Named {
                         name: format!("{out}_offset"),
@@ -672,14 +672,14 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     index_assign(f, lhs, rhs, out, None)
                 }
             }
-            Instruction::If { cond, instructions } => {
+            Self::If { cond, instructions } => {
                 writeln!(f, "if {cond} {{")?;
                 for i in instructions {
                     write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
-            Instruction::IfElse {
+            Self::IfElse {
                 cond,
                 instructions_if,
                 instructions_else,
@@ -694,7 +694,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("}\n")
             }
-            Instruction::Select {
+            Self::Select {
                 cond,
                 then,
                 or_else,
@@ -724,7 +724,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "{out} = select({or_else}, {then}, {cond});")
                 }
             }
-            Instruction::Switch {
+            Self::Switch {
                 value,
                 instructions_default,
                 cases,
@@ -743,102 +743,102 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("}\n}\n")
             }
-            Instruction::Return => f.write_str("return;\n"),
-            Instruction::Break => f.write_str("break;\n"),
-            Instruction::WorkgroupBarrier => f.write_str("workgroupBarrier();\n"),
-            Instruction::StorageBarrier => f.write_str("storageBarrier();\n"),
-            Instruction::Length { var, out } => {
+            Self::Return => f.write_str("return;\n"),
+            Self::Break => f.write_str("break;\n"),
+            Self::WorkgroupBarrier => f.write_str("workgroupBarrier();\n"),
+            Self::StorageBarrier => f.write_str("storageBarrier();\n"),
+            Self::Length { var, out } => {
                 let out = out.fmt_left();
                 match var {
                     Variable::Slice { .. } => writeln!(f, "{out} = {var}_length;"),
                     _ => writeln!(f, "{out} = arrayLength(&{var});"),
                 }
             }
-            Instruction::Loop { instructions } => {
+            Self::Loop { instructions } => {
                 writeln!(f, "loop {{")?;
                 for i in instructions {
                     write!(f, "{i}")?;
                 }
                 f.write_str("}\n")
             }
-            Instruction::BitwiseOr { lhs, rhs, out } => {
+            Self::BitwiseOr { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} | {rhs};")
             }
-            Instruction::BitwiseAnd { lhs, rhs, out } => {
+            Self::BitwiseAnd { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} & {rhs};")
             }
-            Instruction::BitwiseXor { lhs, rhs, out } => {
+            Self::BitwiseXor { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} ^ {rhs};")
             }
-            Instruction::ShiftLeft { lhs, rhs, out } => {
+            Self::ShiftLeft { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} << {rhs};")
             }
-            Instruction::ShiftRight { lhs, rhs, out } => {
+            Self::ShiftRight { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} >> {rhs};")
             }
-            Instruction::Round { input, out } => {
+            Self::Round { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = round({input});")
             }
-            Instruction::Floor { input, out } => {
+            Self::Floor { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = floor({input});")
             }
-            Instruction::Ceil { input, out } => {
+            Self::Ceil { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = ceil({input});")
             }
-            Instruction::Subgroup(op) => write!(f, "{op}"),
-            Instruction::Bitcast { input, out } => {
+            Self::Subgroup(op) => write!(f, "{op}"),
+            Self::Bitcast { input, out } => {
                 let elem = out.item();
                 let out = out.fmt_left();
                 writeln!(f, "{out} = bitcast<{elem}>({input});")
             }
-            Instruction::AtomicLoad { input, out } => {
+            Self::AtomicLoad { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atomicLoad({input});")
             }
-            Instruction::AtomicStore { input, out } => {
+            Self::AtomicStore { input, out } => {
                 writeln!(f, "atomicStore({out},{input});")
             }
-            Instruction::AtomicSwap { lhs, rhs, out } => {
+            Self::AtomicSwap { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicExchange({lhs}, {rhs});")
             }
-            Instruction::AtomicAdd { lhs, rhs, out } => {
+            Self::AtomicAdd { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicAdd({lhs}, {rhs});")
             }
-            Instruction::AtomicSub { lhs, rhs, out } => {
+            Self::AtomicSub { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicSub({lhs}, {rhs});")
             }
-            Instruction::AtomicMax { lhs, rhs, out } => {
+            Self::AtomicMax { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicMax({lhs}, {rhs});")
             }
-            Instruction::AtomicMin { lhs, rhs, out } => {
+            Self::AtomicMin { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicMin({lhs}, {rhs});")
             }
-            Instruction::AtomicAnd { lhs, rhs, out } => {
+            Self::AtomicAnd { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicAnd({lhs}, {rhs});")
             }
-            Instruction::AtomicOr { lhs, rhs, out } => {
+            Self::AtomicOr { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicOr({lhs}, {rhs});")
             }
-            Instruction::AtomicXor { lhs, rhs, out } => {
+            Self::AtomicXor { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicXor({lhs}, {rhs});")
             }
-            Instruction::AtomicCompareExchangeWeak {
+            Self::AtomicCompareExchangeWeak {
                 lhs,
                 cmp,
                 value,
@@ -851,15 +851,15 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;"
                 )
             }
-            Instruction::Negate { input, out } => {
+            Self::Negate { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = -{input};")
             }
-            Instruction::Magnitude { input, out } => {
+            Self::Magnitude { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = length({input});")
             }
-            Instruction::Normalize { input, out } => {
+            Self::Normalize { input, out } => {
                 if input.item().vectorization_factor() == 1 {
                     // We need a check for vectorization factor 1 here, for compatibility with cuda.
                     // You can almost use sign here, however that does not correctly handle the case for x == 0.0.
@@ -872,7 +872,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "{out} = normalize({input});")
                 }
             }
-            Instruction::Dot { lhs, rhs, out } => {
+            Self::Dot { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 if lhs.item().vectorization_factor() == 1 {
                     writeln!(f, "{out} = {lhs} * {rhs};")
@@ -880,7 +880,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "{out} = dot({lhs}, {rhs});")
                 }
             }
-            Instruction::VecInit { inputs, out } => {
+            Self::VecInit { inputs, out } => {
                 let item = out.item();
                 let inputs = inputs.iter().map(|var| var.to_string()).collect::<Vec<_>>();
                 let out = out.fmt_left();

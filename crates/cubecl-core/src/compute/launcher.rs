@@ -179,8 +179,8 @@ pub enum ScalarState<T> {
 impl<R: Runtime> TensorState<R> {
     /// Push a new tensor to the state.
     pub fn push(&mut self, tensor: &TensorHandleRef<'_, R>) {
-        if let TensorState::Empty = self {
-            *self = TensorState::Some {
+        if let Self::Empty = self {
+            *self = Self::Some {
                 bindings: Vec::with_capacity(1),
                 metadata: Vec::new(),
                 lengths: Vec::new(),
@@ -189,12 +189,12 @@ impl<R: Runtime> TensorState<R> {
         };
 
         let (bindings, metadata, lengths) = match self {
-            TensorState::Empty => panic!("Should be init"),
-            TensorState::Some {
+            Self::Empty => panic!("Should be init"),
+            Self::Some {
                 bindings,
                 metadata,
                 lengths,
-                runtime: _,
+                ..
             } => (bindings, metadata, lengths),
         };
 
@@ -277,7 +277,7 @@ impl<R: Runtime> TensorState<R> {
             bindings,
             mut metadata,
             lengths,
-            runtime: _,
+            ..
         } = self
         {
             if R::require_array_lengths() {
@@ -296,8 +296,8 @@ impl<T: NoUninit> ScalarState<T> {
     /// Add a new scalar value to the state.
     pub fn push(&mut self, val: T) {
         match self {
-            ScalarState::Empty => *self = Self::Some(vec![val]),
-            ScalarState::Some(values) => values.push(val),
+            Self::Empty => *self = Self::Some(vec![val]),
+            Self::Some(values) => values.push(val),
         }
     }
 
@@ -307,8 +307,8 @@ impl<T: NoUninit> ScalarState<T> {
         bindings: &mut Vec<Binding>,
     ) {
         match self {
-            ScalarState::Empty => (),
-            ScalarState::Some(values) => {
+            Self::Empty => (),
+            Self::Some(values) => {
                 let handle = client.create(bytemuck::cast_slice(values));
                 bindings.push(handle.binding());
             }

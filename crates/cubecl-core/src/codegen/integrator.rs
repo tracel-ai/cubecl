@@ -220,11 +220,8 @@ impl InputInfo {
     #[allow(dead_code)]
     pub fn item(&self) -> Item {
         match self {
-            InputInfo::Array {
-                item,
-                visibility: _,
-            } => *item,
-            InputInfo::Scalar { elem, size: _ } => Item::new(*elem),
+            Self::Array { item, .. } => *item,
+            Self::Scalar { elem, .. } => Item::new(*elem),
         }
     }
 }
@@ -234,18 +231,9 @@ impl OutputInfo {
     #[allow(dead_code)]
     pub fn item(&self) -> Item {
         match self {
-            OutputInfo::ArrayWrite {
-                item,
-                local: _,
-                position: _,
-            } => *item,
-            OutputInfo::InputArrayWrite {
-                item,
-                input: _,
-                local: _,
-                position: _,
-            } => *item,
-            OutputInfo::Array { item } => *item,
+            Self::ArrayWrite { item, .. }
+            | Self::InputArrayWrite { item, .. }
+            | Self::Array { item } => *item,
         }
     }
 }
@@ -278,18 +266,9 @@ impl OutputInfo {
     #[allow(dead_code)]
     pub fn elem_size<R: Runtime>(&self) -> usize {
         let elem = match self {
-            OutputInfo::ArrayWrite {
-                item,
-                local: _,
-                position: _,
-            } => bool_elem(item.elem()),
-            OutputInfo::InputArrayWrite {
-                item,
-                input: _,
-                local: _,
-                position: _,
-            } => bool_elem(item.elem()),
-            OutputInfo::Array { item } => bool_elem(item.elem()),
+            Self::ArrayWrite { item, .. }
+            | Self::InputArrayWrite { item, .. }
+            | Self::Array { item } => bool_elem(item.elem()),
         };
         <R::Compiler as Compiler>::elem_size(elem)
     }
@@ -464,10 +443,7 @@ impl KernelIntegrator {
         let (item, local, position) = match output {
             OutputInfo::ArrayWrite { item, local, position } => (item, local, position),
             OutputInfo::InputArrayWrite {
-                item: _,
-                input,
-                local: _,
-                position: _,
+                input, ..
             } => {
                 assert_eq!(
                     *input, mapping.pos_input as u16,
@@ -475,7 +451,7 @@ impl KernelIntegrator {
                 );
                 return;
             }
-            OutputInfo::Array { item: _ } => panic!("Can't register an inplace operation for an array that isn't using a defined writing strategy."),
+            OutputInfo::Array { .. } => panic!("Can't register an inplace operation for an array that isn't using a defined writing strategy."),
         };
 
         let item = match self.input_bindings.get_mut(mapping.pos_input) {

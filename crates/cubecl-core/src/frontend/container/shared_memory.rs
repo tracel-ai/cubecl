@@ -32,7 +32,7 @@ impl<T: CubePrimitive> CubeType for SharedMemory<T> {
 
 impl<T: CubePrimitive + Clone> SharedMemory<T> {
     pub fn new<S: Index>(_size: S) -> Self {
-        SharedMemory { _val: PhantomData }
+        Self { _val: PhantomData }
     }
 
     pub fn new_lined<S: Index>(_size: S, _vectorization_factor: u32) -> SharedMemory<Line<T>> {

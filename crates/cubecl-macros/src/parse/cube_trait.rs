@@ -54,8 +54,8 @@ impl CubeTraitItem {
 
     pub fn func(&self) -> Option<&KernelSignature> {
         match self {
-            CubeTraitItem::Fn(func) => Some(func),
-            CubeTraitItem::Other => None,
+            Self::Fn(func) => Some(func),
+            Self::Other => None,
         }
     }
 }
@@ -75,8 +75,8 @@ impl CubeTraitImplItem {
 
     pub fn func(&mut self) -> Option<&mut KernelFn> {
         match self {
-            CubeTraitImplItem::Fn(func) => Some(func),
-            CubeTraitImplItem::Other => None,
+            Self::Fn(func) => Some(func),
+            Self::Other => None,
         }
     }
 }

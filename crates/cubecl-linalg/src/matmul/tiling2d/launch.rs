@@ -39,11 +39,7 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
         "Shared memory limit will be busted. "
     );
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
-        MatrixLayout::Contiguous => true,
-        MatrixLayout::MildlyPermuted {
-            transposed: _,
-            batch_swap: _,
-        } => true,
+        MatrixLayout::Contiguous | MatrixLayout::MildlyPermuted { .. } => true,
         MatrixLayout::HighlyPermuted => false,
     };
     let lhs_correct_layout = check_layout(&lhs);
@@ -91,10 +87,7 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, F: Float>(
 
     let check_layout = |strides: &[usize]| match matrix_layout(strides) {
         MatrixLayout::Contiguous => false,
-        MatrixLayout::MildlyPermuted {
-            transposed,
-            batch_swap: _,
-        } => transposed,
+        MatrixLayout::MildlyPermuted { transposed, .. } => transposed,
         MatrixLayout::HighlyPermuted => {
             panic!("Can't run on highly permuted tensor")
         }

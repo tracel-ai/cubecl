@@ -28,12 +28,12 @@ mod new {
         /// Create a new array of the given length.
         #[allow(unused_variables)]
         pub fn new<L: Index>(length: L) -> Self {
-            Array { _val: PhantomData }
+            Self { _val: PhantomData }
         }
 
         /// Create an array from data.
         pub fn from_data<C: CubePrimitive>(_data: impl IntoIterator<Item = C>) -> Self {
-            Array { _val: PhantomData }
+            Self { _val: PhantomData }
         }
 
         /// Expand function of [new](Array::new).
