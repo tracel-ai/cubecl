@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use cubecl::benchmark::Benchmark;
 use cubecl::frontend::Float;
 use cubecl::future;
-use cubecl_linalg::matmul;
+use cubecl_linalg::matmul::{self};
 use cubecl_linalg::tensor::TensorHandle;
 
 impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
@@ -23,16 +23,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        matmul::matmul_cmma(
-            &self.client,
-            lhs,
-            rhs,
-            out,
-            match self.kind {
-                MatmulKind::Tiling2d => false,
-                MatmulKind::Cmma => true,
-            },
-        );
+        matmul::launch::<R, E>(&self.client, lhs, rhs, out);
     }
 
     fn num_samples(&self) -> usize {

@@ -25,10 +25,10 @@ macro_rules! testgen_cmma_internal {
         use cubecl_linalg::matmul::matrix::MatrixLayout;
         use cubecl_linalg::matmul::problem::MatmulProblem;
         use cubecl_linalg::matmul::stage_dim::StageDim;
-        use cubecl_linalg::matmul::create_stage_dim;
+        use cubecl_linalg::matmul::cmma_matmul::launch::create_stage_dim;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
-        use cubecl_linalg::matmul::make_cmma_config;
-        use cubecl_linalg::matmul::AdvancedConfig;
+        use cubecl_linalg::matmul::cmma_matmul::launch::make_cmma_config;
+        use cubecl_linalg::matmul::cmma_matmul::launch::AdvancedConfig;
 
         type T = CmmaTileMatmulConfig;
         type S = CmmaStageMatmulConfig<T>;
