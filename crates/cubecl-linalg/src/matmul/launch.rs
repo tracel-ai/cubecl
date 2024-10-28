@@ -3,7 +3,7 @@ use super::cmma_matmul::global::{
     CmmaGlobalMatmul, CmmaGlobalMatmulConfig, LhsTensorLoader, RhsTensorLoader, TensorUnloader,
 };
 use super::cmma_matmul::stage::{
-    CmmaStageMatmul, CmmaStageMatmulConfig, LhsStageReader, RhsStageReader, S4x4x2,
+    CmmaStageMatmul, CmmaStageMatmulConfig, CmmaStageSize, LhsStageReader, RhsStageReader, S4x4x2,
     TilingOrderConfig,
 };
 use super::cmma_matmul::tile::{
@@ -20,20 +20,20 @@ use cubecl_core::prelude::*;
 
 use cubecl_core::{
     client::ComputeClient,
-    frontend::{Float, TensorArg, TensorHandleRef},
+    frontend::{TensorArg, TensorHandleRef},
     tensor_line_size, Runtime,
 };
 
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
-pub fn matmul_cmma<R: Runtime, F: Float>(
+pub fn matmul_cmma<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, F>,
-    rhs: TensorHandle<R, F>,
-    out: TensorHandle<R, F>,
+    lhs: TensorHandle<R, EG>,
+    rhs: TensorHandle<R, EG>,
+    out: TensorHandle<R, EG>,
     use_cmma_if_possible: bool,
-) -> TensorHandle<R, F> {
-    matmul_cmma_ref::<R, F>(
+) -> TensorHandle<R, EG> {
+    matmul_cmma_ref::<R, EG>(
         client,
         lhs.as_ref(),
         rhs.as_ref(),
@@ -43,7 +43,7 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
     out
 }
 
-pub fn matmul_cmma_ref<R: Runtime, F: Float>(
+pub fn matmul_cmma_ref<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
@@ -63,7 +63,7 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
     let (rhs_make_contiguous, rhs_transposed) = check_layout(&rhs);
 
     match (lhs_make_contiguous, rhs_make_contiguous) {
-        (false, false) => matmul_cmma_ref_no_check::<R, F, F, F>(
+        (false, false) => matmul_cmma_ref_no_check::<R, E>(
             client,
             lhs,
             rhs,
@@ -71,26 +71,26 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
             (lhs_transposed, rhs_transposed),
             use_cmma_if_possible,
         ),
-        (false, true) => matmul_cmma_ref_no_check::<R, F, F, F>(
+        (false, true) => matmul_cmma_ref_no_check::<R, E>(
             client,
             lhs,
-            into_contiguous::<R, F>(client, rhs).as_ref(),
+            into_contiguous::<R, E>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
             use_cmma_if_possible,
         ),
-        (true, false) => matmul_cmma_ref_no_check::<R, F, F, F>(
+        (true, false) => matmul_cmma_ref_no_check::<R, E>(
             client,
-            into_contiguous::<R, F>(client, lhs).as_ref(),
+            into_contiguous::<R, E>(client, lhs).as_ref(),
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
             use_cmma_if_possible,
         ),
-        (true, true) => matmul_cmma_ref_no_check::<R, F, F, F>(
+        (true, true) => matmul_cmma_ref_no_check::<R, E>(
             client,
-            into_contiguous::<R, F>(client, lhs).as_ref(),
-            into_contiguous::<R, F>(client, rhs).as_ref(),
+            into_contiguous::<R, E>(client, lhs).as_ref(),
+            into_contiguous::<R, E>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
             use_cmma_if_possible,
@@ -98,13 +98,13 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
     }
 }
 
-fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, ES: Numeric, EA: Numeric>(
+fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
     transposed: (bool, bool),
-    use_cmma_if_possible: bool,
+    use_cmma: bool,
 ) {
     let rank = lhs.strides.len();
 
@@ -138,6 +138,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, ES: Numeric, EA: Numeric>(
         out_line_size,
     };
 
+    // TODO this is hardcoded for S4x4x2 in 16x16x16
     let cube_dim = CubeDim::new(32, 4, 1);
     let cube_count = CubeCount::Static(
         (problem.m as u32 + 63) / 64,
@@ -147,8 +148,19 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, ES: Numeric, EA: Numeric>(
     let advanced_config = Default::default();
 
     type TmmConfig = CmmaTileMatmulConfig;
-    if use_cmma_if_possible && check_cmma_availability::<R>(client).is_ok() {
-        launch_typed::<R, EG, half::f16, f32, CmmaInstruction16_16_16<half::f16, f32, TmmConfig>>(
+
+    if use_cmma {
+        if check_cmma_availability::<R>(client).is_err() {
+            panic!("Cmma unavailable")
+        }
+        launch_matmul::<
+            R,
+            EG,
+            half::f16,
+            f32,
+            CmmaInstruction16_16_16<half::f16, f32, TmmConfig>,
+            S4x4x2,
+        >(
             client,
             lhs,
             rhs,
@@ -159,7 +171,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, ES: Numeric, EA: Numeric>(
             advanced_config,
         );
     } else {
-        launch_typed::<R, EG, f32, f32, PlaneMma16x16x16<f32, f32, TmmConfig>>(
+        launch_matmul::<R, EG, f32, f32, PlaneMma16x16x16<f32, f32, TmmConfig>, S4x4x2>(
             client,
             lhs,
             rhs,
@@ -172,12 +184,13 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, ES: Numeric, EA: Numeric>(
     }
 }
 
-fn launch_typed<
+fn launch_matmul<
     R: Runtime,
     EG: Numeric,
     ES: Numeric,
     EA: Numeric,
     TMM: TileMatmul<ES, EA, CmmaTileMatmulConfig>,
+    CSS: CmmaStageSize,
 >(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
@@ -193,25 +206,25 @@ fn launch_typed<
     type GmmConfig = CmmaGlobalMatmulConfig<SmmConfig>;
     type BmmConfig = CmmaBatchMatmulConfig<GmmConfig>;
 
-    type StageMatmul<TMM, EG, ES, EA> = CmmaStageMatmul<ES, EG, EA, TMM, S4x4x2, SmmConfig>;
-    type GlobalMatmul<TMM, EG, ES, EA> =
-        CmmaGlobalMatmul<EG, ES, StageMatmul<TMM, EG, ES, EA>, GmmConfig>;
-    type BatchMatmul<TMM, EG, ES, EA> =
-        CmmaBatchMatmul<EG, ES, GlobalMatmul<TMM, EG, ES, EA>, BmmConfig>;
+    type StageMatmul<TMM, CSS, EG, ES, EA> = CmmaStageMatmul<ES, EG, EA, TMM, CSS, SmmConfig>;
+    type GlobalMatmul<TMM, CSS, EG, ES, EA> =
+        CmmaGlobalMatmul<EG, ES, StageMatmul<TMM, CSS, EG, ES, EA>, GmmConfig>;
+    type BatchMatmul<TMM, CSS, EG, ES, EA> =
+        CmmaBatchMatmul<EG, ES, GlobalMatmul<TMM, CSS, EG, ES, EA>, BmmConfig>;
 
     let config = make_cmma_config::<
         EG,
         ES,
         EA,
         TMM,
-        StageMatmul<TMM, EG, ES, EA>,
-        GlobalMatmul<TMM, EG, ES, EA>,
-        BatchMatmul<TMM, EG, ES, EA>,
+        StageMatmul<TMM, CSS, EG, ES, EA>,
+        GlobalMatmul<TMM, CSS, EG, ES, EA>,
+        BatchMatmul<TMM, CSS, EG, ES, EA>,
         R,
     >(&problem, &cube_dim, &cube_count, &advanced_config);
 
     unsafe {
-        BatchMatmul::<TMM, EG, ES, EA>::launch_unchecked(
+        BatchMatmul::<TMM, CSS, EG, ES, EA>::launch_unchecked(
             client,
             cube_dim,
             cube_count,

@@ -16,14 +16,14 @@ pub mod tests;
 use cubecl_core::prelude::*;
 
 // Launch a matrix multiplication kernel.
-pub fn launch_ref<R: Runtime, F: Float>(
+pub fn launch_ref<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
     use_cmma_if_possible: bool,
 ) {
-    matmul_cmma_ref::<R, F>(client, lhs, rhs, out, use_cmma_if_possible);
+    matmul_cmma_ref::<R, EG>(client, lhs, rhs, out, use_cmma_if_possible);
 }
 pub use base::*;
 pub use launch::*;
