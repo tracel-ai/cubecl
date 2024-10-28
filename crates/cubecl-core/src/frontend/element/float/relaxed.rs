@@ -73,6 +73,10 @@ impl flex32 {
     pub fn total_cmp(&self, other: &flex32) -> Ordering {
         self.0.total_cmp(&other.0)
     }
+
+    pub fn is_nan(&self) -> bool {
+        self.0.is_nan()
+    }
 }
 
 impl Mul for flex32 {
