@@ -366,13 +366,8 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
-        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
-        // memory is 32 bytes aligned (see WgpuStorage).
-        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
-        let aligned_size = size.div_ceil(align) * align;
-
         server::Handle::new(
-            self.memory_management.reserve(aligned_size as u64, None),
+            self.memory_management.reserve(size as u64, None),
             None,
             None,
         )
