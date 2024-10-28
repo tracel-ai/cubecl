@@ -1,6 +1,7 @@
 use cubecl_core::{
     client::ComputeClient,
     ir::{Elem, FloatKind},
+    prelude::CubePrimitive,
     Feature, Runtime,
 };
 
@@ -17,7 +18,7 @@ pub enum UnavailabilityReason {
 }
 
 /// Checks if the matmul cmma can be used.
-pub fn check_cmma_availability<R: Runtime>(
+pub fn check_cmma_availability<R: Runtime, F: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     cmma_config: &CmmaConfig,
 ) -> Result<(), UnavailabilityReason> {
@@ -25,7 +26,7 @@ pub fn check_cmma_availability<R: Runtime>(
     if !client.properties().feature_enabled(Feature::Cmma {
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
+        c: F::as_elem(),
         m: tile_dim.m as u8,
         k: tile_dim.k as u8,
         n: tile_dim.n as u8,
