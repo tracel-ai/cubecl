@@ -1,13 +1,26 @@
 [package]
+authors = ["Genna Wingert"]
+categories = ["algorithms"]
+description = "Compiler optimizations for CubeCL"
+keywords = ["gpu", "compiler"]
 edition = "2021"
 license.workspace = true
 name = "cubecl-opt"
 readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/cubecl-opt"
 version.workspace = true
 
+[features]
+default = [
+  "std",
+  "cubecl-common/default",
+  "cubecl-core/default",
+]
+std = ["cubecl-common/std", "cubecl-core/std"]
+
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.2.0", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "0.2.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.4.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.4.0", default-features = false }
 float-ord = "0.3"
 log = "0.4"
 num = "0.4"
