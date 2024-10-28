@@ -28,7 +28,7 @@ storage-bytes = []
 
 [dependencies]
 async-channel = { workspace = true, optional = true }
-cubecl-common = { path = "../cubecl-common", version = "0.3.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.4.0", default-features = false }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }

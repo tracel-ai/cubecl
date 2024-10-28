@@ -12,5 +12,5 @@ wgpu = ["cubecl/wgpu"]
 cuda = ["cubecl/cuda"]
 
 [dependencies]
-cubecl = { path = "../../crates/cubecl", version = "0.3.0", default-features = false }
+cubecl = { path = "../../crates/cubecl", version = "0.4.0", default-features = false }
 half = { workspace = true }

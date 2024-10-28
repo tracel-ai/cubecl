@@ -35,12 +35,12 @@ wgpu = ["cubecl-wgpu"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
 
 [dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.3.0", default-features = false }
-cubecl-cuda = { path = "../cubecl-cuda", version = "0.3.0", default-features = false, optional = true }
-cubecl-hip = { path = "../cubecl-hip", version = "0.3.0", default-features = false, optional = true }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.3.0", default-features = false, optional = true }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.3.0", default-features = false }
-cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.3.0", default-features = false, optional = true }
+cubecl-core = { path = "../cubecl-core", version = "0.4.0", default-features = false }
+cubecl-cuda = { path = "../cubecl-cuda", version = "0.4.0", default-features = false, optional = true }
+cubecl-hip = { path = "../cubecl-hip", version = "0.4.0", default-features = false, optional = true }
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.4.0", default-features = false, optional = true }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.4.0", default-features = false }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.4.0", default-features = false, optional = true }
 
 [dev-dependencies]
 half = { workspace = true }
