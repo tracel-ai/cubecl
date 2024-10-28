@@ -10,6 +10,15 @@ readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/cubecl-spirv"
 version.workspace = true
 
+[features]
+default = [
+  "std",
+  "cubecl-common/default",
+  "cubecl-core/default",
+  "cubecl-runtime/default",
+]
+std = ["cubecl-common/std", "cubecl-core/std", "cubecl-runtime/std"]
+
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.3.0", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "0.3.0" }
