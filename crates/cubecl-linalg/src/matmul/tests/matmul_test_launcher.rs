@@ -24,7 +24,6 @@ pub fn test_matmul<MM, EG, B, G, R>(
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
-    problem.check_config::<B>(&config);
 
     let lhs_shape = problem.shape(Ident::Lhs);
     let rhs_shape = problem.shape(Ident::Rhs);

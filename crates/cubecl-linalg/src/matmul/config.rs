@@ -15,3 +15,4 @@ pub trait ComptimeConfig:
     CubeType + Copy + Clone + Send + Sync + 'static + Eq + PartialEq + Hash + Debug + IntoRuntime
 {
 }
+

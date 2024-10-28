@@ -21,17 +21,16 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
 
     fn execute(&self, (lhs, rhs): Self::Args) {
         let client = R::client(&self.device);
-        todo!()
-        // let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
+        let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        // match self.kind {
-        //     MatmulKind::Tiling2d => {
-        //         matmul::tiling2d::launch(&self.client, lhs, rhs, out, Default::default());
-        //     }
-        //     MatmulKind::Cmma => {
-        //         matmul::cmma_old::launch(&self.client, lhs, rhs, out, Default::default());
-        //     }
-        // }
+        match self.kind {
+            MatmulKind::Tiling2d => {
+                matmul::cmma_matmul::launch(&self.client, lhs, rhs, out, Default::default());
+            }
+            MatmulKind::Cmma => {
+                matmul::cmma_old::launch(&self.client, lhs, rhs, out, Default::default());
+            }
+        }
     }
 
     fn num_samples(&self) -> usize {

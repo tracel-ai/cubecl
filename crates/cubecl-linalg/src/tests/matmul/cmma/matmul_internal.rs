@@ -27,7 +27,7 @@ macro_rules! testgen_cmma_internal {
         use cubecl_linalg::matmul::stage_dim::StageDim;
         use cubecl_linalg::matmul::tests::create_stage_dim;
         use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
-        use cubecl_linalg::matmul::tests::run_matmul_test;
+        use cubecl_linalg::matmul::tests::make_cmma_config;
         use cubecl_linalg::matmul::tests::AdvancedConfig;
 
         type T = CmmaTileMatmulConfig;
@@ -43,7 +43,7 @@ macro_rules! testgen_cmma_internal {
                                                                         $cube_count:expr,
                                                                         $stage_size:ty,
                                                                         $tile_matmul_type:ident,
-                                                                        $advanded_config:expr
+                                                                        $advanced_config:expr
                                                                     ) => {
                 pub fn $test_name<R: Runtime>(device: &R::Device) {
                     type T = CmmaTileMatmulConfig;
@@ -62,7 +62,7 @@ macro_rules! testgen_cmma_internal {
                     type GlobalMatmul = CmmaGlobalMatmul<EG, ES, StageMatmul, G>;
                     type BatchMatmul = CmmaBatchMatmul<EG, ES, GlobalMatmul, B>;
 
-                    run_matmul_test::<
+                    let config = make_cmma_config::<
                         EG,
                         ES,
                         EA,
@@ -71,7 +71,9 @@ macro_rules! testgen_cmma_internal {
                         GlobalMatmul,
                         BatchMatmul,
                         R,
-                    >(problem, $cube_dim, $cube_count, $advanded_config, device);
+                    >(&problem, &$cube_dim, &$cube_count, &$advanced_config);
+
+                    test_matmul::<BatchMatmul, EG, B, G, R>(problem, $cube_dim, $cube_count, config, device);
                 }
             };
         }

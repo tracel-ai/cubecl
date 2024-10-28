@@ -18,12 +18,10 @@ use crate::matmul::{
     problem::MatmulProblem,
 };
 
-use super::matmul_test_launcher::test_matmul;
-
 type T = CmmaTileMatmulConfig;
 type S = CmmaStageMatmulConfig<T>;
 type G = CmmaGlobalMatmulConfig<S>;
-type B = CmmaBatchMatmulConfig<G>;
+pub type CmmaConfig = CmmaBatchMatmulConfig<G>;
 
 pub struct AdvancedConfig {
     pub tiling_order: TilingOrderConfig,
@@ -37,13 +35,13 @@ impl Default for AdvancedConfig {
     }
 }
 
-pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
-    problem: MatmulProblem,
-    cube_dim: CubeDim,
-    cube_count: CubeCount,
-    advanded_config: AdvancedConfig,
-    device: &R::Device,
-) where
+pub fn make_cmma_config<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
+    problem: &MatmulProblem,
+    cube_dim: &CubeDim,
+    cube_count: &CubeCount,
+    advanced_config: &AdvancedConfig,
+) -> CmmaConfig
+where
     TMM: TileMatmul<ES, EA, T>,
     SMM: StageMatmul<ES, EG, LhsStageReader<ES, S>, RhsStageReader<ES, S>, S>,
     GMM: GlobalMatmul<
@@ -54,8 +52,8 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
         TensorUnloader<EG, G>,
         G,
     >,
-    BMM: BatchMatmul<EG, B>,
-    EG: Numeric + CubeElement,
+    BMM: BatchMatmul<EG, CmmaConfig>,
+    EG: Numeric,
     ES: Numeric,
     EA: Numeric,
     R: Runtime,
@@ -92,7 +90,7 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
         rhs_stage_dim,
         out_stage_dim,
         num_planes,
-        advanded_config.tiling_order,
+        advanced_config.tiling_order,
     );
     let g = G::new(
         s,
@@ -100,9 +98,10 @@ pub fn run_matmul_test<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
         check_m_bounds,
         check_n_bounds,
     );
-    let b = B::new(g, cube_count_x, cube_count_y, cube_count_z);
+    let b = CmmaConfig::new(g, *cube_count_x, *cube_count_y, *cube_count_z);
+    problem.check_config::<CmmaConfig>(&b);
 
-    test_matmul::<BMM, EG, B, G, R>(problem, cube_dim, cube_count, b, device);
+    b
 }
 
 pub fn create_stage_dim(
