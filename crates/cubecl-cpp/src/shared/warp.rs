@@ -51,13 +51,14 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                     Elem::F162 | Elem::BF162 => "__hmax2",
                     _ => "max",
                 };
+                let __shfl_down = D::warp_shuffle_down(out);
                 write!(
                     f,
                     "
 {out} = {input};
                 {{
 for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
-    {out} = {max}({out}, __shfl_down_sync(0xFFFFFFFF, {out}, offset));
+    {out} = {max}({out}, {__shfl_down});
 }}
 }}
                     "
@@ -69,13 +70,14 @@ for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
                     Elem::F162 | Elem::BF162 => "__hmin2",
                     _ => "min",
                 };
+                let __shfl_down = D::warp_shuffle_down(out);
                 write!(
                     f,
                     "
 {out} = {input};
                 {{
 for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
-    {out} = {min}({out}, __shfl_down_sync(0xFFFFFFFF, {out}, offset));
+    {out} = {min}({out}, {__shfl_down});
 }}
 }}
                     "
@@ -88,31 +90,41 @@ unsigned int mask = __activemask();
 unsigned int leader = __ffs(mask) - 1;
 {out} = threadIdx.x % warpSize == leader;
             "
-            ),
-            WarpInstruction::All { input, out } => write!(
-                f,
-                "
+                )
+            }
+            WarpInstruction::All { input, out } => {
+                let __all = D::warp_all(out);
+                write!(
+                    f,
+                    "
     {out} = {input};
 {{
-    {out} =  __all_sync(0xFFFFFFFF, {out});
+    {out} =  {__all};
 }}
 "
-            ),
-            WarpInstruction::Any { input, out } => write!(
-                f,
-                "
+                )
+            }
+            WarpInstruction::Any { input, out } => {
+                let __any = D::warp_any(out);
+                write!(
+                    f,
+                    "
     {out} = {input};
 {{
-    {out} =  __any_sync(0xFFFFFFFF, {out});
+    {out} =  {__any};
 }}
 "
-            ),
-            WarpInstruction::Broadcast { input, id, out } => write!(
-                f,
-                "
-{out} = __shfl_sync(0xFFFFFFFF, {input}, {id});
+                )
+            }
+            WarpInstruction::Broadcast { input, id, out } => {
+                let __shfl = D::warp_shuffle(input, id);
+                write!(
+                    f,
+                    "
+{out} = {__shfl};
             "
-            ),
+                )
+            }
         }
     }
 }
@@ -123,13 +135,14 @@ fn reduce_operator<D: Dialect>(
     out: &Variable<D>,
     op: &str,
 ) -> core::fmt::Result {
+    let __shfl_xor = D::warp_shuffle_xor(out);
     write!(
         f,
         "
     {out} = {input};
 {{
     for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{
-       {out} {op} __shfl_xor_sync(-1, {out}, offset);
+       {out} {op} {__shfl_xor};
     }}
 }}
 "
