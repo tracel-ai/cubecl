@@ -46,15 +46,46 @@ jobs:
       - publish-cubecl-core
     secrets: inherit
 
+  publish-cubecl-opt:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-opt
+    needs:
+      - publish-cubecl-common
+      - publish-cubecl-core
+    secrets: inherit
+
+  publish-cubecl-spirv:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-spirv
+    needs:
+      - publish-cubecl-opt
+      - publish-cubecl-common
+      - publish-cubecl-core
+      - publish-cubecl-runtime
+    secrets: inherit
+
   publish-cubecl-wgpu:
     uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
     with:
       crate: cubecl-wgpu
     needs:
+      - publish-cubecl-spirv
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
       - publish-cubecl-linalg
+    secrets: inherit
+
+  publish-cubecl-cpp:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-cpp
+    needs:
+      - publish-cubecl-common
+      - publish-cubecl-runtime
+      - publish-cubecl-core
     secrets: inherit
 
   publish-cubecl-cuda:
@@ -62,6 +93,19 @@ jobs:
     with:
       crate: cubecl-cuda
     needs:
+      - publish-cubecl-cpp
+      - publish-cubecl-common
+      - publish-cubecl-runtime
+      - publish-cubecl-core
+      - publish-cubecl-linalg
+    secrets: inherit
+
+  publish-cubecl-hip:
+    uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
+    with:
+      crate: cubecl-hip
+    needs:
+      - publish-cubecl-cpp
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
