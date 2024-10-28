@@ -1,7 +1,6 @@
-use super::{
-    matmul_batch::BmmConfig,
-    matrix::{Ident, MatrixLayout},
-};
+#[cfg(feature = "export_tests")]
+use super::matrix::Ident;
+use super::{matmul_batch::BmmConfig, matrix::MatrixLayout};
 
 #[derive(Clone)]
 pub struct MatmulProblem {
@@ -17,6 +16,7 @@ pub struct MatmulProblem {
 }
 
 impl MatmulProblem {
+    #[cfg(feature = "export_tests")]
     pub(crate) fn tensor_size(&self, ident: Ident) -> usize {
         match ident {
             Ident::Lhs => self.num_batches() * self.m * self.k,
@@ -25,6 +25,7 @@ impl MatmulProblem {
         }
     }
 
+    #[cfg(feature = "export_tests")]
     pub(crate) fn shape(&self, ident: Ident) -> Vec<usize> {
         self.b
             .iter()
@@ -40,6 +41,7 @@ impl MatmulProblem {
             .collect()
     }
 
+    #[cfg(feature = "export_tests")]
     pub(crate) fn strides(&self, ident: Ident) -> Vec<usize> {
         let mut strides = Vec::with_capacity(self.b.len() + 2);
 
