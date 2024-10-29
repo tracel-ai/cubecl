@@ -9,15 +9,17 @@ use super::{SmmConfig, StageReader, StageWriter};
 /// Provides matrix multiplication operations at the stage level.
 ///
 /// At the stage level,
+///  - Inputs are staged into an intermediate memory called stage (typically a shared memory).
 ///  - All planes within a Cube can collaborate to solve the problem
 ///  - Dimensions M, N and K are fixed to an integer, and the
 ///    matrix multiplication works only for size (M, K) · (K, N) = (M, N).
 ///    These integers are multiples of the underlying Tile matmul,
-///    corresponding to the number of tiles in each dimension
+///    corresponding to the number of tiles in each dimension.
 ///
 /// Assumptions:
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
+///  - Enough planes are launched to perform the whole computation
 pub trait StageMatmul<
     I: Numeric,
     O: Numeric,

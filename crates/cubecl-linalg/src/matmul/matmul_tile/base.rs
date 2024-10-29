@@ -9,13 +9,15 @@ use super::TmmConfig;
 /// Provides matrix multiplication operations at the tile level.
 ///
 /// At the tile level,
+///  - Inputs are raw slices of data, called tiles.
 ///  - units within one plane can collaborate to solve the problem
 ///  - dimensions M, N and K are fixed to an integer, and the
-/// matrix multiplication works only for size (M, K) · (K, N) = (M, N)
+///    matrix multiplication works only for size (M, K) · (K, N) = (M, N).
 ///
 /// Assumptions:
 ///  - Slices given as inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
+///  - Enough units are present to perform the whole computation
 pub trait TileMatmul<I: Numeric, O: Numeric, T: TmmConfig>:
     'static + Send + Sync + Matmul<I, O, Config = T>
 {
