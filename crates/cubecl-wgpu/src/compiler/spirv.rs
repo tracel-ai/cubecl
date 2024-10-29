@@ -299,7 +299,8 @@ fn register_types(props: &mut DeviceProperties<Feature>) {
         Elem::Float(FloatKind::F16),
         Elem::Float(FloatKind::F32),
         Elem::Float(FloatKind::Relaxed),
-        Elem::Float(FloatKind::F64),
+        // GLSL extensions don't support f64, so disable for now
+        //Elem::Float(FloatKind::F64),
         Elem::Bool,
     ];
 

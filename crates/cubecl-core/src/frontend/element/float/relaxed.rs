@@ -54,6 +54,8 @@ use super::{
 pub struct flex32(f32);
 
 impl flex32 {
+    pub const MIN_POSITIVE: Self = Self(half::f16::MIN_POSITIVE.to_f32_const());
+
     pub const fn from_f32(val: f32) -> Self {
         flex32(val)
     }
