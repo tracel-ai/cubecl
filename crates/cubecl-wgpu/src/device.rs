@@ -47,8 +47,8 @@ pub enum WgpuDevice {
     ///
     /// # Notes
     ///
-    /// The device is the address of the [wgpu::Device].
-    Existing(usize),
+    /// This can be initialized with [init_existing_device](crate::runtime::init_existing_device).
+    Existing(u32),
 }
 
 impl Default for WgpuDevice {

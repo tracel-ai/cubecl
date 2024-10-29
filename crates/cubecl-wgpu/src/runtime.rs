@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ptr};
+use std::marker::PhantomData;
 
 use crate::{
     compiler::{base::WgpuCompiler, wgsl::WgslCompiler},
@@ -90,13 +90,30 @@ impl Default for RuntimeOptions {
     }
 }
 
+/// Initializes an existing device and assigns a unique `device_id` for internal tracking.
+///
+/// # Note
+///
+/// Please **do not** to initialize the **same** device more than once.
+///
+/// This function generates a new, globally unique ID for the device every time it is called,
+/// even if called on the same device multiple times.
 pub fn init_existing_device(
     adapter: Arc<wgpu::Adapter>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     options: RuntimeOptions,
 ) -> WgpuDevice {
-    let device_id = WgpuDevice::Existing(ptr::from_ref(device.as_ref()) as usize);
+    use core::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    let device_id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    if device_id == u32::MAX {
+        core::panic!("Memory ID overflowed");
+    }
+
+    let device_id = WgpuDevice::Existing(device_id);
     let client = create_client(adapter, device, queue, options);
     RUNTIME.register(&device_id, client);
     device_id

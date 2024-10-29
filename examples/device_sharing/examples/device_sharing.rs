@@ -10,5 +10,13 @@ fn main() {
         );
         device_sharing::assert_device_cubecl_wgpu_is_existing(&device_cubecl_wgpu);
         sum_things::launch::<cubecl::wgpu::WgpuRuntime>(&device_cubecl_wgpu);
+
+        // // Please do not initialize the same device more than once.
+        // let device_cubecl_wgpu_2 = cubecl::wgpu::init_existing_device(
+        //     context_wgpu.adapter,
+        //     context_wgpu.device,
+        //     context_wgpu.queue,
+        //     Default::default(),
+        // );
     }
 }
