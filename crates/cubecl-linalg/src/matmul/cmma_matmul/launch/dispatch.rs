@@ -16,7 +16,7 @@ pub trait MatmulLaunchDispatch {
     type TileMatmul: TileMatmul<Self::ElementInput, Self::ElementAccumulator, CmmaTileMatmulConfig>;
 
     fn cube_dim() -> CubeDim;
-    fn cube_count(problem: &MatmulProblem) -> CubeCount;
+    fn cube_count<EG: Numeric>(problem: &MatmulProblem<EG>) -> CubeCount;
 }
 
 pub struct PlaneMmaLaunchDispatch {}
@@ -34,7 +34,7 @@ impl MatmulLaunchDispatch for PlaneMmaLaunchDispatch {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
     }
 
-    fn cube_count(problem: &MatmulProblem) -> CubeCount {
+    fn cube_count<EG: Numeric>(problem: &MatmulProblem<EG>) -> CubeCount {
         let m_stage = Self::StageSize::NUM_M * Self::TileMatmul::M;
         let n_stage = Self::StageSize::NUM_N * Self::TileMatmul::N;
         let cubes_needed_m = (problem.m as u32 + m_stage - 1) / m_stage;
@@ -59,7 +59,7 @@ impl MatmulLaunchDispatch for CmmaLaunchDispatch {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
     }
 
-    fn cube_count(problem: &MatmulProblem) -> CubeCount {
+    fn cube_count<EG: Numeric>(problem: &MatmulProblem<EG>) -> CubeCount {
         let m_stage = Self::StageSize::NUM_M * Self::TileMatmul::M;
         let n_stage = Self::StageSize::NUM_N * Self::TileMatmul::N;
         let cubes_needed_m = (problem.m as u32 + m_stage - 1) / m_stage;

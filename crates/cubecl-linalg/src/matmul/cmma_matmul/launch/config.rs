@@ -35,7 +35,7 @@ impl Default for AdvancedConfig {
 }
 
 pub fn make_cmma_config<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
-    problem: &MatmulProblem,
+    problem: &MatmulProblem<EG>,
     cube_dim: &CubeDim,
     cube_count: &CubeCount,
     advanced_config: &AdvancedConfig,

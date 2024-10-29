@@ -1,4 +1,4 @@
-use cubecl_core::{client::ComputeClient, server::Handle, CubeElement, Runtime};
+use cubecl_core::{client::ComputeClient, prelude::Numeric, server::Handle, CubeElement, Runtime};
 
 use crate::matmul::problem::MatmulProblem;
 
@@ -45,7 +45,11 @@ pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
     (0..num_elements).map(|_| lcg(&mut seed)).collect()
 }
 
-pub(crate) fn matmul_cpu_reference(lhs: &[f32], rhs: &[f32], problem: MatmulProblem) -> Vec<f32> {
+pub(crate) fn matmul_cpu_reference<EG: Numeric>(
+    lhs: &[f32],
+    rhs: &[f32],
+    problem: MatmulProblem<EG>,
+) -> Vec<f32> {
     let m = problem.m as usize;
     let n = problem.n as usize;
     let k = problem.k as usize;

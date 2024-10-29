@@ -1,9 +1,13 @@
+use std::marker::PhantomData;
+
+use cubecl_core::prelude::Numeric;
+
 #[cfg(feature = "export_tests")]
 use super::matrix::Ident;
 use super::{matmul_batch::BmmConfig, matrix::MatrixLayout};
 
 #[derive(Clone)]
-pub struct MatmulProblem {
+pub struct MatmulProblem<EG: Numeric> {
     pub m: usize,
     pub n: usize,
     pub k: usize,
@@ -13,9 +17,10 @@ pub struct MatmulProblem {
     pub lhs_line_size: u8,
     pub rhs_line_size: u8,
     pub out_line_size: u8,
+    pub _element: PhantomData<EG>,
 }
 
-impl MatmulProblem {
+impl<EG: Numeric> MatmulProblem<EG> {
     #[cfg(feature = "export_tests")]
     pub(crate) fn tensor_size(&self, ident: Ident) -> usize {
         match ident {

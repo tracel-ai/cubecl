@@ -12,7 +12,7 @@ use super::test_utils::generate_random_data;
 use super::test_utils::matmul_cpu_reference;
 
 pub fn test_matmul_internal<MM, EG, B, G, R>(
-    problem: MatmulProblem,
+    problem: MatmulProblem<EG>,
     cube_dim: CubeDim,
     cube_count: CubeCount,
     config: MM::Config,
@@ -89,9 +89,9 @@ fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> 
     result
 }
 
-pub fn test_matmul_launch<R: Runtime>(
+pub fn test_matmul_launch<EG: Numeric, R: Runtime>(
     _client: &ComputeClient<R::Server, R::Channel>,
-    _problem: MatmulProblem,
+    _problem: MatmulProblem<EG>,
     // lhs: TensorHandle<R, E>,
     // rhs: TensorHandle<R, E>,
     // out: TensorHandle<R, E>,

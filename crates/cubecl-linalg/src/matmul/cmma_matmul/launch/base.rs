@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use cubecl_core::prelude::*;
 
 use cubecl_core::{
@@ -70,7 +72,7 @@ pub fn matmul_cmma_ref<R: Runtime, E: Numeric, D: MatmulLaunchDispatch>(
     }
 }
 
-fn matmul_cmma_ref_no_check<R: Runtime, E: Numeric, D: MatmulLaunchDispatch>(
+fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
@@ -91,7 +93,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, E: Numeric, D: MatmulLaunchDispatch>(
     let out_line_size =
         tensor_line_size(available_vectorizations, out.shape, out.strides, rank - 1);
 
-    let problem = MatmulProblem {
+    let problem = MatmulProblem::<EG> {
         m: m as usize,
         n: n as usize,
         k: k as usize,
@@ -107,6 +109,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, E: Numeric, D: MatmulLaunchDispatch>(
         lhs_line_size,
         rhs_line_size,
         out_line_size,
+        _element: PhantomData,
     };
 
     let cube_dim = D::cube_dim();
@@ -114,7 +117,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, E: Numeric, D: MatmulLaunchDispatch>(
 
     let advanced_config = Default::default();
 
-    launch_matmul::<R, E, D::ElementInput, D::ElementAccumulator, D::TileMatmul, D::StageSize>(
+    launch_matmul::<R, EG, D::ElementInput, D::ElementAccumulator, D::TileMatmul, D::StageSize>(
         client,
         lhs,
         rhs,
@@ -138,7 +141,7 @@ fn launch_matmul<
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
-    problem: MatmulProblem,
+    problem: MatmulProblem<EG>,
     cube_dim: CubeDim,
     cube_count: CubeCount,
     advanced_config: AdvancedConfig,

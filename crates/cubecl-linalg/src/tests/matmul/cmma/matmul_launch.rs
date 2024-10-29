@@ -22,9 +22,10 @@ macro_rules! testgen_matmul_launch {
                 lhs_line_size: 4,
                 rhs_line_size: 4,
                 out_line_size: 4,
+                _element: PhantomData,
             };
 
-            test_matmul_launch::<TestRuntime>(&client, problem);
+            test_matmul_launch::<f32, TestRuntime>(&client, problem);
         }
     };
 }
