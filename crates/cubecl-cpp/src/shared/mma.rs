@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::{Dialect, Elem, Variable};
+use super::{Component, Dialect, Elem, Variable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum FragmentIdent {
