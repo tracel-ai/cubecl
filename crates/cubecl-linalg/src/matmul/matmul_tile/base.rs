@@ -8,7 +8,9 @@ use super::TmmConfig;
 #[cube]
 /// Provides matrix multiplication operations at the tile level.
 ///
-/// At this level, dimensions M, N and K are fixed to an integer, and the
+/// At the tile level,
+///  - units within one plane can collaborate to solve the problem
+///  - dimensions M, N and K are fixed to an integer, and the
 /// matrix multiplication works only for size (M, K) · (K, N) = (M, N)
 ///
 /// Assumptions:
@@ -24,14 +26,14 @@ pub trait TileMatmul<I: Numeric, O: Numeric, T: TmmConfig>:
     /// Common dimension of LHS and RHS
     const K: u32;
 
-    /// Contains LHS data
+    /// Contains LHS data that can be split across the units
     type Lhs: CubeType;
-    /// Contains RHS data
+    /// Contains RHS data that can be split across the units
     type Rhs: CubeType;
-    /// Contains output data
+    /// Contains output data that can be split across the units
     type Out: CubeType;
 
-    /// Executes the matrix multiplication of LHS and RHS, storing it to the output
+    /// Executes the matrix multiplication of LHS and RHS, adding the result to the output
     fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: T);
 
     /// Create the container for LHS data
@@ -56,7 +58,12 @@ pub trait TileMatmul<I: Numeric, O: Numeric, T: TmmConfig>:
     /// Fill the container of RHS with data
     fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: T);
 
-    /// Create the container to receive the execution output
+    /// Create the container to receive the execution output.
+    ///
+    /// # Safety
+    ///
+    /// The output container must be initialized to some value (typically 0),
+    /// because the execution adds to the already present value.
     fn init_output(#[comptime] config: T) -> Self::Out;
 
     /// Write the content of the output container to the given slice
