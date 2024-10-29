@@ -1,0 +1,19 @@
+[package]
+authors = []
+edition.workspace = true
+license.workspace = true
+name = "device_sharing"
+publish = false
+version.workspace = true
+
+[features]
+default = []
+wgpu = ["cubecl/wgpu"]
+cuda = ["cubecl/cuda"]
+
+[dependencies]
+cubecl = { path = "../../crates/cubecl", version = "0.4.0" }
+half = { workspace = true }
+
+sum_things = { path = "../sum_things" }
+wgpu = { git = "https://github.com/erichdongubler-mozilla/wgpu", branch = "v23", features = ["fragile-send-sync-non-atomic-wasm"] }
