@@ -1,5 +1,7 @@
 use crate::shared::{Dialect, Variable};
 
+const MMA_NAMESPACE: &str =  "nvcuda::wmma";
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Cuda;
 
@@ -38,5 +40,9 @@ impl Dialect for Cuda {
     }
     fn warp_any(out: &Variable<Self>) -> String {
         format!("__any_sync(-1, {out})")
+    }
+
+    fn mma_namespace() -> &'static str {
+        MMA_NAMESPACE 
     }
 }

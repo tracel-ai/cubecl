@@ -32,6 +32,8 @@ pub trait Dialect: Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 's
     fn warp_shuffle_down(out: &CppVariable<Self>) -> String;
     fn warp_all(out: &CppVariable<Self>) -> String;
     fn warp_any(out: &CppVariable<Self>) -> String;
+    // Matrix-Multiple Accumulate
+    fn mma_namespace() -> &'static str;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -818,7 +820,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_matrix_ident(&mut self, ident: gpu::MatrixIdent) -> super::FragmentIdent {
+    fn compile_matrix_ident(&mut self, ident: gpu::MatrixIdent) -> super::FragmentIdent<D> {
         match ident {
             gpu::MatrixIdent::A => super::FragmentIdent::A,
             gpu::MatrixIdent::B => super::FragmentIdent::B,
@@ -829,7 +831,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_matrix_layout(
         &mut self,
         layout: gpu::MatrixLayout,
-    ) -> Option<super::FragmentLayout> {
+    ) -> Option<super::FragmentLayout<D>> {
         match layout {
             gpu::MatrixLayout::ColMajor => Some(super::FragmentLayout::ColMajor),
             gpu::MatrixLayout::RowMajor => Some(super::FragmentLayout::RowMajor),

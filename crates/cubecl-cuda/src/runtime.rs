@@ -122,6 +122,7 @@ fn register_wmma_features(properties: &mut DeviceProperties<Feature>, arch: u32)
     }
 
     if wmma {
+        properties.register_feature(Feature::CmmaWarpSize(32));
         // Types fully supported.
         for (a, b, c) in [
             (
