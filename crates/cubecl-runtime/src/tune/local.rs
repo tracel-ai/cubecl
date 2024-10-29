@@ -93,10 +93,6 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             TuneCacheResult::Hit { fastest_index } => {
                 return autotune_operation_set.fastest(fastest_index).execute();
             }
-            #[cfg(autotune_persistent_cache)]
-            TuneCacheResult::Unchecked => {
-                panic!("Should have checked the cache already.")
-            }
             TuneCacheResult::Miss => {
                 // We don't know the results yet, start autotuning.
                 //
@@ -120,6 +116,10 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             TuneCacheResult::Pending => {
                 // We're waiting for results to come in.
             }
+            #[cfg(autotune_persistent_cache)]
+            TuneCacheResult::Unchecked => {
+                panic!("Should have checked the cache already.")
+            }
         };
 
         let fastest = {
@@ -133,7 +133,6 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             match tuner.fastest(&key) {
                 TuneCacheResult::Hit { fastest_index } => {
                     // Theres a known good value - just run it.
-                    //
                     fastest_index
                 }
                 TuneCacheResult::Pending => {
