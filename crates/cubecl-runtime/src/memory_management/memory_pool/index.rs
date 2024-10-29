@@ -6,8 +6,8 @@ use hashbrown::HashMap;
 
 /// Data Structure that helps to search items by size efficiently.
 pub struct SearchIndex<T> {
-    items_per_size: BTreeMap<usize, Vec<T>>,
-    sizes_per_item: HashMap<T, usize>,
+    items_per_size: BTreeMap<u64, Vec<T>>,
+    sizes_per_item: HashMap<T, u64>,
 }
 
 impl<T: PartialEq + Eq + Hash + Clone> SearchIndex<T> {
@@ -20,7 +20,7 @@ impl<T: PartialEq + Eq + Hash + Clone> SearchIndex<T> {
     }
 
     /// Insert a new sized item into the search index.
-    pub fn insert(&mut self, item: T, size: usize) {
+    pub fn insert(&mut self, item: T, size: u64) {
         self.remove(&item);
 
         if let Some(values) = self.items_per_size.get_mut(&size) {
@@ -35,7 +35,7 @@ impl<T: PartialEq + Eq + Hash + Clone> SearchIndex<T> {
     #[allow(unused)]
     pub fn find_by_size(
         &self,
-        range: core::ops::Range<usize>,
+        range: core::ops::Range<u64>,
     ) -> impl DoubleEndedIterator<Item = &T> {
         self.items_per_size.range(range).flat_map(|a| a.1)
     }

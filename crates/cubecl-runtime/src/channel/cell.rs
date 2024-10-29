@@ -4,7 +4,7 @@ use crate::storage::BindingResource;
 use crate::ExecutionMode;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::stub::Duration;
+use cubecl_common::benchmark::TimestampsResult;
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///
@@ -80,7 +80,7 @@ where
         self.server.borrow_mut().flush()
     }
 
-    async fn sync(&self) -> Duration {
+    async fn sync(&self) {
         let future = {
             let mut server = self.server.borrow_mut();
             server.sync()
@@ -88,8 +88,24 @@ where
         future.await
     }
 
+    async fn sync_elapsed(&self) -> TimestampsResult {
+        let future = {
+            let mut server = self.server.borrow_mut();
+            server.sync_elapsed()
+        };
+        future.await
+    }
+
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
         self.server.borrow_mut().memory_usage()
+    }
+
+    fn enable_timestamps(&self) {
+        self.server.borrow_mut().enable_timestamps();
+    }
+
+    fn disable_timestamps(&self) {
+        self.server.borrow_mut().disable_timestamps();
     }
 }
 

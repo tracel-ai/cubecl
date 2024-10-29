@@ -1,38 +1,38 @@
 use super::{Body, Dialect, Item, Variable};
 use cubecl_core::{ir::CubeDim, CompilerRepresentation};
-use std::{collections::HashSet, fmt::Display, marker::PhantomData};
+use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Binding {
-    pub item: Item,
+pub struct Binding<D: Dialect> {
+    pub item: Item<D>,
     pub size: Option<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SharedMemory {
+pub struct SharedMemory<D: Dialect> {
     pub index: u16,
-    pub item: Item,
+    pub item: Item<D>,
     pub size: u32,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ConstArray {
+pub struct ConstArray<D: Dialect> {
     pub index: u16,
-    pub item: Item,
+    pub item: Item<D>,
     pub size: u32,
-    pub values: Vec<Variable>,
+    pub values: Vec<Variable<D>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct LocalArray {
+pub struct LocalArray<D: Dialect> {
     pub index: u16,
-    pub item: Item,
+    pub item: Item<D>,
     pub depth: u8,
     pub size: u32,
 }
 
-impl LocalArray {
-    pub fn new(index: u16, item: Item, depth: u8, size: u32) -> Self {
+impl<D: Dialect> LocalArray<D> {
+    pub fn new(index: u16, item: Item<D>, depth: u8, size: u32) -> Self {
         Self {
             index,
             item,
@@ -42,24 +42,23 @@ impl LocalArray {
     }
 }
 
-impl SharedMemory {
-    pub fn new(index: u16, item: Item, size: u32) -> Self {
+impl<D: Dialect> SharedMemory<D> {
+    pub fn new(index: u16, item: Item<D>, size: u32) -> Self {
         Self { index, item, size }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ComputeKernel<D: Dialect> {
-    pub inputs: Vec<Binding>,
-    pub outputs: Vec<Binding>,
-    pub named: Vec<(String, Binding)>,
+    pub inputs: Vec<Binding<D>>,
+    pub outputs: Vec<Binding<D>>,
+    pub named: Vec<(String, Binding<D>)>,
     pub cube_dim: CubeDim,
-    pub body: Body,
+    pub body: Body<D>,
     pub wmma_activated: bool,
     pub bf16: bool,
     pub f16: bool,
-    pub items: HashSet<super::Item>,
-    pub dialect: PhantomData<D>,
+    pub items: HashSet<super::Item<D>>,
 }
 
 impl<D: Dialect> CompilerRepresentation for ComputeKernel<D> {

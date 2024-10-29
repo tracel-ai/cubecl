@@ -1,4 +1,4 @@
-use async_channel::{Receiver, Sender};
+use async_channel::Sender;
 use cubecl_common::future;
 
 use core::future::Future;
@@ -18,7 +18,7 @@ use crate::client::ComputeClient;
 use crate::server::ComputeServer;
 use crate::tune::{AutotuneOperation, AutotuneOperationSet, TuneBenchmark, TuneCache};
 
-use super::AutotuneKey;
+use super::{AutotuneKey, TuneCacheResult};
 
 /// An error that occurred during benchmarking. If other benches succeeded, ignore this bench and
 /// continue gracefully. If all benches fail, panic.
@@ -31,8 +31,6 @@ type BenchError = ManuallyDrop<Box<dyn Any + Send>>;
 /// Executes autotune benchmarking and caching
 pub struct Tuner<K: AutotuneKey> {
     tune_cache: TuneCache<K>,
-    results_send: Sender<AutotuneMessage<K>>,
-    results_rec: Receiver<AutotuneMessage<K>>,
 }
 
 struct AutotuneMessage<K> {
@@ -40,69 +38,76 @@ struct AutotuneMessage<K> {
     fastest_index: usize,
 }
 
+/// Result from running benchmarks.
+pub struct AutotuneResult<K, Out> {
+    key: K,
+    fastest_index: usize,
+    set: Box<dyn AutotuneOperationSet<K, Out>>,
+}
+
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
     /// Returns a tuner with cache initialized from persistent cache
     pub fn new(name: &str, device_id: &str) -> Self {
-        let (send, rec) = async_channel::unbounded();
         Self {
-            results_send: send,
-            results_rec: rec,
             tune_cache: TuneCache::new(name, device_id),
         }
     }
 
     /// Fetch the fastest autotune operation index for an autotune key.
-    pub fn autotune_fastest(&self, key: &K) -> Option<usize> {
-        self.tune_cache.find_fastest(key)
+    pub fn fastest(&self, key: &K) -> TuneCacheResult {
+        self.tune_cache.fastest(key)
+    }
+
+    /// Registers the [results](AutotuneResult) from [execute_autotune()](Self::execute_autotune).
+    pub fn register_autotune<Out: Send>(&mut self, result: AutotuneResult<K, Out>) -> Out {
+        self.tune_cache
+            .cache_insert(result.key.clone(), result.fastest_index);
+
+        #[cfg(autotune_persistent_cache)]
+        {
+            let checksum = result.set.compute_checksum();
+            self.tune_cache
+                .persistent_cache_insert(result.key, checksum, result.fastest_index);
+            self.tune_cache.save();
+        }
+        let op = result.set.fastest(result.fastest_index);
+
+        AutotuneOperation::execute(op)
+    }
+
+    #[cfg(autotune_persistent_cache)]
+    /// Fetch the fastest autotune operation index for an autotune key and validate the checksum.
+    pub fn fastest_with_checksum<Out: Send>(
+        &mut self,
+        set: &dyn AutotuneOperationSet<K, Out>,
+    ) -> TuneCacheResult {
+        self.tune_cache.fastest_with_checksum(set)
     }
 
     /// Execute the fastest autotune operation if known, otherwise perform some benchmarks before.
     pub fn execute_autotune<S, C, Out: Send + 'static>(
-        &mut self,
+        &self,
         set: Box<dyn AutotuneOperationSet<K, Out>>,
         client: &ComputeClient<S, C>,
-    ) -> Out
+    ) -> AutotuneResult<K, Out>
     where
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
     {
-        match self.tune_cache.try_cache(set.as_ref()) {
-            // Cache hit -> return straight away.
-            super::TuneCacheResult::Hit { fastest_index } => {
-                let op = set.fastest(fastest_index);
-                return op.execute();
-            }
-            // Pending -> wait for the cache to be filled.
-            super::TuneCacheResult::Pending => {}
-            // Never seen before -> Start autotuning.
-            super::TuneCacheResult::Miss => {
-                self.start_autotuning(set.as_ref(), client);
-            }
-        };
+        let (send, rec) = async_channel::bounded(1);
 
-        // Collect any new cache results that have come in.
-        while let Ok(msg) = self.results_rec.try_recv() {
-            self.tune_cache
-                .cache_insert(msg.key.clone(), msg.fastest_index);
+        self.start_autotuning(send, set.as_ref(), client);
 
-            #[cfg(autotune_persistent_cache)]
-            {
-                let checksum = set.compute_checksum();
-                self.tune_cache
-                    .persistent_cache_insert(msg.key, checksum, msg.fastest_index);
-                self.tune_cache.save();
+        if let Ok(msg) = rec.try_recv() {
+            AutotuneResult {
+                key: msg.key,
+                fastest_index: msg.fastest_index,
+                set,
             }
+        } else {
+            panic!("Unable to perform autotune.");
         }
-
-        // Check to see if value is now cached. If not, just use a default operation.
-        let fastest_index = match self.tune_cache.try_cache(set.as_ref()) {
-            super::TuneCacheResult::Hit { fastest_index } => fastest_index,
-            _ => 0,
-        };
-
-        let op = set.fastest(fastest_index);
-        AutotuneOperation::execute(op)
     }
 
     fn start_autotuning<
@@ -110,22 +115,32 @@ impl<K: AutotuneKey> Tuner<K> {
         C: ComputeChannel<S> + 'static,
         Out: Send + 'static,
     >(
-        &mut self,
+        &self,
+        sender: Sender<AutotuneMessage<K>>,
         set: &dyn AutotuneOperationSet<K, Out>,
         client: &ComputeClient<S, C>,
     ) {
         let key = set.key();
         log::info!("Tuning {key}");
-        self.tune_cache.mark_pending(key.clone());
 
         let autotunables: Vec<_> = set
             .autotunables()
             .into_iter()
             .enumerate()
-            .map(|(index, op)| (index, op, set.should_run(&key, index)))
+            .filter(|(index, _)| set.should_run(&key, *index))
             .collect();
+
+        if autotunables.len() == 1 {
+            sender
+                .try_send(AutotuneMessage {
+                    key,
+                    fastest_index: autotunables[0].0,
+                })
+                .expect("Autotune results channel closed");
+            return;
+        }
+
         let client = client.clone();
-        let sender = self.results_send.clone();
 
         spawn_benchmark_task(async move {
             #[derive(new, Debug)]
@@ -137,14 +152,12 @@ impl<K: AutotuneKey> Tuner<K> {
 
             let mut bench_results = Vec::with_capacity(autotunables.len());
 
-            for (index, op, should_run) in autotunables.into_iter() {
+            for (index, op) in autotunables.into_iter() {
                 let name = op.name().to_string();
-                let result = Self::run_benchmark(op, &client, should_run)
-                    .await
-                    .map(|durations| {
-                        log::info!("Name: {name} => {}", durations);
-                        BenchResult::new(name, index, BenchmarkComputations::new(&durations))
-                    });
+                let result = Self::run_benchmark(op, &client).await.map(|durations| {
+                    log::info!("Name: {name} => {}", durations);
+                    BenchResult::new(name, index, BenchmarkComputations::new(&durations))
+                });
 
                 bench_results.push(result);
             }
@@ -202,19 +215,14 @@ impl<K: AutotuneKey> Tuner<K> {
     async fn run_benchmark<S: ComputeServer, C: ComputeChannel<S>, Out>(
         operation: Box<dyn AutotuneOperation<Out>>,
         client: &ComputeClient<S, C>,
-        should_run: bool,
     ) -> Result<BenchmarkDurations, BenchError> {
-        if should_run {
-            let tuner = TuneBenchmark::new(operation, client.clone());
-            future::catch_unwind(tuner.sample_durations())
-                .await
-                .map_err(|e| {
-                    log::warn!("Caught error while benchmarking, falling back to next operation.");
-                    ManuallyDrop::new(e)
-                })
-        } else {
-            Ok(BenchmarkDurations::new(vec![Duration::MAX]))
-        }
+        let tuner = TuneBenchmark::new(operation, client.clone());
+        future::catch_unwind(tuner.sample_durations())
+            .await
+            .map_err(|e| {
+                log::warn!("Caught error while benchmarking, falling back to next operation.");
+                ManuallyDrop::new(e)
+            })
     }
 }
 

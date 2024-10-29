@@ -24,7 +24,7 @@ pub fn copy_bulk<C: CubePrimitive>(
 }
 
 pub mod copy_bulk {
-    use crate::ir::{CopyBulkOperator, Operator};
+    use crate::ir::{CopyMemoryBulkOperator, Instruction, Operator};
 
     use super::*;
 
@@ -37,12 +37,14 @@ pub mod copy_bulk {
         to_index: ExpandElementTyped<u32>,
         length: u32,
     ) {
-        context.register(Operator::CopyBulk(CopyBulkOperator {
-            out: *to.expand,
-            out_index: to_index.expand.consume(),
-            input: from.expand.consume(),
-            in_index: from_index.expand.consume(),
-            len: length,
-        }));
+        context.register(Instruction::new(
+            Operator::CopyMemoryBulk(CopyMemoryBulkOperator {
+                out_index: to_index.expand.consume(),
+                input: from.expand.consume(),
+                in_index: from_index.expand.consume(),
+                len: length,
+            }),
+            *to.expand,
+        ));
     }
 }

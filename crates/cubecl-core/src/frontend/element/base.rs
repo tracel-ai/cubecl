@@ -1,7 +1,9 @@
 use super::{CubePrimitive, Numeric, Vectorized};
 use crate::{
-    ir::{ConstantScalarValue, Elem, FloatKind, Item, Operator, Variable},
-    prelude::{assign, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher},
+    ir::{ConstantScalarValue, Elem, FloatKind, Item, Operation, Variable, VariableKind},
+    prelude::{
+        cast as ir_cast, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher,
+    },
     Runtime,
 };
 use alloc::rc::Rc;
@@ -174,7 +176,7 @@ from_const!(bool);
 impl From<f16> for ExpandElementTyped<f16> {
     fn from(value: f16) -> Self {
         let variable =
-            Variable::ConstantScalar(ConstantScalarValue::Float(value.to_f64(), FloatKind::F16));
+            Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::F16));
         ExpandElement::Plain(variable).into()
     }
 }
@@ -182,7 +184,7 @@ impl From<f16> for ExpandElementTyped<f16> {
 impl From<bf16> for ExpandElementTyped<bf16> {
     fn from(value: bf16) -> Self {
         let variable =
-            Variable::ConstantScalar(ConstantScalarValue::Float(value.to_f64(), FloatKind::BF16));
+            Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::BF16));
         ExpandElement::Plain(variable).into()
     }
 }
@@ -269,7 +271,7 @@ impl<T: CubeType> ExpandElementTyped<T> {
     // Expanded version of vectorization factor.
     pub fn __expand_vectorization_factor_method(self, _context: &mut CubeContext) -> u32 {
         self.expand
-            .item()
+            .item
             .vectorization
             .map(|it| it.get())
             .unwrap_or(1) as u32
@@ -318,8 +320,8 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
 
     /// Get the [ConstantScalarValue] from the variable.
     pub fn constant(&self) -> Option<ConstantScalarValue> {
-        match *self.expand {
-            Variable::ConstantScalar(val) => Some(val),
+        match self.expand.kind {
+            VariableKind::ConstantScalar(val) => Some(val),
             _ => None,
         }
     }
@@ -330,7 +332,7 @@ impl ExpandElement {
     pub fn can_mut(&self) -> bool {
         match self {
             ExpandElement::Managed(var) => {
-                if let Variable::Local { .. } = var.as_ref() {
+                if let VariableKind::Local { .. } = var.as_ref().kind {
                     Rc::strong_count(var) <= 2
                 } else {
                     false
@@ -377,46 +379,25 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         return elem;
     }
 
-    let mut init = |elem: ExpandElement| init_expand(context, elem, Operator::Assign);
+    let mut init = |elem: ExpandElement| init_expand(context, elem, Operation::Copy);
 
-    match *elem {
-        Variable::GlobalScalar { .. } => init(elem),
-        Variable::ConstantScalar { .. } => init(elem),
-        Variable::Local { .. } => init(elem),
-        Variable::Versioned { .. } => init(elem),
-        Variable::LocalBinding { .. } => init(elem),
+    match elem.kind {
+        VariableKind::GlobalScalar { .. } => init(elem),
+        VariableKind::ConstantScalar { .. } => init(elem),
+        VariableKind::Local { .. } => init(elem),
+        VariableKind::Versioned { .. } => init(elem),
+        VariableKind::LocalBinding { .. } => init(elem),
         // Constant should be initialized since the new variable can be mutated afterward.
         // And it is assumed those values are cloned.
-        Variable::Rank
-        | Variable::UnitPos
-        | Variable::UnitPosX
-        | Variable::UnitPosY
-        | Variable::UnitPosZ
-        | Variable::CubePos
-        | Variable::CubePosX
-        | Variable::CubePosY
-        | Variable::CubePosZ
-        | Variable::CubeDim
-        | Variable::CubeDimX
-        | Variable::CubeDimY
-        | Variable::CubeDimZ
-        | Variable::CubeCount
-        | Variable::CubeCountX
-        | Variable::CubeCountY
-        | Variable::CubeCountZ
-        | Variable::SubcubeDim
-        | Variable::AbsolutePos
-        | Variable::AbsolutePosX
-        | Variable::AbsolutePosY
-        | Variable::AbsolutePosZ => init(elem),
+        VariableKind::Builtin(_) => init(elem),
         // Array types can't be copied, so we should simply return the same variable.
-        Variable::SharedMemory { .. }
-        | Variable::GlobalInputArray { .. }
-        | Variable::GlobalOutputArray { .. }
-        | Variable::LocalArray { .. }
-        | Variable::ConstantArray { .. }
-        | Variable::Slice { .. }
-        | Variable::Matrix { .. } => elem,
+        VariableKind::SharedMemory { .. }
+        | VariableKind::GlobalInputArray { .. }
+        | VariableKind::GlobalOutputArray { .. }
+        | VariableKind::LocalArray { .. }
+        | VariableKind::ConstantArray { .. }
+        | VariableKind::Slice { .. }
+        | VariableKind::Matrix { .. } => elem,
     }
 }
 
@@ -467,9 +448,7 @@ pub(crate) fn __expand_vectorized<C: Numeric + CubeIndex<u32>, Out: Numeric>(
     let val = Out::from(val).unwrap();
     let val: ExpandElementTyped<Out> = val.into();
 
-    // Explanation for removing all this code: Assignments are already being unrolled and broadcast
-    // in the backend, so this was just duplicating code and it interfered with the SSA allocator
-    assign::expand(context, val, new_var.clone().into());
+    ir_cast::expand(context, val, new_var.clone().into());
 
     new_var.into()
 }

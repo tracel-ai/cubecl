@@ -1,16 +1,17 @@
 use std::marker::PhantomData;
 
-use crate::frontend::{
-    Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory,
-    SizedContainer,
-};
-use crate::prelude::IntoRuntime;
 use crate::{
-    frontend::indexation::Index,
-    frontend::Tensor,
+    frontend::{indexation::Index, Tensor},
     ir::{self, Operator},
-    prelude::CubeContext,
+    prelude::{CubeContext, IntoRuntime},
     unexpanded,
+};
+use crate::{
+    frontend::{
+        Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory,
+        SizedContainer,
+    },
+    ir::Instruction,
 };
 
 use super::Line;
@@ -103,6 +104,8 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
+    use ir::Instruction;
+
     use crate::{
         ir::{BinaryOperator, Operator},
         prelude::{CubeIndex, CubeIndexMut},
@@ -156,12 +159,14 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item());
-            context.register(Operator::UncheckedIndex(BinaryOperator {
-                out: *out,
-                lhs: *self.expand,
-                rhs: i.expand.consume(),
-            }));
+            let out = context.create_local_binding(self.expand.item);
+            context.register(Instruction::new(
+                Operator::UncheckedIndex(BinaryOperator {
+                    lhs: *self.expand,
+                    rhs: i.expand.consume(),
+                }),
+                *out,
+            ));
             out.into()
         }
     }
@@ -172,12 +177,14 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item());
-            context.register(Operator::UncheckedIndex(BinaryOperator {
-                out: *out,
-                lhs: *self.expand,
-                rhs: i.expand.consume(),
-            }));
+            let out = context.create_local_binding(self.expand.item);
+            context.register(Instruction::new(
+                Operator::UncheckedIndex(BinaryOperator {
+                    lhs: *self.expand,
+                    rhs: i.expand.consume(),
+                }),
+                *out,
+            ));
             out.into()
         }
 
@@ -187,11 +194,13 @@ mod indexation {
             i: ExpandElementTyped<u32>,
             value: ExpandElementTyped<E>,
         ) {
-            context.register(Operator::UncheckedIndexAssign(BinaryOperator {
-                out: *self.expand,
-                lhs: i.expand.consume(),
-                rhs: value.expand.consume(),
-            }));
+            context.register(Instruction::new(
+                Operator::UncheckedIndexAssign(BinaryOperator {
+                    lhs: i.expand.consume(),
+                    rhs: value.expand.consume(),
+                }),
+                *self.expand,
+            ));
         }
     }
 }
@@ -461,14 +470,16 @@ pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
     end: S2, // Todo use it to get the length.
 ) -> ExpandElement {
     let input = input.into();
-    let out = context.create_slice(input.item());
+    let out = context.create_slice(input.item);
 
-    context.register(Operator::Slice(ir::SliceOperator {
-        input: *input,
-        start: start.value(),
-        end: end.value(),
-        out: *out,
-    }));
+    context.register(Instruction::new(
+        Operator::Slice(ir::SliceOperator {
+            input: *input,
+            start: start.value(),
+            end: end.value(),
+        }),
+        *out,
+    ));
 
     out
 }

@@ -18,6 +18,8 @@ pub enum ExecutionMode {
     Unchecked,
 }
 
+pub use cubecl_common::benchmark::{TimestampsError, TimestampsResult};
+
 impl<Device, Server, Channel> Default for ComputeRuntime<Device, Server, Channel>
 where
     Device: core::hash::Hash + PartialEq + Eq + Clone + core::fmt::Debug,

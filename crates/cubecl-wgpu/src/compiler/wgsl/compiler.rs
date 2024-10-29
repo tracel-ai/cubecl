@@ -10,8 +10,9 @@ use cubecl_core::{
     ir::{self as cube, HybridAllocator},
     prelude::CompiledKernel,
     server::ComputeServer,
+    Feature,
 };
-use cubecl_runtime::ExecutionMode;
+use cubecl_runtime::{DeviceProperties, ExecutionMode};
 use wgpu::{ComputePipeline, DeviceDescriptor, ShaderModuleDescriptor};
 
 /// Wgsl Compiler.
@@ -140,8 +141,26 @@ impl WgpuCompiler for WgslCompiler {
     fn register_features(
         _adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
-        _props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+        props: &mut DeviceProperties<Feature>,
     ) {
+        register_types(props);
+    }
+}
+
+fn register_types(props: &mut DeviceProperties<Feature>) {
+    use cubecl_core::ir::{Elem, FloatKind, IntKind};
+
+    let supported_types = [
+        Elem::UInt,
+        Elem::Int(IntKind::I32),
+        Elem::AtomicInt(IntKind::I32),
+        Elem::AtomicUInt,
+        Elem::Float(FloatKind::F32),
+        Elem::Bool,
+    ];
+
+    for ty in supported_types {
+        props.register_feature(Feature::Type(ty));
     }
 }
 
@@ -231,37 +250,36 @@ impl WgslCompiler {
     }
 
     pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
-        match value {
-            cube::Variable::GlobalInputArray { id, item } => {
+        let item = value.item;
+        match value.kind {
+            cube::VariableKind::GlobalInputArray(id) => {
                 wgsl::Variable::GlobalInputArray(id, Self::compile_item(item))
             }
-            cube::Variable::GlobalScalar { id, elem } => {
-                wgsl::Variable::GlobalScalar(id, Self::compile_elem(elem), elem)
+            cube::VariableKind::GlobalScalar(id) => {
+                wgsl::Variable::GlobalScalar(id, Self::compile_elem(item.elem), item.elem)
             }
-            cube::Variable::Local { id, item, depth }
-            | cube::Variable::Versioned {
-                id, item, depth, ..
-            } => wgsl::Variable::Local {
+            cube::VariableKind::Local { id, depth }
+            | cube::VariableKind::Versioned { id, depth, .. } => wgsl::Variable::Local {
                 id,
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::Variable::LocalBinding { id, item, .. } => wgsl::Variable::LocalBinding {
+            cube::VariableKind::LocalBinding { id, .. } => wgsl::Variable::LocalBinding {
                 id,
                 item: Self::compile_item(item),
             },
-            cube::Variable::Slice { id, item, depth } => wgsl::Variable::Slice {
+            cube::VariableKind::Slice { id, depth } => wgsl::Variable::Slice {
                 id,
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::Variable::GlobalOutputArray { id, item } => {
+            cube::VariableKind::GlobalOutputArray(id) => {
                 wgsl::Variable::GlobalOutputArray(id, Self::compile_item(item))
             }
-            cube::Variable::ConstantScalar(value) => {
+            cube::VariableKind::ConstantScalar(value) => {
                 wgsl::Variable::ConstantScalar(value, Self::compile_elem(value.elem()))
             }
-            cube::Variable::SharedMemory { id, item, length } => {
+            cube::VariableKind::SharedMemory { id, length } => {
                 let item = Self::compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
@@ -269,16 +287,11 @@ impl WgslCompiler {
                 }
                 wgsl::Variable::SharedMemory(id, item, length)
             }
-            cube::Variable::ConstantArray { id, item, length } => {
+            cube::VariableKind::ConstantArray { id, length } => {
                 let item = Self::compile_item(item);
                 wgsl::Variable::ConstantArray(id, item, length)
             }
-            cube::Variable::LocalArray {
-                id,
-                item,
-                depth,
-                length,
-            } => {
+            cube::VariableKind::LocalArray { id, depth, length } => {
                 let item = Self::compile_item(item);
                 if !self.local_arrays.iter().any(|s| s.index == id) {
                     self.local_arrays
@@ -286,86 +299,88 @@ impl WgslCompiler {
                 }
                 wgsl::Variable::LocalArray(id, item, depth, length)
             }
-            cube::Variable::AbsolutePos => {
-                self.id = true;
-                wgsl::Variable::Id
-            }
-            cube::Variable::Rank => {
-                self.rank = true;
-                wgsl::Variable::Rank
-            }
-            cube::Variable::UnitPos => {
-                self.local_invocation_index = true;
-                wgsl::Variable::LocalInvocationIndex
-            }
-            cube::Variable::UnitPosX => {
-                self.local_invocation_id = true;
-                wgsl::Variable::LocalInvocationIdX
-            }
-            cube::Variable::UnitPosY => {
-                self.local_invocation_id = true;
-                wgsl::Variable::LocalInvocationIdY
-            }
-            cube::Variable::UnitPosZ => {
-                self.local_invocation_id = true;
-                wgsl::Variable::LocalInvocationIdZ
-            }
-            cube::Variable::CubePosX => {
-                self.workgroup_id = true;
-                wgsl::Variable::WorkgroupIdX
-            }
-            cube::Variable::CubePosY => {
-                self.workgroup_id = true;
-                wgsl::Variable::WorkgroupIdY
-            }
-            cube::Variable::CubePosZ => {
-                self.workgroup_id = true;
-                wgsl::Variable::WorkgroupIdZ
-            }
-            cube::Variable::AbsolutePosX => {
-                self.global_invocation_id = true;
-                wgsl::Variable::GlobalInvocationIdX
-            }
-            cube::Variable::AbsolutePosY => {
-                self.global_invocation_id = true;
-                wgsl::Variable::GlobalInvocationIdY
-            }
-            cube::Variable::AbsolutePosZ => {
-                self.global_invocation_id = true;
-                wgsl::Variable::GlobalInvocationIdZ
-            }
-            cube::Variable::CubeDimX => wgsl::Variable::WorkgroupSizeX,
-            cube::Variable::CubeDimY => wgsl::Variable::WorkgroupSizeY,
-            cube::Variable::CubeDimZ => wgsl::Variable::WorkgroupSizeZ,
-            cube::Variable::CubeCountX => {
-                self.num_workgroups = true;
-                wgsl::Variable::NumWorkgroupsX
-            }
-            cube::Variable::CubeCountY => {
-                self.num_workgroups = true;
-                wgsl::Variable::NumWorkgroupsY
-            }
-            cube::Variable::CubeCountZ => {
-                self.num_workgroups = true;
-                wgsl::Variable::NumWorkgroupsZ
-            }
-            cube::Variable::CubePos => {
-                self.workgroup_id_no_axis = true;
-                wgsl::Variable::WorkgroupId
-            }
-            cube::Variable::CubeDim => {
-                self.workgroup_size_no_axis = true;
-                wgsl::Variable::WorkgroupSize
-            }
-            cube::Variable::CubeCount => {
-                self.num_workgroup_no_axis = true;
-                wgsl::Variable::NumWorkgroups
-            }
-            cube::Variable::SubcubeDim => {
-                self.subgroup_size = true;
-                wgsl::Variable::SubgroupSize
-            }
-            cube::Variable::Matrix { .. } => {
+            cube::VariableKind::Builtin(builtin) => match builtin {
+                cube::Builtin::AbsolutePos => {
+                    self.id = true;
+                    wgsl::Variable::Id
+                }
+                cube::Builtin::Rank => {
+                    self.rank = true;
+                    wgsl::Variable::Rank
+                }
+                cube::Builtin::UnitPos => {
+                    self.local_invocation_index = true;
+                    wgsl::Variable::LocalInvocationIndex
+                }
+                cube::Builtin::UnitPosX => {
+                    self.local_invocation_id = true;
+                    wgsl::Variable::LocalInvocationIdX
+                }
+                cube::Builtin::UnitPosY => {
+                    self.local_invocation_id = true;
+                    wgsl::Variable::LocalInvocationIdY
+                }
+                cube::Builtin::UnitPosZ => {
+                    self.local_invocation_id = true;
+                    wgsl::Variable::LocalInvocationIdZ
+                }
+                cube::Builtin::CubePosX => {
+                    self.workgroup_id = true;
+                    wgsl::Variable::WorkgroupIdX
+                }
+                cube::Builtin::CubePosY => {
+                    self.workgroup_id = true;
+                    wgsl::Variable::WorkgroupIdY
+                }
+                cube::Builtin::CubePosZ => {
+                    self.workgroup_id = true;
+                    wgsl::Variable::WorkgroupIdZ
+                }
+                cube::Builtin::AbsolutePosX => {
+                    self.global_invocation_id = true;
+                    wgsl::Variable::GlobalInvocationIdX
+                }
+                cube::Builtin::AbsolutePosY => {
+                    self.global_invocation_id = true;
+                    wgsl::Variable::GlobalInvocationIdY
+                }
+                cube::Builtin::AbsolutePosZ => {
+                    self.global_invocation_id = true;
+                    wgsl::Variable::GlobalInvocationIdZ
+                }
+                cube::Builtin::CubeDimX => wgsl::Variable::WorkgroupSizeX,
+                cube::Builtin::CubeDimY => wgsl::Variable::WorkgroupSizeY,
+                cube::Builtin::CubeDimZ => wgsl::Variable::WorkgroupSizeZ,
+                cube::Builtin::CubeCountX => {
+                    self.num_workgroups = true;
+                    wgsl::Variable::NumWorkgroupsX
+                }
+                cube::Builtin::CubeCountY => {
+                    self.num_workgroups = true;
+                    wgsl::Variable::NumWorkgroupsY
+                }
+                cube::Builtin::CubeCountZ => {
+                    self.num_workgroups = true;
+                    wgsl::Variable::NumWorkgroupsZ
+                }
+                cube::Builtin::CubePos => {
+                    self.workgroup_id_no_axis = true;
+                    wgsl::Variable::WorkgroupId
+                }
+                cube::Builtin::CubeDim => {
+                    self.workgroup_size_no_axis = true;
+                    wgsl::Variable::WorkgroupSize
+                }
+                cube::Builtin::CubeCount => {
+                    self.num_workgroup_no_axis = true;
+                    wgsl::Variable::NumWorkgroups
+                }
+                cube::Builtin::SubcubeDim => {
+                    self.subgroup_size = true;
+                    wgsl::Variable::SubgroupSize
+                }
+            },
+            cube::VariableKind::Matrix { .. } => {
                 panic!("Cooperative matrix-multiply and accumulate not supported.")
             }
         }
@@ -379,7 +394,7 @@ impl WgslCompiler {
             .drain(..)
             .map(|(var, values)| ConstantArray {
                 index: var.index().unwrap(),
-                item: Self::compile_item(var.item()),
+                item: Self::compile_item(var.item),
                 size: values.len() as u32,
                 values: values
                     .into_iter()
@@ -393,7 +408,7 @@ impl WgslCompiler {
 
         for var in processing.variables {
             // We don't declare slices.
-            if let cube::Variable::Slice { .. } = var {
+            if let cube::VariableKind::Slice { .. } = var.kind {
                 continue;
             }
 
@@ -405,7 +420,7 @@ impl WgslCompiler {
         processing
             .operations
             .into_iter()
-            .for_each(|op| self.compile_operation(&mut instructions, op));
+            .for_each(|op| self.compile_operation(&mut instructions, op.operation, op.out));
 
         instructions
     }
@@ -414,15 +429,21 @@ impl WgslCompiler {
         &mut self,
         instructions: &mut Vec<wgsl::Instruction>,
         operation: cube::Operation,
+        out: Option<cube::Variable>,
     ) {
         match operation {
-            cube::Operation::Operator(op) => instructions.push(self.compile_instruction(op)),
-            cube::Operation::Metadata(op) => instructions.push(self.compile_metadata(op)),
+            cube::Operation::Copy(variable) => instructions.push(wgsl::Instruction::Assign {
+                input: self.compile_variable(variable),
+                out: self.compile_variable(out.unwrap()),
+            }),
+            cube::Operation::Operator(op) => instructions.push(self.compile_instruction(op, out)),
+            cube::Operation::Atomic(op) => instructions.push(self.compile_atomic(op, out)),
+            cube::Operation::Metadata(op) => instructions.push(self.compile_metadata(op, out)),
             cube::Operation::Branch(val) => self.compile_branch(instructions, val),
             cube::Operation::Synchronization(val) => {
                 self.compile_synchronization(instructions, val)
             }
-            cube::Operation::Subcube(op) => self.compile_subgroup(instructions, op),
+            cube::Operation::Subcube(op) => self.compile_subgroup(instructions, op, out),
             cube::Operation::CoopMma(_) => {
                 panic!("Cooperative matrix-multiply and accumulate isn't supported on wgpu.")
             }
@@ -433,39 +454,41 @@ impl WgslCompiler {
         &mut self,
         instructions: &mut Vec<wgsl::Instruction>,
         subgroup: cube::Subcube,
+        out: Option<cube::Variable>,
     ) {
+        let out = out.unwrap();
         let op = match subgroup {
-            cube::Subcube::Elect(op) => Subgroup::Elect {
-                out: self.compile_variable(op.out),
+            cube::Subcube::Elect => Subgroup::Elect {
+                out: self.compile_variable(out),
             },
             cube::Subcube::All(op) => Subgroup::All {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Subcube::Any(op) => Subgroup::Any {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Subcube::Broadcast(op) => Subgroup::Broadcast {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Subcube::Sum(op) => Subgroup::Sum {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Subcube::Prod(op) => Subgroup::Prod {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Subcube::Min(op) => Subgroup::Min {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Subcube::Max(op) => Subgroup::Max {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
         };
 
@@ -482,12 +505,6 @@ impl WgslCompiler {
                 cond: self.compile_variable(op.cond),
                 instructions_if: self.compile_scope(&mut op.scope_if),
                 instructions_else: self.compile_scope(&mut op.scope_else),
-            }),
-            cube::Branch::Select(op) => instructions.push(wgsl::Instruction::Select {
-                cond: self.compile_variable(op.cond),
-                then: self.compile_variable(op.then),
-                or_else: self.compile_variable(op.or_else),
-                out: self.compile_variable(op.out),
             }),
             cube::Branch::Switch(mut op) => instructions.push(wgsl::Instruction::Switch {
                 value: self.compile_variable(op.value),
@@ -533,13 +550,18 @@ impl WgslCompiler {
         };
     }
 
-    fn compile_metadata(&mut self, metadata: cube::Metadata) -> wgsl::Instruction {
+    fn compile_metadata(
+        &mut self,
+        metadata: cube::Metadata,
+        out: Option<cube::Variable>,
+    ) -> wgsl::Instruction {
+        let out = out.unwrap();
         match metadata {
-            cube::Metadata::Stride { dim, var, out } => {
+            cube::Metadata::Stride { dim, var } => {
                 self.stride = true;
-                let position = match var {
-                    cube::Variable::GlobalInputArray { id, .. } => id as usize,
-                    cube::Variable::GlobalOutputArray { id, .. } => self.num_inputs + id as usize,
+                let position = match var.kind {
+                    cube::VariableKind::GlobalInputArray(id) => id as usize,
+                    cube::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
                 wgsl::Instruction::Stride {
@@ -548,11 +570,11 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 }
             }
-            cube::Metadata::Shape { dim, var, out } => {
+            cube::Metadata::Shape { dim, var } => {
                 self.shape = true;
-                let position = match var {
-                    cube::Variable::GlobalInputArray { id, .. } => id as usize,
-                    cube::Variable::GlobalOutputArray { id, .. } => self.num_inputs + id as usize,
+                let position = match var.kind {
+                    cube::VariableKind::GlobalInputArray(id) => id as usize,
+                    cube::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a shape, got {:?}", var),
                 };
                 wgsl::Instruction::Shape {
@@ -561,299 +583,250 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 }
             }
-            cube::Metadata::Length { var, out } => wgsl::Instruction::Length {
+            cube::Metadata::Length { var } => wgsl::Instruction::Length {
                 out: self.compile_variable(out),
                 var: self.compile_variable(var),
             },
         }
     }
 
-    fn compile_instruction(&mut self, value: cube::Operator) -> wgsl::Instruction {
+    fn compile_instruction(
+        &mut self,
+        value: cube::Operator,
+        out: Option<cube::Variable>,
+    ) -> wgsl::Instruction {
+        let out = out.unwrap();
         match value {
             cube::Operator::Max(op) => wgsl::Instruction::Max {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Min(op) => wgsl::Instruction::Min {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Add(op) => wgsl::Instruction::Add {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Fma(op) => wgsl::Instruction::Fma {
                 a: self.compile_variable(op.a),
                 b: self.compile_variable(op.b),
                 c: self.compile_variable(op.c),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Index(op) => wgsl::Instruction::Index {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::UncheckedIndex(op) => wgsl::Instruction::Index {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Modulo(op) => wgsl::Instruction::Modulo {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Sub(op) => wgsl::Instruction::Sub {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Mul(op) => wgsl::Instruction::Mul {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Div(op) => wgsl::Instruction::Div {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Abs(op) => wgsl::Instruction::Abs {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Exp(op) => wgsl::Instruction::Exp {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Log(op) => wgsl::Instruction::Log {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Log1p(op) => wgsl::Instruction::Log1p {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Cos(op) => wgsl::Instruction::Cos {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Sin(op) => wgsl::Instruction::Sin {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Tanh(op) => wgsl::Instruction::Tanh {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Powf(op) => wgsl::Instruction::Powf {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Sqrt(op) => wgsl::Instruction::Sqrt {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Round(op) => wgsl::Instruction::Round {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Floor(op) => wgsl::Instruction::Floor {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Ceil(op) => wgsl::Instruction::Ceil {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Erf(op) => wgsl::Instruction::Erf {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Recip(op) => wgsl::Instruction::Recip {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Equal(op) => wgsl::Instruction::Equal {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Lower(op) => wgsl::Instruction::Lower {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Clamp(op) => wgsl::Instruction::Clamp {
                 input: self.compile_variable(op.input),
                 min_value: self.compile_variable(op.min_value),
                 max_value: self.compile_variable(op.max_value),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Greater(op) => wgsl::Instruction::Greater {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::LowerEqual(op) => wgsl::Instruction::LowerEqual {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::GreaterEqual(op) => wgsl::Instruction::GreaterEqual {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::NotEqual(op) => wgsl::Instruction::NotEqual {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
-            cube::Operator::Assign(op) => wgsl::Instruction::Assign {
+            cube::Operator::Cast(op) => wgsl::Instruction::Assign {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::IndexAssign(op) => wgsl::Instruction::IndexAssign {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::UncheckedIndexAssign(op) => wgsl::Instruction::IndexAssign {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::And(op) => wgsl::Instruction::And {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Or(op) => wgsl::Instruction::Or {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Not(op) => wgsl::Instruction::Not {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::BitwiseOr(op) => wgsl::Instruction::BitwiseOr {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::BitwiseAnd(op) => wgsl::Instruction::BitwiseAnd {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::BitwiseXor(op) => wgsl::Instruction::BitwiseXor {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::ShiftLeft(op) => wgsl::Instruction::ShiftLeft {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::ShiftRight(op) => wgsl::Instruction::ShiftRight {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Remainder(op) => wgsl::Instruction::Remainder {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Slice(op) => wgsl::Instruction::Slice {
                 input: self.compile_variable(op.input),
                 start: self.compile_variable(op.start),
                 end: self.compile_variable(op.end),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
-            cube::Operator::AtomicLoad(op) => wgsl::Instruction::AtomicLoad {
-                input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
-            },
-            cube::Operator::AtomicStore(op) => wgsl::Instruction::AtomicStore {
-                input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
-            },
-            cube::Operator::AtomicSwap(op) => wgsl::Instruction::AtomicSwap {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
-            },
-            cube::Operator::AtomicCompareAndSwap(op) => {
-                wgsl::Instruction::AtomicCompareExchangeWeak {
-                    lhs: self.compile_variable(op.input),
-                    cmp: self.compile_variable(op.cmp),
-                    value: self.compile_variable(op.val),
-                    out: self.compile_variable(op.out),
-                }
-            }
+
             cube::Operator::Bitcast(op) => wgsl::Instruction::Bitcast {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
-            cube::Operator::AtomicAdd(op) => wgsl::Instruction::AtomicAdd {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
-            },
-            cube::Operator::AtomicSub(op) => wgsl::Instruction::AtomicSub {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
-            },
-            cube::Operator::AtomicMax(op) => wgsl::Instruction::AtomicMax {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
-            },
-            cube::Operator::AtomicMin(op) => wgsl::Instruction::AtomicMin {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
-            },
-            cube::Operator::AtomicAnd(op) => wgsl::Instruction::AtomicAnd {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
-            },
-            cube::Operator::AtomicOr(op) => wgsl::Instruction::AtomicOr {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
-            },
-            cube::Operator::AtomicXor(op) => wgsl::Instruction::AtomicXor {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
-            },
+
             cube::Operator::Neg(op) => wgsl::Instruction::Negate {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Magnitude(op) => wgsl::Instruction::Magnitude {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Normalize(op) => wgsl::Instruction::Normalize {
                 input: self.compile_variable(op.input),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::Dot(op) => wgsl::Instruction::Dot {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
             cube::Operator::InitLine(op) => wgsl::Instruction::VecInit {
                 inputs: op
@@ -861,20 +834,90 @@ impl WgslCompiler {
                     .into_iter()
                     .map(|var| self.compile_variable(var))
                     .collect(),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             },
-            cube::Operator::Copy(op) => wgsl::Instruction::Copy {
+            cube::Operator::CopyMemory(op) => wgsl::Instruction::Copy {
                 input: self.compile_variable(op.input),
                 in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
             },
-            cube::Operator::CopyBulk(op) => wgsl::Instruction::CopyBulk {
+            cube::Operator::CopyMemoryBulk(op) => wgsl::Instruction::CopyBulk {
                 input: self.compile_variable(op.input),
                 in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
                 len: op.len,
+            },
+            cube::Operator::Select(op) => wgsl::Instruction::Select {
+                cond: self.compile_variable(op.cond),
+                then: self.compile_variable(op.then),
+                or_else: self.compile_variable(op.or_else),
+                out: self.compile_variable(out),
+            },
+        }
+    }
+
+    fn compile_atomic(
+        &mut self,
+        atomic: cube::AtomicOp,
+        out: Option<cube::Variable>,
+    ) -> wgsl::Instruction {
+        let out = out.unwrap();
+        match atomic {
+            cube::AtomicOp::Add(op) => wgsl::Instruction::AtomicAdd {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::Sub(op) => wgsl::Instruction::AtomicSub {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::Max(op) => wgsl::Instruction::AtomicMax {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::Min(op) => wgsl::Instruction::AtomicMin {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::And(op) => wgsl::Instruction::AtomicAnd {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::Or(op) => wgsl::Instruction::AtomicOr {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::Xor(op) => wgsl::Instruction::AtomicXor {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::Load(op) => wgsl::Instruction::AtomicLoad {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::Store(op) => wgsl::Instruction::AtomicStore {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::Swap(op) => wgsl::Instruction::AtomicSwap {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::AtomicOp::CompareAndSwap(op) => wgsl::Instruction::AtomicCompareExchangeWeak {
+                lhs: self.compile_variable(op.input),
+                cmp: self.compile_variable(op.cmp),
+                value: self.compile_variable(op.val),
+                out: self.compile_variable(out),
             },
         }
     }

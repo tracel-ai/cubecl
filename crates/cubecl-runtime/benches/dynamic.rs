@@ -5,7 +5,7 @@ use cubecl_runtime::{
     storage::BytesStorage,
 };
 
-const MB: usize = 1024 * 1024;
+const MB: u64 = 1024 * 1024;
 
 fn main() {
     let start = std::time::Instant::now();

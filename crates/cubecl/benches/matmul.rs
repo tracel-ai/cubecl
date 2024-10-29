@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use std::marker::PhantomData;
 
-use cubecl::benchmark::Benchmark;
+use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
 use cubecl::frontend::Float;
 use cubecl::future;
 use cubecl_linalg::matmul::{self};
@@ -35,7 +35,11 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     }
 
     fn sync(&self) {
-        future::block_on(self.client.sync());
+        future::block_on(self.client.sync())
+    }
+
+    fn sync_elapsed(&self) -> TimestampsResult {
+        future::block_on(self.client.sync_elapsed())
     }
 }
 
@@ -60,18 +64,21 @@ enum MatmulKind {
 
 #[allow(dead_code)]
 fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
+    let client = R::client(&device);
+    client.enable_timestamps();
+
     let bench = MatmulBench::<R, E> {
         b: 1,
         m: 2048,
         k: 2048,
         n: 2048,
-        client: R::client(&device),
+        client,
         device,
         kind,
         _e: PhantomData,
     };
     println!("{}", bench.name());
-    println!("{}", bench.run());
+    println!("{}", bench.run(TimingMethod::DeviceOnly));
 }
 
 fn main() {

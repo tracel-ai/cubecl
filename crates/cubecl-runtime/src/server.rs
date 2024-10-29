@@ -7,7 +7,8 @@ use crate::{
     ExecutionMode,
 };
 use alloc::vec::Vec;
-use core::{fmt::Debug, future::Future, time::Duration};
+use core::{fmt::Debug, future::Future};
+use cubecl_common::benchmark::TimestampsResult;
 
 /// The compute server is responsible for handling resources and computations over resources.
 ///
@@ -56,12 +57,21 @@ where
     fn flush(&mut self);
 
     /// Wait for the completion of every task in the server.
+    fn sync(&mut self) -> impl Future<Output = ()> + Send + 'static;
+
+    /// Wait for the completion of every task in the server.
     ///
     /// Returns the (approximate) total amount of GPU work done since the last sync.
-    fn sync(&mut self) -> impl Future<Output = Duration> + Send + 'static;
+    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + Send + 'static;
 
     /// The current memory usage of the server.
     fn memory_usage(&self) -> MemoryUsage;
+
+    /// Enable collecting timestamps.
+    fn enable_timestamps(&mut self);
+
+    /// Disable collecting timestamps.
+    fn disable_timestamps(&mut self);
 }
 
 /// Server handle containing the [memory handle](MemoryManagement::Handle).
@@ -70,14 +80,14 @@ pub struct Handle {
     /// Memory handle.
     pub memory: SliceHandle,
     /// Memory offset in bytes.
-    pub offset_start: Option<usize>,
+    pub offset_start: Option<u64>,
     /// Memory offset in bytes.
-    pub offset_end: Option<usize>,
+    pub offset_end: Option<u64>,
 }
 
 impl Handle {
     /// Add to the current offset in bytes.
-    pub fn offset_start(mut self, offset: usize) -> Self {
+    pub fn offset_start(mut self, offset: u64) -> Self {
         if let Some(val) = &mut self.offset_start {
             *val += offset;
         } else {
@@ -87,7 +97,7 @@ impl Handle {
         self
     }
     /// Add to the current offset in bytes.
-    pub fn offset_end(mut self, offset: usize) -> Self {
+    pub fn offset_end(mut self, offset: u64) -> Self {
         if let Some(val) = &mut self.offset_end {
             *val += offset;
         } else {
@@ -104,9 +114,9 @@ pub struct Binding {
     /// Memory binding.
     pub memory: SliceBinding,
     /// Memory offset in bytes.
-    pub offset_start: Option<usize>,
+    pub offset_start: Option<u64>,
     /// Memory offset in bytes.
-    pub offset_end: Option<usize>,
+    pub offset_end: Option<u64>,
 }
 
 impl Handle {

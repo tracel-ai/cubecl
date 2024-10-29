@@ -2,8 +2,8 @@ use std::mem::transmute;
 
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_core::ir::{
-    BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Item, Loop, Operator, RangeLoop,
-    Switch, UnaryOperator, Variable,
+    BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Instruction, Item, Loop,
+    Operation, Operator, RangeLoop, Switch, Variable, VariableKind,
 };
 use petgraph::visit::EdgeRef;
 
@@ -53,13 +53,6 @@ impl Optimizer {
         match branch {
             Branch::If(if_) => self.parse_if(*if_),
             Branch::IfElse(if_else) => self.parse_if_else(if_else),
-            Branch::Select(mut select) => {
-                self.find_writes_select(&mut select);
-                self.current_block_mut()
-                    .ops
-                    .borrow_mut()
-                    .push(Branch::Select(select).into());
-            }
             Branch::Switch(switch) => self.parse_switch(*switch),
             Branch::RangeLoop(range_loop) => {
                 self.parse_for_loop(*range_loop);
@@ -259,21 +252,17 @@ impl Optimizer {
     fn parse_for_loop(&mut self, range_loop: RangeLoop) {
         let step = range_loop
             .step
-            .unwrap_or(Variable::ConstantScalar(ConstantScalarValue::UInt(1)));
+            .unwrap_or(Variable::constant(ConstantScalarValue::UInt(1)));
 
-        let i_id = match range_loop.i {
-            Variable::Local { id, depth, .. } => (id, depth),
+        let i_id = match range_loop.i.kind {
+            VariableKind::Local { id, depth, .. } => (id, depth),
             _ => unreachable!(),
         };
         let i = range_loop.i;
-        self.program.variables.insert(i_id, i.item());
+        self.program.variables.insert(i_id, i.item);
 
-        let mut assign = Operator::Assign(UnaryOperator {
-            input: range_loop.start,
-            out: i,
-        })
-        .into();
-        self.visit_operation(&mut assign, |_, _| {}, |opt, var| opt.write_var(var));
+        let mut assign = Instruction::new(Operation::Copy(range_loop.start), i);
+        self.visit_out(&mut assign.out, |opt, var| opt.write_var(var));
         self.current_block_mut().ops.borrow_mut().push(assign);
 
         let current_block = self.current_block.unwrap();
@@ -315,22 +304,20 @@ impl Optimizer {
         self.current_block = Some(next);
 
         // For loop constructs
-        self.program
-            .insert_phi(header, i_id, range_loop.start.item());
+        self.program.insert_phi(header, i_id, range_loop.start.item);
         {
             let op = match range_loop.inclusive {
                 true => Operator::LowerEqual,
                 false => Operator::Lower,
             };
             let tmp = self.create_temporary(Item::new(Elem::Bool));
-            self.program[header].ops.borrow_mut().push(
+            self.program[header].ops.borrow_mut().push(Instruction::new(
                 op(BinaryOperator {
                     lhs: i,
                     rhs: range_loop.end,
-                    out: tmp,
-                })
-                .into(),
-            );
+                }),
+                tmp,
+            ));
 
             *self.program[header].control_flow.borrow_mut() = ControlFlow::LoopBreak {
                 break_cond: tmp,
@@ -339,14 +326,13 @@ impl Optimizer {
                 merge: next,
             };
         }
-        self.program[current_block].ops.borrow_mut().push(
-            Operator::Add(BinaryOperator {
-                lhs: i,
-                rhs: step,
-                out: i,
-            })
-            .into(),
-        );
+        self.program[current_block]
+            .ops
+            .borrow_mut()
+            .push(Instruction::new(
+                Operator::Add(BinaryOperator { lhs: i, rhs: step }),
+                i,
+            ));
     }
 
     pub(crate) fn split_critical_edges(&mut self) {

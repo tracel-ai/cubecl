@@ -17,7 +17,7 @@ enum DynamicPool {
 // This guarantees that _for bins in use_, the wasted space is at most 12.5%. So as long
 // as bins have a high use rate this should be fairly efficient. That said, currently slices in
 // bins don't deallocate, so there is a chance more memory than needed is used.
-const EXP_BIN_SIZES: [usize; 200] = [
+const EXP_BIN_SIZES: [u64; 200] = [
     128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384, 416, 448, 480, 512, 576, 640,
     704, 768, 832, 896, 960, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2304, 2560,
     2816, 3072, 3328, 3584, 3840, 4096, 4608, 5120, 5632, 6144, 6656, 7168, 7680, 8192, 9216,
@@ -52,7 +52,7 @@ impl MemoryPool for DynamicPool {
     fn reserve<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
-        size: usize,
+        size: u64,
         locked: Option<&MemoryLock>,
     ) -> SliceHandle {
         match self {
@@ -61,11 +61,7 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn alloc<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: usize,
-    ) -> SliceHandle {
+    fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
             DynamicPool::Exclusive(m) => m.alloc(storage, size),
@@ -79,7 +75,7 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn max_alloc_size(&self) -> usize {
+    fn max_alloc_size(&self) -> u64 {
         match self {
             DynamicPool::Sliced(m) => m.max_alloc_size(),
             DynamicPool::Exclusive(m) => m.max_alloc_size(),
@@ -112,11 +108,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             MemoryConfiguration::SubSlices => {
                 // Round chunk size to be aligned.
                 let memory_alignment = properties.alignment;
-                let max_page = (properties.max_page_size / memory_alignment) * memory_alignment;
+                let max_page = properties.max_page_size;
 
                 let mut pools = Vec::new();
                 pools.push(MemoryPoolOptions {
-                    page_size: max_page,
+                    page_size: max_page / memory_alignment * memory_alignment, // align the size to max_page.
                     chunk_num_prealloc: 0,
                     pool_type: PoolType::SlicedPages {
                         max_slice_size: max_page,
@@ -124,20 +120,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     dealloc_period: None,
                 });
 
-                const MB: usize = 1024 * 1024;
+                const MB: u64 = 1024 * 1024;
 
                 let mut current = max_page;
                 while current >= 32 * MB {
                     current /= 4;
                     // Make sure every pool has an aligned size.
-                    current = (current / memory_alignment) * memory_alignment;
+                    current = current.next_multiple_of(memory_alignment);
 
                     pools.push(MemoryPoolOptions {
                         page_size: current,
                         chunk_num_prealloc: 0,
                         // Creating max slices lower than the chunk size reduces fragmentation.
                         pool_type: PoolType::SlicedPages {
-                            max_slice_size: current / 2usize.pow(pools.len() as u32),
+                            max_slice_size: current / 2u64.pow(pools.len() as u32),
                         },
                         dealloc_period: None,
                     });
@@ -159,14 +155,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // Add all bin sizes. Nb: because of alignment some buckets
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
-                let mut sizes: BTreeSet<_> = EXP_BIN_SIZES
+                let sizes: BTreeSet<_> = EXP_BIN_SIZES
                     .iter()
                     .copied()
-                    .map(|size| (size / memory_alignment) * memory_alignment)
+                    .map(|size| size.next_multiple_of(memory_alignment))
                     .take_while(|&size| size < properties.max_page_size)
                     .collect();
-                // Add an exact max_page and add max_page as bin.
-                sizes.insert((properties.max_page_size / memory_alignment) * memory_alignment);
+
                 // Add in one pool for all massive allocations.
                 sizes
                     .iter()
@@ -184,7 +179,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         //   1MB, 2024 allocations
                         //   100MB+, 1000-1011 allocations
                         let base_period = 1000;
-                        let dealloc_period = base_period + 1024 * MB as u64 / (s as u64);
+                        let dealloc_period = base_period + 1024 * MB as u64 / s;
 
                         MemoryPoolOptions {
                             page_size: s,
@@ -206,11 +201,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Creates a new instance using the given storage, merging_strategy strategy and slice strategy.
-    pub fn new(
-        mut storage: Storage,
-        pools: Vec<MemoryPoolOptions>,
-        memory_alignment: usize,
-    ) -> Self {
+    pub fn new(mut storage: Storage, pools: Vec<MemoryPoolOptions>, memory_alignment: u64) -> Self {
         let mut pools: Vec<_> = pools
             .iter()
             .map(|options| {
@@ -237,7 +228,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })
             .collect();
 
-        pools.sort_by(|pool1, pool2| usize::cmp(&pool1.max_alloc_size(), &pool2.max_alloc_size()));
+        pools.sort_by(|pool1, pool2| u64::cmp(&pool1.max_alloc_size(), &pool2.max_alloc_size()));
 
         Self {
             pools,
@@ -266,8 +257,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     pub fn get_resource(
         &mut self,
         binding: SliceBinding,
-        offset_start: Option<usize>,
-        offset_end: Option<usize>,
+        offset_start: Option<u64>,
+        offset_end: Option<u64>,
     ) -> Storage::Resource {
         let handle = self.get(binding);
         let handle = match offset_start {
@@ -282,7 +273,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
-    pub fn reserve(&mut self, size: usize, exclude: Option<&MemoryLock>) -> SliceHandle {
+    pub fn reserve(&mut self, size: u64, exclude: Option<&MemoryLock>) -> SliceHandle {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
@@ -301,7 +292,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// # Notes
     ///
     /// Can be useful for servers that want specific control over memory.
-    pub fn alloc(&mut self, size: usize) -> SliceHandle {
+    pub fn alloc(&mut self, size: u64) -> SliceHandle {
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
         let pool = &mut self.pools[pool_ind];
@@ -517,8 +508,8 @@ mod tests {
         let usage = memory_management.memory_usage();
 
         // Total memory should be size of all pages, and no more.
-        assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<usize>());
-        assert_eq!(usage.bytes_reserved, sizes.iter().sum::<usize>());
+        assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
+        assert_eq!(usage.bytes_reserved, sizes.iter().sum::<u64>());
     }
 
     #[test]
@@ -576,7 +567,7 @@ mod tests {
         }
         let usage_after = memory_management.memory_usage();
         // Check that we haven't increased our memory usage significantly
-        assert!(usage_after.bytes_reserved <= (usage_before.bytes_reserved as f64 * 1.1) as usize);
+        assert!(usage_after.bytes_reserved <= (usage_before.bytes_reserved as f64 * 1.1) as u64);
     }
 
     // Test pools without slices. More or less same as tests above.
@@ -711,7 +702,7 @@ mod tests {
         let _handles = alloc_sizes.map(|s| memory_management.reserve(s, None));
         let usage = memory_management.memory_usage();
         // Total memory should be size of all pages, and no more.
-        assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<usize>());
+        assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
     }
 
     #[test]

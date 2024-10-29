@@ -60,7 +60,7 @@ macro_rules! impl_unary_func_fixed_out_vectorization {
 
             fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<Self> {
                 let expand_element: ExpandElement = x.into();
-                let mut item = expand_element.item();
+                let mut item = expand_element.item;
                 item.vectorization = $out_vectorization;
                 unary_expand_fixed_output(context, expand_element, item, $operator).into()
             }

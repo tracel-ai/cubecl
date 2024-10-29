@@ -29,7 +29,6 @@ pub trait Clamp: CubePrimitive + Sized {
                 input: op.input,
                 min_value: *min_value,
                 max_value: *max_value,
-                out: op.out,
             })
         })
         .into()
