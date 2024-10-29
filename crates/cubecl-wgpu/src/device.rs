@@ -29,17 +29,13 @@ pub enum WgpuDevice {
 
     /// The best available device found with the current [graphics API](crate::GraphicsApi).
     ///
-    /// Priority
-    ///
-    ///   1. DiscreteGpu
-    ///   2. IntegratedGpu
-    ///   3. VirtualGpu
-    ///   4. Cpu
-    ///
-    /// # Notes
-    ///
-    /// A device might be identified as [Other](wgpu::DeviceType::Other) by [wgpu](wgpu), in this case, we chose this device over
-    /// `IntegratedGpu` since it's often a discrete GPU.
+    /// This will prioritize GPUs wgpu recognizes as "high power". Additionally, you can override this using
+    /// the `CUBECL_WGPU_DEFAULT_DEVICE` environment variable. This variable is spelled as if i was a WgpuDevice,
+    /// so for example CUBECL_WGPU_DEFAULT_DEVICE=IntegratedGpu(1) or CUBECL_WGPU_DEFAULT_DEVICE=Cpu
+    DefaultDevice,
+
+    /// Deprecated, use [`DefaultDevice`].
+    #[deprecated]
     BestAvailable,
 
     /// Use an externally created, existing, wgpu setup. This is helpful when using CubeCL in conjunction
@@ -53,6 +49,6 @@ pub enum WgpuDevice {
 
 impl Default for WgpuDevice {
     fn default() -> Self {
-        Self::BestAvailable
+        Self::DefaultDevice
     }
 }

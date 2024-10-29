@@ -78,3 +78,26 @@ impl<C: Numeric> ComplexType<C, f32> {
         lhs * f32::cast_from(rhs)
     }
 }
+
+mod foo {
+    use super::*;
+
+    #[derive(CubeType)]
+    pub struct TypeInModule {
+        pub a: u32,
+    }
+
+    #[cube]
+    impl TypeInModule {
+        #[allow(dead_code)]
+        pub fn simple_method(&self, lhs: u32) -> u32 {
+            self.a * lhs
+        }
+    }
+}
+
+#[cube]
+fn call_from_outside_module() {
+    let bar = foo::TypeInModule { a: 0u32 };
+    let _ = bar.simple_method(5);
+}
