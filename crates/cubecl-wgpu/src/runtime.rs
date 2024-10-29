@@ -211,7 +211,8 @@ async fn select_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance,
                 WgpuDevice::IntegratedGpu(_) => device_type == DeviceType::IntegratedGpu,
                 WgpuDevice::VirtualGpu(_) => device_type == DeviceType::VirtualGpu,
                 WgpuDevice::Cpu => device_type == DeviceType::Cpu,
-                WgpuDevice::BestAvailable => true,
+                #[allow(deprecated)]
+                WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable => true,
                 WgpuDevice::Existing(_) => {
                     unreachable!("Cannot select an adapter for an existing device.")
                 }
@@ -252,34 +253,40 @@ async fn select_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance,
 
     // If BestAvailable, check if we should instead construct as
     // if a specific device was specified.
-    let override_device = if matches!(device, WgpuDevice::BestAvailable) {
-        std::env::var("CUBECL_WGPU_DEVICE").ok().and_then(|var| {
-            let override_device = if let Some(inner) = var.strip_prefix("DiscreteGpu(") {
-                inner
-                    .strip_suffix(")")
-                    .and_then(|s| s.parse().ok())
-                    .map(WgpuDevice::DiscreteGpu)
-            } else if let Some(inner) = var.strip_prefix("IntegratedGpu(") {
-                inner
-                    .strip_suffix(")")
-                    .and_then(|s| s.parse().ok())
-                    .map(WgpuDevice::IntegratedGpu)
-            } else if let Some(inner) = var.strip_prefix("VirtualGpu(") {
-                inner
-                    .strip_suffix(")")
-                    .and_then(|s| s.parse().ok())
-                    .map(WgpuDevice::VirtualGpu)
-            } else if var == "Cpu" {
-                Some(WgpuDevice::Cpu)
-            } else {
-                None
-            };
+    #[allow(deprecated)]
+    let override_device = if matches!(
+        device,
+        WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable
+    ) {
+        std::env::var("CUBECL_WGPU_DEFAULT_DEVICE")
+            .ok()
+            .and_then(|var| {
+                let override_device = if let Some(inner) = var.strip_prefix("DiscreteGpu(") {
+                    inner
+                        .strip_suffix(")")
+                        .and_then(|s| s.parse().ok())
+                        .map(WgpuDevice::DiscreteGpu)
+                } else if let Some(inner) = var.strip_prefix("IntegratedGpu(") {
+                    inner
+                        .strip_suffix(")")
+                        .and_then(|s| s.parse().ok())
+                        .map(WgpuDevice::IntegratedGpu)
+                } else if let Some(inner) = var.strip_prefix("VirtualGpu(") {
+                    inner
+                        .strip_suffix(")")
+                        .and_then(|s| s.parse().ok())
+                        .map(WgpuDevice::VirtualGpu)
+                } else if var == "Cpu" {
+                    Some(WgpuDevice::Cpu)
+                } else {
+                    None
+                };
 
-            if override_device.is_none() {
-                log::warn!("Unknown CUBECL_WGPU_DEVICE override {var}");
-            }
-            override_device
-        })
+                if override_device.is_none() {
+                    log::warn!("Unknown CUBECL_WGPU_DEVICE override {var}");
+                }
+                override_device
+            })
     } else {
         None
     };
@@ -303,7 +310,8 @@ async fn select_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance,
             select(num, "No Virtual GPU device found", adapters, adapters_other)
         }
         WgpuDevice::Cpu => select(0, "No CPU device found", adapters, adapters_other),
-        WgpuDevice::BestAvailable => instance
+        #[allow(deprecated)]
+        WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable => instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 force_fallback_adapter: false,
