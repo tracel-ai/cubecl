@@ -13,30 +13,36 @@ pub struct TuneBenchmark<S: ComputeServer, C, Out = ()> {
     client: ComputeClient<S, C>,
 }
 
-impl<Out> Clone for Box<dyn AutotuneOperation<Out>> {
+impl<Out: Send + 'static> Clone for Box<dyn AutotuneOperation<Out>> {
     fn clone(&self) -> Self {
         self.as_ref().clone()
     }
 }
 
-impl<S: ComputeServer, C: ComputeChannel<S>, Out> TuneBenchmark<S, C, Out> {
+impl<S: ComputeServer + 'static, C: ComputeChannel<S> + 'static, Out: Send + 'static>
+    TuneBenchmark<S, C, Out>
+{
     /// Benchmark how long this operation takes for a number of samples.
-    pub async fn sample_durations(&self) -> BenchmarkDurations {
+    pub async fn sample_durations(self) -> BenchmarkDurations {
+        let operation = self.operation.clone();
+
         // If the inner operation need autotuning as well, we need to call it before.
         let _ = self.client.sync().await;
-        AutotuneOperation::execute(self.operation.clone());
+        operation.clone().execute();
         let _ = self.client.sync().await;
+
+        let client = self.client.clone();
 
         let durations = self
             .client
-            .profile(|| async {
+            .profile(|| async move {
                 let num_samples = 10;
                 let mut durations = Vec::with_capacity(num_samples);
 
                 for _ in 0..num_samples {
-                    AutotuneOperation::execute(self.operation.clone());
+                    operation.clone().execute();
                     // For benchmarks - we need to wait for all tasks to complete before returning.
-                    let duration = match self.client.sync_elapsed().await {
+                    let duration = match client.sync_elapsed().await {
                         Ok(val) => val,
                         Err(err) => {
                             #[cfg(not(target_family = "wasm"))]

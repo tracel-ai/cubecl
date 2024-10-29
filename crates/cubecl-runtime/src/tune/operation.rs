@@ -6,7 +6,9 @@ use core::hash::Hash;
 
 /// Default checksum for an operation set
 #[cfg(autotune_persistent_cache)]
-pub fn compute_checksum<Out>(autotunables: &[Box<dyn AutotuneOperation<Out>>]) -> String {
+pub fn compute_checksum<Out: Send + 'static>(
+    autotunables: &[Box<dyn AutotuneOperation<Out>>],
+) -> String {
     let mut checksum = String::new();
     autotunables.iter().for_each(|op| {
         checksum += op.name();
@@ -15,7 +17,7 @@ pub fn compute_checksum<Out>(autotunables: &[Box<dyn AutotuneOperation<Out>>]) -
 }
 
 /// Groups operations of the same type for autotune
-pub trait AutotuneOperationSet<K: Send + Sync + 'static, Output = ()>: Send + Sync {
+pub trait AutotuneOperationSet<K: Send + 'static, Output: Send + 'static = ()>: Send {
     /// The key used in the tune cache
     fn key(&self) -> K;
 
@@ -29,9 +31,15 @@ pub trait AutotuneOperationSet<K: Send + Sync + 'static, Output = ()>: Send + Sy
     fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation<Output>>;
 
     /// Compute a checksum that can invalidate outdated cached auto-tune results.
-    #[cfg(autotune_persistent_cache)]
     fn compute_checksum(&self) -> String {
-        compute_checksum(&self.autotunables())
+        #[cfg(autotune_persistent_cache)]
+        {
+            compute_checksum(&self.autotunables())
+        }
+        #[cfg(not(autotune_persistent_cache))]
+        {
+            "".to_owned()
+        }
     }
 
     /// Enable or disable certain indices from being benchmarked based on the key
@@ -42,7 +50,7 @@ pub trait AutotuneOperationSet<K: Send + Sync + 'static, Output = ()>: Send + Sy
 }
 
 /// Contains operation to run and inputs on which to run it
-pub trait AutotuneOperation<Output = ()>: core::fmt::Debug {
+pub trait AutotuneOperation<Output: Send + 'static = ()>: Send + core::fmt::Debug {
     /// Runs the operation
     fn execute(self: Box<Self>) -> Output;
 
