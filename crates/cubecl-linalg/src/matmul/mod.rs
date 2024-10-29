@@ -18,7 +18,10 @@ use cmma_matmul::{
 };
 use cubecl_core::prelude::*;
 
-// Launch a matrix multiplication kernel.
+/// Launch a matrix multiplication kernel.
+///
+/// Cmma will be used if available and enabled,
+/// otherwise it will fall back on a non-cmma implementation
 pub fn launch_ref<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
@@ -33,14 +36,18 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
     }
 }
 
-pub fn launch<R: Runtime, E: Numeric>(
+/// Launch a matrix multiplication kernel.
+///
+/// Cmma will be used if available and enabled,
+/// otherwise it will fall back on a non-cmma implementation
+pub fn launch<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, E>,
-    rhs: TensorHandle<R, E>,
-    out: TensorHandle<R, E>,
+    lhs: TensorHandle<R, EG>,
+    rhs: TensorHandle<R, EG>,
+    out: TensorHandle<R, EG>,
     disable_cmma: bool,
-) -> TensorHandle<R, E> {
-    launch_ref::<R, E>(
+) -> TensorHandle<R, EG> {
+    launch_ref::<R, EG>(
         client,
         lhs.as_ref(),
         rhs.as_ref(),

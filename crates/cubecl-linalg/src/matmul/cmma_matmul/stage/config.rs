@@ -1,4 +1,4 @@
-use crate::matmul::config::{ComptimeConfig, MatmulConfig};
+use crate::matmul::config::MatmulConfig;
 use crate::matmul::matmul_stage::SmmConfig;
 use crate::matmul::matmul_tile::TmmConfig;
 use crate::matmul::matrix::{Ident, MatrixLayout};
@@ -17,8 +17,6 @@ pub struct CmmaStageMatmulConfig<T: TmmConfig> {
     num_planes: u32,
     tiling_order: TilingOrderConfig,
 }
-
-impl<T: TmmConfig> ComptimeConfig for CmmaStageMatmulConfig<T> {}
 
 impl<T: TmmConfig> SmmConfig for CmmaStageMatmulConfig<T> {
     type TmmConfig = T;

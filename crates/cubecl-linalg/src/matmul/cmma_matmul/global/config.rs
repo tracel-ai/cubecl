@@ -1,5 +1,5 @@
 use crate::matmul::cmma_matmul::stage::TilingOrderConfig;
-use crate::matmul::config::{ComptimeConfig, MatmulConfig};
+use crate::matmul::config::MatmulConfig;
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::SmmConfig;
 use crate::matmul::matrix::{Ident, MatrixLayout};
@@ -14,8 +14,6 @@ pub struct CmmaGlobalMatmulConfig<S: SmmConfig> {
     check_m_bounds: bool,
     check_n_bounds: bool,
 }
-
-impl<S: SmmConfig> ComptimeConfig for CmmaGlobalMatmulConfig<S> {}
 
 impl<S: SmmConfig> GmmConfig for CmmaGlobalMatmulConfig<S> {
     type SmmConfig = S;

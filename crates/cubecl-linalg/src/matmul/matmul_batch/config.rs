@@ -1,9 +1,9 @@
-use crate::matmul::config::{ComptimeConfig, MatmulConfig};
+use crate::matmul::config::MatmulConfig;
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matrix::Ident;
 use crate::matmul::stage_dim::StageDim;
 
-pub trait BmmConfig: ComptimeConfig + MatmulConfig {
+pub trait BmmConfig: MatmulConfig {
     type GmmConfig: GmmConfig;
 
     fn to_gmm_config(&self) -> Self::GmmConfig;

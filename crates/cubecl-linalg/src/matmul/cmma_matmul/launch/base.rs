@@ -97,7 +97,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
         m: m as usize,
         n: n as usize,
         k: k as usize,
-        b: out.shape[..out.shape.len() - 2].to_vec(),
+        batches: out.shape[..out.shape.len() - 2].to_vec(),
         lhs_layout: match transposed.0 {
             true => matrix::MatrixLayout::ColMajor,
             false => matrix::MatrixLayout::RowMajor,

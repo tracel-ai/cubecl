@@ -1,8 +1,5 @@
 use crate::matmul::{
-    config::{ComptimeConfig, MatmulConfig},
-    matmul_batch::BmmConfig,
-    matmul_global::GmmConfig,
-    matrix::Ident,
+    config::MatmulConfig, matmul_batch::BmmConfig, matmul_global::GmmConfig, matrix::Ident,
     stage_dim::StageDim,
 };
 use cubecl_core as cubecl;
@@ -48,7 +45,6 @@ impl<G: GmmConfig> BmmConfig for CmmaBatchMatmulConfig<G> {
     }
 }
 
-impl<G: GmmConfig> ComptimeConfig for CmmaBatchMatmulConfig<G> {}
 impl<G: GmmConfig> MatmulConfig for CmmaBatchMatmulConfig<G> {}
 
 impl<G: GmmConfig> CmmaBatchMatmulConfig<G> {

@@ -7,11 +7,12 @@ use super::matrix::Ident;
 use super::{matmul_batch::BmmConfig, matrix::MatrixLayout};
 
 #[derive(Clone)]
+/// Description of a matmul problem to solve, regardless of actual data
 pub struct MatmulProblem<EG: Numeric> {
     pub m: usize,
     pub n: usize,
     pub k: usize,
-    pub b: Vec<usize>,
+    pub batches: Vec<usize>,
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
     pub lhs_line_size: u8,
@@ -22,6 +23,7 @@ pub struct MatmulProblem<EG: Numeric> {
 
 impl<EG: Numeric> MatmulProblem<EG> {
     #[cfg(feature = "export_tests")]
+    /// Returns the total number of elements for the identified tensor
     pub(crate) fn tensor_size(&self, ident: Ident) -> usize {
         match ident {
             Ident::Lhs => self.num_batches() * self.m * self.k,
@@ -31,8 +33,9 @@ impl<EG: Numeric> MatmulProblem<EG> {
     }
 
     #[cfg(feature = "export_tests")]
+    /// Returns the shape of the identified tensor
     pub(crate) fn shape(&self, ident: Ident) -> Vec<usize> {
-        self.b
+        self.batches
             .iter()
             .cloned()
             .chain(
@@ -47,8 +50,9 @@ impl<EG: Numeric> MatmulProblem<EG> {
     }
 
     #[cfg(feature = "export_tests")]
+    /// Returns the stride of the identified tensor
     pub(crate) fn strides(&self, ident: Ident) -> Vec<usize> {
-        let mut strides = Vec::with_capacity(self.b.len() + 2);
+        let mut strides = Vec::with_capacity(self.batches.len() + 2);
 
         let (last_batch, x, y) = match ident {
             Ident::Lhs => match self.lhs_layout {
@@ -65,10 +69,10 @@ impl<EG: Numeric> MatmulProblem<EG> {
         strides.push(y);
         strides.push(x);
 
-        if self.b.len() > 0 {
+        if self.batches.len() > 0 {
             strides.push(last_batch);
 
-            for b in self.b.iter().rev().take(self.b.len() - 1) {
+            for b in self.batches.iter().rev().take(self.batches.len() - 1) {
                 strides.push(last_batch * b)
             }
         }
@@ -76,10 +80,17 @@ impl<EG: Numeric> MatmulProblem<EG> {
         strides.into_iter().rev().collect()
     }
 
+    /// Returns the total number of batches
     pub(crate) fn num_batches(&self) -> usize {
-        self.b.iter().map(|&x| x).product()
+        self.batches.iter().map(|&x| x).product()
     }
 
+    /// Asserts that the problem can be solved with the given batch matmul configs
+    ///
+    /// # Panics:
+    ///
+    ///  - If dimensions of the problem are larger than allowed by the config
+    ///  - If line sizes do not divide well the dimension in which they are aligned
     pub(crate) fn check_config<B: BmmConfig>(&self, config: &B) {
         assert!(
             self.m <= config.max_m() as usize,

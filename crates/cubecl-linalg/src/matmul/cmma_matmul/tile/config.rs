@@ -1,4 +1,4 @@
-use crate::matmul::config::{ComptimeConfig, MatmulConfig};
+use crate::matmul::config::MatmulConfig;
 use crate::matmul::matmul_tile::TmmConfig;
 use crate::matmul::matrix::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
@@ -13,8 +13,6 @@ pub struct CmmaTileMatmulConfig {
     rhs_line_size: u32,
     out_line_size: u32,
 }
-
-impl ComptimeConfig for CmmaTileMatmulConfig {}
 
 impl TmmConfig for CmmaTileMatmulConfig {
     fn plane_dim(&self) -> u32 {

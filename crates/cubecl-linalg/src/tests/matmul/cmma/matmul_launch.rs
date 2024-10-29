@@ -12,7 +12,7 @@ macro_rules! testgen_matmul_launch {
                 m: 300,
                 n: 200,
                 k: 250,
-                b: vec![3, 4],
+                batches: vec![3, 4],
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,

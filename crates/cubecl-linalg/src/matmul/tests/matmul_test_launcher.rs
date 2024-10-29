@@ -21,6 +21,8 @@ struct TensorRawParts {
     original_data: Option<Vec<f32>>,
 }
 
+/// Test the correctness of the specified Matmul on the given device,
+/// against a naive CPU implementation over the given problem
 pub fn test_matmul_internal<MM, EG, B, G, R>(
     problem: MatmulProblem<EG>,
     cube_dim: CubeDim,
@@ -75,6 +77,8 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
     );
 }
 
+/// Test the correctness of the high-level Matmul on the given device,
+/// against a naive CPU implementation over the given problem
 pub fn test_matmul_launch<EG: Numeric + CubeElement, R: Runtime>(
     problem: MatmulProblem<EG>,
     disable_cmma: bool,

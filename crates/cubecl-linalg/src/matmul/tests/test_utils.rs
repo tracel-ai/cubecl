@@ -2,6 +2,7 @@ use cubecl_core::{client::ComputeClient, prelude::Numeric, server::Handle, CubeE
 
 use crate::matmul::problem::MatmulProblem;
 
+/// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<I: CubeElement, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     output: Handle,
@@ -30,6 +31,10 @@ pub(crate) fn assert_equals_approx<I: CubeElement, R: Runtime>(
     Ok(())
 }
 
+/// Generates num_elements random f32 for tests.
+///
+/// This is a naive CPU implementation with fixed seed,
+/// not designed to be used for other purposes than testing.
 pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
     fn lcg(seed: &mut u64) -> f32 {
         const A: u64 = 1664525;
@@ -45,6 +50,10 @@ pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
     (0..num_elements).map(|_| lcg(&mut seed)).collect()
 }
 
+/// Solves a matmul problem on f32 inputs.
+///
+/// This is a naive CPU implementation, very slow on large payloads,
+/// not designed to be used for other purposes than testing.
 pub(crate) fn matmul_cpu_reference<EG: Numeric>(
     lhs: &[f32],
     rhs: &[f32],
