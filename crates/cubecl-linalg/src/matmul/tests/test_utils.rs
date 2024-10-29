@@ -48,7 +48,7 @@ pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
 pub(crate) fn matmul_cpu_reference<EG: Numeric>(
     lhs: &[f32],
     rhs: &[f32],
-    problem: MatmulProblem<EG>,
+    problem: &MatmulProblem<EG>,
 ) -> Vec<f32> {
     let m = problem.m as usize;
     let n = problem.n as usize;

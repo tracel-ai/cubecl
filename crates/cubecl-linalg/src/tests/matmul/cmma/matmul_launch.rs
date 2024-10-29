@@ -7,12 +7,8 @@ macro_rules! testgen_matmul_launch {
 
         #[test]
         pub fn test_launch_matmul_b3x4_g300x200x250_col_row() {
-            let client: ComputeClient<
-                <TestRuntime as Runtime>::Server,
-                <TestRuntime as Runtime>::Channel,
-            > = TestRuntime::client(&Default::default());
-
-            let problem = MatmulProblem {
+            type EG = f32;
+            let problem = MatmulProblem::<EG> {
                 m: 300,
                 n: 200,
                 k: 250,
@@ -25,7 +21,7 @@ macro_rules! testgen_matmul_launch {
                 _element: PhantomData,
             };
 
-            test_matmul_launch::<f32, TestRuntime>(&client, problem);
+            test_matmul_launch::<EG, TestRuntime>(problem, &Default::default());
         }
     };
 }
