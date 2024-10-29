@@ -1,42 +1,45 @@
-use std::sync::Arc;
+#[cfg(feature = "wgpu")]
+mod device_sharing_wgpu {
+    use cubecl::wgpu::{WgpuDevice, WgpuSetup};
 
-pub struct WgpuContext {
-    pub adapter: Arc<wgpu::Adapter>,
-    pub device: Arc<wgpu::Device>,
-    pub queue: Arc<wgpu::Queue>,
-}
+    pub fn create_wgpu_setup_from_raw() -> WgpuSetup {
+        cubecl::future::block_on(create_wgpu_setup_from_raw_async())
+    }
 
-pub fn create_wgpu_context() -> Option<WgpuContext> {
-    cubecl::future::block_on(create_wgpu_context_async())
-}
+    pub async fn create_wgpu_setup_from_raw_async() -> WgpuSetup {
+        let instance = wgpu::Instance::default();
+        let adapter = instance
+            .request_adapter(&Default::default())
+            .await
+            .expect("Failed to create wgpu adapter from instance");
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("Raw"),
+                    required_features: adapter.features(),
+                    required_limits: adapter.limits(),
+                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+                },
+                None,
+            )
+            .await
+            .expect("Failed to create wgpu device from adapter");
 
-pub async fn create_wgpu_context_async() -> Option<WgpuContext> {
-    let instance = wgpu::Instance::default();
-    let adapter = instance.request_adapter(&Default::default()).await?;
-    let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                required_features: adapter.features(),
-                required_limits: adapter.limits(),
-                memory_hints: wgpu::MemoryHints::MemoryUsage,
-            },
-            None,
-        )
-        .await
-        .ok()?;
+        WgpuSetup {
+            instance: instance.into(),
+            adapter: adapter.into(),
+            device: device.into(),
+            queue: queue.into(),
+        }
+    }
 
-    Some(WgpuContext {
-        adapter: adapter.into(),
-        device: device.into(),
-        queue: queue.into(),
-    })
+    pub fn assert_wgpu_device_existing(device: &WgpuDevice) {
+        assert!(
+            matches!(device, cubecl::wgpu::WgpuDevice::Existing(_)),
+            "device should be WgpuDevice::Existing"
+        );
+    }
 }
 
 #[cfg(feature = "wgpu")]
-pub fn assert_device_cubecl_wgpu_is_existing(device: &cubecl::wgpu::WgpuDevice) {
-    assert!(
-        matches!(device, cubecl::wgpu::WgpuDevice::Existing(_)),
-        "device should be WgpuDevice::Existing"
-    );
-}
+pub use device_sharing_wgpu::*;
