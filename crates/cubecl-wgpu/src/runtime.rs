@@ -28,15 +28,6 @@ type Server = WgpuServer<WgslCompiler>;
 static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
-pub fn init_memory_management(
-    device: Arc<wgpu::Device>,
-    mem_props: MemoryDeviceProperties,
-    config: MemoryConfiguration,
-) -> MemoryManagement<WgpuStorage> {
-    let storage = WgpuStorage::new(device.clone());
-    MemoryManagement::from_configuration(storage, mem_props, config)
-}
-
 impl Runtime for WgpuRuntime<WgslCompiler> {
     type Compiler = WgslCompiler;
     type Server = WgpuServer<WgslCompiler>;
@@ -46,9 +37,10 @@ impl Runtime for WgpuRuntime<WgslCompiler> {
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            let setup =
-                future::block_on(create_wgpu_setup::<AutoGraphicsApi, WgslCompiler>(device));
-            create_client(setup, RuntimeOptions::default())
+            let setup = future::block_on(create_setup_for_device::<AutoGraphicsApi, WgslCompiler>(
+                device,
+            ));
+            create_client_on_setup(setup, RuntimeOptions::default())
         })
     }
 
@@ -90,40 +82,56 @@ impl Default for RuntimeOptions {
     }
 }
 
+/// A complete setup used to run wgpu on a GPU.
+///
+/// These can either be created with [`ini
 #[derive(Clone)]
 pub struct WgpuSetup {
+    /// The underlying wgpu instance.
     pub instance: Arc<wgpu::Instance>,
+    /// The chose 'adapter'. This corresponds to a physical device.
     pub adapter: Arc<wgpu::Adapter>,
+    /// The wpgu device Burn will use. Nb: There can only be one device per adapter.
     pub device: Arc<wgpu::Device>,
+    /// The queue Burn commands will be submittd to.
     pub queue: Arc<wgpu::Queue>,
 }
 
-pub fn init_existing_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
+/// Create a `WgpuDevice` on an existing `WgpuSetup`. Useful when you want to share
+/// a device between CubeCL and other wgpu libraries.
+pub fn init_device_on_setup(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
     let device_id = WgpuDevice::Existing(setup.device.as_ref().global_id());
-    let client = create_client(setup, options);
+    let client = create_client_on_setup(setup, options);
     RUNTIME.register(&device_id, client);
     device_id
 }
 
-/// Initialize a client on the given device with the given options. This function is useful to configure the runtime options
-/// or to pick a different graphics API. On wasm, it is necessary to use [`init_async`] instead.
-pub fn init_sync<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) -> WgpuSetup {
+/// Like [`create_setup`], but synchronous.
+/// On wasm, it is necessary to use [`init_async`] instead.
+pub fn init_device_async<G: GraphicsApi>(
+    device: &WgpuDevice,
+    options: RuntimeOptions,
+) -> WgpuSetup {
     #[cfg(target_family = "wasm")]
     panic!("Creating a wgpu setup synchronously is unsupported on wasm. Use init_async instead");
 
-    future::block_on(init_async::<G>(device, options))
+    future::block_on(init_device::<G>(device, options))
 }
 
-/// Like [`init_sync`], but async, necessary for wasm.
-pub async fn init_async<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) -> WgpuSetup {
-    let setup = create_wgpu_setup::<G, WgslCompiler>(device).await;
+/// Initialize a client on the given device with the given options. This function is useful to configure the runtime options
+/// or to pick a different graphics API.
+pub async fn init_device<G: GraphicsApi>(
+    device: &WgpuDevice,
+    options: RuntimeOptions,
+) -> WgpuSetup {
+    let setup = create_setup_for_device::<G, WgslCompiler>(device).await;
     let return_setup = setup.clone();
-    let client = create_client(setup, options);
+    let client = create_client_on_setup(setup, options);
     RUNTIME.register(device, client);
     return_setup
 }
 
-pub fn create_client<C: WgpuCompiler>(
+fn create_client_on_setup<C: WgpuCompiler>(
     setup: WgpuSetup,
     options: RuntimeOptions,
 ) -> ComputeClient<WgpuServer<C>, MutexComputeChannel<WgpuServer<C>>> {
@@ -133,11 +141,13 @@ pub fn create_client<C: WgpuCompiler>(
         alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
     };
 
-    let memory_management = init_memory_management(
-        setup.device.clone(),
-        mem_props.clone(),
-        options.memory_config,
-    );
+    let memory_management = {
+        let device = setup.device.clone();
+        let mem_props = mem_props.clone();
+        let config = options.memory_config;
+        let storage = WgpuStorage::new(device.clone());
+        MemoryManagement::from_configuration(storage, mem_props, config)
+    };
     let server = WgpuServer::new(
         memory_management,
         setup.device.clone(),
@@ -156,8 +166,10 @@ pub fn create_client<C: WgpuCompiler>(
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).
-pub async fn create_wgpu_setup<G: GraphicsApi, C: WgpuCompiler>(device: &WgpuDevice) -> WgpuSetup {
-    let (instance, adapter) = select_adapter::<G>(device).await;
+async fn create_setup_for_device<G: GraphicsApi, C: WgpuCompiler>(
+    device: &WgpuDevice,
+) -> WgpuSetup {
+    let (instance, adapter) = request_adapter::<G>(device).await;
     let (device, queue) = C::request_device(&adapter).await;
 
     log::info!(
@@ -185,7 +197,7 @@ async fn select_adapter<G: GraphicsApi>(_device: &WgpuDevice) -> (wgpu::Instance
 }
 
 #[cfg(not(target_family = "wasm"))]
-async fn select_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance, wgpu::Adapter) {
+async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance, wgpu::Adapter) {
     use wgpu::{DeviceType, RequestAdapterOptions};
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -250,43 +262,12 @@ async fn select_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance,
 
         adapters.remove(num)
     }
-
-    // If BestAvailable, check if we should instead construct as
-    // if a specific device was specified.
     #[allow(deprecated)]
     let override_device = if matches!(
         device,
         WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable
     ) {
-        std::env::var("CUBECL_WGPU_DEFAULT_DEVICE")
-            .ok()
-            .and_then(|var| {
-                let override_device = if let Some(inner) = var.strip_prefix("DiscreteGpu(") {
-                    inner
-                        .strip_suffix(")")
-                        .and_then(|s| s.parse().ok())
-                        .map(WgpuDevice::DiscreteGpu)
-                } else if let Some(inner) = var.strip_prefix("IntegratedGpu(") {
-                    inner
-                        .strip_suffix(")")
-                        .and_then(|s| s.parse().ok())
-                        .map(WgpuDevice::IntegratedGpu)
-                } else if let Some(inner) = var.strip_prefix("VirtualGpu(") {
-                    inner
-                        .strip_suffix(")")
-                        .and_then(|s| s.parse().ok())
-                        .map(WgpuDevice::VirtualGpu)
-                } else if var == "Cpu" {
-                    Some(WgpuDevice::Cpu)
-                } else {
-                    None
-                };
-
-                if override_device.is_none() {
-                    log::warn!("Unknown CUBECL_WGPU_DEVICE override {var}");
-                }
-                override_device
-            })
+        get_device_override()
     } else {
         None
     };
@@ -325,4 +306,38 @@ async fn select_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance,
     log::info!("Using adapter {:?}", adapter.get_info());
 
     (instance, adapter)
+}
+
+fn get_device_override() -> Option<WgpuDevice> {
+    // If BestAvailable, check if we should instead construct as
+    // if a specific device was specified.
+    std::env::var("CUBECL_WGPU_DEFAULT_DEVICE")
+        .ok()
+        .and_then(|var| {
+            let override_device = if let Some(inner) = var.strip_prefix("DiscreteGpu(") {
+                inner
+                    .strip_suffix(")")
+                    .and_then(|s| s.parse().ok())
+                    .map(WgpuDevice::DiscreteGpu)
+            } else if let Some(inner) = var.strip_prefix("IntegratedGpu(") {
+                inner
+                    .strip_suffix(")")
+                    .and_then(|s| s.parse().ok())
+                    .map(WgpuDevice::IntegratedGpu)
+            } else if let Some(inner) = var.strip_prefix("VirtualGpu(") {
+                inner
+                    .strip_suffix(")")
+                    .and_then(|s| s.parse().ok())
+                    .map(WgpuDevice::VirtualGpu)
+            } else if var == "Cpu" {
+                Some(WgpuDevice::Cpu)
+            } else {
+                None
+            };
+
+            if override_device.is_none() {
+                log::warn!("Unknown CUBECL_WGPU_DEVICE override {var}");
+            }
+            override_device
+        })
 }
