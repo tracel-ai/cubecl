@@ -24,8 +24,9 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
+    disable_cmma: bool,
 ) {
-    if check_cmma_availability::<R>(client).is_ok() {
+    if !disable_cmma && check_cmma_availability::<R>(client).is_ok() {
         matmul_cmma_ref::<R, EG, CmmaLaunchDispatch>(client, lhs, rhs, out);
     } else {
         matmul_cmma_ref::<R, EG, PlaneMmaLaunchDispatch>(client, lhs, rhs, out);
@@ -37,8 +38,15 @@ pub fn launch<R: Runtime, E: Numeric>(
     lhs: TensorHandle<R, E>,
     rhs: TensorHandle<R, E>,
     out: TensorHandle<R, E>,
+    disable_cmma: bool,
 ) -> TensorHandle<R, E> {
-    launch_ref::<R, E>(client, lhs.as_ref(), rhs.as_ref(), out.as_ref());
+    launch_ref::<R, E>(
+        client,
+        lhs.as_ref(),
+        rhs.as_ref(),
+        out.as_ref(),
+        disable_cmma,
+    );
     out
 }
 

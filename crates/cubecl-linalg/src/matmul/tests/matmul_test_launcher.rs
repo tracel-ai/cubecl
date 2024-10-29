@@ -77,6 +77,7 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
 
 pub fn test_matmul_launch<EG: Numeric + CubeElement, R: Runtime>(
     problem: MatmulProblem<EG>,
+    disable_cmma: bool,
     device: &R::Device,
 ) {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
@@ -90,6 +91,7 @@ pub fn test_matmul_launch<EG: Numeric + CubeElement, R: Runtime>(
         TensorHandle::new(lhs.shape, lhs.strides, lhs.handle),
         TensorHandle::new(rhs.shape, rhs.strides, rhs.handle),
         TensorHandle::new(out.shape, out.strides, out.handle),
+        disable_cmma,
     );
 
     assert_result::<EG, R>(

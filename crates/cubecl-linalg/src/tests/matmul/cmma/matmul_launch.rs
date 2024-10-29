@@ -21,7 +21,7 @@ macro_rules! testgen_matmul_launch {
                 _element: PhantomData,
             };
 
-            test_matmul_launch::<EG, TestRuntime>(problem, &Default::default());
+            test_matmul_launch::<EG, TestRuntime>(problem, false, &Default::default());
         }
     };
 }

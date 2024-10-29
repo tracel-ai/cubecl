@@ -23,7 +23,16 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        matmul::launch::<R, E>(&self.client, lhs, rhs, out);
+        matmul::launch::<R, E>(
+            &self.client,
+            lhs,
+            rhs,
+            out,
+            match self.kind {
+                MatmulKind::CmmaDisabled => true,
+                MatmulKind::CmmaEnabled => false,
+            },
+        );
     }
 
     fn num_samples(&self) -> usize {
@@ -58,8 +67,8 @@ struct MatmulBench<R: Runtime, E> {
 #[allow(dead_code)]
 #[derive(Debug)]
 enum MatmulKind {
-    Tiling2d,
-    Cmma,
+    CmmaDisabled,
+    CmmaEnabled,
 }
 
 #[allow(dead_code)]
@@ -83,19 +92,19 @@ fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
 
 fn main() {
     #[cfg(feature = "wgpu")]
-    run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), MatmulKind::Tiling2d);
+    run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), MatmulKind::CmmaDisabled);
 
     #[cfg(feature = "hip")]
     {
-        run::<cubecl::hip::HipRuntime, f32>(Default::default(), MatmulKind::Tiling2d);
-        run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), MatmulKind::Tiling2d);
+        run::<cubecl::hip::HipRuntime, f32>(Default::default(), MatmulKind::CmmaDisabled);
+        run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), MatmulKind::CmmaDisabled);
     }
 
     #[cfg(feature = "cuda")]
     {
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), MatmulKind::Tiling2d);
-        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), MatmulKind::Tiling2d);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), MatmulKind::Cmma);
-        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), MatmulKind::Cmma);
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), MatmulKind::CmmaDisabled);
+        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), MatmulKind::CmmaDisabled);
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), MatmulKind::CmmaEnabled);
+        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), MatmulKind::CmmaEnabled);
     }
 }
