@@ -30,7 +30,7 @@ impl CubeImplItem {
     pub fn from_impl_item(struct_ty_name: &Type, item: ImplItem) -> syn::Result<Vec<Self>> {
         let res = match item {
             ImplItem::Fn(func) => {
-                let mut func = KernelFn::from_sig_and_block(func.sig, func.block)?;
+                let mut func = KernelFn::from_sig_and_block(func.vis, func.sig, func.block)?;
                 let func_name_expand = format_ident!("__expand_{}", func.sig.name);
 
                 let is_method = func
@@ -123,6 +123,7 @@ impl CubeImplItem {
         core::mem::swap(&mut func.body, &mut body);
 
         KernelFn {
+            vis: func.vis.clone(),
             sig: method_sig,
             body,
             context: Context::new(func.context.return_type.clone()),
@@ -172,6 +173,7 @@ impl CubeImplItem {
         };
 
         KernelFn {
+            vis: func.vis.clone(),
             sig: func_sig,
             body: KernelBody::Verbatim(body),
             context: Context::new(func.context.return_type.clone()),

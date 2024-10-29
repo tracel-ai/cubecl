@@ -11,6 +11,7 @@ use crate::{
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
+        let vis = &self.vis;
         let sig = &self.sig;
         let body = match &self.body {
             KernelBody::Block(block) => &block.to_tokens(&mut self.context),
@@ -18,7 +19,7 @@ impl KernelFn {
         };
 
         let out = quote! {
-            #sig {
+            #vis #sig {
                 use #prelude_path::IntoRuntime as _;
 
                 #body
