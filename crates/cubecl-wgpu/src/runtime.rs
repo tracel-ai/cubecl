@@ -82,23 +82,23 @@ impl Default for RuntimeOptions {
     }
 }
 
-/// A complete setup used to run wgpu on a GPU.
+/// A complete setup used to run wgpu.
 ///
-/// These can either be created with [`ini
-#[derive(Clone)]
+/// These can either be created with [`init_setup`] or [`init_setup_async`].
+#[derive(Clone, Debug)]
 pub struct WgpuSetup {
     /// The underlying wgpu instance.
     pub instance: Arc<wgpu::Instance>,
-    /// The chose 'adapter'. This corresponds to a physical device.
+    /// The selected 'adapter'. This corresponds to a physical device.
     pub adapter: Arc<wgpu::Adapter>,
-    /// The wpgu device Burn will use. Nb: There can only be one device per adapter.
+    /// The wgpu device Burn will use. Nb: There can only be one device per adapter.
     pub device: Arc<wgpu::Device>,
-    /// The queue Burn commands will be submittd to.
+    /// The queue Burn commands will be submitted to.
     pub queue: Arc<wgpu::Queue>,
 }
 
-/// Create a `WgpuDevice` on an existing `WgpuSetup`. Useful when you want to share
-/// a device between CubeCL and other wgpu libraries.
+/// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
+/// Useful when you want to share a device between CubeCL and other wgpu-dependent libraries.
 ///
 /// # Note
 ///
@@ -106,7 +106,7 @@ pub struct WgpuSetup {
 ///
 /// This function generates a new, globally unique ID for the device every time it is called,
 /// even if called on the same device multiple times.
-pub fn init_device_on_setup(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
+pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
     use core::sync::atomic::{AtomicU32, Ordering};
 
     static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -122,21 +122,19 @@ pub fn init_device_on_setup(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDe
     device_id
 }
 
-/// Like [`create_setup`], but synchronous.
-/// On wasm, it is necessary to use [`init_async`] instead.
-pub fn init_device_async<G: GraphicsApi>(
-    device: &WgpuDevice,
-    options: RuntimeOptions,
-) -> WgpuSetup {
+/// Like [`init_setup_async`], but synchronous.
+/// On wasm, it is necessary to use [`init_setup_async`] instead.
+pub fn init_setup<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) -> WgpuSetup {
     #[cfg(target_family = "wasm")]
     panic!("Creating a wgpu setup synchronously is unsupported on wasm. Use init_async instead");
 
-    future::block_on(init_device::<G>(device, options))
+    future::block_on(init_setup_async::<G>(device, options))
 }
 
-/// Initialize a client on the given device with the given options. This function is useful to configure the runtime options
+/// Initialize a client on the given device with the given options.
+/// This function is useful to configure the runtime options
 /// or to pick a different graphics API.
-pub async fn init_device<G: GraphicsApi>(
+pub async fn init_setup_async<G: GraphicsApi>(
     device: &WgpuDevice,
     options: RuntimeOptions,
 ) -> WgpuSetup {
