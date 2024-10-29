@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ptr};
 
 use crate::{
     compiler::{base::WgpuCompiler, wgsl::WgslCompiler},
@@ -96,7 +96,7 @@ pub fn init_existing_device(
     queue: Arc<wgpu::Queue>,
     options: RuntimeOptions,
 ) -> WgpuDevice {
-    let device_id = WgpuDevice::Existing(device.as_ref().global_id());
+    let device_id = WgpuDevice::Existing(ptr::from_ref(device.as_ref()) as usize);
     let client = create_client(adapter, device, queue, options);
     RUNTIME.register(&device_id, client);
     device_id

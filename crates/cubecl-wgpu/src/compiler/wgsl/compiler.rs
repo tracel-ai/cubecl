@@ -94,7 +94,7 @@ impl WgpuCompiler for WgslCompiler {
                     label: None,
                     layout: None,
                     module: &module,
-                    entry_point: "main",
+                    entry_point: Some("main"),
                     compilation_options: wgpu::PipelineCompilationOptions {
                         zero_initialize_workgroup_memory: false,
                         ..Default::default()
