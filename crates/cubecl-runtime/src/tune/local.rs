@@ -93,6 +93,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             TuneCacheResult::Hit { fastest_index } => {
                 return autotune_operation_set.fastest(fastest_index).execute();
             }
+            #[cfg(autotune_persistent_cache)]
             TuneCacheResult::Unchecked => {
                 panic!("Should have checked the cache already.")
             }
@@ -142,6 +143,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                 TuneCacheResult::Miss => {
                     panic!("Should have at least started autotuning");
                 }
+                #[cfg(autotune_persistent_cache)]
                 TuneCacheResult::Unchecked => {
                     panic!("Should have checked the cache.")
                 }
