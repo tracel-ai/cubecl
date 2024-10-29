@@ -1,5 +1,6 @@
 fn main() {
-    #[cfg(feature = "wgpu")] {
+    #[cfg(feature = "wgpu")]
+    {
         let context_wgpu = device_sharing::create_wgpu_context().expect("No wgpu context found");
         let device_cubecl_wgpu = cubecl::wgpu::init_existing_device(
             context_wgpu.adapter,
