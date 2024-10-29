@@ -26,7 +26,7 @@ pub trait Index {
 
 impl Index for i32 {
     fn value(self) -> Variable {
-        Variable::ConstantScalar(crate::ir::ConstantScalarValue::Int(
+        Variable::constant(crate::ir::ConstantScalarValue::Int(
             self as i64,
             IntKind::I32,
         ))
@@ -35,7 +35,7 @@ impl Index for i32 {
 
 impl Index for u32 {
     fn value(self) -> Variable {
-        Variable::ConstantScalar(crate::ir::ConstantScalarValue::UInt(self as u64))
+        Variable::constant(crate::ir::ConstantScalarValue::UInt(self as u64))
     }
 }
 

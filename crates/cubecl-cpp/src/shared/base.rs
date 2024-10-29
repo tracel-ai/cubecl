@@ -10,7 +10,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
 
-use super::{Instruction, VariableSettings, WarpInstruction};
+use super::{Instruction, UnaryInstruction, VariableSettings, WarpInstruction};
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
@@ -128,7 +128,7 @@ impl<D: Dialect> CppCompiler<D> {
             .drain(..)
             .map(|(var, values)| super::ConstArray {
                 index: var.index().unwrap(),
-                item: self.compile_item(var.item()),
+                item: self.compile_item(var.item),
                 size: values.len() as u32,
                 values: values
                     .into_iter()
@@ -141,7 +141,7 @@ impl<D: Dialect> CppCompiler<D> {
         let processing = scope.process();
 
         for var in processing.variables {
-            if let gpu::Variable::Slice { .. } = var {
+            if let gpu::VariableKind::Slice { .. } = var.kind {
                 continue;
             }
             instructions.push(Instruction::DeclareVariable {
@@ -160,12 +160,20 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_operation(
         &mut self,
         instructions: &mut Vec<Instruction<D>>,
-        operation: gpu::Operation,
+        instruction: gpu::Instruction,
         scope: &mut gpu::Scope,
     ) {
-        match operation {
-            gpu::Operation::Operator(op) => self.compile_instruction(op, instructions, scope),
-            gpu::Operation::Metadata(op) => instructions.push(self.compile_metadata(op)),
+        let out = instruction.out;
+        match instruction.operation {
+            gpu::Operation::Copy(variable) => {
+                instructions.push(Instruction::Assign(UnaryInstruction {
+                    input: self.compile_variable(variable),
+                    out: self.compile_variable(out.unwrap()),
+                }));
+            }
+            gpu::Operation::Operator(op) => self.compile_instruction(op, out, instructions, scope),
+            gpu::Operation::Atomic(op) => self.compile_atomic(op, out, instructions),
+            gpu::Operation::Metadata(op) => instructions.push(self.compile_metadata(op, out)),
             gpu::Operation::Branch(val) => self.compile_branch(instructions, val),
             gpu::Operation::Synchronization(val) => match val {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
@@ -173,76 +181,73 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::Operation::Subcube(op) => {
                 self.wrap_size_checked = true;
+                let out = self.compile_variable(out.unwrap());
                 match op {
                     gpu::Subcube::Sum(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::ReduceSum {
                             input: self.compile_variable(op.input),
-                            out: self.compile_variable(op.out),
+                            out,
                         }))
                     }
                     gpu::Subcube::Prod(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::ReduceProd {
                             input: self.compile_variable(op.input),
-                            out: self.compile_variable(op.out),
+                            out,
                         }))
                     }
                     gpu::Subcube::Max(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::ReduceMax {
                             input: self.compile_variable(op.input),
-                            out: self.compile_variable(op.out),
+                            out,
                         }))
                     }
                     gpu::Subcube::Min(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::ReduceMin {
                             input: self.compile_variable(op.input),
-                            out: self.compile_variable(op.out),
+                            out,
                         }))
                     }
-                    gpu::Subcube::Elect(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::Elect {
-                            out: self.compile_variable(op.out),
-                        }))
+                    gpu::Subcube::Elect => {
+                        instructions.push(Instruction::Wrap(WarpInstruction::Elect { out }))
                     }
                     gpu::Subcube::All(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::All {
                             input: self.compile_variable(op.input),
-                            out: self.compile_variable(op.out),
+                            out,
                         }))
                     }
                     gpu::Subcube::Any(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::Any {
                             input: self.compile_variable(op.input),
-                            out: self.compile_variable(op.out),
+                            out,
                         }))
                     }
                     gpu::Subcube::Broadcast(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::Broadcast {
                             input: self.compile_variable(op.lhs),
                             id: self.compile_variable(op.rhs),
-                            out: self.compile_variable(op.out),
+                            out,
                         }))
                     }
                 }
             }
-            gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma)),
+            gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma, out)),
         }
     }
 
-    fn compile_cmma(&mut self, cmma: gpu::CoopMma) -> Instruction<D> {
+    fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
+        let out = self.compile_variable(out.unwrap());
         match cmma {
-            gpu::CoopMma::Fill { mat: frag, value } => {
-                Instruction::Wmma(super::WmmaInstruction::Fill {
-                    frag: self.compile_variable(frag),
-                    value: self.compile_variable(value),
-                })
-            }
+            gpu::CoopMma::Fill { value } => Instruction::Wmma(super::WmmaInstruction::Fill {
+                frag: out,
+                value: self.compile_variable(value),
+            }),
             gpu::CoopMma::Load {
-                mat,
                 value,
                 stride,
                 layout,
             } => Instruction::Wmma(super::WmmaInstruction::Load {
-                frag: self.compile_variable(mat),
+                frag: out,
                 value: self.compile_variable(value),
                 stride: self.compile_variable(stride),
                 layout: layout.and_then(|l| self.compile_matrix_layout(l)),
@@ -251,20 +256,18 @@ impl<D: Dialect> CppCompiler<D> {
                 mat_a,
                 mat_b,
                 mat_c,
-                mat_d,
             } => Instruction::Wmma(super::WmmaInstruction::Execute {
                 frag_a: self.compile_variable(mat_a),
                 frag_b: self.compile_variable(mat_b),
                 frag_c: self.compile_variable(mat_c),
-                frag_d: self.compile_variable(mat_d),
+                frag_d: out,
             }),
             gpu::CoopMma::Store {
-                output,
                 mat,
                 stride,
                 layout,
             } => Instruction::Wmma(super::WmmaInstruction::Store {
-                output: self.compile_variable(output),
+                output: out,
                 frag: self.compile_variable(mat),
                 stride: self.compile_variable(stride),
                 layout: self
@@ -274,13 +277,18 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_metadata(&mut self, metadata: gpu::Metadata) -> Instruction<D> {
+    fn compile_metadata(
+        &mut self,
+        metadata: gpu::Metadata,
+        out: Option<gpu::Variable>,
+    ) -> Instruction<D> {
+        let out = out.unwrap();
         match metadata {
-            gpu::Metadata::Stride { dim, var, out } => {
+            gpu::Metadata::Stride { dim, var } => {
                 self.stride = true;
-                let position = match var {
-                    gpu::Variable::GlobalInputArray { id, .. } => id as usize,
-                    gpu::Variable::GlobalOutputArray { id, .. } => self.num_inputs + id as usize,
+                let position = match var.kind {
+                    gpu::VariableKind::GlobalInputArray(id) => id as usize,
+                    gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a stride, got: {:?}", var),
                 };
                 Instruction::Stride {
@@ -289,11 +297,11 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out),
                 }
             }
-            gpu::Metadata::Shape { dim, var, out } => {
+            gpu::Metadata::Shape { dim, var } => {
                 self.shape = true;
-                let position = match var {
-                    gpu::Variable::GlobalInputArray { id, .. } => id as usize,
-                    gpu::Variable::GlobalOutputArray { id, .. } => self.num_inputs + id as usize,
+                let position = match var.kind {
+                    gpu::VariableKind::GlobalInputArray(id) => id as usize,
+                    gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
                     _ => panic!("Only Input and Output have a shape, got {:?}", var),
                 };
                 Instruction::Shape {
@@ -302,7 +310,7 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out),
                 }
             }
-            gpu::Metadata::Length { var, out } => {
+            gpu::Metadata::Length { var } => {
                 let input = self.compile_variable(var);
                 let out = self.compile_variable(out);
 
@@ -341,12 +349,6 @@ impl<D: Dialect> CppCompiler<D> {
                     })
                     .collect(),
             }),
-            gpu::Branch::Select(op) => instructions.push(Instruction::Select {
-                cond: self.compile_variable(op.cond),
-                then: self.compile_variable(op.then),
-                or_else: self.compile_variable(op.or_else),
-                out: self.compile_variable(op.out),
-            }),
             gpu::Branch::Return => instructions.push(Instruction::Return),
             gpu::Branch::Break => instructions.push(Instruction::Break),
             gpu::Branch::RangeLoop(mut range_loop) => instructions.push(Instruction::RangeLoop {
@@ -363,25 +365,79 @@ impl<D: Dialect> CppCompiler<D> {
         };
     }
 
+    fn compile_atomic(
+        &mut self,
+        value: gpu::AtomicOp,
+        out: Option<gpu::Variable>,
+        instructions: &mut Vec<Instruction<D>>,
+    ) {
+        let out = out.unwrap();
+        match value {
+            gpu::AtomicOp::Load(op) => {
+                instructions.push(Instruction::AtomicLoad(self.compile_unary(op, out)))
+            }
+            gpu::AtomicOp::Store(op) => {
+                instructions.push(Instruction::AtomicStore(self.compile_unary(op, out)))
+            }
+            gpu::AtomicOp::Swap(op) => {
+                instructions.push(Instruction::AtomicSwap(self.compile_binary(op, out)))
+            }
+            gpu::AtomicOp::Add(op) => {
+                instructions.push(Instruction::AtomicAdd(self.compile_binary(op, out)))
+            }
+            gpu::AtomicOp::Sub(op) => {
+                instructions.push(Instruction::AtomicSub(self.compile_binary(op, out)))
+            }
+            gpu::AtomicOp::Max(op) => {
+                instructions.push(Instruction::AtomicMax(self.compile_binary(op, out)))
+            }
+            gpu::AtomicOp::Min(op) => {
+                instructions.push(Instruction::AtomicMin(self.compile_binary(op, out)))
+            }
+            gpu::AtomicOp::And(op) => {
+                instructions.push(Instruction::AtomicAnd(self.compile_binary(op, out)))
+            }
+            gpu::AtomicOp::Or(op) => {
+                instructions.push(Instruction::AtomicOr(self.compile_binary(op, out)))
+            }
+            gpu::AtomicOp::Xor(op) => {
+                instructions.push(Instruction::AtomicXor(self.compile_binary(op, out)))
+            }
+            gpu::AtomicOp::CompareAndSwap(op) => instructions.push(Instruction::AtomicCAS {
+                input: self.compile_variable(op.input),
+                cmp: self.compile_variable(op.cmp),
+                val: self.compile_variable(op.val),
+                out: self.compile_variable(out),
+            }),
+        }
+    }
+
     fn compile_instruction(
         &mut self,
         value: gpu::Operator,
+        out: Option<gpu::Variable>,
         instructions: &mut Vec<Instruction<D>>,
         scope: &mut gpu::Scope,
     ) {
+        let out = out.unwrap();
         match value {
-            gpu::Operator::Add(op) => instructions.push(Instruction::Add(self.compile_binary(op))),
-            gpu::Operator::Mul(op) => instructions.push(Instruction::Mul(self.compile_binary(op))),
-            gpu::Operator::Div(op) => instructions.push(Instruction::Div(self.compile_binary(op))),
-            gpu::Operator::Sub(op) => instructions.push(Instruction::Sub(self.compile_binary(op))),
-            gpu::Operator::Assign(op) => {
-                instructions.push(Instruction::Assign(self.compile_unary(op)))
+            gpu::Operator::Add(op) => {
+                instructions.push(Instruction::Add(self.compile_binary(op, out)))
+            }
+            gpu::Operator::Mul(op) => {
+                instructions.push(Instruction::Mul(self.compile_binary(op, out)))
+            }
+            gpu::Operator::Div(op) => {
+                instructions.push(Instruction::Div(self.compile_binary(op, out)))
+            }
+            gpu::Operator::Sub(op) => {
+                instructions.push(Instruction::Sub(self.compile_binary(op, out)))
             }
             gpu::Operator::Slice(op) => instructions.push(Instruction::Slice {
                 input: self.compile_variable(op.input),
                 start: self.compile_variable(op.start),
                 end: self.compile_variable(op.end),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             }),
             gpu::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && has_length(&op.lhs) {
@@ -391,30 +447,29 @@ impl<D: Dialect> CppCompiler<D> {
 
                     instructions.extend(self.compile_scope(scope));
 
-                    instructions.push(self.compile_metadata(Metadata::Length {
-                        var: lhs,
-                        out: array_len,
-                    }));
+                    instructions.push(
+                        self.compile_metadata(Metadata::Length { var: lhs }, Some(array_len)),
+                    );
                     instructions.push(Instruction::CheckedIndex {
                         len: self.compile_variable(array_len),
                         lhs: self.compile_variable(lhs),
                         rhs: self.compile_variable(rhs),
-                        out: self.compile_variable(op.out),
+                        out: self.compile_variable(out),
                     });
                 } else {
-                    instructions.push(Instruction::Index(self.compile_binary(op)));
+                    instructions.push(Instruction::Index(self.compile_binary(op, out)));
                 }
             }
             gpu::Operator::UncheckedIndex(op) => {
-                instructions.push(Instruction::Index(self.compile_binary(op)))
+                instructions.push(Instruction::Index(self.compile_binary(op, out)))
             }
             gpu::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
-                    if has_length(&op.out) {
+                    if has_length(&out) {
                         CheckedIndexAssign {
                             lhs: op.lhs,
                             rhs: op.rhs,
-                            out: op.out,
+                            out,
                         }
                         .expand(scope);
                         instructions.extend(self.compile_scope(scope));
@@ -422,74 +477,100 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                 };
 
-                instructions.push(Instruction::IndexAssign(self.compile_binary(op)));
+                instructions.push(Instruction::IndexAssign(self.compile_binary(op, out)));
             }
             gpu::Operator::UncheckedIndexAssign(op) => {
-                instructions.push(Instruction::IndexAssign(self.compile_binary(op)))
+                instructions.push(Instruction::IndexAssign(self.compile_binary(op, out)))
             }
             gpu::Operator::Modulo(op) => {
-                instructions.push(Instruction::Modulo(self.compile_binary(op)))
+                instructions.push(Instruction::Modulo(self.compile_binary(op, out)))
             }
             gpu::Operator::Equal(op) => {
-                instructions.push(Instruction::Equal(self.compile_binary(op)))
+                instructions.push(Instruction::Equal(self.compile_binary(op, out)))
             }
             gpu::Operator::Lower(op) => {
-                instructions.push(Instruction::Lower(self.compile_binary(op)))
+                instructions.push(Instruction::Lower(self.compile_binary(op, out)))
             }
             gpu::Operator::Greater(op) => {
-                instructions.push(Instruction::Greater(self.compile_binary(op)))
+                instructions.push(Instruction::Greater(self.compile_binary(op, out)))
             }
             gpu::Operator::LowerEqual(op) => {
-                instructions.push(Instruction::LowerEqual(self.compile_binary(op)))
+                instructions.push(Instruction::LowerEqual(self.compile_binary(op, out)))
             }
             gpu::Operator::GreaterEqual(op) => {
-                instructions.push(Instruction::GreaterEqual(self.compile_binary(op)))
+                instructions.push(Instruction::GreaterEqual(self.compile_binary(op, out)))
             }
-            gpu::Operator::Abs(op) => instructions.push(Instruction::Abs(self.compile_unary(op))),
-            gpu::Operator::Exp(op) => instructions.push(Instruction::Exp(self.compile_unary(op))),
-            gpu::Operator::Log(op) => instructions.push(Instruction::Log(self.compile_unary(op))),
+            gpu::Operator::Abs(op) => {
+                instructions.push(Instruction::Abs(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Exp(op) => {
+                instructions.push(Instruction::Exp(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Log(op) => {
+                instructions.push(Instruction::Log(self.compile_unary(op, out)))
+            }
             gpu::Operator::Log1p(op) => {
-                instructions.push(Instruction::Log1p(self.compile_unary(op)))
+                instructions.push(Instruction::Log1p(self.compile_unary(op, out)))
             }
-            gpu::Operator::Cos(op) => instructions.push(Instruction::Cos(self.compile_unary(op))),
-            gpu::Operator::Sin(op) => instructions.push(Instruction::Sin(self.compile_unary(op))),
-            gpu::Operator::Tanh(op) => instructions.push(Instruction::Tanh(self.compile_unary(op))),
+            gpu::Operator::Cos(op) => {
+                instructions.push(Instruction::Cos(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Sin(op) => {
+                instructions.push(Instruction::Sin(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Tanh(op) => {
+                instructions.push(Instruction::Tanh(self.compile_unary(op, out)))
+            }
             gpu::Operator::Powf(op) => {
-                instructions.push(Instruction::Powf(self.compile_binary(op)))
+                instructions.push(Instruction::Powf(self.compile_binary(op, out)))
             }
-            gpu::Operator::Sqrt(op) => instructions.push(Instruction::Sqrt(self.compile_unary(op))),
-            gpu::Operator::Erf(op) => instructions.push(Instruction::Erf(self.compile_unary(op))),
-            gpu::Operator::And(op) => instructions.push(Instruction::And(self.compile_binary(op))),
-            gpu::Operator::Or(op) => instructions.push(Instruction::Or(self.compile_binary(op))),
-            gpu::Operator::Not(op) => instructions.push(Instruction::Not(self.compile_unary(op))),
-            gpu::Operator::Max(op) => instructions.push(Instruction::Max(self.compile_binary(op))),
-            gpu::Operator::Min(op) => instructions.push(Instruction::Min(self.compile_binary(op))),
+            gpu::Operator::Sqrt(op) => {
+                instructions.push(Instruction::Sqrt(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Erf(op) => {
+                instructions.push(Instruction::Erf(self.compile_unary(op, out)))
+            }
+            gpu::Operator::And(op) => {
+                instructions.push(Instruction::And(self.compile_binary(op, out)))
+            }
+            gpu::Operator::Or(op) => {
+                instructions.push(Instruction::Or(self.compile_binary(op, out)))
+            }
+            gpu::Operator::Not(op) => {
+                instructions.push(Instruction::Not(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Max(op) => {
+                instructions.push(Instruction::Max(self.compile_binary(op, out)))
+            }
+            gpu::Operator::Min(op) => {
+                instructions.push(Instruction::Min(self.compile_binary(op, out)))
+            }
             gpu::Operator::NotEqual(op) => {
-                instructions.push(Instruction::NotEqual(self.compile_binary(op)))
+                instructions.push(Instruction::NotEqual(self.compile_binary(op, out)))
             }
             gpu::Operator::BitwiseOr(op) => {
-                instructions.push(Instruction::BitwiseOr(self.compile_binary(op)))
+                instructions.push(Instruction::BitwiseOr(self.compile_binary(op, out)))
             }
             gpu::Operator::BitwiseAnd(op) => {
-                instructions.push(Instruction::BitwiseAnd(self.compile_binary(op)))
+                instructions.push(Instruction::BitwiseAnd(self.compile_binary(op, out)))
             }
             gpu::Operator::BitwiseXor(op) => {
-                instructions.push(Instruction::BitwiseXor(self.compile_binary(op)))
+                instructions.push(Instruction::BitwiseXor(self.compile_binary(op, out)))
             }
             gpu::Operator::ShiftLeft(op) => {
-                instructions.push(Instruction::ShiftLeft(self.compile_binary(op)))
+                instructions.push(Instruction::ShiftLeft(self.compile_binary(op, out)))
             }
             gpu::Operator::ShiftRight(op) => {
-                instructions.push(Instruction::ShiftRight(self.compile_binary(op)))
+                instructions.push(Instruction::ShiftRight(self.compile_binary(op, out)))
             }
             gpu::Operator::Clamp(op) => instructions.push(Instruction::Clamp {
                 input: self.compile_variable(op.input),
                 min_value: self.compile_variable(op.min_value),
                 max_value: self.compile_variable(op.max_value),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             }),
             gpu::Operator::Recip(op) => {
-                let elem = op.input.item().elem();
+                let elem = op.input.item.elem();
                 let lhs = match elem {
                     gpu::Elem::Float(kind) => ConstantScalarValue::Float(1.0, kind),
                     gpu::Elem::Int(kind) => ConstantScalarValue::Int(1, kind),
@@ -503,150 +584,134 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Div(super::BinaryInstruction {
                     lhs: super::Variable::ConstantScalar(lhs, self.compile_elem(elem)),
                     rhs: self.compile_variable(op.input),
-                    out: self.compile_variable(op.out),
+                    out: self.compile_variable(out),
                 }))
             }
             gpu::Operator::Round(op) => {
-                instructions.push(Instruction::Round(self.compile_unary(op)))
+                instructions.push(Instruction::Round(self.compile_unary(op, out)))
             }
             gpu::Operator::Floor(op) => {
-                instructions.push(Instruction::Floor(self.compile_unary(op)))
+                instructions.push(Instruction::Floor(self.compile_unary(op, out)))
             }
-            gpu::Operator::Ceil(op) => instructions.push(Instruction::Ceil(self.compile_unary(op))),
+            gpu::Operator::Ceil(op) => {
+                instructions.push(Instruction::Ceil(self.compile_unary(op, out)))
+            }
             gpu::Operator::Remainder(op) => {
-                instructions.push(Instruction::Remainder(self.compile_binary(op)))
+                instructions.push(Instruction::Remainder(self.compile_binary(op, out)))
             }
             gpu::Operator::Fma(op) => instructions.push(Instruction::Fma {
                 a: self.compile_variable(op.a),
                 b: self.compile_variable(op.b),
                 c: self.compile_variable(op.c),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             }),
             gpu::Operator::Bitcast(op) => {
-                instructions.push(Instruction::Bitcast(self.compile_unary(op)))
+                instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
             }
-            gpu::Operator::AtomicLoad(op) => {
-                instructions.push(Instruction::AtomicLoad(self.compile_unary(op)))
-            }
-            gpu::Operator::AtomicStore(op) => {
-                instructions.push(Instruction::AtomicStore(self.compile_unary(op)))
-            }
-            gpu::Operator::AtomicSwap(op) => {
-                instructions.push(Instruction::AtomicSwap(self.compile_binary(op)))
-            }
-            gpu::Operator::AtomicAdd(op) => {
-                instructions.push(Instruction::AtomicAdd(self.compile_binary(op)))
-            }
-            gpu::Operator::AtomicSub(op) => {
-                instructions.push(Instruction::AtomicSub(self.compile_binary(op)))
-            }
-            gpu::Operator::AtomicMax(op) => {
-                instructions.push(Instruction::AtomicMax(self.compile_binary(op)))
-            }
-            gpu::Operator::AtomicMin(op) => {
-                instructions.push(Instruction::AtomicMin(self.compile_binary(op)))
-            }
-            gpu::Operator::AtomicAnd(op) => {
-                instructions.push(Instruction::AtomicAnd(self.compile_binary(op)))
-            }
-            gpu::Operator::AtomicOr(op) => {
-                instructions.push(Instruction::AtomicOr(self.compile_binary(op)))
-            }
-            gpu::Operator::AtomicXor(op) => {
-                instructions.push(Instruction::AtomicXor(self.compile_binary(op)))
-            }
-            gpu::Operator::AtomicCompareAndSwap(op) => instructions.push(Instruction::AtomicCAS {
-                input: self.compile_variable(op.input),
-                cmp: self.compile_variable(op.cmp),
-                val: self.compile_variable(op.val),
-                out: self.compile_variable(op.out),
-            }),
             gpu::Operator::Neg(op) => {
-                instructions.push(Instruction::Negate(self.compile_unary(op)))
+                instructions.push(Instruction::Negate(self.compile_unary(op, out)))
             }
             gpu::Operator::Normalize(op) => {
-                instructions.push(Instruction::Normalize(self.compile_unary(op)))
+                instructions.push(Instruction::Normalize(self.compile_unary(op, out)))
             }
             gpu::Operator::Magnitude(op) => {
-                instructions.push(Instruction::Magnitude(self.compile_unary(op)))
+                instructions.push(Instruction::Magnitude(self.compile_unary(op, out)))
             }
-            gpu::Operator::Dot(op) => instructions.push(Instruction::Dot(self.compile_binary(op))),
+            gpu::Operator::Dot(op) => {
+                instructions.push(Instruction::Dot(self.compile_binary(op, out)))
+            }
             gpu::Operator::InitLine(op) => instructions.push(Instruction::VecInit {
                 inputs: op
                     .inputs
                     .into_iter()
                     .map(|it| self.compile_variable(it))
                     .collect(),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
             }),
-            gpu::Operator::Copy(op) => instructions.push(Instruction::Copy {
+            gpu::Operator::CopyMemory(op) => instructions.push(Instruction::Copy {
                 input: self.compile_variable(op.input),
                 in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
             }),
-            gpu::Operator::CopyBulk(op) => instructions.push(Instruction::CopyBulk {
+            gpu::Operator::CopyMemoryBulk(op) => instructions.push(Instruction::CopyBulk {
                 input: self.compile_variable(op.input),
                 in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(op.out),
+                out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
                 len: op.len,
             }),
+            gpu::Operator::Select(op) => instructions.push(Instruction::Select {
+                cond: self.compile_variable(op.cond),
+                then: self.compile_variable(op.then),
+                or_else: self.compile_variable(op.or_else),
+                out: self.compile_variable(out),
+            }),
+            gpu::Operator::Cast(op) => {
+                instructions.push(Instruction::Assign(self.compile_unary(op, out)))
+            }
         };
     }
 
-    fn compile_binary(&mut self, value: gpu::BinaryOperator) -> super::BinaryInstruction<D> {
+    fn compile_binary(
+        &mut self,
+        value: gpu::BinaryOperator,
+        out: gpu::Variable,
+    ) -> super::BinaryInstruction<D> {
         super::BinaryInstruction {
             lhs: self.compile_variable(value.lhs),
             rhs: self.compile_variable(value.rhs),
-            out: self.compile_variable(value.out),
+            out: self.compile_variable(out),
         }
     }
 
-    fn compile_unary(&mut self, value: gpu::UnaryOperator) -> super::UnaryInstruction<D> {
+    fn compile_unary(
+        &mut self,
+        value: gpu::UnaryOperator,
+        out: gpu::Variable,
+    ) -> super::UnaryInstruction<D> {
         super::UnaryInstruction {
             input: self.compile_variable(value.input),
-            out: self.compile_variable(value.out),
+            out: self.compile_variable(out),
         }
     }
 
     fn compile_variable(&mut self, value: gpu::Variable) -> super::Variable<D> {
-        match value {
-            gpu::Variable::GlobalInputArray { id, item } => {
+        let item = value.item;
+        match value.kind {
+            gpu::VariableKind::GlobalInputArray(id) => {
                 super::Variable::GlobalInputArray(id, self.compile_item(item))
             }
-            gpu::Variable::GlobalScalar { id, elem } => {
-                super::Variable::GlobalScalar(id, self.compile_elem(elem), elem)
+            gpu::VariableKind::GlobalScalar(id) => {
+                super::Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
-            gpu::Variable::Local { id, item, depth } => super::Variable::Local {
+            gpu::VariableKind::Local { id, depth } => super::Variable::Local {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::Versioned {
-                id, item, depth, ..
-            } => super::Variable::Local {
+            gpu::VariableKind::Versioned { id, depth, .. } => super::Variable::Local {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::LocalBinding { id, item, depth } => super::Variable::ConstLocal {
+            gpu::VariableKind::LocalBinding { id, depth } => super::Variable::ConstLocal {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::Slice { id, item, depth } => super::Variable::Slice {
+            gpu::VariableKind::Slice { id, depth } => super::Variable::Slice {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::Variable::GlobalOutputArray { id, item } => {
+            gpu::VariableKind::GlobalOutputArray(id) => {
                 super::Variable::GlobalOutputArray(id, self.compile_item(item))
             }
-            gpu::Variable::ConstantScalar(value) => {
+            gpu::VariableKind::ConstantScalar(value) => {
                 super::Variable::ConstantScalar(value, self.compile_elem(value.elem()))
             }
-            gpu::Variable::SharedMemory { id, item, length } => {
+            gpu::VariableKind::SharedMemory { id, length } => {
                 let item = self.compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
@@ -654,52 +719,62 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 super::Variable::SharedMemory(id, item, length)
             }
-            gpu::Variable::ConstantArray { id, item, length } => {
+            gpu::VariableKind::ConstantArray { id, length } => {
                 let item = self.compile_item(item);
                 super::Variable::ConstantArray(id, item, length)
             }
-            gpu::Variable::AbsolutePos => {
-                self.settings.idx_global = true;
-                super::Variable::IdxGlobal
-            }
-            gpu::Variable::Rank => {
-                self.rank = true;
-                super::Variable::Rank
-            }
-            gpu::Variable::UnitPos => {
-                self.settings.thread_idx_global = true;
-                super::Variable::ThreadIdxGlobal
-            }
-            gpu::Variable::UnitPosX => super::Variable::ThreadIdxX,
-            gpu::Variable::UnitPosY => super::Variable::ThreadIdxY,
-            gpu::Variable::UnitPosZ => super::Variable::ThreadIdxZ,
-            gpu::Variable::CubePosX => super::Variable::BlockIdxX,
-            gpu::Variable::CubePosY => super::Variable::BlockIdxY,
-            gpu::Variable::CubePosZ => super::Variable::BlockIdxZ,
-            gpu::Variable::AbsolutePosX => {
-                self.settings.absolute_idx.0 = true;
-                super::Variable::AbsoluteIdxX
-            }
-            gpu::Variable::AbsolutePosY => {
-                self.settings.absolute_idx.1 = true;
-                super::Variable::AbsoluteIdxY
-            }
-            gpu::Variable::AbsolutePosZ => {
-                self.settings.absolute_idx.2 = true;
-                super::Variable::AbsoluteIdxZ
-            }
-            gpu::Variable::CubeDimX => super::Variable::BlockDimX,
-            gpu::Variable::CubeDimY => super::Variable::BlockDimY,
-            gpu::Variable::CubeDimZ => super::Variable::BlockDimZ,
-            gpu::Variable::CubeCountX => super::Variable::GridDimX,
-            gpu::Variable::CubeCountY => super::Variable::GridDimY,
-            gpu::Variable::CubeCountZ => super::Variable::GridDimZ,
-            gpu::Variable::LocalArray {
-                id,
-                item,
-                depth,
-                length,
-            } => {
+            gpu::VariableKind::Builtin(builtin) => match builtin {
+                gpu::Builtin::AbsolutePos => {
+                    self.settings.idx_global = true;
+                    super::Variable::IdxGlobal
+                }
+                gpu::Builtin::Rank => {
+                    self.rank = true;
+                    super::Variable::Rank
+                }
+                gpu::Builtin::UnitPos => {
+                    self.settings.thread_idx_global = true;
+                    super::Variable::ThreadIdxGlobal
+                }
+                gpu::Builtin::UnitPosX => super::Variable::ThreadIdxX,
+                gpu::Builtin::UnitPosY => super::Variable::ThreadIdxY,
+                gpu::Builtin::UnitPosZ => super::Variable::ThreadIdxZ,
+                gpu::Builtin::CubePosX => super::Variable::BlockIdxX,
+                gpu::Builtin::CubePosY => super::Variable::BlockIdxY,
+                gpu::Builtin::CubePosZ => super::Variable::BlockIdxZ,
+                gpu::Builtin::AbsolutePosX => {
+                    self.settings.absolute_idx.0 = true;
+                    super::Variable::AbsoluteIdxX
+                }
+                gpu::Builtin::AbsolutePosY => {
+                    self.settings.absolute_idx.1 = true;
+                    super::Variable::AbsoluteIdxY
+                }
+                gpu::Builtin::AbsolutePosZ => {
+                    self.settings.absolute_idx.2 = true;
+                    super::Variable::AbsoluteIdxZ
+                }
+                gpu::Builtin::CubeDimX => super::Variable::BlockDimX,
+                gpu::Builtin::CubeDimY => super::Variable::BlockDimY,
+                gpu::Builtin::CubeDimZ => super::Variable::BlockDimZ,
+                gpu::Builtin::CubeCountX => super::Variable::GridDimX,
+                gpu::Builtin::CubeCountY => super::Variable::GridDimY,
+                gpu::Builtin::CubeCountZ => super::Variable::GridDimZ,
+                gpu::Builtin::CubePos => {
+                    self.settings.block_idx_global = true;
+                    super::Variable::BlockIdxGlobal
+                }
+                gpu::Builtin::CubeDim => {
+                    self.settings.block_dim_global = true;
+                    super::Variable::BlockDimGlobal
+                }
+                gpu::Builtin::CubeCount => {
+                    self.settings.grid_dim_global = true;
+                    super::Variable::GridDimGlobal
+                }
+                gpu::Builtin::SubcubeDim => super::Variable::WarpSize,
+            },
+            gpu::VariableKind::LocalArray { id, depth, length } => {
                 let item = self.compile_item(item);
                 if !self
                     .local_arrays
@@ -711,20 +786,7 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 super::Variable::LocalArray(id, item, depth, length)
             }
-            gpu::Variable::CubePos => {
-                self.settings.block_idx_global = true;
-                super::Variable::BlockIdxGlobal
-            }
-            gpu::Variable::CubeDim => {
-                self.settings.block_dim_global = true;
-                super::Variable::BlockDimGlobal
-            }
-            gpu::Variable::CubeCount => {
-                self.settings.grid_dim_global = true;
-                super::Variable::GridDimGlobal
-            }
-            gpu::Variable::SubcubeDim => super::Variable::WarpSize,
-            gpu::Variable::Matrix { id, mat, depth } => {
+            gpu::VariableKind::Matrix { id, mat, depth } => {
                 self.wmma = true;
                 super::Variable::WmmaFragment {
                     id,
@@ -838,10 +900,10 @@ impl CheckedIndexAssign {
 
 fn has_length(var: &gpu::Variable) -> bool {
     matches!(
-        var,
-        gpu::Variable::GlobalInputArray { .. }
-            | gpu::Variable::GlobalOutputArray { .. }
-            | gpu::Variable::Slice { .. }
+        var.kind,
+        gpu::VariableKind::GlobalInputArray { .. }
+            | gpu::VariableKind::GlobalOutputArray { .. }
+            | gpu::VariableKind::Slice { .. }
     )
 }
 

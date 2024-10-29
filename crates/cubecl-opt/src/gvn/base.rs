@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{ConstantScalarValue, Elem, FloatKind, IntKind, Item};
+use cubecl_core::ir::{Builtin, ConstantScalarValue, Elem, FloatKind, IntKind, Item};
 use float_ord::FloatOrd;
 use petgraph::{
     algo::dominators::{self, Dominators},
@@ -254,30 +254,4 @@ pub enum OpId {
     Shape,
     Stride,
     Cast,
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
-pub enum Builtin {
-    Rank,
-    UnitPos,
-    UnitPosX,
-    UnitPosY,
-    UnitPosZ,
-    CubePos,
-    CubePosX,
-    CubePosY,
-    CubePosZ,
-    CubeDim,
-    CubeDimX,
-    CubeDimY,
-    CubeDimZ,
-    CubeCount,
-    CubeCountX,
-    CubeCountY,
-    CubeCountZ,
-    SubcubeDim,
-    AbsolutePos,
-    AbsolutePosX,
-    AbsolutePosY,
-    AbsolutePosZ,
 }
