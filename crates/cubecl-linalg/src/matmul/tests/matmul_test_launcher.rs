@@ -120,14 +120,10 @@ fn tensor_raw_parts<EG: Numeric + CubeElement, R: Runtime>(
                 ),
             };
 
-            let handle = client.create(EG::as_bytes(&EG::from_values(&data)));
-            let shape = problem.shape(Ident::Lhs);
-            let strides = problem.strides(Ident::Lhs);
-
             TensorRawParts {
-                handle,
-                shape,
-                strides,
+                handle: client.create(EG::as_bytes(&EG::from_values(&data))),
+                shape: problem.shape(Ident::Lhs),
+                strides: problem.strides(Ident::Lhs),
                 original_data: Some(original_data),
             }
         }
@@ -143,14 +139,11 @@ fn tensor_raw_parts<EG: Numeric + CubeElement, R: Runtime>(
                     problem.n as usize,
                 ),
             };
-            let handle = client.create(EG::as_bytes(&EG::from_values(&data)));
-            let shape = problem.shape(Ident::Rhs);
-            let strides = problem.strides(Ident::Rhs);
 
             TensorRawParts {
-                handle,
-                shape,
-                strides,
+                handle: client.create(EG::as_bytes(&EG::from_values(&data))),
+                shape: problem.shape(Ident::Rhs),
+                strides: problem.strides(Ident::Rhs),
                 original_data: Some(original_data),
             }
         }
