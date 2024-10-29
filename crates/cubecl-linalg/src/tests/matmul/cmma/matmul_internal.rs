@@ -1,6 +1,6 @@
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! testgen_cmma_internal {
+macro_rules! testgen_matmul_internal {
     ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $eg:ty, $es:ty, $ea:ty, $plane_dim:expr) => {
         use cubecl_linalg::matmul::cmma_matmul::batch::CmmaBatchMatmul;
         use cubecl_linalg::matmul::cmma_matmul::batch::CmmaBatchMatmulConfig;
@@ -26,7 +26,7 @@ macro_rules! testgen_cmma_internal {
         use cubecl_linalg::matmul::problem::MatmulProblem;
         use cubecl_linalg::matmul::stage_dim::StageDim;
         use cubecl_linalg::matmul::cmma_matmul::launch::create_stage_dim;
-        use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul;
+        use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul_internal;
         use cubecl_linalg::matmul::cmma_matmul::launch::make_cmma_config;
         use cubecl_linalg::matmul::cmma_matmul::launch::AdvancedConfig;
 
@@ -73,7 +73,7 @@ macro_rules! testgen_cmma_internal {
                         R,
                     >(&problem, &$cube_dim, &$cube_count, &$advanced_config);
 
-                    test_matmul::<BatchMatmul, EG, B, G, R>(problem, $cube_dim, $cube_count, config, device);
+                    test_matmul_internal::<BatchMatmul, EG, B, G, R>(problem, $cube_dim, $cube_count, config, device);
                 }
             };
         }

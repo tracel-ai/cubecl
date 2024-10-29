@@ -11,7 +11,7 @@ use super::test_utils::assert_equals_approx;
 use super::test_utils::generate_random_data;
 use super::test_utils::matmul_cpu_reference;
 
-pub fn test_matmul<MM, EG, B, G, R>(
+pub fn test_matmul_internal<MM, EG, B, G, R>(
     problem: MatmulProblem,
     cube_dim: CubeDim,
     cube_count: CubeCount,
@@ -87,4 +87,42 @@ fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> 
         }
     }
     result
+}
+
+pub fn test_matmul_launch<R: Runtime>(
+    _client: &ComputeClient<R::Server, R::Channel>,
+    _problem: MatmulProblem,
+    // lhs: TensorHandle<R, E>,
+    // rhs: TensorHandle<R, E>,
+    // out: TensorHandle<R, E>,
+) {
+    todo!()
+    // let lhs_original_data: Vec<f32> =
+    //     generate_random_data(problem.tensor_size(Ident::Lhs) as usize);
+    // let lhs_data = match problem.lhs_layout {
+    //     MatrixLayout::RowMajor => lhs_original_data.clone(),
+    //     MatrixLayout::ColMajor => transpose::<f32>(
+    //         &lhs_original_data,
+    //         problem.num_batches() as usize,
+    //         problem.m as usize,
+    //         problem.k as usize,
+    //     ),
+    // };
+    // let rhs_original_data: Vec<f32> =
+    //     generate_random_data(problem.tensor_size(Ident::Rhs) as usize);
+    // let rhs_data = match problem.rhs_layout {
+    //     MatrixLayout::RowMajor => rhs_original_data.clone(),
+    //     MatrixLayout::ColMajor => transpose::<f32>(
+    //         &rhs_original_data,
+    //         problem.num_batches() as usize,
+    //         problem.k as usize,
+    //         problem.n as usize,
+    //     ),
+    // };
+
+    // let lhs = client.create(EG::as_bytes(&EG::from_values(&lhs_data)));
+    // let rhs = client.create(EG::as_bytes(&EG::from_values(&rhs_data)));
+    // let out = client.empty(problem.tensor_size(Ident::Out) as usize * EG::as_elem().size());
+
+    // matmul::launch(client, lhs, rhs, out)
 }

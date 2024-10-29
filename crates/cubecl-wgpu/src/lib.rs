@@ -25,7 +25,7 @@ mod tests {
     pub type TestRuntime = crate::WgpuRuntime<crate::WgslCompiler>;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_cmma_mock!();
+    cubecl_linalg::testgen_plane_mma!();
 }
 
 #[cfg(all(test, feature = "spirv"))]
@@ -33,5 +33,5 @@ mod tests_spirv {
     pub type TestRuntime = crate::WgpuRuntime<crate::spirv::VkSpirvCompiler>;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_cmma_mock!();
+    cubecl_linalg::testgen_plane_mma!();
 }

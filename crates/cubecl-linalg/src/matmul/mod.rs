@@ -13,7 +13,7 @@ pub mod stage_dim;
 pub mod tests;
 
 use cmma_matmul::{
-    launch::{matmul_cmma_ref, CmmaLaunchDispatch, PlaneMmmaLaunchDispatch},
+    launch::{matmul_cmma_ref, CmmaLaunchDispatch, PlaneMmaLaunchDispatch},
     tile::check_cmma_availability,
 };
 use cubecl_core::prelude::*;
@@ -28,7 +28,7 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
     if check_cmma_availability::<R>(client).is_ok() {
         matmul_cmma_ref::<R, EG, CmmaLaunchDispatch>(client, lhs, rhs, out);
     } else {
-        matmul_cmma_ref::<R, EG, PlaneMmmaLaunchDispatch>(client, lhs, rhs, out);
+        matmul_cmma_ref::<R, EG, PlaneMmaLaunchDispatch>(client, lhs, rhs, out);
     }
 }
 

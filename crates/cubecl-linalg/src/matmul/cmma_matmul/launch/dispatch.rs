@@ -19,9 +19,9 @@ pub trait MatmulLaunchDispatch {
     fn cube_count(problem: &MatmulProblem) -> CubeCount;
 }
 
-pub struct PlaneMmmaLaunchDispatch {}
+pub struct PlaneMmaLaunchDispatch {}
 
-impl MatmulLaunchDispatch for PlaneMmmaLaunchDispatch {
+impl MatmulLaunchDispatch for PlaneMmaLaunchDispatch {
     const PLANE_DIM: u32 = 32;
     type StageSize = S4x4x2;
     type ElementInput = f32;
