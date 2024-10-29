@@ -102,7 +102,7 @@ where
             stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
 
         let start = num_tile_lines * Self::plane_id();
-        let mut out_smem = SharedMemory::<O>::new_lined(
+        let mut out_smem = SharedMemory::<Acc>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
         );
