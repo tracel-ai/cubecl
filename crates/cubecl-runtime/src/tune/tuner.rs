@@ -31,6 +31,7 @@ enum AutotuneMessage<K> {
     Done {
         key: K,
         fastest_index: usize,
+        #[cfg(autotune_persistent_cache)]
         checksum: String,
     },
     Starting {
@@ -74,6 +75,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 AutotuneMessage::Done {
                     key,
                     fastest_index,
+                    #[cfg(autotune_persistent_cache)]
                     checksum,
                 } => {
                     self.tune_cache.cache_insert(key.clone(), fastest_index);
@@ -114,14 +116,14 @@ impl<K: AutotuneKey> Tuner<K> {
 
         let client = client.clone();
         let sender = self.channel.0.clone();
-        let checksum = set.compute_checksum();
 
         if autotunables.len() == 1 {
             sender
                 .try_send(AutotuneMessage::Done {
                     key,
                     fastest_index: autotunables[0].0,
-                    checksum,
+                    #[cfg(autotune_persistent_cache)]
+                    checksum: set.compute_checksum(),
                 })
                 .expect("Autotune results channel closed");
             return;
@@ -130,6 +132,9 @@ impl<K: AutotuneKey> Tuner<K> {
         sender
             .try_send(AutotuneMessage::Starting { key: key.clone() })
             .expect("Autotune results channel closed");
+
+        #[cfg(autotune_persistent_cache)]
+        let checksum = set.compute_checksum();
 
         spawn_benchmark_task(async move {
             #[derive(new, Debug)]
@@ -210,6 +215,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 .send(AutotuneMessage::Done {
                     key,
                     fastest_index,
+                    #[cfg(autotune_persistent_cache)]
                     checksum,
                 })
                 .await

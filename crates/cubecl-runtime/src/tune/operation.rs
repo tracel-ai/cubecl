@@ -31,15 +31,9 @@ pub trait AutotuneOperationSet<K: Send + 'static, Output: Send + 'static = ()>: 
     fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation<Output>>;
 
     /// Compute a checksum that can invalidate outdated cached auto-tune results.
+    #[cfg(autotune_persistent_cache)]
     fn compute_checksum(&self) -> String {
-        #[cfg(autotune_persistent_cache)]
-        {
-            compute_checksum(&self.autotunables())
-        }
-        #[cfg(not(autotune_persistent_cache))]
-        {
-            "".to_owned()
-        }
+        compute_checksum(&self.autotunables())
     }
 
     /// Enable or disable certain indices from being benchmarked based on the key
