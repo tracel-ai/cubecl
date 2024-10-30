@@ -22,7 +22,8 @@ Also requires device support
 
 ### Datatypes
 
-`flex32` represented as `f32` everywhere except SPIR-V, with no reduced precision.
+`flex32` represented as `f32` everywhere except SPIR-V, with no reduced precision. `f64` not
+supported for all operations
 
 | Type   | CUDA | ROCm | WGPU (WGSL) | WGPU (SPIR-V) |
 | ------ | ---- | ---- | ----------- | ------------- |
@@ -39,7 +40,7 @@ Also requires device support
 | flex32 | ❔   | ❔   | ❔          | ✔️            |
 | tf32   | ✔️   | ❌   | ❌          | ❌            |
 | f32    | ✔️   | ✔️   | ✔️          | ✔️            |
-| f64    | ✔️   | ✔️   | ❌          | ✔️            |
+| f64    | ❔   | ❔   | ❌          | ❔            |
 | bool   | ✔️   | ✔️   | ✔️          | ✔️            |
 
 ## Datatype Details
