@@ -1,9 +1,9 @@
-use crate::matmul::components::cmma_matmul::stage::{
-    TilingOrder, TilingOrderConfig, XMajorTiling, YMajorTiling,
-};
 use crate::matmul::components::config::PlaneMapper;
 use crate::matmul::components::global::GmmConfig;
 use crate::matmul::components::matrix::Ident;
+use crate::matmul::components::stage::{
+    TilingOrder, TilingOrderConfig, XMajorTiling, YMajorTiling,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

@@ -27,7 +27,7 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
     out: TensorHandleRef<'_, R>,
     disable_cmma: bool,
 ) {
-    if !disable_cmma && tile::cmma::check_availability::<R>(client).is_ok() {
+    if !disable_cmma && tile::accelerated::check_availability::<R>(client).is_ok() {
         matmul_cmma_ref::<R, EG, CmmaLaunchDispatch>(client, lhs, rhs, out);
     } else {
         matmul_cmma_ref::<R, EG, PlaneMmaLaunchDispatch>(client, lhs, rhs, out);

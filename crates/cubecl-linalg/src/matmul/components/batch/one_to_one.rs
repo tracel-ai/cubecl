@@ -4,8 +4,10 @@ use crate::matmul::components::batch::{BatchMatmul, BmmConfig};
 use crate::matmul::components::cmma_matmul::global::{
     LhsTensorLoader, RhsTensorLoader, TensorUnloader,
 };
-use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::global::{GlobalMatmul, GmmConfig};
 use crate::matmul::components::matrix::Ident;
+use crate::matmul::components::stage_dim::StageDim;
 use crate::matmul::components::{Matmul, MatmulLaunch};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -133,4 +135,58 @@ pub(crate) fn batch_matmul_launch<
     #[comptime] config: B,
 ) {
     BMM::execute(lhs, rhs, out, config);
+}
+
+#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Configuration for the OneToOneBatchMatmul
+pub struct OneToOneBatchMatmulConfig<G: GmmConfig> {
+    gmm_config: G,
+    cube_count_x: u32,
+    cube_count_y: u32,
+    cube_count_z: u32,
+}
+
+impl<G: GmmConfig> BmmConfig for OneToOneBatchMatmulConfig<G> {
+    type GmmConfig = G;
+
+    fn to_gmm_config(&self) -> Self::GmmConfig {
+        self.gmm_config
+    }
+
+    fn stage_dim(&self, ident: Ident) -> StageDim {
+        self.gmm_config.stage_dim(ident)
+    }
+
+    fn cube_count_x(&self) -> u32 {
+        self.cube_count_x
+    }
+
+    fn cube_count_y(&self) -> u32 {
+        self.cube_count_y
+    }
+
+    fn max_m(&self) -> u32 {
+        self.cube_count_x() * self.stage_dim(Ident::Out).num_elements_x_dim()
+    }
+
+    fn max_n(&self) -> u32 {
+        self.cube_count_y() * self.stage_dim(Ident::Out).num_elements_y_dim()
+    }
+
+    fn max_batches(&self) -> u32 {
+        self.cube_count_z
+    }
+}
+
+impl<G: GmmConfig> MatmulConfig for OneToOneBatchMatmulConfig<G> {}
+
+impl<G: GmmConfig> OneToOneBatchMatmulConfig<G> {
+    pub fn new(gmm_config: G, cube_count_x: u32, cube_count_y: u32, cube_count_z: u32) -> Self {
+        Self {
+            gmm_config,
+            cube_count_x,
+            cube_count_y,
+            cube_count_z,
+        }
+    }
 }

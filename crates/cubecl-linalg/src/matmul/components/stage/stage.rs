@@ -1,10 +1,10 @@
-use crate::matmul::components::cmma_matmul::stage::{TilingOrder, XMajorTiling, YMajorTiling};
 use crate::matmul::components::matrix::Ident;
-use crate::matmul::components::stage::SmmConfig;
+use crate::matmul::components::stage::tiling_order::{
+    TilingOrderConfig, XMajorTiling, YMajorTiling,
+};
+use crate::matmul::components::stage::{SmmConfig, TilingOrder};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::TilingOrderConfig;
 
 #[derive(CubeType, Clone, Copy)]
 /// Wrapper over the shared memory used for staging,

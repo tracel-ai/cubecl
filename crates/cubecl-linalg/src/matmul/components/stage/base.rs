@@ -3,8 +3,6 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{global::GmmConfig, Matmul};
 
-use super::{SmmConfig, StageReader, StageWriter};
-
 #[cube]
 /// Provides matrix multiplication operations at the stage level.
 ///
@@ -53,3 +51,97 @@ pub trait StageMatmul<
         #[comptime] global_config: G,
     );
 }
+
+#[cube]
+/// Input to the stage matmul, responsible of handing slices of data
+/// at precise locations in the stage
+pub trait StageReader<ES: Numeric, S: SmmConfig>: CubeType {
+    /// Hands a portion of data from the stage, whose location is function of the
+    /// plane, buffer and accumulator indexes.
+    fn read_tile(
+        this: &Self,
+        compute_plane_offset: u32,
+        buffer_offset: u32,
+        accumulator_offset: u32,
+        #[comptime] config: S,
+    ) -> &Slice<'_, Line<ES>>;
+}
+
+#[cube]
+/// Responsible of writing the accumulated stage matmul output
+/// to global memory
+pub trait StageWriter<EG: Numeric, G: GmmConfig>: CubeType + 'static + Send + Sync {
+    /// Writes the given slice to global memory, at a position that depends on
+    /// plane and accumulator indexes.
+    fn write<ES: Numeric>(
+        this: &mut Self,
+        slice: &Slice<'_, Line<ES>>,
+        compute_plane_offset: u32,
+        accumulator_offset: u32,
+        #[comptime] config: G,
+    );
+}
+
+use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::matrix::{Ident, MatrixLayout};
+use crate::matmul::components::stage_dim::StageDim;
+use crate::matmul::components::tile::TmmConfig;
+
+use super::tiling_order::TilingOrderConfig;
+
+/// Configuration for the Stage matmul (SMM) level
+pub trait SmmConfig: MatmulConfig {
+    /// Underlying Tile matmul config
+    type TmmConfig: TmmConfig;
+
+    /// Convert itself to the underlying tile matmul config
+    fn to_tmm_config(self) -> Self::TmmConfig;
+
+    /// Returns the line size for the given ident
+    fn line_size(&self, ident: Ident) -> u32;
+
+    /// Returns the [StageDim] for the given ident
+    fn stage_dim(&self, ident: Ident) -> StageDim;
+
+    /// Returns the [MatrixLayout] for the given ident
+    fn layout(&self, ident: Ident) -> MatrixLayout;
+
+    /// Returns the number of planes in the cube
+    fn num_planes(&self) -> u32;
+
+    /// Returns the size of the plane dimension
+    fn plane_dim(&self) -> u32;
+
+    /// Returns the order in which tiles should be loaded to the stage
+    fn tiling_order(&self) -> TilingOrderConfig;
+}
+
+pub trait StageSize: 'static + Send + Sync {
+    const NUM_M: u32;
+    const NUM_N: u32;
+    const NUM_K: u32;
+}
+
+macro_rules! create_cmma_stage {
+    ($name:ident, $m:expr, $n:expr, $k:expr) => {
+        pub struct $name;
+
+        impl StageSize for $name {
+            const NUM_M: u32 = $m;
+            const NUM_N: u32 = $n;
+            const NUM_K: u32 = $k;
+        }
+    };
+}
+
+// This list is not exhaustive. Add what you need.
+create_cmma_stage!(S1x1x1, 1, 1, 1);
+create_cmma_stage!(S1x1x2, 1, 1, 2);
+create_cmma_stage!(S1x2x1, 1, 2, 1);
+create_cmma_stage!(S2x1x1, 2, 1, 1);
+create_cmma_stage!(S2x2x1, 2, 2, 1);
+create_cmma_stage!(S2x2x2, 2, 2, 2);
+create_cmma_stage!(S4x4x1, 4, 4, 1);
+create_cmma_stage!(S4x4x2, 4, 4, 2);
+create_cmma_stage!(S8x1x1, 8, 1, 1);
+create_cmma_stage!(S8x8x1, 8, 8, 1);

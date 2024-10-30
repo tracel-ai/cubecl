@@ -3,13 +3,21 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{LhsStageReader, RhsStageReader, StageSize};
 use crate::matmul::components::config::PlaneMapper;
 use crate::matmul::components::global::GmmConfig;
-use crate::matmul::components::tile::TileMatmul;
 use crate::matmul::components::matrix::Ident;
 use crate::matmul::components::stage::{SmmConfig, StageMatmul, StageReader, StageWriter};
+use crate::matmul::components::tile::TileMatmul;
 use crate::matmul::components::Matmul;
+
+use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::matrix::MatrixLayout;
+use crate::matmul::components::stage_dim::StageDim;
+use crate::matmul::components::tile::TmmConfig;
+
+use super::reader::{LhsStageReader, RhsStageReader};
+use super::tiling_order::TilingOrderConfig;
+use super::StageSize;
 
 /// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
 /// - One plane per tile in m dimension,
@@ -17,7 +25,7 @@ use crate::matmul::components::Matmul;
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct PlaneRowStageMatmul<
+pub struct RowAccumulateStageMatmul<
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
@@ -35,7 +43,7 @@ pub struct PlaneRowStageMatmul<
 
 #[cube]
 impl<I, O, Acc, TMM, SS, S> StageMatmul<I, O, LhsStageReader<I, S>, RhsStageReader<I, S>, S>
-    for PlaneRowStageMatmul<I, O, Acc, TMM, SS, S>
+    for RowAccumulateStageMatmul<I, O, Acc, TMM, SS, S>
 where
     I: Numeric,
     O: Numeric,
@@ -129,7 +137,7 @@ where
     }
 }
 
-impl<I, O, Acc, TMM, SS, S> Matmul<I, O> for PlaneRowStageMatmul<I, O, Acc, TMM, SS, S>
+impl<I, O, Acc, TMM, SS, S> Matmul<I, O> for RowAccumulateStageMatmul<I, O, Acc, TMM, SS, S>
 where
     I: Numeric,
     O: Numeric,
@@ -150,7 +158,7 @@ where
 }
 
 #[cube]
-impl<I, O, Acc, Tmm, SS, S> PlaneMapper for PlaneRowStageMatmul<I, O, Acc, Tmm, SS, S>
+impl<I, O, Acc, Tmm, SS, S> PlaneMapper for RowAccumulateStageMatmul<I, O, Acc, Tmm, SS, S>
 where
     I: Numeric,
     O: Numeric,
@@ -174,4 +182,73 @@ fn check_num_planes(expected_num_planes: u32, actual_num_planes: u32) {
         "Error: Expected {expected_num_planes} planes, but found {actual_num_planes}. 
         The number of planes is equal to cube dimension y which should be set to {expected_num_planes}.",
     );
+}
+
+#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Configuration for the PlaneRowStageMatmul
+pub struct RowAccumulateStageMatmulConfig<T: TmmConfig> {
+    tmm_config: T,
+    lhs_stage_dim: StageDim,
+    rhs_stage_dim: StageDim,
+    out_stage_dim: StageDim,
+    num_planes: u32,
+    tiling_order: TilingOrderConfig,
+}
+
+impl<T: TmmConfig> SmmConfig for RowAccumulateStageMatmulConfig<T> {
+    type TmmConfig = T;
+
+    fn to_tmm_config(self) -> Self::TmmConfig {
+        self.tmm_config
+    }
+
+    fn line_size(&self, ident: Ident) -> u32 {
+        self.tmm_config.line_size(ident)
+    }
+
+    fn stage_dim(&self, ident: Ident) -> StageDim {
+        match ident {
+            Ident::Lhs => self.lhs_stage_dim,
+            Ident::Rhs => self.rhs_stage_dim,
+            Ident::Out => self.out_stage_dim,
+        }
+    }
+
+    fn layout(&self, ident: Ident) -> MatrixLayout {
+        self.tmm_config.layout(ident)
+    }
+
+    fn num_planes(&self) -> u32 {
+        self.num_planes
+    }
+
+    fn plane_dim(&self) -> u32 {
+        self.tmm_config.plane_dim()
+    }
+
+    fn tiling_order(&self) -> TilingOrderConfig {
+        self.tiling_order
+    }
+}
+
+impl<T: TmmConfig> MatmulConfig for RowAccumulateStageMatmulConfig<T> {}
+
+impl<T: TmmConfig> RowAccumulateStageMatmulConfig<T> {
+    pub fn new(
+        tmm_config: T,
+        lhs_stage_dim: StageDim,
+        rhs_stage_dim: StageDim,
+        out_stage_dim: StageDim,
+        num_planes: u32,
+        tiling_order: TilingOrderConfig,
+    ) -> Self {
+        Self {
+            tmm_config,
+            lhs_stage_dim,
+            rhs_stage_dim,
+            out_stage_dim,
+            num_planes,
+            tiling_order,
+        }
+    }
 }

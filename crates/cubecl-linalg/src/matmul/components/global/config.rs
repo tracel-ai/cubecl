@@ -1,7 +1,6 @@
-use crate::matmul::components::cmma_matmul::stage::TilingOrderConfig;
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::matrix::{Ident, MatrixLayout};
-use crate::matmul::components::stage::SmmConfig;
+use crate::matmul::components::stage::{SmmConfig, TilingOrderConfig};
 use crate::matmul::components::stage_dim::StageDim;
 
 /// Configuration for the Global matmul (GMM) level

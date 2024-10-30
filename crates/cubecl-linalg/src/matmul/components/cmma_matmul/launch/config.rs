@@ -3,22 +3,23 @@ use cubecl_core::prelude::*;
 use cubecl_core::Runtime;
 
 use crate::matmul::components::batch::BatchMatmul;
-use crate::matmul::components::cmma_matmul::batch::OneToOneBatchMatmulConfig;
+use crate::matmul::components::batch::OneToOneBatchMatmulConfig;
 use crate::matmul::components::cmma_matmul::global::{
     HomogeneousGlobalMatmulConfig, LhsTensorLoader, RhsTensorLoader, TensorUnloader,
 };
-use crate::matmul::components::cmma_matmul::stage::{
-    LhsStageReader, PlaneRowStageMatmulConfig, RhsStageReader, TilingOrderConfig,
-};
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::problem::MatmulProblem;
+use crate::matmul::components::stage::LhsStageReader;
+use crate::matmul::components::stage::RowAccumulateStageMatmulConfig;
+use crate::matmul::components::stage::RhsStageReader;
 use crate::matmul::components::stage::StageMatmul;
+use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage_dim::StageDim;
 use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::tile::TileMatmul;
 
 pub(crate) type CmmaTmmConfig = TileConfig;
-pub(crate) type CmmaSmmConfig = PlaneRowStageMatmulConfig<CmmaTmmConfig>;
+pub(crate) type CmmaSmmConfig = RowAccumulateStageMatmulConfig<CmmaTmmConfig>;
 pub(crate) type CmmaGmmConfig = HomogeneousGlobalMatmulConfig<CmmaSmmConfig>;
 pub(crate) type CmmaBmmConfig = OneToOneBatchMatmulConfig<CmmaGmmConfig>;
 

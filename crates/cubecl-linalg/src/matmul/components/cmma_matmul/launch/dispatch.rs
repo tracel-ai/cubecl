@@ -1,8 +1,8 @@
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::cmma_matmul::stage::{S4x4x2, StageSize};
 use crate::matmul::components::problem::MatmulProblem;
-use crate::matmul::components::tile::cmma::CmmaInstruction16_16_16;
+use crate::matmul::components::stage::{S4x4x2, StageSize};
+use crate::matmul::components::tile::accelerated::Accelerated16x16x16;
 use crate::matmul::components::tile::plane::PlaneMma16x16x16;
 use crate::matmul::components::tile::{TileConfig, TileMatmul};
 
@@ -51,8 +51,7 @@ impl MatmulLaunchDispatch for CmmaLaunchDispatch {
     type ElementInput = half::f16;
     type ElementAccumulator = f32;
 
-    type TileMatmul =
-        CmmaInstruction16_16_16<Self::ElementInput, Self::ElementAccumulator, TileConfig>;
+    type TileMatmul = Accelerated16x16x16<Self::ElementInput, Self::ElementAccumulator, TileConfig>;
 
     fn cube_dim() -> CubeDim {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)

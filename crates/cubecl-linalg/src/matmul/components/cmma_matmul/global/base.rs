@@ -1,7 +1,6 @@
-use crate::matmul::components::cmma_matmul::stage::{LhsStageReader, RhsStageReader};
 use crate::matmul::components::global::GmmConfig;
 use crate::matmul::components::global::{GlobalMatmul, Loader};
-use crate::matmul::components::stage::StageMatmul;
+use crate::matmul::components::stage::{LhsStageReader, RhsStageReader, StageMatmul};
 use crate::matmul::components::Matmul;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

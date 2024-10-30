@@ -1,11 +1,12 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::matrix::Ident;
-use crate::matmul::components::stage::{SmmConfig, StageReader};
+use crate::matmul::components::stage::StageReader;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::Stage;
+use super::stage::Stage;
+use super::SmmConfig;
 
 #[derive(CubeType)]
 /// Stage reader for LHS

@@ -1,7 +1,7 @@
 use crate::matmul::components::cmma_matmul::global::ContinuousLoader;
-use crate::matmul::components::cmma_matmul::stage::{LhsStageReader, RhsStageReader, Stage};
 use crate::matmul::components::global::{GmmConfig, Loader};
 use crate::matmul::components::matrix::Ident;
+use crate::matmul::components::stage::{LhsStageReader, RhsStageReader, Stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;

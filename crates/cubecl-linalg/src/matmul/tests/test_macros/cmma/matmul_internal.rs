@@ -3,17 +3,16 @@
 macro_rules! testgen_matmul_internal {
     ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $eg:ty, $es:ty, $ea:ty, $plane_dim:expr) => {
         use cubecl_linalg::matmul::components::{
+            batch::{OneToOneBatchMatmul, OneToOneBatchMatmulConfig},
+            stage::{
+                TilingOrderConfig, RowAccumulateStageMatmul, StageSize, S8x8x1, S8x1x1, S1x1x1, S1x1x2,
+                S1x2x1, S2x1x1, S2x2x1, S2x2x2, S4x4x1, S4x4x2, RowAccumulateStageMatmulConfig,
+            },
             cmma_matmul::{
-                batch::{OneToOneBatchMatmul, OneToOneBatchMatmulConfig},
                 global::{
                     HomogeneousGlobalMatmul, HomogeneousGlobalMatmulConfig, LhsTensorLoader,
                     RhsTensorLoader, TensorUnloader,
                 },
-                stage::{
-                    TilingOrderConfig, PlaneRowStageMatmul, StageSize, S8x8x1, S8x1x1, S1x1x1, S1x1x2,
-                    S1x2x1, S2x1x1, S2x2x1, S2x2x2, S4x4x1, S4x4x2, PlaneRowStageMatmulConfig,
-                },
-
                 launch::{make_cmma_config, AdvancedConfig},
             },
             stage::StageMatmul,
@@ -29,7 +28,7 @@ macro_rules! testgen_matmul_internal {
         use cubecl_linalg::matmul::tests::matmul_modular::matmul_test_launcher::test_matmul_internal;
 
         type T = TileConfig;
-        type S = PlaneRowStageMatmulConfig<T>;
+        type S = RowAccumulateStageMatmulConfig<T>;
         type G = HomogeneousGlobalMatmulConfig<S>;
         type B = OneToOneBatchMatmulConfig<G>;
 
@@ -52,7 +51,7 @@ macro_rules! testgen_matmul_internal {
                     type StageSize = $stage_size;
 
                     type TileMatmul = $tile_matmul_type<ES, EA, T>;
-                    type StageMatmul = PlaneRowStageMatmul<ES, EG, EA, TileMatmul, StageSize, S>;
+                    type StageMatmul = RowAccumulateStageMatmul<ES, EG, EA, TileMatmul, StageSize, S>;
                     type GlobalMatmul = HomogeneousGlobalMatmul<EG, ES, StageMatmul, G>;
                     type BatchMatmul = OneToOneBatchMatmul<EG, ES, GlobalMatmul, B>;
 

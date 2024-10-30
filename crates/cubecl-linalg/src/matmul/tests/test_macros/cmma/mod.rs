@@ -7,12 +7,12 @@ pub mod matmul_launch;
 macro_rules! testgen_cmma {
     () => {
         use super::*;
-        use cubecl_linalg::matmul::components::tile::cmma::*;
+        use cubecl_linalg::matmul::components::tile::accelerated::*;
 
         cubecl_linalg::testgen_matmul_internal!(
-            CmmaInstruction16_16_16,
-            CmmaInstruction32_8_16,
-            CmmaInstruction8_32_16,
+            Accelerated16x16x16,
+            Accelerated32x8x16,
+            Accelerated8x32x16,
             f32,
             half::f16,
             f32,
