@@ -150,7 +150,8 @@ impl<D: Dialect> Binary<D> for Max {
         item: Item<D>,
     ) -> std::fmt::Result {
         let max = match item.elem() {
-            Elem::F16 | Elem::BF16 => D::half_max(),
+            Elem::F16 | Elem::BF16 => "__hmax",
+            Elem::F162 | Elem::BF162 => "__hmax2",
             _ => "max",
         };
 
@@ -168,7 +169,8 @@ impl<D: Dialect> Binary<D> for Min {
         item: Item<D>,
     ) -> std::fmt::Result {
         let max = match item.elem() {
-            Elem::F16 | Elem::BF16 => D::half_min(),
+            Elem::F16 | Elem::BF16 => "__hmin",
+            Elem::F162 | Elem::BF162 => "__hmin2",
             _ => "min",
         };
 

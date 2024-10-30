@@ -22,10 +22,4 @@ impl Dialect for Cuda {
     fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("__nv_bfloat162")
     }
-    fn half_min() -> &'static str {
-        "__hmin"
-    }
-    fn half_max() -> &'static str {
-        "__hmax"
-    }
 }

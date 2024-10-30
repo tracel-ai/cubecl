@@ -606,7 +606,8 @@ impl<D: Dialect> Clamp<D> {
         let num = out_item.vectorization;
 
         let (min, max) = match out.elem() {
-            Elem::F16 | Elem::BF16 => (D::half_min(), D::half_max()),
+            Elem::F16 | Elem::BF16 => ("__hmin", "__hmax"),
+            Elem::F162 | Elem::BF162 => ("__hmin2", "__hmax2"),
             _ => ("min", "max"),
         };
 
@@ -648,16 +649,22 @@ impl<D: Dialect> Remainder<D> {
         let out_item = out.item();
         let num = out_item.vectorization;
 
+        let floor = match out.elem() {
+            Elem::F16 | Elem::BF16 => "hfloor",
+            Elem::F162 | Elem::BF162 => "h2floor",
+            _ => "floor",
+        };
+
         let out = out.fmt_left();
         if num == 1 {
-            writeln!(f, "{out} = {lhs} - {rhs} * floor({lhs} / {rhs});")
+            writeln!(f, "{out} = {lhs} - {rhs} * {floor}({lhs} / {rhs});")
         } else {
             writeln!(f, "{out} = {out_item}{{")?;
             for i in 0..num {
                 let lhsi = lhs.index(i);
                 let rhsi = rhs.index(i);
 
-                writeln!(f, "{lhsi} - {rhsi} * floor({lhsi} / {rhsi}),")?;
+                writeln!(f, "{lhsi} - {rhsi} * {floor}({lhsi} / {rhsi}),")?;
             }
             f.write_str("};\n")
         }

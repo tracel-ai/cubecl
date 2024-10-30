@@ -47,7 +47,8 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
             WarpInstruction::ReduceMax { input, out } => {
                 let max = match out.elem() {
-                    Elem::F16 | Elem::BF16 => D::half_max(),
+                    Elem::F16 | Elem::BF16 => "__hmax",
+                    Elem::F162 | Elem::BF162 => "__hmax2",
                     _ => "max",
                 };
                 write!(
@@ -64,7 +65,8 @@ for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
             }
             WarpInstruction::ReduceMin { input, out } => {
                 let min = match out.elem() {
-                    Elem::F16 | Elem::BF16 => D::half_min(),
+                    Elem::F16 | Elem::BF16 => "__hmin",
+                    Elem::F162 | Elem::BF162 => "__hmin2",
                     _ => "min",
                 };
                 write!(
