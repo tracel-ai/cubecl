@@ -21,7 +21,7 @@ impl CubeImpl {
                 #(#items)*
                 #(
                     #[allow(unused, clone_on_copy, clippy::all)]
-                    pub #fns
+                    #fns
                 )*
             }
         };
@@ -60,11 +60,11 @@ impl CubeImpl {
                 impl #generics #struct_expand_name #impl_where {
                     #(
                         #[allow(unused, clone_on_copy, clippy::all)]
-                        pub #methods
+                        #methods
                     )*
                     #(
                         #[allow(unused, clone_on_copy, clippy::all)]
-                        pub #fns_expand
+                        #fns_expand
                     )*
 
                 }
