@@ -247,7 +247,7 @@ impl<D: Dialect> Display for Variable<D> {
                     gpu::FloatKind::BF16 => {
                         write!(f, "{elem}({:?})", half::bf16::from_f64(*val))
                     }
-                    gpu::FloatKind::Relaxed => write!(f, "{elem}({:?})", *val as f32),
+                    gpu::FloatKind::Flex32 => write!(f, "{elem}({:?})", *val as f32),
                     gpu::FloatKind::TF32 => write!(f, "{elem}({:?})", *val as f32),
                     gpu::FloatKind::F32 => write!(f, "{elem}({:?})", *val as f32),
                     gpu::FloatKind::F64 => write!(f, "{elem}({:?})", *val),
@@ -554,7 +554,7 @@ impl<D: Dialect> Item<D> {
 }
 
 impl<D: Dialect> Elem<D> {
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Elem::F16 => core::mem::size_of::<f16>(),
             Elem::F162 => 2 * core::mem::size_of::<f16>(),

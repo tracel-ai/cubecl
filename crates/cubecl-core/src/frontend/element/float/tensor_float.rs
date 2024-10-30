@@ -1,8 +1,9 @@
 use bytemuck::{Pod, Zeroable};
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use half::f16;
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
-use std::{mem, num::NonZero};
+use std::{mem::transmute, num::NonZero};
 
 use crate::{
     ir::{Elem, FloatKind, Item},
@@ -26,14 +27,14 @@ use super::{
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
 #[derive(Clone, Copy, Default, Serialize, Zeroable, Pod, PartialEq, PartialOrd)]
-pub struct tf32(u32);
+pub struct tf32(f32);
 
 impl tf32 {
     /// Constructs a [`tf32`] value from the raw bits.
     #[inline]
     #[must_use]
     pub const fn from_bits(bits: u32) -> tf32 {
-        tf32(bits)
+        tf32(unsafe { transmute::<u32, f32>(bits) })
     }
 
     /// Constructs a [`tf32`] value from a 32-bit floating point value.
@@ -44,7 +45,7 @@ impl tf32 {
     #[inline]
     #[must_use]
     pub const fn from_f32(value: f32) -> tf32 {
-        tf32(f32_to_tf32(value))
+        tf32(value)
     }
 
     /// Constructs a [`tf32`] value from a 64-bit floating point value.
@@ -56,14 +57,14 @@ impl tf32 {
     #[inline]
     #[must_use]
     pub const fn from_f64(value: f64) -> tf32 {
-        tf32(f32_to_tf32(value as f32))
+        tf32(value as f32)
     }
 
     /// Converts a [`tf32`] into the underlying bit representation.
     #[inline]
     #[must_use]
     pub const fn to_bits(self) -> u32 {
-        self.0
+        unsafe { transmute(self.0) }
     }
 
     /// Converts a [`tf32`] value into an [`f32`] value.
@@ -72,7 +73,7 @@ impl tf32 {
     #[inline]
     #[must_use]
     pub const fn to_f32(self) -> f32 {
-        tf32_to_f32(self.0)
+        self.0
     }
 
     /// Converts a [`tf32`] value into an [`f64`] value.
@@ -81,33 +82,7 @@ impl tf32 {
     #[inline]
     #[must_use]
     pub const fn to_f64(self) -> f64 {
-        tf32_to_f32(self.0) as f64
-    }
-}
-
-#[inline]
-pub(crate) const fn f32_to_tf32(value: f32) -> u32 {
-    // TODO: Replace mem::transmute with to_bits() once to_bits is const-stabilized
-    // Convert to raw bytes
-    let x: u32 = unsafe { mem::transmute::<f32, u32>(value) };
-
-    // check for NaN
-    if x & 0x7FFF_FFFFu32 > 0x7F80_0000u32 {
-        // Keep high part of current mantissa but also set most significiant mantissa bit
-        return (x >> 13) | (0x0200u32);
-    }
-
-    x >> 13
-}
-
-#[inline]
-pub(crate) const fn tf32_to_f32(i: u32) -> f32 {
-    // TODO: Replace mem::transmute with from_bits() once from_bits is const-stabilized
-    // If NaN, keep current mantissa but also set most significiant mantissa bit
-    if i & 0x7FFFu32 > 0x7F80u32 {
-        unsafe { mem::transmute::<u32, f32>((i | 0x0200u32) << 13) }
-    } else {
-        unsafe { mem::transmute::<u32, f32>(i << 13) }
+        self.0 as f64
     }
 }
 
@@ -249,7 +224,8 @@ impl Float for tf32 {
     /// One greater than the minimum possible normal [`v`] power of 2 exponent
     const MIN_EXP: i32 = -125;
 
-    const MIN_POSITIVE: Self = tf32(1);
+    /// `MIN_POSITIVE` is defined by precision, so use `f16` as reference
+    const MIN_POSITIVE: Self = tf32(f16::MIN_POSITIVE.to_f32_const());
 
     const NAN: Self = tf32::from_f32(f32::NAN);
 
@@ -258,7 +234,7 @@ impl Float for tf32 {
     const RADIX: u32 = 2;
 
     fn new(val: f32) -> Self {
-        tf32::from_f32(val)
+        tf32(val)
     }
 
     fn vectorized(_val: f32, _vectorization: u32) -> Self {

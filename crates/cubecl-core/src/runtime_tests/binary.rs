@@ -139,7 +139,7 @@ macro_rules! testgen_binary {
                     #[test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
-                        cubecl_core::runtime_tests::binary::$test_name::<TestRuntime, FloatT>(
+                        cubecl_core::runtime_tests::binary::$test_name::<TestRuntime, FloatType>(
                             client,
                         );
                     }

@@ -171,7 +171,7 @@ macro_rules! testgen_branch {
         #[test]
         fn test_switch_statement() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_switch_statement::<TestRuntime, FloatT>(
+            cubecl_core::runtime_tests::branch::test_switch_statement::<TestRuntime, FloatType>(
                 client,
             );
         }
@@ -179,7 +179,7 @@ macro_rules! testgen_branch {
         #[test]
         fn test_switch_used_as_value() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_switch_used_as_value::<TestRuntime, FloatT>(
+            cubecl_core::runtime_tests::branch::test_switch_used_as_value::<TestRuntime, FloatType>(
                 client,
             );
         }
@@ -187,13 +187,15 @@ macro_rules! testgen_branch {
         #[test]
         fn test_switch_default() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_switch_default::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::branch::test_switch_default::<TestRuntime, FloatType>(
+                client,
+            );
         }
 
         #[test]
         fn test_switch_or_branch() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_switch_or_branch::<TestRuntime, FloatT>(
+            cubecl_core::runtime_tests::branch::test_switch_or_branch::<TestRuntime, FloatType>(
                 client,
             );
         }
@@ -201,13 +203,15 @@ macro_rules! testgen_branch {
         #[test]
         fn test_select_true() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatT>(client, true);
+            cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatType>(client, true);
         }
 
         #[test]
         fn test_select_false() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatT>(client, false);
+            cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatType>(
+                client, false,
+            );
         }
     };
 }

@@ -166,7 +166,7 @@ impl CubeType for flex32 {
 impl CubePrimitive for flex32 {
     /// Return the element type to use on GPU
     fn as_elem() -> Elem {
-        Elem::Float(FloatKind::Relaxed)
+        Elem::Float(FloatKind::Flex32)
     }
 }
 

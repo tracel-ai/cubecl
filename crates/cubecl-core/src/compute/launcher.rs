@@ -162,7 +162,7 @@ impl<R: Runtime> KernelLauncher<R> {
                     FloatKind::F16 => self.scalar_f16.register::<R>(client, &mut bindings),
                     FloatKind::BF16 => self.scalar_bf16.register::<R>(client, &mut bindings),
                     FloatKind::TF32 => self.scalar_f32.register::<R>(client, &mut bindings),
-                    FloatKind::Relaxed => self.scalar_f32.register::<R>(client, &mut bindings),
+                    FloatKind::Flex32 => self.scalar_f32.register::<R>(client, &mut bindings),
                     FloatKind::F32 => self.scalar_f32.register::<R>(client, &mut bindings),
                     FloatKind::F64 => self.scalar_f64.register::<R>(client, &mut bindings),
                 },

@@ -233,50 +233,54 @@ macro_rules! testgen_subcube {
         #[test]
         fn test_subcube_sum() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_sum::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::subcube::test_subcube_sum::<TestRuntime, FloatType>(client);
         }
 
         #[test]
         fn test_subcube_prod() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_prod::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::subcube::test_subcube_prod::<TestRuntime, FloatType>(
+                client,
+            );
         }
 
         #[test]
         fn test_subcube_max() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_max::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::subcube::test_subcube_max::<TestRuntime, FloatType>(client);
         }
 
         #[test]
         fn test_subcube_min() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_min::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::subcube::test_subcube_min::<TestRuntime, FloatType>(client);
         }
 
         #[test]
         fn test_subcube_all() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_all::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::subcube::test_subcube_all::<TestRuntime, FloatType>(client);
         }
 
         #[test]
         fn test_subcube_any() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_any::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::subcube::test_subcube_any::<TestRuntime, FloatType>(client);
         }
 
         #[ignore]
         #[test]
         fn test_subcube_elect() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_elect::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::subcube::test_subcube_elect::<TestRuntime, FloatType>(
+                client,
+            );
         }
 
         #[test]
         fn test_subcube_broadcast() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_broadcast::<TestRuntime, FloatT>(
+            cubecl_core::runtime_tests::subcube::test_subcube_broadcast::<TestRuntime, FloatType>(
                 client,
             );
         }

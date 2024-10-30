@@ -19,9 +19,9 @@ macro_rules! testgen_all {
     () => {
         use $crate::Runtime;
 
-        type FloatT = f32;
-        type IntT = i32;
-        type UintT = u32;
+        type FloatType = f32;
+        type IntType = i32;
+        type UintType = u32;
 
         cubecl_core::testgen_assign!();
         cubecl_core::testgen_branch!();
@@ -36,23 +36,23 @@ macro_rules! testgen_all {
 
         ::paste::paste! {
             $(mod [<$float _ty>] {
-                type FloatT = $float;
-                type IntT = $i_def;
-                type UintT = $u_def;
+                type FloatType = $float;
+                type IntType = $i_def;
+                type UintType = $u_def;
 
                 $crate::testgen_float!();
             })*
             $(mod [<$int _ty>] {
-                type FloatT = $f_def;
-                type IntT = $int;
-                type UintT = $u_def;
+                type FloatType = $f_def;
+                type IntType = $int;
+                type UintType = $u_def;
 
                 $crate::testgen_int!();
             })*
             $(mod [<$uint _ty>] {
-                type FloatT = $f_def;
-                type IntT = $i_def;
-                type UintT = $uint;
+                type FloatType = $f_def;
+                type IntType = $i_def;
+                type UintType = $uint;
 
                 $crate::testgen_uint!();
             })*

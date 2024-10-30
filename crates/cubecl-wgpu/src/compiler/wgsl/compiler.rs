@@ -156,7 +156,7 @@ fn register_types(props: &mut DeviceProperties<Feature>) {
         Elem::AtomicInt(IntKind::I32),
         Elem::AtomicUInt(UIntKind::U32),
         Elem::Float(FloatKind::F32),
-        Elem::Float(FloatKind::Relaxed),
+        Elem::Float(FloatKind::Flex32),
         Elem::Bool,
     ];
 
@@ -234,7 +234,7 @@ impl WgslCompiler {
                 cube::FloatKind::F16 => panic!("f16 is not yet supported"),
                 cube::FloatKind::BF16 => panic!("bf16 is not a valid WgpuElement"),
                 cube::FloatKind::TF32 => panic!("tf32 is not a valid WgpuElement"),
-                cube::FloatKind::Relaxed => wgsl::Elem::F32,
+                cube::FloatKind::Flex32 => wgsl::Elem::F32,
                 cube::FloatKind::F32 => wgsl::Elem::F32,
                 cube::FloatKind::F64 => panic!("f64 is not a valid WgpuElement"),
             },

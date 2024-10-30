@@ -332,7 +332,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Elem::Float(16)
             }
             core::Elem::Float(FloatKind::TF32) => panic!("TF32 not supported in SPIR-V"),
-            core::Elem::Float(FloatKind::Relaxed) => Elem::Relaxed,
+            core::Elem::Float(FloatKind::Flex32) => Elem::Relaxed,
             core::Elem::Float(FloatKind::F32) => Elem::Float(32),
             core::Elem::Float(FloatKind::F64) => {
                 self.capabilities.insert(Capability::Float64);

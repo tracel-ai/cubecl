@@ -90,7 +90,7 @@ macro_rules! testgen_different_rank {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::different_rank::test_kernel_different_rank_first_biggest::<
                 TestRuntime,
-                FloatT,
+                FloatType,
             >(client);
         }
 
@@ -99,7 +99,7 @@ macro_rules! testgen_different_rank {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::different_rank::test_kernel_different_rank_last_biggest::<
                 TestRuntime,
-                FloatT,
+                FloatType,
             >(client);
         }
     };

@@ -75,7 +75,7 @@ macro_rules! testgen_sequence {
         #[test]
         fn test_sequence_for_loop() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::sequence::test_sequence_for_loop::<TestRuntime, FloatT>(
+            cubecl_core::runtime_tests::sequence::test_sequence_for_loop::<TestRuntime, FloatType>(
                 client,
             );
         }
@@ -83,7 +83,7 @@ macro_rules! testgen_sequence {
         #[test]
         fn test_sequence_index() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::sequence::test_sequence_index::<TestRuntime, FloatT>(
+            cubecl_core::runtime_tests::sequence::test_sequence_index::<TestRuntime, FloatType>(
                 client,
             );
         }

@@ -860,7 +860,7 @@ impl<D: Dialect> CppCompiler<D> {
                     super::Elem::BF16
                 }
                 gpu::FloatKind::TF32 => super::Elem::TF32,
-                gpu::FloatKind::Relaxed => super::Elem::F32,
+                gpu::FloatKind::Flex32 => super::Elem::F32,
                 gpu::FloatKind::F32 => super::Elem::F32,
                 gpu::FloatKind::F64 => super::Elem::F64,
             },
@@ -940,7 +940,7 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
         Elem::Float(FloatKind::BF16),
         Elem::Float(FloatKind::F16),
         Elem::Float(FloatKind::F32),
-        Elem::Float(FloatKind::Relaxed),
+        Elem::Float(FloatKind::Flex32),
         // Causes CUDA_ERROR_INVALID_VALUE for matmul, disabling until that can be investigated
         //Elem::Float(FloatKind::F64),
         Elem::Bool,

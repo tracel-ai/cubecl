@@ -465,7 +465,7 @@ impl From<flex32> for Variable {
     fn from(value: flex32) -> Self {
         Variable::constant(ConstantScalarValue::Float(
             value.to_f64(),
-            FloatKind::Relaxed,
+            FloatKind::Flex32,
         ))
     }
 }

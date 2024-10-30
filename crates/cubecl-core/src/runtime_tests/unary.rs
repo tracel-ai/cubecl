@@ -159,7 +159,7 @@ macro_rules! testgen_unary {
                     #[test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
-                        cubecl_core::runtime_tests::unary::$test_name::<TestRuntime, FloatT>(
+                        cubecl_core::runtime_tests::unary::$test_name::<TestRuntime, FloatType>(
                             client,
                         );
                     }

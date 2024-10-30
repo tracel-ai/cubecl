@@ -39,7 +39,7 @@ macro_rules! testgen_assign {
         #[test]
         fn test_assign_scalar() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_kernel_assign_scalar::<TestRuntime, FloatT>(
+            cubecl_core::runtime_tests::assign::test_kernel_assign_scalar::<TestRuntime, FloatType>(
                 client,
             );
         }

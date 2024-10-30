@@ -308,7 +308,7 @@ impl Display for Variable {
                     FloatKind::F16 | FloatKind::BF16 | FloatKind::TF32 => {
                         todo!("Unsupported")
                     }
-                    FloatKind::F32 | FloatKind::Relaxed | FloatKind::F64 => {
+                    FloatKind::F32 | FloatKind::Flex32 | FloatKind::F64 => {
                         f.write_str(&format_number(*val))
                     }
                 },

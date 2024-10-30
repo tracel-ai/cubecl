@@ -163,25 +163,27 @@ macro_rules! testgen_slice {
         #[test]
         fn test_slice_select() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::slice::test_slice_select::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::slice::test_slice_select::<TestRuntime, FloatType>(client);
         }
 
         #[test]
         fn test_slice_len() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::slice::test_slice_len::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::slice::test_slice_len::<TestRuntime, FloatType>(client);
         }
 
         #[test]
         fn test_slice_for() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::slice::test_slice_for::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::slice::test_slice_for::<TestRuntime, FloatType>(client);
         }
 
         #[test]
         fn test_slice_mut_assign() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::slice::test_slice_mut_assign::<TestRuntime, FloatT>(client);
+            cubecl_core::runtime_tests::slice::test_slice_mut_assign::<TestRuntime, FloatType>(
+                client,
+            );
         }
 
         #[test]

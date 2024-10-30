@@ -58,7 +58,7 @@ macro_rules! testgen_launch {
         #[test]
         fn test_launch_with_generics() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::launch::test_kernel_with_generics::<TestRuntime, FloatT>(
+            cubecl_core::runtime_tests::launch::test_kernel_with_generics::<TestRuntime, FloatType>(
                 client,
             );
         }

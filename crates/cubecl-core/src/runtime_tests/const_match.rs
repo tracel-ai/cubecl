@@ -59,8 +59,8 @@ macro_rules! testgen_const_match {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::const_match::test_kernel_const_match::<
                 TestRuntime,
-                FloatT,
-                UintT,
+                FloatType,
+                UintType,
             >(client);
         }
     };

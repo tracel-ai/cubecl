@@ -291,7 +291,7 @@ impl CubeElement for flex32 {
         bytemuck::cast_slice(bytes)
     }
     fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::Relaxed)
+        Elem::Float(FloatKind::Flex32)
     }
     fn maximum_value() -> Self {
         flex32::MAX
