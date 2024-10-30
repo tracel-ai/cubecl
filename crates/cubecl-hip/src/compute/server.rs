@@ -450,6 +450,9 @@ impl HipContext {
                 bindings.as_mut_ptr(),
                 std::ptr::null_mut(),
             );
+            if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
+                panic!("Error: Cannot launch kernel (Out of memory)\n{}", kernel_id)
+            }
             assert_eq!(status, HIP_SUCCESS, "Should launch the kernel");
         };
     }
