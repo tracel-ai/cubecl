@@ -26,7 +26,7 @@ impl ToTokens for Launch {
                 use super::*;
 
                 #[allow(unused, clippy::all)]
-                pub #func
+                #func
 
                 #kernel
                 #launch

@@ -347,32 +347,6 @@ impl Runtime for WgpuRuntime<VkSpirvCompiler> {
     }
 }
 
-pub fn init_existing_device(
-    adapter: Arc<wgpu::Adapter>,
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
-    options: RuntimeOptions,
-) -> WgpuDevice {
-    let device_id = WgpuDevice::Existing(device.as_ref().global_id());
-    let client = create_client(adapter, device, queue, options);
-    RUNTIME.register(&device_id, client);
-    device_id
-}
-
-/// Initialize a client on the given device with the given options. This function is useful to configure the runtime options
-/// or to pick a different graphics API. On wasm, it is necessary to use [`init_async`] instead.
-pub fn init_sync(device: &WgpuDevice, options: RuntimeOptions) {
-    future::block_on(init_async(device, options));
-}
-
-/// Like [`init_sync`], but async, necessary for wasm.
-pub async fn init_async(device: &WgpuDevice, options: RuntimeOptions) {
-    let (adapter, device_wgpu, queue) =
-        create_wgpu_setup::<Vulkan, SpirvCompiler<GLCompute>>(device).await;
-    let client = create_client(adapter, device_wgpu, queue, options);
-    RUNTIME.register(device, client)
-}
-
 #[cfg(feature = "spirv-dump")]
 fn dump_spirv(compiled: &CompiledKernel<VkSpirvCompiler>, name: &str, id: cubecl_core::KernelId) {
     use std::{

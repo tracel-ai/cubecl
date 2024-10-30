@@ -39,6 +39,7 @@ pub struct Launch {
 
 #[derive(Clone)]
 pub struct KernelFn {
+    pub vis: Visibility,
     pub sig: KernelSignature,
     pub body: KernelBody,
     pub context: Context,
@@ -207,7 +208,11 @@ impl KernelSignature {
 }
 
 impl KernelFn {
-    pub fn from_sig_and_block(sig: Signature, mut block: syn::Block) -> syn::Result<Self> {
+    pub fn from_sig_and_block(
+        vis: Visibility,
+        sig: Signature,
+        mut block: syn::Block,
+    ) -> syn::Result<Self> {
         let sig = KernelSignature::from_signature(sig)?;
         Desugar.visit_block_mut(&mut block);
 
@@ -216,6 +221,7 @@ impl KernelFn {
         let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
 
         Ok(KernelFn {
+            vis,
             sig,
             body: KernelBody::Block(block),
             context,
@@ -228,7 +234,15 @@ impl Launch {
         let runtime = prelude_type("Runtime");
 
         let vis = function.vis;
-        let func = KernelFn::from_sig_and_block(function.sig, *function.block)?;
+        let func = KernelFn::from_sig_and_block(
+            // When generating code, this function will be wrapped in
+            // a module. By setting the visibility to pub here, we
+            // ensure that the function is visibile outside that
+            // module.
+            Visibility::Public(parse_quote![pub]),
+            function.sig,
+            *function.block,
+        )?;
         let mut kernel_generics = func.sig.generics.clone();
         kernel_generics.params.push(parse_quote![__R: #runtime]);
         let mut expand_generics = kernel_generics.clone();
