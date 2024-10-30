@@ -282,7 +282,7 @@ impl CubeElement for half::bf16 {
 
 impl CubeElement for flex32 {
     fn type_name() -> &'static str {
-        "minf16"
+        "flex32"
     }
     fn as_bytes(slice: &[Self]) -> &[u8] {
         bytemuck::cast_slice(slice)

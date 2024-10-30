@@ -536,7 +536,7 @@ impl std::fmt::Display for Elem {
             Elem::Int(width, false) => write!(f, "u{width}"),
             Elem::Int(width, true) => write!(f, "i{width}"),
             Elem::Float(width) => write!(f, "f{width}"),
-            Elem::Relaxed => write!(f, "minf16"),
+            Elem::Relaxed => write!(f, "flex32"),
         }
     }
 }

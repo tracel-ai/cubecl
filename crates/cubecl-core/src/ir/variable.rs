@@ -336,7 +336,7 @@ impl Display for ConstantScalarValue {
             ConstantScalarValue::Float(val, FloatKind::BF16) => write!(f, "{val}bf16"),
             ConstantScalarValue::Float(val, FloatKind::F16) => write!(f, "{val}f16"),
             ConstantScalarValue::Float(val, FloatKind::TF32) => write!(f, "{val}tf32"),
-            ConstantScalarValue::Float(val, FloatKind::Flex32) => write!(f, "{val}minf16"),
+            ConstantScalarValue::Float(val, FloatKind::Flex32) => write!(f, "{val}flex32"),
             ConstantScalarValue::Float(val, FloatKind::F32) => write!(f, "{val}f32"),
             ConstantScalarValue::Float(val, FloatKind::F64) => write!(f, "{val}f64"),
             ConstantScalarValue::UInt(val, UIntKind::U8) => write!(f, "{val}u8"),
