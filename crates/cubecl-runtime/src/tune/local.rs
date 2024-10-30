@@ -54,102 +54,101 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
     {
-        // We avoid locking in write mode when possible.
-        //
-        // This makes us potentially check the cache twice, but allows to avoid
-        // locking the state if the cache is hit.
-        let mut should_init = true;
-        #[cfg(autotune_persistent_cache)]
-        let mut should_perform_checksum = false;
+        let key = autotune_operation_set.key();
 
-        if let Some(state) = self.state.read().as_ref() {
-            if let Some(tuner) = state.get(id) {
-                // Tuner exists for the given ID.
-                should_init = false;
-
-                let key = autotune_operation_set.key();
-                match tuner.fastest(&key) {
-                    TuneCacheResult::Hit { fastest_index } => {
-                        let op = autotune_operation_set.fastest(fastest_index);
-                        return op.execute();
-                    }
-                    TuneCacheResult::Miss => {}
-                    #[cfg(autotune_persistent_cache)]
-                    TuneCacheResult::Unchecked => {
-                        should_perform_checksum = true;
-                    }
-                }
-            }
-        }
-
-        // If we are not able to get a tuner for the given ID, we have to create one.
-        if should_init {
-            let mut state = self.state.write();
-            let map = state.get_or_insert_with(Default::default);
-
-            if !map.contains_key(id) {
-                let name = self.name.replace("::", "-");
-                let tuner = Tuner::new(&name, &id.to_string());
-                map.insert(id.clone(), tuner);
-            };
-        }
-
-        // When loading the first time the result of an autotune set, we need to verify the checksum.
-        #[cfg(autotune_persistent_cache)]
-        if should_perform_checksum {
-            let mut state = self.state.write();
-            let map = state.get_or_insert_with(Default::default);
-
-            if let Some(tuner) = map.get_mut(id) {
-                if let TuneCacheResult::Hit { fastest_index } =
-                    tuner.fastest_with_checksum(autotune_operation_set.as_ref())
-                {
+        // If this is cached and ready, use the operation.
+        if let Some(map) = self.state.read().as_ref() {
+            if let Some(tuner) = map.get(id) {
+                if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
                     let op = autotune_operation_set.fastest(fastest_index);
                     return op.execute();
                 }
             }
         }
 
-        // Running benchmarks shound't lock the tuner, since an autotune operation can recursively use the
-        // same tuner.
-        //
-        // # Example
-        //
-        // ```
-        // - tune_1 start
-        //   - tune_2 start
-        //   - tune_2 save
-        // - tune_1 save
-        // ```
-        let mut result = None;
-        if let Some(state) = self.state.read().as_ref() {
-            if let Some(tuner) = state.get(id) {
-                result = Some(tuner.execute_autotune(autotune_operation_set, client));
-            }
-        }
-
-        // We store the autotune result if present.
-        if let Some(result) = result {
+        // Create the tuner if needed, and update some state like
+        // checksums if need be.
+        let fastest = {
             let mut state = self.state.write();
             let map = state.get_or_insert_with(Default::default);
+            let tuner = map.entry(id.clone()).or_insert_with(move || {
+                let name = self.name.replace("::", "-");
+                Tuner::new(&name, &id.to_string())
+            });
 
-            if let Some(tuner) = map.get_mut(id) {
-                return tuner.register_autotune(result);
+            #[allow(unused_mut)]
+            let mut fastest = tuner.fastest(&key);
+
+            // If the cache checksum hasn't been checked, do so now, and retry.
+            #[cfg(autotune_persistent_cache)]
+            if matches!(fastest, TuneCacheResult::Unchecked) {
+                let checksum = autotune_operation_set.compute_checksum();
+                tuner.validate_checksum(&key, &checksum);
+                fastest = tuner.fastest(&key);
             }
-        }
+            fastest
+        };
 
-        // The Result and Tuner for this ID must exist at this point since we validated them earlier.
-        unreachable!();
-    }
-
-    /// Return the autotune result given a key.
-    pub fn autotune_result(&self, id: &ID, key: &AK) -> TuneCacheResult {
-        if let Some(state) = self.state.read().as_ref() {
-            if let Some(tuner) = state.get(id) {
-                return tuner.fastest(key);
+        match fastest {
+            TuneCacheResult::Hit { fastest_index } => {
+                return autotune_operation_set.fastest(fastest_index).execute();
             }
-        }
+            TuneCacheResult::Miss => {
+                // We don't know the results yet, start autotuning.
+                //
+                // Running benchmarks shound't lock the tuner, since an autotune operation can recursively use the
+                // same tuner.
+                //
+                // # Example
+                //
+                // ```
+                // - tune_1 start
+                //   - tune_2 start
+                //   - tune_2 save
+                // - tune_1 save
+                // ```
+                let state = self.state.read();
+                let state = state.as_ref().expect("Should be initialzied");
+                let tuner = state.get(id).expect("Should be initialized");
 
-        TuneCacheResult::Miss
+                tuner.execute_autotune(autotune_operation_set.as_ref(), client);
+            }
+            TuneCacheResult::Pending => {
+                // We're waiting for results to come in.
+            }
+            #[cfg(autotune_persistent_cache)]
+            TuneCacheResult::Unchecked => {
+                panic!("Should have checked the cache already.")
+            }
+        };
+
+        let fastest = {
+            let mut state = self.state.write();
+            let state = state.as_mut().expect("Should be initialzied");
+            let tuner = state.get_mut(id).expect("Should be initialized");
+            // Now read all results that have come in since.
+            tuner.resolve();
+
+            // Check again what the fastest option is, new results might have come in.
+            match tuner.fastest(&key) {
+                TuneCacheResult::Hit { fastest_index } => {
+                    // Theres a known good value - just run it.
+                    fastest_index
+                }
+                TuneCacheResult::Pending => {
+                    // If we still don't know, just execute a default index.
+                    0
+                }
+                TuneCacheResult::Miss => {
+                    panic!("Should have at least started autotuning");
+                }
+                #[cfg(autotune_persistent_cache)]
+                TuneCacheResult::Unchecked => {
+                    panic!("Should have checked the cache.")
+                }
+            }
+        };
+
+        autotune_operation_set.fastest(fastest).execute()
     }
 }
