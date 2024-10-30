@@ -15,4 +15,6 @@ mod tests {
 
     cubecl_core::testgen_all!();
     cubecl_linalg::testgen_cmma!();
+    cubecl_linalg::testgen_tiling2d!();
+    cubecl_linalg::testgen_cmma_old!();
 }

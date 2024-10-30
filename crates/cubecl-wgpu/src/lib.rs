@@ -26,6 +26,7 @@ mod tests {
 
     cubecl_core::testgen_all!();
     cubecl_linalg::testgen_plane_mma!();
+    cubecl_linalg::testgen_tiling2d!();
 }
 
 #[cfg(all(test, feature = "spirv"))]
