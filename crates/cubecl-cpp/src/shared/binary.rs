@@ -71,9 +71,6 @@ pub trait Binary<D: Dialect> {
         } else {
             let out_tmp = Variable::tmp(item_out_optimized);
 
-            println!("Index: {index}");
-            println!("Out: {item_out_original:?}");
-            println!("Out_Opt: {item_out_optimized:?}");
             write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
 
             let out = out.fmt_left();
