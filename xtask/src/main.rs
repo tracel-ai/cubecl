@@ -19,9 +19,9 @@ use tracel_xtask::prelude::*;
     Vulnerabilities
 )]
 pub enum Command {
-    /// Build Burn in different modes.
+    /// Build cubecl in different modes.
     Build(commands::build::CubeCLBuildCmdArgs),
-    /// Test Burn.
+    /// Test cubecl.
     Test(commands::test::CubeCLTestCmdArgs),
     /// Run commands to manage the book.
     Book(commands::book::BookArgs),

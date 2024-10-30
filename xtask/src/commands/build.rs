@@ -21,7 +21,7 @@ pub(crate) fn handle_command(mut args: CubeCLBuildCmdArgs) -> anyhow::Result<()>
         vec!["--features", "spirv"],
         None,
         None,
-        "std with all features",
+        "std with SPIR-V compiler",
     )?;
     Ok(())
 }
