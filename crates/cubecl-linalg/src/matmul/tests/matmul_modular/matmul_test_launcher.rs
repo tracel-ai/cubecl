@@ -2,12 +2,12 @@ use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
 
-use crate::matmul::matmul_modular;
-use crate::matmul::matmul_modular::matmul_batch::BatchMatmul;
-use crate::matmul::matmul_modular::matmul_batch::BmmConfig;
-use crate::matmul::matmul_modular::matrix::Ident;
-use crate::matmul::matmul_modular::matrix::MatrixLayout;
-use crate::matmul::matmul_modular::problem::MatmulProblem;
+use crate::matmul::components;
+use crate::matmul::components::batch::BatchMatmul;
+use crate::matmul::components::batch::BmmConfig;
+use crate::matmul::components::matrix::Ident;
+use crate::matmul::components::matrix::MatrixLayout;
+use crate::matmul::components::problem::MatmulProblem;
 use crate::tensor::TensorHandle;
 
 use crate::matmul::tests::test_utils::assert_equals_approx;
@@ -90,7 +90,7 @@ pub fn test_matmul_launch<EG: Numeric + CubeElement, R: Runtime>(
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
 
-    let out = matmul_modular::launch::<R, EG>(
+    let out = components::launch::<R, EG>(
         &client,
         TensorHandle::new(lhs.shape, lhs.strides, lhs.handle),
         TensorHandle::new(rhs.shape, rhs.strides, rhs.handle),

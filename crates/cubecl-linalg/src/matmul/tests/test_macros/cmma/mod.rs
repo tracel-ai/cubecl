@@ -7,6 +7,7 @@ pub mod matmul_launch;
 macro_rules! testgen_cmma {
     () => {
         use super::*;
+        use cubecl_linalg::matmul::components::tile::cmma::*;
 
         cubecl_linalg::testgen_matmul_internal!(
             CmmaInstruction16_16_16,
@@ -26,6 +27,7 @@ macro_rules! testgen_cmma {
 macro_rules! testgen_plane_mma {
     () => {
         use super::*;
+        use cubecl_linalg::matmul::components::tile::plane::*;
 
         cubecl_linalg::testgen_matmul_internal!(
             PlaneMma16x16x16,

@@ -1,10 +1,10 @@
 use cubecl::prelude::*;
+use cubecl_linalg::matmul::components;
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
 use cubecl::frontend::Float;
 use cubecl::future;
-use cubecl_linalg::matmul::{self};
 use cubecl_linalg::tensor::TensorHandle;
 
 impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
@@ -23,7 +23,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        matmul::launch::<R, E>(
+        components::launch::<R, E>(
             &self.client,
             lhs,
             rhs,

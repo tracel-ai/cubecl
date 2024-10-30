@@ -2,7 +2,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_internal {
     ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $eg:ty, $es:ty, $ea:ty, $plane_dim:expr) => {
-        use cubecl_linalg::matmul::matmul_modular::{
+        use cubecl_linalg::matmul::components::{
             cmma_matmul::{
                 batch::{OneToOneBatchMatmul, OneToOneBatchMatmulConfig},
                 global::{
@@ -13,14 +13,14 @@ macro_rules! testgen_matmul_internal {
                     TilingOrderConfig, PlaneRowStageMatmul, StageSize, S8x8x1, S8x1x1, S1x1x1, S1x1x2,
                     S1x2x1, S2x1x1, S2x2x1, S2x2x2, S4x4x1, S4x4x2, PlaneRowStageMatmulConfig,
                 },
-                tile::{
-                    $i_16x16x16, $i_32x8x16, $i_8x32x16, PlaneMma32x32x32, PlaneMma16x16x8, PlaneMma16x16x32,
-                    CmmaTileMatmulConfig,
-                },
+
                 launch::{make_cmma_config, AdvancedConfig},
             },
-            matmul_stage::StageMatmul,
-            matmul_tile::TileMatmul,
+            stage::StageMatmul,
+            tile::{
+                TileMatmul, plane::{PlaneMma32x32x32, PlaneMma16x16x8, PlaneMma16x16x32},
+                TileConfig,
+            },
             matrix::MatrixLayout,
             problem::MatmulProblem,
             stage_dim::StageDim,
@@ -28,7 +28,7 @@ macro_rules! testgen_matmul_internal {
         use std::marker::PhantomData;
         use cubecl_linalg::matmul::tests::matmul_modular::matmul_test_launcher::test_matmul_internal;
 
-        type T = CmmaTileMatmulConfig;
+        type T = TileConfig;
         type S = PlaneRowStageMatmulConfig<T>;
         type G = HomogeneousGlobalMatmulConfig<S>;
         type B = OneToOneBatchMatmulConfig<G>;
