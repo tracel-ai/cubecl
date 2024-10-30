@@ -82,7 +82,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
-    register_wmma_features(&mut device_props, server.arch_version());
+    //register_wmma_features(&mut device_props, server.arch_version());
 
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }

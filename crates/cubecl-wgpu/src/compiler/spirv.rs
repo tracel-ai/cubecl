@@ -140,38 +140,38 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
         props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
     ) {
         register_types(props);
-        let cmma = unsafe {
-            adapter.as_hal::<hal::api::Vulkan, _, _>(|adapter| {
-                let adapter = adapter.expect("Can only use SPIR-V with Vulkan");
-                let pd = adapter.raw_physical_device();
-                let ash = adapter.shared_instance();
-                let cmma = cooperative_matrix::Instance::new(ash.entry(), ash.raw_instance());
-                let properties = cmma
-                    .get_physical_device_cooperative_matrix_properties(pd)
-                    .unwrap();
-                properties
-                    .into_iter()
-                    .filter(|it| {
-                        it.saturating_accumulation == 0
-                            && it.result_type == it.c_type
-                            && it.scope == ScopeKHR::SUBGROUP
-                    })
-                    .filter_map(|it| {
-                        Some(Feature::Cmma {
-                            a: conv_type(it.a_type)?,
-                            b: conv_type(it.b_type)?,
-                            c: conv_type(it.c_type)?,
-                            m: it.m_size as u8,
-                            k: it.k_size as u8,
-                            n: it.n_size as u8,
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            })
-        };
-        for size in cmma {
-            props.register_feature(size);
-        }
+        // let cmma = unsafe {
+        //     adapter.as_hal::<hal::api::Vulkan, _, _>(|adapter| {
+        //         let adapter = adapter.expect("Can only use SPIR-V with Vulkan");
+        //         let pd = adapter.raw_physical_device();
+        //         let ash = adapter.shared_instance();
+        //         let cmma = cooperative_matrix::Instance::new(ash.entry(), ash.raw_instance());
+        //         let properties = cmma
+        //             .get_physical_device_cooperative_matrix_properties(pd)
+        //             .unwrap();
+        //         properties
+        //             .into_iter()
+        //             .filter(|it| {
+        //                 it.saturating_accumulation == 0
+        //                     && it.result_type == it.c_type
+        //                     && it.scope == ScopeKHR::SUBGROUP
+        //             })
+        //             .filter_map(|it| {
+        //                 Some(Feature::Cmma {
+        //                     a: conv_type(it.a_type)?,
+        //                     b: conv_type(it.b_type)?,
+        //                     c: conv_type(it.c_type)?,
+        //                     m: it.m_size as u8,
+        //                     k: it.k_size as u8,
+        //                     n: it.n_size as u8,
+        //                 })
+        //             })
+        //             .collect::<Vec<_>>()
+        //     })
+        // };
+        // for size in cmma {
+        //     props.register_feature(size);
+        // }
     }
 }
 
