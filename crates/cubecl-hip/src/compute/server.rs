@@ -188,7 +188,6 @@ impl ComputeServer for HipServer {
             .collect::<Vec<_>>();
 
         if let Some(level) = profile_level {
-            ctx.sync();
             let start = std::time::SystemTime::now();
             ctx.execute_task(kernel_id, count, resources);
             ctx.sync();
@@ -211,6 +210,7 @@ impl ComputeServer for HipServer {
                 .register_profiled(info, start.elapsed().unwrap());
         } else {
             ctx.execute_task(kernel_id, count, resources);
+            ctx.sync();
         }
     }
 
