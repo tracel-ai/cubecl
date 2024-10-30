@@ -131,7 +131,7 @@ pub async fn init_device<G: GraphicsApi>(
     return_setup
 }
 
-fn create_client_on_setup<C: WgpuCompiler>(
+pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     setup: WgpuSetup,
     options: RuntimeOptions,
 ) -> ComputeClient<WgpuServer<C>, MutexComputeChannel<WgpuServer<C>>> {
@@ -166,7 +166,7 @@ fn create_client_on_setup<C: WgpuCompiler>(
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).
-async fn create_setup_for_device<G: GraphicsApi, C: WgpuCompiler>(
+pub(crate) async fn create_setup_for_device<G: GraphicsApi, C: WgpuCompiler>(
     device: &WgpuDevice,
 ) -> WgpuSetup {
     let (instance, adapter) = request_adapter::<G>(device).await;
