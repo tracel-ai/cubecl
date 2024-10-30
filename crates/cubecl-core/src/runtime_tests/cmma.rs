@@ -44,8 +44,8 @@ pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_tf32<F: Cast>(lhs: &Array<F>, rhs: &Array<F>, out: &mut Array<f32>) {
-    let a = cmma::Matrix::<F>::from_slice(
+pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<f32>) {
+    let a = cmma::Matrix::<tf32>::from_slice(
         cmma::MatrixIdent::A,
         16,
         16,
@@ -54,7 +54,7 @@ pub fn kernel_simple_tf32<F: Cast>(lhs: &Array<F>, rhs: &Array<F>, out: &mut Arr
         lhs.as_slice(),
         8,
     );
-    let b = cmma::Matrix::<F>::from_slice(
+    let b = cmma::Matrix::<tf32>::from_slice(
         cmma::MatrixIdent::B,
         16,
         16,
@@ -72,7 +72,7 @@ pub fn kernel_simple_tf32<F: Cast>(lhs: &Array<F>, rhs: &Array<F>, out: &mut Arr
         0.0,
     );
 
-    cmma::execute::<F, F, f32, f32>(&a, &b, &c, &c);
+    cmma::execute::<tf32, tf32, f32, f32>(&a, &b, &c, &c);
 
     cmma::store(out.as_slice_mut(), &c, 16, cmma::MatrixLayout::RowMajor);
 }
@@ -159,7 +159,7 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
-        kernel_simple_tf32::launch::<tf32, R>(
+        kernel_simple_tf32::launch::<R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(16, 16, 1),
