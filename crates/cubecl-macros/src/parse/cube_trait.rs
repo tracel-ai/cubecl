@@ -64,7 +64,7 @@ impl CubeTraitImplItem {
     pub fn from_impl_item(item: ImplItem) -> syn::Result<Self> {
         let res = match item {
             ImplItem::Fn(func) => {
-                let mut func = KernelFn::from_sig_and_block(func.sig, func.block)?;
+                let mut func = KernelFn::from_sig_and_block(func.vis, func.sig, func.block)?;
                 func.sig.name = format_ident!("__expand_{}", func.sig.name);
                 CubeTraitImplItem::Fn(func)
             }
