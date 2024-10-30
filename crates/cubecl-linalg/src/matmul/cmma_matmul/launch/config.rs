@@ -2,12 +2,12 @@ use cubecl_core::prelude::*;
 
 use cubecl_core::Runtime;
 
-use crate::matmul::cmma_matmul::batch::CmmaBatchMatmulConfig;
+use crate::matmul::cmma_matmul::batch::OneToOneBatchMatmulConfig;
 use crate::matmul::cmma_matmul::global::{
-    CmmaGlobalMatmulConfig, LhsTensorLoader, RhsTensorLoader, TensorUnloader,
+    HomogeneousGlobalMatmulConfig, LhsTensorLoader, RhsTensorLoader, TensorUnloader,
 };
 use crate::matmul::cmma_matmul::stage::{
-    CmmaStageMatmulConfig, LhsStageReader, RhsStageReader, TilingOrderConfig,
+    LhsStageReader, PlaneRowStageMatmulConfig, RhsStageReader, TilingOrderConfig,
 };
 use crate::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
 use crate::matmul::matmul_batch::BatchMatmul;
@@ -18,10 +18,11 @@ use crate::matmul::problem::MatmulProblem;
 use crate::matmul::stage_dim::StageDim;
 
 pub(crate) type CmmaTmmConfig = CmmaTileMatmulConfig;
-pub(crate) type CmmaSmmConfig = CmmaStageMatmulConfig<CmmaTmmConfig>;
-pub(crate) type CmmaGmmConfig = CmmaGlobalMatmulConfig<CmmaSmmConfig>;
-pub(crate) type CmmaBmmConfig = CmmaBatchMatmulConfig<CmmaGmmConfig>;
+pub(crate) type CmmaSmmConfig = PlaneRowStageMatmulConfig<CmmaTmmConfig>;
+pub(crate) type CmmaGmmConfig = HomogeneousGlobalMatmulConfig<CmmaSmmConfig>;
+pub(crate) type CmmaBmmConfig = OneToOneBatchMatmulConfig<CmmaGmmConfig>;
 
+/// Configs that should not hinder correctness, but may impact performance
 pub struct AdvancedConfig {
     pub tiling_order: TilingOrderConfig,
 }
@@ -34,6 +35,8 @@ impl Default for AdvancedConfig {
     }
 }
 
+/// Make a config for the cmma batch kernel, given problem definition,
+/// cube settings and advanced config
 pub fn make_cmma_config<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
     problem: &MatmulProblem<EG>,
     cube_dim: &CubeDim,
@@ -109,7 +112,7 @@ where
     b
 }
 
-pub fn create_stage_dim(
+fn create_stage_dim(
     stage_m: u32,
     stage_n: u32,
     stage_k: u32,

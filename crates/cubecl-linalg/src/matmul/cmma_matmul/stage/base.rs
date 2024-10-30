@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{CmmaStageSize, LhsStageReader, RhsStageReader};
+use super::{LhsStageReader, RhsStageReader, StageSize};
 use crate::matmul::config::PlaneMapper;
 use crate::matmul::matmul_global::GmmConfig;
 use crate::matmul::matmul_stage::{SmmConfig, StageMatmul, StageReader, StageWriter};
@@ -11,36 +11,42 @@ use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::matrix::Ident;
 use crate::matmul::Matmul;
 
-pub struct CmmaStageMatmul<
+/// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
+/// - One plane per tile in m dimension,
+/// - One accumulator per tile in n dimension
+///
+/// # Assumptions
+/// - There are as many planes as the stage size in m
+pub struct PlaneRowStageMatmul<
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
     Tmm: TileMatmul<I, Acc, S::TmmConfig>,
-    BlockSize: CmmaStageSize,
+    SS: StageSize,
     S: SmmConfig,
 > {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
     _accumulator_precision: PhantomData<Acc>,
     _instruction: PhantomData<Tmm>,
-    _block_size: PhantomData<BlockSize>,
+    _block_size: PhantomData<SS>,
     _config: PhantomData<S>,
 }
 
 #[cube]
-impl<I, O, Acc, TMM, StageSize, S> StageMatmul<I, O, LhsStageReader<I, S>, RhsStageReader<I, S>, S>
-    for CmmaStageMatmul<I, O, Acc, TMM, StageSize, S>
+impl<I, O, Acc, TMM, SS, S> StageMatmul<I, O, LhsStageReader<I, S>, RhsStageReader<I, S>, S>
+    for PlaneRowStageMatmul<I, O, Acc, TMM, SS, S>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
     TMM: TileMatmul<I, Acc, S::TmmConfig>,
-    StageSize: CmmaStageSize,
+    SS: StageSize,
     S: SmmConfig,
 {
-    const M: u32 = StageSize::NUM_M * TMM::M;
-    const N: u32 = StageSize::NUM_N * TMM::N;
-    const K: u32 = StageSize::NUM_K * TMM::K;
+    const M: u32 = SS::NUM_M * TMM::M;
+    const N: u32 = SS::NUM_N * TMM::N;
+    const K: u32 = SS::NUM_K * TMM::K;
     type Accumulator = Sequence<TMM::Out>;
 
     fn execute(
@@ -53,7 +59,7 @@ where
         let mut instruction_rhs = TMM::init_rhs(config.to_tmm_config());
 
         #[unroll]
-        for buffer_iter in 0..StageSize::NUM_K {
+        for buffer_iter in 0..SS::NUM_K {
             let tile_lhs =
                 LhsStageReader::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32, config);
             TMM::fill_lhs(tile_lhs, &mut instruction_lhs, config.to_tmm_config());
@@ -84,7 +90,7 @@ where
         let mut accumulators = Sequence::<TMM::Out>::new();
 
         #[unroll]
-        for _ in 0..StageSize::NUM_N {
+        for _ in 0..SS::NUM_N {
             accumulators.push(TMM::init_output(config.to_tmm_config()));
         }
 
@@ -123,13 +129,13 @@ where
     }
 }
 
-impl<I, O, Acc, TMM, StageSize, S> Matmul<I, O> for CmmaStageMatmul<I, O, Acc, TMM, StageSize, S>
+impl<I, O, Acc, TMM, SS, S> Matmul<I, O> for PlaneRowStageMatmul<I, O, Acc, TMM, SS, S>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
     TMM: TileMatmul<I, Acc, S::TmmConfig>,
-    StageSize: CmmaStageSize,
+    SS: StageSize,
     S: SmmConfig,
 {
     type Config = S;
@@ -144,13 +150,13 @@ where
 }
 
 #[cube]
-impl<I, O, Acc, Tmm, StageSize, S> PlaneMapper for CmmaStageMatmul<I, O, Acc, Tmm, StageSize, S>
+impl<I, O, Acc, Tmm, SS, S> PlaneMapper for PlaneRowStageMatmul<I, O, Acc, Tmm, SS, S>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
     Tmm: TileMatmul<I, Acc, S::TmmConfig>,
-    StageSize: CmmaStageSize,
+    SS: StageSize,
     S: SmmConfig,
 {
     fn plane_id() -> u32 {

@@ -9,7 +9,8 @@ use cubecl_core::prelude::*;
 use super::TilingOrderConfig;
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct CmmaStageMatmulConfig<T: TmmConfig> {
+/// Configuration for the PlaneRowStageMatmul
+pub struct PlaneRowStageMatmulConfig<T: TmmConfig> {
     tmm_config: T,
     lhs_stage_dim: StageDim,
     rhs_stage_dim: StageDim,
@@ -18,7 +19,7 @@ pub struct CmmaStageMatmulConfig<T: TmmConfig> {
     tiling_order: TilingOrderConfig,
 }
 
-impl<T: TmmConfig> SmmConfig for CmmaStageMatmulConfig<T> {
+impl<T: TmmConfig> SmmConfig for PlaneRowStageMatmulConfig<T> {
     type TmmConfig = T;
 
     fn to_tmm_config(self) -> Self::TmmConfig {
@@ -54,9 +55,9 @@ impl<T: TmmConfig> SmmConfig for CmmaStageMatmulConfig<T> {
     }
 }
 
-impl<T: TmmConfig> MatmulConfig for CmmaStageMatmulConfig<T> {}
+impl<T: TmmConfig> MatmulConfig for PlaneRowStageMatmulConfig<T> {}
 
-impl<T: TmmConfig> CmmaStageMatmulConfig<T> {
+impl<T: TmmConfig> PlaneRowStageMatmulConfig<T> {
     pub fn new(
         tmm_config: T,
         lhs_stage_dim: StageDim,

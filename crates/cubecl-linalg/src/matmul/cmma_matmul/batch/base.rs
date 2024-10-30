@@ -8,7 +8,9 @@ use crate::matmul::{Matmul, MatmulLaunch};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-pub struct CmmaBatchMatmul<
+/// Performs matrix multiplication at the batch level,
+/// with one cube assigned to each underlying global matmul
+pub struct OneToOneBatchMatmul<
     EG: Numeric,
     ES: Numeric,
     GMM: GlobalMatmul<
@@ -40,7 +42,7 @@ impl<
             B::GmmConfig,
         >,
         B: BmmConfig,
-    > BatchMatmul<EG, B> for CmmaBatchMatmul<EG, ES, GMM, B>
+    > BatchMatmul<EG, B> for OneToOneBatchMatmul<EG, ES, GMM, B>
 {
     fn execute(
         lhs: Tensor<Line<EG>>,
@@ -48,7 +50,7 @@ impl<
         out: Tensor<Line<EG>>,
         #[comptime] config: Self::Config,
     ) {
-        // TODO this is naive
+        // TODO row/col/swizzle
         let x_offset = CUBE_POS_X * config.stage_dim(Ident::Lhs).num_elements_x_dim();
         let y_offset = CUBE_POS_Y * config.stage_dim(Ident::Rhs).num_elements_y_dim();
         let nth_batch = CUBE_POS_Z;
@@ -76,7 +78,7 @@ impl<
             B::GmmConfig,
         >,
         B: BmmConfig,
-    > Matmul<EG, EG> for CmmaBatchMatmul<EG, ES, GMM, B>
+    > Matmul<EG, EG> for OneToOneBatchMatmul<EG, ES, GMM, B>
 {
     type Config = B;
 
@@ -97,7 +99,7 @@ impl<
             B::GmmConfig,
         >,
         B: BmmConfig,
-    > MatmulLaunch<EG, EG> for CmmaBatchMatmul<EG, ES, GMM, B>
+    > MatmulLaunch<EG, EG> for OneToOneBatchMatmul<EG, ES, GMM, B>
 {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,

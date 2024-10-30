@@ -7,12 +7,15 @@ use cubecl_core::prelude::*;
 use super::TilingOrderConfig;
 
 #[derive(CubeType, Clone, Copy)]
+/// Wrapper over the shared memory used for staging,
+/// abstracting its layout
 pub struct Stage<ES: Numeric> {
     pub smem: SharedMemory<Line<ES>>,
 }
 
 #[cube]
 impl<ES: Numeric> Stage<ES> {
+    /// Instanciate a new stage for the given identifier
     pub fn new<S: SmmConfig>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES> {
         let smem = SharedMemory::new_lined(
             comptime!(config.stage_dim(ident).num_elements() / config.line_size(ident)),
@@ -22,6 +25,7 @@ impl<ES: Numeric> Stage<ES> {
         Stage::<ES> { smem }
     }
 
+    /// Get the tile at position (x,y) regardless of layout, as a contiguous slice
     pub fn get_tile<S: SmmConfig>(
         &self,
         x: u32,
@@ -46,6 +50,7 @@ impl<ES: Numeric> Stage<ES> {
         self.smem.slice(start, start + tile_stride)
     }
 
+    /// Return the whole stage as a mutable slice, for loading
     pub fn as_slice_mut(&mut self) -> &mut SliceMut<'_, Line<ES>> {
         self.smem.as_slice_mut()
     }

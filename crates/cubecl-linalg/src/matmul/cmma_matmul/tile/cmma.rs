@@ -9,6 +9,7 @@ use cubecl_core::{cmma, prelude::*};
 use half::{bf16, f16};
 use std::marker::PhantomData;
 
+/// Implementations are pairs of element types that are allowed for CMMA
 pub trait CmmaValid<I: Numeric, O: Numeric> {}
 
 impl CmmaValid<f16, f16> for (f16, f16) {}
@@ -16,77 +17,192 @@ impl CmmaValid<f16, f32> for (f16, f32) {}
 impl CmmaValid<bf16, f32> for (bf16, f32) {}
 
 #[derive(CubeType)]
+/// Wrapper over a CMMA matrix, containing the stride which implies the layout
 pub struct Fragment<T: Numeric> {
     pub matrix: cmma::Matrix<T>,
     pub stride: u32,
 }
 
-macro_rules! impl_matmul_instruction {
-    ($name:ident, $m:expr, $n:expr, $k:expr) => {
-        pub struct $name<I: Numeric, O: Numeric, T: TmmConfig> {
-            _input: PhantomData<I>,
-            _output: PhantomData<O>,
-            _config: PhantomData<T>,
-        }
-
-        #[cube]
-        impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O, T> for $name<I, O, T>
-        where
-            (I, O): CmmaValid<I, O>,
-        {
-            const M: u32 = $m;
-            const N: u32 = $n;
-            const K: u32 = $k;
-
-            type Lhs = Fragment<I>;
-            type Rhs = Fragment<I>;
-            type Out = Fragment<O>;
-
-            fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] _config: T) {
-                execute::<I, O>(lhs, rhs, out);
-            }
-
-            fn init_lhs(#[comptime] config: T) -> Self::Lhs {
-                init_lhs(config.layout(Ident::Lhs), Self::M, Self::N, Self::K)
-            }
-
-            fn init_rhs(#[comptime] config: T) -> Self::Rhs {
-                init_rhs(config.layout(Ident::Rhs), Self::M, Self::N, Self::K)
-            }
-
-            fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] _config: T) {
-                fill_lhs(slice, lhs);
-            }
-
-            fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] _config: T) {
-                fill_rhs(slice, rhs);
-            }
-
-            fn init_output(#[comptime] _config: T) -> Self::Out {
-                init_output(Self::M, Self::N, Self::K)
-            }
-
-            fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>, #[comptime] _config: T) {
-                read_output::<O, C>(out, slice);
-            }
-        }
-
-        impl<I: Numeric, O: Numeric, T: TmmConfig> Matmul<I, O> for $name<I, O, T>
-        where
-            (I, O): CmmaValid<I, O>,
-        {
-            type Config = T;
-            
-            fn check_config(config: Self::Config) {
-                let _ = comptime!(check_plane_dim(config.plane_dim()));
-            }
-        }
-    };
+/// CMMA instruction with m=16, n=16, k=16
+pub struct CmmaInstruction16_16_16<I: Numeric, O: Numeric, T: TmmConfig> {
+    _input: PhantomData<I>,
+    _output: PhantomData<O>,
+    _config: PhantomData<T>,
 }
 
-impl_matmul_instruction!(CmmaInstruction16_16_16, 16, 16, 16);
-impl_matmul_instruction!(CmmaInstruction32_8_16, 32, 8, 16);
-impl_matmul_instruction!(CmmaInstruction8_32_16, 8, 32, 16);
+/// CMMA instruction with m=32, n=8, k=16
+pub struct CmmaInstruction32_8_16<I: Numeric, O: Numeric, T: TmmConfig> {
+    _input: PhantomData<I>,
+    _output: PhantomData<O>,
+    _config: PhantomData<T>,
+}
+
+/// CMMA instruction with m=8, n=32, k=16
+pub struct CmmaInstruction8_32_16<I: Numeric, O: Numeric, T: TmmConfig> {
+    _input: PhantomData<I>,
+    _output: PhantomData<O>,
+    _config: PhantomData<T>,
+}
+
+#[cube]
+impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O, T> for CmmaInstruction16_16_16<I, O, T>
+where
+    (I, O): CmmaValid<I, O>,
+{
+    const M: u32 = 16;
+    const N: u32 = 16;
+    const K: u32 = 16;
+
+    type Lhs = Fragment<I>;
+    type Rhs = Fragment<I>;
+    type Out = Fragment<O>;
+
+    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] _config: T) {
+        execute::<I, O>(lhs, rhs, out);
+    }
+
+    fn init_lhs(#[comptime] config: T) -> Self::Lhs {
+        init_lhs(config.layout(Ident::Lhs), Self::M, Self::N, Self::K)
+    }
+
+    fn init_rhs(#[comptime] config: T) -> Self::Rhs {
+        init_rhs(config.layout(Ident::Rhs), Self::M, Self::N, Self::K)
+    }
+
+    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] _config: T) {
+        fill_lhs(slice, lhs);
+    }
+
+    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] _config: T) {
+        fill_rhs(slice, rhs);
+    }
+
+    fn init_output(#[comptime] _config: T) -> Self::Out {
+        init_output(Self::M, Self::N, Self::K)
+    }
+
+    fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>, #[comptime] _config: T) {
+        read_output::<O, C>(out, slice);
+    }
+}
+
+#[cube]
+impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O, T> for CmmaInstruction32_8_16<I, O, T>
+where
+    (I, O): CmmaValid<I, O>,
+{
+    const M: u32 = 32;
+    const N: u32 = 8;
+    const K: u32 = 16;
+
+    type Lhs = Fragment<I>;
+    type Rhs = Fragment<I>;
+    type Out = Fragment<O>;
+
+    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] _config: T) {
+        execute::<I, O>(lhs, rhs, out);
+    }
+
+    fn init_lhs(#[comptime] config: T) -> Self::Lhs {
+        init_lhs(config.layout(Ident::Lhs), Self::M, Self::N, Self::K)
+    }
+
+    fn init_rhs(#[comptime] config: T) -> Self::Rhs {
+        init_rhs(config.layout(Ident::Rhs), Self::M, Self::N, Self::K)
+    }
+
+    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] _config: T) {
+        fill_lhs(slice, lhs);
+    }
+
+    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] _config: T) {
+        fill_rhs(slice, rhs);
+    }
+
+    fn init_output(#[comptime] _config: T) -> Self::Out {
+        init_output(Self::M, Self::N, Self::K)
+    }
+
+    fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>, #[comptime] _config: T) {
+        read_output::<O, C>(out, slice);
+    }
+}
+
+#[cube]
+impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O, T> for CmmaInstruction8_32_16<I, O, T>
+where
+    (I, O): CmmaValid<I, O>,
+{
+    const M: u32 = 8;
+    const N: u32 = 32;
+    const K: u32 = 16;
+
+    type Lhs = Fragment<I>;
+    type Rhs = Fragment<I>;
+    type Out = Fragment<O>;
+
+    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] _config: T) {
+        execute::<I, O>(lhs, rhs, out);
+    }
+
+    fn init_lhs(#[comptime] config: T) -> Self::Lhs {
+        init_lhs(config.layout(Ident::Lhs), Self::M, Self::N, Self::K)
+    }
+
+    fn init_rhs(#[comptime] config: T) -> Self::Rhs {
+        init_rhs(config.layout(Ident::Rhs), Self::M, Self::N, Self::K)
+    }
+
+    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] _config: T) {
+        fill_lhs(slice, lhs);
+    }
+
+    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] _config: T) {
+        fill_rhs(slice, rhs);
+    }
+
+    fn init_output(#[comptime] _config: T) -> Self::Out {
+        init_output(Self::M, Self::N, Self::K)
+    }
+
+    fn read_output<C: Numeric>(out: &Self::Out, slice: &mut SliceMut<'_, Line<C>>, #[comptime] _config: T) {
+        read_output::<O, C>(out, slice);
+    }
+}
+
+
+impl<I: Numeric, O: Numeric, T: TmmConfig> Matmul<I, O> for CmmaInstruction16_16_16<I, O, T>
+where
+    (I, O): CmmaValid<I, O>,
+{
+    type Config = T;
+    
+    fn check_config(config: Self::Config) {
+        let _ = comptime!(check_plane_dim(config.plane_dim()));
+    }
+}
+
+impl<I: Numeric, O: Numeric, T: TmmConfig> Matmul<I, O> for CmmaInstruction32_8_16<I, O, T>
+where
+    (I, O): CmmaValid<I, O>,
+{
+    type Config = T;
+    
+    fn check_config(config: Self::Config) {
+        let _ = comptime!(check_plane_dim(config.plane_dim()));
+    }
+}
+
+impl<I: Numeric, O: Numeric, T: TmmConfig> Matmul<I, O> for CmmaInstruction8_32_16<I, O, T>
+where
+    (I, O): CmmaValid<I, O>,
+{
+    type Config = T;
+    
+    fn check_config(config: Self::Config) {
+        let _ = comptime!(check_plane_dim(config.plane_dim()));
+    }
+}
 
 
 #[cube]

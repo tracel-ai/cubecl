@@ -8,14 +8,15 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct CmmaGlobalMatmulConfig<S: SmmConfig> {
+/// Configuration for the HomogeneousGlobalMatmul
+pub struct HomogeneousGlobalMatmulConfig<S: SmmConfig> {
     smm_config: S,
     out_smem_line_size: u32,
     check_m_bounds: bool,
     check_n_bounds: bool,
 }
 
-impl<S: SmmConfig> GmmConfig for CmmaGlobalMatmulConfig<S> {
+impl<S: SmmConfig> GmmConfig for HomogeneousGlobalMatmulConfig<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {
@@ -59,9 +60,9 @@ impl<S: SmmConfig> GmmConfig for CmmaGlobalMatmulConfig<S> {
     }
 }
 
-impl<S: SmmConfig> MatmulConfig for CmmaGlobalMatmulConfig<S> {}
+impl<S: SmmConfig> MatmulConfig for HomogeneousGlobalMatmulConfig<S> {}
 
-impl<S: SmmConfig> CmmaGlobalMatmulConfig<S> {
+impl<S: SmmConfig> HomogeneousGlobalMatmulConfig<S> {
     pub fn new(
         smm_config: S,
         out_smem_line_size: u32,

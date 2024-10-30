@@ -10,10 +10,12 @@ use cubecl_core::prelude::*;
 use super::TensorView;
 
 #[derive(CubeType, Clone, Copy)]
-pub struct ContinuousSmemLoader {}
+/// Loads the content of all tiles in the tensor view using all planes,
+/// iterating with steps determined by the plane's dimension.
+pub struct ContinuousLoader {}
 
 #[cube]
-impl PlaneMapper for ContinuousSmemLoader {
+impl PlaneMapper for ContinuousLoader {
     fn plane_id() -> u32 {
         UNIT_POS_Y
     }
@@ -24,7 +26,7 @@ impl PlaneMapper for ContinuousSmemLoader {
 }
 
 #[cube]
-impl ContinuousSmemLoader {
+impl ContinuousLoader {
     pub fn load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
         read_view: &TensorView<EG>,
         slice: &mut SliceMut<'_, Line<ES>>,

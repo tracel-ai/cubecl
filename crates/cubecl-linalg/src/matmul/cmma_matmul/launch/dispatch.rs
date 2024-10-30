@@ -1,15 +1,16 @@
 use cubecl_core::prelude::*;
 
-use crate::matmul::cmma_matmul::stage::{CmmaStageSize, S4x4x2};
+use crate::matmul::cmma_matmul::stage::{S4x4x2, StageSize};
 use crate::matmul::cmma_matmul::tile::{
     CmmaInstruction16_16_16, CmmaTileMatmulConfig, PlaneMma16x16x16,
 };
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::problem::MatmulProblem;
 
+/// Launch informations for a matmul
 pub trait MatmulLaunchDispatch {
     const PLANE_DIM: u32;
-    type StageSize: CmmaStageSize;
+    type StageSize: StageSize;
     type ElementInput: Numeric;
     type ElementAccumulator: Numeric;
 

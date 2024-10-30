@@ -8,12 +8,14 @@ use cubecl_core::prelude::*;
 use super::Stage;
 
 #[derive(CubeType)]
+/// Stage reader for LHS
 pub struct LhsStageReader<ES: Numeric, S: SmmConfig> {
     pub stage: Stage<ES>,
     pub _config: PhantomData<S>,
 }
 
 #[derive(CubeType)]
+/// Stage reader for RHS
 pub struct RhsStageReader<ES: Numeric, S: SmmConfig> {
     pub stage: Stage<ES>,
     pub _config: PhantomData<S>,

@@ -5,6 +5,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Configuration for both CmmaInstruction and PlaneMma
 pub struct CmmaTileMatmulConfig {
     plane_dim: u32,
     lhs_layout: MatrixLayout,

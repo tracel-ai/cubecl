@@ -2,39 +2,36 @@
 #[macro_export]
 macro_rules! testgen_matmul_internal {
     ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $eg:ty, $es:ty, $ea:ty, $plane_dim:expr) => {
-        use cubecl_linalg::matmul::cmma_matmul::batch::CmmaBatchMatmul;
-        use cubecl_linalg::matmul::cmma_matmul::batch::CmmaBatchMatmulConfig;
-        use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmul;
-        use cubecl_linalg::matmul::cmma_matmul::global::CmmaGlobalMatmulConfig;
-        use cubecl_linalg::matmul::cmma_matmul::global::{
-            LhsTensorLoader, RhsTensorLoader, TensorUnloader,
+        use cubecl_linalg::matmul::{
+            cmma_matmul::{
+                batch::{OneToOneBatchMatmul, OneToOneBatchMatmulConfig},
+                global::{
+                    HomogeneousGlobalMatmul, HomogeneousGlobalMatmulConfig, LhsTensorLoader,
+                    RhsTensorLoader, TensorUnloader,
+                },
+                stage::{
+                    TilingOrderConfig, PlaneRowStageMatmul, StageSize, S8x8x1, S8x1x1, S1x1x1, S1x1x2,
+                    S1x2x1, S2x1x1, S2x2x1, S2x2x2, S4x4x1, S4x4x2, PlaneRowStageMatmulConfig,
+                },
+                tile::{
+                    $i_16x16x16, $i_32x8x16, $i_8x32x16, PlaneMma32x32x32, PlaneMma16x16x8, PlaneMma16x16x32,
+                    CmmaTileMatmulConfig,
+                },
+                launch::{make_cmma_config, AdvancedConfig},
+            },
+            matmul_stage::StageMatmul,
+            matmul_tile::TileMatmul,
+            matrix::MatrixLayout,
+            problem::MatmulProblem,
+            stage_dim::StageDim,
+            tests::matmul_test_launcher::test_matmul_internal,
         };
-        use cubecl_linalg::matmul::cmma_matmul::stage::CmmaStageMatmulConfig;
-        use cubecl_linalg::matmul::cmma_matmul::stage::TilingOrderConfig;
-        use cubecl_linalg::matmul::cmma_matmul::stage::{
-            CmmaStageMatmul, S8x8x1, S8x1x1, S1x1x1, S1x1x2, S1x2x1, S2x1x1,
-            S2x2x1, S2x2x2, S4x4x1, S4x4x2,
-        };
-        use cubecl_linalg::matmul::cmma_matmul::tile::{
-            $i_16x16x16, $i_32x8x16, $i_8x32x16,
-        };
-        use cubecl_linalg::matmul::cmma_matmul::tile::{PlaneMma32x32x32, PlaneMma16x16x8, PlaneMma16x16x32};
-        use cubecl_linalg::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
-        use cubecl_linalg::matmul::matmul_stage::StageMatmul;
-        use cubecl_linalg::matmul::matmul_tile::TileMatmul;
-        use cubecl_linalg::matmul::matrix::MatrixLayout;
-        use cubecl_linalg::matmul::problem::MatmulProblem;
-        use cubecl_linalg::matmul::stage_dim::StageDim;
-        use cubecl_linalg::matmul::cmma_matmul::launch::create_stage_dim;
-        use cubecl_linalg::matmul::tests::matmul_test_launcher::test_matmul_internal;
-        use cubecl_linalg::matmul::cmma_matmul::launch::make_cmma_config;
-        use cubecl_linalg::matmul::cmma_matmul::launch::AdvancedConfig;
         use std::marker::PhantomData;
 
         type T = CmmaTileMatmulConfig;
-        type S = CmmaStageMatmulConfig<T>;
-        type G = CmmaGlobalMatmulConfig<S>;
-        type B = CmmaBatchMatmulConfig<G>;
+        type S = PlaneRowStageMatmulConfig<T>;
+        type G = HomogeneousGlobalMatmulConfig<S>;
+        type B = OneToOneBatchMatmulConfig<G>;
 
         macro_rules! matmul_test {
             (
@@ -47,10 +44,6 @@ macro_rules! testgen_matmul_internal {
                                                                         $advanced_config:expr
                                                                     ) => {
                 pub fn $test_name<R: Runtime>(device: &R::Device) {
-                    type T = CmmaTileMatmulConfig;
-                    type S = CmmaStageMatmulConfig<T>;
-                    type G = CmmaGlobalMatmulConfig<S>;
-
                     let problem = $problem;
 
                     type EG = $eg;
@@ -59,9 +52,9 @@ macro_rules! testgen_matmul_internal {
                     type StageSize = $stage_size;
 
                     type TileMatmul = $tile_matmul_type<ES, EA, T>;
-                    type StageMatmul = CmmaStageMatmul<ES, EG, EA, TileMatmul, StageSize, S>;
-                    type GlobalMatmul = CmmaGlobalMatmul<EG, ES, StageMatmul, G>;
-                    type BatchMatmul = CmmaBatchMatmul<EG, ES, GlobalMatmul, B>;
+                    type StageMatmul = PlaneRowStageMatmul<ES, EG, EA, TileMatmul, StageSize, S>;
+                    type GlobalMatmul = HomogeneousGlobalMatmul<EG, ES, StageMatmul, G>;
+                    type BatchMatmul = OneToOneBatchMatmul<EG, ES, GlobalMatmul, B>;
 
                     let config = make_cmma_config::<
                         EG,

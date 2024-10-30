@@ -1,4 +1,4 @@
-use crate::matmul::cmma_matmul::global::ContinuousSmemLoader;
+use crate::matmul::cmma_matmul::global::ContinuousLoader;
 use crate::matmul::cmma_matmul::stage::{LhsStageReader, RhsStageReader, Stage};
 use crate::matmul::matmul_global::{GmmConfig, Loader};
 use crate::matmul::matrix::Ident;
@@ -71,7 +71,7 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
     type StageReader = LhsStageReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        ContinuousSmemLoader::load_to_slice::<EG, ES, G>(
+        ContinuousLoader::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
             this.stage.as_slice_mut(),
             Ident::Lhs,
@@ -90,7 +90,7 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoad
     type StageReader = RhsStageReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        ContinuousSmemLoader::load_to_slice::<EG, ES, G>(
+        ContinuousLoader::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
             this.stage.as_slice_mut(),
             Ident::Rhs,

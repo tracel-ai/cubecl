@@ -8,12 +8,12 @@ use cubecl_core::{
     tensor_line_size, Runtime,
 };
 
-use crate::matmul::cmma_matmul::batch::CmmaBatchMatmul;
-use crate::matmul::cmma_matmul::global::CmmaGlobalMatmul;
+use crate::matmul::cmma_matmul::batch::OneToOneBatchMatmul;
+use crate::matmul::cmma_matmul::global::HomogeneousGlobalMatmul;
 use crate::matmul::cmma_matmul::launch::{
     make_cmma_config, CmmaBmmConfig, CmmaGmmConfig, CmmaSmmConfig,
 };
-use crate::matmul::cmma_matmul::stage::{CmmaStageMatmul, CmmaStageSize};
+use crate::matmul::cmma_matmul::stage::{PlaneRowStageMatmul, StageSize};
 use crate::matmul::cmma_matmul::tile::CmmaTileMatmulConfig;
 use crate::matmul::matmul_tile::TileMatmul;
 use crate::matmul::problem::MatmulProblem;
@@ -22,6 +22,7 @@ use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout};
 
 use super::{AdvancedConfig, MatmulLaunchDispatch};
 
+/// Launches a matmul on tensor handles
 pub fn matmul_cmma_ref<R: Runtime, E: Numeric, D: MatmulLaunchDispatch>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
@@ -135,7 +136,7 @@ fn launch_matmul<
     ES: Numeric,
     EA: Numeric,
     TMM: TileMatmul<ES, EA, CmmaTileMatmulConfig>,
-    CSS: CmmaStageSize,
+    CSS: StageSize,
 >(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
@@ -146,11 +147,12 @@ fn launch_matmul<
     cube_count: CubeCount,
     advanced_config: AdvancedConfig,
 ) {
-    type StageMatmul<TMM, CSS, EG, ES, EA> = CmmaStageMatmul<ES, EG, EA, TMM, CSS, CmmaSmmConfig>;
+    type StageMatmul<TMM, CSS, EG, ES, EA> =
+        PlaneRowStageMatmul<ES, EG, EA, TMM, CSS, CmmaSmmConfig>;
     type GlobalMatmul<TMM, CSS, EG, ES, EA> =
-        CmmaGlobalMatmul<EG, ES, StageMatmul<TMM, CSS, EG, ES, EA>, CmmaGmmConfig>;
+        HomogeneousGlobalMatmul<EG, ES, StageMatmul<TMM, CSS, EG, ES, EA>, CmmaGmmConfig>;
     type BatchMatmul<TMM, CSS, EG, ES, EA> =
-        CmmaBatchMatmul<EG, ES, GlobalMatmul<TMM, CSS, EG, ES, EA>, CmmaBmmConfig>;
+        OneToOneBatchMatmul<EG, ES, GlobalMatmul<TMM, CSS, EG, ES, EA>, CmmaBmmConfig>;
 
     let config = make_cmma_config::<
         EG,

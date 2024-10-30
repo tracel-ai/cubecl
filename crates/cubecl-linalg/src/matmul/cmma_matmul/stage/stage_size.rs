@@ -1,4 +1,4 @@
-pub trait CmmaStageSize: 'static + Send + Sync {
+pub trait StageSize: 'static + Send + Sync {
     const NUM_M: u32;
     const NUM_N: u32;
     const NUM_K: u32;
@@ -8,7 +8,7 @@ macro_rules! create_cmma_stage {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
         pub struct $name;
 
-        impl CmmaStageSize for $name {
+        impl StageSize for $name {
             const NUM_M: u32 = $m;
             const NUM_N: u32 = $n;
             const NUM_K: u32 = $k;

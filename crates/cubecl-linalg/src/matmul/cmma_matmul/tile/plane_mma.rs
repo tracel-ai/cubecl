@@ -15,6 +15,14 @@ pub type PlaneMma32x8x16<I, O, T> = PlaneMma<I, O, T, 32, 8, 16>;
 pub type PlaneMma8x32x16<I, O, T> = PlaneMma<I, O, T, 8, 32, 16>;
 pub type PlaneMma32x32x32<I, O, T> = PlaneMma<I, O, T, 32, 32, 32>;
 
+/// PlaneMMA instruction uses plane cooperation but does not rely on tensor cores
+///
+/// # Note
+///
+/// This is not yet fully optimized
+///  - There are likely unrolling issues,
+///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used
+///  - To fix an obscure bug one loop is done twice
 pub struct PlaneMma<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32>
 {
     _input: PhantomData<I>,

@@ -9,7 +9,10 @@ use std::marker::PhantomData;
 
 use super::{LhsTensorLoader, RhsTensorLoader, TensorUnloader};
 
-pub struct CmmaGlobalMatmul<
+/// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
+/// - All planes load data to the stage
+/// - All planes are used in the stage matmul computation
+pub struct HomogeneousGlobalMatmul<
     EG: Numeric,
     ES: Numeric,
     SMM: StageMatmul<
@@ -36,7 +39,7 @@ impl<EG, ES, SMM, G>
         RhsTensorLoader<EG, ES, G>,
         TensorUnloader<EG, G>,
         G,
-    > for CmmaGlobalMatmul<EG, ES, SMM, G>
+    > for HomogeneousGlobalMatmul<EG, ES, SMM, G>
 where
     EG: Numeric,
     ES: Numeric,
@@ -90,7 +93,7 @@ where
     }
 }
 
-impl<EG, ES, SMM, G> Matmul<EG, EG> for CmmaGlobalMatmul<EG, ES, SMM, G>
+impl<EG, ES, SMM, G> Matmul<EG, EG> for HomogeneousGlobalMatmul<EG, ES, SMM, G>
 where
     EG: Numeric,
     ES: Numeric,

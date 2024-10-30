@@ -6,14 +6,14 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct CmmaBatchMatmulConfig<G: GmmConfig> {
+pub struct OneToOneBatchMatmulConfig<G: GmmConfig> {
     gmm_config: G,
     cube_count_x: u32,
     cube_count_y: u32,
     cube_count_z: u32,
 }
 
-impl<G: GmmConfig> BmmConfig for CmmaBatchMatmulConfig<G> {
+impl<G: GmmConfig> BmmConfig for OneToOneBatchMatmulConfig<G> {
     type GmmConfig = G;
 
     fn to_gmm_config(&self) -> Self::GmmConfig {
@@ -45,9 +45,9 @@ impl<G: GmmConfig> BmmConfig for CmmaBatchMatmulConfig<G> {
     }
 }
 
-impl<G: GmmConfig> MatmulConfig for CmmaBatchMatmulConfig<G> {}
+impl<G: GmmConfig> MatmulConfig for OneToOneBatchMatmulConfig<G> {}
 
-impl<G: GmmConfig> CmmaBatchMatmulConfig<G> {
+impl<G: GmmConfig> OneToOneBatchMatmulConfig<G> {
     pub fn new(gmm_config: G, cube_count_x: u32, cube_count_y: u32, cube_count_z: u32) -> Self {
         Self {
             gmm_config,
