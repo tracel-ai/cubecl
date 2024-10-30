@@ -12,18 +12,23 @@ pub(crate) fn assert_equals_approx<
     client: &ComputeClient<R::Server, R::Channel>,
     output: Handle,
     expected: &[F],
-    epsilon: F,
+    epsilon: f32,
 ) {
     let actual = client.read(output.binding());
     let actual = F::from_bytes(&actual);
+
+    // normalize to type epsilon
+    let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
 
     for (i, (a, e)) in actual[0..expected.len()]
         .iter()
         .zip(expected.iter())
         .enumerate()
     {
+        // account for lower precision at higher values
+        let allowed_error = F::new((epsilon * e.to_f32().unwrap()).max(epsilon));
         assert!(
-            (*a - *e).abs() < epsilon || (a.is_nan() && e.is_nan()),
+            (*a - *e).abs() < allowed_error || (a.is_nan() && e.is_nan()),
             "Values differ more than epsilon: actual={}, expected={}, difference={}, epsilon={}
 index: {}
 actual: {:?}
@@ -78,7 +83,7 @@ macro_rules! test_binary_impl {
                     )
                 };
 
-                assert_equals_approx::<R, F>(&client, output_handle, $expected, F::new(0.15));
+                assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
             }
             )*
         }

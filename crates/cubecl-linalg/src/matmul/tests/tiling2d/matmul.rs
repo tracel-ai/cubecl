@@ -1,10 +1,6 @@
 use std::fmt::Display;
 
-use cubecl_core::{
-    ir::{Elem, FloatKind},
-    prelude::Float,
-    CubeElement, Runtime,
-};
+use cubecl_core::{prelude::Float, CubeElement, Runtime};
 
 use crate::matmul::{
     tests::{matmul_test_case::MatmulTestCase, test_utils::assert_equals_approx},
@@ -81,14 +77,7 @@ fn test_tiling2d<R: Runtime, F: Float + CubeElement + Display>(
         Default::default(),
     );
 
-    // Lower required precision with f16/flex32
-    let epsilon = match F::as_elem() {
-        Elem::Float(FloatKind::BF16) => 0.6, // bf16 is extremely low precision
-        Elem::Float(FloatKind::F16) | Elem::Float(FloatKind::Relaxed) => 0.1,
-        _ => 0.01,
-    };
-
-    if let Err(e) = assert_equals_approx::<R, F>(&client, out.handle, &expected, epsilon) {
+    if let Err(e) = assert_equals_approx::<R, F>(&client, out.handle, &expected, 0.01) {
         panic!("{}", e);
     }
 }

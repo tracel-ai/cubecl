@@ -1,10 +1,6 @@
 use std::fmt::Display;
 
-use cubecl_core::{
-    ir::{Elem, FloatKind},
-    prelude::Float,
-    CubeElement, Runtime,
-};
+use cubecl_core::{prelude::Float, CubeElement, Runtime};
 
 use crate::matmul::{
     cmma::{self, config::CmmaConfig, is_available},
@@ -115,13 +111,7 @@ pub(crate) fn test_cmma<R: Runtime, F: Float + CubeElement + Display>(
 
         let out = cmma::launch::<R, F>(&client, lhs, rhs, case.empty_out(&client), config);
 
-        // Lower required precision with f16/flex32
-        let epsilon = match F::as_elem() {
-            Elem::Float(FloatKind::F16) | Elem::Float(FloatKind::Relaxed) => 0.05,
-            _ => 0.01,
-        };
-
-        assert_equals_approx::<R, F>(&client, out.handle, &expected, epsilon)
+        assert_equals_approx::<R, F>(&client, out.handle, &expected, 0.01)
     } else {
         // Cmma unavailable, nothing to do
         Ok(())

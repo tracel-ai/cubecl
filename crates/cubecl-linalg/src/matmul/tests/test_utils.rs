@@ -86,8 +86,14 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     let actual = client.read(output.binding());
     let actual = F::from_bytes(&actual);
 
+    // normalize to type epsilon
+    let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
+
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
-        if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= epsilon {
+        // account for lower precision at higher values
+        let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+
+        if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error {
             return Err(format!(
             "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
             i,
