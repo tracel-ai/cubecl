@@ -364,6 +364,7 @@ mod tests {
 
     // Test pools with slices.
     #[test]
+    #[cfg(not(exclusive_memory_only))]
     fn test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -514,6 +515,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(exclusive_memory_only))]
     fn allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -542,6 +544,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(exclusive_memory_only))]
     fn test_fragmentation_resistance() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),

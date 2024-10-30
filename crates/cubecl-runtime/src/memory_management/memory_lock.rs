@@ -1,7 +1,4 @@
-#[cfg(not(feature = "std"))]
 use alloc::collections::BTreeSet;
-#[cfg(feature = "std")]
-use std::collections::HashSet;
 
 use crate::storage::StorageId;
 
@@ -9,9 +6,6 @@ use crate::storage::StorageId;
 /// used for allocations currently.
 #[derive(Debug, Default)]
 pub struct MemoryLock {
-    #[cfg(feature = "std")]
-    locked: HashSet<StorageId>,
-    #[cfg(not(feature = "std"))]
     locked: BTreeSet<StorageId>,
 }
 
