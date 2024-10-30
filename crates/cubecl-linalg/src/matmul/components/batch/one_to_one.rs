@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::batch::{BatchMatmul, BmmConfig};
+use crate::matmul::components::batch::BatchMatmul;
 use crate::matmul::components::cmma_matmul::global::{
     LhsTensorLoader, RhsTensorLoader, TensorUnloader,
 };
@@ -11,6 +11,8 @@ use crate::matmul::components::stage_dim::StageDim;
 use crate::matmul::components::{Matmul, MatmulLaunch};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+
+use super::BmmConfig;
 
 /// Performs matrix multiplication at the batch level,
 /// with one cube assigned to each underlying global matmul
