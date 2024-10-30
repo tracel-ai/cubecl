@@ -10,6 +10,9 @@ pub use memory_lock::*;
 mod memory_manage;
 pub use memory_manage::*;
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 /// The type of memory pool to use.
 #[derive(Debug, Clone)]
 pub enum PoolType {

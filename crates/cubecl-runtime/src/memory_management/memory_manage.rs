@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use alloc::collections::BTreeSet;
 
 use super::{
     memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool},
@@ -340,6 +340,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Print out a report of the current memory usage.
     pub fn print_memory_usage(&self) {
+        #[cfg(feature = "std")]
         log::info!("{}", self.memory_usage());
     }
 }

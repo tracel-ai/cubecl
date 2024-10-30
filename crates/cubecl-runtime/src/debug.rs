@@ -7,6 +7,7 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(feature = "std")]
 use hashbrown::HashMap;
 
 #[derive(Debug)]
@@ -35,20 +36,24 @@ pub enum ProfileLevel {
 #[derive(Debug, Default)]
 pub struct DebugLogger {
     kind: DebugLoggerKind,
+    #[cfg(feature = "std")]
     profiled: Profiled,
 }
 
+#[cfg(feature = "std")]
 #[derive(Debug, Default)]
 struct Profiled {
     durations: HashMap<String, ProfileItem>,
 }
 
+#[cfg(feature = "std")]
 #[derive(Debug, Default, Clone)]
 struct ProfileItem {
     total_duration: core::time::Duration,
     num_computed: usize,
 }
 
+#[cfg(feature = "std")]
 impl Profiled {
     pub fn update(&mut self, name: &String, duration: core::time::Duration) {
         let name = if name.contains("\n") {
@@ -70,6 +75,7 @@ impl Profiled {
     }
 }
 
+#[cfg(feature = "std")]
 impl Display for Profiled {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let header_name = "Name";
@@ -174,6 +180,7 @@ impl Display for Profiled {
     }
 }
 
+#[cfg(feature = "std")]
 impl ProfileItem {
     pub fn update(&mut self, duration: core::time::Duration) {
         self.total_duration += duration;
@@ -205,17 +212,22 @@ impl DebugLogger {
     pub fn profile_level(&self) -> Option<ProfileLevel> {
         self.kind.profile_level()
     }
+
     /// Register a profiled task.
+    #[cfg_attr(not(feature = "std"), expect(unused))]
     pub fn register_profiled<Name>(&mut self, name: Name, duration: core::time::Duration)
     where
         Name: Display,
     {
-        let name = name.to_string();
-        self.profiled.update(&name, duration);
+        #[cfg(feature = "std")]
+        {
+            let name = name.to_string();
+            self.profiled.update(&name, duration);
 
-        match self.kind.profile_level().unwrap_or(ProfileLevel::Basic) {
-            ProfileLevel::Basic => {}
-            _ => self.kind.register_profiled(name, duration),
+            match self.kind.profile_level().unwrap_or(ProfileLevel::Basic) {
+                ProfileLevel::Basic => {}
+                _ => self.kind.register_profiled(name, duration),
+            }
         }
     }
     /// Returns whether the debug logger is activated.
@@ -232,6 +244,7 @@ impl DebugLogger {
 
     /// Show the profiling summary if activated and reset its state.
     pub fn profile_summary(&mut self) {
+        #[cfg(feature = "std")]
         if self.profile_level().is_some() {
             let mut profiled = Default::default();
             core::mem::swap(&mut self.profiled, &mut profiled);
@@ -320,11 +333,10 @@ impl DebugLoggerKind {
     }
 
     /// Returns the profile level, none if profiling is deactivated.
+    #[cfg(feature = "std")]
     fn profile_level(&self) -> Option<ProfileLevel> {
         let option = match self {
-            #[cfg(feature = "std")]
             DebugLoggerKind::File(_, option) => option,
-            #[cfg(feature = "std")]
             DebugLoggerKind::Stdout(option) => option,
             DebugLoggerKind::None => {
                 return None;
@@ -337,6 +349,13 @@ impl DebugLoggerKind {
         }
     }
 
+    /// Returns the profile level, none if profiling is deactivated.
+    #[cfg(not(feature = "std"))]
+    fn profile_level(&self) -> Option<ProfileLevel> {
+        None
+    }
+
+    #[cfg(feature = "std")]
     fn register_profiled(&mut self, name: String, duration: core::time::Duration) {
         match self {
             #[cfg(feature = "std")]
