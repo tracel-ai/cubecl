@@ -27,7 +27,8 @@ use wgpu::{
 };
 
 use crate::{
-    create_client, create_wgpu_setup, RuntimeOptions, Vulkan, WgpuDevice, WgpuRuntime, WgpuServer,
+    create_client_on_setup, create_setup_for_device, RuntimeOptions, Vulkan, WgpuDevice,
+    WgpuRuntime, WgpuServer,
 };
 
 use super::base::WgpuCompiler;
@@ -140,38 +141,38 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
         props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
     ) {
         register_types(props);
-        // let cmma = unsafe {
-        //     adapter.as_hal::<hal::api::Vulkan, _, _>(|adapter| {
-        //         let adapter = adapter.expect("Can only use SPIR-V with Vulkan");
-        //         let pd = adapter.raw_physical_device();
-        //         let ash = adapter.shared_instance();
-        //         let cmma = cooperative_matrix::Instance::new(ash.entry(), ash.raw_instance());
-        //         let properties = cmma
-        //             .get_physical_device_cooperative_matrix_properties(pd)
-        //             .unwrap();
-        //         properties
-        //             .into_iter()
-        //             .filter(|it| {
-        //                 it.saturating_accumulation == 0
-        //                     && it.result_type == it.c_type
-        //                     && it.scope == ScopeKHR::SUBGROUP
-        //             })
-        //             .filter_map(|it| {
-        //                 Some(Feature::Cmma {
-        //                     a: conv_type(it.a_type)?,
-        //                     b: conv_type(it.b_type)?,
-        //                     c: conv_type(it.c_type)?,
-        //                     m: it.m_size as u8,
-        //                     k: it.k_size as u8,
-        //                     n: it.n_size as u8,
-        //                 })
-        //             })
-        //             .collect::<Vec<_>>()
-        //     })
-        // };
-        // for size in cmma {
-        //     props.register_feature(size);
-        // }
+        let cmma = unsafe {
+            adapter.as_hal::<hal::api::Vulkan, _, _>(|adapter| {
+                let adapter = adapter.expect("Can only use SPIR-V with Vulkan");
+                let pd = adapter.raw_physical_device();
+                let ash = adapter.shared_instance();
+                let cmma = cooperative_matrix::Instance::new(ash.entry(), ash.raw_instance());
+                let properties = cmma
+                    .get_physical_device_cooperative_matrix_properties(pd)
+                    .unwrap();
+                properties
+                    .into_iter()
+                    .filter(|it| {
+                        it.saturating_accumulation == 0
+                            && it.result_type == it.c_type
+                            && it.scope == ScopeKHR::SUBGROUP
+                    })
+                    .filter_map(|it| {
+                        Some(Feature::Cmma {
+                            a: conv_type(it.a_type)?,
+                            b: conv_type(it.b_type)?,
+                            c: conv_type(it.c_type)?,
+                            m: it.m_size as u8,
+                            k: it.k_size as u8,
+                            n: it.n_size as u8,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+        };
+        for size in cmma {
+            props.register_feature(size);
+        }
     }
 }
 
@@ -277,7 +278,7 @@ fn request_device(
 }
 
 fn register_types(props: &mut DeviceProperties<Feature>) {
-    use cubecl_core::ir::{Elem, FloatKind, IntKind, UIntKind};
+    use cubecl_core::ir::{Elem, FloatKind, IntKind};
 
     let supported_types = [
         Elem::UInt(UIntKind::U8),
@@ -288,18 +289,12 @@ fn register_types(props: &mut DeviceProperties<Feature>) {
         Elem::Int(IntKind::I16),
         Elem::Int(IntKind::I32),
         Elem::Int(IntKind::I64),
-        Elem::AtomicInt(IntKind::I8),
-        Elem::AtomicInt(IntKind::I16),
         Elem::AtomicInt(IntKind::I32),
         Elem::AtomicInt(IntKind::I64),
-        Elem::AtomicUInt(UIntKind::U8),
-        Elem::AtomicUInt(UIntKind::U16),
         Elem::AtomicUInt(UIntKind::U32),
         Elem::AtomicUInt(UIntKind::U64),
         Elem::Float(FloatKind::F16),
         Elem::Float(FloatKind::F32),
-        Elem::Float(FloatKind::Relaxed),
-        // GLSL extensions don't support f64, so disable for now
         //Elem::Float(FloatKind::F64),
         Elem::Bool,
     ];
@@ -349,9 +344,9 @@ impl Runtime for WgpuRuntime<VkSpirvCompiler> {
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            let (adapter, device_wgpu, queue) =
-                future::block_on(create_wgpu_setup::<Vulkan, VkSpirvCompiler>(device));
-            create_client(adapter, device_wgpu, queue, RuntimeOptions::default())
+            let setup =
+                future::block_on(create_setup_for_device::<Vulkan, VkSpirvCompiler>(device));
+            create_client_on_setup(setup, RuntimeOptions::default())
         })
     }
 
@@ -362,32 +357,6 @@ impl Runtime for WgpuRuntime<VkSpirvCompiler> {
     fn supported_line_sizes() -> &'static [u8] {
         &[4, 2]
     }
-}
-
-pub fn init_existing_device(
-    adapter: Arc<wgpu::Adapter>,
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
-    options: RuntimeOptions,
-) -> WgpuDevice {
-    let device_id = WgpuDevice::Existing(device.as_ref().global_id());
-    let client = create_client(adapter, device, queue, options);
-    RUNTIME.register(&device_id, client);
-    device_id
-}
-
-/// Initialize a client on the given device with the given options. This function is useful to configure the runtime options
-/// or to pick a different graphics API. On wasm, it is necessary to use [`init_async`] instead.
-pub fn init_sync(device: &WgpuDevice, options: RuntimeOptions) {
-    future::block_on(init_async(device, options));
-}
-
-/// Like [`init_sync`], but async, necessary for wasm.
-pub async fn init_async(device: &WgpuDevice, options: RuntimeOptions) {
-    let (adapter, device_wgpu, queue) =
-        create_wgpu_setup::<Vulkan, SpirvCompiler<GLCompute>>(device).await;
-    let client = create_client(adapter, device_wgpu, queue, options);
-    RUNTIME.register(device, client)
 }
 
 #[cfg(feature = "spirv-dump")]
