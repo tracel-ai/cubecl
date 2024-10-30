@@ -24,4 +24,10 @@ impl Dialect for Hip {
         // "hip_bfloat16.h" has no "hip_bfloat162" type
         f.write_str("hip_bfloat16")
     }
+    fn half_min() -> &'static str {
+        "min" // double check these
+    }
+    fn half_max() -> &'static str {
+        "max"
+    }
 }

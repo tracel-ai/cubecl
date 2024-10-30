@@ -8,7 +8,7 @@ impl Dialect for Cuda {
         f.write_str("#include <cuda_fp16.h>\n")
     }
     fn include_bf16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("#include <cuda_bfp16.h>\n")
+        f.write_str("#include <cuda_bf16.h>\n")
     }
     fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <mma.h>\n")
@@ -21,5 +21,11 @@ impl Dialect for Cuda {
     }
     fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("__nv_bfloat162")
+    }
+    fn half_min() -> &'static str {
+        "__hmin"
+    }
+    fn half_max() -> &'static str {
+        "__hmax"
     }
 }

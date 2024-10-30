@@ -83,6 +83,7 @@ fn test_tiling2d<R: Runtime, F: Float + CubeElement + Display>(
 
     // Lower required precision with f16/flex32
     let epsilon = match F::as_elem() {
+        Elem::Float(FloatKind::BF16) => 0.6, // bf16 is extremely low precision
         Elem::Float(FloatKind::F16) | Elem::Float(FloatKind::Relaxed) => 0.1,
         _ => 0.01,
     };

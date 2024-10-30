@@ -139,8 +139,42 @@ operator!(Or, "||");
 operator!(And, "&&");
 
 function!(Powf, "powf");
-function!(Max, "max");
-function!(Min, "min");
+
+pub struct Max;
+
+impl<D: Dialect> Binary<D> for Max {
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        let max = match item.elem() {
+            Elem::F16 | Elem::BF16 => D::half_max(),
+            _ => "max",
+        };
+
+        write!(f, "{}({lhs}, {rhs})", max)
+    }
+}
+
+pub struct Min;
+
+impl<D: Dialect> Binary<D> for Min {
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        let max = match item.elem() {
+            Elem::F16 | Elem::BF16 => D::half_min(),
+            _ => "min",
+        };
+
+        write!(f, "{}({lhs}, {rhs})", max)
+    }
+}
 
 pub struct IndexAssign;
 pub struct Index;

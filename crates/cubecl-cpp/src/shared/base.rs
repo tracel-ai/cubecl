@@ -24,6 +24,8 @@ pub trait Dialect: Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 's
     fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn half_min() -> &'static str;
+    fn half_max() -> &'static str;
 }
 
 #[allow(clippy::too_many_arguments)]

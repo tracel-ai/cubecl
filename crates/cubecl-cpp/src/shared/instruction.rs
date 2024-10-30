@@ -605,9 +605,17 @@ impl<D: Dialect> Clamp<D> {
         let out_item = out.item();
         let num = out_item.vectorization;
 
+        let (min, max) = match out.elem() {
+            Elem::F16 | Elem::BF16 => (D::half_min(), D::half_max()),
+            _ => ("min", "max"),
+        };
+
         let out = out.fmt_left();
         if num == 1 {
-            writeln!(f, "{out} = max({min_value}, min({max_value}, {input}));")
+            writeln!(
+                f,
+                "{out} = {max}({min_value}, {min}({max_value}, {input}));"
+            )
         } else {
             writeln!(f, "{out} = {out_item}{{")?;
             for i in 0..num {
@@ -615,7 +623,7 @@ impl<D: Dialect> Clamp<D> {
                 let mini = min_value.index(i);
                 let maxi = max_value.index(i);
 
-                writeln!(f, "max({mini}, min({maxi}, {inputi})),")?;
+                writeln!(f, "{max}({mini}, {min}({maxi}, {inputi})),")?;
             }
 
             f.write_str("};\n")
