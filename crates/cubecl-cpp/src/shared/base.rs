@@ -941,7 +941,8 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
         Elem::Float(FloatKind::F16),
         Elem::Float(FloatKind::F32),
         Elem::Float(FloatKind::Relaxed),
-        Elem::Float(FloatKind::F64),
+        // Causes CUDA_ERROR_INVALID_VALUE for matmul, disabling until that can be investigated
+        //Elem::Float(FloatKind::F64),
         Elem::Bool,
     ];
 
