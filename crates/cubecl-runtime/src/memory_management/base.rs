@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String};
+
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
 /// wasted in total.
@@ -51,7 +54,7 @@ fn bytes_format(bytes: u64) -> String {
     }
 }
 
-impl std::fmt::Display for MemoryUsage {
+impl core::fmt::Display for MemoryUsage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // In the future it'd be nice if MemoryUsage also held some stats about say,
         // the 5 biggest allocations, to show when you an OOM.

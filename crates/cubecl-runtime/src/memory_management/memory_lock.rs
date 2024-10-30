@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use alloc::collections::BTreeSet;
 
 use crate::storage::StorageId;
 
@@ -6,7 +6,7 @@ use crate::storage::StorageId;
 /// used for allocations currently.
 #[derive(Debug, Default)]
 pub struct MemoryLock {
-    locked: HashSet<StorageId>,
+    locked: BTreeSet<StorageId>,
 }
 
 impl MemoryLock {

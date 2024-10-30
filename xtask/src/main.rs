@@ -8,7 +8,6 @@ use tracel_xtask::prelude::*;
 
 #[macros::base_commands(
     Bump,
-    Check,
     Compile,
     Coverage,
     Doc,
@@ -19,9 +18,11 @@ use tracel_xtask::prelude::*;
     Vulnerabilities
 )]
 pub enum Command {
-    /// Build Burn in different modes.
+    /// Build cubecl in different modes.
     Build(commands::build::CubeCLBuildCmdArgs),
-    /// Test Burn.
+    /// Build cubecl in different modes.
+    Check(commands::check::CubeCLCheckCmdArgs),
+    /// Test cubecl.
     Test(commands::test::CubeCLTestCmdArgs),
     /// Run commands to manage the book.
     Book(commands::book::BookArgs),
@@ -32,6 +33,7 @@ fn main() -> anyhow::Result<()> {
     let args = init_xtask::<Command>()?;
     match args.command {
         Command::Build(cmd_args) => commands::build::handle_command(cmd_args),
+        Command::Check(cmd_args) => commands::check::handle_command(cmd_args),
         Command::Test(cmd_args) => commands::test::handle_command(cmd_args),
         Command::Book(cmd_args) => cmd_args.parse(),
         _ => dispatch_base_commands(args),
