@@ -86,13 +86,24 @@ fn main() {
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
+        // TODO: randomly hangs on sync after kernel launch
+        run::<cubecl::hip::HipRuntime, f32>(
+            Default::default(),
+            MatmulKind::Cmma,
+        );
         run::<cubecl::hip::HipRuntime, f32>(
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
         );
+
         run::<cubecl::hip::HipRuntime, half::f16>(
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
+        );
+        // TODO: OOM
+        run::<cubecl::hip::HipRuntime, half::f16>(
+            Default::default(),
+            MatmulKind::Cmma,
         );
     }
 
