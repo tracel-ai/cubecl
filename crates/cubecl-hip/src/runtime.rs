@@ -55,7 +55,7 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
             .to_str()
             .unwrap();
     };
-    let arch = AMDArchitecture::from_str(&prop_arch_name).unwrap();
+    let arch = AMDArchitecture::from_str(prop_arch_name).unwrap();
     assert_eq!(prop_warp_size, arch.warp_size());
 
     unsafe {

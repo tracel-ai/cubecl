@@ -59,6 +59,7 @@ impl AMDArchitecture {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     // Reference: https://github.com/ROCm/rocWMMA/blob/develop/docs/api-reference/api-reference-guide.rst
     //
     //                                        i     o    c    m   n   k
