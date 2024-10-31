@@ -12,11 +12,12 @@ pub trait MatmulKernel<I: Numeric, O: Numeric> {
 }
 
 /// Provides launch entry point to solve a matmul
-///
-/// # Safety
-///
-/// Out-of-bounds can happen
 pub trait MatmulLaunch<I: Numeric, O: Numeric>: MatmulKernel<I, O> {
+    /// Entry point
+    ///
+    /// # Safety
+    ///
+    /// Out-of-bounds can happen
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,

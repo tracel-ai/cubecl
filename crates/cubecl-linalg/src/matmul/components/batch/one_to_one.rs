@@ -121,7 +121,7 @@ impl<
         config: B,
     ) {
         Self::check_config(config);
-        launch::launch_unchecked::<EG, ES, Self, Self::Config, R>(
+        launch::launch_unchecked::<EG, Self, Self::Config, R>(
             client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }
@@ -129,7 +129,7 @@ impl<
 
 #[cube(launch_unchecked)]
 // TODO input as references
-fn launch<EG: Numeric, ES: Numeric, BMM: batch::Matmul<EG, B>, B: batch::Config>(
+fn launch<EG: Numeric, BMM: batch::Matmul<EG, B>, B: batch::Config>(
     lhs: Tensor<Line<EG>>,
     rhs: Tensor<Line<EG>>,
     out: Tensor<Line<EG>>,

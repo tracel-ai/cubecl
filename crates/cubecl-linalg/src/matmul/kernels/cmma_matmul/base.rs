@@ -166,6 +166,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn launch_matmul<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
@@ -176,7 +177,7 @@ fn launch_matmul<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
     cube_count: CubeCount,
     advanced_config: AdvancedConfig,
 ) {
-    let config = make_cmma_config::<EG, D, R>(&problem, &cube_dim, &cube_count, &advanced_config);
+    let config = make_cmma_config::<EG, D>(&problem, &cube_dim, &cube_count, &advanced_config);
 
     type StageMatmul<TMM, T, CSS, EG, ES, EA> =
         stage::row_accumulate::Matmul<ES, EG, EA, TMM, CSS, CmmaSmmConfig<T>>;

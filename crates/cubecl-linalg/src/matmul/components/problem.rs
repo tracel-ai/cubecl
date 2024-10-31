@@ -82,7 +82,7 @@ impl<EG: Numeric> MatmulProblem<EG> {
 
     /// Returns the total number of batches
     pub(crate) fn num_batches(&self) -> usize {
-        self.batches.iter().map(|&x| x).product()
+        self.batches.iter().copied().product()
     }
 
     /// Asserts that the problem can be solved with the given batch matmul configs

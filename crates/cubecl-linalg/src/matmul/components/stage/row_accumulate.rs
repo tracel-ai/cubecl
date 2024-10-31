@@ -63,13 +63,13 @@ where
 
         #[unroll]
         for buffer_iter in 0..SS::NUM_K {
-            let tile_lhs = LhsReader::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32, config);
+            let tile_lhs = LhsReader::read_tile(lhs, Self::plane_id(), buffer_iter, 0u32, config);
             TMM::fill_lhs(tile_lhs, &mut instruction_lhs, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
                 let tile_rhs = RhsReader::read_tile(
-                    &rhs,
+                    rhs,
                     Self::plane_id(),
                     buffer_iter,
                     accumulator_iter,
@@ -122,7 +122,7 @@ where
             TMM::read_output(accumulator, smem_slice, stage_config.to_tmm_config());
             SW::write(
                 out,
-                &smem_slice.as_slice(),
+                smem_slice.as_slice(),
                 Self::plane_id(),
                 accumulator_iter,
                 global_config,
@@ -143,7 +143,7 @@ where
     type Config = S;
 
     fn check_config(config: Self::Config) {
-        let _ = comptime!(check_num_planes(
+        comptime!(check_num_planes(
             config.stage_dim(Ident::Lhs).num_tiles_x,
             config.num_planes()
         ));

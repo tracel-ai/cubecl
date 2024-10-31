@@ -38,6 +38,8 @@ impl ContinuousLoading {
         let num_stage_elements = stage_dim.num_elements();
 
         let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
+
+        #[allow(clippy::all)]
         let _ = comptime!(check_jump_divides_well(num_stage_elements, jump_length));
 
         let unit_position_base =

@@ -5,7 +5,7 @@ use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::stage::Stage;
+use super::staging::Stage;
 use super::Config;
 
 #[derive(CubeType)]

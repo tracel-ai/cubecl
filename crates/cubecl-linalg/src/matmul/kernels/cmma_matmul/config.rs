@@ -1,7 +1,5 @@
 use cubecl_core::prelude::*;
 
-use cubecl_core::Runtime;
-
 use crate::matmul::components::batch;
 use crate::matmul::components::global;
 use crate::matmul::components::stage;
@@ -12,7 +10,6 @@ use crate::matmul::components::StageDim;
 
 use super::dispatch::MatmulLaunchDispatch;
 
-// pub(crate) type CmmaTmmConfig = tile::plane::Config;
 pub(crate) type CmmaSmmConfig<T> = stage::row_accumulate::Config<T>;
 pub(crate) type CmmaGmmConfig<T> = global::homogeneous::Config<CmmaSmmConfig<T>>;
 pub(crate) type CmmaBmmConfig<T> = batch::one_to_one::Config<CmmaGmmConfig<T>>;
@@ -32,7 +29,7 @@ impl Default for AdvancedConfig {
 
 /// Make a config for the cmma batch kernel, given problem definition,
 /// cube settings and advanced config
-pub fn make_cmma_config<EG, D, R>(
+pub fn make_cmma_config<EG, D>(
     problem: &MatmulProblem<EG>,
     cube_dim: &CubeDim,
     cube_count: &CubeCount,
@@ -41,20 +38,19 @@ pub fn make_cmma_config<EG, D, R>(
 where
     EG: Numeric,
     D: MatmulLaunchDispatch,
-    R: Runtime,
 {
-    type TMM<D> = <D as MatmulLaunchDispatch>::TileMatmul;
-    type SMM<D, EG> = stage::row_accumulate::Matmul<
+    type Tmm<D> = <D as MatmulLaunchDispatch>::TileMatmul;
+    type Smm<D, EG> = stage::row_accumulate::Matmul<
         <D as MatmulLaunchDispatch>::ElementInput,
         EG,
         <D as MatmulLaunchDispatch>::ElementAccumulator,
-        TMM<D>,
+        Tmm<D>,
         <D as MatmulLaunchDispatch>::StageSize,
         CmmaSmmConfig<<D as MatmulLaunchDispatch>::TileConfig>,
     >;
 
-    let (stage_m, stage_n, stage_k) = (SMM::<D, EG>::M, SMM::<D, EG>::N, SMM::<D, EG>::K);
-    let (tile_m, tile_n, tile_k) = (TMM::<D>::M, TMM::<D>::N, TMM::<D>::K);
+    let (stage_m, stage_n, stage_k) = (Smm::<D, EG>::M, Smm::<D, EG>::N, Smm::<D, EG>::K);
+    let (tile_m, tile_n, tile_k) = (Tmm::<D>::M, Tmm::<D>::N, Tmm::<D>::K);
     let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) =
         create_stage_dim(stage_m, stage_n, stage_k, tile_m, tile_n, tile_k);
 
@@ -72,7 +68,7 @@ where
     };
 
     let s = CmmaSmmConfig::new(
-        D::tile_config(plane_dim, &problem),
+        D::tile_config(plane_dim, problem),
         lhs_stage_dim,
         rhs_stage_dim,
         out_stage_dim,

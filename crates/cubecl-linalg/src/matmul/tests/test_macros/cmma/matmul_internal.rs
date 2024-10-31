@@ -80,7 +80,6 @@ macro_rules! testgen_matmul_internal {
                     let config = make_cmma_config::<
                         EG,
                         D,
-                        R,
                     >(&problem, &$cube_dim, &$cube_count, &$advanced_config);
 
                     test_matmul_internal::<BatchMatmul, EG, B, G, R>(problem, $cube_dim, $cube_count, config, device);
