@@ -23,16 +23,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        matmul::launch::<R, E>(
-            match self.kind {
-                MatmulKind::CmmaDisabled => matmul::Strategy::Tiling2D(Default::default()),
-                MatmulKind::CmmaEnabled => matmul::Strategy::Accelerated,
-            },
-            &self.client,
-            lhs,
-            rhs,
-            out,
-        );
+        matmul::launch::<R, E>(&self.strategy, &self.client, lhs, rhs, out);
     }
 
     fn num_samples(&self) -> usize {
@@ -40,7 +31,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     }
 
     fn name(&self) -> String {
-        format!("matmul-{}-{}-{:?}", R::name(), E::as_elem(), self.kind).to_lowercase()
+        format!("matmul-{}-{}-{:?}", R::name(), E::as_elem(), self.strategy).to_lowercase()
     }
 
     fn sync(&self) {
@@ -58,21 +49,14 @@ struct MatmulBench<R: Runtime, E> {
     m: usize,
     k: usize,
     n: usize,
-    kind: MatmulKind,
+    strategy: matmul::Strategy,
     device: R::Device,
     client: ComputeClient<R::Server, R::Channel>,
     _e: PhantomData<E>,
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
-enum MatmulKind {
-    CmmaDisabled,
-    CmmaEnabled,
-}
-
-#[allow(dead_code)]
-fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
+fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
     client.enable_timestamps();
 
@@ -83,7 +67,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
         n: 2048,
         client,
         device,
-        kind,
+        strategy,
         _e: PhantomData,
     };
     println!("{}", bench.name());
@@ -92,19 +76,50 @@ fn run<R: Runtime, E: Float>(device: R::Device, kind: MatmulKind) {
 
 fn main() {
     #[cfg(feature = "wgpu")]
-    run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), MatmulKind::CmmaDisabled);
+    {
+        run::<cubecl::wgpu::WgpuRuntime, f32>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+    }
 
     #[cfg(feature = "hip")]
     {
-        run::<cubecl::hip::HipRuntime, f32>(Default::default(), MatmulKind::CmmaDisabled);
-        run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), MatmulKind::CmmaDisabled);
+        run::<cubecl::hip::HipRuntime, f32>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::hip::HipRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
     }
 
     #[cfg(feature = "cuda")]
     {
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), MatmulKind::CmmaDisabled);
-        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), MatmulKind::CmmaDisabled);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), MatmulKind::CmmaEnabled);
-        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), MatmulKind::CmmaEnabled);
+        run::<cubecl::cuda::CudaRuntime, f32>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::cuda::CudaRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::cuda::CudaRuntime, f32>(
+            Default::default(),
+            matmul::Strategy::CmmaOld(Default::default()),
+        );
+        run::<cubecl::cuda::CudaRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::CmmaOld(Default::default()),
+        );
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
+        run::<cubecl::cuda::CudaRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::Accelerated,
+        );
     }
 }

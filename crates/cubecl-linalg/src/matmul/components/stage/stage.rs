@@ -1,8 +1,8 @@
-use crate::matmul::components::Ident;
 use crate::matmul::components::stage::tiling_order::{
     TilingOrderConfig, XMajorTiling, YMajorTiling,
 };
 use crate::matmul::components::stage::{Config, TilingOrder};
+use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

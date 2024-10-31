@@ -1,4 +1,8 @@
-use cubecl_core::{client::ComputeClient, prelude::Float, Runtime};
+use cubecl_core::{
+    client::ComputeClient,
+    prelude::{Float, TensorHandleRef},
+    Runtime,
+};
 
 use crate::tensor::TensorHandle;
 
@@ -8,6 +12,7 @@ use super::kernels::{
     tiling2d::{self, Tiling2dConfig},
 };
 
+#[derive(Debug)]
 pub enum Strategy {
     Accelerated,
     PlaneMma,
@@ -15,9 +20,8 @@ pub enum Strategy {
     Tiling2D(Tiling2dConfig),
 }
 
-/// TODO should be numeric
 pub fn launch<R: Runtime, EG: Float>(
-    strategy: Strategy,
+    strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, EG>,
     rhs: TensorHandle<R, EG>,
@@ -26,7 +30,26 @@ pub fn launch<R: Runtime, EG: Float>(
     match strategy {
         Strategy::Accelerated => cmma_matmul::launch(client, lhs, rhs, out, false),
         Strategy::PlaneMma => cmma_matmul::launch(client, lhs, rhs, out, true),
-        Strategy::CmmaOld(config) => cmma_old::launch(client, lhs, rhs, out, config),
-        Strategy::Tiling2D(config) => tiling2d::launch(client, lhs, rhs, out, config),
+        Strategy::CmmaOld(config) => cmma_old::launch(client, lhs, rhs, out, config.clone()),
+        Strategy::Tiling2D(config) => tiling2d::launch(client, lhs, rhs, out, config.clone()),
+    };
+}
+
+pub fn launch_ref<R: Runtime, EG: Float>(
+    strategy: &Strategy,
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: TensorHandleRef<R>,
+    rhs: TensorHandleRef<R>,
+    out: TensorHandleRef<R>,
+) {
+    match strategy {
+        Strategy::Accelerated => cmma_matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false),
+        Strategy::PlaneMma => cmma_matmul::launch_ref::<R, EG>(client, lhs, rhs, out, true),
+        Strategy::CmmaOld(config) => {
+            cmma_old::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone())
+        }
+        Strategy::Tiling2D(config) => {
+            tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone())
+        }
     };
 }

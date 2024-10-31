@@ -1,9 +1,10 @@
+mod base;
 /// Components for matrix multiplication
 pub mod components;
-/// Tests for matmul kernels
-pub mod tests;
 /// Contains matmul kernels
 pub mod kernels;
-mod base;
+/// Tests for matmul kernels
+#[cfg(feature = "export_tests")]
+pub mod tests;
 
 pub use base::*;

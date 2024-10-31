@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::Ident;
 use crate::matmul::components::stage::StageReader;
+use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

@@ -29,7 +29,7 @@ impl TilewiseUnloading {
         slice: &Slice<'_, Line<ES>>,
         tile_x: u32,
         tile_y: u32,
-        #[comptime] config: G
+        #[comptime] config: G,
     ) {
         let stage_dim = config.stage_dim(Ident::Out);
         let slice_line_size = config.out_smem_line_size();
@@ -50,8 +50,7 @@ impl TilewiseUnloading {
 }
 
 fn check_line_size(out_line_size: u32, slice_line_size: u32) {
-    assert_eq!(out_line_size, slice_line_size, 
-        "Error: Expected global output and output shared memory to have equal line size, but found out_line_size = {} and slice_line_size = {}.",
+    assert_eq!(out_line_size, slice_line_size, "Error: Expected global output and output shared memory to have equal line size, but found out_line_size = {} and slice_line_size = {}.",
         out_line_size, slice_line_size
     );
 }

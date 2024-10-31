@@ -12,6 +12,7 @@ use super::{
 
 pub(crate) const CMMA_PLANE_DIM: u8 = 32;
 
+#[derive(Debug, Clone)]
 pub struct CmmaConfig {
     /// Corresponds to the number of tiles in the m dimension for a block
     pub b_m: u32,
@@ -40,9 +41,9 @@ pub struct CmmaConfig {
 impl Default for CmmaConfig {
     fn default() -> Self {
         Self::new(
-            64,
-            32,
-            64,
+            128,
+            16,
+            128,
             false,
             WriteOutStrategy::ReuseSmem,
             RasterizationStrategy::Swizzle,
