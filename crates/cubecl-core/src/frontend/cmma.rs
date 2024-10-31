@@ -80,8 +80,8 @@ impl<C: CubeType> Clone for MatrixExpand<C> {
     fn clone(&self) -> Self {
         Self {
             elem: self.elem.clone(),
-            ident: self.ident.clone(),
-            _c: self._c.clone(),
+            ident: self.ident,
+            _c: self._c,
         }
     }
 }

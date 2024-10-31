@@ -100,7 +100,7 @@ impl CubeElement for f32 {
         value
     }
     fn to_f32_value(value: Self) -> f32 {
-        value as f32
+        value
     }
 }
 
