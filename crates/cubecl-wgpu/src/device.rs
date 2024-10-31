@@ -43,7 +43,7 @@ pub enum WgpuDevice {
     ///
     /// # Notes
     ///
-    /// This can be initialized with [init_existing_device](crate::runtime::init_existing_device).
+    /// This can be initialized with [`init_device`](crate::runtime::init_device).
     Existing(u32),
 }
 

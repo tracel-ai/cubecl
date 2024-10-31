@@ -102,7 +102,7 @@ pub struct WgpuSetup {
 ///
 /// # Note
 ///
-/// Please **do not** to initialize the **same** device more than once.
+/// Please **do not** to call on the same [`setup`](WgpuSetup) more than once.
 ///
 /// This function generates a new, globally unique ID for the device every time it is called,
 /// even if called on the same device multiple times.
