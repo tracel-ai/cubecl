@@ -102,23 +102,6 @@ macro_rules! operator {
     };
 }
 
-macro_rules! function {
-    ($name:ident, $op:expr) => {
-        pub struct $name;
-
-        impl<D: Dialect> Binary<D> for $name {
-            fn format_scalar<Lhs: Display, Rhs: Display>(
-                f: &mut std::fmt::Formatter<'_>,
-                lhs: Lhs,
-                rhs: Rhs,
-                _item: Item<D>,
-            ) -> std::fmt::Result {
-                write!(f, "{}({lhs}, {rhs})", $op)
-            }
-        }
-    };
-}
-
 operator!(Add, "+");
 operator!(Sub, "-");
 operator!(Div, "/");
@@ -138,7 +121,48 @@ operator!(BitwiseXor, "^");
 operator!(Or, "||");
 operator!(And, "&&");
 
-function!(Powf, "powf");
+pub struct Powf;
+
+impl<D: Dialect> Binary<D> for Powf {
+    // Powf doesn't support half and no half equivalent exists
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        let elem = item.elem;
+        match elem {
+            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                write!(f, "{elem}(powf(float({lhs}), float({rhs})))")
+            }
+            _ => write!(f, "powf({lhs}, {rhs})"),
+        }
+    }
+
+    // Powf doesn't support half and no half equivalent exists
+    fn unroll_vec(
+        f: &mut Formatter<'_>,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        let item_out = out.item();
+        let index = out.item().vectorization;
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {item_out}{{")?;
+        for i in 0..index {
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+
+            Self::format_scalar(f, lhsi, rhsi, item_out)?;
+            f.write_str(", ")?;
+        }
+
+        f.write_str("};\n")
+    }
+}
 
 pub struct Max;
 
@@ -155,7 +179,7 @@ impl<D: Dialect> Binary<D> for Max {
             _ => "max",
         };
 
-        write!(f, "{}({lhs}, {rhs})", max)
+        write!(f, "{max}({lhs}, {rhs})")
     }
 }
 
@@ -168,13 +192,13 @@ impl<D: Dialect> Binary<D> for Min {
         rhs: Rhs,
         item: Item<D>,
     ) -> std::fmt::Result {
-        let max = match item.elem() {
+        let min = match item.elem() {
             Elem::F16 | Elem::BF16 => "__hmin",
             Elem::F162 | Elem::BF162 => "__hmin2",
             _ => "min",
         };
 
-        write!(f, "{}({lhs}, {rhs})", max)
+        write!(f, "{min}({lhs}, {rhs})")
     }
 }
 
