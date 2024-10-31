@@ -6,8 +6,6 @@ use crate::matmul::components::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::BmmConfig;
-
 /// Performs matrix multiplication at the batch level,
 /// with one cube assigned to each underlying global matmul
 pub struct Matmul<
@@ -21,7 +19,7 @@ pub struct Matmul<
         global::tensor_view::Unloader<EG, B::GmmConfig>,
         B::GmmConfig,
     >,
-    B: BmmConfig,
+    B: batch::Config,
 > {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
@@ -41,7 +39,7 @@ impl<
             global::tensor_view::Unloader<EG, B::GmmConfig>,
             B::GmmConfig,
         >,
-        B: BmmConfig,
+        B: batch::Config,
     > batch::Matmul<EG, B> for Matmul<EG, ES, GMM, B>
 {
     fn execute(
@@ -89,7 +87,7 @@ impl<
             global::tensor_view::Unloader<EG, B::GmmConfig>,
             B::GmmConfig,
         >,
-        B: BmmConfig,
+        B: batch::Config,
     > MatmulKernel<EG, EG> for Matmul<EG, ES, GMM, B>
 {
     type Config = B;
@@ -110,7 +108,7 @@ impl<
             global::tensor_view::Unloader<EG, B::GmmConfig>,
             B::GmmConfig,
         >,
-        B: BmmConfig,
+        B: batch::Config,
     > MatmulLaunch<EG, EG> for Matmul<EG, ES, GMM, B>
 {
     unsafe fn launch_unchecked<R: Runtime>(
@@ -131,7 +129,7 @@ impl<
 
 #[cube(launch_unchecked)]
 // TODO input as references
-fn launch<EG: Numeric, ES: Numeric, BMM: batch::Matmul<EG, B>, B: BmmConfig>(
+fn launch<EG: Numeric, ES: Numeric, BMM: batch::Matmul<EG, B>, B: batch::Config>(
     lhs: Tensor<Line<EG>>,
     rhs: Tensor<Line<EG>>,
     out: Tensor<Line<EG>>,
@@ -149,7 +147,7 @@ pub struct Config<G: global::Config> {
     cube_count_z: u32,
 }
 
-impl<G: global::Config> BmmConfig for Config<G> {
+impl<G: global::Config> batch::Config for Config<G> {
     type GmmConfig = G;
 
     fn to_gmm_config(&self) -> Self::GmmConfig {

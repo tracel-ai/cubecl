@@ -1,7 +1,7 @@
 use cubecl_core::Runtime;
 
 use crate::{
-    matmul::cmma_old::{self, config::CmmaConfig, is_available},
+    matmul::kernels::cmma_old::{self, config::CmmaConfig, is_available},
     matmul::tests::test_utils::MatmulTestCase,
 };
 

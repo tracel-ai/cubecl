@@ -13,16 +13,13 @@ macro_rules! testgen_matmul_internal {
             },
             tile,
             tile::plane::{PlaneMma32x32x32, PlaneMma16x16x8, PlaneMma16x16x32},
-            cmma_matmul::{
-                make_cmma_config, AdvancedConfig,
-            },
             MatrixLayout,
             MatmulProblem,
             StageDim,
         };
         use std::marker::PhantomData;
-        use cubecl_linalg::matmul::components::cmma_matmul::MatmulLaunchDispatch;
-        use cubecl_linalg::matmul::tests::matmul_modular::matmul_test_launcher::test_matmul_internal;
+        use cubecl_linalg::matmul::kernels::cmma_matmul::{MatmulLaunchDispatch, make_cmma_config, AdvancedConfig};
+        use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_internal;
 
         type T = $i_config;
         type S = stage::row_accumulate::Config<T>;

@@ -1,8 +1,5 @@
 use crate::matmul::components::{as_cmma_layout, tile, MatrixLayout, Ident, MatmulKernel};
 pub use super::shared::Config;
-use cubecl_core::ir::Elem;
-use cubecl_core::ir::FloatKind;
-use cubecl_core::Feature;
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use half::{bf16, f16};
@@ -189,20 +186,3 @@ fn check_plane_dim(actual_plane_dim: u32) {
     );
 }
 
-/// Checks if the matmul cmma can be used.
-pub fn check_availability<R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
-) -> Result<(), ()> {
-    if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
-        m: 16,
-        k: 16,
-        n: 16,
-    }) {
-        return Err(());
-    }
-
-    Ok(())
-}

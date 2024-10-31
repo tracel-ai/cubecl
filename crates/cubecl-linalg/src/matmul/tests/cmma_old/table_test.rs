@@ -1,7 +1,7 @@
 use cubecl_core::Runtime;
 use std::io::{self, Write};
 
-use crate::matmul::cmma_old::config::PredefinedCmmaConfig;
+use crate::matmul::kernels::cmma_old::config::PredefinedCmmaConfig;
 
 use super::test_cases::{test_cmma, MatmulTest};
 

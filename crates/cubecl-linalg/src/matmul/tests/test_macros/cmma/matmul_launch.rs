@@ -2,7 +2,7 @@
 #[macro_export]
 macro_rules! testgen_matmul_launch {
     () => {
-        use cubecl_linalg::matmul::tests::matmul_modular::matmul_test_launcher::test_matmul_launch;
+        use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_launch;
         use cubecl_linalg::tensor::TensorHandle;
 
         #[test]

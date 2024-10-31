@@ -1,6 +1,6 @@
 use cubecl_core::Runtime;
 
-use crate::matmul::tiling2d;
+use crate::matmul::kernels::tiling2d;
 
 use super::test_utils::{assert_equals_approx, MatmulTestCase};
 

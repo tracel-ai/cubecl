@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_linalg::matmul::components;
+use cubecl_linalg::matmul;
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
@@ -23,15 +23,15 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        components::launch::<R, E>(
+        matmul::launch::<R, E>(
+            match self.kind {
+                MatmulKind::CmmaDisabled => matmul::Strategy::Tiling2D(Default::default()),
+                MatmulKind::CmmaEnabled => matmul::Strategy::Accelerated,
+            },
             &self.client,
             lhs,
             rhs,
             out,
-            match self.kind {
-                MatmulKind::CmmaDisabled => true,
-                MatmulKind::CmmaEnabled => false,
-            },
         );
     }
 
