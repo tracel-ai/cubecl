@@ -27,7 +27,8 @@ use wgpu::{
 };
 
 use crate::{
-    create_client, create_wgpu_setup, RuntimeOptions, Vulkan, WgpuDevice, WgpuRuntime, WgpuServer,
+    create_client_on_setup, create_setup_for_device, RuntimeOptions, Vulkan, WgpuDevice,
+    WgpuRuntime, WgpuServer,
 };
 
 use super::base::WgpuCompiler;
@@ -332,9 +333,9 @@ impl Runtime for WgpuRuntime<VkSpirvCompiler> {
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            let (adapter, device_wgpu, queue) =
-                future::block_on(create_wgpu_setup::<Vulkan, VkSpirvCompiler>(device));
-            create_client(adapter, device_wgpu, queue, RuntimeOptions::default())
+            let setup =
+                future::block_on(create_setup_for_device::<Vulkan, VkSpirvCompiler>(device));
+            create_client_on_setup(setup, RuntimeOptions::default())
         })
     }
 

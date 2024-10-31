@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use alloc::collections::BTreeSet;
 
 use super::{
     memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool},
@@ -340,6 +340,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Print out a report of the current memory usage.
     pub fn print_memory_usage(&self) {
+        #[cfg(feature = "std")]
         log::info!("{}", self.memory_usage());
     }
 }
@@ -363,6 +364,7 @@ mod tests {
 
     // Test pools with slices.
     #[test]
+    #[cfg(not(exclusive_memory_only))]
     fn test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -513,6 +515,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(exclusive_memory_only))]
     fn allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -541,6 +544,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(exclusive_memory_only))]
     fn test_fragmentation_resistance() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
