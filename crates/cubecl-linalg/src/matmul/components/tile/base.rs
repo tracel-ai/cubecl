@@ -1,9 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::matrix::{Ident, MatrixLayout};
-use crate::matmul::components::MatmulKernel;
+use crate::matmul::components::{config::MatmulConfig, Ident, MatmulKernel, MatrixLayout};
 
 #[cube]
 /// Provides matrix multiplication operations at the tile level.

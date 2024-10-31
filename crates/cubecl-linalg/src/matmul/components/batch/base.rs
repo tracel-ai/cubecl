@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    config::MatmulConfig, global, matrix::Ident, stage_dim::StageDim, MatmulKernel, MatmulLaunch,
+    config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
 };
 
 #[cube]

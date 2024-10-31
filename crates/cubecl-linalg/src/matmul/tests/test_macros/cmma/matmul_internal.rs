@@ -13,15 +13,12 @@ macro_rules! testgen_matmul_internal {
             },
             tile,
             tile::plane::{PlaneMma32x32x32, PlaneMma16x16x8, PlaneMma16x16x32},
-            global::{
-                LhsTensorLoader, RhsTensorLoader, TensorUnloader,
-            },
             cmma_matmul::{
                 launch::{make_cmma_config, AdvancedConfig},
             },
-            matrix::MatrixLayout,
-            problem::MatmulProblem,
-            stage_dim::StageDim,
+            MatrixLayout,
+            MatmulProblem,
+            StageDim,
         };
         use std::marker::PhantomData;
         use cubecl_linalg::matmul::components::cmma_matmul::launch::MatmulLaunchDispatch;

@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use cubecl_core::prelude::Numeric;
 
 #[cfg(feature = "export_tests")]
-use super::matrix::Ident;
-use super::{batch::BmmConfig, matrix::MatrixLayout};
+use super::Ident;
+use super::{batch::BmmConfig, MatrixLayout};
 
 #[derive(Clone)]
 /// Description of a matmul problem to solve, regardless of actual data

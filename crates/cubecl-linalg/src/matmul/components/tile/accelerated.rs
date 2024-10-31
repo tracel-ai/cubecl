@@ -1,8 +1,4 @@
-use crate::matmul::components::matrix::as_cmma_layout;
-use crate::matmul::components::tile;
-use crate::matmul::components::matrix::MatrixLayout;
-use crate::matmul::components::matrix::Ident;
-use crate::matmul::components::MatmulKernel;
+use crate::matmul::components::{as_cmma_layout, tile, MatrixLayout, Ident, MatmulKernel};
 pub use super::shared::Config;
 use cubecl_core::ir::Elem;
 use cubecl_core::ir::FloatKind;

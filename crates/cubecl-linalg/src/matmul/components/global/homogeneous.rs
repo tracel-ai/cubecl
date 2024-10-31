@@ -1,20 +1,18 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::global;
 use crate::matmul::components::global::Loader;
-use crate::matmul::components::matrix::{Ident, MatrixLayout};
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{LhsReader, RhsReader};
-use crate::matmul::components::stage_dim::StageDim;
 use crate::matmul::components::MatmulKernel;
+use crate::matmul::components::StageDim;
+use crate::matmul::components::{Ident, MatrixLayout};
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::tensor_loader::LhsTensorLoader;
-use super::tensor_loader::RhsTensorLoader;
-use super::tensor_unloader::TensorUnloader;
+use super::tensor_view;
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
@@ -36,9 +34,9 @@ impl<EG, ES, SMM, G>
     global::Matmul<
         EG,
         ES,
-        LhsTensorLoader<EG, ES, G>,
-        RhsTensorLoader<EG, ES, G>,
-        TensorUnloader<EG, G>,
+        tensor_view::LhsLoader<EG, ES, G>,
+        tensor_view::RhsLoader<EG, ES, G>,
+        tensor_view::Unloader<EG, G>,
         G,
     > for Matmul<EG, ES, SMM, G>
 where
@@ -54,9 +52,9 @@ where
     G: global::Config,
 {
     fn execute(
-        mut lhs_loader: LhsTensorLoader<EG, ES, G>,
-        mut rhs_loader: RhsTensorLoader<EG, ES, G>,
-        mut out_unloader: TensorUnloader<EG, G>,
+        mut lhs_loader: tensor_view::LhsLoader<EG, ES, G>,
+        mut rhs_loader: tensor_view::RhsLoader<EG, ES, G>,
+        mut out_unloader: tensor_view::Unloader<EG, G>,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -67,8 +65,8 @@ where
         let mut acc = SMM::acc_init_zeros(config.to_smm_config());
 
         for _ in 0..num_loops {
-            let lhs_stage_reader = &LhsTensorLoader::fill_stage(&mut lhs_loader, config);
-            let rhs_stage_reader = &RhsTensorLoader::fill_stage(&mut rhs_loader, config);
+            let lhs_stage_reader = &tensor_view::LhsLoader::fill_stage(&mut lhs_loader, config);
+            let rhs_stage_reader = &tensor_view::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             sync_units();
 
@@ -81,11 +79,11 @@ where
 
             sync_units();
 
-            LhsTensorLoader::advance_view(&mut lhs_loader, k_step);
-            RhsTensorLoader::advance_view(&mut rhs_loader, k_step);
+            tensor_view::LhsLoader::advance_view(&mut lhs_loader, k_step);
+            tensor_view::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::acc_read::<TensorUnloader<EG, G>, G>(
+        SMM::acc_read::<tensor_view::Unloader<EG, G>, G>(
             &acc,
             &mut out_unloader,
             config.to_smm_config(),

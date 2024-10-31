@@ -1,6 +1,4 @@
-use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::matrix::{Ident, MatrixLayout};
-use crate::matmul::components::tile;
+use crate::matmul::components::{config::MatmulConfig, tile, Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

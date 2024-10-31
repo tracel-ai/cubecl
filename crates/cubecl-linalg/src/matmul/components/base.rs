@@ -1,5 +1,6 @@
-use super::config::MatmulConfig;
 use cubecl_core::prelude::*;
+
+use super::config::MatmulConfig;
 
 /// Provides configuration for a matmul kernel at any level
 pub trait MatmulKernel<I: Numeric, O: Numeric> {

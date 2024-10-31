@@ -8,13 +8,14 @@ use cubecl_core::{
     tensor_line_size, Runtime,
 };
 
+use crate::matmul;
 use crate::matmul::components::cmma_matmul::launch::{
     make_cmma_config, CmmaBmmConfig, CmmaGmmConfig, CmmaSmmConfig,
 };
 use crate::matmul::components::problem::MatmulProblem;
 use crate::matmul::components::stage;
+use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::{batch, global};
-use crate::matmul::components::{matrix, MatmulLaunch};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout};
 
 use super::{AdvancedConfig, MatmulLaunchDispatch};
@@ -97,12 +98,12 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
         k: k as usize,
         batches: out.shape[..out.shape.len() - 2].to_vec(),
         lhs_layout: match transposed.0 {
-            true => matrix::MatrixLayout::ColMajor,
-            false => matrix::MatrixLayout::RowMajor,
+            true => matmul::components::MatrixLayout::ColMajor,
+            false => matmul::components::MatrixLayout::RowMajor,
         },
         rhs_layout: match transposed.1 {
-            true => matrix::MatrixLayout::ColMajor,
-            false => matrix::MatrixLayout::RowMajor,
+            true => matmul::components::MatrixLayout::ColMajor,
+            false => matmul::components::MatrixLayout::RowMajor,
         },
         lhs_line_size,
         rhs_line_size,

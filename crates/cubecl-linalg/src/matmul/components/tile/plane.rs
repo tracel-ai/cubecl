@@ -1,9 +1,5 @@
 pub use super::shared::Config;
-use crate::matmul::components::config::PlaneMapper;
-use crate::matmul::components::matrix::Ident;
-use crate::matmul::components::matrix::MatrixLayout;
-use crate::matmul::components::tile;
-use crate::matmul::components::MatmulKernel;
+use crate::matmul::components::{config::PlaneMapper, tile, Ident, MatmulKernel, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;

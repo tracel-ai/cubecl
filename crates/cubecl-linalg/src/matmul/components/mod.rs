@@ -1,15 +1,16 @@
-mod base;
 pub mod batch;
 pub mod cmma_matmul;
-mod config;
 pub mod global;
-pub mod matrix;
-pub mod problem;
 pub mod stage;
-pub mod stage_dim;
 pub mod tile;
 
+mod base;
+mod config;
+mod problem;
+
 pub use base::*;
+pub use config::{as_cmma_layout, Ident, MatrixLayout, StageDim};
+pub use problem::MatmulProblem;
 
 use crate::tensor::TensorHandle;
 

@@ -1,5 +1,5 @@
 use crate::matmul::components::global::Config;
-use crate::matmul::components::matrix::{Ident, MatrixLayout};
+use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

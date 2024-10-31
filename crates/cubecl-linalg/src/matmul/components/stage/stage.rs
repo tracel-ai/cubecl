@@ -1,4 +1,4 @@
-use crate::matmul::components::matrix::Ident;
+use crate::matmul::components::Ident;
 use crate::matmul::components::stage::tiling_order::{
     TilingOrderConfig, XMajorTiling, YMajorTiling,
 };

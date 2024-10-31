@@ -1,6 +1,6 @@
 use cubecl_core::{client::ComputeClient, prelude::Numeric, server::Handle, CubeElement, Runtime};
 
-use crate::{matmul::components::problem::MatmulProblem, tensor::TensorHandle};
+use crate::{matmul::components::MatmulProblem, tensor::TensorHandle};
 
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<I: CubeElement, R: Runtime>(

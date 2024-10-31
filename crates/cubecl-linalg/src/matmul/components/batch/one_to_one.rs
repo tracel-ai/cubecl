@@ -1,11 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::global::{LhsTensorLoader, RhsTensorLoader, TensorUnloader};
-use crate::matmul::components::matrix::Ident;
-use crate::matmul::components::stage_dim::StageDim;
-use crate::matmul::components::{batch, global};
-use crate::matmul::components::{MatmulKernel, MatmulLaunch};
+use crate::matmul::components::{
+    batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -19,9 +16,9 @@ pub struct Matmul<
     GMM: global::Matmul<
         EG,
         ES,
-        LhsTensorLoader<EG, ES, B::GmmConfig>,
-        RhsTensorLoader<EG, ES, B::GmmConfig>,
-        TensorUnloader<EG, B::GmmConfig>,
+        global::tensor_view::LhsLoader<EG, ES, B::GmmConfig>,
+        global::tensor_view::RhsLoader<EG, ES, B::GmmConfig>,
+        global::tensor_view::Unloader<EG, B::GmmConfig>,
         B::GmmConfig,
     >,
     B: BmmConfig,
@@ -39,9 +36,9 @@ impl<
         GMM: global::Matmul<
             EG,
             ES,
-            LhsTensorLoader<EG, ES, B::GmmConfig>,
-            RhsTensorLoader<EG, ES, B::GmmConfig>,
-            TensorUnloader<EG, B::GmmConfig>,
+            global::tensor_view::LhsLoader<EG, ES, B::GmmConfig>,
+            global::tensor_view::RhsLoader<EG, ES, B::GmmConfig>,
+            global::tensor_view::Unloader<EG, B::GmmConfig>,
             B::GmmConfig,
         >,
         B: BmmConfig,
@@ -60,9 +57,21 @@ impl<
         let k_range = (0, lhs.shape(lhs.rank() - 1));
 
         GMM::execute(
-            LhsTensorLoader::new(lhs, x_offset, k_range.0, nth_batch, config.to_gmm_config()),
-            RhsTensorLoader::new(rhs, k_range.0, y_offset, nth_batch, config.to_gmm_config()),
-            TensorUnloader::new(out, x_offset, y_offset, nth_batch),
+            global::tensor_view::LhsLoader::new(
+                lhs,
+                x_offset,
+                k_range.0,
+                nth_batch,
+                config.to_gmm_config(),
+            ),
+            global::tensor_view::RhsLoader::new(
+                rhs,
+                k_range.0,
+                y_offset,
+                nth_batch,
+                config.to_gmm_config(),
+            ),
+            global::tensor_view::Unloader::new(out, x_offset, y_offset, nth_batch),
             k_range,
             config.to_gmm_config(),
         );
@@ -75,9 +84,9 @@ impl<
         GMM: global::Matmul<
             EG,
             ES,
-            LhsTensorLoader<EG, ES, B::GmmConfig>,
-            RhsTensorLoader<EG, ES, B::GmmConfig>,
-            TensorUnloader<EG, B::GmmConfig>,
+            global::tensor_view::LhsLoader<EG, ES, B::GmmConfig>,
+            global::tensor_view::RhsLoader<EG, ES, B::GmmConfig>,
+            global::tensor_view::Unloader<EG, B::GmmConfig>,
             B::GmmConfig,
         >,
         B: BmmConfig,
@@ -96,9 +105,9 @@ impl<
         GMM: global::Matmul<
             EG,
             ES,
-            LhsTensorLoader<EG, ES, B::GmmConfig>,
-            RhsTensorLoader<EG, ES, B::GmmConfig>,
-            TensorUnloader<EG, B::GmmConfig>,
+            global::tensor_view::LhsLoader<EG, ES, B::GmmConfig>,
+            global::tensor_view::RhsLoader<EG, ES, B::GmmConfig>,
+            global::tensor_view::Unloader<EG, B::GmmConfig>,
             B::GmmConfig,
         >,
         B: BmmConfig,

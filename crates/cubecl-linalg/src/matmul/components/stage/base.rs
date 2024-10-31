@@ -2,9 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::matrix::{Ident, MatrixLayout};
-use crate::matmul::components::stage_dim::StageDim;
+use crate::matmul::components::StageDim;
 use crate::matmul::components::{global, tile, MatmulKernel};
+use crate::matmul::components::{Ident, MatrixLayout};
 
 use super::tiling_order::TilingOrderConfig;
 

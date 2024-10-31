@@ -5,9 +5,9 @@ use cubecl_core::CubeElement;
 use crate::matmul::components;
 use crate::matmul::components::batch::BmmConfig;
 use crate::matmul::components::batch::Matmul;
-use crate::matmul::components::matrix::Ident;
-use crate::matmul::components::matrix::MatrixLayout;
-use crate::matmul::components::problem::MatmulProblem;
+use crate::matmul::components::Ident;
+use crate::matmul::components::MatmulProblem;
+use crate::matmul::components::MatrixLayout;
 use crate::tensor::TensorHandle;
 
 use crate::matmul::tests::test_utils::assert_equals_approx;

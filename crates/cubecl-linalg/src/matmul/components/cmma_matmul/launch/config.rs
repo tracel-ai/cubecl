@@ -7,8 +7,8 @@ use crate::matmul::components::global;
 use crate::matmul::components::problem::MatmulProblem;
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::Matmul as StageMatmul;
-use crate::matmul::components::stage_dim::StageDim;
 use crate::matmul::components::tile::Matmul as TileMatmul;
+use crate::matmul::components::StageDim;
 
 use super::MatmulLaunchDispatch;
 
