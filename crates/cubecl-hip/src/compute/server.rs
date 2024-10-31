@@ -341,7 +341,8 @@ impl HipContext {
         let include_option_cstr = CString::new(include_option).unwrap();
         // needed for rocWMMA extension to compile
         let cpp_std_option_cstr = CString::new("--std=c++17").unwrap();
-        let mut options: Vec<*const i8> = vec![cpp_std_option_cstr.as_ptr(), include_option_cstr.as_ptr()];
+        let mut options: Vec<*const i8> =
+            vec![cpp_std_option_cstr.as_ptr(), include_option_cstr.as_ptr()];
         unsafe {
             let options_ptr = options.as_mut_ptr();
             let status =

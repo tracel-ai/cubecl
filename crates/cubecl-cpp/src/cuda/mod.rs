@@ -1,6 +1,6 @@
 use crate::shared::{Dialect, Variable};
 
-const MMA_NAMESPACE: &str =  "nvcuda::wmma";
+const MMA_NAMESPACE: &str = "nvcuda::wmma";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Cuda;
@@ -43,6 +43,6 @@ impl Dialect for Cuda {
     }
 
     fn mma_namespace() -> &'static str {
-        MMA_NAMESPACE 
+        MMA_NAMESPACE
     }
 }

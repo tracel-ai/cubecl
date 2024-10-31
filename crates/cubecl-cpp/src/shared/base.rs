@@ -12,7 +12,9 @@ use cubecl_core::{
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
 
-use super::{Instruction, UnaryInstruction, Variable as CppVariable, VariableSettings, WarpInstruction};
+use super::{
+    Instruction, UnaryInstruction, Variable as CppVariable, VariableSettings, WarpInstruction,
+};
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);

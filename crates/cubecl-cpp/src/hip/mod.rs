@@ -1,6 +1,6 @@
 use crate::shared::{Dialect, Variable};
 
-const MMA_NAMESPACE: &str =  "rocwmma";
+const MMA_NAMESPACE: &str = "rocwmma";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Hip;
