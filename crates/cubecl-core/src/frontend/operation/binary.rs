@@ -1,10 +1,13 @@
-use crate::frontend::CubeType;
-use crate::frontend::{CubeContext, CubePrimitive, ExpandElement, ExpandElementTyped};
 use crate::ir::Operator;
+use crate::{
+    flex32,
+    frontend::{CubeContext, CubePrimitive, ExpandElement, ExpandElementTyped},
+};
 use crate::{
     frontend::operation::base::{binary_expand, binary_expand_fixed_output},
     unexpanded,
 };
+use crate::{frontend::CubeType, tf32};
 use half::{bf16, f16};
 
 pub mod add {
@@ -252,6 +255,8 @@ impl_binary_func!(
     Operator::Powf,
     f16,
     bf16,
+    flex32,
+    tf32,
     f32,
     f64
 );
@@ -263,11 +268,18 @@ impl_binary_func!(
     Operator::Max,
     f16,
     bf16,
+    flex32,
+    tf32,
     f32,
     f64,
+    i8,
+    i16,
     i32,
     i64,
-    u32
+    u8,
+    u16,
+    u32,
+    u64
 );
 impl_binary_func!(
     Min,
@@ -277,11 +289,18 @@ impl_binary_func!(
     Operator::Min,
     f16,
     bf16,
+    flex32,
+    tf32,
     f32,
     f64,
+    i8,
+    i16,
     i32,
     i64,
-    u32
+    u8,
+    u16,
+    u32,
+    u64
 );
 impl_binary_func!(
     Remainder,
@@ -291,11 +310,18 @@ impl_binary_func!(
     Operator::Remainder,
     f16,
     bf16,
+    flex32,
+    tf32,
     f32,
     f64,
+    i8,
+    i16,
     i32,
     i64,
-    u32
+    u8,
+    u16,
+    u32,
+    u64
 );
 impl_binary_func_fixed_output_vectorization!(
     Dot,
@@ -306,9 +332,16 @@ impl_binary_func_fixed_output_vectorization!(
     None,
     f16,
     bf16,
+    flex32,
+    tf32,
     f32,
     f64,
+    i8,
+    i16,
     i32,
     i64,
-    u32
+    u8,
+    u16,
+    u32,
+    u64
 );

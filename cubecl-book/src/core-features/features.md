@@ -22,29 +22,48 @@ Also requires device support
 
 ### Datatypes
 
-| Type | CUDA | ROCm | WGPU (WGSL) | WGPU (SPIR-V) |
-| ---- | ---- | ---- | ----------- | ------------- |
-| u8   | ❌   | ❌   | ❌          | ❌            |
-| u16  | ❌   | ❌   | ❌          | ❌            |
-| u32  | ✔️   | ✔️   | ✔️          | ✔️            |
-| u64  | ❌   | ❌   | ❌          | ❌            |
-| i8   | ❌   | ❌   | ❌          | ❌            |
-| i16  | ❌   | ❌   | ❌          | ❌            |
-| i32  | ✔️   | ✔️   | ✔️          | ✔️            |
-| i64  | ❌   | ❌   | ❌          | ✔️            |
-| f16  | ✔️   | ✔️   | ❌          | ✔️            |
-| bf16 | ✔️   | ✔️   | ❌          | ❌            |
-| f32  | ✔️   | ✔️   | ✔️          | ✔️            |
-| f64  | ❌   | ❌   | ❌          | ✔️            |
-| bool | ✔️   | ✔️   | ✔️          | ✔️            |
+`flex32` represented as `f32` everywhere except SPIR-V, with no reduced precision. `f64` not
+supported for all operations
 
-## Subcube
+| Type   | CUDA | ROCm | WGPU (WGSL) | WGPU (SPIR-V) |
+| ------ | ---- | ---- | ----------- | ------------- |
+| u8     | ✔️   | ✔️   | ❌          | ✔️            |
+| u16    | ✔️   | ✔️   | ❌          | ✔️            |
+| u32    | ✔️   | ✔️   | ✔️          | ✔️            |
+| u64    | ✔️   | ✔️   | ❌          | ✔️            |
+| i8     | ✔️   | ✔️   | ❌          | ✔️            |
+| i16    | ✔️   | ✔️   | ❌          | ✔️            |
+| i32    | ✔️   | ✔️   | ✔️          | ✔️            |
+| i64    | ✔️   | ✔️   | ❌          | ✔️            |
+| f16    | ✔️   | ✔️   | ❌          | ✔️            |
+| bf16   | ✔️   | ✔️   | ❌          | ❌            |
+| flex32 | ❔   | ❔   | ❔          | ✔️            |
+| tf32   | ✔️   | ❌   | ❌          | ❌            |
+| f32    | ✔️   | ✔️   | ✔️          | ✔️            |
+| f64    | ❔   | ❔   | ❌          | ❔            |
+| bool   | ✔️   | ✔️   | ✔️          | ✔️            |
+
+## Datatype Details
+
+### Flex32
+
+Relaxed precision 32-bit float. Minimum range and precision is equivalent to `f16`, but may be
+higher. Defaults to `f32` when relaxed precision isn't supported.
+
+### Tensor-Float32
+
+19-bit CUDA-only type that should only be used as a CMMA matrix type. May be able to reinterpret
+from `f32`, but officially undefined. Use `Cast::cast_from` to safely convert.
+
+## Feature Details
+
+### Subcube
 
 Subcube level operations, i.e.
 [`subcube_sum`](https://docs.rs/cubecl/latest/cubecl/frontend/fn.subcube_sum.html),
 [`subcube_elect`](https://docs.rs/cubecl/latest/cubecl/frontend/fn.subcube_elect.html).
 
-## Cooperative Matrix Multiply-Add (CMMA)
+### Cooperative Matrix Multiply-Add (CMMA)
 
 Subcube-level cooperative matrix multiply-add operations. Maps to `wmma` in CUDA and
 `CooperativeMatrixMultiply` in SPIR-V. Features are registered for each size and datatype that is

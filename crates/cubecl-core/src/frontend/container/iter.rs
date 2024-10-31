@@ -1,7 +1,8 @@
 use crate::{
     ir::{Branch, Item, RangeLoop},
     prelude::{
-        index, CubeContext, CubeIndex, CubeType, ExpandElement, ExpandElementTyped, Iterable,
+        index, CubeContext, CubeIndex, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped,
+        Iterable,
     },
 };
 
@@ -26,7 +27,7 @@ impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
         context: &mut CubeContext,
         mut body: impl FnMut(&mut CubeContext, <T::Item as CubeType>::ExpandType),
     ) {
-        let index_ty = Item::new(crate::ir::Elem::UInt);
+        let index_ty = Item::new(u32::as_elem());
         let len: ExpandElement = T::len(&self.expand, context);
 
         let mut child = context.child();

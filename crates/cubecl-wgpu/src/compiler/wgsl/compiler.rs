@@ -7,7 +7,7 @@ use crate::{
     WgpuServer,
 };
 use cubecl_core::{
-    ir::{self as cube, HybridAllocator},
+    ir::{self as cube, HybridAllocator, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
     Feature,
@@ -151,11 +151,12 @@ fn register_types(props: &mut DeviceProperties<Feature>) {
     use cubecl_core::ir::{Elem, FloatKind, IntKind};
 
     let supported_types = [
-        Elem::UInt,
+        Elem::UInt(UIntKind::U32),
         Elem::Int(IntKind::I32),
         Elem::AtomicInt(IntKind::I32),
-        Elem::AtomicUInt,
+        Elem::AtomicUInt(UIntKind::U32),
         Elem::Float(FloatKind::F32),
+        Elem::Float(FloatKind::Flex32),
         Elem::Bool,
     ];
 
@@ -232,20 +233,28 @@ impl WgslCompiler {
             cube::Elem::Float(f) => match f {
                 cube::FloatKind::F16 => panic!("f16 is not yet supported"),
                 cube::FloatKind::BF16 => panic!("bf16 is not a valid WgpuElement"),
+                cube::FloatKind::TF32 => panic!("tf32 is not a valid WgpuElement"),
+                cube::FloatKind::Flex32 => wgsl::Elem::F32,
                 cube::FloatKind::F32 => wgsl::Elem::F32,
                 cube::FloatKind::F64 => panic!("f64 is not a valid WgpuElement"),
             },
             cube::Elem::Int(i) => match i {
                 cube::IntKind::I32 => wgsl::Elem::I32,
-                cube::IntKind::I64 => panic!("i64 is not a valid WgpuElement"),
+                kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
-            cube::Elem::UInt => wgsl::Elem::U32,
+            cube::Elem::UInt(kind) => match kind {
+                cube::UIntKind::U32 => wgsl::Elem::U32,
+                kind => panic!("{kind:?} is not a valid WgpuElement"),
+            },
             cube::Elem::Bool => wgsl::Elem::Bool,
             cube::Elem::AtomicInt(i) => match i {
                 cube::IntKind::I32 => wgsl::Elem::AtomicI32,
-                cube::IntKind::I64 => panic!("atomic<i64> is not a valid WgpuElement"),
+                kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),
             },
-            cube::Elem::AtomicUInt => wgsl::Elem::AtomicU32,
+            cube::Elem::AtomicUInt(kind) => match kind {
+                cube::UIntKind::U32 => wgsl::Elem::AtomicU32,
+                kind => panic!("{kind:?} is not a valid WgpuElement"),
+            },
         }
     }
 

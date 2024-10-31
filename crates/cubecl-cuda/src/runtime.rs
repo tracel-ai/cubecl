@@ -81,6 +81,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let mut server = CudaServer::new(cuda_ctx);
     let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
     register_supported_types(&mut device_props);
+    device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     register_wmma_features(&mut device_props, server.arch_version());
 
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
@@ -164,5 +165,13 @@ fn register_wmma_features(properties: &mut DeviceProperties<Feature>, arch: u32)
                 n: 32,
             });
         }
+        properties.register_feature(Feature::Cmma {
+            a: Elem::Float(FloatKind::TF32),
+            b: Elem::Float(FloatKind::TF32),
+            c: Elem::Float(FloatKind::F32),
+            m: 16,
+            k: 8,
+            n: 16,
+        });
     }
 }

@@ -1,6 +1,4 @@
-use std::mem::transmute;
-
-use cubecl_core::ir::{self as core, FloatKind, IntKind};
+use cubecl_core::ir::{self as core, FloatKind, IntKind, UIntKind};
 use rspirv::spirv::{Capability, CooperativeMatrixUse, Decoration, Scope, StorageClass, Word};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
@@ -214,17 +212,17 @@ impl Item {
         let cast_elem = |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>| -> Word {
             match (self.elem(), other.elem()) {
                 (Elem::Bool, Elem::Int(_, _)) => {
-                    let one = other.constant(b, 1u32.into());
-                    let zero = other.constant(b, 0u32.into());
+                    let one = other.const_u32(b, 1);
+                    let zero = other.const_u32(b, 0);
                     b.select(ty, out_id, obj, one, zero).unwrap()
                 }
-                (Elem::Bool, Elem::Float(_)) => {
-                    let one = other.constant(b, 1f32.into());
-                    let zero = other.constant(b, 0f32.into());
+                (Elem::Bool, Elem::Float(_)) | (Elem::Bool, Elem::Relaxed) => {
+                    let one = other.const_u32(b, 1);
+                    let zero = other.const_u32(b, 0);
                     b.select(ty, out_id, obj, one, zero).unwrap()
                 }
                 (Elem::Int(_, _), Elem::Bool) => {
-                    let one = self.constant(b, 1u32.into());
+                    let one = self.const_u32(b, 1);
                     b.i_equal(ty, out_id, obj, one).unwrap()
                 }
                 (Elem::Int(width_self, signed_self), Elem::Int(width_other, signed_other)) => {
@@ -236,15 +234,27 @@ impl Item {
                         (width_other, signed_other),
                     )
                 }
-                (Elem::Int(_, false), Elem::Float(_)) => b.convert_u_to_f(ty, out_id, obj).unwrap(),
-                (Elem::Int(_, true), Elem::Float(_)) => b.convert_s_to_f(ty, out_id, obj).unwrap(),
-                (Elem::Float(_), Elem::Bool) => {
-                    let one = self.constant(b, 1f32.into());
+                (Elem::Int(_, false), Elem::Float(_)) | (Elem::Int(_, false), Elem::Relaxed) => {
+                    b.convert_u_to_f(ty, out_id, obj).unwrap()
+                }
+                (Elem::Int(_, true), Elem::Float(_)) | (Elem::Int(_, true), Elem::Relaxed) => {
+                    b.convert_s_to_f(ty, out_id, obj).unwrap()
+                }
+                (Elem::Float(_), Elem::Bool) | (Elem::Relaxed, Elem::Bool) => {
+                    let one = self.const_u32(b, 1);
                     b.i_equal(ty, out_id, obj, one).unwrap()
                 }
-                (Elem::Float(_), Elem::Int(_, false)) => b.convert_f_to_u(ty, out_id, obj).unwrap(),
-                (Elem::Float(_), Elem::Int(_, true)) => b.convert_f_to_s(ty, out_id, obj).unwrap(),
-                (Elem::Float(_), Elem::Float(_)) => b.f_convert(ty, out_id, obj).unwrap(),
+                (Elem::Float(_), Elem::Int(_, false)) | (Elem::Relaxed, Elem::Int(_, false)) => {
+                    b.convert_f_to_u(ty, out_id, obj).unwrap()
+                }
+                (Elem::Float(_), Elem::Int(_, true)) | (Elem::Relaxed, Elem::Int(_, true)) => {
+                    b.convert_f_to_s(ty, out_id, obj).unwrap()
+                }
+                (Elem::Float(_), Elem::Float(_))
+                | (Elem::Float(_), Elem::Relaxed)
+                | (Elem::Relaxed, Elem::Float(_)) => b.f_convert(ty, out_id, obj).unwrap(),
+                (Elem::Bool, Elem::Bool) => b.copy_object(ty, out_id, obj).unwrap(),
+                (Elem::Relaxed, Elem::Relaxed) => b.copy_object(ty, out_id, obj).unwrap(),
                 (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
             }
         };
@@ -268,6 +278,7 @@ pub enum Elem {
     Bool,
     Int(u32, bool),
     Float(u32),
+    Relaxed,
 }
 
 impl Elem {
@@ -277,6 +288,7 @@ impl Elem {
             Elem::Bool => b.type_bool(),
             Elem::Int(width, _) => b.type_int(*width, 0),
             Elem::Float(width) => b.type_float(*width),
+            Elem::Relaxed => b.type_float(32),
         };
         if b.debug && !b.state.debug_types.contains(&id) {
             b.debug_name(id, format!("{self}"));
@@ -291,6 +303,7 @@ impl Elem {
             Elem::Bool => 1,
             Elem::Int(size, _) => *size / 8,
             Elem::Float(size) => *size / 8,
+            Elem::Relaxed => 4,
         }
     }
 
@@ -301,10 +314,10 @@ impl Elem {
                 Elem::Void => unreachable!(),
                 Elem::Bool if value.as_u64() == 1 => b.constant_true(ty),
                 Elem::Bool => b.constant_false(ty),
-                Elem::Int(64, _) => b.constant_bit64(ty, value.as_u64()),
-                Elem::Int(_, _) => b.constant_bit32(ty, value.as_u32()),
-                Elem::Float(64) => b.constant_bit64(ty, value.as_u64()),
-                Elem::Float(_) => b.constant_bit32(ty, value.as_u32()),
+                _ => match value {
+                    ConstVal::Bit32(val) => b.constant_bit32(ty, val),
+                    ConstVal::Bit64(val) => b.constant_bit64(ty, val),
+                },
             }
         })
     }
@@ -318,23 +331,66 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.capabilities.insert(Capability::Float16);
                 Elem::Float(16)
             }
+            core::Elem::Float(FloatKind::TF32) => panic!("TF32 not supported in SPIR-V"),
+            core::Elem::Float(FloatKind::Flex32) => Elem::Relaxed,
             core::Elem::Float(FloatKind::F32) => Elem::Float(32),
             core::Elem::Float(FloatKind::F64) => {
                 self.capabilities.insert(Capability::Float64);
                 Elem::Float(64)
+            }
+            core::Elem::Int(IntKind::I8) => {
+                self.capabilities.insert(Capability::Int8);
+                Elem::Int(8, true)
+            }
+            core::Elem::Int(IntKind::I16) => {
+                self.capabilities.insert(Capability::Int16);
+                Elem::Int(16, true)
             }
             core::Elem::Int(IntKind::I32) => Elem::Int(32, true),
             core::Elem::Int(IntKind::I64) => {
                 self.capabilities.insert(Capability::Int64);
                 Elem::Int(64, true)
             }
+            core::Elem::AtomicInt(IntKind::I8) => {
+                self.capabilities.insert(Capability::Int8);
+                Elem::Int(8, true)
+            }
+            core::Elem::AtomicInt(IntKind::I16) => {
+                self.capabilities.insert(Capability::Int16);
+                Elem::Int(16, true)
+            }
             core::Elem::AtomicInt(IntKind::I32) => Elem::Int(32, true),
             core::Elem::AtomicInt(IntKind::I64) => {
                 self.capabilities.insert(Capability::Int64Atomics);
                 Elem::Int(64, true)
             }
-            core::Elem::UInt => Elem::Int(32, false),
-            core::Elem::AtomicUInt => Elem::Int(32, false),
+            core::Elem::UInt(UIntKind::U64) => {
+                self.capabilities.insert(Capability::Int64);
+                Elem::Int(64, false)
+            }
+            core::Elem::UInt(UIntKind::U32) => Elem::Int(32, false),
+            core::Elem::UInt(UIntKind::U16) => {
+                self.capabilities.insert(Capability::Int16);
+                Elem::Int(16, false)
+            }
+            core::Elem::UInt(UIntKind::U8) => {
+                self.capabilities.insert(Capability::Int8);
+                Elem::Int(8, false)
+            }
+            core::Elem::AtomicUInt(UIntKind::U8) => {
+                self.capabilities.insert(Capability::Int8);
+                Elem::Int(8, false)
+            }
+            core::Elem::AtomicUInt(UIntKind::U16) => {
+                self.capabilities.insert(Capability::Int16);
+                Elem::Int(16, false)
+            }
+            core::Elem::AtomicUInt(UIntKind::U32) => Elem::Int(32, false),
+            core::Elem::AtomicUInt(UIntKind::U64) => {
+                self.capabilities.insert(Capability::Int64);
+                self.capabilities.insert(Capability::Int64Atomics);
+                Elem::Int(64, false)
+            }
             core::Elem::Bool => Elem::Bool,
         };
         let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
@@ -347,152 +403,106 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn static_core(&mut self, val: core::Variable, item: &Item) -> Word {
         let val = val.as_const().unwrap();
-        unsafe {
-            let value = match (val, item.elem()) {
-                (core::ConstantScalarValue::Int(val, _), Elem::Bool) => {
-                    ConstVal::Bit32((val == 1) as u32)
-                }
-                (core::ConstantScalarValue::Int(val, _), Elem::Int(64, false)) => {
-                    ConstVal::Bit64(val as u64)
-                }
-                (core::ConstantScalarValue::Int(val, _), Elem::Int(64, true)) => {
-                    ConstVal::Bit64(transmute::<i64, u64>(val))
-                }
-                (core::ConstantScalarValue::Int(val, _), Elem::Int(_, false)) => {
-                    ConstVal::Bit32(val as i32 as u32)
-                }
-                (core::ConstantScalarValue::Int(val, _), Elem::Int(_, true)) => {
-                    ConstVal::Bit32(transmute::<i32, u32>(val as i32))
-                }
-                (core::ConstantScalarValue::Int(val, _), Elem::Float(64)) => {
-                    ConstVal::Bit64((val as f64).to_bits())
-                }
-                (core::ConstantScalarValue::Int(val, _), Elem::Float(32)) => {
-                    ConstVal::Bit32((val as f32).to_bits())
-                }
-                (core::ConstantScalarValue::Float(val, _), Elem::Bool) => {
-                    ConstVal::Bit32((val == 1.0) as u32)
-                }
-                (core::ConstantScalarValue::Float(val, _), Elem::Int(64, false)) => {
-                    ConstVal::Bit64(val as u64)
-                }
-                (core::ConstantScalarValue::Float(val, _), Elem::Int(64, true)) => {
-                    ConstVal::Bit64(transmute::<i64, u64>(val as i64))
-                }
-                (core::ConstantScalarValue::Float(val, _), Elem::Int(_, false)) => {
-                    ConstVal::Bit32(val as u32)
-                }
-                (core::ConstantScalarValue::Float(val, _), Elem::Int(_, true)) => {
-                    ConstVal::Bit32(transmute::<i32, u32>(val as i32))
-                }
-                (core::ConstantScalarValue::Float(val, _), Elem::Float(64)) => {
-                    ConstVal::Bit64(val.to_bits())
-                }
-                (core::ConstantScalarValue::Float(val, _), Elem::Float(_)) => {
-                    ConstVal::Bit32((val as f32).to_bits())
-                }
-                (core::ConstantScalarValue::UInt(val), Elem::Bool) => {
-                    ConstVal::Bit32((val == 1) as u32)
-                }
-                (core::ConstantScalarValue::UInt(val), Elem::Int(64, false)) => {
-                    ConstVal::Bit64(val)
-                }
-                (core::ConstantScalarValue::UInt(val), Elem::Int(64, true)) => {
-                    ConstVal::Bit64(val as i64 as u64) //clip sign bit
-                }
-                (core::ConstantScalarValue::UInt(val), Elem::Int(_, false)) => {
-                    ConstVal::Bit32(val as u32)
-                }
-                (core::ConstantScalarValue::UInt(val), Elem::Int(_, true)) => {
-                    ConstVal::Bit32(val as i32 as u32) //clip sign bit
-                }
-                (core::ConstantScalarValue::UInt(val), Elem::Float(64)) => {
-                    ConstVal::Bit64((val as f64).to_bits())
-                }
-                (core::ConstantScalarValue::UInt(val), Elem::Float(_)) => {
-                    ConstVal::Bit32((val as f32).to_bits())
-                }
-                (core::ConstantScalarValue::Bool(val), Elem::Bool) => ConstVal::Bit32(val as u32),
-                (core::ConstantScalarValue::Bool(val), Elem::Int(64, _)) => {
-                    ConstVal::Bit64(val as u64)
-                }
-                (core::ConstantScalarValue::Bool(val), Elem::Int(_, _)) => {
-                    ConstVal::Bit32(val as u32)
-                }
-                (core::ConstantScalarValue::Bool(val), Elem::Float(64)) => {
-                    ConstVal::Bit64((val as u32 as f64).to_bits())
-                }
-                (core::ConstantScalarValue::Bool(val), Elem::Float(_)) => {
-                    ConstVal::Bit32((val as u32 as f32).to_bits())
-                }
-                _ => unreachable!(),
-            };
-            item.constant(self, value)
-        }
+
+        let value = match (val, item.elem()) {
+            (core::ConstantScalarValue::Int(val, _), Elem::Bool) => ConstVal::from_bool(val == 1),
+            (core::ConstantScalarValue::Int(val, _), Elem::Int(width, false)) => {
+                ConstVal::from_uint(val as u64, width)
+            }
+            (core::ConstantScalarValue::Int(val, _), Elem::Int(width, true)) => {
+                ConstVal::from_int(val, width)
+            }
+            (core::ConstantScalarValue::Int(val, _), Elem::Float(width)) => {
+                ConstVal::from_float(val as f64, width)
+            }
+            (core::ConstantScalarValue::Int(val, _), Elem::Relaxed) => {
+                ConstVal::from_float(val as f64, 32)
+            }
+            (core::ConstantScalarValue::Float(val, _), Elem::Bool) => {
+                ConstVal::from_bool(val == 1.0)
+            }
+            (core::ConstantScalarValue::Float(val, _), Elem::Int(width, false)) => {
+                ConstVal::from_uint(val as u64, width)
+            }
+            (core::ConstantScalarValue::Float(val, _), Elem::Int(width, true)) => {
+                ConstVal::from_int(val as i64, width)
+            }
+            (core::ConstantScalarValue::Float(val, _), Elem::Float(width)) => {
+                ConstVal::from_float(val, width)
+            }
+            (core::ConstantScalarValue::Float(val, _), Elem::Relaxed) => {
+                ConstVal::from_float(val, 32)
+            }
+            (core::ConstantScalarValue::UInt(val, _), Elem::Bool) => ConstVal::from_bool(val == 1),
+            (core::ConstantScalarValue::UInt(val, _), Elem::Int(width, false)) => {
+                ConstVal::from_uint(val, width)
+            }
+            (core::ConstantScalarValue::UInt(val, _), Elem::Int(width, true)) => {
+                ConstVal::from_int(val as i64, width)
+            }
+            (core::ConstantScalarValue::UInt(val, _), Elem::Float(width)) => {
+                ConstVal::from_float(val as f64, width)
+            }
+            (core::ConstantScalarValue::UInt(val, _), Elem::Relaxed) => {
+                ConstVal::from_float(val as f64, 32)
+            }
+            (core::ConstantScalarValue::Bool(val), Elem::Bool) => ConstVal::from_bool(val),
+            (core::ConstantScalarValue::Bool(val), Elem::Int(width, _)) => {
+                ConstVal::from_uint(val as u64, width)
+            }
+            (core::ConstantScalarValue::Bool(val), Elem::Float(width)) => {
+                ConstVal::from_float(val as u32 as f64, width)
+            }
+            (core::ConstantScalarValue::Bool(val), Elem::Relaxed) => {
+                ConstVal::from_float(val as u32 as f64, 32)
+            }
+            (_, Elem::Void) => unreachable!(),
+        };
+        item.constant(self, value)
     }
 
     pub fn static_cast(&mut self, val: ConstVal, from: &Elem, item: &Item) -> Word {
-        let elem_cast = match (from, item.elem()) {
-            (Elem::Bool, Elem::Int(64, _)) => ConstVal::Bit64(val.as_u64()),
-            (Elem::Bool, Elem::Int(_, _)) => ConstVal::Bit32(val.as_u32()),
-            (Elem::Bool, Elem::Float(64)) => ConstVal::Bit64((val.as_u32() as f64).to_bits()),
-            (Elem::Bool, Elem::Float(_)) => ConstVal::Bit32((val.as_u32() as f32).to_bits()),
-            (Elem::Int(_, _), Elem::Bool) => ConstVal::Bit32((val.as_u64() == 1) as u32),
-            (Elem::Int(_, _), Elem::Int(64, _)) => ConstVal::Bit64(val.as_u64()),
-            (Elem::Int(_, _), Elem::Int(_, _)) => ConstVal::Bit32(val.as_u32()),
-            (Elem::Int(_, false), Elem::Float(64)) => {
-                ConstVal::Bit64((val.as_u64() as f64).to_bits())
+        let elem_cast = match (*from, item.elem()) {
+            (Elem::Bool, Elem::Int(width, _)) => ConstVal::from_uint(val.as_u32() as u64, width),
+            (Elem::Bool, Elem::Float(width)) => ConstVal::from_float(val.as_u32() as f64, width),
+            (Elem::Bool, Elem::Relaxed) => ConstVal::from_float(val.as_u32() as f64, 32),
+            (Elem::Int(_, _), Elem::Bool) => ConstVal::from_bool(val.as_u64() == 1),
+            (Elem::Int(_, false), Elem::Int(width, _)) => ConstVal::from_uint(val.as_u64(), width),
+            (Elem::Int(w_in, true), Elem::Int(width, _)) => {
+                ConstVal::from_uint(val.as_int(w_in) as u64, width)
             }
-            (Elem::Int(_, true), Elem::Float(64)) => unsafe {
-                ConstVal::Bit64((transmute::<u64, i64>(val.as_u64()) as f64).to_bits())
-            },
-            (Elem::Int(_, false), Elem::Float(_)) => {
-                ConstVal::Bit32((val.as_u64() as f32).to_bits())
+            (Elem::Int(_, false), Elem::Float(width)) => {
+                ConstVal::from_float(val.as_u64() as f64, width)
             }
-            (Elem::Int(64, true), Elem::Float(_)) => unsafe {
-                ConstVal::Bit32((transmute::<u64, i64>(val.as_u64()) as f32).to_bits())
-            },
-            (Elem::Int(_, true), Elem::Float(_)) => unsafe {
-                ConstVal::Bit32((transmute::<u32, i32>(val.as_u32()) as f32).to_bits())
-            },
-            (Elem::Float(64), Elem::Bool) => {
-                ConstVal::Bit32((f64::from_bits(val.as_u64()) == 1.0) as u32)
+            (Elem::Int(_, false), Elem::Relaxed) => ConstVal::from_float(val.as_u64() as f64, 32),
+            (Elem::Int(in_w, true), Elem::Float(width)) => {
+                ConstVal::from_float(val.as_int(in_w) as f64, width)
             }
-            (Elem::Float(_), Elem::Bool) => {
-                ConstVal::Bit32((f32::from_bits(val.as_u32()) == 1.0) as u32)
+            (Elem::Int(in_w, true), Elem::Relaxed) => {
+                ConstVal::from_float(val.as_int(in_w) as f64, 32)
             }
-            (Elem::Float(64), Elem::Int(64, false)) => {
-                ConstVal::Bit64(f64::from_bits(val.as_u64()) as u64)
+            (Elem::Float(in_w), Elem::Bool) => ConstVal::from_bool(val.as_float(in_w) == 1.0),
+            (Elem::Relaxed, Elem::Bool) => ConstVal::from_bool(val.as_float(32) == 1.0),
+            (Elem::Float(in_w), Elem::Int(out_w, false)) => {
+                ConstVal::from_uint(val.as_float(in_w) as u64, out_w)
             }
-            (Elem::Float(_), Elem::Int(64, false)) => {
-                ConstVal::Bit64(f32::from_bits(val.as_u32()) as u64)
+            (Elem::Relaxed, Elem::Int(out_w, false)) => {
+                ConstVal::from_uint(val.as_float(32) as u64, out_w)
             }
-            (Elem::Float(64), Elem::Int(64, true)) => ConstVal::Bit64(unsafe {
-                transmute::<i64, u64>(f64::from_bits(val.as_u64()) as i64)
-            }),
-            (Elem::Float(_), Elem::Int(64, true)) => ConstVal::Bit64(unsafe {
-                transmute::<i64, u64>(f32::from_bits(val.as_u32()) as i64)
-            }),
-            (Elem::Float(64), Elem::Int(_, false)) => {
-                ConstVal::Bit32(f64::from_bits(val.as_u64()) as u32)
+            (Elem::Float(in_w), Elem::Int(out_w, true)) => {
+                ConstVal::from_int(val.as_float(in_w) as i64, out_w)
             }
-            (Elem::Float(_), Elem::Int(_, false)) => {
-                ConstVal::Bit32(f32::from_bits(val.as_u32()) as u32)
+            (Elem::Relaxed, Elem::Int(out_w, true)) => {
+                ConstVal::from_int(val.as_float(32) as i64, out_w)
             }
-            (Elem::Float(64), Elem::Int(_, true)) => ConstVal::Bit32(unsafe {
-                transmute::<i32, u32>(f64::from_bits(val.as_u64()) as i32)
-            }),
-            (Elem::Float(_), Elem::Int(_, true)) => ConstVal::Bit32(unsafe {
-                transmute::<i32, u32>(f32::from_bits(val.as_u32()) as i32)
-            }),
-            (Elem::Float(64), Elem::Float(64)) => val,
-            (Elem::Float(64), Elem::Float(_)) => {
-                ConstVal::Bit32((f64::from_bits(val.as_u64()) as f32).to_bits())
+            (Elem::Float(in_w), Elem::Float(out_w)) => {
+                ConstVal::from_float(val.as_float(in_w), out_w)
             }
-            (Elem::Float(_), Elem::Float(64)) => {
-                ConstVal::Bit64((f32::from_bits(val.as_u32()) as f64).to_bits())
-            }
-            _ => val,
+            (Elem::Relaxed, Elem::Float(out_w)) => ConstVal::from_float(val.as_float(32), out_w),
+            (Elem::Float(in_w), Elem::Relaxed) => ConstVal::from_float(val.as_float(in_w), 32),
+            (Elem::Bool, Elem::Bool) => val,
+            (Elem::Relaxed, Elem::Relaxed) => val,
+            (_, Elem::Void) | (Elem::Void, _) => unreachable!(),
         };
         item.constant(self, elem_cast)
     }
@@ -526,6 +536,7 @@ impl std::fmt::Display for Elem {
             Elem::Int(width, false) => write!(f, "u{width}"),
             Elem::Int(width, true) => write!(f, "i{width}"),
             Elem::Float(width) => write!(f, "f{width}"),
+            Elem::Relaxed => write!(f, "flex32"),
         }
     }
 }

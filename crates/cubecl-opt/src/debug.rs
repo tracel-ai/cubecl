@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use cubecl_core::ir::{FloatKind, IntKind};
+use cubecl_core::ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
@@ -246,13 +246,20 @@ impl Display for Local {
 impl Display for Constant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Constant::Int(val, IntKind::I8) => write!(f, "{val}i8"),
+            Constant::Int(val, IntKind::I16) => write!(f, "{val}i16"),
             Constant::Int(val, IntKind::I32) => write!(f, "{val}i32"),
             Constant::Int(val, IntKind::I64) => write!(f, "{val}i64"),
             Constant::Float(val, FloatKind::BF16) => write!(f, "{}bf16", val.0),
             Constant::Float(val, FloatKind::F16) => write!(f, "{}f16", val.0),
+            Constant::Float(val, FloatKind::Flex32) => write!(f, "{}minf16", val.0),
+            Constant::Float(val, FloatKind::TF32) => write!(f, "{}tf32", val.0),
             Constant::Float(val, FloatKind::F32) => write!(f, "{}f32", val.0),
             Constant::Float(val, FloatKind::F64) => write!(f, "{}f64", val.0),
-            Constant::UInt(val) => write!(f, "{val}u32"),
+            Constant::UInt(val, UIntKind::U8) => write!(f, "{val}u8"),
+            Constant::UInt(val, UIntKind::U16) => write!(f, "{val}u16"),
+            Constant::UInt(val, UIntKind::U32) => write!(f, "{val}u32"),
+            Constant::UInt(val, UIntKind::U64) => write!(f, "{val}u64"),
             Constant::Bool(val) => write!(f, "{val}"),
         }
     }

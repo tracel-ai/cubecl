@@ -71,6 +71,7 @@ struct CompiledKernel {
 unsafe impl Send for CudaServer {}
 
 impl CudaServer {
+    #[allow(unused)]
     pub(crate) fn arch_version(&mut self) -> u32 {
         let ctx = self.get_context();
         ctx.arch

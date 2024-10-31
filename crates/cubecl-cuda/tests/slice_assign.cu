@@ -1,4 +1,8 @@
+typedef unsigned char uint8;
+typedef unsigned short uint16;
 typedef unsigned int uint;
+typedef unsigned long long int uint64;
+typedef long long int int64;
 
 extern "C" __global__ void kernel(float input_0[], float output_0[],
                                   uint info[]) {

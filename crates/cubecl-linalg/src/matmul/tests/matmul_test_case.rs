@@ -1,5 +1,5 @@
-use cubecl_core::CubeElement;
 use cubecl_core::{client::ComputeClient, Runtime};
+use cubecl_core::{prelude::Float, CubeElement};
 use half::f16;
 
 use crate::tensor::TensorHandle;
@@ -14,19 +14,28 @@ pub(crate) struct MatmulTestCase {
 }
 
 impl MatmulTestCase {
-    pub(crate) fn matmul_cpu<R: Runtime>(
+    pub(crate) fn matmul_cpu<R: Runtime, F: Float + CubeElement>(
         &self,
-        lhs: &TensorHandle<R, f32>,
-        rhs: &TensorHandle<R, f32>,
+        lhs: &TensorHandle<R, F>,
+        rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Vec<f32> {
+    ) -> Vec<F> {
         let lhs_binding = &client.read(lhs.handle.clone().binding());
         let rhs_binding = &client.read(rhs.handle.clone().binding());
 
-        let lhs = f32::from_bytes(lhs_binding);
-        let rhs = f32::from_bytes(rhs_binding);
+        let lhs = F::from_bytes(lhs_binding)
+            .iter()
+            .map(|it| it.to_f32().unwrap())
+            .collect::<Vec<_>>();
+        let rhs = F::from_bytes(rhs_binding)
+            .iter()
+            .map(|it| it.to_f32().unwrap())
+            .collect::<Vec<_>>();
 
-        self.matmul_cpu_algorithm(lhs, rhs)
+        self.matmul_cpu_algorithm(&lhs, &rhs)
+            .into_iter()
+            .map(F::new)
+            .collect()
     }
 
     fn matmul_cpu_algorithm(&self, lhs: &[f32], rhs: &[f32]) -> Vec<f32> {
@@ -53,27 +62,27 @@ impl MatmulTestCase {
         out
     }
 
-    pub(crate) fn random_lhs<R: Runtime>(
+    pub(crate) fn random_lhs<R: Runtime, F: Float + CubeElement>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> TensorHandle<R, f32> {
+    ) -> TensorHandle<R, F> {
         random_tensor(client, vec![self.batch, self.m, self.k])
     }
 
-    pub(crate) fn random_rhs<R: Runtime>(
+    pub(crate) fn random_rhs<R: Runtime, F: Float + CubeElement>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> TensorHandle<R, f32> {
+    ) -> TensorHandle<R, F> {
         random_tensor(client, vec![self.batch, self.k, self.n])
     }
 
-    pub(crate) fn empty_out<R: Runtime>(
+    pub(crate) fn empty_out<R: Runtime, F: Float + CubeElement>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> TensorHandle<R, f32> {
+    ) -> TensorHandle<R, F> {
         TensorHandle::new_contiguous(
             vec![self.batch, self.m, self.n],
-            create_empty::<R>(client, self.batch * self.m, self.n),
+            create_empty::<R, F>(client, self.batch * self.m, self.n),
         )
     }
 }

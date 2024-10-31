@@ -124,28 +124,20 @@ macro_rules! impl_int {
     };
 }
 
+impl_int!(i8, I8);
+impl_int!(i16, I16);
 impl_int!(i32, I32);
 impl_int!(i64, I64);
 
-impl Int for u32 {
-    const BITS: u32 = u32::BITS;
-
-    fn new(val: i64) -> Self {
-        val as u32
-    }
-
-    fn vectorized(val: i64, _vectorization: u32) -> Self {
-        Self::new(val)
+impl ScalarArgSettings for i8 {
+    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
+        settings.register_i8(*self);
     }
 }
 
-impl Vectorized for u32 {
-    fn vectorization_factor(&self) -> u32 {
-        1
-    }
-
-    fn vectorize(self, _factor: u32) -> Self {
-        unexpanded!()
+impl ScalarArgSettings for i16 {
+    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
+        settings.register_i16(*self);
     }
 }
 

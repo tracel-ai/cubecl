@@ -319,8 +319,8 @@ fn create_scalar_handles<R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeE
         Elem::Float(_) => 0,
         Elem::Int(_) => 1,
         Elem::AtomicInt(_) => 1,
-        Elem::UInt => 2,
-        Elem::AtomicUInt => 2,
+        Elem::UInt(_) => 2,
+        Elem::AtomicUInt(_) => 2,
         Elem::Bool => panic!("Bool scalars are not supported"),
     };
     let scalar_priorities: [usize; 3] = [

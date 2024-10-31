@@ -6,7 +6,7 @@ use crate::frontend::{
 use crate::prelude::SizedContainer;
 use crate::{
     frontend::CubeType,
-    ir::{Elem, Item, Metadata},
+    ir::{Item, Metadata},
     unexpanded,
 };
 use crate::{
@@ -175,7 +175,7 @@ mod metadata {
     impl<T: CubeType> ExpandElementTyped<Array<T>> {
         // Expand method of [len](Array::len).
         pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-            let out = context.create_local_binding(Item::new(Elem::UInt));
+            let out = context.create_local_binding(Item::new(u32::as_elem()));
             context.register(Instruction::new(
                 Metadata::Length {
                     var: self.expand.into(),

@@ -25,6 +25,7 @@ cubecl-core = { path = "../cubecl-core", version = "0.4.0" }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.4.0", default-features = false, features = [
     "channel-mutex",
 ] }
+half = { workspace = true }
 
 hashbrown = { workspace = true }
 rspirv = "0.12"

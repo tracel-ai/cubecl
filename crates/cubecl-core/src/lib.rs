@@ -37,6 +37,7 @@ use frontend::LaunchArg;
 
 pub use prelude::CubeCount;
 pub use prelude::CubeDim;
+pub use prelude::{flex32, tf32};
 
 mod id;
 pub use id::*;

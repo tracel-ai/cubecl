@@ -4,8 +4,10 @@ use std::{collections::HashSet, fmt::Debug, num::NonZero};
 use cubecl_core::{
     cpa,
     ir::{
-        self as gpu, ConstantScalarValue, Elem, Item, Metadata, ReusingAllocator, Scope, Variable,
+        self as gpu, ConstantScalarValue, Elem, Item, Metadata, ReusingAllocator, Scope, UIntKind,
+        Variable,
     },
+    prelude::CubePrimitive,
     Compiler, Feature,
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
@@ -443,7 +445,7 @@ impl<D: Dialect> CppCompiler<D> {
                 if matches!(self.strategy, ExecutionMode::Checked) && has_length(&op.lhs) {
                     let lhs = op.lhs;
                     let rhs = op.rhs;
-                    let array_len = scope.create_local(gpu::Item::new(gpu::Elem::UInt));
+                    let array_len = scope.create_local(gpu::Item::new(u32::as_elem()));
 
                     instructions.extend(self.compile_scope(scope));
 
@@ -574,9 +576,9 @@ impl<D: Dialect> CppCompiler<D> {
                 let lhs = match elem {
                     gpu::Elem::Float(kind) => ConstantScalarValue::Float(1.0, kind),
                     gpu::Elem::Int(kind) => ConstantScalarValue::Int(1, kind),
-                    gpu::Elem::UInt => ConstantScalarValue::UInt(1),
+                    gpu::Elem::UInt(kind) => ConstantScalarValue::UInt(1, kind),
                     gpu::Elem::Bool => ConstantScalarValue::Bool(true),
-                    gpu::Elem::AtomicInt(_) | gpu::Elem::AtomicUInt => {
+                    gpu::Elem::AtomicInt(_) | gpu::Elem::AtomicUInt(_) => {
                         panic!("Cannot use recip with atomics")
                     }
                 };
@@ -855,19 +857,31 @@ impl<D: Dialect> CppCompiler<D> {
                     self.bf16 = true;
                     super::Elem::BF16
                 }
+                gpu::FloatKind::TF32 => super::Elem::TF32,
+                gpu::FloatKind::Flex32 => super::Elem::F32,
                 gpu::FloatKind::F32 => super::Elem::F32,
-                gpu::FloatKind::F64 => panic!("f64 isn't supported yet"),
+                gpu::FloatKind::F64 => super::Elem::F64,
             },
             gpu::Elem::Int(kind) => match kind {
+                gpu::IntKind::I8 => super::Elem::I8,
+                gpu::IntKind::I16 => super::Elem::I16,
                 gpu::IntKind::I32 => super::Elem::I32,
-                gpu::IntKind::I64 => panic!("i64 isn't supported yet"),
+                gpu::IntKind::I64 => super::Elem::I64,
             },
             gpu::Elem::AtomicInt(kind) => match kind {
                 gpu::IntKind::I32 => super::Elem::Atomic(super::AtomicKind::I32),
-                gpu::IntKind::I64 => panic!("atomic<i64> isn't supported yet"),
+                _ => panic!("atomic<{}> isn't supported yet", value),
             },
-            gpu::Elem::UInt => super::Elem::U32,
-            gpu::Elem::AtomicUInt => super::Elem::Atomic(super::AtomicKind::U32),
+            gpu::Elem::UInt(kind) => match kind {
+                UIntKind::U8 => super::Elem::U8,
+                UIntKind::U16 => super::Elem::U16,
+                UIntKind::U32 => super::Elem::U32,
+                UIntKind::U64 => super::Elem::U64,
+            },
+            gpu::Elem::AtomicUInt(kind) => match kind {
+                UIntKind::U32 => super::Elem::Atomic(super::AtomicKind::U32),
+                kind => unimplemented!("atomic<{kind:?}> not yet supported"),
+            },
             gpu::Elem::Bool => super::Elem::Bool,
         }
     }
@@ -886,7 +900,7 @@ impl CheckedIndexAssign {
         let lhs = self.lhs;
         let rhs = self.rhs;
         let out = self.out;
-        let array_len = scope.create_local(Item::new(Elem::UInt));
+        let array_len = scope.create_local(Item::new(u32::as_elem()));
         let inside_bound = scope.create_local(Item::new(Elem::Bool));
 
         cpa!(scope, array_len = len(out));
@@ -911,13 +925,22 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
     use cubecl_core::ir::{Elem, FloatKind, IntKind};
 
     let supported_types = [
-        Elem::UInt,
+        Elem::UInt(UIntKind::U8),
+        Elem::UInt(UIntKind::U16),
+        Elem::UInt(UIntKind::U32),
+        Elem::UInt(UIntKind::U64),
+        Elem::Int(IntKind::I8),
+        Elem::Int(IntKind::I16),
         Elem::Int(IntKind::I32),
+        Elem::Int(IntKind::I64),
         Elem::AtomicInt(IntKind::I32),
-        Elem::AtomicUInt,
+        Elem::AtomicUInt(UIntKind::U32),
         Elem::Float(FloatKind::BF16),
         Elem::Float(FloatKind::F16),
         Elem::Float(FloatKind::F32),
+        Elem::Float(FloatKind::Flex32),
+        // Causes CUDA_ERROR_INVALID_VALUE for matmul, disabling until that can be investigated
+        //Elem::Float(FloatKind::F64),
         Elem::Bool,
     ];
 

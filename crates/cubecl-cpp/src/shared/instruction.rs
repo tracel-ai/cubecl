@@ -1,7 +1,7 @@
 use crate::shared::FmtLeft;
 
 use super::{
-    binary::*, unary::*, Component, Dialect, Elem, Variable, WarpInstruction, WmmaInstruction,
+    binary::*, unary::*, Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
 };
 use std::{fmt::Display, marker::PhantomData};
 
@@ -605,9 +605,18 @@ impl<D: Dialect> Clamp<D> {
         let out_item = out.item();
         let num = out_item.vectorization;
 
+        let (min, max) = match out.elem() {
+            Elem::F16 | Elem::BF16 => ("__hmin", "__hmax"),
+            Elem::F162 | Elem::BF162 => ("__hmin2", "__hmax2"),
+            _ => ("min", "max"),
+        };
+
         let out = out.fmt_left();
         if num == 1 {
-            writeln!(f, "{out} = max({min_value}, min({max_value}, {input}));")
+            writeln!(
+                f,
+                "{out} = {max}({min_value}, {min}({max_value}, {input}));"
+            )
         } else {
             writeln!(f, "{out} = {out_item}{{")?;
             for i in 0..num {
@@ -615,7 +624,7 @@ impl<D: Dialect> Clamp<D> {
                 let mini = min_value.index(i);
                 let maxi = max_value.index(i);
 
-                writeln!(f, "max({mini}, min({maxi}, {inputi})),")?;
+                writeln!(f, "{max}({mini}, {min}({maxi}, {inputi})),")?;
             }
 
             f.write_str("};\n")
@@ -634,24 +643,58 @@ impl<D: Dialect> Remainder<D> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let lhs = lhs.optimized();
-        let rhs = rhs.optimized();
-        let out = out.optimized();
-        let out_item = out.item();
-        let num = out_item.vectorization;
+        let floor = match out.elem() {
+            Elem::F16 | Elem::BF16 => "hfloor",
+            Elem::F162 | Elem::BF162 => "h2floor",
+            _ => "floor",
+        };
 
-        let out = out.fmt_left();
-        if num == 1 {
-            writeln!(f, "{out} = {lhs} - {rhs} * floor({lhs} / {rhs});")
+        if out.item().vectorization == 1 {
+            let out = out.fmt_left();
+            return writeln!(f, "{out} = {lhs} - {rhs} * {floor}({lhs} / {rhs});");
+        }
+
+        let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
+        let [lhs, rhs, out_optimized] = optimized.args;
+
+        let item_out_original = out.item();
+        let item_out_optimized = out_optimized.item();
+
+        let index = match optimized.optimization_factor {
+            Some(factor) => item_out_original.vectorization / factor,
+            None => item_out_optimized.vectorization,
+        };
+
+        let mut write_op =
+            |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {item_out}{{")?;
+                for i in 0..index {
+                    let lhsi = lhs.index(i);
+                    let rhsi = rhs.index(i);
+
+                    writeln!(f, "{lhsi} - {rhsi} * {floor}({lhsi} / {rhsi})")?;
+                    f.write_str(", ")?;
+                }
+
+                f.write_str("};\n")
+            };
+
+        if item_out_original == item_out_optimized {
+            write_op(&lhs, &rhs, out, item_out_optimized)
         } else {
-            writeln!(f, "{out} = {out_item}{{")?;
-            for i in 0..num {
-                let lhsi = lhs.index(i);
-                let rhsi = rhs.index(i);
+            let out_tmp = Variable::tmp(item_out_optimized);
 
-                writeln!(f, "{lhsi} - {rhsi} * floor({lhsi} / {rhsi}),")?;
-            }
-            f.write_str("};\n")
+            write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
+
+            let out = out.fmt_left();
+
+            writeln!(
+                f,
+                "{out} = reinterpret_cast<{item_out_original}&>({out_tmp});\n"
+            )?;
+
+            Ok(())
         }
     }
 }

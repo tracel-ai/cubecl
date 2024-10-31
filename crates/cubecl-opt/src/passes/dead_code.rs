@@ -105,7 +105,7 @@ impl OptimizerPass for EliminateConstBranches {
                         ConstantScalarValue::Int(val, _) => unsafe {
                             transmute::<i32, u32>(val as i32)
                         },
-                        ConstantScalarValue::UInt(val) => val as u32,
+                        ConstantScalarValue::UInt(val, _) => val as u32,
                         _ => unreachable!("Switch cases must be integer"),
                     };
                     let branch = branches.into_iter().find(|(val, _)| *val == value);
