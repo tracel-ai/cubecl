@@ -60,6 +60,7 @@ paste = "1.0.15"
 proc-macro2 = "1.0.86"
 quote = "1.0.36"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
+cfg-if = "1.0.0"
 
 ### For xtask crate ###
 strum = { version = "0.26.3", features = ["derive"] }
