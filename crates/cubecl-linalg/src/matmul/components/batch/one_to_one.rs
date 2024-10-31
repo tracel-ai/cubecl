@@ -1,14 +1,13 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::BatchMatmul;
-use crate::matmul::components::cmma_matmul::global::{
-    LhsTensorLoader, RhsTensorLoader, TensorUnloader,
-};
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::global::{GlobalMatmul, GmmConfig};
+use crate::matmul::components::global::{
+    GlobalMatmul, GmmConfig, LhsTensorLoader, RhsTensorLoader, TensorUnloader,
+};
 use crate::matmul::components::matrix::Ident;
 use crate::matmul::components::stage_dim::StageDim;
-use crate::matmul::components::{Matmul, MatmulLaunch};
+use crate::matmul::components::{MatmulKernel, MatmulLaunch};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -16,7 +15,7 @@ use super::BmmConfig;
 
 /// Performs matrix multiplication at the batch level,
 /// with one cube assigned to each underlying global matmul
-pub struct OneToOneBatchMatmul<
+pub struct Matmul<
     EG: Numeric,
     ES: Numeric,
     GMM: GlobalMatmul<
@@ -48,7 +47,7 @@ impl<
             B::GmmConfig,
         >,
         B: BmmConfig,
-    > BatchMatmul<EG, B> for OneToOneBatchMatmul<EG, ES, GMM, B>
+    > BatchMatmul<EG, B> for Matmul<EG, ES, GMM, B>
 {
     fn execute(
         lhs: Tensor<Line<EG>>,
@@ -84,7 +83,7 @@ impl<
             B::GmmConfig,
         >,
         B: BmmConfig,
-    > Matmul<EG, EG> for OneToOneBatchMatmul<EG, ES, GMM, B>
+    > MatmulKernel<EG, EG> for Matmul<EG, ES, GMM, B>
 {
     type Config = B;
 
@@ -105,7 +104,7 @@ impl<
             B::GmmConfig,
         >,
         B: BmmConfig,
-    > MatmulLaunch<EG, EG> for OneToOneBatchMatmul<EG, ES, GMM, B>
+    > MatmulLaunch<EG, EG> for Matmul<EG, ES, GMM, B>
 {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -141,14 +140,14 @@ pub(crate) fn batch_matmul_launch<
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the OneToOneBatchMatmul
-pub struct OneToOneBatchMatmulConfig<G: GmmConfig> {
+pub struct Config<G: GmmConfig> {
     gmm_config: G,
     cube_count_x: u32,
     cube_count_y: u32,
     cube_count_z: u32,
 }
 
-impl<G: GmmConfig> BmmConfig for OneToOneBatchMatmulConfig<G> {
+impl<G: GmmConfig> BmmConfig for Config<G> {
     type GmmConfig = G;
 
     fn to_gmm_config(&self) -> Self::GmmConfig {
@@ -180,9 +179,9 @@ impl<G: GmmConfig> BmmConfig for OneToOneBatchMatmulConfig<G> {
     }
 }
 
-impl<G: GmmConfig> MatmulConfig for OneToOneBatchMatmulConfig<G> {}
+impl<G: GmmConfig> MatmulConfig for Config<G> {}
 
-impl<G: GmmConfig> OneToOneBatchMatmulConfig<G> {
+impl<G: GmmConfig> Config<G> {
     pub fn new(gmm_config: G, cube_count_x: u32, cube_count_y: u32, cube_count_z: u32) -> Self {
         Self {
             gmm_config,

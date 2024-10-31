@@ -2,36 +2,27 @@ use cubecl_core::prelude::*;
 
 use cubecl_core::Runtime;
 
-use crate::matmul::components::batch::BatchMatmul;
-use crate::matmul::components::batch::OneToOneBatchMatmulConfig;
-use crate::matmul::components::cmma_matmul::global::{
-    HomogeneousGlobalMatmulConfig, LhsTensorLoader, RhsTensorLoader, TensorUnloader,
-};
-use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::batch;
+use crate::matmul::components::global;
 use crate::matmul::components::problem::MatmulProblem;
-use crate::matmul::components::stage::LhsStageReader;
-use crate::matmul::components::stage::RowAccumulateStageMatmulConfig;
-use crate::matmul::components::stage::RhsStageReader;
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::TilingOrderConfig;
+use crate::matmul::components::stage;
 use crate::matmul::components::stage_dim::StageDim;
-use crate::matmul::components::tile::TileConfig;
-use crate::matmul::components::tile::TileMatmul;
+use crate::matmul::components::tile;
 
-pub(crate) type CmmaTmmConfig = TileConfig;
-pub(crate) type CmmaSmmConfig = RowAccumulateStageMatmulConfig<CmmaTmmConfig>;
-pub(crate) type CmmaGmmConfig = HomogeneousGlobalMatmulConfig<CmmaSmmConfig>;
-pub(crate) type CmmaBmmConfig = OneToOneBatchMatmulConfig<CmmaGmmConfig>;
+pub(crate) type CmmaTmmConfig = tile::Config;
+pub(crate) type CmmaSmmConfig = stage::row_accumulate::Config<CmmaTmmConfig>;
+pub(crate) type CmmaGmmConfig = global::homogeneous::Config<CmmaSmmConfig>;
+pub(crate) type CmmaBmmConfig = batch::one_to_one::Config<CmmaGmmConfig>;
 
 /// Configs that should not hinder correctness, but may impact performance
 pub struct AdvancedConfig {
-    pub tiling_order: TilingOrderConfig,
+    pub tiling_order: stage::TilingOrderConfig,
 }
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
-            tiling_order: TilingOrderConfig::XMajor,
+            tiling_order: stage::TilingOrderConfig::XMajor,
         }
     }
 }
@@ -45,23 +36,23 @@ pub fn make_cmma_config<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
     advanced_config: &AdvancedConfig,
 ) -> CmmaBmmConfig
 where
-    TMM: TileMatmul<ES, EA, CmmaTmmConfig>,
-    SMM: StageMatmul<
+    TMM: tile::Matmul<ES, EA, CmmaTmmConfig>,
+    SMM: stage::StageMatmul<
         ES,
         EG,
-        LhsStageReader<ES, CmmaSmmConfig>,
-        RhsStageReader<ES, CmmaSmmConfig>,
+        stage::LhsReader<ES, CmmaSmmConfig>,
+        stage::RhsReader<ES, CmmaSmmConfig>,
         CmmaSmmConfig,
     >,
-    GMM: GlobalMatmul<
+    GMM: global::GlobalMatmul<
         EG,
         ES,
-        LhsTensorLoader<EG, ES, CmmaGmmConfig>,
-        RhsTensorLoader<EG, ES, CmmaGmmConfig>,
-        TensorUnloader<EG, CmmaGmmConfig>,
+        global::LhsTensorLoader<EG, ES, CmmaGmmConfig>,
+        global::RhsTensorLoader<EG, ES, CmmaGmmConfig>,
+        global::TensorUnloader<EG, CmmaGmmConfig>,
         CmmaGmmConfig,
     >,
-    BMM: BatchMatmul<EG, CmmaBmmConfig>,
+    BMM: batch::BatchMatmul<EG, CmmaBmmConfig>,
     EG: Numeric,
     ES: Numeric,
     EA: Numeric,

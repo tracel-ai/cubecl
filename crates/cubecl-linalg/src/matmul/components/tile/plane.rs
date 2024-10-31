@@ -1,9 +1,9 @@
 use crate::matmul::components::config::PlaneMapper;
 use crate::matmul::components::matrix::Ident;
 use crate::matmul::components::matrix::MatrixLayout;
-use crate::matmul::components::tile::TileMatmul;
+use crate::matmul::components::tile;
 use crate::matmul::components::tile::TmmConfig;
-use crate::matmul::components::Matmul;
+use crate::matmul::components::MatmulKernel;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -45,7 +45,7 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: 
 
 #[cube]
 impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32>
-    TileMatmul<I, O, T> for PlaneMma<I, O, T, M, N, K>
+    tile::Matmul<I, O, T> for PlaneMma<I, O, T, M, N, K>
 {
     const M: u32 = M;
     const N: u32 = N;
@@ -300,8 +300,8 @@ fn fill_parallel_rhs<E: Numeric>(
     }
 }
 
-impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32> Matmul<I, O>
-    for PlaneMma<I, O, T, M, N, K>
+impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32>
+    MatmulKernel<I, O> for PlaneMma<I, O, T, M, N, K>
 {
     type Config = T;
 

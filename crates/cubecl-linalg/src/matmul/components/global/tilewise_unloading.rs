@@ -1,17 +1,18 @@
-use super::TensorView;
 use crate::matmul::components::config::PlaneMapper;
 use crate::matmul::components::global::GmmConfig;
 use crate::matmul::components::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::tensor_view::TensorView;
+
 #[derive(CubeType)]
 /// Writes the contents of a tile to the tensor view using a single plane,
 /// iterating with steps determined by the plane's dimension.
-pub struct TilewiseUnloader {}
+pub struct TilewiseUnloading {}
 
 #[cube]
-impl PlaneMapper for TilewiseUnloader {
+impl PlaneMapper for TilewiseUnloading {
     fn plane_id() -> u32 {
         UNIT_POS_Y
     }
@@ -22,7 +23,7 @@ impl PlaneMapper for TilewiseUnloader {
 }
 
 #[cube]
-impl TilewiseUnloader {
+impl TilewiseUnloading {
     pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
         write_view: &mut TensorView<EG>,
         slice: &Slice<'_, Line<ES>>,
@@ -40,7 +41,7 @@ impl TilewiseUnloader {
         let _ = comptime!(check_line_size(out_line_size, slice_line_size));
 
         for i in 0..num_unit_writes {
-            let unit_write = TilewiseUnloader::plane_unit() * out_line_size + i * unit_step;
+            let unit_write = TilewiseUnloading::plane_unit() * out_line_size + i * unit_step;
 
             let value = slice[unit_write / out_line_size];
             write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);

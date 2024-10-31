@@ -5,7 +5,7 @@ use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::matrix::{Ident, MatrixLayout};
 use crate::matmul::components::stage::{SmmConfig, StageReader, StageWriter, TilingOrderConfig};
 use crate::matmul::components::stage_dim::StageDim;
-use crate::matmul::components::Matmul;
+use crate::matmul::components::MatmulKernel;
 
 #[cube]
 /// Provides matrix multiplication operations at the global level.
@@ -33,7 +33,7 @@ pub trait GlobalMatmul<
     Rhs: Loader<EG, ES, G>,
     Out: Unloader<EG, G>,
     G: GmmConfig,
->: 'static + Send + Sync + Matmul<EG, EG, Config = G>
+>: 'static + Send + Sync + MatmulKernel<EG, EG, Config = G>
 {
     /// Performs the matrix multiplication over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with

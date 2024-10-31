@@ -1,9 +1,9 @@
 use crate::matmul::components::matrix::as_cmma_layout;
 use crate::matmul::components::tile::TmmConfig;
-use crate::matmul::components::tile::TileMatmul;
+use crate::matmul::components::tile;
 use crate::matmul::components::matrix::MatrixLayout;
 use crate::matmul::components::matrix::Ident;
-use crate::matmul::components::Matmul;
+use crate::matmul::components::MatmulKernel;
 use cubecl_core::ir::Elem;
 use cubecl_core::ir::FloatKind;
 use cubecl_core::Feature;
@@ -36,7 +36,7 @@ macro_rules! instruction {
     }
 
     #[cube]
-    impl<I: Numeric, O: Numeric, T: TmmConfig> TileMatmul<I, O, T> for $name<I, O, T>
+    impl<I: Numeric, O: Numeric, T: TmmConfig> tile::Matmul<I, O, T> for $name<I, O, T>
     where
         (I, O): CmmaValid<I, O>,
     {
@@ -77,7 +77,7 @@ macro_rules! instruction {
         }
     }
     
-    impl<I: Numeric, O: Numeric, T: TmmConfig> Matmul<I, O> for $name<I, O, T>
+    impl<I: Numeric, O: Numeric, T: TmmConfig> MatmulKernel<I, O> for $name<I, O, T>
         where
             (I, O): CmmaValid<I, O>,
     {

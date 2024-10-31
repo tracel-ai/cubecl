@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    config::MatmulConfig, global::GmmConfig, matrix::Ident, stage_dim::StageDim, Matmul,
+    config::MatmulConfig, global::GmmConfig, matrix::Ident, stage_dim::StageDim, MatmulKernel,
     MatmulLaunch,
 };
 
@@ -25,7 +25,7 @@ use crate::matmul::components::{
 /// It it therefore important to use an underlying global matmul that performs check bounds,
 /// and to not launch more Cubes than necessary.
 pub trait BatchMatmul<EG: Numeric, B: BmmConfig>:
-    'static + Send + Sync + Matmul<EG, EG, Config = B> + MatmulLaunch<EG, EG>
+    'static + Send + Sync + MatmulKernel<EG, EG, Config = B> + MatmulLaunch<EG, EG>
 {
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(

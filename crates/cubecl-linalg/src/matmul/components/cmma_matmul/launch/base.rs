@@ -8,14 +8,15 @@ use cubecl_core::{
     tensor_line_size, Runtime,
 };
 
-use crate::matmul::components::batch::OneToOneBatchMatmul;
-use crate::matmul::components::cmma_matmul::global::HomogeneousGlobalMatmul;
+use crate::matmul::components::batch::one_to_one::Matmul;
 use crate::matmul::components::cmma_matmul::launch::{
     make_cmma_config, CmmaBmmConfig, CmmaGmmConfig, CmmaSmmConfig,
 };
+use crate::matmul::components::global;
 use crate::matmul::components::problem::MatmulProblem;
-use crate::matmul::components::stage::{RowAccumulateStageMatmul, StageSize};
-use crate::matmul::components::tile::{TileConfig, TileMatmul};
+use crate::matmul::components::stage;
+use crate::matmul::components::stage::StageSize;
+use crate::matmul::components::tile;
 use crate::matmul::components::{matrix, MatmulLaunch};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout};
 
@@ -134,7 +135,7 @@ fn launch_matmul<
     EG: Numeric,
     ES: Numeric,
     EA: Numeric,
-    TMM: TileMatmul<ES, EA, TileConfig>,
+    TMM: tile::Matmul<ES, EA, tile::Config>,
     CSS: StageSize,
 >(
     client: &ComputeClient<R::Server, R::Channel>,
@@ -147,11 +148,11 @@ fn launch_matmul<
     advanced_config: AdvancedConfig,
 ) {
     type StageMatmul<TMM, CSS, EG, ES, EA> =
-        RowAccumulateStageMatmul<ES, EG, EA, TMM, CSS, CmmaSmmConfig>;
+        stage::row_accumulate::Matmul<ES, EG, EA, TMM, CSS, CmmaSmmConfig>;
     type GlobalMatmul<TMM, CSS, EG, ES, EA> =
-        HomogeneousGlobalMatmul<EG, ES, StageMatmul<TMM, CSS, EG, ES, EA>, CmmaGmmConfig>;
+        global::homogeneous::Matmul<EG, ES, StageMatmul<TMM, CSS, EG, ES, EA>, CmmaGmmConfig>;
     type BatchMatmul<TMM, CSS, EG, ES, EA> =
-        OneToOneBatchMatmul<EG, ES, GlobalMatmul<TMM, CSS, EG, ES, EA>, CmmaBmmConfig>;
+        Matmul<EG, ES, GlobalMatmul<TMM, CSS, EG, ES, EA>, CmmaBmmConfig>;
 
     let config = make_cmma_config::<
         EG,

@@ -7,15 +7,15 @@ use crate::matmul::components::config::PlaneMapper;
 use crate::matmul::components::global::GmmConfig;
 use crate::matmul::components::matrix::Ident;
 use crate::matmul::components::stage::{SmmConfig, StageMatmul, StageReader, StageWriter};
-use crate::matmul::components::tile::TileMatmul;
-use crate::matmul::components::Matmul;
+use crate::matmul::components::tile;
+use crate::matmul::components::MatmulKernel;
 
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::matrix::MatrixLayout;
 use crate::matmul::components::stage_dim::StageDim;
 use crate::matmul::components::tile::TmmConfig;
 
-use super::reader::{LhsStageReader, RhsStageReader};
+use super::reader::{LhsReader, RhsReader};
 use super::tiling_order::TilingOrderConfig;
 use super::StageSize;
 
@@ -25,11 +25,11 @@ use super::StageSize;
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct RowAccumulateStageMatmul<
+pub struct Matmul<
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Tmm: TileMatmul<I, Acc, S::TmmConfig>,
+    Tmm: tile::Matmul<I, Acc, S::TmmConfig>,
     SS: StageSize,
     S: SmmConfig,
 > {
@@ -42,13 +42,13 @@ pub struct RowAccumulateStageMatmul<
 }
 
 #[cube]
-impl<I, O, Acc, TMM, SS, S> StageMatmul<I, O, LhsStageReader<I, S>, RhsStageReader<I, S>, S>
-    for RowAccumulateStageMatmul<I, O, Acc, TMM, SS, S>
+impl<I, O, Acc, TMM, SS, S> StageMatmul<I, O, LhsReader<I, S>, RhsReader<I, S>, S>
+    for Matmul<I, O, Acc, TMM, SS, S>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    TMM: TileMatmul<I, Acc, S::TmmConfig>,
+    TMM: tile::Matmul<I, Acc, S::TmmConfig>,
     SS: StageSize,
     S: SmmConfig,
 {
@@ -58,8 +58,8 @@ where
     type Accumulator = Sequence<TMM::Out>;
 
     fn execute(
-        lhs: &LhsStageReader<I, S>,
-        rhs: &RhsStageReader<I, S>,
+        lhs: &LhsReader<I, S>,
+        rhs: &RhsReader<I, S>,
         acc: &mut Self::Accumulator,
         #[comptime] config: S,
     ) {
@@ -68,13 +68,12 @@ where
 
         #[unroll]
         for buffer_iter in 0..SS::NUM_K {
-            let tile_lhs =
-                LhsStageReader::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32, config);
+            let tile_lhs = LhsReader::read_tile(&lhs, Self::plane_id(), buffer_iter, 0u32, config);
             TMM::fill_lhs(tile_lhs, &mut instruction_lhs, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = RhsStageReader::read_tile(
+                let tile_rhs = RhsReader::read_tile(
                     &rhs,
                     Self::plane_id(),
                     buffer_iter,
@@ -137,12 +136,12 @@ where
     }
 }
 
-impl<I, O, Acc, TMM, SS, S> Matmul<I, O> for RowAccumulateStageMatmul<I, O, Acc, TMM, SS, S>
+impl<I, O, Acc, TMM, SS, S> MatmulKernel<I, O> for Matmul<I, O, Acc, TMM, SS, S>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    TMM: TileMatmul<I, Acc, S::TmmConfig>,
+    TMM: tile::Matmul<I, Acc, S::TmmConfig>,
     SS: StageSize,
     S: SmmConfig,
 {
@@ -158,12 +157,12 @@ where
 }
 
 #[cube]
-impl<I, O, Acc, Tmm, SS, S> PlaneMapper for RowAccumulateStageMatmul<I, O, Acc, Tmm, SS, S>
+impl<I, O, Acc, Tmm, SS, S> PlaneMapper for Matmul<I, O, Acc, Tmm, SS, S>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Tmm: TileMatmul<I, Acc, S::TmmConfig>,
+    Tmm: tile::Matmul<I, Acc, S::TmmConfig>,
     SS: StageSize,
     S: SmmConfig,
 {
@@ -185,8 +184,8 @@ fn check_num_planes(expected_num_planes: u32, actual_num_planes: u32) {
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the PlaneRowStageMatmul
-pub struct RowAccumulateStageMatmulConfig<T: TmmConfig> {
+/// Configuration for the row accumulate matmul
+pub struct Config<T: TmmConfig> {
     tmm_config: T,
     lhs_stage_dim: StageDim,
     rhs_stage_dim: StageDim,
@@ -195,7 +194,7 @@ pub struct RowAccumulateStageMatmulConfig<T: TmmConfig> {
     tiling_order: TilingOrderConfig,
 }
 
-impl<T: TmmConfig> SmmConfig for RowAccumulateStageMatmulConfig<T> {
+impl<T: TmmConfig> SmmConfig for Config<T> {
     type TmmConfig = T;
 
     fn to_tmm_config(self) -> Self::TmmConfig {
@@ -231,9 +230,9 @@ impl<T: TmmConfig> SmmConfig for RowAccumulateStageMatmulConfig<T> {
     }
 }
 
-impl<T: TmmConfig> MatmulConfig for RowAccumulateStageMatmulConfig<T> {}
+impl<T: TmmConfig> MatmulConfig for Config<T> {}
 
-impl<T: TmmConfig> RowAccumulateStageMatmulConfig<T> {
+impl<T: TmmConfig> Config<T> {
     pub fn new(
         tmm_config: T,
         lhs_stage_dim: StageDim,

@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::matrix::{Ident, MatrixLayout};
-use crate::matmul::components::Matmul;
+use crate::matmul::components::MatmulKernel;
 
 #[cube]
 /// Provides matrix multiplication operations at the tile level.
@@ -18,8 +18,8 @@ use crate::matmul::components::Matmul;
 ///  - Slices given as inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
-pub trait TileMatmul<I: Numeric, O: Numeric, T: TmmConfig>:
-    'static + Send + Sync + Matmul<I, O, Config = T>
+pub trait Matmul<I: Numeric, O: Numeric, T: TmmConfig>:
+    'static + Send + Sync + MatmulKernel<I, O, Config = T>
 {
     /// Number of rows of LHS
     const M: u32;

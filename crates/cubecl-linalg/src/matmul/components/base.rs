@@ -2,7 +2,7 @@ use super::config::MatmulConfig;
 use cubecl_core::prelude::*;
 
 /// Provides configuration for a matmul kernel at any level
-pub trait Matmul<I: Numeric, O: Numeric> {
+pub trait MatmulKernel<I: Numeric, O: Numeric> {
     /// Configuration tailored to the matmul implementation
     type Config: MatmulConfig;
 
@@ -15,7 +15,7 @@ pub trait Matmul<I: Numeric, O: Numeric> {
 /// # Safety
 ///
 /// Out-of-bounds can happen
-pub trait MatmulLaunch<I: Numeric, O: Numeric>: Matmul<I, O> {
+pub trait MatmulLaunch<I: Numeric, O: Numeric>: MatmulKernel<I, O> {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
@@ -23,6 +23,6 @@ pub trait MatmulLaunch<I: Numeric, O: Numeric>: Matmul<I, O> {
         lhs: TensorArg<'_, R>,
         rhs: TensorArg<'_, R>,
         out: TensorArg<'_, R>,
-        config: <Self as Matmul<I, O>>::Config,
+        config: <Self as MatmulKernel<I, O>>::Config,
     );
 }

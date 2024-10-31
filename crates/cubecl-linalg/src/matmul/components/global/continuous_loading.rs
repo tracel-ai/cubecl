@@ -7,15 +7,15 @@ use crate::matmul::components::stage::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::TensorView;
+use super::tensor_view::TensorView;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct ContinuousLoader {}
+pub struct ContinuousLoading {}
 
 #[cube]
-impl PlaneMapper for ContinuousLoader {
+impl PlaneMapper for ContinuousLoading {
     fn plane_id() -> u32 {
         UNIT_POS_Y
     }
@@ -26,7 +26,7 @@ impl PlaneMapper for ContinuousLoader {
 }
 
 #[cube]
-impl ContinuousLoader {
+impl ContinuousLoading {
     pub fn load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
         read_view: &TensorView<EG>,
         slice: &mut SliceMut<'_, Line<ES>>,

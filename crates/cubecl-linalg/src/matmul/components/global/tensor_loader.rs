@@ -1,12 +1,12 @@
-use crate::matmul::components::cmma_matmul::global::ContinuousLoader;
+use crate::matmul::components::global::continuous_loading::ContinuousLoading;
 use crate::matmul::components::global::{GmmConfig, Loader};
 use crate::matmul::components::matrix::Ident;
-use crate::matmul::components::stage::{LhsStageReader, RhsStageReader, Stage};
+use crate::matmul::components::stage::{LhsReader, RhsReader, Stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::TensorView;
+use super::tensor_view::TensorView;
 
 #[derive(CubeType)]
 pub struct LhsTensorLoader<EG: Numeric, ES: Numeric, G: GmmConfig> {
@@ -68,16 +68,16 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> RhsTensorLoader<EG, ES, G> {
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoader<EG, ES, G> {
-    type StageReader = LhsStageReader<ES, G::SmmConfig>;
+    type StageReader = LhsReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        ContinuousLoader::load_to_slice::<EG, ES, G>(
+        ContinuousLoading::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
             this.stage.as_slice_mut(),
             Ident::Lhs,
             config,
         );
-        LhsStageReader::new(this.stage)
+        LhsReader::new(this.stage)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -87,16 +87,16 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoader<EG, ES, G> {
-    type StageReader = RhsStageReader<ES, G::SmmConfig>;
+    type StageReader = RhsReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        ContinuousLoader::load_to_slice::<EG, ES, G>(
+        ContinuousLoading::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
             this.stage.as_slice_mut(),
             Ident::Rhs,
             config,
         );
-        RhsStageReader::new(this.stage)
+        RhsReader::new(this.stage)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {

@@ -4,7 +4,7 @@ use crate::matmul::components::problem::MatmulProblem;
 use crate::matmul::components::stage::{S4x4x2, StageSize};
 use crate::matmul::components::tile::accelerated::Accelerated16x16x16;
 use crate::matmul::components::tile::plane::PlaneMma16x16x16;
-use crate::matmul::components::tile::{TileConfig, TileMatmul};
+use crate::matmul::components::{tile, tile::Matmul};
 
 /// Launch informations for a matmul
 pub trait MatmulLaunchDispatch {
@@ -13,7 +13,7 @@ pub trait MatmulLaunchDispatch {
     type ElementInput: Numeric;
     type ElementAccumulator: Numeric;
 
-    type TileMatmul: TileMatmul<Self::ElementInput, Self::ElementAccumulator, TileConfig>;
+    type TileMatmul: tile::Matmul<Self::ElementInput, Self::ElementAccumulator, tile::Config>;
 
     fn cube_dim() -> CubeDim;
     fn cube_count<EG: Numeric>(problem: &MatmulProblem<EG>) -> CubeCount;
@@ -27,7 +27,7 @@ impl MatmulLaunchDispatch for PlaneMmaLaunchDispatch {
     type ElementInput = f32;
     type ElementAccumulator = f32;
 
-    type TileMatmul = PlaneMma16x16x16<Self::ElementInput, Self::ElementAccumulator, TileConfig>;
+    type TileMatmul = PlaneMma16x16x16<Self::ElementInput, Self::ElementAccumulator, tile::Config>;
 
     fn cube_dim() -> CubeDim {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
@@ -35,7 +35,7 @@ impl MatmulLaunchDispatch for PlaneMmaLaunchDispatch {
 
     fn cube_count<EG: Numeric>(problem: &MatmulProblem<EG>) -> CubeCount {
         let m_stage = Self::StageSize::NUM_M * Self::TileMatmul::M;
-        let n_stage = Self::StageSize::NUM_N * Self::TileMatmul::N;
+        let n_stage = Self::StageSize::NUM_N * Self::TileMatmul::K;
         let cubes_needed_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_needed_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
@@ -51,7 +51,8 @@ impl MatmulLaunchDispatch for CmmaLaunchDispatch {
     type ElementInput = half::f16;
     type ElementAccumulator = f32;
 
-    type TileMatmul = Accelerated16x16x16<Self::ElementInput, Self::ElementAccumulator, TileConfig>;
+    type TileMatmul =
+        Accelerated16x16x16<Self::ElementInput, Self::ElementAccumulator, tile::Config>;
 
     fn cube_dim() -> CubeDim {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)

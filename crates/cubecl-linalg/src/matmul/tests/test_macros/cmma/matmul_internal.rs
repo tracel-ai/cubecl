@@ -3,23 +3,23 @@
 macro_rules! testgen_matmul_internal {
     ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $eg:ty, $es:ty, $ea:ty, $plane_dim:expr) => {
         use cubecl_linalg::matmul::components::{
-            batch::{OneToOneBatchMatmul, OneToOneBatchMatmulConfig},
+            batch,
+            batch::one_to_one,
+            global, global::homogeneous,
+            stage, stage::row_accumulate,
             stage::{
-                TilingOrderConfig, RowAccumulateStageMatmul, StageSize, S8x8x1, S8x1x1, S1x1x1, S1x1x2,
-                S1x2x1, S2x1x1, S2x2x1, S2x2x2, S4x4x1, S4x4x2, RowAccumulateStageMatmulConfig,
+                TilingOrderConfig, StageSize, S8x8x1, S8x1x1, S1x1x1, S1x1x2,
+                S1x2x1, S2x1x1, S2x2x1, S2x2x2, S4x4x1, S4x4x2,
+            },
+            tile,
+            tile::plane::{PlaneMma32x32x32, PlaneMma16x16x8, PlaneMma16x16x32},
+            global::{
+                LhsTensorLoader, RhsTensorLoader, TensorUnloader,
             },
             cmma_matmul::{
-                global::{
-                    HomogeneousGlobalMatmul, HomogeneousGlobalMatmulConfig, LhsTensorLoader,
-                    RhsTensorLoader, TensorUnloader,
-                },
                 launch::{make_cmma_config, AdvancedConfig},
             },
             stage::StageMatmul,
-            tile::{
-                TileMatmul, plane::{PlaneMma32x32x32, PlaneMma16x16x8, PlaneMma16x16x32},
-                TileConfig,
-            },
             matrix::MatrixLayout,
             problem::MatmulProblem,
             stage_dim::StageDim,
@@ -27,10 +27,10 @@ macro_rules! testgen_matmul_internal {
         use std::marker::PhantomData;
         use cubecl_linalg::matmul::tests::matmul_modular::matmul_test_launcher::test_matmul_internal;
 
-        type T = TileConfig;
-        type S = RowAccumulateStageMatmulConfig<T>;
-        type G = HomogeneousGlobalMatmulConfig<S>;
-        type B = OneToOneBatchMatmulConfig<G>;
+        type T = tile::Config;
+        type S = stage::row_accumulate::Config<T>;
+        type G = global::homogeneous::Config<S>;
+        type B = batch::one_to_one::Config<G>;
 
         macro_rules! matmul_test {
             (
@@ -51,9 +51,9 @@ macro_rules! testgen_matmul_internal {
                     type StageSize = $stage_size;
 
                     type TileMatmul = $tile_matmul_type<ES, EA, T>;
-                    type StageMatmul = RowAccumulateStageMatmul<ES, EG, EA, TileMatmul, StageSize, S>;
-                    type GlobalMatmul = HomogeneousGlobalMatmul<EG, ES, StageMatmul, G>;
-                    type BatchMatmul = OneToOneBatchMatmul<EG, ES, GlobalMatmul, B>;
+                    type StageMatmul = stage::row_accumulate::Matmul<ES, EG, EA, TileMatmul, StageSize, S>;
+                    type GlobalMatmul = global::homogeneous::Matmul<EG, ES, StageMatmul, G>;
+                    type BatchMatmul = batch::one_to_one::Matmul<EG, ES, GlobalMatmul, B>;
 
                     let config = make_cmma_config::<
                         EG,

@@ -6,7 +6,7 @@ use cubecl_core::prelude::*;
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for both CmmaInstruction and PlaneMma
-pub struct TileConfig {
+pub struct Config {
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -15,7 +15,7 @@ pub struct TileConfig {
     out_line_size: u32,
 }
 
-impl TmmConfig for TileConfig {
+impl TmmConfig for Config {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
@@ -37,9 +37,9 @@ impl TmmConfig for TileConfig {
     }
 }
 
-impl MatmulConfig for TileConfig {}
+impl MatmulConfig for Config {}
 
-impl TileConfig {
+impl Config {
     pub fn new(
         plane_dim: u32,
         lhs_layout: MatrixLayout,

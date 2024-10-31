@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{global::GmmConfig, Matmul};
+use crate::matmul::components::{global::GmmConfig, MatmulKernel};
 
 #[cube]
 /// Provides matrix multiplication operations at the stage level.
@@ -24,7 +24,7 @@ pub trait StageMatmul<
     Lhs: StageReader<I, S>,
     Rhs: StageReader<I, S>,
     S: SmmConfig,
->: 'static + Send + Sync + Matmul<I, O, Config = S>
+>: 'static + Send + Sync + MatmulKernel<I, O, Config = S>
 {
     /// Number of rows of LHS
     const M: u32;
