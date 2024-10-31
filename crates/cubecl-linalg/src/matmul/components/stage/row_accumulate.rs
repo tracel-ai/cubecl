@@ -3,16 +3,12 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::config::PlaneMapper;
-use crate::matmul::components::Ident;
-use crate::matmul::components::stage::{StageReader, StageWriter};
-use crate::matmul::components::tile;
-use crate::matmul::components::MatmulKernel;
-use crate::matmul::components::{global, stage};
-
-use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::MatrixLayout;
-use crate::matmul::components::StageDim;
+use crate::matmul::components::{
+    config::MatmulConfig,
+    global, stage,
+    stage::{StageReader, StageWriter},
+    tile, Ident, MatmulKernel, MatrixLayout, PlaneMapper, StageDim,
+};
 
 use super::reader::{LhsReader, RhsReader};
 use super::tiling_order::TilingOrderConfig;

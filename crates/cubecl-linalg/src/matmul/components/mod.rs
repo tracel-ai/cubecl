@@ -9,12 +9,12 @@ mod config;
 mod problem;
 
 pub use base::*;
-pub use config::{as_cmma_layout, Ident, MatrixLayout, StageDim};
+pub use config::{as_cmma_layout, Ident, MatrixLayout, PlaneMapper, StageDim};
 pub use problem::MatmulProblem;
 
 use crate::tensor::TensorHandle;
 
-use cmma_matmul::launch::{matmul_cmma_ref, CmmaLaunchDispatch, PlaneMmaLaunchDispatch};
+use cmma_matmul::{matmul_cmma_ref, CmmaLaunchDispatch, PlaneMmaLaunchDispatch};
 use cubecl_core::prelude::*;
 
 /// Launch a matrix multiplication kernel.

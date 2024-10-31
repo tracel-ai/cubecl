@@ -9,7 +9,7 @@ use cubecl_core::{
 };
 
 use crate::matmul;
-use crate::matmul::components::cmma_matmul::launch::{
+use crate::matmul::components::cmma_matmul::{
     make_cmma_config, CmmaBmmConfig, CmmaGmmConfig, CmmaSmmConfig,
 };
 use crate::matmul::components::problem::MatmulProblem;
