@@ -454,8 +454,8 @@ pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}
 mod test {
     use cubecl_core::{
         self as cubecl,
-        ir::{Elem, HybridAllocator, Item, Variable, VariableKind},
-        prelude::{Array, CubeContext, ExpandElement},
+        ir::{HybridAllocator, Item, Variable, VariableKind},
+        prelude::{Array, CubeContext, CubePrimitive, ExpandElement},
     };
     use cubecl_core::{cube, CubeDim, ExecutionMode};
 
@@ -480,15 +480,15 @@ mod test {
         let mut ctx = CubeContext::root(HybridAllocator::default());
         let x = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalScalar(0),
-            Item::new(Elem::UInt),
+            Item::new(u32::as_elem()),
         ));
         let cond = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalScalar(1),
-            Item::new(Elem::UInt),
+            Item::new(u32::as_elem()),
         ));
         let arr = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalOutputArray(0),
-            Item::new(Elem::UInt),
+            Item::new(u32::as_elem()),
         ));
 
         pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());

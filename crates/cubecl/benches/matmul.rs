@@ -92,7 +92,7 @@ fn main() {
     #[cfg(feature = "wgpu")]
     run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), MatmulKind::Tiling2d);
 
-    #[cfg(feature = "hip")]
+    #[cfg(all(feature = "hip", target_os = "linux"))]
     {
         run::<cubecl::hip::HipRuntime, f32>(Default::default(), MatmulKind::Tiling2d);
         run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), MatmulKind::Tiling2d);

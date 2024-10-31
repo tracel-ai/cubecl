@@ -169,7 +169,7 @@ impl Optimizer {
                     ConstantScalarValue::Int(val, _) => unsafe {
                         transmute::<i32, u32>(val as i32)
                     },
-                    ConstantScalarValue::UInt(val) => val as u32,
+                    ConstantScalarValue::UInt(val, _) => val as u32,
                     _ => unreachable!("Switch cases must be integer"),
                 };
                 (val, case_id, is_break, is_ret)
@@ -250,9 +250,7 @@ impl Optimizer {
     }
 
     fn parse_for_loop(&mut self, range_loop: RangeLoop) {
-        let step = range_loop
-            .step
-            .unwrap_or(Variable::constant(ConstantScalarValue::UInt(1)));
+        let step = range_loop.step.unwrap_or(1.into());
 
         let i_id = match range_loop.i.kind {
             VariableKind::Local { id, depth, .. } => (id, depth),

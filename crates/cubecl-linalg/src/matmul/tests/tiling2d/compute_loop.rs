@@ -1,5 +1,7 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
+use std::fmt::Display;
+
+use cubecl_core::{self as cubecl, as_bytes};
+use cubecl_core::{as_type, prelude::*};
 
 use crate::matmul::tiling2d::outer_product::tile_outer_product;
 use crate::matmul::{
@@ -32,12 +34,14 @@ fn tile_outer_product_test<F: Float>(
 }
 
 /// Exported test
-pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device) {
+pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime, F: Float + CubeElement + Display>(
+    device: &R::Device,
+) {
     let client = R::client(device);
 
-    let register_m = client.create(f32::as_bytes(&[16., 20., 24., 28.]));
-    let register_n = client.create(f32::as_bytes(&[4., 5., 6., 7.]));
-    let results = create_empty::<R>(&client, 4, 4);
+    let register_m = client.create(as_bytes![F: 16., 20., 24., 28.]);
+    let register_n = client.create(as_bytes![F: 4., 5., 6., 7.]);
+    let results = create_empty::<R, F>(&client, 4, 4);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -45,7 +49,7 @@ pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device)
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
     unsafe {
-        tile_outer_product_test::launch_unchecked::<f32, R>(
+        tile_outer_product_test::launch_unchecked::<F, R>(
             &client,
             cube_count,
             cube_dim,
@@ -56,11 +60,11 @@ pub fn tile_outer_product_vectorized_unit_test_2<R: Runtime>(device: &R::Device)
         );
     };
 
-    let expected = &[
+    let expected = as_type![F:
         64.0, 80.0, 96.0, 112.0, 80.0, 100.0, 120.0, 140.0, 96.0, 120.0, 144.0, 168.0, 112.0,
-        140.0, 168.0, 196.0,
+        140.0, 168.0, 196.0
     ];
-    assert_equals::<R>(&client, results, expected);
+    assert_equals::<R, F>(&client, results, expected);
 }
 
 #[cube(launch_unchecked)]
@@ -109,11 +113,13 @@ fn compute_loop_test<F: Float>(
 }
 
 /// Exported test
-pub fn tile_outer_product_vectorized_unit_test<R: Runtime>(device: &R::Device) {
+pub fn tile_outer_product_vectorized_unit_test<R: Runtime, F: Float + CubeElement + Display>(
+    device: &R::Device,
+) {
     let client = R::client(device);
-    let register_m = client.create(f32::as_bytes(&[0., 1., 2., 3.]));
-    let register_n = client.create(f32::as_bytes(&[1., 2., 3., 4.]));
-    let results = create_empty::<R>(&client, 4, 4);
+    let register_m = client.create(as_bytes![F: 0., 1., 2., 3.]);
+    let register_n = client.create(as_bytes![F: 1., 2., 3., 4.]);
+    let results = create_empty::<R, F>(&client, 4, 4);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -121,7 +127,7 @@ pub fn tile_outer_product_vectorized_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
     unsafe {
-        tile_outer_product_test::launch_unchecked::<f32, R>(
+        tile_outer_product_test::launch_unchecked::<F, R>(
             &client,
             cube_count,
             cube_dim,
@@ -132,18 +138,18 @@ pub fn tile_outer_product_vectorized_unit_test<R: Runtime>(device: &R::Device) {
         );
     };
 
-    let expected = &[
-        0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 2.0, 4.0, 6.0, 8.0, 3.0, 6.0, 9.0, 12.0,
+    let expected = as_type![F:
+        0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 2.0, 4.0, 6.0, 8.0, 3.0, 6.0, 9.0, 12.0
     ];
-    assert_equals::<R>(&client, results, expected);
+    assert_equals::<R, F>(&client, results, expected);
 }
 
 /// Exported test
-pub fn compute_loop_unit_test<R: Runtime>(device: &R::Device) {
+pub fn compute_loop_unit_test<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
     let client = R::client(device);
-    let lhs = range_tensor::<R>(&client, 8, 8);
-    let rhs = range_tensor::<R>(&client, 8, 8);
-    let results = create_empty::<R>(&client, TILE_SIZE, TILE_SIZE);
+    let lhs = range_tensor::<R, F>(&client, 8, 8);
+    let rhs = range_tensor::<R, F>(&client, 8, 8);
+    let results = create_empty::<R, F>(&client, TILE_SIZE, TILE_SIZE);
     let cube_dim = CubeDim::new(1, 1, 1);
     let cube_count = CubeCount::Static(1, 1, 1);
 
@@ -151,7 +157,7 @@ pub fn compute_loop_unit_test<R: Runtime>(device: &R::Device) {
     let config = make_tiling2d_config(SOME_DIM, SOME_DIM, SOME_DIM);
 
     unsafe {
-        compute_loop_test::launch_unchecked::<f32, R>(
+        compute_loop_test::launch_unchecked::<F, R>(
             &R::client(device),
             cube_count,
             cube_dim,
@@ -166,9 +172,9 @@ pub fn compute_loop_unit_test<R: Runtime>(device: &R::Device) {
         );
     };
 
-    let expected = &[
+    let expected = as_type![F:
         8960.0, 9184.0, 9408.0, 9632.0, 9184.0, 9416.0, 9648.0, 9880.0, 9408.0, 9648.0, 9888.0,
-        10128.0, 9632.0, 9880.0, 10128.0, 10376.0,
+        10128.0, 9632.0, 9880.0, 10128.0, 10376.0
     ];
-    assert_equals::<R>(&client, results, expected);
+    assert_equals::<R, F>(&client, results, expected);
 }

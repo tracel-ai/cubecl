@@ -16,6 +16,7 @@ pub mod channel;
 pub mod client;
 
 /// Autotune module
+#[cfg(feature = "channel-mpsc")]
 pub mod tune;
 
 /// Memory management module.

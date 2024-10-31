@@ -43,6 +43,8 @@ hashbrown = { workspace = true }
 log = { workspace = true }
 web-time = { workspace = true }
 
+cfg-if = { workspace = true }
+
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.4.0", features = [
     "export_tests",
@@ -50,6 +52,8 @@ cubecl-core = { path = "../cubecl-core", version = "0.4.0", features = [
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.4.0", features = [
     "export_tests",
 ] }
+half = { workspace = true }
+paste = { workspace = true }
 pretty_assertions = { workspace = true }
 
 [build-dependencies]

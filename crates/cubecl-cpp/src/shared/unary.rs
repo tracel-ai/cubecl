@@ -146,7 +146,7 @@ macro_rules! function {
 }
 
 function!(Log, "log");
-function!(Log1p, "log1p");
+function!(Log1p, "log1p", false);
 function!(Cos, "cos");
 function!(Sin, "sin");
 function!(Sqrt, "sqrt");
@@ -203,7 +203,10 @@ impl<D: Dialect> Unary<D> for Assign {
     {
         // Cast only when necessary.
         if elem != input.elem() {
-            write!(f, "{elem}({input})")
+            match elem {
+                Elem::TF32 => write!(f, "nvcuda::wmma::__float_to_tf32({input})"),
+                elem => write!(f, "{elem}({input})"),
+            }
         } else {
             write!(f, "{input}")
         }

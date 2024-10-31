@@ -354,7 +354,7 @@ impl From<Constant> for ConstantScalarValue {
         match value {
             Constant::Int(val, kind) => ConstantScalarValue::Int(val, kind),
             Constant::Float(val, kind) => ConstantScalarValue::Float(val.0, kind),
-            Constant::UInt(val) => ConstantScalarValue::UInt(val),
+            Constant::UInt(val, kind) => ConstantScalarValue::UInt(val, kind),
             Constant::Bool(val) => ConstantScalarValue::Bool(val),
         }
     }
@@ -367,7 +367,7 @@ impl From<ConstantScalarValue> for Constant {
             ConstantScalarValue::Float(val, float_kind) => {
                 Constant::Float(FloatOrd(val), float_kind)
             }
-            ConstantScalarValue::UInt(val) => Constant::UInt(val),
+            ConstantScalarValue::UInt(val, kind) => Constant::UInt(val, kind),
             ConstantScalarValue::Bool(val) => Constant::Bool(val),
         }
     }

@@ -1,6 +1,6 @@
 use super::{CubeType, ExpandElement, ExpandElementTyped};
 use crate::{
-    ir::{IntKind, Variable},
+    ir::{IntKind, UIntKind, Variable},
     unexpanded,
 };
 
@@ -35,7 +35,10 @@ impl Index for i32 {
 
 impl Index for u32 {
     fn value(self) -> Variable {
-        Variable::constant(crate::ir::ConstantScalarValue::UInt(self as u64))
+        Variable::constant(crate::ir::ConstantScalarValue::UInt(
+            self as u64,
+            UIntKind::U32,
+        ))
     }
 }
 

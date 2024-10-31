@@ -1,6 +1,7 @@
-use super::{CubePrimitive, Numeric, Vectorized};
+use super::{flex32, CubePrimitive, Numeric, Vectorized};
+use crate::tf32;
 use crate::{
-    ir::{ConstantScalarValue, Elem, FloatKind, Item, Operation, Variable, VariableKind},
+    ir::{ConstantScalarValue, Elem, Item, Operation, Variable, VariableKind},
     prelude::{
         cast as ir_cast, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher,
     },
@@ -158,28 +159,21 @@ macro_rules! from_const {
     };
 }
 
+from_const!(u8);
+from_const!(u16);
 from_const!(u32);
+from_const!(u64);
 from_const!(i64);
+from_const!(i8);
+from_const!(i16);
 from_const!(i32);
 from_const!(f64);
+from_const!(f16);
+from_const!(bf16);
+from_const!(flex32);
+from_const!(tf32);
 from_const!(f32);
 from_const!(bool);
-
-impl From<f16> for ExpandElementTyped<f16> {
-    fn from(value: f16) -> Self {
-        let variable =
-            Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::F16));
-        ExpandElement::Plain(variable).into()
-    }
-}
-
-impl From<bf16> for ExpandElementTyped<bf16> {
-    fn from(value: bf16) -> Self {
-        let variable =
-            Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::BF16));
-        ExpandElement::Plain(variable).into()
-    }
-}
 
 macro_rules! tuple_cube_type {
     ($($P:ident),*) => {

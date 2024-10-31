@@ -88,9 +88,14 @@ impl GraphicsApi for AutoGraphicsApi {
         }
 
         // In a no_std environment or if the environment variable is not set
-        #[cfg(target_os = "macos")]
-        return wgpu::Backend::Metal;
-        #[cfg(not(target_os = "macos"))]
-        return wgpu::Backend::Vulkan;
+        cfg_if::cfg_if! {
+            if #[cfg(target_family = "wasm")] {
+                wgpu::Backend::BrowserWebGpu
+            } else if #[cfg(target_os = "macos")] {
+                 wgpu::Backend::Metal
+            } else {
+                wgpu::Backend::Vulkan
+            }
+        }
     }
 }

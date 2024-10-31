@@ -19,7 +19,7 @@ pub fn launch_ref<R: Runtime, F: Float>(
     out: TensorHandleRef<'_, R>,
 ) {
     let cmma_config: CmmaConfig = PredefinedCmmaConfig::M128K16.into();
-    if cmma::is_available::<R>(client, &cmma_config).is_ok() {
+    if cmma::is_available::<R, F>(client, &cmma_config).is_ok() {
         cmma::launch_ref::<R, F>(client, lhs, rhs, out, cmma_config);
     } else {
         tiling2d::launch_ref::<R, F>(client, lhs, rhs, out, Default::default());

@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::compute::KernelTask;
 use crate::ir::{Elem, FloatKind, IntKind};
 use crate::prelude::ArrayHandleRef;
 use crate::KernelSettings;
 use crate::{calculate_num_elems_dyn_rank, frontend::TensorHandleRef, Kernel, Runtime};
+use crate::{compute::KernelTask, ir::UIntKind};
 use bytemuck::NoUninit;
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{Binding, CubeCount};
@@ -17,9 +17,14 @@ pub struct KernelLauncher<R: Runtime> {
     scalar_f16: ScalarState<half::f16>,
     scalar_f32: ScalarState<f32>,
     scalar_f64: ScalarState<f64>,
+    scalar_u64: ScalarState<u64>,
     scalar_u32: ScalarState<u32>,
+    scalar_u16: ScalarState<u16>,
+    scalar_u8: ScalarState<u8>,
     scalar_i64: ScalarState<i64>,
     scalar_i32: ScalarState<i32>,
+    scalar_i16: ScalarState<i16>,
+    scalar_i8: ScalarState<i8>,
     scalar_order: Vec<Elem>,
     pub settings: KernelSettings,
     runtime: PhantomData<R>,
@@ -36,10 +41,40 @@ impl<R: Runtime> KernelLauncher<R> {
         self.tensors.push(&array.as_tensor());
     }
 
+    /// Register a u8 scalar to be launched.
+    pub fn register_u8(&mut self, scalar: u8) {
+        self.register_scalar(Elem::UInt(UIntKind::U8));
+        self.scalar_u8.push(scalar);
+    }
+
+    /// Register a u16 scalar to be launched.
+    pub fn register_u16(&mut self, scalar: u16) {
+        self.register_scalar(Elem::UInt(UIntKind::U16));
+        self.scalar_u16.push(scalar);
+    }
+
     /// Register a u32 scalar to be launched.
     pub fn register_u32(&mut self, scalar: u32) {
-        self.register_scalar(Elem::UInt);
+        self.register_scalar(Elem::UInt(UIntKind::U32));
         self.scalar_u32.push(scalar);
+    }
+
+    /// Register a u64 scalar to be launched.
+    pub fn register_u64(&mut self, scalar: u64) {
+        self.register_scalar(Elem::UInt(UIntKind::U64));
+        self.scalar_u64.push(scalar);
+    }
+
+    /// Register a i8 scalar to be launched.
+    pub fn register_i8(&mut self, scalar: i8) {
+        self.register_scalar(Elem::Int(IntKind::I8));
+        self.scalar_i8.push(scalar);
+    }
+
+    /// Register a i16 scalar to be launched.
+    pub fn register_i16(&mut self, scalar: i16) {
+        self.register_scalar(Elem::Int(IntKind::I16));
+        self.scalar_i16.push(scalar);
     }
 
     /// Register a i32 scalar to be launched.
@@ -126,19 +161,35 @@ impl<R: Runtime> KernelLauncher<R> {
                 Elem::Float(kind) => match kind {
                     FloatKind::F16 => self.scalar_f16.register::<R>(client, &mut bindings),
                     FloatKind::BF16 => self.scalar_bf16.register::<R>(client, &mut bindings),
+                    FloatKind::TF32 => self.scalar_f32.register::<R>(client, &mut bindings),
+                    FloatKind::Flex32 => self.scalar_f32.register::<R>(client, &mut bindings),
                     FloatKind::F32 => self.scalar_f32.register::<R>(client, &mut bindings),
                     FloatKind::F64 => self.scalar_f64.register::<R>(client, &mut bindings),
                 },
                 Elem::Int(kind) => match kind {
+                    IntKind::I8 => self.scalar_i8.register::<R>(client, &mut bindings),
+                    IntKind::I16 => self.scalar_i16.register::<R>(client, &mut bindings),
                     IntKind::I32 => self.scalar_i32.register::<R>(client, &mut bindings),
                     IntKind::I64 => self.scalar_i64.register::<R>(client, &mut bindings),
                 },
                 Elem::AtomicInt(kind) => match kind {
+                    IntKind::I8 => self.scalar_i8.register::<R>(client, &mut bindings),
+                    IntKind::I16 => self.scalar_i16.register::<R>(client, &mut bindings),
                     IntKind::I32 => self.scalar_i32.register::<R>(client, &mut bindings),
                     IntKind::I64 => self.scalar_i64.register::<R>(client, &mut bindings),
                 },
-                Elem::UInt => self.scalar_u32.register::<R>(client, &mut bindings),
-                Elem::AtomicUInt => self.scalar_u32.register::<R>(client, &mut bindings),
+                Elem::UInt(kind) => match kind {
+                    UIntKind::U8 => self.scalar_u8.register::<R>(client, &mut bindings),
+                    UIntKind::U16 => self.scalar_u16.register::<R>(client, &mut bindings),
+                    UIntKind::U32 => self.scalar_u32.register::<R>(client, &mut bindings),
+                    UIntKind::U64 => self.scalar_u64.register::<R>(client, &mut bindings),
+                },
+                Elem::AtomicUInt(kind) => match kind {
+                    UIntKind::U8 => self.scalar_u8.register::<R>(client, &mut bindings),
+                    UIntKind::U16 => self.scalar_u16.register::<R>(client, &mut bindings),
+                    UIntKind::U32 => self.scalar_u32.register::<R>(client, &mut bindings),
+                    UIntKind::U64 => self.scalar_u64.register::<R>(client, &mut bindings),
+                },
                 Elem::Bool => panic!("Bool can't be passed as bindings."),
             }
         }
@@ -324,9 +375,14 @@ impl<R: Runtime> Default for KernelLauncher<R> {
             scalar_f16: ScalarState::Empty,
             scalar_f32: ScalarState::Empty,
             scalar_f64: ScalarState::Empty,
+            scalar_u64: ScalarState::Empty,
             scalar_u32: ScalarState::Empty,
+            scalar_u16: ScalarState::Empty,
+            scalar_u8: ScalarState::Empty,
             scalar_i64: ScalarState::Empty,
             scalar_i32: ScalarState::Empty,
+            scalar_i16: ScalarState::Empty,
+            scalar_i8: ScalarState::Empty,
             scalar_order: Vec::new(),
             settings: Default::default(),
             runtime: PhantomData,

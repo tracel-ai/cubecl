@@ -40,7 +40,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{self, Elem, Item, Variable, VariableKind},
+        ir::{self, Item, Variable, VariableKind},
     };
 
     type ElemType = f32;
@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn array_add_assign() {
         let mut context = CubeContext::default();
-        let array = context.input(0, Item::new(Elem::UInt));
+        let array = context.input(0, Item::new(u32::as_elem()));
 
         array_add_assign_simple::expand(&mut context, array.into());
         let scope = context.into_scope();
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn array_add_assign_expr() {
         let mut context = CubeContext::default();
-        let array = context.input(0, Item::new(Elem::UInt));
+        let array = context.input(0, Item::new(u32::as_elem()));
 
         array_add_assign_expr::expand(&mut context, array.into());
         let scope = context.into_scope();
@@ -124,9 +124,9 @@ mod tests {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
-        let local = scope.create_local(Item::new(Elem::UInt));
+        let local = scope.create_local(Item::new(u32::as_elem()));
 
-        let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(Elem::UInt));
+        let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(u32::as_elem()));
         let index: Variable = 1u32.into();
         let value: Variable = 1u32.into();
 
@@ -181,9 +181,9 @@ mod tests {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
-        let local = scope.create_local(Item::new(Elem::UInt));
+        let local = scope.create_local(Item::new(u32::as_elem()));
 
-        let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(Elem::UInt));
+        let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(u32::as_elem()));
         let index: Variable = 6u32.into();
         let value: Variable = 1u32.into();
 

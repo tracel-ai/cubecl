@@ -11,7 +11,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{Builtin, Elem, Item, Variable},
+        ir::{Builtin, Item, Variable},
     };
 
     type ElemType = f32;
@@ -35,7 +35,7 @@ mod tests {
 
         let mut scope = context.into_scope();
         let input: Variable = input.into();
-        let x = scope.create_local(Item::new(Elem::UInt));
+        let x = scope.create_local(Item::new(u32::as_elem()));
         let y = scope.create_local(item);
 
         let id = Variable::builtin(Builtin::AbsolutePos);

@@ -6,7 +6,7 @@ use crate::{
     SpirvCompiler, SpirvTarget,
 };
 use cubecl_core::{
-    ir::{self as core, ConstantScalarValue, FloatKind, IntKind},
+    ir::{self as core, ConstantScalarValue, FloatKind},
     ExecutionMode,
 };
 use rspirv::{
@@ -94,31 +94,73 @@ impl ConstVal {
             ConstVal::Bit64(_) => panic!("Truncating 64 bit variable to 32 bit"),
         }
     }
+
+    pub fn as_float(&self, width: u32) -> f64 {
+        match width {
+            64 => f64::from_bits(self.as_u64()),
+            32 => f32::from_bits(self.as_u32()) as f64,
+            16 => half::f16::from_bits(self.as_u32() as u16).to_f64(),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn as_int(&self, width: u32) -> i64 {
+        unsafe {
+            match width {
+                64 => transmute::<u64, i64>(self.as_u64()),
+                32 => transmute::<u32, i32>(self.as_u32()) as i64,
+                16 => transmute::<u16, i16>(self.as_u32() as u16) as i64,
+                8 => transmute::<u8, i8>(self.as_u32() as u8) as i64,
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    pub fn from_float(value: f64, width: u32) -> Self {
+        match width {
+            64 => ConstVal::Bit64(value.to_bits()),
+            32 => ConstVal::Bit32((value as f32).to_bits()),
+            16 => ConstVal::Bit32(half::f16::from_f64(value).to_bits() as u32),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn from_int(value: i64, width: u32) -> Self {
+        match width {
+            64 => ConstVal::Bit64(unsafe { transmute::<i64, u64>(value) }),
+            32 => ConstVal::Bit32(unsafe { transmute::<i32, u32>(value as i32) }),
+            16 => ConstVal::Bit32(unsafe { transmute::<i16, u16>(value as i16) } as u32),
+            8 => ConstVal::Bit32(unsafe { transmute::<i8, u8>(value as i8) } as u32),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn from_uint(value: u64, width: u32) -> Self {
+        match width {
+            64 => ConstVal::Bit64(value),
+            32 => ConstVal::Bit32(value as u32),
+            16 => ConstVal::Bit32(value as u16 as u32),
+            8 => ConstVal::Bit32(value as u8 as u32),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn from_bool(value: bool) -> Self {
+        ConstVal::Bit32(value as u32)
+    }
 }
 
 impl From<ConstantScalarValue> for ConstVal {
     fn from(value: ConstantScalarValue) -> Self {
-        unsafe {
-            match value {
-                ConstantScalarValue::Int(val, IntKind::I32) => {
-                    ConstVal::Bit32(transmute::<i32, u32>(val as i32))
-                }
-                ConstantScalarValue::Int(val, IntKind::I64) => {
-                    ConstVal::Bit64(transmute::<i64, u64>(val))
-                }
-                ConstantScalarValue::Float(val, FloatKind::F64) => ConstVal::Bit64(val.to_bits()),
-                ConstantScalarValue::Float(val, FloatKind::F32) => {
-                    ConstVal::Bit32((val as f32).to_bits())
-                }
-                ConstantScalarValue::Float(val, FloatKind::F16) => {
-                    ConstVal::Bit32((val as f32).to_bits())
-                }
-                ConstantScalarValue::Float(_, FloatKind::BF16) => {
-                    panic!("bf16 not supported in SPIR-V")
-                }
-                ConstantScalarValue::UInt(val) => ConstVal::Bit32(val as u32),
-                ConstantScalarValue::Bool(val) => ConstVal::Bit32(val as u32),
+        let width = value.elem().size() as u32 * 8;
+        match value {
+            ConstantScalarValue::Int(val, _) => ConstVal::from_int(val, width),
+            ConstantScalarValue::Float(_, FloatKind::BF16) => {
+                panic!("bf16 not supported in SPIR-V")
             }
+            ConstantScalarValue::Float(val, _) => ConstVal::from_float(val, width),
+            ConstantScalarValue::UInt(val, _) => ConstVal::from_uint(val, width),
+            ConstantScalarValue::Bool(val) => ConstVal::from_bool(val),
         }
     }
 }
@@ -296,38 +338,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         match variable.kind {
             core::VariableKind::ConstantScalar(value) => {
                 let item = self.compile_item(core::Item::new(value.elem()));
-                let elem_id = item.id(self);
-                let map_val = value.into();
+                let const_val = value.into();
 
-                if let Some(existing) = self.state.constants.get(&(map_val, item.clone())) {
-                    Variable::ConstantScalar(*existing, map_val, item.elem())
+                if let Some(existing) = self.state.constants.get(&(const_val, item.clone())) {
+                    Variable::ConstantScalar(*existing, const_val, item.elem())
                 } else {
-                    let id = match value {
-                        core::ConstantScalarValue::Int(val, kind) => match kind {
-                            core::IntKind::I32 => self.constant_bit32(elem_id, unsafe {
-                                transmute::<i32, u32>(val as i32)
-                            }),
-                            core::IntKind::I64 => {
-                                self.constant_bit64(elem_id, unsafe { transmute::<i64, u64>(val) })
-                            }
-                        },
-                        core::ConstantScalarValue::Float(val, kind) => match kind {
-                            core::FloatKind::F16 | core::FloatKind::F32 => {
-                                self.constant_bit32(elem_id, (val as f32).to_bits())
-                            }
-                            core::FloatKind::BF16 => unimplemented!("BF16 not yet supported"),
-                            core::FloatKind::F64 => self.constant_bit64(elem_id, val.to_bits()),
-                        },
-                        core::ConstantScalarValue::UInt(val) => {
-                            self.constant_bit32(elem_id, val as u32)
-                        }
-                        core::ConstantScalarValue::Bool(val) => match val {
-                            true => self.constant_true(elem_id),
-                            false => self.constant_false(elem_id),
-                        },
-                    };
-                    self.state.constants.insert((map_val, item.clone()), id);
-                    Variable::ConstantScalar(id, map_val, item.elem())
+                    let id = item.elem().constant(self, const_val);
+                    self.state.constants.insert((const_val, item.clone()), id);
+                    Variable::ConstantScalar(id, const_val, item.elem())
                 }
             }
             core::VariableKind::Slice { id, depth, .. } => self

@@ -1,6 +1,9 @@
 use std::mem::take;
 
-use cubecl_core::ir::{BinaryOperator, Elem, Instruction, Operation, Operator, Variable};
+use cubecl_core::{
+    ir::{BinaryOperator, Instruction, Operation, Operator, Variable},
+    prelude::CubePrimitive,
+};
 
 use crate::{AtomicCounter, Optimizer};
 
@@ -35,7 +38,7 @@ impl OptimizerPass for ReduceStrength {
                     }
                 };
                 match op {
-                    Operator::Mul(op) if inst.item().elem() == Elem::UInt => {
+                    Operator::Mul(op) if inst.item().elem() == u32::as_elem() => {
                         let (const_val, dyn_val) = match (op.lhs.as_const(), op.rhs.as_const()) {
                             (None, Some(val)) => (val.as_u32(), op.lhs),
                             (Some(val), None) => (val.as_u32(), op.rhs),
@@ -143,7 +146,7 @@ impl OptimizerPass for ReduceStrength {
 }
 
 fn is_pow2(var: Variable) -> bool {
-    var.item.elem() == Elem::UInt
+    var.item.elem() == u32::as_elem()
         && var
             .as_const()
             .map(|it| it.as_u32().is_power_of_two())

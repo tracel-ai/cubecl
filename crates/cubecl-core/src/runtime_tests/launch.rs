@@ -1,4 +1,4 @@
-use crate as cubecl;
+use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[cube(launch)]
@@ -15,10 +15,12 @@ pub fn kernel_without_generics(output: &mut Array<f32>) {
     }
 }
 
-pub fn test_kernel_with_generics<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
+pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    let handle = client.create(as_bytes![F: 0.0, 1.0]);
 
-    kernel_with_generics::launch::<f32, R>(
+    kernel_with_generics::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
@@ -26,9 +28,9 @@ pub fn test_kernel_with_generics<R: Runtime>(client: ComputeClient<R::Server, R:
     );
 
     let actual = client.read(handle.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = F::from_bytes(&actual);
 
-    assert_eq!(actual[0], 5.0);
+    assert_eq!(actual[0], F::new(5.0));
 }
 
 pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
@@ -56,7 +58,9 @@ macro_rules! testgen_launch {
         #[test]
         fn test_launch_with_generics() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::launch::test_kernel_with_generics::<TestRuntime>(client);
+            cubecl_core::runtime_tests::launch::test_kernel_with_generics::<TestRuntime, FloatType>(
+                client,
+            );
         }
 
         #[test]
