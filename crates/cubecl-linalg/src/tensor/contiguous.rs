@@ -24,7 +24,7 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
     offset / tensor.line_size()
 }
 
-#[cube(launch_unchecked)]
+#[cube(launch)]
 fn into_contiguous_kernel<N: CubePrimitive>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
@@ -33,10 +33,6 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 ) {
     let offset_output = ABSOLUTE_POS * elems_per_thread;
     let vec = vectorization_of(input);
-
-    if offset_output >= output.len() {
-        return;
-    }
 
     let mut registers = Array::vectorized(elems_per_thread, vec);
 
@@ -108,21 +104,19 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     let num_elems: usize = input.shape.iter().product();
     let cube_dim = CubeDim::default();
     let cube_count =
-        calculate_cube_count_elemwise(num_elems / num_elems_per_unit as usize, cube_dim);
+        calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
     let handle = client.empty(num_elems * E::as_elem().size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
-    unsafe {
-        into_contiguous_kernel::launch_unchecked::<Line<E>, R>(
-            client,
-            cube_count,
-            cube_dim,
-            input.as_tensor_arg(vectorization_factor),
-            output.as_ref().as_tensor_arg(vectorization_factor),
-            Some(rank as u32),
-            elems_per_unit,
-        );
-    }
+    into_contiguous_kernel::launch::<Line<E>, R>(
+        client,
+        cube_count,
+        cube_dim,
+        input.as_tensor_arg(vectorization_factor),
+        output.as_ref().as_tensor_arg(vectorization_factor),
+        Some(rank as u32),
+        elems_per_unit,
+    );
 
     output
 }
