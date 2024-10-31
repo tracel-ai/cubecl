@@ -15,6 +15,7 @@ use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
 };
+use wgpu::RequestAdapterOptions;
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
@@ -109,10 +110,14 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
 /// Like [`init_setup_async`], but synchronous.
 /// On wasm, it is necessary to use [`init_setup_async`] instead.
 pub fn init_setup<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) -> WgpuSetup {
-    #[cfg(target_family = "wasm")]
-    panic!("Creating a wgpu setup synchronously is unsupported on wasm. Use init_async instead");
-
-    future::block_on(init_setup_async::<G>(device, options))
+    cfg_if::cfg_if! {
+        if #[cfg(target_family = "wasm")] {
+            let _ = (device, options);
+            panic!("Creating a wgpu setup synchronously is unsupported on wasm. Use init_async instead");
+        } else {
+            future::block_on(init_setup_async::<G>(device, options))
+        }
+    }
 }
 
 /// Initialize a client on the given device with the given options.
@@ -184,128 +189,139 @@ pub(crate) async fn create_setup_for_device<G: GraphicsApi, C: WgpuCompiler>(
     }
 }
 
-#[cfg(target_family = "wasm")]
-async fn select_adapter<G: GraphicsApi>(_device: &WgpuDevice) -> (wgpu::Instance, wgpu::Adapter) {
-    let instance = wgpu::Instance::default();
-
-    instance
-        .request_adapter(&wgpu::RequestAdapterOptionsBase::default())
-        .await
-        .unwrap()
-}
-
-#[cfg(not(target_family = "wasm"))]
 async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance, wgpu::Adapter) {
-    use wgpu::{DeviceType, RequestAdapterOptions};
-
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: G::backend().into(),
         ..Default::default()
     });
-    let mut adapters_other = Vec::new();
-    let mut adapters = Vec::new();
 
-    instance
-        .enumerate_adapters(G::backend().into())
-        .into_iter()
-        .for_each(|adapter| {
-            let device_type = adapter.get_info().device_type;
+    #[cfg(target_family = "wasm")]
+    {
+        // Any device gets redirected to the default device.
+        let _ = device;
 
-            if let DeviceType::Other = device_type {
-                adapters_other.push(adapter);
-                return;
-            }
-
-            let is_same_type = match device {
-                WgpuDevice::DiscreteGpu(_) => device_type == DeviceType::DiscreteGpu,
-                WgpuDevice::IntegratedGpu(_) => device_type == DeviceType::IntegratedGpu,
-                WgpuDevice::VirtualGpu(_) => device_type == DeviceType::VirtualGpu,
-                WgpuDevice::Cpu => device_type == DeviceType::Cpu,
-                #[allow(deprecated)]
-                WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable => true,
-                WgpuDevice::Existing(_) => {
-                    unreachable!("Cannot select an adapter for an existing device.")
-                }
-            };
-
-            if is_same_type {
-                adapters.push(adapter);
-            }
-        });
-
-    fn select(
-        num: usize,
-        error: &str,
-        mut adapters: Vec<wgpu::Adapter>,
-        mut adapters_other: Vec<wgpu::Adapter>,
-    ) -> wgpu::Adapter {
-        if adapters.len() <= num {
-            if adapters_other.len() <= num {
-                panic!(
-                    "{}, adapters {:?}, other adapters {:?}",
-                    error,
-                    adapters
-                        .into_iter()
-                        .map(|adapter| adapter.get_info())
-                        .collect::<Vec<_>>(),
-                    adapters_other
-                        .into_iter()
-                        .map(|adapter| adapter.get_info())
-                        .collect::<Vec<_>>(),
-                );
-            }
-
-            return adapters_other.remove(num);
-        }
-
-        adapters.remove(num)
-    }
-    #[allow(deprecated)]
-    let override_device = if matches!(
-        device,
-        WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable
-    ) {
-        get_device_override()
-    } else {
-        None
-    };
-
-    let device = override_device.unwrap_or_else(|| device.clone());
-
-    let adapter = match device {
-        WgpuDevice::DiscreteGpu(num) => select(
-            num,
-            "No Discrete GPU device found",
-            adapters,
-            adapters_other,
-        ),
-        WgpuDevice::IntegratedGpu(num) => select(
-            num,
-            "No Integrated GPU device found",
-            adapters,
-            adapters_other,
-        ),
-        WgpuDevice::VirtualGpu(num) => {
-            select(num, "No Virtual GPU device found", adapters, adapters_other)
-        }
-        WgpuDevice::Cpu => select(0, "No CPU device found", adapters, adapters_other),
-        #[allow(deprecated)]
-        WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable => instance
-            .request_adapter(&RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                force_fallback_adapter: false,
-                compatible_surface: None,
-            })
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions::default())
             .await
-            .expect("No possible adapter available for backend. Falling back to first available."),
-        WgpuDevice::Existing(_) => unreachable!("Cannot select an adapter for an existing device."),
-    };
+            .unwrap();
+        (instance, adapter)
+    }
 
-    log::info!("Using adapter {:?}", adapter.get_info());
+    #[cfg(not(target_family = "wasm"))]
+    {
+        use wgpu::DeviceType;
 
-    (instance, adapter)
+        let mut adapters_other = Vec::new();
+        let mut adapters = Vec::new();
+
+        instance
+            .enumerate_adapters(G::backend().into())
+            .into_iter()
+            .for_each(|adapter| {
+                let device_type = adapter.get_info().device_type;
+
+                if let DeviceType::Other = device_type {
+                    adapters_other.push(adapter);
+                    return;
+                }
+
+                let is_same_type = match device {
+                    WgpuDevice::DiscreteGpu(_) => device_type == DeviceType::DiscreteGpu,
+                    WgpuDevice::IntegratedGpu(_) => device_type == DeviceType::IntegratedGpu,
+                    WgpuDevice::VirtualGpu(_) => device_type == DeviceType::VirtualGpu,
+                    WgpuDevice::Cpu => device_type == DeviceType::Cpu,
+                    #[allow(deprecated)]
+                    WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable => true,
+                    WgpuDevice::Existing(_) => {
+                        unreachable!("Cannot select an adapter for an existing device.")
+                    }
+                };
+
+                if is_same_type {
+                    adapters.push(adapter);
+                }
+            });
+
+        fn select(
+            num: usize,
+            error: &str,
+            mut adapters: Vec<wgpu::Adapter>,
+            mut adapters_other: Vec<wgpu::Adapter>,
+        ) -> wgpu::Adapter {
+            if adapters.len() <= num {
+                if adapters_other.len() <= num {
+                    panic!(
+                        "{}, adapters {:?}, other adapters {:?}",
+                        error,
+                        adapters
+                            .into_iter()
+                            .map(|adapter| adapter.get_info())
+                            .collect::<Vec<_>>(),
+                        adapters_other
+                            .into_iter()
+                            .map(|adapter| adapter.get_info())
+                            .collect::<Vec<_>>(),
+                    );
+                }
+
+                return adapters_other.remove(num);
+            }
+
+            adapters.remove(num)
+        }
+
+        #[allow(deprecated)]
+        let override_device = if matches!(
+            device,
+            WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable
+        ) {
+            get_device_override()
+        } else {
+            None
+        };
+
+        let device = override_device.unwrap_or_else(|| device.clone());
+
+        let adapter = match device {
+            WgpuDevice::DiscreteGpu(num) => select(
+                num,
+                "No Discrete GPU device found",
+                adapters,
+                adapters_other,
+            ),
+            WgpuDevice::IntegratedGpu(num) => select(
+                num,
+                "No Integrated GPU device found",
+                adapters,
+                adapters_other,
+            ),
+            WgpuDevice::VirtualGpu(num) => {
+                select(num, "No Virtual GPU device found", adapters, adapters_other)
+            }
+            WgpuDevice::Cpu => select(0, "No CPU device found", adapters, adapters_other),
+            #[allow(deprecated)]
+            WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable => instance
+                .request_adapter(&RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    force_fallback_adapter: false,
+                    compatible_surface: None,
+                })
+                .await
+                .expect(
+                    "No possible adapter available for backend. Falling back to first available.",
+                ),
+            WgpuDevice::Existing(_) => {
+                unreachable!("Cannot select an adapter for an existing device.")
+            }
+        };
+
+        log::info!("Using adapter {:?}", adapter.get_info());
+
+        (instance, adapter)
+    }
 }
 
+#[allow(unused)]
 fn get_device_override() -> Option<WgpuDevice> {
     // If BestAvailable, check if we should instead construct as
     // if a specific device was specified.
