@@ -195,133 +195,113 @@ async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance
         ..Default::default()
     });
 
-    #[cfg(target_family = "wasm")]
-    {
-        // Any device gets redirected to the default device.
-        let _ = device;
+    #[allow(deprecated)]
+    let override_device = if matches!(
+        device,
+        WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable
+    ) {
+        get_device_override()
+    } else {
+        None
+    };
 
-        let adapter = instance
-            .request_adapter(&RequestAdapterOptions::default())
-            .await
-            .unwrap();
-        (instance, adapter)
-    }
+    let device = override_device.unwrap_or_else(|| device.clone());
 
-    #[cfg(not(target_family = "wasm"))]
-    {
-        use wgpu::DeviceType;
-
-        let mut adapters_other = Vec::new();
-        let mut adapters = Vec::new();
-
-        instance
-            .enumerate_adapters(G::backend().into())
-            .into_iter()
-            .for_each(|adapter| {
-                let device_type = adapter.get_info().device_type;
-
-                if let DeviceType::Other = device_type {
-                    adapters_other.push(adapter);
-                    return;
-                }
-
-                let is_same_type = match device {
-                    WgpuDevice::DiscreteGpu(_) => device_type == DeviceType::DiscreteGpu,
-                    WgpuDevice::IntegratedGpu(_) => device_type == DeviceType::IntegratedGpu,
-                    WgpuDevice::VirtualGpu(_) => device_type == DeviceType::VirtualGpu,
-                    WgpuDevice::Cpu => device_type == DeviceType::Cpu,
-                    #[allow(deprecated)]
-                    WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable => true,
-                    WgpuDevice::Existing(_) => {
-                        unreachable!("Cannot select an adapter for an existing device.")
-                    }
-                };
-
-                if is_same_type {
-                    adapters.push(adapter);
-                }
-            });
-
-        fn select(
-            num: usize,
-            error: &str,
-            mut adapters: Vec<wgpu::Adapter>,
-            mut adapters_other: Vec<wgpu::Adapter>,
-        ) -> wgpu::Adapter {
-            if adapters.len() <= num {
-                if adapters_other.len() <= num {
-                    panic!(
-                        "{}, adapters {:?}, other adapters {:?}",
-                        error,
-                        adapters
-                            .into_iter()
-                            .map(|adapter| adapter.get_info())
-                            .collect::<Vec<_>>(),
-                        adapters_other
-                            .into_iter()
-                            .map(|adapter| adapter.get_info())
-                            .collect::<Vec<_>>(),
-                    );
-                }
-
-                return adapters_other.remove(num);
-            }
-
-            adapters.remove(num)
+    let adapter = match device {
+        #[cfg(not(target_family = "wasm"))]
+        WgpuDevice::DiscreteGpu(num) => {
+            select_from_adapter_list::<G>(num, "No Discrete GPU device found", &instance, &device)
         }
+        #[cfg(not(target_family = "wasm"))]
+        WgpuDevice::IntegratedGpu(num) => {
+            select_from_adapter_list::<G>(num, "No Integrated GPU device found", &instance, &device)
+        }
+        #[cfg(not(target_family = "wasm"))]
+        WgpuDevice::VirtualGpu(num) => {
+            select_from_adapter_list::<G>(num, "No Virtual GPU device found", &instance, &device)
+        }
+        #[cfg(not(target_family = "wasm"))]
+        WgpuDevice::Cpu => {
+            select_from_adapter_list::<G>(0, "No CPU device found", &instance, &device)
+        }
+        WgpuDevice::Existing(_) => {
+            unreachable!("Cannot select an adapter for an existing device.")
+        }
+        _ => instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .await
+            .expect("No possible adapter available for backend. Falling back to first available."),
+    };
 
-        #[allow(deprecated)]
-        let override_device = if matches!(
-            device,
-            WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable
-        ) {
-            get_device_override()
-        } else {
-            None
-        };
+    log::info!("Using adapter {:?}", adapter.get_info());
 
-        let device = override_device.unwrap_or_else(|| device.clone());
-
-        let adapter = match device {
-            WgpuDevice::DiscreteGpu(num) => select(
-                num,
-                "No Discrete GPU device found",
-                adapters,
-                adapters_other,
-            ),
-            WgpuDevice::IntegratedGpu(num) => select(
-                num,
-                "No Integrated GPU device found",
-                adapters,
-                adapters_other,
-            ),
-            WgpuDevice::VirtualGpu(num) => {
-                select(num, "No Virtual GPU device found", adapters, adapters_other)
-            }
-            WgpuDevice::Cpu => select(0, "No CPU device found", adapters, adapters_other),
-            #[allow(deprecated)]
-            WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable => instance
-                .request_adapter(&RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::HighPerformance,
-                    force_fallback_adapter: false,
-                    compatible_surface: None,
-                })
-                .await
-                .expect(
-                    "No possible adapter available for backend. Falling back to first available.",
-                ),
-            WgpuDevice::Existing(_) => {
-                unreachable!("Cannot select an adapter for an existing device.")
-            }
-        };
-
-        log::info!("Using adapter {:?}", adapter.get_info());
-
-        (instance, adapter)
-    }
+    (instance, adapter)
 }
 
-#[allow(unused)]
+#[cfg(not(target_family = "wasm"))]
+fn select_from_adapter_list<G: GraphicsApi>(
+    num: usize,
+    error: &str,
+    instance: &wgpu::Instance,
+    device: &WgpuDevice,
+) -> wgpu::Adapter {
+    let mut adapters_other = Vec::new();
+    let mut adapters = Vec::new();
+
+    instance
+        .enumerate_adapters(G::backend().into())
+        .into_iter()
+        .for_each(|adapter| {
+            let device_type = adapter.get_info().device_type;
+
+            if let wgpu::DeviceType::Other = device_type {
+                adapters_other.push(adapter);
+                return;
+            }
+
+            let is_same_type = match device {
+                WgpuDevice::DiscreteGpu(_) => device_type == wgpu::DeviceType::DiscreteGpu,
+                WgpuDevice::IntegratedGpu(_) => device_type == wgpu::DeviceType::IntegratedGpu,
+                WgpuDevice::VirtualGpu(_) => device_type == wgpu::DeviceType::VirtualGpu,
+                WgpuDevice::Cpu => device_type == wgpu::DeviceType::Cpu,
+                #[allow(deprecated)]
+                WgpuDevice::DefaultDevice | WgpuDevice::BestAvailable => true,
+                WgpuDevice::Existing(_) => {
+                    unreachable!("Cannot select an adapter for an existing device.")
+                }
+            };
+
+            if is_same_type {
+                adapters.push(adapter);
+            }
+        });
+
+    if adapters.len() <= num {
+        if adapters_other.len() <= num {
+            panic!(
+                "{}, adapters {:?}, other adapters {:?}",
+                error,
+                adapters
+                    .into_iter()
+                    .map(|adapter| adapter.get_info())
+                    .collect::<Vec<_>>(),
+                adapters_other
+                    .into_iter()
+                    .map(|adapter| adapter.get_info())
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        return adapters_other.remove(num);
+    }
+
+    adapters.remove(num)
+}
+
 fn get_device_override() -> Option<WgpuDevice> {
     // If BestAvailable, check if we should instead construct as
     // if a specific device was specified.
