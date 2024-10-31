@@ -85,7 +85,7 @@ macro_rules! instruction {
             type Config = T;
 
             fn check_config(config: Self::Config) {
-                let _ = comptime!(check_plane_dim(config.plane_dim()));
+                comptime!(check_plane_dim(config.plane_dim()));
             }
         }
     };

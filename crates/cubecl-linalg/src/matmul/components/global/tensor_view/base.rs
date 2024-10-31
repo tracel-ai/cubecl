@@ -129,19 +129,15 @@ impl<EG: Numeric> TensorView<EG> {
                 if view_x < self.shape_x && view_y < self.shape_y {
                     tensor[write_position] = Line::cast_from(value);
                 }
-            } else {
-                if view_x < self.shape_x {
-                    tensor[write_position] = Line::cast_from(value);
-                }
-            }
-        } else {
-            if config.check_n_bounds() {
-                if view_y < self.shape_y {
-                    tensor[write_position] = Line::cast_from(value);
-                }
-            } else {
+            } else if view_x < self.shape_x {
                 tensor[write_position] = Line::cast_from(value);
             }
+        } else if config.check_n_bounds() {
+            if view_y < self.shape_y {
+                tensor[write_position] = Line::cast_from(value);
+            }
+        } else {
+            tensor[write_position] = Line::cast_from(value);
         }
     }
 }

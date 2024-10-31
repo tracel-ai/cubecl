@@ -122,7 +122,7 @@ impl<
     ) {
         Self::check_config(config);
         launch::launch_unchecked::<EG, ES, Self, Self::Config, R>(
-            &client, cube_count, cube_dim, lhs, rhs, out, config,
+            client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }
 }
