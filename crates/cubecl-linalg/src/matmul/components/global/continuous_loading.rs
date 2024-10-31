@@ -1,5 +1,5 @@
 use crate::matmul::components::config::PlaneMapper;
-use crate::matmul::components::global::GmmConfig;
+use crate::matmul::components::global::Config;
 use crate::matmul::components::matrix::Ident;
 use crate::matmul::components::stage::{
     TilingOrder, TilingOrderConfig, XMajorTiling, YMajorTiling,
@@ -27,7 +27,7 @@ impl PlaneMapper for ContinuousLoading {
 
 #[cube]
 impl ContinuousLoading {
-    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
+    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
         read_view: &TensorView<EG>,
         slice: &mut SliceMut<'_, Line<ES>>,
         #[comptime] ident: Ident,

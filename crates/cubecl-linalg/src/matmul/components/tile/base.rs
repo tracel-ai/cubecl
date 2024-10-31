@@ -18,7 +18,7 @@ use crate::matmul::components::MatmulKernel;
 ///  - Slices given as inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
-pub trait Matmul<I: Numeric, O: Numeric, T: TmmConfig>:
+pub trait Matmul<I: Numeric, O: Numeric, T: Config>:
     'static + Send + Sync + MatmulKernel<I, O, Config = T>
 {
     /// Number of rows of LHS
@@ -77,7 +77,7 @@ pub trait Matmul<I: Numeric, O: Numeric, T: TmmConfig>:
 }
 
 /// Configuration for the Tile matmul (TMM) level
-pub trait TmmConfig: MatmulConfig {
+pub trait Config: MatmulConfig {
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 

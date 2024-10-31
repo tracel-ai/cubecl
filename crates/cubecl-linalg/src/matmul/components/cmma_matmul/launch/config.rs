@@ -6,13 +6,16 @@ use crate::matmul::components::batch;
 use crate::matmul::components::global;
 use crate::matmul::components::problem::MatmulProblem;
 use crate::matmul::components::stage;
+use crate::matmul::components::stage::Matmul as StageMatmul;
 use crate::matmul::components::stage_dim::StageDim;
-use crate::matmul::components::tile;
+use crate::matmul::components::tile::Matmul as TileMatmul;
 
-pub(crate) type CmmaTmmConfig = tile::Config;
-pub(crate) type CmmaSmmConfig = stage::row_accumulate::Config<CmmaTmmConfig>;
-pub(crate) type CmmaGmmConfig = global::homogeneous::Config<CmmaSmmConfig>;
-pub(crate) type CmmaBmmConfig = batch::one_to_one::Config<CmmaGmmConfig>;
+use super::MatmulLaunchDispatch;
+
+// pub(crate) type CmmaTmmConfig = tile::plane::Config;
+pub(crate) type CmmaSmmConfig<T> = stage::row_accumulate::Config<T>;
+pub(crate) type CmmaGmmConfig<T> = global::homogeneous::Config<CmmaSmmConfig<T>>;
+pub(crate) type CmmaBmmConfig<T> = batch::one_to_one::Config<CmmaGmmConfig<T>>;
 
 /// Configs that should not hinder correctness, but may impact performance
 pub struct AdvancedConfig {
@@ -29,37 +32,29 @@ impl Default for AdvancedConfig {
 
 /// Make a config for the cmma batch kernel, given problem definition,
 /// cube settings and advanced config
-pub fn make_cmma_config<EG, ES, EA, TMM, SMM, GMM, BMM, R>(
+pub fn make_cmma_config<EG, D, R>(
     problem: &MatmulProblem<EG>,
     cube_dim: &CubeDim,
     cube_count: &CubeCount,
     advanced_config: &AdvancedConfig,
-) -> CmmaBmmConfig
+) -> CmmaBmmConfig<D::TileConfig>
 where
-    TMM: tile::Matmul<ES, EA, CmmaTmmConfig>,
-    SMM: stage::StageMatmul<
-        ES,
-        EG,
-        stage::LhsReader<ES, CmmaSmmConfig>,
-        stage::RhsReader<ES, CmmaSmmConfig>,
-        CmmaSmmConfig,
-    >,
-    GMM: global::GlobalMatmul<
-        EG,
-        ES,
-        global::LhsTensorLoader<EG, ES, CmmaGmmConfig>,
-        global::RhsTensorLoader<EG, ES, CmmaGmmConfig>,
-        global::TensorUnloader<EG, CmmaGmmConfig>,
-        CmmaGmmConfig,
-    >,
-    BMM: batch::BatchMatmul<EG, CmmaBmmConfig>,
     EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
+    D: MatmulLaunchDispatch,
     R: Runtime,
 {
-    let (stage_m, stage_n, stage_k) = (SMM::M, SMM::N, SMM::K);
-    let (tile_m, tile_n, tile_k) = (TMM::M, TMM::N, TMM::K);
+    type TMM<D> = <D as MatmulLaunchDispatch>::TileMatmul;
+    type SMM<D, EG> = stage::row_accumulate::Matmul<
+        <D as MatmulLaunchDispatch>::ElementInput,
+        EG,
+        <D as MatmulLaunchDispatch>::ElementAccumulator,
+        TMM<D>,
+        <D as MatmulLaunchDispatch>::StageSize,
+        CmmaSmmConfig<<D as MatmulLaunchDispatch>::TileConfig>,
+    >;
+
+    let (stage_m, stage_n, stage_k) = (SMM::<D, EG>::M, SMM::<D, EG>::N, SMM::<D, EG>::K);
+    let (tile_m, tile_n, tile_k) = (TMM::<D>::M, TMM::<D>::N, TMM::<D>::K);
     let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) =
         create_stage_dim(stage_m, stage_n, stage_k, tile_m, tile_n, tile_k);
 
@@ -76,16 +71,8 @@ where
         panic!("Dynamic cube count unsupported")
     };
 
-    let t = CmmaTmmConfig::new(
-        plane_dim,
-        problem.lhs_layout,
-        problem.rhs_layout,
-        problem.lhs_line_size as u32,
-        problem.rhs_line_size as u32,
-        problem.out_line_size as u32,
-    );
     let s = CmmaSmmConfig::new(
-        t,
+        D::tile_config(plane_dim, &problem),
         lhs_stage_dim,
         rhs_stage_dim,
         out_stage_dim,
@@ -99,7 +86,7 @@ where
         check_n_bounds,
     );
     let b = CmmaBmmConfig::new(g, *cube_count_x, *cube_count_y, *cube_count_z);
-    problem.check_config::<CmmaBmmConfig>(&b);
+    problem.check_config::<CmmaBmmConfig<D::TileConfig>>(&b);
 
     b
 }

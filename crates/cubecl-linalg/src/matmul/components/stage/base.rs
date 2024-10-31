@@ -1,7 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{global::GmmConfig, MatmulKernel};
+use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::matrix::{Ident, MatrixLayout};
+use crate::matmul::components::stage_dim::StageDim;
+use crate::matmul::components::{global, tile, MatmulKernel};
+
+use super::tiling_order::TilingOrderConfig;
 
 #[cube]
 /// Provides matrix multiplication operations at the stage level.
@@ -18,13 +23,8 @@ use crate::matmul::components::{global::GmmConfig, MatmulKernel};
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait StageMatmul<
-    I: Numeric,
-    O: Numeric,
-    Lhs: StageReader<I, S>,
-    Rhs: StageReader<I, S>,
-    S: SmmConfig,
->: 'static + Send + Sync + MatmulKernel<I, O, Config = S>
+pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I, S>, Rhs: StageReader<I, S>, S: Config>:
+    'static + Send + Sync + MatmulKernel<I, O, Config = S>
 {
     /// Number of rows of LHS
     const M: u32;
@@ -44,7 +44,7 @@ pub trait StageMatmul<
     fn acc_init_zeros(#[comptime] config: S) -> Self::Accumulator;
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn acc_read<Out: StageWriter<O, G>, G: GmmConfig>(
+    fn acc_read<Out: StageWriter<O, G>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut Out,
         #[comptime] stage_config: S,
@@ -55,7 +55,7 @@ pub trait StageMatmul<
 #[cube]
 /// Input to the stage matmul, responsible of handing slices of data
 /// at precise locations in the stage
-pub trait StageReader<ES: Numeric, S: SmmConfig>: CubeType {
+pub trait StageReader<ES: Numeric, S: Config>: CubeType {
     /// Hands a portion of data from the stage, whose location is function of the
     /// plane, buffer and accumulator indexes.
     fn read_tile(
@@ -70,7 +70,7 @@ pub trait StageReader<ES: Numeric, S: SmmConfig>: CubeType {
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
-pub trait StageWriter<EG: Numeric, G: GmmConfig>: CubeType + 'static + Send + Sync {
+pub trait StageWriter<EG: Numeric, G: global::Config>: CubeType + 'static + Send + Sync {
     /// Writes the given slice to global memory, at a position that depends on
     /// plane and accumulator indexes.
     fn write<ES: Numeric>(
@@ -82,17 +82,10 @@ pub trait StageWriter<EG: Numeric, G: GmmConfig>: CubeType + 'static + Send + Sy
     );
 }
 
-use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::matrix::{Ident, MatrixLayout};
-use crate::matmul::components::stage_dim::StageDim;
-use crate::matmul::components::tile::TmmConfig;
-
-use super::tiling_order::TilingOrderConfig;
-
 /// Configuration for the Stage matmul (SMM) level
-pub trait SmmConfig: MatmulConfig {
+pub trait Config: MatmulConfig {
     /// Underlying Tile matmul config
-    type TmmConfig: TmmConfig;
+    type TmmConfig: tile::Config;
 
     /// Convert itself to the underlying tile matmul config
     fn to_tmm_config(self) -> Self::TmmConfig;

@@ -1,4 +1,4 @@
-use crate::matmul::components::global::GmmConfig;
+use crate::matmul::components::global::Config;
 use crate::matmul::components::matrix::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -68,7 +68,7 @@ impl<EG: Numeric> TensorView<EG> {
     /// # Note
     ///
     /// Out-of-bounds reads will be translated to zeros.
-    pub fn load_coalesced<G: GmmConfig>(
+    pub fn load_coalesced<G: Config>(
         &self,
         tile_x: u32,
         tile_y: u32,
@@ -105,7 +105,7 @@ impl<EG: Numeric> TensorView<EG> {
     /// Writes data into the tensor view at the specified coordinates (write_x, write_y).
     ///
     /// Each unit writes one line in a coalesced manner for improved efficiency, assuming row-major layout.
-    pub fn write_coalesced<ES: Numeric, G: GmmConfig>(
+    pub fn write_coalesced<ES: Numeric, G: Config>(
         &mut self,
         tile_x: u32,
         tile_y: u32,

@@ -1,9 +1,9 @@
 use crate::matmul::components::matrix::as_cmma_layout;
-use crate::matmul::components::tile::TmmConfig;
 use crate::matmul::components::tile;
 use crate::matmul::components::matrix::MatrixLayout;
 use crate::matmul::components::matrix::Ident;
 use crate::matmul::components::MatmulKernel;
+pub use super::shared::Config;
 use cubecl_core::ir::Elem;
 use cubecl_core::ir::FloatKind;
 use cubecl_core::Feature;
@@ -29,14 +29,14 @@ pub struct Fragment<T: Numeric> {
 macro_rules! instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
 
-    pub struct $name<I: Numeric, O: Numeric, T: TmmConfig> {
+    pub struct $name<I: Numeric, O: Numeric, T: tile::Config> {
         _input: PhantomData<I>,
         _output: PhantomData<O>,
         _config: PhantomData<T>,
     }
 
     #[cube]
-    impl<I: Numeric, O: Numeric, T: TmmConfig> tile::Matmul<I, O, T> for $name<I, O, T>
+    impl<I: Numeric, O: Numeric, T: tile::Config> tile::Matmul<I, O, T> for $name<I, O, T>
     where
         (I, O): CmmaValid<I, O>,
     {
@@ -77,7 +77,7 @@ macro_rules! instruction {
         }
     }
     
-    impl<I: Numeric, O: Numeric, T: TmmConfig> MatmulKernel<I, O> for $name<I, O, T>
+    impl<I: Numeric, O: Numeric, T: tile::Config> MatmulKernel<I, O> for $name<I, O, T>
         where
             (I, O): CmmaValid<I, O>,
     {

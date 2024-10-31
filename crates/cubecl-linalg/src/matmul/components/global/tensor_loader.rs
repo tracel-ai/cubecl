@@ -1,5 +1,5 @@
 use crate::matmul::components::global::continuous_loading::ContinuousLoading;
-use crate::matmul::components::global::{GmmConfig, Loader};
+use crate::matmul::components::global::{Config, Loader};
 use crate::matmul::components::matrix::Ident;
 use crate::matmul::components::stage::{LhsReader, RhsReader, Stage};
 use cubecl_core as cubecl;
@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use super::tensor_view::TensorView;
 
 #[derive(CubeType)]
-pub struct LhsTensorLoader<EG: Numeric, ES: Numeric, G: GmmConfig> {
+pub struct LhsTensorLoader<EG: Numeric, ES: Numeric, G: Config> {
     pub tensor_view: TensorView<EG>,
     pub stage: Stage<ES>,
     pub _e: PhantomData<ES>,
@@ -17,7 +17,7 @@ pub struct LhsTensorLoader<EG: Numeric, ES: Numeric, G: GmmConfig> {
 }
 
 #[derive(CubeType)]
-pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, G: GmmConfig> {
+pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, G: Config> {
     pub tensor_view: TensorView<EG>,
     pub stage: Stage<ES>,
     pub _e: PhantomData<ES>,
@@ -25,7 +25,7 @@ pub struct RhsTensorLoader<EG: Numeric, ES: Numeric, G: GmmConfig> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GmmConfig> LhsTensorLoader<EG, ES, G> {
+impl<EG: Numeric, ES: Numeric, G: Config> LhsTensorLoader<EG, ES, G> {
     pub fn new(
         tensor: Tensor<Line<EG>>,
         x_offset: u32,
@@ -46,7 +46,7 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> LhsTensorLoader<EG, ES, G> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GmmConfig> RhsTensorLoader<EG, ES, G> {
+impl<EG: Numeric, ES: Numeric, G: Config> RhsTensorLoader<EG, ES, G> {
     pub fn new(
         tensor: Tensor<Line<EG>>,
         x_offset: u32,
@@ -67,7 +67,7 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> RhsTensorLoader<EG, ES, G> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoader<EG, ES, G> {
+impl<EG: Numeric, ES: Numeric, G: Config> Loader<EG, ES, G> for LhsTensorLoader<EG, ES, G> {
     type StageReader = LhsReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
@@ -86,7 +86,7 @@ impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for LhsTensorLoad
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GmmConfig> Loader<EG, ES, G> for RhsTensorLoader<EG, ES, G> {
+impl<EG: Numeric, ES: Numeric, G: Config> Loader<EG, ES, G> for RhsTensorLoader<EG, ES, G> {
     type StageReader = RhsReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {

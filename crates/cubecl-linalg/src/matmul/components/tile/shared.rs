@@ -1,6 +1,6 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::matrix::{Ident, MatrixLayout};
-use crate::matmul::components::tile::TmmConfig;
+use crate::matmul::components::tile;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -15,7 +15,7 @@ pub struct Config {
     out_line_size: u32,
 }
 
-impl TmmConfig for Config {
+impl tile::Config for Config {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }

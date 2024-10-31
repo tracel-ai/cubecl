@@ -4,16 +4,15 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::config::PlaneMapper;
-use crate::matmul::components::global::GmmConfig;
 use crate::matmul::components::matrix::Ident;
-use crate::matmul::components::stage::{SmmConfig, StageMatmul, StageReader, StageWriter};
+use crate::matmul::components::stage::{StageReader, StageWriter};
 use crate::matmul::components::tile;
 use crate::matmul::components::MatmulKernel;
+use crate::matmul::components::{global, stage};
 
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::matrix::MatrixLayout;
 use crate::matmul::components::stage_dim::StageDim;
-use crate::matmul::components::tile::TmmConfig;
 
 use super::reader::{LhsReader, RhsReader};
 use super::tiling_order::TilingOrderConfig;
@@ -31,7 +30,7 @@ pub struct Matmul<
     Acc: Numeric,
     Tmm: tile::Matmul<I, Acc, S::TmmConfig>,
     SS: StageSize,
-    S: SmmConfig,
+    S: stage::Config,
 > {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
@@ -42,7 +41,7 @@ pub struct Matmul<
 }
 
 #[cube]
-impl<I, O, Acc, TMM, SS, S> StageMatmul<I, O, LhsReader<I, S>, RhsReader<I, S>, S>
+impl<I, O, Acc, TMM, SS, S> stage::Matmul<I, O, LhsReader<I, S>, RhsReader<I, S>, S>
     for Matmul<I, O, Acc, TMM, SS, S>
 where
     I: Numeric,
@@ -50,7 +49,7 @@ where
     Acc: Numeric,
     TMM: tile::Matmul<I, Acc, S::TmmConfig>,
     SS: StageSize,
-    S: SmmConfig,
+    S: stage::Config,
 {
     const M: u32 = SS::NUM_M * TMM::M;
     const N: u32 = SS::NUM_N * TMM::N;
@@ -104,7 +103,7 @@ where
         accumulators
     }
 
-    fn acc_read<SW: StageWriter<O, G>, G: GmmConfig>(
+    fn acc_read<SW: StageWriter<O, G>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut SW,
         #[comptime] stage_config: S,
@@ -143,7 +142,7 @@ where
     Acc: Numeric,
     TMM: tile::Matmul<I, Acc, S::TmmConfig>,
     SS: StageSize,
-    S: SmmConfig,
+    S: stage::Config,
 {
     type Config = S;
 
@@ -164,7 +163,7 @@ where
     Acc: Numeric,
     Tmm: tile::Matmul<I, Acc, S::TmmConfig>,
     SS: StageSize,
-    S: SmmConfig,
+    S: stage::Config,
 {
     fn plane_id() -> u32 {
         UNIT_POS_Y
@@ -185,7 +184,7 @@ fn check_num_planes(expected_num_planes: u32, actual_num_planes: u32) {
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the row accumulate matmul
-pub struct Config<T: TmmConfig> {
+pub struct Config<T: tile::Config> {
     tmm_config: T,
     lhs_stage_dim: StageDim,
     rhs_stage_dim: StageDim,
@@ -194,7 +193,7 @@ pub struct Config<T: TmmConfig> {
     tiling_order: TilingOrderConfig,
 }
 
-impl<T: TmmConfig> SmmConfig for Config<T> {
+impl<T: tile::Config> stage::Config for Config<T> {
     type TmmConfig = T;
 
     fn to_tmm_config(self) -> Self::TmmConfig {
@@ -230,9 +229,9 @@ impl<T: TmmConfig> SmmConfig for Config<T> {
     }
 }
 
-impl<T: TmmConfig> MatmulConfig for Config<T> {}
+impl<T: tile::Config> MatmulConfig for Config<T> {}
 
-impl<T: TmmConfig> Config<T> {
+impl<T: tile::Config> Config<T> {
     pub fn new(
         tmm_config: T,
         lhs_stage_dim: StageDim,

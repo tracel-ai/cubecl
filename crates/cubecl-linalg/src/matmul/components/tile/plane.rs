@@ -1,8 +1,8 @@
+pub use super::shared::Config;
 use crate::matmul::components::config::PlaneMapper;
 use crate::matmul::components::matrix::Ident;
 use crate::matmul::components::matrix::MatrixLayout;
 use crate::matmul::components::tile;
-use crate::matmul::components::tile::TmmConfig;
 use crate::matmul::components::MatmulKernel;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -23,15 +23,21 @@ pub type PlaneMma32x32x32<I, O, T> = PlaneMma<I, O, T, 32, 32, 32>;
 ///  - There are likely unrolling issues,
 ///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used
 ///  - To fix an obscure bug one loop is done twice
-pub struct PlaneMma<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32>
-{
+pub struct PlaneMma<
+    I: Numeric,
+    O: Numeric,
+    T: tile::Config,
+    const M: u32,
+    const N: u32,
+    const K: u32,
+> {
     _input: PhantomData<I>,
     _output: PhantomData<O>,
     _config: PhantomData<T>,
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32> PlaneMapper
+impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const K: u32> PlaneMapper
     for PlaneMma<I, O, T, M, N, K>
 {
     fn plane_id() -> u32 {
@@ -44,7 +50,7 @@ impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: 
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32>
+impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const K: u32>
     tile::Matmul<I, O, T> for PlaneMma<I, O, T, M, N, K>
 {
     const M: u32 = M;
@@ -300,7 +306,7 @@ fn fill_parallel_rhs<E: Numeric>(
     }
 }
 
-impl<I: Numeric, O: Numeric, T: TmmConfig, const M: u32, const N: u32, const K: u32>
+impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const K: u32>
     MatmulKernel<I, O> for PlaneMma<I, O, T, M, N, K>
 {
     type Config = T;

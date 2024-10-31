@@ -1,10 +1,10 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::GmmConfig;
+use crate::matmul::components::global;
 use crate::matmul::components::global::Loader;
 use crate::matmul::components::matrix::{Ident, MatrixLayout};
-use crate::matmul::components::stage::{LhsReader, RhsReader, StageMatmul};
-use crate::matmul::components::stage::{SmmConfig, TilingOrderConfig};
+use crate::matmul::components::stage;
+use crate::matmul::components::stage::TilingOrderConfig;
+use crate::matmul::components::stage::{LhsReader, RhsReader};
 use crate::matmul::components::stage_dim::StageDim;
 use crate::matmul::components::MatmulKernel;
 
@@ -22,8 +22,8 @@ use super::tensor_unloader::TensorUnloader;
 pub struct Matmul<
     EG: Numeric,
     ES: Numeric,
-    SMM: StageMatmul<ES, EG, LhsReader<ES, G::SmmConfig>, RhsReader<ES, G::SmmConfig>, G::SmmConfig>,
-    G: GmmConfig,
+    SMM: stage::Matmul<ES, EG, LhsReader<ES, G::SmmConfig>, RhsReader<ES, G::SmmConfig>, G::SmmConfig>,
+    G: global::Config,
 > {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
@@ -33,7 +33,7 @@ pub struct Matmul<
 
 #[cube]
 impl<EG, ES, SMM, G>
-    GlobalMatmul<
+    global::Matmul<
         EG,
         ES,
         LhsTensorLoader<EG, ES, G>,
@@ -44,9 +44,14 @@ impl<EG, ES, SMM, G>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM:
-        StageMatmul<ES, EG, LhsReader<ES, G::SmmConfig>, RhsReader<ES, G::SmmConfig>, G::SmmConfig>,
-    G: GmmConfig,
+    SMM: stage::Matmul<
+        ES,
+        EG,
+        LhsReader<ES, G::SmmConfig>,
+        RhsReader<ES, G::SmmConfig>,
+        G::SmmConfig,
+    >,
+    G: global::Config,
 {
     fn execute(
         mut lhs_loader: LhsTensorLoader<EG, ES, G>,
@@ -93,9 +98,14 @@ impl<EG, ES, SMM, G> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM, G>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM:
-        StageMatmul<ES, EG, LhsReader<ES, G::SmmConfig>, RhsReader<ES, G::SmmConfig>, G::SmmConfig>,
-    G: GmmConfig,
+    SMM: stage::Matmul<
+        ES,
+        EG,
+        LhsReader<ES, G::SmmConfig>,
+        RhsReader<ES, G::SmmConfig>,
+        G::SmmConfig,
+    >,
+    G: global::Config,
 {
     type Config = G;
 
@@ -106,14 +116,14 @@ where
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the HomogeneousGlobalMatmul
-pub struct Config<S: SmmConfig> {
+pub struct Config<S: stage::Config> {
     smm_config: S,
     out_smem_line_size: u32,
     check_m_bounds: bool,
     check_n_bounds: bool,
 }
 
-impl<S: SmmConfig> GmmConfig for Config<S> {
+impl<S: stage::Config> global::Config for Config<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {
@@ -157,9 +167,9 @@ impl<S: SmmConfig> GmmConfig for Config<S> {
     }
 }
 
-impl<S: SmmConfig> MatmulConfig for Config<S> {}
+impl<S: stage::Config> MatmulConfig for Config<S> {}
 
-impl<S: SmmConfig> Config<S> {
+impl<S: stage::Config> Config<S> {
     pub fn new(
         smm_config: S,
         out_smem_line_size: u32,

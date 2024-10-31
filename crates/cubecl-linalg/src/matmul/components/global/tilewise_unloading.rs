@@ -1,5 +1,5 @@
 use crate::matmul::components::config::PlaneMapper;
-use crate::matmul::components::global::GmmConfig;
+use crate::matmul::components::global::Config;
 use crate::matmul::components::matrix::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -24,7 +24,7 @@ impl PlaneMapper for TilewiseUnloading {
 
 #[cube]
 impl TilewiseUnloading {
-    pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: GmmConfig>(
+    pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: Config>(
         write_view: &mut TensorView<EG>,
         slice: &Slice<'_, Line<ES>>,
         tile_x: u32,

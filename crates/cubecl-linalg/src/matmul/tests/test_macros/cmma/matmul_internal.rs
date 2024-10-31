@@ -1,7 +1,7 @@
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_matmul_internal {
-    ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $eg:ty, $es:ty, $ea:ty, $plane_dim:expr) => {
+    ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $i_config:ident, $eg:ty, $es:ty, $ea:ty, $plane_dim:expr) => {
         use cubecl_linalg::matmul::components::{
             batch,
             batch::one_to_one,
@@ -19,15 +19,15 @@ macro_rules! testgen_matmul_internal {
             cmma_matmul::{
                 launch::{make_cmma_config, AdvancedConfig},
             },
-            stage::StageMatmul,
             matrix::MatrixLayout,
             problem::MatmulProblem,
             stage_dim::StageDim,
         };
         use std::marker::PhantomData;
+        use cubecl_linalg::matmul::components::cmma_matmul::launch::MatmulLaunchDispatch;
         use cubecl_linalg::matmul::tests::matmul_modular::matmul_test_launcher::test_matmul_internal;
 
-        type T = tile::Config;
+        type T = $i_config;
         type S = stage::row_accumulate::Config<T>;
         type G = global::homogeneous::Config<S>;
         type B = batch::one_to_one::Config<G>;
@@ -44,6 +44,34 @@ macro_rules! testgen_matmul_internal {
                                                                     ) => {
                 pub fn $test_name<R: Runtime>(device: &R::Device) {
                     let problem = $problem;
+                    struct D {}
+                    impl MatmulLaunchDispatch for D {
+                        const PLANE_DIM: u32 = $plane_dim;
+                        type StageSize = $stage_size;
+                        type ElementInput = $es;
+                        type ElementAccumulator = $ea;
+                        type TileConfig = $i_config;
+                        type TileMatmul = $tile_matmul_type<ES, EA, T>;
+                        fn cube_dim() -> CubeDim {
+                            $cube_dim
+                        }
+                        fn cube_count<EG: Numeric>(_problem: &MatmulProblem<EG>) -> CubeCount {
+                            $cube_count
+                        }
+                        fn tile_config<EG: Numeric>(
+                            plane_dim: u32,
+                            problem: &MatmulProblem<EG>,
+                        ) -> Self::TileConfig {
+                            Self::TileConfig::new(
+                                plane_dim,
+                                problem.lhs_layout,
+                                problem.rhs_layout,
+                                problem.lhs_line_size as u32,
+                                problem.rhs_line_size as u32,
+                                problem.out_line_size as u32,
+                            )
+                        }
+                    }
 
                     type EG = $eg;
                     type ES = $es;
@@ -57,12 +85,7 @@ macro_rules! testgen_matmul_internal {
 
                     let config = make_cmma_config::<
                         EG,
-                        ES,
-                        EA,
-                        TileMatmul,
-                        StageMatmul,
-                        GlobalMatmul,
-                        BatchMatmul,
+                        D,
                         R,
                     >(&problem, &$cube_dim, &$cube_count, &$advanced_config);
 

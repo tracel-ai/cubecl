@@ -8,15 +8,12 @@ use cubecl_core::{
     tensor_line_size, Runtime,
 };
 
-use crate::matmul::components::batch::one_to_one::Matmul;
 use crate::matmul::components::cmma_matmul::launch::{
     make_cmma_config, CmmaBmmConfig, CmmaGmmConfig, CmmaSmmConfig,
 };
-use crate::matmul::components::global;
 use crate::matmul::components::problem::MatmulProblem;
 use crate::matmul::components::stage;
-use crate::matmul::components::stage::StageSize;
-use crate::matmul::components::tile;
+use crate::matmul::components::{batch, global};
 use crate::matmul::components::{matrix, MatmulLaunch};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout};
 
@@ -118,7 +115,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
 
     let advanced_config = Default::default();
 
-    launch_matmul::<R, EG, D::ElementInput, D::ElementAccumulator, D::TileMatmul, D::StageSize>(
+    launch_matmul::<R, EG, D>(
         client,
         lhs,
         rhs,
@@ -130,14 +127,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
     );
 }
 
-fn launch_matmul<
-    R: Runtime,
-    EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    TMM: tile::Matmul<ES, EA, tile::Config>,
-    CSS: StageSize,
->(
+fn launch_matmul<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
@@ -147,26 +137,27 @@ fn launch_matmul<
     cube_count: CubeCount,
     advanced_config: AdvancedConfig,
 ) {
-    type StageMatmul<TMM, CSS, EG, ES, EA> =
-        stage::row_accumulate::Matmul<ES, EG, EA, TMM, CSS, CmmaSmmConfig>;
-    type GlobalMatmul<TMM, CSS, EG, ES, EA> =
-        global::homogeneous::Matmul<EG, ES, StageMatmul<TMM, CSS, EG, ES, EA>, CmmaGmmConfig>;
-    type BatchMatmul<TMM, CSS, EG, ES, EA> =
-        Matmul<EG, ES, GlobalMatmul<TMM, CSS, EG, ES, EA>, CmmaBmmConfig>;
+    let config = make_cmma_config::<EG, D, R>(&problem, &cube_dim, &cube_count, &advanced_config);
 
-    let config = make_cmma_config::<
-        EG,
-        ES,
-        EA,
-        TMM,
-        StageMatmul<TMM, CSS, EG, ES, EA>,
-        GlobalMatmul<TMM, CSS, EG, ES, EA>,
-        BatchMatmul<TMM, CSS, EG, ES, EA>,
-        R,
-    >(&problem, &cube_dim, &cube_count, &advanced_config);
+    type StageMatmul<TMM, T, CSS, EG, ES, EA> =
+        stage::row_accumulate::Matmul<ES, EG, EA, TMM, CSS, CmmaSmmConfig<T>>;
+    type GlobalMatmul<TMM, T, CSS, EG, ES, EA> =
+        global::homogeneous::Matmul<EG, ES, StageMatmul<TMM, T, CSS, EG, ES, EA>, CmmaGmmConfig<T>>;
 
     unsafe {
-        BatchMatmul::<TMM, CSS, EG, ES, EA>::launch_unchecked(
+        batch::one_to_one::Matmul::<
+            EG,
+            D::ElementInput,
+            GlobalMatmul<
+                D::TileMatmul,
+                D::TileConfig,
+                D::StageSize,
+                EG,
+                D::ElementInput,
+                D::ElementAccumulator,
+            >,
+            CmmaBmmConfig<D::TileConfig>,
+        >::launch_unchecked::<R>(
             client,
             cube_dim,
             cube_count,

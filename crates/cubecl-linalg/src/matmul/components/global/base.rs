@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::matrix::{Ident, MatrixLayout};
-use crate::matmul::components::stage::{SmmConfig, StageReader, StageWriter, TilingOrderConfig};
+use crate::matmul::components::stage::{self, StageReader, StageWriter, TilingOrderConfig};
 use crate::matmul::components::stage_dim::StageDim;
 use crate::matmul::components::MatmulKernel;
 
@@ -26,13 +26,13 @@ use crate::matmul::components::MatmulKernel;
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important that Loaders and Unloaders perform checks to avoid out-of-bounds
 /// before loading data.
-pub trait GlobalMatmul<
+pub trait Matmul<
     EG: Numeric,
     ES: Numeric,
     Lhs: Loader<EG, ES, G>,
     Rhs: Loader<EG, ES, G>,
     Out: Unloader<EG, G>,
-    G: GmmConfig,
+    G: Config,
 >: 'static + Send + Sync + MatmulKernel<EG, EG, Config = G>
 {
     /// Performs the matrix multiplication over data loaded by the
@@ -53,7 +53,7 @@ pub trait GlobalMatmul<
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
 /// Advances along the k-dimension to fill the stage with further data.
-pub trait Loader<EG: Numeric, ES: Numeric, G: GmmConfig>: CubeType + 'static + Send + Sync {
+pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: StageReader<ES, G::SmmConfig>;
 
@@ -71,16 +71,16 @@ pub trait Loader<EG: Numeric, ES: Numeric, G: GmmConfig>: CubeType + 'static + S
 ///
 /// It is only a wrapper over the stage writer because there is no K for the output.
 /// Could be deleted in favor of having only the StageWriter
-pub trait Unloader<EG: Numeric, G: GmmConfig>: CubeType + 'static + Send + Sync {
+pub trait Unloader<EG: Numeric, G: Config>: CubeType + 'static + Send + Sync {
     type StageWriter: StageWriter<EG, G>;
 
     fn as_stage_writer(unloader: Self) -> Self::StageWriter;
 }
 
 /// Configuration for the Global matmul (GMM) level
-pub trait GmmConfig: MatmulConfig {
+pub trait Config: MatmulConfig {
     /// Underlying Stage matmul config
-    type SmmConfig: SmmConfig;
+    type SmmConfig: stage::Config;
 
     /// Convert itself to the underlying stage matmul config
     fn to_smm_config(&self) -> Self::SmmConfig;

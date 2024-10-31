@@ -6,24 +6,24 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::stage::Stage;
-use super::SmmConfig;
+use super::Config;
 
 #[derive(CubeType)]
 /// Stage reader for LHS
-pub struct LhsReader<ES: Numeric, S: SmmConfig> {
+pub struct LhsReader<ES: Numeric, S: Config> {
     pub stage: Stage<ES>,
     pub _config: PhantomData<S>,
 }
 
 #[derive(CubeType)]
 /// Stage reader for RHS
-pub struct RhsReader<ES: Numeric, S: SmmConfig> {
+pub struct RhsReader<ES: Numeric, S: Config> {
     pub stage: Stage<ES>,
     pub _config: PhantomData<S>,
 }
 
 #[cube]
-impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for LhsReader<ES, S> {
+impl<ES: Numeric, S: Config> StageReader<ES, S> for LhsReader<ES, S> {
     fn read_tile(
         this: &Self,
         compute_plane_offset: u32,
@@ -37,7 +37,7 @@ impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for LhsReader<ES, S> {
 }
 
 #[cube]
-impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for RhsReader<ES, S> {
+impl<ES: Numeric, S: Config> StageReader<ES, S> for RhsReader<ES, S> {
     fn read_tile(
         this: &Self,
         _compute_plane_offset: u32,
@@ -51,7 +51,7 @@ impl<ES: Numeric, S: SmmConfig> StageReader<ES, S> for RhsReader<ES, S> {
 }
 
 #[cube]
-impl<ES: Numeric, S: SmmConfig> LhsReader<ES, S> {
+impl<ES: Numeric, S: Config> LhsReader<ES, S> {
     pub fn new(stage: Stage<ES>) -> LhsReader<ES, S> {
         LhsReader::<ES, S> {
             stage,
@@ -61,7 +61,7 @@ impl<ES: Numeric, S: SmmConfig> LhsReader<ES, S> {
 }
 
 #[cube]
-impl<ES: Numeric, S: SmmConfig> RhsReader<ES, S> {
+impl<ES: Numeric, S: Config> RhsReader<ES, S> {
     pub fn new(stage: Stage<ES>) -> RhsReader<ES, S> {
         RhsReader::<ES, S> {
             stage,

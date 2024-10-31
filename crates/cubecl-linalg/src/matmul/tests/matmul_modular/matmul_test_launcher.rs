@@ -3,8 +3,8 @@ use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
 
 use crate::matmul::components;
-use crate::matmul::components::batch::BatchMatmul;
 use crate::matmul::components::batch::BmmConfig;
+use crate::matmul::components::batch::Matmul;
 use crate::matmul::components::matrix::Ident;
 use crate::matmul::components::matrix::MatrixLayout;
 use crate::matmul::components::problem::MatmulProblem;
@@ -31,7 +31,7 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
     device: &R::Device,
 ) where
     EG: Numeric + CubeElement,
-    MM: BatchMatmul<EG, B>,
+    MM: Matmul<EG, B>,
     B: BmmConfig,
     R: Runtime,
 {
