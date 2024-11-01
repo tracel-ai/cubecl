@@ -99,7 +99,7 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, F: Float>(
             panic!("Can't run on highly permuted tensor")
         }
     };
-    let lhs_transposed = check_layout(lhs.strides);
+    let lhs_transposed = true; //check_layout(lhs.strides);
     let rhs_transposed = check_layout(rhs.strides);
 
     let vectorization = |shape: usize| {

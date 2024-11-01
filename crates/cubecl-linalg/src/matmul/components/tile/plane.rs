@@ -81,7 +81,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                 // TODO replace by dot
                 let mut dot = O::from_int(0);
                 #[unroll]
-                for i in 0..1 {
+                for i in 0..4 {
                     dot += O::cast_from(a[i] * b[i]);
                 }
 
