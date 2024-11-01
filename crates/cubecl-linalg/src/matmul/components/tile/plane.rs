@@ -1,15 +1,16 @@
-pub use super::shared::Config;
+use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::tile::Config as TileConfig;
 use crate::matmul::components::{config::PlaneMapper, tile, Ident, MatmulKernel, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-pub type PlaneMma16x16x16<I, O, T> = PlaneMma<I, O, T, 16, 16, 16>;
-pub type PlaneMma16x16x8<I, O, T> = PlaneMma<I, O, T, 16, 16, 8>;
-pub type PlaneMma16x16x32<I, O, T> = PlaneMma<I, O, T, 16, 16, 32>;
-pub type PlaneMma32x8x16<I, O, T> = PlaneMma<I, O, T, 32, 8, 16>;
-pub type PlaneMma8x32x16<I, O, T> = PlaneMma<I, O, T, 8, 32, 16>;
-pub type PlaneMma32x32x32<I, O, T> = PlaneMma<I, O, T, 32, 32, 32>;
+pub type PlaneMma16x16x16<I, O> = PlaneMma<I, O, 16, 16, 16>;
+pub type PlaneMma16x16x8<I, O> = PlaneMma<I, O, 16, 16, 8>;
+pub type PlaneMma16x16x32<I, O> = PlaneMma<I, O, 16, 16, 32>;
+pub type PlaneMma32x8x16<I, O> = PlaneMma<I, O, 32, 8, 16>;
+pub type PlaneMma8x32x16<I, O> = PlaneMma<I, O, 8, 32, 16>;
+pub type PlaneMma32x32x32<I, O> = PlaneMma<I, O, 32, 32, 32>;
 
 /// PlaneMMA instruction uses plane cooperation but does not rely on tensor cores
 ///
@@ -19,22 +20,14 @@ pub type PlaneMma32x32x32<I, O, T> = PlaneMma<I, O, T, 32, 32, 32>;
 ///  - There are likely unrolling issues,
 ///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used
 ///  - To fix an obscure bug one loop is done twice
-pub struct PlaneMma<
-    I: Numeric,
-    O: Numeric,
-    T: tile::Config,
-    const M: u32,
-    const N: u32,
-    const K: u32,
-> {
+pub struct PlaneMma<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> {
     _input: PhantomData<I>,
     _output: PhantomData<O>,
-    _config: PhantomData<T>,
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const K: u32> PlaneMapper
-    for PlaneMma<I, O, T, M, N, K>
+impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> PlaneMapper
+    for PlaneMma<I, O, M, N, K>
 {
     fn plane_id() -> u32 {
         UNIT_POS_Y
@@ -46,8 +39,8 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const K: u32>
-    tile::Matmul<I, O, T> for PlaneMma<I, O, T, M, N, K>
+impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Matmul<I, O, Config>
+    for PlaneMma<I, O, M, N, K>
 {
     const M: u32 = M;
     const N: u32 = N;
@@ -57,7 +50,7 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
     type Rhs = Array<I>;
     type Out = Array<O>;
 
-    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: T) {
+    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: Config) {
         let k_jump = config.plane_dim() / Self::N;
         let row_division = config.plane_dim() / Self::M;
 
@@ -83,15 +76,22 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
         }
     }
 
-    fn init_lhs(#[comptime] _config: T) -> Self::Lhs {
-        Array::new(Self::K)
+    fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
+        // let line_size = config.plane_mma_line_size();
+        let line_size = 4;
+        Array::vectorized(Self::K / line_size, line_size)
     }
 
-    fn init_rhs(#[comptime] config: T) -> Self::Rhs {
-        Array::new(Self::K * Self::N / config.plane_dim())
+    fn init_rhs(#[comptime] config: Config) -> Self::Rhs {
+        // let line_size = config.plane_mma_line_size();
+        let line_size = 4;
+        Array::vectorized(
+            Self::K * Self::N / (line_size * config.plane_dim()),
+            line_size,
+        )
     }
 
-    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: T) {
+    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
         match comptime!(config.layout(Ident::Lhs)) {
             MatrixLayout::RowMajor => fill_parallel_lhs(
                 slice,
@@ -99,8 +99,7 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
                 Self::plane_unit(),
                 Self::M,
                 Self::K,
-                config.line_size(Ident::Lhs),
-                config.plane_dim(),
+                config,
             ),
             MatrixLayout::ColMajor => fill_perpendicular_lhs(
                 slice,
@@ -108,13 +107,12 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
                 Self::plane_unit(),
                 Self::M,
                 Self::K,
-                config.line_size(Ident::Lhs),
-                config.plane_dim(),
+                config,
             ),
         }
     }
 
-    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: T) {
+    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
         match comptime!(config.layout(Ident::Rhs)) {
             MatrixLayout::RowMajor => fill_perpendicular_rhs(
                 slice,
@@ -122,8 +120,7 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
                 Self::plane_unit(),
                 Self::N,
                 Self::K,
-                config.line_size(Ident::Rhs),
-                config.plane_dim(),
+                config,
             ),
             MatrixLayout::ColMajor => fill_parallel_rhs(
                 slice,
@@ -131,13 +128,12 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
                 Self::plane_unit(),
                 Self::N,
                 Self::K,
-                config.line_size(Ident::Rhs),
-                config.plane_dim(),
+                config,
             ),
         }
     }
 
-    fn init_output(#[comptime] config: T) -> Self::Out {
+    fn init_output(#[comptime] config: Config) -> Self::Out {
         let len = Self::M * Self::N / config.plane_dim();
         let mut acc = Array::new(len);
         for i in 0..len {
@@ -149,7 +145,7 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
     fn read_output<C: Numeric>(
         out: &Self::Out,
         slice: &mut SliceMut<'_, Line<C>>,
-        #[comptime] config: T,
+        #[comptime] config: Config,
     ) {
         let line_size = config.line_size(Ident::Out);
         let plane_dim = config.plane_dim();
@@ -192,21 +188,24 @@ fn fill_parallel_lhs<E: Numeric>(
     unit: u32,
     #[comptime] m: u32,
     #[comptime] k: u32,
-    #[comptime] line_size: u32,
-    #[comptime] plane_dim: u32,
+    #[comptime] config: Config,
 ) {
-    let num_lines = k / line_size;
+    let lhs_line_size = config.line_size(Ident::Lhs);
+    let plane_dim = config.plane_dim();
+    let plane_mma_line_size = 4; // TODO
+
+    let num_lines = k / lhs_line_size;
     let row = unit * m / plane_dim;
 
     #[unroll]
     for col in 0..num_lines {
         let line = slice_from[row * num_lines + col];
-        if comptime!(line_size == 1) {
-            slice_to[col * line_size] = E::cast_from(line);
+        if comptime!(lhs_line_size == 1) {
+            slice_to[col * lhs_line_size] = E::cast_from(line);
         } else {
             #[unroll]
-            for line_idx in 0..line_size {
-                slice_to[col * line_size + line_idx] = line[line_idx];
+            for line_idx in 0..lhs_line_size {
+                slice_to[col * lhs_line_size + line_idx] = line[line_idx];
             }
         }
     }
@@ -219,19 +218,22 @@ fn fill_perpendicular_lhs<E: Numeric>(
     unit: u32,
     #[comptime] m: u32,
     #[comptime] k: u32,
-    #[comptime] line_size: u32,
-    #[comptime] plane_dim: u32,
+    #[comptime] config: Config,
 ) {
-    let num_lines = m / line_size;
+    let lhs_line_size = config.line_size(Ident::Lhs);
+    let plane_dim = config.plane_dim();
+    let plane_mma_line_size = 4; // TODO
+
+    let num_lines = m / lhs_line_size;
     let row = unit * m / plane_dim;
 
-    let row_idx = row / line_size;
-    let line_idx = row % line_size;
+    let row_idx = row / lhs_line_size;
+    let line_idx = row % lhs_line_size;
 
     #[unroll]
     for col in 0..k {
         let line = slice_from[row_idx + col * num_lines];
-        slice_to[col] = if comptime!(line_size == 1) {
+        slice_to[col] = if comptime!(lhs_line_size == 1) {
             E::cast_from(line)
         } else {
             line[line_idx]
@@ -246,15 +248,18 @@ fn fill_perpendicular_rhs<E: Numeric>(
     unit: u32,
     #[comptime] n: u32,
     #[comptime] k: u32,
-    #[comptime] line_size: u32,
-    #[comptime] plane_dim: u32,
+    #[comptime] config: Config,
 ) {
+    let rhs_line_size = config.line_size(Ident::Rhs);
+    let plane_dim = config.plane_dim();
+    let plane_mma_line_size = 4; // TODO
+
     let k_row_alt = unit / n;
     let col = unit % n;
 
-    let num_lines = n / line_size;
-    let col_idx = col / line_size;
-    let line_idx = col % line_size;
+    let num_lines = n / rhs_line_size;
+    let col_idx = col / rhs_line_size;
+    let line_idx = col % rhs_line_size;
 
     let row_jump = plane_dim / n;
 
@@ -264,7 +269,7 @@ fn fill_perpendicular_rhs<E: Numeric>(
         let offset = k_row * num_lines + col_idx;
         let line = slice_from[offset];
 
-        slice_to[k_iter] = if comptime!(line_size == 1) {
+        slice_to[k_iter] = if comptime!(rhs_line_size == 1) {
             E::cast_from(line)
         } else {
             line[line_idx]
@@ -279,37 +284,95 @@ fn fill_parallel_rhs<E: Numeric>(
     unit: u32,
     #[comptime] n: u32,
     #[comptime] k: u32,
-    #[comptime] line_size: u32,
-    #[comptime] plane_dim: u32,
+    #[comptime] config: Config,
 ) {
+    let rhs_line_size = config.line_size(Ident::Rhs);
+    let plane_dim = config.plane_dim();
+    let plane_mma_line_size = 4; // TODO
+
     let k_row_alt = unit / n;
     let col = unit % n;
     let row_jump = plane_dim / n;
-    let col_offset = col * k / line_size;
+    let col_offset = col * k / rhs_line_size;
 
     #[unroll]
     for k_iter in 0..k / row_jump {
         let row = row_jump * k_iter + k_row_alt;
-        let row_index = row / line_size;
+        let row_index = row / rhs_line_size;
         let offset = row_index + col_offset;
         let line = slice_from[offset];
-        slice_to[k_iter] = if comptime!(line_size == 1) {
+        slice_to[k_iter] = if comptime!(rhs_line_size == 1) {
             E::cast_from(line)
         } else {
-            let line_idx = row % line_size;
+            let line_idx = row % rhs_line_size;
             line[line_idx]
         }
     }
 }
 
-impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const K: u32>
-    MatmulKernel<I, O> for PlaneMma<I, O, T, M, N, K>
+impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKernel<I, O>
+    for PlaneMma<I, O, M, N, K>
 {
-    type Config = T;
+    type Config = Config;
 
     fn check_config(config: Self::Config) {
         let plane_dim = config.plane_dim();
         assert!(M * N % plane_dim == 0);
         assert!(K * N % plane_dim == 0);
+    }
+}
+
+#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Configuration for PlaneMma instruction
+pub struct Config {
+    plane_dim: u32,
+    lhs_layout: MatrixLayout,
+    rhs_layout: MatrixLayout,
+    lhs_line_size: u32,
+    rhs_line_size: u32,
+    out_line_size: u32,
+}
+
+impl tile::Config for Config {
+    fn plane_dim(&self) -> u32 {
+        self.plane_dim
+    }
+
+    fn layout(&self, ident: Ident) -> MatrixLayout {
+        match ident {
+            Ident::Lhs => self.lhs_layout,
+            Ident::Rhs => self.rhs_layout,
+            Ident::Out => MatrixLayout::RowMajor,
+        }
+    }
+
+    fn line_size(&self, ident: Ident) -> u32 {
+        match ident {
+            Ident::Lhs => self.lhs_line_size,
+            Ident::Rhs => self.rhs_line_size,
+            Ident::Out => self.out_line_size,
+        }
+    }
+}
+
+impl MatmulConfig for Config {}
+
+impl Config {
+    pub fn new(
+        plane_dim: u32,
+        lhs_layout: MatrixLayout,
+        rhs_layout: MatrixLayout,
+        lhs_line_size: u32,
+        rhs_line_size: u32,
+        out_line_size: u32,
+    ) -> Self {
+        Self {
+            plane_dim,
+            lhs_layout,
+            rhs_layout,
+            lhs_line_size,
+            rhs_line_size,
+            out_line_size,
+        }
     }
 }

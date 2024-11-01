@@ -1,7 +1,7 @@
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_matmul_internal {
-    ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $i_config:ident, $eg:ty, $es:ty, $ea:ty, $plane_dim:expr) => {
+    ($i_16x16x16:ident, $i_32x8x16:ident, $i_8x32x16:ident, $eg:ty, $es:ty, $ea:ty, $plane_dim:expr) => {
         use cubecl_linalg::matmul::components::{
             batch,
             batch::one_to_one,
@@ -22,7 +22,7 @@ macro_rules! testgen_matmul_internal {
         use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_internal;
         use cubecl_core::prelude::*;
 
-        type T = $i_config;
+        type T = Config;
         type S = stage::row_accumulate::Config<T>;
         type G = global::homogeneous::Config<S>;
         type B = batch::one_to_one::Config<G>;
@@ -45,8 +45,8 @@ macro_rules! testgen_matmul_internal {
                         type StageSize = $stage_size;
                         type ElementInput = $es;
                         type ElementAccumulator = $ea;
-                        type TileConfig = $i_config;
-                        type TileMatmul = $tile_matmul_type<ES, EA, T>;
+                        type TileConfig = Config;
+                        type TileMatmul = $tile_matmul_type<ES, EA>;
                         fn cube_dim() -> CubeDim {
                             $cube_dim
                         }
@@ -73,7 +73,7 @@ macro_rules! testgen_matmul_internal {
                     type EA = $ea;
                     type StageSize = $stage_size;
 
-                    type TileMatmul = $tile_matmul_type<ES, EA, T>;
+                    type TileMatmul = $tile_matmul_type<ES, EA>;
                     type StageMatmul = stage::row_accumulate::Matmul<ES, EG, EA, TileMatmul, StageSize, S>;
                     type GlobalMatmul = global::homogeneous::Matmul<EG, ES, StageMatmul, G>;
                     type BatchMatmul = batch::one_to_one::Matmul<EG, ES, GlobalMatmul, B>;
@@ -495,35 +495,9 @@ macro_rules! testgen_matmul_internal {
         }
 
         #[test]
-        pub fn test_plane_mma_32x32x32() {
+        pub fn test_tile_t16x16x16_row_col() {
             matmul_test!(
-                test_plane_mma_32x32x32,
-                MatmulProblem {
-                    m: 32,
-                    n: 32,
-                    k: 32,
-                    batches: vec![],
-                    lhs_layout: MatrixLayout::RowMajor,
-                    rhs_layout: MatrixLayout::ColMajor,
-                    lhs_line_size: 4,
-                    rhs_line_size: 4,
-                    out_line_size: 4,
-                    _element: PhantomData,
-                },
-                CubeDim::new(32, 1, 1),
-                CubeCount::Static(1, 1, 1),
-                S1x1x1,
-                PlaneMma32x32x32,
-                AdvancedConfig::default()
-            );
-
-            test_plane_mma_32x32x32::<TestRuntime>(&Default::default())
-        }
-
-        #[test]
-        pub fn test_plane_mma_t16x16x16_row_col() {
-            matmul_test!(
-                test_plane_mma_16_16_16,
+                test_tile_16_16_16,
                 MatmulProblem {
                     m: 16,
                     n: 16,
@@ -543,13 +517,13 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_16_16_16::<TestRuntime>(&Default::default())
+            test_tile_16_16_16::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn test_plane_mma_t16x16x16_col_row() {
+        pub fn test_tile_t16x16x16_col_row() {
             matmul_test!(
-                test_plane_mma_t16x16x16_col_row,
+                test_tile_t16x16x16_col_row,
                 MatmulProblem {
                     m: 16,
                     n: 16,
@@ -569,13 +543,13 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t16x16x16_col_row::<TestRuntime>(&Default::default())
+            test_tile_t16x16x16_col_row::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn test_plane_mma_t16x16x16_col_col() {
+        pub fn test_tile_t16x16x16_col_col() {
             matmul_test!(
-                test_plane_mma_t16x16x16_col_col,
+                test_tile_t16x16x16_col_col,
                 MatmulProblem {
                     m: 16,
                     n: 16,
@@ -595,65 +569,13 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t16x16x16_col_col::<TestRuntime>(&Default::default())
+            test_tile_t16x16x16_col_col::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn test_plane_mma_t16x16x8() {
+        pub fn test_tile_t32x8x16() {
             matmul_test!(
-                test_plane_mma_t16x16x8,
-                MatmulProblem {
-                    m: 16,
-                    n: 16,
-                    k: 8,
-                    batches: vec![],
-                    lhs_layout: MatrixLayout::RowMajor,
-                    rhs_layout: MatrixLayout::RowMajor,
-                    lhs_line_size: 4,
-                    rhs_line_size: 4,
-                    out_line_size: 4,
-                    _element: PhantomData,
-                },
-                CubeDim::new(32, 1, 1),
-                CubeCount::Static(1, 1, 1),
-                S1x1x1,
-                PlaneMma16x16x8,
-                AdvancedConfig::default()
-            );
-
-            test_plane_mma_t16x16x8::<TestRuntime>(&Default::default())
-        }
-
-        #[test]
-        pub fn test_plane_mma_t16x16x32() {
-            matmul_test!(
-                test_plane_mma_t16x16x32,
-                MatmulProblem {
-                    m: 16,
-                    n: 16,
-                    k: 32,
-                    batches: vec![],
-                    lhs_layout: MatrixLayout::RowMajor,
-                    rhs_layout: MatrixLayout::RowMajor,
-                    lhs_line_size: 4,
-                    rhs_line_size: 4,
-                    out_line_size: 4,
-                    _element: PhantomData,
-                },
-                CubeDim::new(32, 1, 1),
-                CubeCount::Static(1, 1, 1),
-                S1x1x1,
-                PlaneMma16x16x32,
-                AdvancedConfig::default()
-            );
-
-            test_plane_mma_t16x16x32::<TestRuntime>(&Default::default())
-        }
-
-        #[test]
-        pub fn test_plane_mma_t32x8x16() {
-            matmul_test!(
-                test_plane_mma_t32x8x16,
+                test_tile_t32x8x16,
                 MatmulProblem {
                     m: 32,
                     n: 8,
@@ -673,14 +595,14 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t32x8x16::<TestRuntime>(&Default::default())
+            test_tile_t32x8x16::<TestRuntime>(&Default::default())
         }
 
 
         #[test]
-        pub fn test_plane_mma_t32x8x16_row_col() {
+        pub fn test_tile_t32x8x16_row_col() {
             matmul_test!(
-                test_plane_mma_t32x8x16_row_col,
+                test_tile_t32x8x16_row_col,
                 MatmulProblem {
                     m: 32,
                     n: 8,
@@ -700,14 +622,14 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t32x8x16_row_col::<TestRuntime>(&Default::default())
+            test_tile_t32x8x16_row_col::<TestRuntime>(&Default::default())
         }
 
 
         #[test]
-        pub fn test_plane_mma_t32x8x16_col_row() {
+        pub fn test_tile_t32x8x16_col_row() {
             matmul_test!(
-                test_plane_mma_t32x8x16_col_row,
+                test_tile_t32x8x16_col_row,
                 MatmulProblem {
                     m: 32,
                     n: 8,
@@ -727,14 +649,14 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t32x8x16_col_row::<TestRuntime>(&Default::default())
+            test_tile_t32x8x16_col_row::<TestRuntime>(&Default::default())
         }
 
 
         #[test]
-        pub fn test_plane_mma_t32x8x16_col_col() {
+        pub fn test_tile_t32x8x16_col_col() {
             matmul_test!(
-                test_plane_mma_t32x8x16_col_col,
+                test_tile_t32x8x16_col_col,
                 MatmulProblem {
                     m: 32,
                     n: 8,
@@ -754,13 +676,13 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t32x8x16_col_col::<TestRuntime>(&Default::default())
+            test_tile_t32x8x16_col_col::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn test_plane_mma_t8x32x16() {
+        pub fn test_tile_t8x32x16() {
             matmul_test!(
-                test_plane_mma_t8x32x16,
+                test_tile_t8x32x16,
                 MatmulProblem {
                     m: 8,
                     n: 32,
@@ -780,13 +702,13 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t8x32x16::<TestRuntime>(&Default::default())
+            test_tile_t8x32x16::<TestRuntime>(&Default::default())
         }
 
         #[test]
-        pub fn test_plane_mma_t8x32x16_row_col() {
+        pub fn test_tile_t8x32x16_row_col() {
             matmul_test!(
-                test_plane_mma_t8x32x16_row_col,
+                test_tile_t8x32x16_row_col,
                 MatmulProblem {
                     m: 8,
                     n: 32,
@@ -806,14 +728,14 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t8x32x16_row_col::<TestRuntime>(&Default::default())
+            test_tile_t8x32x16_row_col::<TestRuntime>(&Default::default())
         }
 
 
         #[test]
-        pub fn test_plane_mma_t8x32x16_col_row() {
+        pub fn test_tile_t8x32x16_col_row() {
             matmul_test!(
-                test_plane_mma_t8x32x16_col_row,
+                test_tile_t8x32x16_col_row,
                 MatmulProblem {
                     m: 8,
                     n: 32,
@@ -833,14 +755,14 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t8x32x16_col_row::<TestRuntime>(&Default::default())
+            test_tile_t8x32x16_col_row::<TestRuntime>(&Default::default())
         }
 
 
         #[test]
-        pub fn test_plane_mma_t8x32x16_col_col() {
+        pub fn test_tile_t8x32x16_col_col() {
             matmul_test!(
-                test_plane_mma_t8x32x16_col_col,
+                test_tile_t8x32x16_col_col,
                 MatmulProblem {
                     m: 8,
                     n: 32,
@@ -860,7 +782,7 @@ macro_rules! testgen_matmul_internal {
                 AdvancedConfig::default()
             );
 
-            test_plane_mma_t8x32x16_col_col::<TestRuntime>(&Default::default())
+            test_tile_t8x32x16_col_col::<TestRuntime>(&Default::default())
         }
 
         #[test]
