@@ -93,6 +93,11 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display, R: Runtime>(
 ) {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
 
+    if !client.properties().feature_enabled(Feature::Subcube) {
+        // Can't execute the test.
+        return;
+    }
+
     let lhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Lhs);
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
