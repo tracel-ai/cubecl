@@ -22,7 +22,6 @@ pub struct MatmulProblem<EG: Numeric> {
 }
 
 impl<EG: Numeric> MatmulProblem<EG> {
-    #[cfg(feature = "export_tests")]
     /// Returns the total number of elements for the identified tensor
     pub(crate) fn tensor_size(&self, ident: Ident) -> usize {
         match ident {
@@ -32,7 +31,6 @@ impl<EG: Numeric> MatmulProblem<EG> {
         }
     }
 
-    #[cfg(feature = "export_tests")]
     /// Returns the shape of the identified tensor
     pub(crate) fn shape(&self, ident: Ident) -> Vec<usize> {
         self.batches
@@ -49,7 +47,6 @@ impl<EG: Numeric> MatmulProblem<EG> {
             .collect()
     }
 
-    #[cfg(feature = "export_tests")]
     /// Returns the stride of the identified tensor
     pub(crate) fn strides(&self, ident: Ident) -> Vec<usize> {
         let mut strides = Vec::with_capacity(self.batches.len() + 2);

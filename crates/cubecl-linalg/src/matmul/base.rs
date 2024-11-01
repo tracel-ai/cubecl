@@ -8,7 +8,7 @@ use crate::tensor::TensorHandle;
 
 use super::kernels::{
     cmma_matmul,
-    cmma_old::{self, is_available, CmmaConfig},
+    cmma_old::{self, config::PredefinedCmmaConfig, is_available, CmmaConfig},
     tiling2d::{self, Tiling2dConfig},
 };
 
@@ -41,7 +41,7 @@ pub fn launch_ref<R: Runtime, EG: Float>(
     rhs: TensorHandleRef<R>,
     out: TensorHandleRef<R>,
 ) {
-    let cmma_config = CmmaConfig::default();
+    let cmma_config = PredefinedCmmaConfig::M128K16.into();
 
     match is_available::<R>(client, &cmma_config) {
         Ok(_) => cmma_old::launch_ref::<R, EG>(client, lhs, rhs, out, cmma_config),

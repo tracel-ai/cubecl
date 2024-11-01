@@ -21,7 +21,7 @@ use crate::matmul::components::{
 /// # Safety
 ///
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
-/// It it therefore important to use an underlying global matmul that performs check bounds,
+/// It is therefore important to use an underlying global matmul that performs check bounds,
 /// and to not launch more Cubes than necessary.
 pub trait Matmul<EG: Numeric, B: Config>:
     'static + Send + Sync + MatmulKernel<EG, EG, Config = B> + MatmulLaunch<EG, EG>
