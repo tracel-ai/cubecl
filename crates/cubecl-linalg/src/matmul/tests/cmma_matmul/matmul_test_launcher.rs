@@ -3,6 +3,7 @@ use std::fmt::Display;
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
+use cubecl_core::Feature;
 
 use crate::matmul::components::batch;
 use crate::matmul::components::Ident;
@@ -37,6 +38,11 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
+
+    if !client.properties().feature_enabled(Feature::Subcube) {
+        // Can't execute the test.
+        return;
+    }
 
     let lhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Lhs);
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
