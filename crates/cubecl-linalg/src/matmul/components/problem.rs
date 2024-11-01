@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use cubecl_core::prelude::Numeric;
 
-#[cfg(feature = "export_tests")]
 use super::Ident;
 use super::{batch::Config, MatrixLayout};
 
