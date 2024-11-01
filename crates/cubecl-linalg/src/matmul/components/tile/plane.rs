@@ -77,14 +77,12 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
     }
 
     fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
-        // let line_size = config.plane_mma_line_size();
-        let line_size = 4;
+        let line_size = config.plane_mma_line_size;
         Array::vectorized(Self::K / line_size, line_size)
     }
 
     fn init_rhs(#[comptime] config: Config) -> Self::Rhs {
-        // let line_size = config.plane_mma_line_size();
-        let line_size = 4;
+        let line_size = config.plane_mma_line_size;
         Array::vectorized(
             Self::K * Self::N / (line_size * config.plane_dim()),
             line_size,
@@ -192,7 +190,6 @@ fn fill_parallel_lhs<E: Numeric>(
 ) {
     let lhs_line_size = config.line_size(Ident::Lhs);
     let plane_dim = config.plane_dim();
-    let plane_mma_line_size = 4; // TODO
 
     let num_lines = k / lhs_line_size;
     let row = unit * m / plane_dim;
@@ -222,7 +219,6 @@ fn fill_perpendicular_lhs<E: Numeric>(
 ) {
     let lhs_line_size = config.line_size(Ident::Lhs);
     let plane_dim = config.plane_dim();
-    let plane_mma_line_size = 4; // TODO
 
     let num_lines = m / lhs_line_size;
     let row = unit * m / plane_dim;
@@ -252,7 +248,6 @@ fn fill_perpendicular_rhs<E: Numeric>(
 ) {
     let rhs_line_size = config.line_size(Ident::Rhs);
     let plane_dim = config.plane_dim();
-    let plane_mma_line_size = 4; // TODO
 
     let k_row_alt = unit / n;
     let col = unit % n;
@@ -288,7 +283,6 @@ fn fill_parallel_rhs<E: Numeric>(
 ) {
     let rhs_line_size = config.line_size(Ident::Rhs);
     let plane_dim = config.plane_dim();
-    let plane_mma_line_size = 4; // TODO
 
     let k_row_alt = unit / n;
     let col = unit % n;
@@ -331,6 +325,7 @@ pub struct Config {
     lhs_line_size: u32,
     rhs_line_size: u32,
     out_line_size: u32,
+    plane_mma_line_size: u32,
 }
 
 impl tile::Config for Config {
@@ -373,6 +368,7 @@ impl Config {
             lhs_line_size,
             rhs_line_size,
             out_line_size,
+            plane_mma_line_size: 1,
         }
     }
 }
