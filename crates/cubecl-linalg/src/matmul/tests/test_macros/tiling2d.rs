@@ -10,6 +10,7 @@ macro_rules! testgen_tiling2d {
     ($float:ident) => {
             use super::*;
             use cubecl_linalg::matmul::tests;
+            use cubecl_core::flex32;
 
             pub type FloatT = $float;
 

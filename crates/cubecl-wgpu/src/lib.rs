@@ -25,8 +25,8 @@ mod tests {
     pub type TestRuntime = crate::WgpuRuntime<crate::WgslCompiler>;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_plane_mma!();
-    cubecl_linalg::testgen_tiling2d!();
+    cubecl_linalg::testgen_plane_mma!([flex32, f32]);
+    cubecl_linalg::testgen_tiling2d!([flex32, f32]);
 }
 
 #[cfg(all(test, feature = "spirv"))]
