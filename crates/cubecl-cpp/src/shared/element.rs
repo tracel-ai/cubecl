@@ -1,4 +1,7 @@
-use cubecl_core::ir::{self as gpu, ConstantScalarValue};
+use cubecl_core::{
+    ir::{self as gpu, ConstantScalarValue},
+    tf32,
+};
 use half::{bf16, f16};
 use std::fmt::Display;
 
@@ -6,13 +9,21 @@ use super::{Dialect, Fragment, COUNTER_TMP_VAR};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum Elem<D: Dialect> {
+    TF32,
     F32,
+    F64,
     F16,
     F162,
     BF16,
     BF162,
+    I8,
+    I16,
     I32,
+    I64,
+    U8,
+    U16,
     U32,
+    U64,
     Bool,
     Atomic(AtomicKind),
     _Dialect(std::marker::PhantomData<D>),
@@ -45,10 +56,18 @@ impl<D: Dialect> Display for Elem<D> {
             Elem::F16 => f.write_str("__half"),
             Elem::F162 => f.write_str("__half2"),
             Elem::F32 => f.write_str("float"),
+            Elem::F64 => f.write_str("double"),
             Elem::BF16 => D::bfloat16_type_name(f),
             Elem::BF162 => D::bfloat162_type_name(f),
+            Elem::TF32 => f.write_str("float"),
+            Elem::I8 => f.write_str("char"),
+            Elem::I16 => f.write_str("short"),
             Elem::I32 => f.write_str("int"),
+            Elem::I64 => f.write_str("int64"),
+            Elem::U8 => f.write_str("uint8"),
+            Elem::U16 => f.write_str("uint16"),
             Elem::U32 => f.write_str("uint"),
+            Elem::U64 => f.write_str("uint64"),
             Elem::Bool => f.write_str("bool"),
             Elem::Atomic(inner) => inner.fmt(f),
             Elem::_Dialect(_) => Ok(()),
@@ -216,6 +235,8 @@ impl<D: Dialect> Display for Variable<D> {
             // precision related problems.
             Variable::ConstantScalar(number, elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
+                    gpu::IntKind::I8 => write!(f, "{elem}({})", *val as i8),
+                    gpu::IntKind::I16 => write!(f, "{elem}({})", *val as i16),
                     gpu::IntKind::I32 => write!(f, "{elem}({})", *val as i32),
                     gpu::IntKind::I64 => write!(f, "{elem}({})", *val),
                 },
@@ -226,12 +247,17 @@ impl<D: Dialect> Display for Variable<D> {
                     gpu::FloatKind::BF16 => {
                         write!(f, "{elem}({:?})", half::bf16::from_f64(*val))
                     }
+                    gpu::FloatKind::Flex32 => write!(f, "{elem}({:?})", *val as f32),
+                    gpu::FloatKind::TF32 => write!(f, "{elem}({:?})", *val as f32),
                     gpu::FloatKind::F32 => write!(f, "{elem}({:?})", *val as f32),
                     gpu::FloatKind::F64 => write!(f, "{elem}({:?})", *val),
                 },
-                ConstantScalarValue::UInt(val) => {
-                    write!(f, "{elem}({})", *val as u32)
-                }
+                ConstantScalarValue::UInt(val, kind) => match kind {
+                    gpu::UIntKind::U8 => write!(f, "{elem}({})", *val as u8),
+                    gpu::UIntKind::U16 => write!(f, "{elem}({})", *val as u16),
+                    gpu::UIntKind::U32 => write!(f, "{elem}({})", *val as u32),
+                    gpu::UIntKind::U64 => write!(f, "{elem}({})", *val),
+                },
                 ConstantScalarValue::Bool(val) => write!(f, "{}", val),
             },
             Variable::SharedMemory(number, _, _) => {
@@ -528,19 +554,27 @@ impl<D: Dialect> Item<D> {
 }
 
 impl<D: Dialect> Elem<D> {
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
-            Self::F16 => core::mem::size_of::<f16>(),
-            Self::F162 => 2 * core::mem::size_of::<f16>(),
-            Self::BF162 => 2 * core::mem::size_of::<bf16>(),
-            Self::BF16 => core::mem::size_of::<bf16>(),
-            Self::F32 => core::mem::size_of::<f32>(),
-            Self::I32 => core::mem::size_of::<i32>(),
-            Self::U32 => core::mem::size_of::<u32>(),
-            Self::Bool => core::mem::size_of::<bool>(),
-            Self::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
-            Self::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
-            Self::_Dialect(_) => 0,
+            Elem::F16 => core::mem::size_of::<f16>(),
+            Elem::F162 => 2 * core::mem::size_of::<f16>(),
+            Elem::BF162 => 2 * core::mem::size_of::<bf16>(),
+            Elem::BF16 => core::mem::size_of::<bf16>(),
+            Elem::TF32 => core::mem::size_of::<tf32>(),
+            Elem::F32 => core::mem::size_of::<f32>(),
+            Elem::F64 => core::mem::size_of::<f64>(),
+            Elem::I8 => core::mem::size_of::<i8>(),
+            Elem::I16 => core::mem::size_of::<i16>(),
+            Elem::I32 => core::mem::size_of::<i32>(),
+            Elem::I64 => core::mem::size_of::<i64>(),
+            Elem::U8 => core::mem::size_of::<u8>(),
+            Elem::U16 => core::mem::size_of::<u16>(),
+            Elem::U32 => core::mem::size_of::<u32>(),
+            Elem::U64 => core::mem::size_of::<u64>(),
+            Elem::Bool => core::mem::size_of::<bool>(),
+            Elem::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
+            Elem::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
+            Elem::_Dialect(_) => 0,
         }
     }
 }

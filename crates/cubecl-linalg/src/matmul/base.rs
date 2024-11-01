@@ -43,7 +43,7 @@ pub fn launch_ref<R: Runtime, EG: Float>(
 ) {
     let cmma_config = PredefinedCmmaConfig::M128K16.into();
 
-    match is_available::<R>(client, &cmma_config) {
+    match is_available::<R, EG>(client, &cmma_config) {
         Ok(_) => cmma_old::launch_ref::<R, EG>(client, lhs, rhs, out, cmma_config),
         Err(_) => tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, Default::default()),
     }

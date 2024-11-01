@@ -1,5 +1,8 @@
-use cubecl_core::Runtime;
-use std::io::{self, Write};
+use cubecl_core::{prelude::Float, CubeElement, Runtime};
+use std::{
+    fmt::Display,
+    io::{self, Write},
+};
 
 use crate::matmul::kernels::cmma_old::config::PredefinedCmmaConfig;
 
@@ -124,7 +127,7 @@ fn all_combinations() -> Vec<(MatmulTest, PredefinedCmmaConfig, String)> {
 /// This is a special test that encapsulates many sub tests
 /// To filter among them you can specify the TEST_FILTER environment variable
 /// It should be run with --nocapture
-pub fn test_cmma_all<R: Runtime>(device: &R::Device) {
+pub fn test_cmma_all<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
     let filter = std::env::var("TEST_FILTER").unwrap_or_default();
     let mut all_ok = true;
     let mut n_tests_run = 0;
@@ -134,7 +137,7 @@ pub fn test_cmma_all<R: Runtime>(device: &R::Device) {
             print!("Running test {}...", name);
             io::stdout().flush().unwrap();
 
-            match test_cmma::<R>(test_case.into(), config.into(), device) {
+            match test_cmma::<R, F>(test_case.into(), config.into(), device) {
                 Ok(_) => println!("Ok"),
                 Err(e) => {
                     all_ok = false;

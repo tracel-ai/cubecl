@@ -20,6 +20,7 @@ macro_rules! testgen_matmul_internal {
         use std::marker::PhantomData;
         use cubecl_linalg::matmul::kernels::cmma_matmul::{MatmulLaunchDispatch, make_cmma_config, AdvancedConfig};
         use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_internal;
+        use cubecl_core::prelude::*;
 
         type T = $i_config;
         type S = stage::row_accumulate::Config<T>;

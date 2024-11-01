@@ -1,7 +1,9 @@
 use std::fmt::Display;
 use std::num::NonZero;
 
-use super::{Elem, FloatKind, IntKind, Item, Matrix};
+use crate::prelude::CubePrimitive;
+
+use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -17,14 +19,14 @@ impl Variable {
     }
 
     pub fn builtin(builtin: Builtin) -> Self {
-        Self::new(VariableKind::Builtin(builtin), Item::new(Elem::UInt))
+        Self::new(VariableKind::Builtin(builtin), Item::new(u32::as_elem()))
     }
 
     pub fn constant(scalar: ConstantScalarValue) -> Self {
         let elem = match scalar {
             ConstantScalarValue::Int(_, int_kind) => Elem::Int(int_kind),
             ConstantScalarValue::Float(_, float_kind) => Elem::Float(float_kind),
-            ConstantScalarValue::UInt(_) => Elem::UInt,
+            ConstantScalarValue::UInt(_, kind) => Elem::UInt(kind),
             ConstantScalarValue::Bool(_) => Elem::Bool,
         };
         Self::new(VariableKind::ConstantScalar(scalar), Item::new(elem))
@@ -116,7 +118,7 @@ impl Variable {
     pub fn is_constant(&self, value: i64) -> bool {
         match self.kind {
             VariableKind::ConstantScalar(ConstantScalarValue::Int(val, _)) => val == value,
-            VariableKind::ConstantScalar(ConstantScalarValue::UInt(val)) => val as i64 == value,
+            VariableKind::ConstantScalar(ConstantScalarValue::UInt(val, _)) => val as i64 == value,
             VariableKind::ConstantScalar(ConstantScalarValue::Float(val, _)) => val == value as f64,
             _ => false,
         }
@@ -146,7 +148,7 @@ impl Variable {
 pub enum ConstantScalarValue {
     Int(i64, IntKind),
     Float(f64, FloatKind),
-    UInt(u64),
+    UInt(u64, UIntKind),
     Bool(bool),
 }
 
@@ -156,7 +158,7 @@ impl ConstantScalarValue {
         match self {
             ConstantScalarValue::Int(_, kind) => Elem::Int(*kind),
             ConstantScalarValue::Float(_, kind) => Elem::Float(*kind),
-            ConstantScalarValue::UInt(_) => Elem::UInt,
+            ConstantScalarValue::UInt(_, kind) => Elem::UInt(*kind),
             ConstantScalarValue::Bool(_) => Elem::Bool,
         }
     }
@@ -166,7 +168,7 @@ impl ConstantScalarValue {
     /// It will return [None] if the scalar type is a float or a bool.
     pub fn try_as_usize(&self) -> Option<usize> {
         match self {
-            ConstantScalarValue::UInt(val) => Some(*val as usize),
+            ConstantScalarValue::UInt(val, _) => Some(*val as usize),
             ConstantScalarValue::Int(val, _) => Some(*val as usize),
             ConstantScalarValue::Float(_, _) => None,
             ConstantScalarValue::Bool(_) => None,
@@ -186,7 +188,7 @@ impl ConstantScalarValue {
     /// It will return [None] if the scalar type is a float or a bool.
     pub fn try_as_u32(&self) -> Option<u32> {
         match self {
-            ConstantScalarValue::UInt(val) => Some(*val as u32),
+            ConstantScalarValue::UInt(val, _) => Some(*val as u32),
             ConstantScalarValue::Int(val, _) => Some(*val as u32),
             ConstantScalarValue::Float(_, _) => None,
             ConstantScalarValue::Bool(_) => None,
@@ -206,7 +208,7 @@ impl ConstantScalarValue {
     /// It will return [None] if the scalar type is a float or a bool.
     pub fn try_as_u64(&self) -> Option<u64> {
         match self {
-            ConstantScalarValue::UInt(val) => Some(*val),
+            ConstantScalarValue::UInt(val, _) => Some(*val),
             ConstantScalarValue::Int(val, _) => Some(*val as u64),
             ConstantScalarValue::Float(_, _) => None,
             ConstantScalarValue::Bool(_) => None,
@@ -226,7 +228,7 @@ impl ConstantScalarValue {
     /// It will return [None] if the scalar type is a float or a bool.
     pub fn try_as_i64(&self) -> Option<i64> {
         match self {
-            ConstantScalarValue::UInt(val) => Some(*val as i64),
+            ConstantScalarValue::UInt(val, _) => Some(*val as i64),
             ConstantScalarValue::Int(val, _) => Some(*val),
             ConstantScalarValue::Float(_, _) => None,
             ConstantScalarValue::Bool(_) => None,
@@ -261,7 +263,7 @@ impl ConstantScalarValue {
         match self {
             ConstantScalarValue::Int(val, _) => *val == 0,
             ConstantScalarValue::Float(val, _) => *val == 0.0,
-            ConstantScalarValue::UInt(val) => *val == 0,
+            ConstantScalarValue::UInt(val, _) => *val == 0,
             ConstantScalarValue::Bool(_) => false,
         }
     }
@@ -270,7 +272,7 @@ impl ConstantScalarValue {
         match self {
             ConstantScalarValue::Int(val, _) => *val == 1,
             ConstantScalarValue::Float(val, _) => *val == 1.0,
-            ConstantScalarValue::UInt(val) => *val == 1,
+            ConstantScalarValue::UInt(val, _) => *val == 1,
             ConstantScalarValue::Bool(_) => false,
         }
     }
@@ -283,8 +285,8 @@ impl ConstantScalarValue {
             (ConstantScalarValue::Int(val, _), Elem::Int(int_kind)) => {
                 ConstantScalarValue::Int(*val, int_kind)
             }
-            (ConstantScalarValue::Int(val, _), Elem::UInt) => {
-                ConstantScalarValue::UInt(*val as u64)
+            (ConstantScalarValue::Int(val, _), Elem::UInt(kind)) => {
+                ConstantScalarValue::UInt(*val as u64, kind)
             }
             (ConstantScalarValue::Int(val, _), Elem::Bool) => ConstantScalarValue::Bool(*val == 1),
             (ConstantScalarValue::Float(val, _), Elem::Float(float_kind)) => {
@@ -293,27 +295,31 @@ impl ConstantScalarValue {
             (ConstantScalarValue::Float(val, _), Elem::Int(int_kind)) => {
                 ConstantScalarValue::Int(*val as i64, int_kind)
             }
-            (ConstantScalarValue::Float(val, _), Elem::UInt) => {
-                ConstantScalarValue::UInt(*val as u64)
+            (ConstantScalarValue::Float(val, _), Elem::UInt(kind)) => {
+                ConstantScalarValue::UInt(*val as u64, kind)
             }
             (ConstantScalarValue::Float(val, _), Elem::Bool) => {
                 ConstantScalarValue::Bool(*val == 0.0)
             }
-            (ConstantScalarValue::UInt(val), Elem::Float(float_kind)) => {
+            (ConstantScalarValue::UInt(val, _), Elem::Float(float_kind)) => {
                 ConstantScalarValue::Float(*val as f64, float_kind)
             }
-            (ConstantScalarValue::UInt(val), Elem::Int(int_kind)) => {
+            (ConstantScalarValue::UInt(val, _), Elem::Int(int_kind)) => {
                 ConstantScalarValue::Int(*val as i64, int_kind)
             }
-            (ConstantScalarValue::UInt(val), Elem::UInt) => ConstantScalarValue::UInt(*val),
-            (ConstantScalarValue::UInt(val), Elem::Bool) => ConstantScalarValue::Bool(*val == 1),
+            (ConstantScalarValue::UInt(val, _), Elem::UInt(kind)) => {
+                ConstantScalarValue::UInt(*val, kind)
+            }
+            (ConstantScalarValue::UInt(val, _), Elem::Bool) => ConstantScalarValue::Bool(*val == 1),
             (ConstantScalarValue::Bool(val), Elem::Float(float_kind)) => {
                 ConstantScalarValue::Float(*val as u32 as f64, float_kind)
             }
             (ConstantScalarValue::Bool(val), Elem::Int(int_kind)) => {
                 ConstantScalarValue::Int(*val as i64, int_kind)
             }
-            (ConstantScalarValue::Bool(val), Elem::UInt) => ConstantScalarValue::UInt(*val as u64),
+            (ConstantScalarValue::Bool(val), Elem::UInt(kind)) => {
+                ConstantScalarValue::UInt(*val as u64, kind)
+            }
             (ConstantScalarValue::Bool(val), Elem::Bool) => ConstantScalarValue::Bool(*val),
             _ => unreachable!(),
         }
@@ -323,13 +329,20 @@ impl ConstantScalarValue {
 impl Display for ConstantScalarValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ConstantScalarValue::Int(val, IntKind::I8) => write!(f, "{val}i8"),
+            ConstantScalarValue::Int(val, IntKind::I16) => write!(f, "{val}i16"),
             ConstantScalarValue::Int(val, IntKind::I32) => write!(f, "{val}i32"),
             ConstantScalarValue::Int(val, IntKind::I64) => write!(f, "{val}i64"),
             ConstantScalarValue::Float(val, FloatKind::BF16) => write!(f, "{val}bf16"),
             ConstantScalarValue::Float(val, FloatKind::F16) => write!(f, "{val}f16"),
+            ConstantScalarValue::Float(val, FloatKind::TF32) => write!(f, "{val}tf32"),
+            ConstantScalarValue::Float(val, FloatKind::Flex32) => write!(f, "{val}flex32"),
             ConstantScalarValue::Float(val, FloatKind::F32) => write!(f, "{val}f32"),
             ConstantScalarValue::Float(val, FloatKind::F64) => write!(f, "{val}f64"),
-            ConstantScalarValue::UInt(val) => write!(f, "{val}u32"),
+            ConstantScalarValue::UInt(val, UIntKind::U8) => write!(f, "{val}u8"),
+            ConstantScalarValue::UInt(val, UIntKind::U16) => write!(f, "{val}u16"),
+            ConstantScalarValue::UInt(val, UIntKind::U32) => write!(f, "{val}u32"),
+            ConstantScalarValue::UInt(val, UIntKind::U64) => write!(f, "{val}u64"),
             ConstantScalarValue::Bool(val) => write!(f, "{val}"),
         }
     }

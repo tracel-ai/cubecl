@@ -1,4 +1,4 @@
-use crate::ir::ConstantScalarValue;
+use crate::{ir::ConstantScalarValue, prelude::CubePrimitive};
 
 use super::{
     cpa, processing::ScopeProcessing, Elem, Instruction, Item, Matrix, Operation, Variable,
@@ -84,8 +84,8 @@ impl Scope {
             Elem::Float(kind) => ConstantScalarValue::Float(value.to_f64().unwrap(), kind),
             Elem::Int(kind) => ConstantScalarValue::Int(value.to_i64().unwrap(), kind),
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(value.to_i64().unwrap(), kind),
-            Elem::UInt => ConstantScalarValue::UInt(value.to_u64().unwrap()),
-            Elem::AtomicUInt => ConstantScalarValue::UInt(value.to_u64().unwrap()),
+            Elem::UInt(kind) => ConstantScalarValue::UInt(value.to_u64().unwrap(), kind),
+            Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(value.to_u64().unwrap(), kind),
             Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
         };
         let local = self.create_local(item);
@@ -336,7 +336,7 @@ impl Scope {
     ) -> Variable {
         let item_global = match item.elem() {
             Elem::Bool => Item {
-                elem: Elem::UInt,
+                elem: u32::as_elem(),
                 vectorization: item.vectorization,
             },
             _ => item,

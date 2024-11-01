@@ -1,7 +1,8 @@
 use std::ops::{Add, Mul, Sub};
 
-use cubecl_core::ir::{
-    Builtin, ConstantScalarValue, Elem, Operation, Operator, Variable, VariableKind,
+use cubecl_core::{
+    ir::{Builtin, ConstantScalarValue, Operation, Operator, Variable, VariableKind},
+    prelude::CubePrimitive,
 };
 
 use crate::{AtomicCounter, Optimizer, Range};
@@ -108,7 +109,7 @@ impl OptimizerPass for IntegerRangeAnalysis {
 /// can be determined, or the type is not an integer.
 pub(crate) fn range_of(opt: &Optimizer, var: &Variable) -> Range {
     match var.kind {
-        VariableKind::Versioned { id, depth, version } if var.item.elem() == Elem::UInt => opt
+        VariableKind::Versioned { id, depth, version } if var.item.elem() == u32::as_elem() => opt
             .program
             .int_ranges
             .get(&(id, depth, version))
@@ -123,7 +124,7 @@ pub(crate) fn range_of(opt: &Optimizer, var: &Variable) -> Range {
             .get(&(id, depth, version))
             .copied()
             .unwrap_or_default(),
-        VariableKind::LocalBinding { id, depth } if var.item.elem() == Elem::UInt => opt
+        VariableKind::LocalBinding { id, depth } if var.item.elem() == u32::as_elem() => opt
             .program
             .int_ranges
             .get(&(id, depth, 0))
@@ -139,7 +140,9 @@ pub(crate) fn range_of(opt: &Optimizer, var: &Variable) -> Range {
             .copied()
             .unwrap_or_default(),
         VariableKind::ConstantScalar(ConstantScalarValue::Int(val, _)) => Range::constant(val),
-        VariableKind::ConstantScalar(ConstantScalarValue::UInt(val)) => Range::constant(val as i64),
+        VariableKind::ConstantScalar(ConstantScalarValue::UInt(val, _)) => {
+            Range::constant(val as i64)
+        }
         VariableKind::Builtin(builtin) => match builtin {
             Builtin::UnitPos => Range::uint(opt.cube_dim.num_elems() as i64 - 1),
             Builtin::UnitPosX => Range::uint(opt.cube_dim.x as i64 - 1),

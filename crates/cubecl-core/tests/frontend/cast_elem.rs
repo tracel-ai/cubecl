@@ -152,7 +152,7 @@ mod tests {
         cube_float_to_u32_test,
         float_to_u32::expand,
         Item::new(f32::as_elem()),
-        Item::new(Elem::UInt)
+        Item::new(u32::as_elem())
     );
 
     cast_test!(
@@ -173,7 +173,7 @@ mod tests {
         cube_int_to_u32_test,
         int_to_u32::expand,
         Item::new(i32::as_elem()),
-        Item::new(Elem::UInt)
+        Item::new(u32::as_elem())
     );
 
     cast_test!(
@@ -186,21 +186,21 @@ mod tests {
     cast_test!(
         cube_u32_to_float_test,
         u32_to_float::expand,
-        Item::new(Elem::UInt),
+        Item::new(u32::as_elem()),
         Item::new(f32::as_elem())
     );
 
     cast_test!(
         cube_u32_to_int_test,
         u32_to_int::expand,
-        Item::new(Elem::UInt),
+        Item::new(u32::as_elem()),
         Item::new(i32::as_elem())
     );
 
     cast_test!(
         cube_u32_to_bool_test,
         u32_to_bool::expand,
-        Item::new(Elem::UInt),
+        Item::new(u32::as_elem()),
         Item::new(Elem::Bool)
     );
 
@@ -222,7 +222,7 @@ mod tests {
         cube_bool_to_u32_test,
         bool_to_u32::expand,
         Item::new(Elem::Bool),
-        Item::new(Elem::UInt)
+        Item::new(u32::as_elem())
     );
 
     fn inline_macro_ref_cast(from_item: Item, to_item: Item) -> String {
@@ -237,8 +237,8 @@ mod tests {
             Elem::Float(_) => cpa!(scope, x = x + 2f32),
             Elem::Int(_) => cpa!(scope, x = x + 2i32),
             Elem::AtomicInt(_) => cpa!(scope, x = x + 2i32),
-            Elem::UInt => cpa!(scope, x = x + 2u32),
-            Elem::AtomicUInt => cpa!(scope, x = x + 2u32),
+            Elem::UInt(_) => cpa!(scope, x = x + 2u32),
+            Elem::AtomicUInt(_) => cpa!(scope, x = x + 2u32),
             Elem::Bool => cpa!(scope, x = x && false),
         }
 
@@ -248,8 +248,8 @@ mod tests {
             Elem::Float(_) => cpa!(scope, y = y + 34f32),
             Elem::Int(_) => cpa!(scope, y = y + 34i32),
             Elem::AtomicInt(_) => cpa!(scope, y = y + 34i32),
-            Elem::UInt => cpa!(scope, y = y + 34u32),
-            Elem::AtomicUInt => cpa!(scope, y = y + 34u32),
+            Elem::UInt(_) => cpa!(scope, y = y + 34u32),
+            Elem::AtomicUInt(_) => cpa!(scope, y = y + 34u32),
             Elem::Bool => cpa!(scope, y = y || true),
         }
 

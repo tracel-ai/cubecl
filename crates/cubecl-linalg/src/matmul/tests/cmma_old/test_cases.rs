@@ -1,4 +1,6 @@
-use cubecl_core::Runtime;
+use std::fmt::Display;
+
+use cubecl_core::{prelude::Float, CubeElement, Runtime};
 
 use crate::{
     matmul::kernels::cmma_old::{self, config::CmmaConfig, is_available},
@@ -95,21 +97,21 @@ impl From<MatmulTest> for MatmulTestCase {
     }
 }
 
-pub(crate) fn test_cmma<R: Runtime>(
+pub(crate) fn test_cmma<R: Runtime, F: Float + CubeElement + Display>(
     case: MatmulTestCase,
     config: CmmaConfig,
     device: &R::Device,
 ) -> Result<(), String> {
     let client = R::client(device);
-    if is_available::<R>(&client, &config).is_ok() {
-        let lhs = case.random_lhs::<R>(&client);
-        let rhs = case.random_rhs::<R>(&client);
+    if is_available::<R, F>(&client, &config).is_ok() {
+        let lhs = case.random_lhs::<R, F>(&client);
+        let rhs = case.random_rhs::<R, F>(&client);
 
         let expected = case.matmul_cpu(&lhs, &rhs, &client);
 
-        let out = cmma_old::launch::<R, f32>(&client, lhs, rhs, case.empty_out(&client), config);
+        let out = cmma_old::launch::<R, F>(&client, lhs, rhs, case.empty_out(&client), config);
 
-        assert_equals_approx::<f32, R>(&client, out.handle, &expected, 10e-3)
+        assert_equals_approx::<R, F>(&client, out.handle, &expected, 0.01)
     } else {
         // Cmma unavailable, nothing to do
         Ok(())

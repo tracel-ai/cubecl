@@ -1,7 +1,7 @@
 use cubecl_core::ir::{Subcube, Variable};
 use rspirv::spirv::{Capability, GroupOperation, Scope, Word};
 
-use crate::{SpirvCompiler, SpirvTarget};
+use crate::{item::Elem, SpirvCompiler, SpirvTarget};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_subcube(&mut self, subcube: Subcube, out: Option<Variable>) {
@@ -42,7 +42,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Subcube::Sum(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
                     match out_ty.elem() {
-                        crate::item::Elem::Int(_, false) => b.group_non_uniform_i_add(
+                        Elem::Int(_, false) => b.group_non_uniform_i_add(
                             ty,
                             Some(out),
                             subgroup,
@@ -50,7 +50,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             input,
                             None,
                         ),
-                        crate::item::Elem::Float(_) => b.group_non_uniform_f_add(
+                        Elem::Float(_) | Elem::Relaxed => b.group_non_uniform_f_add(
                             ty,
                             Some(out),
                             subgroup,
@@ -66,7 +66,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Subcube::Prod(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
                     match out_ty.elem() {
-                        crate::item::Elem::Int(_, _) => b.group_non_uniform_i_mul(
+                        Elem::Int(_, _) => b.group_non_uniform_i_mul(
                             ty,
                             Some(out),
                             subgroup,
@@ -74,7 +74,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             input,
                             None,
                         ),
-                        crate::item::Elem::Float(_) => b.group_non_uniform_f_mul(
+                        Elem::Float(_) | Elem::Relaxed => b.group_non_uniform_f_mul(
                             ty,
                             Some(out),
                             subgroup,
@@ -90,7 +90,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Subcube::Min(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
                     match out_ty.elem() {
-                        crate::item::Elem::Int(_, false) => b.group_non_uniform_u_min(
+                        Elem::Int(_, false) => b.group_non_uniform_u_min(
                             ty,
                             Some(out),
                             subgroup,
@@ -98,7 +98,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             input,
                             None,
                         ),
-                        crate::item::Elem::Int(_, true) => b.group_non_uniform_s_min(
+                        Elem::Int(_, true) => b.group_non_uniform_s_min(
                             ty,
                             Some(out),
                             subgroup,
@@ -106,7 +106,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             input,
                             None,
                         ),
-                        crate::item::Elem::Float(_) => b.group_non_uniform_f_min(
+                        Elem::Float(_) | Elem::Relaxed => b.group_non_uniform_f_min(
                             ty,
                             Some(out),
                             subgroup,
@@ -122,7 +122,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Subcube::Max(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
                     match out_ty.elem() {
-                        crate::item::Elem::Int(_, false) => b.group_non_uniform_u_max(
+                        Elem::Int(_, false) => b.group_non_uniform_u_max(
                             ty,
                             Some(out),
                             subgroup,
@@ -130,7 +130,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             input,
                             None,
                         ),
-                        crate::item::Elem::Int(_, true) => b.group_non_uniform_s_max(
+                        Elem::Int(_, true) => b.group_non_uniform_s_max(
                             ty,
                             Some(out),
                             subgroup,
@@ -138,7 +138,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             input,
                             None,
                         ),
-                        crate::item::Elem::Float(_) => b.group_non_uniform_f_max(
+                        Elem::Float(_) | Elem::Relaxed => b.group_non_uniform_f_max(
                             ty,
                             Some(out),
                             subgroup,

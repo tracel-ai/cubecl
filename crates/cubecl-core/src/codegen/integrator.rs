@@ -6,6 +6,7 @@ use crate::{
         Binding, CubeDim, Elem, Item, KernelDefinition, Location, ReadingStrategy, Scope, Variable,
         VariableKind, Vectorization, Visibility,
     },
+    prelude::CubePrimitive,
     Runtime,
 };
 
@@ -318,7 +319,7 @@ impl KernelIntegrator {
         named.push((
             "info".to_string(),
             Binding {
-                item: Item::new(Elem::UInt),
+                item: Item::new(u32::as_elem()),
                 visibility: Visibility::Read,
                 location: Location::Storage,
                 size: None, // We avoid putting the length here since it will force a new kernel
@@ -514,7 +515,7 @@ fn bool_item(ty: Item) -> Item {
 pub fn bool_elem(elem: Elem) -> Elem {
     match elem {
         // U32 are used for bool tensors
-        Elem::Bool => Elem::UInt,
+        Elem::Bool => u32::as_elem(),
         _ => elem,
     }
 }

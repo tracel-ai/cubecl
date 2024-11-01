@@ -79,16 +79,20 @@ impl Display for FragmentIdent {
 
 impl<D: Dialect> Display for Fragment<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let elem = match self.elem {
+            Elem::TF32 => "nvcuda::wmma::precision::tf32".to_string(),
+            elem => format!("{elem}"),
+        };
         match self.layout {
             Some(layout) => write!(
                 f,
                 "nvcuda::wmma::fragment<{}, {}, {}, {}, {}, {}>",
-                self.ident, self.m, self.n, self.k, self.elem, layout
+                self.ident, self.m, self.n, self.k, elem, layout
             ),
             None => write!(
                 f,
                 "nvcuda::wmma::fragment<{}, {}, {}, {}, {}>",
-                self.ident, self.m, self.n, self.k, self.elem,
+                self.ident, self.m, self.n, self.k, elem,
             ),
         }
     }

@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::shared::{Component, Elem};
+
 use super::{Dialect, Variable};
 
 #[derive(Clone, Debug)]
@@ -43,28 +45,42 @@ impl<D: Dialect> Display for WarpInstruction<D> {
         match self {
             WarpInstruction::ReduceSum { input, out } => reduce_operator(f, input, out, "+="),
             WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
-            WarpInstruction::ReduceMax { input, out } => write!(
-                f,
-                "
+            WarpInstruction::ReduceMax { input, out } => {
+                let max = match out.elem() {
+                    Elem::F16 | Elem::BF16 => "__hmax",
+                    Elem::F162 | Elem::BF162 => "__hmax2",
+                    _ => "max",
+                };
+                write!(
+                    f,
+                    "
 {out} = {input};
                 {{
 for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
-    {out} = max({out}, __shfl_down_sync(0xFFFFFFFF, {out}, offset));
+    {out} = {max}({out}, __shfl_down_sync(0xFFFFFFFF, {out}, offset));
 }}
 }}
                     "
-            ),
-            WarpInstruction::ReduceMin { input, out } => write!(
-                f,
-                "
+                )
+            }
+            WarpInstruction::ReduceMin { input, out } => {
+                let min = match out.elem() {
+                    Elem::F16 | Elem::BF16 => "__hmin",
+                    Elem::F162 | Elem::BF162 => "__hmin2",
+                    _ => "min",
+                };
+                write!(
+                    f,
+                    "
 {out} = {input};
                 {{
 for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
-    {out} = min({out}, __shfl_down_sync(0xFFFFFFFF, {out}, offset));
+    {out} = {min}({out}, __shfl_down_sync(0xFFFFFFFF, {out}, offset));
 }}
 }}
                     "
-            ),
+                )
+            }
             WarpInstruction::Elect { out } => write!(
                 f,
                 "

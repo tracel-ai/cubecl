@@ -2,7 +2,7 @@ use crate::frontend::{ExpandElementBaseInit, ExpandElementTyped, SizedContainer}
 use crate::prelude::IntoRuntime;
 use crate::{
     frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType, ExpandElement},
-    ir::{Elem, Item, Metadata, Variable},
+    ir::{Item, Metadata, Variable},
     prelude::Line,
     unexpanded,
 };
@@ -93,7 +93,7 @@ mod metadata {
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             let dim: ExpandElement = dim.into();
-            let out = context.create_local_binding(Item::new(Elem::UInt));
+            let out = context.create_local_binding(Item::new(u32::as_elem()));
             context.register(Instruction::new(
                 Metadata::Stride {
                     dim: *dim,
@@ -111,7 +111,7 @@ mod metadata {
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             let dim: ExpandElement = dim.into();
-            let out = context.create_local_binding(Item::new(Elem::UInt));
+            let out = context.create_local_binding(Item::new(u32::as_elem()));
             context.register(Instruction::new(
                 Metadata::Shape {
                     dim: *dim,

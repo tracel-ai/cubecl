@@ -15,6 +15,7 @@ version = "0.4.0"
 
 [workspace.dependencies]
 derive-new = { version = "0.6.0", default-features = false }
+derive_more = { version = "1", default-features = false }
 log = { default-features = false, version = "0.4.22" }
 
 serde = { version = "1.0.204", default-features = false, features = [
@@ -60,6 +61,7 @@ paste = "1.0.15"
 proc-macro2 = "1.0.86"
 quote = "1.0.36"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
+cfg-if = "1.0.0"
 
 ### For xtask crate ###
 strum = { version = "0.26.3", features = ["derive"] }

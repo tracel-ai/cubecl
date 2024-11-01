@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
@@ -13,11 +15,11 @@ use crate::matmul::tests::test_utils::assert_equals_approx;
 use crate::matmul::tests::test_utils::generate_random_data;
 use crate::matmul::tests::test_utils::matmul_cpu_reference;
 
-struct TensorRawParts {
+struct TensorRawParts<F: Float + CubeElement> {
     handle: Handle,
     shape: Vec<usize>,
     strides: Vec<usize>,
-    original_data: Option<Vec<f32>>,
+    original_data: Option<Vec<F>>,
 }
 
 /// Test the correctness of the specified Matmul on the given device,
@@ -29,7 +31,7 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
     config: MM::Config,
     device: &R::Device,
 ) where
-    EG: Numeric + CubeElement,
+    EG: Float + CubeElement + Display,
     MM: batch::Matmul<EG, B>,
     B: batch::Config,
     R: Runtime,
@@ -78,7 +80,7 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
 
 /// Test the correctness of the high-level Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_launch<EG: Numeric + CubeElement, R: Runtime>(
+pub fn test_matmul_launch<EG: Float + CubeElement + Display, R: Runtime>(
     problem: MatmulProblem<EG>,
     disable_cmma: bool,
     device: &R::Device,
@@ -106,18 +108,18 @@ pub fn test_matmul_launch<EG: Numeric + CubeElement, R: Runtime>(
     );
 }
 
-fn tensor_raw_parts<EG: Numeric + CubeElement, R: Runtime>(
+fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem<EG>,
     ident: Ident,
-) -> TensorRawParts {
+) -> TensorRawParts<EG> {
     match ident {
         Ident::Lhs => {
-            let original_data: Vec<f32> =
+            let original_data: Vec<EG> =
                 generate_random_data(problem.tensor_size(Ident::Lhs) as usize);
             let data = match problem.lhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
-                MatrixLayout::ColMajor => transpose::<f32>(
+                MatrixLayout::ColMajor => transpose::<EG>(
                     &original_data,
                     problem.num_batches() as usize,
                     problem.m as usize,
@@ -126,18 +128,18 @@ fn tensor_raw_parts<EG: Numeric + CubeElement, R: Runtime>(
             };
 
             TensorRawParts {
-                handle: client.create(EG::as_bytes(&EG::from_values(&data))),
+                handle: client.create(EG::as_bytes(&data)),
                 shape: problem.shape(Ident::Lhs),
                 strides: problem.strides(Ident::Lhs),
                 original_data: Some(original_data),
             }
         }
         Ident::Rhs => {
-            let original_data: Vec<f32> =
+            let original_data: Vec<EG> =
                 generate_random_data(problem.tensor_size(Ident::Rhs) as usize);
             let data = match problem.rhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
-                MatrixLayout::ColMajor => transpose::<f32>(
+                MatrixLayout::ColMajor => transpose::<EG>(
                     &original_data,
                     problem.num_batches() as usize,
                     problem.k as usize,
@@ -146,7 +148,7 @@ fn tensor_raw_parts<EG: Numeric + CubeElement, R: Runtime>(
             };
 
             TensorRawParts {
-                handle: client.create(EG::as_bytes(&EG::from_values(&data))),
+                handle: client.create(EG::as_bytes(&data)),
                 shape: problem.shape(Ident::Rhs),
                 strides: problem.strides(Ident::Rhs),
                 original_data: Some(original_data),
@@ -180,15 +182,15 @@ fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> 
     result
 }
 
-fn assert_result<EG: Numeric + CubeElement, R: Runtime>(
-    lhs: &Vec<f32>,
-    rhs: &Vec<f32>,
+fn assert_result<EG: Float + CubeElement + Display, R: Runtime>(
+    lhs: &Vec<EG>,
+    rhs: &Vec<EG>,
     problem: &MatmulProblem<EG>,
     client: &ComputeClient<R::Server, R::Channel>,
     out: Handle,
 ) {
-    let expected = matmul_cpu_reference(&lhs, &rhs, problem);
-    if let Err(e) = assert_equals_approx::<EG, R>(&client, out, &expected, 10e-2) {
+    let expected = matmul_cpu_reference(lhs, rhs, problem);
+    if let Err(e) = assert_equals_approx::<R, EG>(&client, out, &expected, 10e-2) {
         panic!("{}", e);
     }
 }

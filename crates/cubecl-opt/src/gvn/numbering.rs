@@ -3,8 +3,9 @@ use std::{
     mem::swap,
 };
 
-use cubecl_core::ir::{
-    self, ConstantScalarValue, Elem, Item, Metadata, Operation, Operator, Variable, VariableKind,
+use cubecl_core::{
+    ir::{self, Item, Metadata, Operation, Operator, Variable, VariableKind},
+    prelude::CubePrimitive,
 };
 
 use crate::PhiInstruction;
@@ -312,9 +313,9 @@ impl ValueTable {
                     VariableKind::ConstantArray { length, .. }
                     | VariableKind::SharedMemory { length, .. }
                     | VariableKind::LocalArray { length, .. } => {
-                        let constant = Variable::constant(ConstantScalarValue::UInt(length as u64));
+                        let constant = length.into();
                         let num = self.lookup_or_add_var(&constant)?;
-                        let expr = Expression::Copy(num, Item::new(Elem::UInt));
+                        let expr = Expression::Copy(num, Item::new(u32::as_elem()));
                         return Ok((expr, out));
                     }
                     _ => unreachable!("Length only available on array"),

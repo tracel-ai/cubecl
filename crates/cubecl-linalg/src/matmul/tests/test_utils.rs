@@ -1,28 +1,35 @@
-use cubecl_core::{client::ComputeClient, prelude::Numeric, server::Handle, CubeElement, Runtime};
+use std::fmt::Display;
+
+use cubecl_core::{
+    client::ComputeClient, prelude::Float, prelude::Numeric, server::Handle, CubeElement, Runtime,
+};
 
 use crate::{matmul::components::MatmulProblem, tensor::TensorHandle};
 
 /// Compares the content of a handle to a given slice of f32.
-pub(crate) fn assert_equals_approx<I: CubeElement, R: Runtime>(
+pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
     client: &ComputeClient<R::Server, R::Channel>,
     output: Handle,
-    expected: &[f32],
+    expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
     let actual = client.read(output.binding());
-    let actual = I::from_bytes(&actual);
-    println!("{:?}", actual);
-    println!("{:?}", expected);
+    let actual = F::from_bytes(&actual);
+
+    // normalize to type epsilon
+    let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
-        let a = I::to_f32_value(*a);
-        if (a - e).abs() >= epsilon {
+        // account for lower precision at higher values
+        let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+
+        if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error {
             return Err(format!(
             "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
             i,
-            a,
-            e,
-            (a - e).abs(),
+            *a,
+            *e,
+            f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
             epsilon
             ));
         }
@@ -31,11 +38,11 @@ pub(crate) fn assert_equals_approx<I: CubeElement, R: Runtime>(
     Ok(())
 }
 
-/// Generates num_elements random f32 for tests.
+/// Generates num_elements random floats for tests.
 ///
 /// This is a naive CPU implementation with fixed seed,
 /// not designed to be used for other purposes than testing.
-pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
+pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) -> Vec<F> {
     fn lcg(seed: &mut u64) -> f32 {
         const A: u64 = 1664525;
         const C: u64 = 1013904223;
@@ -47,24 +54,24 @@ pub(crate) fn generate_random_data(num_elements: usize) -> Vec<f32> {
 
     let mut seed = 12345;
 
-    (0..num_elements).map(|_| lcg(&mut seed)).collect()
+    (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
 }
 
 /// Solves a matmul problem on f32 inputs.
 ///
 /// This is a naive CPU implementation, very slow on large payloads,
 /// not designed to be used for other purposes than testing.
-pub(crate) fn matmul_cpu_reference<EG: Numeric>(
-    lhs: &[f32],
-    rhs: &[f32],
+pub(crate) fn matmul_cpu_reference<EG: Numeric + CubeElement>(
+    lhs: &[EG],
+    rhs: &[EG],
     problem: &MatmulProblem<EG>,
-) -> Vec<f32> {
+) -> Vec<EG> {
     let m = problem.m as usize;
     let n = problem.n as usize;
     let k = problem.k as usize;
     let b = problem.num_batches();
 
-    let mut out = vec![0.; m * n * b];
+    let mut out = vec![EG::from_int(0); m * n * b];
 
     for b_ in 0..b {
         for i in 0..m {
@@ -90,23 +97,23 @@ pub(crate) struct MatmulTestCase {
 
 /// Deprecated
 impl MatmulTestCase {
-    pub(crate) fn matmul_cpu<R: Runtime>(
+    pub(crate) fn matmul_cpu<R: Runtime, F: Float + CubeElement>(
         &self,
-        lhs: &TensorHandle<R, f32>,
-        rhs: &TensorHandle<R, f32>,
+        lhs: &TensorHandle<R, F>,
+        rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Vec<f32> {
+    ) -> Vec<F> {
         let lhs_binding = &client.read(lhs.handle.clone().binding());
         let rhs_binding = &client.read(rhs.handle.clone().binding());
 
-        let lhs = f32::from_bytes(lhs_binding);
-        let rhs = f32::from_bytes(rhs_binding);
+        let lhs = F::from_bytes(lhs_binding);
+        let rhs = F::from_bytes(rhs_binding);
 
         self.matmul_cpu_algorithm(lhs, rhs)
     }
 
-    fn matmul_cpu_algorithm(&self, lhs: &[f32], rhs: &[f32]) -> Vec<f32> {
-        let mut out = vec![0.; self.batch * self.m * self.n];
+    fn matmul_cpu_algorithm<F: Float + CubeElement>(&self, lhs: &[F], rhs: &[F]) -> Vec<F> {
+        let mut out = vec![F::from_int(0); self.batch * self.m * self.n];
         let lhs_batch_offset = self.m * self.k;
         let rhs_batch_offset = self.k * self.n;
         let out_batch_offset = self.m * self.n;
@@ -118,9 +125,7 @@ impl MatmulTestCase {
                         let lhs_value = lhs[b * lhs_batch_offset + i * self.k + k_];
                         let rhs_value = rhs[b * rhs_batch_offset + j + k_ * self.n];
 
-                        let result = (half::f16::from_f32(lhs_value)
-                            * half::f16::from_f32(rhs_value))
-                        .to_f32();
+                        let result = lhs_value * rhs_value;
 
                         out[b * out_batch_offset + i * self.n + j] += result;
                     }
@@ -131,36 +136,36 @@ impl MatmulTestCase {
         out
     }
 
-    pub(crate) fn random_lhs<R: Runtime>(
+    pub(crate) fn random_lhs<R: Runtime, F: Float + CubeElement>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> TensorHandle<R, f32> {
+    ) -> TensorHandle<R, F> {
         self.random_tensor(client, vec![self.batch, self.m, self.k])
     }
 
-    pub(crate) fn random_rhs<R: Runtime>(
+    pub(crate) fn random_rhs<R: Runtime, F: Float + CubeElement>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> TensorHandle<R, f32> {
+    ) -> TensorHandle<R, F> {
         self.random_tensor(client, vec![self.batch, self.k, self.n])
     }
 
-    pub(crate) fn empty_out<R: Runtime>(
+    pub(crate) fn empty_out<R: Runtime, F: Float + CubeElement>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> TensorHandle<R, f32> {
+    ) -> TensorHandle<R, F> {
         TensorHandle::new_contiguous(
             vec![self.batch, self.m, self.n],
             self.create_empty::<R>(client, self.batch * self.m, self.n),
         )
     }
 
-    pub(crate) fn random_tensor<R: Runtime>(
+    pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
         shape: Vec<usize>,
-    ) -> TensorHandle<R, f32> {
-        let data = generate_random_data(shape.iter().product());
+    ) -> TensorHandle<R, F> {
+        let data = generate_random_data::<F>(shape.iter().product());
         let handle = client.create(bytemuck::cast_slice(&data));
         TensorHandle::new_contiguous(shape, handle)
     }

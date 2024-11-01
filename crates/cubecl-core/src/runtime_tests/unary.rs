@@ -1,27 +1,32 @@
-use crate as cubecl;
+use std::fmt::Display;
+
+use crate::{self as cubecl, as_type};
 
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
 
-pub(crate) fn assert_equals_approx<R: Runtime>(
+pub(crate) fn assert_equals_approx<
+    R: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
     client: &ComputeClient<R::Server, R::Channel>,
     output: Handle,
-    expected: &[f32],
-    epsilon: f32,
+    expected: &[F],
+    epsilon: F,
 ) {
     let actual = client.read(output.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = F::from_bytes(&actual);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         assert!(
-            (a - e).abs() < epsilon || (a.is_nan() && e.is_nan()),
+            (*a - *e).abs() < epsilon || (a.is_nan() && e.is_nan()),
             "Values differ more than epsilon: actual={}, expected={}, difference={}, epsilon={}
 index: {}
 actual: {:?}
 expected: {:?}",
             a,
             e,
-            (a - e).abs(),
+            (*a - *e).abs(),
             epsilon,
             i,
             actual,
@@ -41,7 +46,7 @@ macro_rules! test_unary_impl {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -51,12 +56,12 @@ macro_rules! test_unary_impl {
 
             $(
             {
-                let input = &$input;
-                let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
-                let input_handle = client.create(f32::as_bytes(input));
+                let input = $input;
+                let output_handle = client.empty(input.len() * core::mem::size_of::<$float_type>());
+                let input_handle = client.create($float_type::as_bytes(input));
 
                 unsafe {
-                    test_function::launch_unchecked::<f32, R>(
+                    test_function::launch_unchecked::<$float_type, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
@@ -65,7 +70,7 @@ macro_rules! test_unary_impl {
                     )
                 };
 
-                assert_equals_approx::<R>(&client, output_handle, &$expected, 0.001);
+                assert_equals_approx::<R, F>(&client, output_handle, $expected, $float_type::new(0.02));
             }
             )*
         }
@@ -80,26 +85,26 @@ test_unary_impl!(
         {
             input_vectorization: 1,
             out_vectorization: 1,
-            input: [-1., 23.1, -1.4, 5.1],
-            expected: [1., 23.1, 1.4, 5.1]
+            input: as_type![F: -1., 23.1, -1.4, 5.1],
+            expected: as_type![F: 1., 23.1, 1.4, 5.1]
         },
         {
             input_vectorization: 2,
             out_vectorization: 1,
-            input: [-1., 0., 1., 5.],
-            expected: [1.0, 5.099]
+            input: as_type![F: -1., 0., 1., 5.],
+            expected: as_type![F: 1.0, 5.099]
         },
         {
             input_vectorization: 4,
             out_vectorization: 1,
-            input: [-1., 0., 1., 5.],
-            expected: [5.196]
+            input: as_type![F: -1., 0., 1., 5.],
+            expected: as_type![F: 5.196]
         },
         {
             input_vectorization: 4,
             out_vectorization: 1,
-            input: [0., 0., 0., 0.],
-            expected: [0.]
+            input: as_type![F: 0., 0., 0., 0.],
+            expected: as_type![F: 0.]
         }
     ]
 );
@@ -112,32 +117,32 @@ test_unary_impl!(
         {
             input_vectorization: 1,
             out_vectorization: 1,
-            input: [-1., 0., 1., 5.],
-            expected: [-1., f32::NAN, 1., 1.]
+            input: as_type![F: -1., 0., 1., 5.],
+            expected: as_type![F: -1., f32::NAN, 1., 1.]
         },
         {
             input_vectorization: 2,
             out_vectorization: 2,
-            input: [-1., 0., 1., 5.],
-            expected: [-1.0, 0.0, 0.196, 0.981]
+            input: as_type![F: -1., 0., 1., 5.],
+            expected: as_type![F: -1.0, 0.0, 0.196, 0.981]
         },
         {
             input_vectorization: 4,
             out_vectorization: 4,
-            input: [-1., 0., 1., 5.],
-            expected: [-0.192, 0.0, 0.192, 0.962]
+            input: as_type![F: -1., 0., 1., 5.],
+            expected: as_type![F: -0.192, 0.0, 0.192, 0.962]
         },
         {
             input_vectorization: 4,
             out_vectorization: 4,
-            input: [0., 0., 0., 0.],
-            expected: [f32::NAN, f32::NAN, f32::NAN, f32::NAN]
+            input: as_type![F: 0., 0., 0., 0.],
+            expected: as_type![F: f32::NAN, f32::NAN, f32::NAN, f32::NAN]
         },
         {
             input_vectorization: 2,
             out_vectorization: 2,
-            input: [0., 0., 1., 0.],
-            expected: [f32::NAN, f32::NAN, 1., 0.]
+            input: as_type![F: 0., 0., 1., 0.],
+            expected: as_type![F: f32::NAN, f32::NAN, 1., 0.]
         }
     ]
 );
@@ -154,7 +159,9 @@ macro_rules! testgen_unary {
                     #[test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
-                        cubecl_core::runtime_tests::unary::$test_name::<TestRuntime>(client);
+                        cubecl_core::runtime_tests::unary::$test_name::<TestRuntime, FloatType>(
+                            client,
+                        );
                     }
                 };
             }

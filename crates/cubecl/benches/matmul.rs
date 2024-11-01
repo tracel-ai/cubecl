@@ -84,7 +84,7 @@ fn main() {
         run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
     }
 
-    #[cfg(feature = "hip")]
+    #[cfg(all(feature = "hip", target_os = "linux"))]
     {
         run::<cubecl::hip::HipRuntime, f32>(
             Default::default(),
