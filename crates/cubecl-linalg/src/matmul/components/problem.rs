@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use cubecl_core::prelude::Numeric;
 
-use super::Ident;
 use super::{batch::Config, MatrixLayout};
 
 #[derive(Clone)]
@@ -21,61 +20,6 @@ pub struct MatmulProblem<EG: Numeric> {
 }
 
 impl<EG: Numeric> MatmulProblem<EG> {
-    /// Returns the total number of elements for the identified tensor
-    pub(crate) fn tensor_size(&self, ident: Ident) -> usize {
-        match ident {
-            Ident::Lhs => self.num_batches() * self.m * self.k,
-            Ident::Rhs => self.num_batches() * self.k * self.n,
-            Ident::Out => self.num_batches() * self.m * self.n,
-        }
-    }
-
-    /// Returns the shape of the identified tensor
-    pub(crate) fn shape(&self, ident: Ident) -> Vec<usize> {
-        self.batches
-            .iter()
-            .cloned()
-            .chain(
-                match ident {
-                    Ident::Lhs => vec![self.m, self.k],
-                    Ident::Rhs => vec![self.k, self.n],
-                    Ident::Out => vec![self.m, self.n],
-                }
-                .into_iter(),
-            )
-            .collect()
-    }
-
-    /// Returns the stride of the identified tensor
-    pub(crate) fn strides(&self, ident: Ident) -> Vec<usize> {
-        let mut strides = Vec::with_capacity(self.batches.len() + 2);
-
-        let (last_batch, x, y) = match ident {
-            Ident::Lhs => match self.lhs_layout {
-                MatrixLayout::RowMajor => (self.m * self.k, self.k, 1),
-                MatrixLayout::ColMajor => (self.m * self.k, 1, self.m),
-            },
-            Ident::Rhs => match self.rhs_layout {
-                MatrixLayout::RowMajor => (self.k * self.n, self.n, 1),
-                MatrixLayout::ColMajor => (self.k * self.n, 1, self.k),
-            },
-            Ident::Out => (self.m * self.n, self.n, 1),
-        };
-
-        strides.push(y);
-        strides.push(x);
-
-        if self.batches.len() > 0 {
-            strides.push(last_batch);
-
-            for b in self.batches.iter().rev().take(self.batches.len() - 1) {
-                strides.push(last_batch * b)
-            }
-        }
-
-        strides.into_iter().rev().collect()
-    }
-
     /// Returns the total number of batches
     pub(crate) fn num_batches(&self) -> usize {
         self.batches.iter().copied().product()
