@@ -211,7 +211,6 @@ impl Item {
                            (width_other, signed_other)| {
             let sign_differs = signed_self != signed_other;
             let width_differs = width_self != width_other;
-            println!("{self:?}, {other:?}");
             match (sign_differs, width_differs) {
                 (true, true) => {
                     let sign_swap = swap_sign(b, obj, None, width_self, signed_other);
