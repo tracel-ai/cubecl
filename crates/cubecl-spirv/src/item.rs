@@ -167,18 +167,31 @@ impl Item {
             (_, false) => {
                 let zero = self.const_u32(b, 0);
                 let id = out_id.unwrap_or_else(|| b.id());
+                let ty = self.id(b);
                 T::s_max(b, ty, obj, zero, id);
                 id
             }
             (64, true) => {
                 let max = ConstVal::Bit64(i64::MAX as u64);
-                let max = b.static_cast(max, &Elem::Int(64, true), other);
-                b.bitwise_and(ty, out_id, obj, max).unwrap()
+                let max = b.static_cast(max, &Elem::Int(64, true), self);
+                let id = out_id.unwrap_or_else(|| b.id());
+                let ty = self.id(b);
+                T::u_min(b, ty, obj, max, id);
+                id
             }
-            (_, true) => {
-                let max = ConstVal::Bit32(i32::MAX as u32);
-                let max = b.static_cast(max, &Elem::Int(32, true), other);
-                b.bitwise_and(ty, out_id, obj, max).unwrap()
+            (width, true) => {
+                let max = match width {
+                    32 => i32::MAX as u32,
+                    16 => i16::MAX as u32,
+                    8 => i8::MAX as u32,
+                    _ => unimplemented!("Invalid width"),
+                };
+                let max = ConstVal::Bit32(max);
+                let max = b.static_cast(max, &Elem::Int(32, true), self);
+                let id = out_id.unwrap_or_else(|| b.id());
+                let ty = self.id(b);
+                T::u_min(b, ty, obj, max, id);
+                id
             }
         };
 
@@ -198,6 +211,7 @@ impl Item {
                            (width_other, signed_other)| {
             let sign_differs = signed_self != signed_other;
             let width_differs = width_self != width_other;
+            println!("{self:?}, {other:?}");
             match (sign_differs, width_differs) {
                 (true, true) => {
                     let sign_swap = swap_sign(b, obj, None, width_self, signed_other);
