@@ -26,7 +26,7 @@ mod tch_gpu {
 mod cube_cuda {
     use cubecl::cuda::{CudaDevice, CudaRuntime};
     use cubecl::frontend::F32;
-    use cubecl::linalg::{matmul::tiling2d, tensor::TensorHandle};
+    use cubecl::linalg::{matmul::kernels::tiling2d, tensor::TensorHandle};
     use cubecl::prelude::*;
     use cubecl::Runtime;
 
@@ -62,7 +62,7 @@ mod cube_cuda {
 #[cfg(feature = "cube-wgpu")]
 mod cube_wgpu {
     use cubecl::frontend::F32;
-    use cubecl::linalg::{matmul::tiling2d, tensor::TensorHandle};
+    use cubecl::linalg::{matmul::kernels::tiling2d, tensor::TensorHandle};
     use cubecl::prelude::*;
     use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
     use cubecl::Runtime;

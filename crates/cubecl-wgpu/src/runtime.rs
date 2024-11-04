@@ -161,7 +161,10 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
 
     let features = setup.adapter.features();
     let mut device_props = DeviceProperties::new(&[], mem_props);
-    if features.contains(wgpu::Features::SUBGROUP) {
+
+    if features.contains(wgpu::Features::SUBGROUP)
+        && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
+    {
         device_props.register_feature(Feature::Subcube);
     }
     C::register_features(&setup.adapter, &setup.device, &mut device_props);
