@@ -90,8 +90,7 @@ unsigned int mask = __activemask();
 unsigned int leader = __ffs(mask) - 1;
 {out} = threadIdx.x % warpSize == leader;
             "
-                )
-            }
+                ),
             WarpInstruction::All { input, out } => {
                 let __all = D::warp_all(out);
                 write!(

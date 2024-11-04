@@ -87,7 +87,7 @@ impl<D: Dialect> Display for Fragment<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let namespace = D::mma_namespace();
         let elem = match self.elem {
-            Elem::TF32 => format!("{namespace}::precision::tf32".to_string()),
+            Elem::TF32 => format!("{namespace}::precision::tf32"),
             elem => format!("{elem}"),
         };
         match self.layout {
