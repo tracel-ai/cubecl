@@ -42,7 +42,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Subcube::Sum(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
                     match out_ty.elem() {
-                        Elem::Int(_, false) => b.group_non_uniform_i_add(
+                        Elem::Int(_, _) => b.group_non_uniform_i_add(
                             ty,
                             Some(out),
                             subgroup,
@@ -58,7 +58,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             input,
                             None,
                         ),
-                        _ => unreachable!(),
+                        elem => unreachable!("{elem}"),
                     }
                     .unwrap();
                 });
