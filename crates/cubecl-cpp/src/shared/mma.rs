@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::{Dialect, Elem, Variable};
+use super::{Component, Dialect, Elem, Variable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum FragmentIdent {
@@ -109,10 +109,18 @@ impl<D: Dialect> Display for WmmaInstruction<D> {
                 value,
                 stride,
                 layout: None,
-            } => writeln!(
-                f,
-                "nvcuda::wmma::load_matrix_sync({frag}, {value}, {stride});"
-            ),
+            } => {
+                let item = value.item();
+                if item.vectorization > 1 {
+                    let elem = item.elem;
+                    writeln!(f, "nvcuda::wmma::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride});")
+                } else {
+                    writeln!(
+                        f,
+                        "nvcuda::wmma::load_matrix_sync({frag}, {value}, {stride});"
+                    )
+                }
+            }
             WmmaInstruction::Load {
                 frag,
                 value,
@@ -123,10 +131,16 @@ impl<D: Dialect> Display for WmmaInstruction<D> {
                     FragmentLayout::ColMajor => "nvcuda::wmma::mem_col_major",
                     FragmentLayout::RowMajor => "nvcuda::wmma::mem_row_major",
                 };
-                writeln!(
-                    f,
-                    "nvcuda::wmma::load_matrix_sync({frag}, {value}, {stride}, {layout});"
-                )
+                let item = value.item();
+                if item.vectorization > 1 {
+                    let elem = item.elem;
+                    writeln!(f, "nvcuda::wmma::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride}, {layout});")
+                } else {
+                    writeln!(
+                        f,
+                        "nvcuda::wmma::load_matrix_sync({frag}, {value}, {stride}, {layout});"
+                    )
+                }
             }
             WmmaInstruction::Execute {
                 frag_a,
@@ -148,10 +162,19 @@ impl<D: Dialect> Display for WmmaInstruction<D> {
                     FragmentLayout::RowMajor => "nvcuda::wmma::mem_row_major",
                 };
 
-                writeln!(
-                    f,
-                    "nvcuda::wmma::store_matrix_sync({output}, {frag}, {stride}, {layout});"
-                )
+                let item = output.item();
+                if item.vectorization > 1 {
+                    let elem = item.elem;
+                    writeln!(
+                        f,
+                        "nvcuda::wmma::store_matrix_sync(reinterpret_cast<{elem} *>({output}), {frag}, {stride}, {layout});"
+                    )
+                } else {
+                    writeln!(
+                        f,
+                        "nvcuda::wmma::store_matrix_sync({output}, {frag}, {stride}, {layout});"
+                    )
+                }
             }
         }
     }

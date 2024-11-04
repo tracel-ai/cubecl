@@ -2,6 +2,8 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
+use crate::prelude::{CubeType, Init};
+
 use super::{Elem, Variable};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -18,6 +20,16 @@ pub enum MatrixLayout {
     ColMajor,
     RowMajor,
     Undefined,
+}
+
+impl CubeType for MatrixLayout {
+    type ExpandType = Self;
+}
+
+impl Init for MatrixLayout {
+    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

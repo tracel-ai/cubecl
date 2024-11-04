@@ -1,82 +1,12 @@
 use std::fmt::Display;
 
-use bytemuck::cast_slice;
-use cubecl_core::{client::ComputeClient, prelude::Float, server::Handle, CubeElement, Runtime};
-
-use crate::{
-    matmul::tiling2d::config::{CubeTiling2dConfig, Tiling2dConfig},
-    tensor::TensorHandle,
+use cubecl_core::{
+    client::ComputeClient, prelude::Float, prelude::Numeric, server::Handle, CubeElement, Runtime,
 };
 
-pub(crate) fn range_tensor<R: Runtime, F: Float + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    x: usize,
-    y: usize,
-) -> TensorHandle<R, F> {
-    let n_elements = x * y;
+use crate::{matmul::components::MatmulProblem, tensor::TensorHandle};
 
-    let mut data: Vec<F> = Vec::with_capacity(n_elements);
-    for i in 0..n_elements {
-        data.push(F::new(i as f32));
-    }
-
-    let handle = client.create(cast_slice(&data));
-
-    TensorHandle::new_contiguous(vec![x, y], handle)
-}
-
-pub(crate) fn range_tensor_transposed<R: Runtime, F: Float + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    x: usize,
-    y: usize,
-) -> TensorHandle<R, F> {
-    let n_elements = x * y;
-
-    let mut data: Vec<F> = Vec::with_capacity(n_elements);
-    for i in 0..y {
-        for j in 0..x {
-            let number = j * y + i;
-            data.push(F::new(number as f32));
-        }
-    }
-
-    let handle = client.create(cast_slice(&data));
-
-    TensorHandle::new_contiguous(vec![x, y], handle)
-}
-
-pub(crate) fn zeros_tensor<R: Runtime, F: Float + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    x: usize,
-    y: usize,
-) -> TensorHandle<R, F> {
-    let n_elements = x * y;
-
-    let data: Vec<F> = vec![F::new(0.); n_elements];
-    let handle = client.create(cast_slice(&data));
-
-    TensorHandle::new_contiguous(vec![x, y], handle)
-}
-
-pub(crate) fn create_empty<R: Runtime, F: Float + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    x: usize,
-    y: usize,
-) -> Handle {
-    client.empty(x * y * core::mem::size_of::<F>())
-}
-
-pub(crate) fn assert_equals<R: Runtime, F: Float + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    output: Handle,
-    expected: &[F],
-) {
-    let actual = client.read(output.binding());
-    let actual = F::from_bytes(&actual);
-
-    pretty_assertions::assert_eq!(&actual[0..expected.len()], expected);
-}
-
+/// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
     client: &ComputeClient<R::Server, R::Channel>,
     output: Handle,
@@ -108,25 +38,10 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     Ok(())
 }
 
-pub fn make_tiling2d_config(m: usize, k: usize, n: usize) -> CubeTiling2dConfig {
-    let tiling2d_config = Tiling2dConfig {
-        block_size_m: 8,
-        block_size_k: 8,
-        block_size_n: 8,
-        ..Default::default()
-    };
-    CubeTiling2dConfig::new(&tiling2d_config, m, k, n, false, false)
-}
-
-pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    shape: Vec<usize>,
-) -> TensorHandle<R, F> {
-    let data: Vec<F> = generate_random_data(shape.iter().product());
-    let handle = client.create(cast_slice(&data));
-    TensorHandle::new_contiguous(shape, handle)
-}
-
+/// Generates num_elements random floats for tests.
+///
+/// This is a naive CPU implementation with fixed seed,
+/// not designed to be used for other purposes than testing.
 pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) -> Vec<F> {
     fn lcg(seed: &mut u64) -> f32 {
         const A: u64 = 1664525;
@@ -140,4 +55,127 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) 
     let mut seed = 12345;
 
     (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
+}
+
+/// Solves a matmul problem on f32 inputs.
+///
+/// This is a naive CPU implementation, very slow on large payloads,
+/// not designed to be used for other purposes than testing.
+pub(crate) fn matmul_cpu_reference<EG: Numeric + CubeElement>(
+    lhs: &[EG],
+    rhs: &[EG],
+    problem: &MatmulProblem<EG>,
+) -> Vec<EG> {
+    let m = problem.m as usize;
+    let n = problem.n as usize;
+    let k = problem.k as usize;
+    let b = problem.num_batches();
+
+    let mut out = vec![EG::from_int(0); m * n * b];
+
+    for b_ in 0..b {
+        for i in 0..m {
+            for j in 0..n {
+                for k_ in 0..k {
+                    out[(b_ * m * n) + i * n + j] +=
+                        lhs[(b_ * m * k) + i * k + k_] * rhs[(b_ * k * n) + k_ * n + j];
+                }
+            }
+        }
+    }
+
+    out
+}
+
+/// Deprecated
+pub(crate) struct MatmulTestCase {
+    pub m: usize,
+    pub k: usize,
+    pub n: usize,
+    pub batch: usize,
+}
+
+/// Deprecated
+impl MatmulTestCase {
+    pub(crate) fn matmul_cpu<R: Runtime, F: Float + CubeElement>(
+        &self,
+        lhs: &TensorHandle<R, F>,
+        rhs: &TensorHandle<R, F>,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Vec<F> {
+        let lhs_binding = &client.read(lhs.handle.clone().binding());
+        let rhs_binding = &client.read(rhs.handle.clone().binding());
+
+        let lhs = F::from_bytes(lhs_binding);
+        let rhs = F::from_bytes(rhs_binding);
+
+        self.matmul_cpu_algorithm(lhs, rhs)
+    }
+
+    fn matmul_cpu_algorithm<F: Float + CubeElement>(&self, lhs: &[F], rhs: &[F]) -> Vec<F> {
+        let mut out = vec![F::from_int(0); self.batch * self.m * self.n];
+        let lhs_batch_offset = self.m * self.k;
+        let rhs_batch_offset = self.k * self.n;
+        let out_batch_offset = self.m * self.n;
+
+        for b in 0..self.batch {
+            for i in 0..self.m {
+                for j in 0..self.n {
+                    for k_ in 0..self.k {
+                        let lhs_value = lhs[b * lhs_batch_offset + i * self.k + k_];
+                        let rhs_value = rhs[b * rhs_batch_offset + j + k_ * self.n];
+
+                        let result = lhs_value * rhs_value;
+
+                        out[b * out_batch_offset + i * self.n + j] += result;
+                    }
+                }
+            }
+        }
+
+        out
+    }
+
+    pub(crate) fn random_lhs<R: Runtime, F: Float + CubeElement>(
+        &self,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> TensorHandle<R, F> {
+        self.random_tensor(client, vec![self.batch, self.m, self.k])
+    }
+
+    pub(crate) fn random_rhs<R: Runtime, F: Float + CubeElement>(
+        &self,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> TensorHandle<R, F> {
+        self.random_tensor(client, vec![self.batch, self.k, self.n])
+    }
+
+    pub(crate) fn empty_out<R: Runtime, F: Float + CubeElement>(
+        &self,
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> TensorHandle<R, F> {
+        TensorHandle::new_contiguous(
+            vec![self.batch, self.m, self.n],
+            self.create_empty::<R>(client, self.batch * self.m, self.n),
+        )
+    }
+
+    pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement>(
+        &self,
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: Vec<usize>,
+    ) -> TensorHandle<R, F> {
+        let data = generate_random_data::<F>(shape.iter().product());
+        let handle = client.create(bytemuck::cast_slice(&data));
+        TensorHandle::new_contiguous(shape, handle)
+    }
+
+    pub(crate) fn create_empty<R: Runtime>(
+        &self,
+        client: &ComputeClient<R::Server, R::Channel>,
+        x: usize,
+        y: usize,
+    ) -> Handle {
+        client.empty(x * y * core::mem::size_of::<f32>())
+    }
 }
