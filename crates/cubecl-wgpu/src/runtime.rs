@@ -1,4 +1,4 @@
-use std::{any::Any, marker::PhantomData};
+use std::marker::PhantomData;
 
 use crate::{
     compiler::{base::WgpuCompiler, wgsl::WgslCompiler},
