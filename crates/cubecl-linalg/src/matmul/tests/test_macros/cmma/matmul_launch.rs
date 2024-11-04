@@ -1,13 +1,13 @@
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_matmul_launch {
-    () => {
+    ($eg:ty,) => {
         use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_launch;
         use cubecl_linalg::tensor::TensorHandle;
 
         #[test]
         pub fn test_launch_matmul_b3x4_g300x200x250_col_row() {
-            type EG = f32;
+            type EG = $eg;
             let problem = MatmulProblem::<EG> {
                 m: 300,
                 n: 200,

@@ -28,7 +28,9 @@ macro_rules! testgen_cmma_matmul {
                 32
             );
 
-            cubecl_linalg::testgen_matmul_launch!();
+            cubecl_linalg::testgen_matmul_launch!(
+                FloatT,
+            );
     };
 
     ([$($float:ident),*]) => {
@@ -70,7 +72,9 @@ macro_rules! testgen_plane_mma {
                 32
             );
 
-            cubecl_linalg::testgen_matmul_launch!();
+            cubecl_linalg::testgen_matmul_launch!(
+               FloatT,
+            );
     };
 
     ([$($float:ident),*]) => {
