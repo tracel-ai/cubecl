@@ -39,7 +39,11 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
 
-    if !client.properties().feature_enabled(Feature::Subcube) {
+    if !(client.properties().feature_enabled(Feature::Subcube)
+        && client
+            .properties()
+            .feature_enabled(Feature::Type(EG::as_elem())))
+    {
         // Can't execute the test.
         return;
     }
