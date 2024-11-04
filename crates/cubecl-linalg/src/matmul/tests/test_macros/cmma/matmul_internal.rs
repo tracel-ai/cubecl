@@ -529,8 +529,8 @@ macro_rules! testgen_matmul_internal {
                     n: 16,
                     k: 16,
                     batches: vec![],
-                    lhs_layout: MatrixLayout::RowMajor,
-                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
                     rhs_line_size: 4,
                     out_line_size: 4,
@@ -1120,6 +1120,7 @@ macro_rules! testgen_matmul_internal {
                 $i_16x16x16,
                 AdvancedConfig::default()
             );
+            test_stage_matmul_s1x1x1::<TestRuntime>(&Default::default());
         }
 
         #[test]
