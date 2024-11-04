@@ -237,7 +237,7 @@ impl Launch {
         let func = KernelFn::from_sig_and_block(
             // When generating code, this function will be wrapped in
             // a module. By setting the visibility to pub here, we
-            // ensure that the function is visibile outside that
+            // ensure that the function is visible outside that
             // module.
             Visibility::Public(parse_quote![pub]),
             function.sig,

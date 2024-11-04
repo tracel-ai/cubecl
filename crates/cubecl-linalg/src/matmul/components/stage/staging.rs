@@ -15,7 +15,7 @@ pub struct Stage<ES: Numeric> {
 
 #[cube]
 impl<ES: Numeric> Stage<ES> {
-    /// Instanciate a new stage for the given identifier
+    /// Instantiate a new stage for the given identifier
     pub fn new<S: Config>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES> {
         let smem = SharedMemory::new_lined(
             comptime!(config.stage_dim(ident).num_elements() / config.line_size(ident)),

@@ -10,7 +10,7 @@ impl Dialect for Hip {
         f.write_str("#include <hip/hip_fp16.h>\n")
     }
     fn include_bf16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // "hip_bf16.h" triggers redifinition errors during compilation
+        // "hip_bf16.h" triggers redefinition errors during compilation
         f.write_str("#include <hip/hip_bfloat16.h>\n")
     }
     fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
