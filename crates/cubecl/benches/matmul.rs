@@ -86,17 +86,20 @@ fn main() {
 
     #[cfg(feature = "wgpu-spirv")]
     {
-        run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(Default::default(), matmul::Strategy::Tiling2D(Default::default()));
-        run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(
+            Default::default(),
+            matmul::Strategy::PlaneMma,
+        );
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
         // TODO: randomly hangs on sync after kernel launch
-        run::<cubecl::hip::HipRuntime, f32>(
-            Default::default(),
-            matmul::Strategy::PlaneMma,
-        );
+        run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
         run::<cubecl::hip::HipRuntime, f32>(
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
@@ -107,10 +110,7 @@ fn main() {
             matmul::Strategy::Tiling2D(Default::default()),
         );
         // TODO: OOM
-        run::<cubecl::hip::HipRuntime, half::f16>(
-            Default::default(),
-            matmul::Strategy::PlaneMma,
-        );
+        run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
     }
 
     #[cfg(feature = "cuda")]
