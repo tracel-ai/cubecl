@@ -98,19 +98,34 @@ fn main() {
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
-        // TODO: randomly hangs on sync after kernel launch
-        run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        // TODO: unless annotated OOM, all the benches can randomly hang
+        // Full-precision ----------------------------------------------------
+        // Tiling2D
         run::<cubecl::hip::HipRuntime, f32>(
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
         );
-
+        // PlaneMma
+        // run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        // CmmaOld
+        // run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
+        // Accelerated
+        run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
+        // Half-precision ----------------------------------------------------
+        // Tiling2D
         run::<cubecl::hip::HipRuntime, half::f16>(
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
         );
-        // TODO: OOM
-        run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
+        // PlaneMma: OOM
+        // run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
+        // CmmaOld: OOM
+        // run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
+        // Accelerated
+        run::<cubecl::hip::HipRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::Accelerated,
+        );
     }
 
     #[cfg(feature = "cuda")]
