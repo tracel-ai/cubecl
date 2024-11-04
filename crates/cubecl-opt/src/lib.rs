@@ -42,9 +42,10 @@ use cubecl_core::{
 use gvn::GvnPass;
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
-    EliminateConstBranches, EliminateDeadBlocks, EliminateUnusedVariables, EmptyBranchToSelect,
-    FindConstSliceLen, InBoundsToUnchecked, InlineAssignments, IntegerRangeAnalysis, MergeBlocks,
-    MergeSameExpressions, OptimizerPass, ReduceStrength, RemoveIndexScalar,
+    EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
+    EmptyBranchToSelect, FindConstSliceLen, InBoundsToUnchecked, InlineAssignments,
+    IntegerRangeAnalysis, MergeBlocks, MergeSameExpressions, OptimizerPass, ReduceStrength,
+    RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
@@ -279,7 +280,7 @@ impl Optimizer {
             Box::new(EliminateConstBranches),
             Box::new(EmptyBranchToSelect),
             Box::new(EliminateDeadBlocks),
-            Box::new(MergeBlocks),
+            Box::new(EliminateDeadPhi),
         ];
         // Passes that only run if execution mode is checked
         let checked_passes: Vec<Box<dyn OptimizerPass>> = vec![
