@@ -35,7 +35,8 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
         }
     }
 
-    Ok(())
+    Err("".to_string())
+    // Ok(())
 }
 
 /// Generates num_elements random floats for tests.

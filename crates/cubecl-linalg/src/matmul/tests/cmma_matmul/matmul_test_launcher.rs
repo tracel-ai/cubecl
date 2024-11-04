@@ -209,7 +209,7 @@ fn assert_result<EG: Float + CubeElement + Display, R: Runtime>(
     out: Handle,
 ) {
     let expected = matmul_cpu_reference(lhs, rhs, problem);
-    if let Err(e) = assert_equals_approx::<R, EG>(&client, out, &expected, 10e-2) {
+    if let Err(e) = assert_equals_approx::<R, EG>(&client, out, &expected, 10e-7) {
         panic!("{}", e);
     }
 }

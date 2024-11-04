@@ -78,44 +78,12 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                 let b1 = subcube_broadcast(value_1, broadcast_index);
                 let b = select(b_index == 0, b0, b1);
 
-                // TODO replace by dot
-                let dot = O::cast_from(Line::dot(a, b)[0]);
-                // let mut dot = O::from_int(0);
-                // #[unroll]
-                // for i in 0..4 {
-                //     dot += O::cast_from(a[i] * b[i]);
-                // }
-
-                val += dot;
+                val += O::cast_from(Line::dot(a, b)[0]);
             }
 
             // TODO could wait to have line_size values and store them lined
             out[o_iter] = val;
         }
-
-        // let k_jump = config.plane_dim() / Self::N;
-        // let row_division = config.plane_dim() / Self::M;
-
-        // let num_jumps = Self::K / k_jump;
-        // let compute_width = Self::N / row_division;
-
-        // let unit_offset = Self::plane_unit() % row_division * compute_width;
-
-        // #[unroll]
-        // for k_outer in 0..num_jumps {
-        //     let b_kp = rhs[k_outer];
-
-        //     #[unroll]
-        //     for k_inner in 0..k_jump {
-        //         let a_pk = lhs[k_outer * k_jump + k_inner];
-
-        //         for n_iter in 0..compute_width {
-        //             let unit_to_read = k_inner * Self::N + n_iter + unit_offset;
-        //             let b_kn = subcube_broadcast::<I>(b_kp, unit_to_read);
-        //             out[n_iter] += O::cast_from(a_pk * b_kn);
-        //         }
-        //     }
-        // }
     }
 
     fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
