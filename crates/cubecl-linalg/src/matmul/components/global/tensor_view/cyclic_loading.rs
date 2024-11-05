@@ -34,7 +34,7 @@ impl CyclicLoading {
         #[comptime] config: G,
     ) {
         let stage_dim = config.stage_dim(ident);
-        let line_size = config.line_size(ident);
+        let line_size = config.global_line_size(ident);
 
         let num_stage_elements = stage_dim.num_elements();
         let total_units = comptime!(config.num_planes() * config.plane_dim());
@@ -94,7 +94,7 @@ impl CyclicLoading {
                         let stride_col = 1;
 
                         #[unroll]
-                        for row_iter in 0..config.line_size(ident) {
+                        for row_iter in 0..config.global_line_size(ident) {
                             let row_in_slice = root_row_in_slice + row_iter;
                             let elem = line_read[row_iter];
                             slice[tile_offset

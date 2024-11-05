@@ -17,11 +17,7 @@ pub struct Stage<ES: Numeric> {
 impl<ES: Numeric> Stage<ES> {
     /// Instantiate a new stage for the given identifier
     pub fn new<S: Config>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES> {
-        let line_size = comptime!(match ident {
-            Ident::Lhs => config.line_size(ident),
-            Ident::Rhs => 1u32,
-            _ => 0u32, // unreachable
-        });
+        let line_size = config.line_size(ident);
 
         let smem = SharedMemory::new_lined(
             comptime!(config.stage_dim(ident).num_elements() / line_size),

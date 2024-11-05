@@ -116,11 +116,13 @@ where
 /// Configuration for the HomogeneousGlobalMatmul
 pub struct Config<S: stage::Config> {
     smm_config: S,
-    out_smem_line_size: u32,
     check_m_bounds: bool,
     check_n_bounds: bool,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
+    lhs_line_size: u32,
+    rhs_line_size: u32,
+    out_line_size: u32,
 }
 
 impl<S: stage::Config> global::Config for Config<S> {
@@ -130,7 +132,15 @@ impl<S: stage::Config> global::Config for Config<S> {
         self.smm_config
     }
 
-    fn line_size(&self, ident: Ident) -> u32 {
+    fn global_line_size(&self, ident: Ident) -> u32 {
+        match ident {
+            Ident::Lhs => self.lhs_line_size,
+            Ident::Rhs => self.rhs_line_size,
+            Ident::Out => self.out_line_size,
+        }
+    }
+
+    fn stage_line_size(&self, ident: Ident) -> u32 {
         self.smm_config.line_size(ident)
     }
 
@@ -144,10 +154,6 @@ impl<S: stage::Config> global::Config for Config<S> {
             Ident::Rhs => self.rhs_layout,
             Ident::Out => self.smm_config.layout(Ident::Out),
         }
-    }
-
-    fn out_smem_line_size(&self) -> u32 {
-        self.out_smem_line_size
     }
 
     fn num_planes(&self) -> u32 {
@@ -180,19 +186,23 @@ impl<S: stage::Config> MatmulConfig for Config<S> {}
 impl<S: stage::Config> Config<S> {
     pub fn new(
         smm_config: S,
-        out_smem_line_size: u32,
         check_m_bounds: bool,
         check_n_bounds: bool,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
+        lhs_line_size: u32,
+        rhs_line_size: u32,
+        out_line_size: u32,
     ) -> Self {
         Self {
             smm_config,
-            out_smem_line_size,
             check_m_bounds,
             check_n_bounds,
             lhs_layout,
             rhs_layout,
+            lhs_line_size,
+            rhs_line_size,
+            out_line_size,
         }
     }
 }

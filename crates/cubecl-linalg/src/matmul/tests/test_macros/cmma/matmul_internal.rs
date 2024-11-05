@@ -53,24 +53,21 @@ macro_rules! testgen_matmul_internal {
                         fn cube_count<EG: Numeric>(_problem: &MatmulProblem<EG>) -> CubeCount {
                             $cube_count
                         }
-                        fn tile_config<EG: Numeric>(
+                        fn tile_config(
                             plane_dim: u32,
-                            problem: &MatmulProblem<EG>,
-                            advanced_config: &AdvancedConfig,
+                            lhs_layout: MatrixLayout,
+                            rhs_layout: MatrixLayout,
+                            lhs_line_size: u32,
+                            rhs_line_size: u32,
+                            out_line_size: u32,
                         ) -> Self::TileConfig {
                             Self::TileConfig::new(
                                 plane_dim,
-                                advanced_config
-                                    .enforced_tile_layout
-                                    .0
-                                    .unwrap_or(problem.lhs_layout),
-                                advanced_config
-                                    .enforced_tile_layout
-                                    .1
-                                    .unwrap_or(problem.rhs_layout),
-                                problem.lhs_line_size as u32,
-                                problem.rhs_line_size as u32,
-                                problem.out_line_size as u32,
+                                lhs_layout,
+                                rhs_layout,
+                                lhs_line_size,
+                                rhs_line_size,
+                                out_line_size,
                             )
                         }
                     }
@@ -593,8 +590,8 @@ macro_rules! testgen_matmul_internal {
                     n: 16,
                     k: 16,
                     batches: vec![],
-                    lhs_layout: MatrixLayout::RowMajor,
-                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
                     lhs_line_size: 4,
                     rhs_line_size: 4,
                     out_line_size: 4,

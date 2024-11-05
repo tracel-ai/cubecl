@@ -105,7 +105,7 @@ where
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
     ) {
-        let out_smem_line_size = global_config.out_smem_line_size();
+        let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
 

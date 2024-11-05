@@ -15,19 +15,30 @@ pub(crate) type CmmaSmmConfig<T> = stage::row_accumulate::Config<T>;
 pub(crate) type CmmaGmmConfig<T> = global::homogeneous::Config<CmmaSmmConfig<T>>;
 pub(crate) type CmmaBmmConfig<T> = batch::one_to_one::Config<CmmaGmmConfig<T>>;
 
-/// Configs that should not hinder correctness, but may impact performance
+/// Configs that may impact performance
+///
+/// # Notes
+///
+/// Some config combinations may hinder correctness.
 pub struct AdvancedConfig {
     /// Order in which tiles should be in shared memory
     pub tiling_order: stage::TilingOrderConfig,
     /// Ensure the inputs to tile matmul are in specified layout
     ///
-    /// # Specifications
+    /// # Notes
     ///
     /// First item is for LHS, second item is for RHS
     /// If None, the layout will be the same as in global memory
     /// If enforced layout is different from global memory,
     /// transpose will be done at loading from global memory to stage.
     pub enforced_tile_layout: (Option<MatrixLayout>, Option<MatrixLayout>),
+    /// Ensure the shared memories have specific lines
+    ///
+    /// # Notes
+    ///
+    /// First item is for LHS, second item is for RHS, third for output
+    /// If None, the line_size will be the same as corresponding global memory.
+    pub enforced_smem_line_sizes: (Option<u32>, Option<u32>, Option<u32>),
 }
 
 impl Default for AdvancedConfig {
@@ -35,6 +46,7 @@ impl Default for AdvancedConfig {
         Self {
             tiling_order: stage::TilingOrderConfig::XMajor,
             enforced_tile_layout: (None, None),
+            enforced_smem_line_sizes: (None, None, None),
         }
     }
 }
@@ -79,8 +91,25 @@ where
         panic!("Dynamic cube count unsupported")
     };
 
+    let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
+        Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
+        _ => (problem.lhs_layout, problem.lhs_line_size),
+    };
+
+    let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
+        Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
+        _ => (problem.rhs_layout, problem.rhs_line_size),
+    };
+
     let s = CmmaSmmConfig::new(
-        D::tile_config(plane_dim, problem, advanced_config),
+        D::tile_config(
+            plane_dim,
+            lhs_tile_layout,
+            rhs_tile_layout,
+            lhs_tile_line_size as u32,
+            rhs_tile_line_size as u32,
+            problem.out_line_size as u32,
+        ),
         lhs_stage_dim,
         rhs_stage_dim,
         out_stage_dim,
@@ -89,11 +118,13 @@ where
     );
     let g = CmmaGmmConfig::new(
         s,
-        problem.out_line_size as u32,
         check_m_bounds,
         check_n_bounds,
         problem.lhs_layout,
         problem.rhs_layout,
+        problem.lhs_line_size as u32,
+        problem.rhs_line_size as u32,
+        problem.out_line_size as u32,
     );
     let b = CmmaBmmConfig::new(g, *cube_count_x, *cube_count_y, *cube_count_z);
     problem.check_config::<CmmaBmmConfig<D::TileConfig>>(&b);

@@ -2,7 +2,6 @@ pub use super::shared::Config;
 use crate::matmul::components::{config::PlaneMapper, tile, Ident, MatmulKernel, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use std::fmt::Display;
 use std::marker::PhantomData;
 
 pub type PlaneMma16x16x16<I, O, T> = PlaneMma<I, O, T, 16, 16, 16>;
@@ -116,7 +115,6 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
     }
 
     fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: T) {
-        let _ = comptime!(tmp(config));
         match comptime!(config.layout(Ident::Rhs)) {
             MatrixLayout::RowMajor => fill_perpendicular_rhs(
                 slice,
@@ -185,11 +183,6 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
             }
         }
     }
-}
-
-use std::fmt::Debug;
-fn tmp<T: Debug>(config: T) {
-    println!("{:?}", config);
 }
 
 #[cube]
