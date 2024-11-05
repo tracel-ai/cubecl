@@ -19,7 +19,7 @@ pub type PlaneMma32x32x32<I, O> = PlaneMma<I, O, 32, 32, 32>;
 /// This is not yet fully optimized
 ///  - There are likely unrolling issues,
 ///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used
-///  - To fix an obscure bug one loop is done twice
+///  - To fix an obscure bug one loop is done twice (vec1 only)
 pub struct PlaneMma<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> {
     _input: PhantomData<I>,
     _output: PhantomData<O>,
@@ -62,49 +62,17 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
         #[unroll]
         for o_iter in 0..output_len {
-            let mut val = out[o_iter];
-
             #[unroll]
             for k_iter in 0..num_lines_k {
                 let a = lhs[k_iter];
                 let broadcast_index = o_iter * num_lines_k + k_iter;
                 let b0 = subcube_broadcast(value_0, broadcast_index);
-                // let b1 = subcube_broadcast(value_1, broadcast_index);
-                // let b = select(b_index == 0, b0, b1);
+                let b1 = subcube_broadcast(value_1, broadcast_index);
+                let b = select(b_index == 0, b0, b1);
 
-                val += O::cast_from(Line::dot(a, b0)[0]);
+                out[o_iter] += O::cast_from(Line::dot(a, b)[0]);
             }
-
-            out[o_iter] = val;
         }
-
-        // let num_out_lines = output_len / config.out_line_size;
-
-        // #[unroll]
-        // for o_outer in 0..num_out_lines {
-        //     let mut line = Line::empty(config.out_line_size);
-
-        //     #[unroll]
-        //     for o_inner in 0..config.out_line_size {
-        //         let mut val = O::from_int(0);
-        //         let o = o_outer * config.out_line_size + o_inner;
-
-        //         #[unroll]
-        //         for k_iter in 0..num_lines_k {
-        //             let a = lhs[k_iter];
-        //             let broadcast_index = o * num_lines_k + k_iter;
-        //             let b0 = subcube_broadcast(value_0, broadcast_index);
-        //             let b1 = subcube_broadcast(value_1, broadcast_index);
-        //             let b = select(b_index == 0, b0, b1);
-
-        //             val += O::cast_from(Line::dot(a, b)[0]);
-        //         }
-
-        //         line[o_inner] = val;
-        //     }
-
-        //     out[o_outer] += line;
-        // }
     }
 
     fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
