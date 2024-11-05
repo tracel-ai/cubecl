@@ -193,8 +193,8 @@ fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> 
 }
 
 fn assert_result<EG: Float + CubeElement + Display, R: Runtime>(
-    lhs: &Vec<EG>,
-    rhs: &Vec<EG>,
+    lhs: &[EG],
+    rhs: &[EG],
     problem: &MatmulProblem<EG>,
     client: &ComputeClient<R::Server, R::Channel>,
     out: Handle,
