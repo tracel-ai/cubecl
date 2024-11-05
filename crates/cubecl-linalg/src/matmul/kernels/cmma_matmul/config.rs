@@ -17,9 +17,6 @@ pub(crate) type CmmaBmmConfig<T> = batch::one_to_one::Config<CmmaGmmConfig<T>>;
 
 /// Configs that may impact performance
 ///
-/// # Notes
-///
-/// Some config combinations may hinder correctness.
 pub struct AdvancedConfig {
     /// Order in which tiles should be in shared memory
     pub tiling_order: stage::TilingOrderConfig,
@@ -30,15 +27,9 @@ pub struct AdvancedConfig {
     /// First item is for LHS, second item is for RHS
     /// If None, the layout will be the same as in global memory
     /// If enforced layout is different from global memory,
-    /// transpose will be done at loading from global memory to stage.
+    /// transpose will be done at loading from global memory to stage,
+    /// and stage will not be vectorized.
     pub enforced_tile_layout: (Option<MatrixLayout>, Option<MatrixLayout>),
-    /// Ensure the shared memories have specific lines
-    ///
-    /// # Notes
-    ///
-    /// First item is for LHS, second item is for RHS, third for output
-    /// If None, the line_size will be the same as corresponding global memory.
-    pub enforced_smem_line_sizes: (Option<u32>, Option<u32>, Option<u32>),
 }
 
 impl Default for AdvancedConfig {
@@ -46,7 +37,6 @@ impl Default for AdvancedConfig {
         Self {
             tiling_order: stage::TilingOrderConfig::XMajor,
             enforced_tile_layout: (None, None),
-            enforced_smem_line_sizes: (None, None, None),
         }
     }
 }

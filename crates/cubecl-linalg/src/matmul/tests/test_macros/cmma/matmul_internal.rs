@@ -553,6 +553,35 @@ macro_rules! testgen_matmul_internal {
         }
 
         #[test]
+        pub fn test_plane_mma_t16x16x16_lhs_layout_switch() {
+            matmul_test!(
+                test_plane_mma_t16x16x16_rhs_layout_switch,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    batches: vec![],
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                    _element: PhantomData,
+                },
+                CubeDim::new(32, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                S1x1x1,
+                $i_16x16x16,
+                AdvancedConfig {
+                    enforced_tile_layout: (Some(MatrixLayout::ColMajor), None),
+                    ..Default::default()
+                }
+            );
+
+            test_plane_mma_t16x16x16_rhs_layout_switch::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
         pub fn test_plane_mma_t16x16x16_rhs_layout_switch() {
             matmul_test!(
                 test_plane_mma_t16x16x16_rhs_layout_switch,
@@ -579,6 +608,92 @@ macro_rules! testgen_matmul_internal {
             );
 
             test_plane_mma_t16x16x16_rhs_layout_switch::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_plane_mma_t16x16x16_col_rhs_layout_switch() {
+            matmul_test!(
+                test_plane_mma_t16x16x16_rhs_layout_switch,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    batches: vec![],
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::ColMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                    _element: PhantomData,
+                },
+                CubeDim::new(32, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                S1x1x1,
+                $i_16x16x16,
+                AdvancedConfig {
+                    enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
+                    ..Default::default()
+                }
+            );
+
+            test_plane_mma_t16x16x16_rhs_layout_switch::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_plane_mma_t32x8x16_rhs_layout_switch() {
+            matmul_test!(
+                test_plane_mma_t32x8x16_rhs_layout_switch,
+                MatmulProblem {
+                    m: 32,
+                    n: 8,
+                    k: 16,
+                    batches: vec![],
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                    _element: PhantomData,
+                },
+                CubeDim::new(32, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                S1x1x1,
+                $i_32x8x16,
+                AdvancedConfig {
+                    enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
+                    ..Default::default()
+                }
+            );
+
+            test_plane_mma_t32x8x16_rhs_layout_switch::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_batch_matmul_b3_g256x256x256_s4x4x2_layout_switch() {
+            matmul_test!(
+                test_batch_matmul_b3_g256x256x256_s4x4x2_layout_switch,
+                MatmulProblem {
+                    m: 256,
+                    n: 256,
+                    k: 256,
+                    batches: vec![3, 4],
+                    lhs_layout: MatrixLayout::ColMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 2,
+                    rhs_line_size: 2,
+                    out_line_size: 4,
+                    _element: PhantomData,
+                },
+                CubeDim::new($plane_dim, 4, 1),
+                CubeCount::Static(4, 4, 12),
+                S4x4x2,
+                $i_16x16x16,
+                AdvancedConfig {
+                    enforced_tile_layout: (Some(MatrixLayout::RowMajor), Some(MatrixLayout::ColMajor)),
+                    ..Default::default()
+                }
+            );
+            test_batch_matmul_b3_g256x256x256_s4x4x2_layout_switch::<TestRuntime>(&Default::default())
         }
 
         #[test]
