@@ -119,6 +119,8 @@ pub struct Config<S: stage::Config> {
     out_smem_line_size: u32,
     check_m_bounds: bool,
     check_n_bounds: bool,
+    lhs_layout: MatrixLayout,
+    rhs_layout: MatrixLayout,
 }
 
 impl<S: stage::Config> global::Config for Config<S> {
@@ -137,7 +139,11 @@ impl<S: stage::Config> global::Config for Config<S> {
     }
 
     fn layout(&self, ident: Ident) -> MatrixLayout {
-        self.smm_config.layout(ident)
+        match ident {
+            Ident::Lhs => self.lhs_layout,
+            Ident::Rhs => self.rhs_layout,
+            Ident::Out => self.smm_config.layout(Ident::Out),
+        }
     }
 
     fn out_smem_line_size(&self) -> u32 {
@@ -163,6 +169,10 @@ impl<S: stage::Config> global::Config for Config<S> {
     fn check_n_bounds(&self) -> bool {
         self.check_n_bounds
     }
+
+    fn transpose_load(&self, ident: Ident) -> bool {
+        self.layout(ident) != self.smm_config.layout(ident)
+    }
 }
 
 impl<S: stage::Config> MatmulConfig for Config<S> {}
@@ -173,12 +183,16 @@ impl<S: stage::Config> Config<S> {
         out_smem_line_size: u32,
         check_m_bounds: bool,
         check_n_bounds: bool,
+        lhs_layout: MatrixLayout,
+        rhs_layout: MatrixLayout,
     ) -> Self {
         Self {
             smm_config,
             out_smem_line_size,
             check_m_bounds,
             check_n_bounds,
+            lhs_layout,
+            rhs_layout,
         }
     }
 }

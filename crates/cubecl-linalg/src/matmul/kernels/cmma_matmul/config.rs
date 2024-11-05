@@ -6,6 +6,7 @@ use crate::matmul::components::stage;
 use crate::matmul::components::stage::Matmul as StageMatmul;
 use crate::matmul::components::tile::Matmul as TileMatmul;
 use crate::matmul::components::MatmulProblem;
+use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::StageDim;
 
 use super::dispatch::MatmulLaunchDispatch;
@@ -16,13 +17,24 @@ pub(crate) type CmmaBmmConfig<T> = batch::one_to_one::Config<CmmaGmmConfig<T>>;
 
 /// Configs that should not hinder correctness, but may impact performance
 pub struct AdvancedConfig {
+    /// Order in which tiles should be in shared memory
     pub tiling_order: stage::TilingOrderConfig,
+    /// Ensure the inputs to tile matmul are in specified layout
+    ///
+    /// # Specifications
+    ///
+    /// First item is for LHS, second item is for RHS
+    /// If None, the layout will be the same as in global memory
+    /// If enforced layout is different from global memory,
+    /// transpose will be done at loading from global memory to stage.
+    pub enforced_tile_layout: (Option<MatrixLayout>, Option<MatrixLayout>),
 }
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
             tiling_order: stage::TilingOrderConfig::XMajor,
+            enforced_tile_layout: (None, None),
         }
     }
 }
@@ -68,7 +80,7 @@ where
     };
 
     let s = CmmaSmmConfig::new(
-        D::tile_config(plane_dim, problem),
+        D::tile_config(plane_dim, problem, advanced_config),
         lhs_stage_dim,
         rhs_stage_dim,
         out_stage_dim,
@@ -80,6 +92,8 @@ where
         problem.out_line_size as u32,
         check_m_bounds,
         check_n_bounds,
+        problem.lhs_layout,
+        problem.rhs_layout,
     );
     let b = CmmaBmmConfig::new(g, *cube_count_x, *cube_count_y, *cube_count_z);
     problem.check_config::<CmmaBmmConfig<D::TileConfig>>(&b);

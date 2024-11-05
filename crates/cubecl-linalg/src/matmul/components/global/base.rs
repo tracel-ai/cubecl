@@ -112,4 +112,7 @@ pub trait Config: MatmulConfig {
 
     /// Whether it is necessary to add bound checks in the n dimension
     fn check_n_bounds(&self) -> bool;
+
+    /// Whether we transpose data when loading to the stage
+    fn transpose_load(&self, ident: Ident) -> bool;
 }

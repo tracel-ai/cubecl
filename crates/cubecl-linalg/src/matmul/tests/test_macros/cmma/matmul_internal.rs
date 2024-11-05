@@ -56,11 +56,18 @@ macro_rules! testgen_matmul_internal {
                         fn tile_config<EG: Numeric>(
                             plane_dim: u32,
                             problem: &MatmulProblem<EG>,
+                            advanced_config: &AdvancedConfig,
                         ) -> Self::TileConfig {
                             Self::TileConfig::new(
                                 plane_dim,
-                                problem.lhs_layout,
-                                problem.rhs_layout,
+                                advanced_config
+                                    .enforced_tile_layout
+                                    .0
+                                    .unwrap_or(problem.lhs_layout),
+                                advanced_config
+                                    .enforced_tile_layout
+                                    .1
+                                    .unwrap_or(problem.rhs_layout),
                                 problem.lhs_line_size as u32,
                                 problem.rhs_line_size as u32,
                                 problem.out_line_size as u32,
@@ -259,7 +266,8 @@ macro_rules! testgen_matmul_internal {
                 S4x4x2,
                 $i_16x16x16,
                 AdvancedConfig {
-                    tiling_order: TilingOrderConfig::YMajor
+                    tiling_order: TilingOrderConfig::YMajor,
+                    ..Default::default()
                 }
             );
             test_batch_matmul_g256x256x256_s4x4x2::<TestRuntime>(&Default::default())
@@ -286,7 +294,8 @@ macro_rules! testgen_matmul_internal {
                 S1x1x1,
                 $i_16x16x16,
                 AdvancedConfig {
-                    tiling_order: TilingOrderConfig::YMajor
+                    tiling_order: TilingOrderConfig::YMajor,
+                    ..Default::default()
                 }
             );
             test_batch_matmul_g32x32x32_s1x1x1::<TestRuntime>(&Default::default())
@@ -544,6 +553,35 @@ macro_rules! testgen_matmul_internal {
             );
 
             test_plane_mma_16_16_16::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
+        pub fn test_plane_mma_t16x16x16_rhs_layout_switch() {
+            matmul_test!(
+                test_plane_mma_t16x16x16_rhs_layout_switch,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    batches: vec![],
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                    _element: PhantomData,
+                },
+                CubeDim::new(32, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                S1x1x1,
+                $i_16x16x16,
+                AdvancedConfig {
+                    enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
+                    ..Default::default()
+                }
+            );
+
+            test_plane_mma_t16x16x16_rhs_layout_switch::<TestRuntime>(&Default::default())
         }
 
         #[test]
@@ -936,7 +974,8 @@ macro_rules! testgen_matmul_internal {
                 S2x2x2,
                 $i_16x16x16,
                 AdvancedConfig {
-                    tiling_order: TilingOrderConfig::YMajor
+                    tiling_order: TilingOrderConfig::YMajor,
+                    ..Default::default()
                 }
             );
 
