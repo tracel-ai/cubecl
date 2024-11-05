@@ -17,9 +17,10 @@ pub type PlaneMma32x32x32<I, O> = PlaneMma<I, O, 32, 32, 32>;
 /// # Note
 ///
 /// This is not yet fully optimized
-///  - There are likely unrolling issues,
-///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used
-///  - To fix an obscure bug one loop is done twice (vec1 only)
+///  - Operations are not vectorized. The algorithm must be rethought to perform operations on lines, perhaps using dot
+///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used.
+///    A solution could be to always load the stage with lhs in row-major and rhs in col-major, using only parallel fill
+///  - If not vec4, there are patches in read_output that may harm performance
 pub struct PlaneMma<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> {
     _input: PhantomData<I>,
     _output: PhantomData<O>,
@@ -46,46 +47,43 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
     const N: u32 = N;
     const K: u32 = K;
 
-    type Lhs = Array<Line<I>>;
-    type Rhs = Array<Line<I>>;
+    type Lhs = Array<I>;
+    type Rhs = Array<I>;
     type Out = Array<O>;
 
     fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: Config) {
-        let output_len = Self::M * Self::N / config.plane_dim();
-        let num_lines_k = Self::K / config.k_line_size;
+        let k_jump = config.plane_dim() / Self::N;
+        let row_division = config.plane_dim() / Self::M;
 
-        let unit = Self::plane_unit();
-        let b_index = unit % (Self::N / output_len);
+        let num_jumps = Self::K / k_jump;
+        let compute_width = Self::N / row_division;
 
-        let value_0 = rhs[0];
-        let value_1 = rhs[1];
+        let unit_offset = Self::plane_unit() % row_division * compute_width;
 
         #[unroll]
-        for o_iter in 0..output_len {
-            #[unroll]
-            for k_iter in 0..num_lines_k {
-                let a = lhs[k_iter];
-                let broadcast_index = o_iter * num_lines_k + k_iter;
-                let b0 = subcube_broadcast(value_0, broadcast_index);
-                let b1 = subcube_broadcast(value_1, broadcast_index);
-                let b = select(b_index == 0, b0, b1);
+        for k_outer in 0..num_jumps {
+            let b_kp = rhs[k_outer];
 
-                out[o_iter] += O::cast_from(Line::dot(a, b)[0]);
+            #[unroll]
+            for k_inner in 0..k_jump {
+                let a_pk = lhs[k_outer * k_jump + k_inner];
+
+                #[unroll]
+                for n_iter in 0..compute_width {
+                    let unit_to_read = k_inner * Self::N + n_iter + unit_offset;
+                    let b_kn = subcube_broadcast::<I>(b_kp, unit_to_read);
+                    out[n_iter] += O::cast_from(a_pk * b_kn);
+                }
             }
         }
     }
 
-    fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
-        let line_size = config.k_line_size;
-        Array::vectorized(Self::K / line_size, line_size)
+    fn init_lhs(#[comptime] _config: Config) -> Self::Lhs {
+        Array::new(Self::K)
     }
 
     fn init_rhs(#[comptime] config: Config) -> Self::Rhs {
-        let line_size = config.k_line_size;
-        Array::vectorized(
-            Self::K * Self::N / (line_size * config.plane_dim()),
-            line_size,
-        )
+        Array::new(Self::K * Self::N / config.plane_dim())
     }
 
     fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
@@ -96,7 +94,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                 Self::plane_unit(),
                 Self::M,
                 Self::K,
-                config,
+                config.line_size(Ident::Lhs),
+                config.plane_dim(),
             ),
             MatrixLayout::ColMajor => fill_perpendicular_lhs(
                 slice,
@@ -104,7 +103,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                 Self::plane_unit(),
                 Self::M,
                 Self::K,
-                config,
+                config.line_size(Ident::Lhs),
+                config.plane_dim(),
             ),
         }
     }
@@ -117,7 +117,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                 Self::plane_unit(),
                 Self::N,
                 Self::K,
-                config,
+                config.line_size(Ident::Rhs),
+                config.plane_dim(),
             ),
             MatrixLayout::ColMajor => fill_parallel_rhs(
                 slice,
@@ -125,7 +126,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                 Self::plane_unit(),
                 Self::N,
                 Self::K,
-                config,
+                config.line_size(Ident::Rhs),
+                config.plane_dim(),
             ),
         }
     }
@@ -133,9 +135,12 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
     fn init_output(#[comptime] config: Config) -> Self::Out {
         let len = Self::M * Self::N / (config.plane_dim());
         let mut acc = Array::new(len);
+
+        #[unroll]
         for i in 0..len {
             acc[i] = O::from_int(0);
         }
+
         acc
     }
 
@@ -158,23 +163,39 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
         let offset = row_offset + unit % row_division * num_lines;
 
-        if comptime!(line_size == 1) {
-            #[unroll]
-            for col in 0..num_lines {
-                slice[col + offset] = Line::cast_from(out[col]);
-            }
-            // TODO: very obscure bug, fails on wgpu if we don't do the loop twice
-            for col in 0..num_lines {
-                slice[col + offset] = Line::cast_from(out[col]);
-            }
-        } else {
+        if comptime!(line_size >= 4) {
             #[unroll]
             for col in 0..num_lines {
                 let mut line = Line::<C>::empty(line_size);
+                #[unroll]
                 for j in 0..line_size {
                     line[j] = C::cast_from(out[col * line_size + j]);
                 }
                 slice[col + offset] = line;
+            }
+        } else {
+            // There are weird behaviours on wgpu on metal with vec1 and vec2,
+            // where some values are left empty.
+            // This is patched by repeating loops or deactivating unrolling
+
+            if comptime!(line_size == 1) {
+                #[unroll]
+                for col in 0..num_lines {
+                    slice[col + offset] = Line::cast_from(out[col]);
+                }
+                // It seems we must repeat this loop without unroll
+                for col in 0..num_lines {
+                    slice[col + offset] = Line::cast_from(out[col]);
+                }
+            } else {
+                // Cannot be unrolled, leads to bugs
+                for col in 0..num_lines {
+                    let mut line = Line::<C>::empty(line_size);
+                    for j in 0..line_size {
+                        line[j] = C::cast_from(out[col * line_size + j]);
+                    }
+                    slice[col + offset] = line;
+                }
             }
         }
     }
@@ -183,129 +204,117 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 #[cube]
 fn fill_parallel_lhs<E: Numeric>(
     slice_from: &Slice<'_, Line<E>>,
-    slice_to: &mut SliceMut<'_, Line<E>>,
+    slice_to: &mut SliceMut<'_, E>,
     unit: u32,
     #[comptime] m: u32,
     #[comptime] k: u32,
-    #[comptime] config: Config,
+    #[comptime] line_size: u32,
+    #[comptime] plane_dim: u32,
 ) {
-    let lhs_line_size = config.line_size(Ident::Lhs);
-    let plane_dim = config.plane_dim();
-
-    let num_lines_to_fill = k / config.k_line_size;
+    let num_lines = k / line_size;
     let row = unit * m / plane_dim;
 
-    if comptime!(lhs_line_size == config.k_line_size) {
-        #[unroll]
-        for col in 0..num_lines_to_fill {
-            slice_to[col] = slice_from[row * num_lines_to_fill + col];
+    #[unroll]
+    for col in 0..num_lines {
+        let line = slice_from[row * num_lines + col];
+        if comptime!(line_size == 1) {
+            slice_to[col * line_size] = E::cast_from(line);
+        } else {
+            #[unroll]
+            for line_idx in 0..line_size {
+                slice_to[col * line_size + line_idx] = line[line_idx];
+            }
         }
-    } else {
-        let _ = comptime!(unsupported_line_size());
     }
 }
 
 #[cube]
 fn fill_perpendicular_lhs<E: Numeric>(
     slice_from: &Slice<'_, Line<E>>,
-    slice_to: &mut SliceMut<'_, Line<E>>,
+    slice_to: &mut SliceMut<'_, E>,
     unit: u32,
     #[comptime] m: u32,
     #[comptime] k: u32,
-    #[comptime] config: Config,
+    #[comptime] line_size: u32,
+    #[comptime] plane_dim: u32,
 ) {
-    let lhs_line_size = config.line_size(Ident::Lhs);
-    let plane_dim = config.plane_dim();
-
-    let num_lines_in_k = k / config.k_line_size;
-    let col_stride = m / config.lhs_line_size;
-
+    let num_lines = m / line_size;
     let row = unit * m / plane_dim;
-    let lhs_row_idx = row / lhs_line_size;
-    let lhs_line_idx = row % lhs_line_size;
+
+    let row_idx = row / line_size;
+    let line_idx = row % line_size;
 
     #[unroll]
-    for col_outer in 0..num_lines_in_k {
-        let mut line_to = Line::empty(config.k_line_size);
-
-        #[unroll]
-        for col_inner in 0..config.k_line_size {
-            let col = col_outer * config.k_line_size + col_inner;
-            let line_from = slice_from[lhs_row_idx + col * col_stride];
-            line_to[col_inner] = line_from[lhs_line_idx];
-        }
-
-        slice_to[col_outer] = line_to;
+    for col in 0..k {
+        let line = slice_from[row_idx + col * num_lines];
+        slice_to[col] = if comptime!(line_size == 1) {
+            E::cast_from(line)
+        } else {
+            line[line_idx]
+        };
     }
 }
 
 #[cube]
 fn fill_perpendicular_rhs<E: Numeric>(
     slice_from: &Slice<'_, Line<E>>,
-    slice_to: &mut SliceMut<'_, Line<E>>,
+    slice_to: &mut SliceMut<'_, E>,
     unit: u32,
     #[comptime] n: u32,
     #[comptime] k: u32,
-    #[comptime] config: Config,
+    #[comptime] line_size: u32,
+    #[comptime] plane_dim: u32,
 ) {
-    let rhs_line_size = config.line_size(Ident::Rhs);
-    let plane_dim = config.plane_dim();
+    let k_row_alt = unit / n;
+    let col = unit % n;
 
-    let num_lines_in_k = k / config.k_line_size;
-    let row_stride_rhs = n / config.rhs_line_size;
-    let col_jump = plane_dim / num_lines_in_k;
-    let num_jumps = n / col_jump;
+    let num_lines = n / line_size;
+    let col_idx = col / line_size;
+    let line_idx = col % line_size;
 
-    let first_row = (unit % num_lines_in_k) * config.k_line_size;
-    let col_unit_offset = unit / num_lines_in_k;
+    let row_jump = plane_dim / n;
 
     #[unroll]
-    for iter in 0..num_jumps {
-        let mut line_to = Line::empty(config.k_line_size);
+    for k_iter in 0..k / row_jump {
+        let k_row = row_jump * k_iter + k_row_alt;
+        let offset = k_row * num_lines + col_idx;
+        let line = slice_from[offset];
 
-        let col = iter * col_jump + col_unit_offset;
-        let rhs_col_idx = col / rhs_line_size;
-        let rhs_line_idx = col % rhs_line_size;
-
-        #[unroll]
-        for row_inner in 0..config.k_line_size {
-            let row = first_row + row_inner;
-            let line_from = slice_from[row * row_stride_rhs + rhs_col_idx];
-            line_to[row_inner] = line_from[rhs_line_idx];
-        }
-
-        slice_to[iter] = line_to;
+        slice_to[k_iter] = if comptime!(line_size == 1) {
+            E::cast_from(line)
+        } else {
+            line[line_idx]
+        };
     }
 }
 
 #[cube]
 fn fill_parallel_rhs<E: Numeric>(
     slice_from: &Slice<'_, Line<E>>,
-    slice_to: &mut SliceMut<'_, Line<E>>,
+    slice_to: &mut SliceMut<'_, E>,
     unit: u32,
     #[comptime] n: u32,
     #[comptime] k: u32,
-    #[comptime] config: Config,
+    #[comptime] line_size: u32,
+    #[comptime] plane_dim: u32,
 ) {
-    let rhs_line_size = config.line_size(Ident::Rhs);
-    let plane_dim = config.plane_dim();
+    let k_row_alt = unit / n;
+    let col = unit % n;
+    let row_jump = plane_dim / n;
+    let col_offset = col * k / line_size;
 
-    if comptime!(rhs_line_size == config.k_line_size) {
-        let num_lines_in_k = k / config.k_line_size;
-
-        let col_unit_offset = unit / num_lines_in_k;
-        let col_jump = plane_dim / num_lines_in_k;
-        let row = unit % num_lines_in_k;
-        let num_jumps = n / col_jump;
-
-        #[unroll]
-        for col_iter in 0..num_jumps {
-            let col = col_iter * col_jump + col_unit_offset;
-            let line = slice_from[col * num_lines_in_k + row];
-            slice_to[col_iter] = line;
+    #[unroll]
+    for k_iter in 0..k / row_jump {
+        let row = row_jump * k_iter + k_row_alt;
+        let row_index = row / line_size;
+        let offset = row_index + col_offset;
+        let line = slice_from[offset];
+        slice_to[k_iter] = if comptime!(line_size == 1) {
+            E::cast_from(line)
+        } else {
+            let line_idx = row % line_size;
+            line[line_idx]
         }
-    } else {
-        let _ = comptime!(unsupported_line_size());
     }
 }
 
@@ -330,7 +339,6 @@ pub struct Config {
     lhs_line_size: u32,
     rhs_line_size: u32,
     out_line_size: u32,
-    k_line_size: u32,
 }
 
 impl tile::Config for Config {
@@ -355,10 +363,6 @@ impl tile::Config for Config {
     }
 }
 
-fn unsupported_line_size() {
-    panic!("Different line sizes not supported yet")
-}
-
 impl MatmulConfig for Config {}
 
 impl Config {
@@ -377,8 +381,6 @@ impl Config {
             lhs_line_size,
             rhs_line_size,
             out_line_size,
-            // TODO make flexible
-            k_line_size: 4,
         }
     }
 }
