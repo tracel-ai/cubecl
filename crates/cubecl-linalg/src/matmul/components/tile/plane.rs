@@ -51,39 +51,60 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
     type Out = Array<O>;
 
     fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: Config) {
-        // 8
         let output_len = Self::M * Self::N / config.plane_dim();
-        // 4
         let num_lines_k = Self::K / config.k_line_size;
 
-        // 0..32
         let unit = Self::plane_unit();
-        // 8 * (0..32 % (16 / 8)) = 8 * 0..2 = 0 or 8, in alternance
         let b_index = unit % (Self::N / output_len);
-        // Not sure i can do that, some units need 1st value, some 2nd.
-        // Worst case, get all and choose from locally
+
         let value_0 = rhs[0];
         let value_1 = rhs[1];
 
-        // TODO try reversing o_iter and k_iter, will have less access to lhs, but more to out
         #[unroll]
         for o_iter in 0..output_len {
-            let mut val = O::from_int(0);
+            let mut val = out[o_iter];
 
             #[unroll]
             for k_iter in 0..num_lines_k {
                 let a = lhs[k_iter];
                 let broadcast_index = o_iter * num_lines_k + k_iter;
                 let b0 = subcube_broadcast(value_0, broadcast_index);
-                let b1 = subcube_broadcast(value_1, broadcast_index);
-                let b = select(b_index == 0, b0, b1);
+                // let b1 = subcube_broadcast(value_1, broadcast_index);
+                // let b = select(b_index == 0, b0, b1);
 
-                val += O::cast_from(Line::dot(a, b)[0]);
+                val += O::cast_from(Line::dot(a, b0)[0]);
             }
 
-            // TODO could wait to have line_size values and store them lined
             out[o_iter] = val;
         }
+
+        // let num_out_lines = output_len / config.out_line_size;
+
+        // #[unroll]
+        // for o_outer in 0..num_out_lines {
+        //     let mut line = Line::empty(config.out_line_size);
+
+        //     #[unroll]
+        //     for o_inner in 0..config.out_line_size {
+        //         let mut val = O::from_int(0);
+        //         let o = o_outer * config.out_line_size + o_inner;
+
+        //         #[unroll]
+        //         for k_iter in 0..num_lines_k {
+        //             let a = lhs[k_iter];
+        //             let broadcast_index = o * num_lines_k + k_iter;
+        //             let b0 = subcube_broadcast(value_0, broadcast_index);
+        //             let b1 = subcube_broadcast(value_1, broadcast_index);
+        //             let b = select(b_index == 0, b0, b1);
+
+        //             val += O::cast_from(Line::dot(a, b)[0]);
+        //         }
+
+        //         line[o_inner] = val;
+        //     }
+
+        //     out[o_outer] += line;
+        // }
     }
 
     fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
@@ -122,7 +143,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
     fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
         match comptime!(config.layout(Ident::Rhs)) {
-            MatrixLayout::RowMajor => fill_parallel_rhs(
+            MatrixLayout::RowMajor => fill_perpendicular_rhs(
                 slice,
                 rhs.as_slice_mut(),
                 Self::plane_unit(),
@@ -142,7 +163,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
     }
 
     fn init_output(#[comptime] config: Config) -> Self::Out {
-        let len = Self::M * Self::N / config.plane_dim();
+        let len = Self::M * Self::N / (config.plane_dim());
         let mut acc = Array::new(len);
         for i in 0..len {
             acc[i] = O::from_int(0);
@@ -212,31 +233,8 @@ fn fill_parallel_lhs<E: Numeric>(
             slice_to[col] = slice_from[row * num_lines_to_fill + col];
         }
     } else {
-        let _ = comptime!(panic());
+        let _ = comptime!(unsupported_line_size());
     }
-
-    // let lhs_line_size = config.line_size(Ident::Lhs);
-    // let plane_dim = config.plane_dim();
-
-    // let num_lines = k / lhs_line_size;
-    // let row = unit * m / plane_dim;
-
-    // #[unroll]
-    // for col in 0..num_lines {
-    //     let line = slice_from[row * num_lines + col];
-    //     if comptime!(lhs_line_size == 1) {
-    //         slice_to[col * lhs_line_size] = E::cast_from(line);
-    //     } else {
-    //         #[unroll]
-    //         for line_idx in 0..lhs_line_size {
-    //             slice_to[col * lhs_line_size + line_idx] = line[line_idx];
-    //         }
-    //     }
-    // }
-}
-
-fn panic() {
-    panic!("Different line sizes not supported yet")
 }
 
 #[cube]
@@ -248,24 +246,29 @@ fn fill_perpendicular_lhs<E: Numeric>(
     #[comptime] k: u32,
     #[comptime] config: Config,
 ) {
-    // let lhs_line_size = config.line_size(Ident::Lhs);
-    // let plane_dim = config.plane_dim();
+    let lhs_line_size = config.line_size(Ident::Lhs);
+    let plane_dim = config.plane_dim();
 
-    // let num_lines = m / lhs_line_size;
-    // let row = unit * m / plane_dim;
+    let num_lines_in_k = k / config.k_line_size;
+    let col_stride = m / config.lhs_line_size;
 
-    // let row_idx = row / lhs_line_size;
-    // let line_idx = row % lhs_line_size;
+    let row = unit * m / plane_dim;
+    let lhs_row_idx = row / lhs_line_size;
+    let lhs_line_idx = row % lhs_line_size;
 
-    // #[unroll]
-    // for col in 0..k {
-    //     let line = slice_from[row_idx + col * num_lines];
-    //     slice_to[col] = if comptime!(lhs_line_size == 1) {
-    //         E::cast_from(line)
-    //     } else {
-    //         line[line_idx]
-    //     };
-    // }
+    #[unroll]
+    for col_outer in 0..num_lines_in_k {
+        let mut line_to = Line::empty(config.k_line_size);
+
+        #[unroll]
+        for col_inner in 0..config.k_line_size {
+            let col = col_outer * config.k_line_size + col_inner;
+            let line_from = slice_from[lhs_row_idx + col * col_stride];
+            line_to[col_inner] = line_from[lhs_line_idx];
+        }
+
+        slice_to[col_outer] = line_to;
+    }
 }
 
 #[cube]
@@ -277,30 +280,34 @@ fn fill_perpendicular_rhs<E: Numeric>(
     #[comptime] k: u32,
     #[comptime] config: Config,
 ) {
-    // let rhs_line_size = config.line_size(Ident::Rhs);
-    // let plane_dim = config.plane_dim();
+    let rhs_line_size = config.line_size(Ident::Rhs);
+    let plane_dim = config.plane_dim();
 
-    // let k_row_alt = unit / n;
-    // let col = unit % n;
+    let num_lines_in_k = k / config.k_line_size;
+    let row_stride_rhs = n / config.rhs_line_size;
+    let col_jump = plane_dim / num_lines_in_k;
+    let num_jumps = n / col_jump;
 
-    // let num_lines = n / rhs_line_size;
-    // let col_idx = col / rhs_line_size;
-    // let line_idx = col % rhs_line_size;
+    let first_row = (unit % num_lines_in_k) * config.k_line_size;
+    let col_unit_offset = unit / num_lines_in_k;
 
-    // let row_jump = plane_dim / n;
+    #[unroll]
+    for iter in 0..num_jumps {
+        let mut line_to = Line::empty(config.k_line_size);
 
-    // #[unroll]
-    // for k_iter in 0..k / row_jump {
-    //     let k_row = row_jump * k_iter + k_row_alt;
-    //     let offset = k_row * num_lines + col_idx;
-    //     let line = slice_from[offset];
+        let col = iter * col_jump + col_unit_offset;
+        let rhs_col_idx = col / rhs_line_size;
+        let rhs_line_idx = col % rhs_line_size;
 
-    //     slice_to[k_iter] = if comptime!(rhs_line_size == 1) {
-    //         E::cast_from(line)
-    //     } else {
-    //         line[line_idx]
-    //     };
-    // }
+        #[unroll]
+        for row_inner in 0..config.k_line_size {
+            let row = first_row + row_inner;
+            let line_from = slice_from[row * row_stride_rhs + rhs_col_idx];
+            line_to[row_inner] = line_from[rhs_line_idx];
+        }
+
+        slice_to[iter] = line_to;
+    }
 }
 
 #[cube]
@@ -312,55 +319,26 @@ fn fill_parallel_rhs<E: Numeric>(
     #[comptime] k: u32,
     #[comptime] config: Config,
 ) {
-    let rhs_line_size = config.line_size(Ident::Rhs); // 4
-    let plane_dim = config.plane_dim(); // 32
+    let rhs_line_size = config.line_size(Ident::Rhs);
+    let plane_dim = config.plane_dim();
 
     if comptime!(rhs_line_size == config.k_line_size) {
-        let num_lines_in_col = k / config.k_line_size; // 4
+        let num_lines_in_k = k / config.k_line_size;
 
-        // 0..32 / 4 = 0..8 with four each times
-        let col_unit_offset = unit / num_lines_in_col;
-        // 32 / 4 = 8
-        let col_jump = plane_dim / num_lines_in_col;
-        let col_stride = num_lines_in_col;
-
-        // 0..4
-        let row = unit % num_lines_in_col;
-        let row_stride = 1;
-
+        let col_unit_offset = unit / num_lines_in_k;
+        let col_jump = plane_dim / num_lines_in_k;
+        let row = unit % num_lines_in_k;
         let num_jumps = n / col_jump;
 
         #[unroll]
         for col_iter in 0..num_jumps {
             let col = col_iter * col_jump + col_unit_offset;
-            let line = slice_from[col * col_stride + row * row_stride];
+            let line = slice_from[col * num_lines_in_k + row];
             slice_to[col_iter] = line;
         }
     } else {
-        let _ = comptime!(panic());
+        let _ = comptime!(unsupported_line_size());
     }
-
-    // let rhs_line_size = config.line_size(Ident::Rhs);
-    // let plane_dim = config.plane_dim();
-
-    // let k_row_alt = unit / n;
-    // let col = unit % n;
-    // let row_jump = plane_dim / n;
-    // let col_offset = col * k / rhs_line_size;
-
-    // #[unroll]
-    // for k_iter in 0..k / row_jump {
-    //     let row = row_jump * k_iter + k_row_alt;
-    //     let row_index = row / rhs_line_size;
-    //     let offset = row_index + col_offset;
-    //     let line = slice_from[offset];
-    //     slice_to[k_iter] = if comptime!(rhs_line_size == 1) {
-    //         E::cast_from(line)
-    //     } else {
-    //         let line_idx = row % rhs_line_size;
-    //         line[line_idx]
-    //     }
-    // }
 }
 
 impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKernel<I, O>
@@ -409,6 +387,10 @@ impl tile::Config for Config {
     }
 }
 
+fn unsupported_line_size() {
+    panic!("Different line sizes not supported yet")
+}
+
 impl MatmulConfig for Config {}
 
 impl Config {
@@ -427,6 +409,7 @@ impl Config {
             lhs_line_size,
             rhs_line_size,
             out_line_size,
+            // TODO make flexible
             k_line_size: 4,
         }
     }

@@ -495,6 +495,32 @@ macro_rules! testgen_matmul_internal {
         }
 
         #[test]
+        pub fn test_tile_t16x16x16_row_row() {
+            matmul_test!(
+                test_tile_16_16_16,
+                MatmulProblem {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    batches: vec![],
+                    lhs_layout: MatrixLayout::RowMajor,
+                    rhs_layout: MatrixLayout::RowMajor,
+                    lhs_line_size: 4,
+                    rhs_line_size: 4,
+                    out_line_size: 4,
+                    _element: PhantomData,
+                },
+                CubeDim::new(32, 1, 1),
+                CubeCount::Static(1, 1, 1),
+                S1x1x1,
+                $i_16x16x16,
+                AdvancedConfig::default()
+            );
+
+            test_tile_16_16_16::<TestRuntime>(&Default::default())
+        }
+
+        #[test]
         pub fn test_tile_t16x16x16_row_col() {
             matmul_test!(
                 test_tile_16_16_16,
