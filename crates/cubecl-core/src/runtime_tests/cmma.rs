@@ -101,6 +101,8 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
         kernel_simple_1::launch::<R>(
             &client,
             CubeCount::Static(1, 1, 1),
+            // For HIP, change dim to:
+            // CubeDim::new(32, 1, 1),
             CubeDim::new(16, 16, 1),
             ArrayArg::from_raw_parts(&lhs, 256, 1),
             ArrayArg::from_raw_parts(&rhs, 256, 1),

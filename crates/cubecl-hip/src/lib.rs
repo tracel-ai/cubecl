@@ -3,6 +3,7 @@
 extern crate derive_new;
 extern crate alloc;
 
+pub mod arch;
 #[cfg(target_os = "linux")]
 pub mod compute;
 #[cfg(target_os = "linux")]

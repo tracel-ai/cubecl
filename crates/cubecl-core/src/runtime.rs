@@ -47,5 +47,6 @@ pub enum Feature {
         k: u8,
         n: u8,
     },
+    CmmaWarpSize(i32),
     Type(Elem),
 }

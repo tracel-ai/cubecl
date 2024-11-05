@@ -134,16 +134,12 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
 ) -> TensorRawParts<EG> {
     match ident {
         Ident::Lhs => {
-            let original_data: Vec<EG> =
-                generate_random_data(tensor_size(problem, Ident::Lhs) as usize);
+            let original_data: Vec<EG> = generate_random_data(tensor_size(problem, Ident::Lhs));
             let data = match problem.lhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
-                MatrixLayout::ColMajor => transpose::<EG>(
-                    &original_data,
-                    problem.num_batches() as usize,
-                    problem.m as usize,
-                    problem.k as usize,
-                ),
+                MatrixLayout::ColMajor => {
+                    transpose::<EG>(&original_data, problem.num_batches(), problem.m, problem.k)
+                }
             };
 
             TensorRawParts {
@@ -154,16 +150,12 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
             }
         }
         Ident::Rhs => {
-            let original_data: Vec<EG> =
-                generate_random_data(tensor_size(problem, Ident::Rhs) as usize);
+            let original_data: Vec<EG> = generate_random_data(tensor_size(problem, Ident::Rhs));
             let data = match problem.rhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
-                MatrixLayout::ColMajor => transpose::<EG>(
-                    &original_data,
-                    problem.num_batches() as usize,
-                    problem.k as usize,
-                    problem.n as usize,
-                ),
+                MatrixLayout::ColMajor => {
+                    transpose::<EG>(&original_data, problem.num_batches(), problem.k, problem.n)
+                }
             };
 
             TensorRawParts {
@@ -174,8 +166,7 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
             }
         }
         Ident::Out => {
-            let handle =
-                client.empty(tensor_size(problem, Ident::Out) as usize * EG::as_elem().size());
+            let handle = client.empty(tensor_size(problem, Ident::Out) * EG::as_elem().size());
             let shape = shape(problem, Ident::Out);
             let strides = strides(problem, Ident::Out);
 
@@ -209,7 +200,7 @@ fn assert_result<EG: Float + CubeElement + Display, R: Runtime>(
     out: Handle,
 ) {
     let expected = matmul_cpu_reference(lhs, rhs, problem);
-    if let Err(e) = assert_equals_approx::<R, EG>(&client, out, &expected, 10e-5) {
+    if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, 10e-5) {
         panic!("{}", e);
     }
 }

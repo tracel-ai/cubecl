@@ -114,6 +114,7 @@ pub(crate) fn test_cmma<R: Runtime, F: Float + CubeElement + Display>(
         assert_equals_approx::<R, F>(&client, out.handle, &expected, 0.01)
     } else {
         // Cmma unavailable, nothing to do
+        println!("Skipped (cmma not supported)");
         Ok(())
     }
 }

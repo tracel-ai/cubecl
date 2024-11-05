@@ -188,7 +188,6 @@ impl ComputeServer for HipServer {
             .collect::<Vec<_>>();
 
         if let Some(level) = profile_level {
-            ctx.sync();
             let start = std::time::SystemTime::now();
             ctx.execute_task(kernel_id, count, resources);
             ctx.sync();
@@ -211,6 +210,7 @@ impl ComputeServer for HipServer {
                 .register_profiled(info, start.elapsed().unwrap());
         } else {
             ctx.execute_task(kernel_id, count, resources);
+            ctx.sync();
         }
     }
 
@@ -339,7 +339,10 @@ impl HipContext {
         let include_path = include_path();
         let include_option = format!("-I{}", include_path.display());
         let include_option_cstr = CString::new(include_option).unwrap();
-        let mut options: Vec<*const i8> = vec![include_option_cstr.as_ptr()];
+        // needed for rocWMMA extension to compile
+        let cpp_std_option_cstr = CString::new("--std=c++17").unwrap();
+        let mut options: Vec<*const i8> =
+            vec![cpp_std_option_cstr.as_ptr(), include_option_cstr.as_ptr()];
         unsafe {
             let options_ptr = options.as_mut_ptr();
             let status =
@@ -448,6 +451,9 @@ impl HipContext {
                 bindings.as_mut_ptr(),
                 std::ptr::null_mut(),
             );
+            if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
+                panic!("Error: Cannot launch kernel (Out of memory)\n{}", kernel_id)
+            }
             assert_eq!(status, HIP_SUCCESS, "Should launch the kernel");
         };
     }

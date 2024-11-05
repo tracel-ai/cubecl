@@ -28,14 +28,14 @@ impl Display for TimingMethod {
     }
 }
 
-/// Error that can occured when collecting timestamps from a device.
+/// Error that can occurred when collecting timestamps from a device.
 #[derive(Debug)]
 pub enum TimestampsError {
     /// Collecting timestamps is disabled, make sure to enable it.
     Disabled,
     /// Collecting timestamps isn't available.
     Unavailable,
-    /// En unknown error occured while collecting timestamps.
+    /// An unknown error occurred while collecting timestamps.
     Unknown(String),
 }
 
@@ -245,7 +245,7 @@ pub trait Benchmark {
                 }
                 TimestampsError::Unavailable => start.elapsed(),
                 TimestampsError::Unknown(err) => {
-                    panic!("An unknown error occured while collecting the timestamps when benchmarking: {err}");
+                    panic!("An unknown error occurred while collecting the timestamps when benchmarking: {err}");
                 }
             },
         }

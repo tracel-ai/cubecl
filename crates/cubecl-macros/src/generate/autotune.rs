@@ -70,7 +70,7 @@ impl AutotuneKey {
 
         quote! {
             impl #generics #name #generic_names #where_clause {
-                #[allow(clippy::too_many_arguments)]
+                #[allow(clippy::too_many_arguments, missing_docs)]
                 #vis #new_fn
             }
         }

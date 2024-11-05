@@ -108,7 +108,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                 // - tune_1 save
                 // ```
                 let state = self.state.read();
-                let state = state.as_ref().expect("Should be initialzied");
+                let state = state.as_ref().expect("Should be initialized");
                 let tuner = state.get(id).expect("Should be initialized");
 
                 tuner.execute_autotune(autotune_operation_set.as_ref(), client);
@@ -124,7 +124,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
 
         let fastest = {
             let mut state = self.state.write();
-            let state = state.as_mut().expect("Should be initialzied");
+            let state = state.as_mut().expect("Should be initialized");
             let tuner = state.get_mut(id).expect("Should be initialized");
             // Now read all results that have come in since.
             tuner.resolve();
