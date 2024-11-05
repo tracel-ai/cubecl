@@ -41,7 +41,7 @@ enum AutotuneMessage<K> {
 
 /// Error from running autotune.
 pub enum AutotuneError {
-    /// An unknown error happended.
+    /// An unknown error happened.
     Unknown(String),
 }
 

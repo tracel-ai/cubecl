@@ -20,7 +20,7 @@ pub struct TensorView<E: Numeric> {
 
 #[cube]
 impl<EG: Numeric> TensorView<EG> {
-    /// Instanciate a view over the given tensor, pre-fetching needed strides and shapes
+    /// Instantiate a view over the given tensor, pre-fetching needed strides and shapes
     pub fn new(
         tensor: Tensor<Line<EG>>,
         x_offset: u32,
