@@ -66,9 +66,9 @@ pub(crate) fn matmul_cpu_reference<EG: Numeric + CubeElement>(
     rhs: &[EG],
     problem: &MatmulProblem<EG>,
 ) -> Vec<EG> {
-    let m = problem.m as usize;
-    let n = problem.n as usize;
-    let k = problem.k as usize;
+    let m = problem.m;
+    let n = problem.n;
+    let k = problem.k;
     let b = problem.num_batches();
 
     let mut out = vec![EG::from_int(0); m * n * b];

@@ -84,15 +84,47 @@ fn main() {
         run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
     }
 
+    #[cfg(feature = "wgpu-spirv")]
+    {
+        run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(
+            Default::default(),
+            matmul::Strategy::PlaneMma,
+        );
+    }
+
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
+        // TODO: unless annotated OOM, all the benches can randomly hang
+        // Full-precision ----------------------------------------------------
+        // Tiling2D
         run::<cubecl::hip::HipRuntime, f32>(
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
         );
+        // PlaneMma
+        // run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        // CmmaOld
+        // run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
+        // Accelerated
+        run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
+        // Half-precision ----------------------------------------------------
+        // Tiling2D
         run::<cubecl::hip::HipRuntime, half::f16>(
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
+        );
+        // PlaneMma: OOM
+        // run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
+        // CmmaOld: OOM
+        // run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
+        // Accelerated
+        run::<cubecl::hip::HipRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::Accelerated,
         );
     }
 

@@ -7,7 +7,7 @@ use crate::matmul::components::tile::plane::PlaneMma16x16x16;
 use crate::matmul::components::tile::Matmul;
 use crate::matmul::components::MatmulProblem;
 
-/// Launch informations for a matmul
+/// Launch information for a matmul
 pub trait MatmulLaunchDispatch {
     const PLANE_DIM: u32;
     type StageSize: StageSize;

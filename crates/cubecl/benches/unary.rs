@@ -84,13 +84,6 @@ struct UnaryBench<R: Runtime, E> {
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
-enum MatmulKind {
-    Tiling2d,
-    Cmma,
-}
-
-#[allow(dead_code)]
 fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
     let client = R::client(&device);
     client.enable_timestamps();
