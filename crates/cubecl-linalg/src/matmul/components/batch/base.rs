@@ -23,8 +23,8 @@ use crate::matmul::components::{
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important to use an underlying global matmul that performs check bounds,
 /// and to not launch more Cubes than necessary.
-pub trait Matmul<EG: Numeric, B: Config>:
-    'static + Send + Sync + MatmulKernel<EG, EG, Config = B> + MatmulLaunch<EG, EG>
+pub trait Matmul<EG: Numeric>:
+    'static + Send + Sync + MatmulKernel<EG, EG, Config: Config> + MatmulLaunch<EG, EG>
 {
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(

@@ -16,8 +16,8 @@ use crate::matmul::components::{config::MatmulConfig, Ident, MatmulKernel, Matri
 ///  - Slices given as inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
-pub trait Matmul<I: Numeric, O: Numeric, T: Config>:
-    'static + Send + Sync + MatmulKernel<I, O, Config = T>
+pub trait Matmul<I: Numeric, O: Numeric>:
+    'static + Send + Sync + MatmulKernel<I, O, Config: Config>
 {
     /// Number of rows of LHS
     const M: u32;
@@ -34,7 +34,12 @@ pub trait Matmul<I: Numeric, O: Numeric, T: Config>:
     type Out: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the output
-    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: T);
+    fn execute(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+        out: &mut Self::Out,
+        #[comptime] config: Self::Config,
+    );
 
     /// Create the container for LHS data
     ///
@@ -42,7 +47,7 @@ pub trait Matmul<I: Numeric, O: Numeric, T: Config>:
     ///
     /// This may point towards uninitialized memory.
     /// Make sure to call fill_lhs prior to execute.
-    fn init_lhs(#[comptime] config: T) -> Self::Lhs;
+    fn init_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
 
     /// Create the container for RHS data
     ///
@@ -50,13 +55,13 @@ pub trait Matmul<I: Numeric, O: Numeric, T: Config>:
     ///
     /// This may point towards uninitialized memory.
     /// Make sure to call fill_rhs prior to execute.
-    fn init_rhs(#[comptime] config: T) -> Self::Rhs;
+    fn init_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
     /// Fill the container of LHS with data
-    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: T);
+    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
 
     /// Fill the container of RHS with data
-    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: T);
+    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
     /// Create the container to receive the execution output.
     ///
@@ -64,13 +69,13 @@ pub trait Matmul<I: Numeric, O: Numeric, T: Config>:
     ///
     /// The output container must be initialized to some value (typically 0),
     /// because the execution adds to the already present value.
-    fn init_output(#[comptime] config: T) -> Self::Out;
+    fn init_output(#[comptime] config: Self::Config) -> Self::Out;
 
     /// Write the content of the output container to the given slice
     fn read_output<C: Numeric>(
         out: &Self::Out,
         slice: &mut SliceMut<'_, Line<C>>,
-        #[comptime] config: T,
+        #[comptime] config: Self::Config,
     );
 }
 

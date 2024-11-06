@@ -12,7 +12,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::tensor_view;
+use super::{tensor_view, Config as _};
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
@@ -20,41 +20,31 @@ use super::tensor_view;
 pub struct Matmul<
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES, G::SmmConfig>, RhsReader<ES, G::SmmConfig>, G::SmmConfig>,
-    G: global::Config,
+    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
 > {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _stage_matmul: PhantomData<SMM>,
-    _config: PhantomData<G>,
 }
 
 #[cube]
-impl<EG, ES, SMM, G>
+impl<EG, ES, SMM>
     global::Matmul<
         EG,
         ES,
-        tensor_view::LhsLoader<EG, ES, G>,
-        tensor_view::RhsLoader<EG, ES, G>,
-        tensor_view::Unloader<EG, G>,
-        G,
-    > for Matmul<EG, ES, SMM, G>
+        tensor_view::LhsLoader<EG, ES>,
+        tensor_view::RhsLoader<EG, ES>,
+        tensor_view::Unloader<EG>,
+    > for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<
-        ES,
-        EG,
-        LhsReader<ES, G::SmmConfig>,
-        RhsReader<ES, G::SmmConfig>,
-        G::SmmConfig,
-    >,
-    G: global::Config,
+    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
 {
     fn execute(
-        mut lhs_loader: tensor_view::LhsLoader<EG, ES, G>,
-        mut rhs_loader: tensor_view::RhsLoader<EG, ES, G>,
-        mut out_unloader: tensor_view::Unloader<EG, G>,
+        mut lhs_loader: tensor_view::LhsLoader<EG, ES>,
+        mut rhs_loader: tensor_view::RhsLoader<EG, ES>,
+        mut out_unloader: tensor_view::Unloader<EG>,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -65,8 +55,10 @@ where
         let mut acc = SMM::acc_init_zeros(config.to_smm_config());
 
         for _ in 0..num_loops {
-            let lhs_stage_reader = &tensor_view::LhsLoader::fill_stage(&mut lhs_loader, config);
-            let rhs_stage_reader = &tensor_view::RhsLoader::fill_stage(&mut rhs_loader, config);
+            let lhs_stage_reader =
+                &tensor_view::LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, config);
+            let rhs_stage_reader =
+                &tensor_view::RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, config);
 
             sync_units();
 
@@ -83,7 +75,7 @@ where
             tensor_view::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::acc_read::<tensor_view::Unloader<EG, G>, G>(
+        SMM::acc_read::<tensor_view::Unloader<EG>, Self::Config>(
             &acc,
             &mut out_unloader,
             config.to_smm_config(),
@@ -92,20 +84,13 @@ where
     }
 }
 
-impl<EG, ES, SMM, G> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM, G>
+impl<EG, ES, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<
-        ES,
-        EG,
-        LhsReader<ES, G::SmmConfig>,
-        RhsReader<ES, G::SmmConfig>,
-        G::SmmConfig,
-    >,
-    G: global::Config,
+    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
 {
-    type Config = G;
+    type Config = Config<SMM::Config>;
 
     fn check_config(config: Self::Config) {
         SMM::check_config(config.to_smm_config());

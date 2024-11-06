@@ -28,7 +28,7 @@ macro_rules! instruction {
         }
 
         #[cube]
-        impl<I: Numeric, O: Numeric> tile::Matmul<I, O, Config> for $name<I, O>
+        impl<I: Numeric, O: Numeric> tile::Matmul<I, O> for $name<I, O>
         where
             (I, O): CmmaValid<I, O>,
         {

@@ -40,7 +40,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> PlaneMapp
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Matmul<I, O, Config>
+impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Matmul<I, O>
     for PlaneMma<I, O, M, N, K>
 {
     const M: u32 = M;

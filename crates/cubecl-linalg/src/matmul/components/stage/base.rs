@@ -23,8 +23,8 @@ use super::tiling_order::TilingOrderConfig;
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I, S>, Rhs: StageReader<I, S>, S: Config>:
-    'static + Send + Sync + MatmulKernel<I, O, Config = S>
+pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I>, Rhs: StageReader<I>>:
+    'static + Send + Sync + MatmulKernel<I, O, Config: Config>
 {
     /// Number of rows of LHS
     const M: u32;
@@ -38,16 +38,16 @@ pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I, S>, Rhs: StageReade
     type Accumulator: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
-    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, #[comptime] config: S);
+    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Creates an accumulator initialized to zeros
-    fn acc_init_zeros(#[comptime] config: S) -> Self::Accumulator;
+    fn acc_init_zeros(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn acc_read<Out: StageWriter<O, G>, G: global::Config>(
+    fn acc_read<Out: StageWriter<O>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut Out,
-        #[comptime] stage_config: S,
+        #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
 }
@@ -55,10 +55,10 @@ pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I, S>, Rhs: StageReade
 #[cube]
 /// Input to the stage matmul, responsible of handing slices of data
 /// at precise locations in the stage
-pub trait StageReader<ES: Numeric, S: Config>: CubeType {
+pub trait StageReader<ES: Numeric>: CubeType {
     /// Hands a portion of data from the stage, whose location is function of the
     /// plane, buffer and accumulator indexes.
-    fn read_tile(
+    fn read_tile<S: Config>(
         this: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
@@ -70,10 +70,10 @@ pub trait StageReader<ES: Numeric, S: Config>: CubeType {
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
-pub trait StageWriter<EG: Numeric, G: global::Config>: CubeType + 'static + Send + Sync {
+pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
     /// Writes the given slice to global memory, at a position that depends on
     /// plane and accumulator indexes.
-    fn write<ES: Numeric>(
+    fn write<ES: Numeric, G: global::Config>(
         this: &mut Self,
         slice: &Slice<'_, Line<ES>>,
         compute_plane_offset: u32,
