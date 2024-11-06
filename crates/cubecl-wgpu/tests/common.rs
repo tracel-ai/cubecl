@@ -1,38 +1,39 @@
+use std::num::NonZero;
+
 use cubecl_core::{
-    client::ComputeClient,
-    prelude::{ArrayArg, TensorArg},
-    server::Handle,
-    Compiler, ExecutionMode, Kernel, Runtime,
+    prelude::{ArrayCompilationArg, TensorCompilationArg},
+    Compiler, CubeDim, ExecutionMode, Kernel, KernelSettings, Runtime,
 };
-use cubecl_wgpu::{WgpuDevice, WgpuRuntime, WgslCompiler};
+use cubecl_wgpu::{WgpuRuntime, WgslCompiler};
 
 pub type TestRuntime = WgpuRuntime<WgslCompiler>;
 
-type Client = ComputeClient<<TestRuntime as Runtime>::Server, <TestRuntime as Runtime>::Channel>;
-
-pub fn client() -> Client {
-    let device = WgpuDevice::default();
-    TestRuntime::client(&device)
+pub fn settings(dim_x: u32, dim_y: u32) -> KernelSettings {
+    KernelSettings::default().cube_dim(CubeDim::new(dim_x, dim_y, 1))
 }
 
 #[allow(unused)]
-pub fn handle(client: &Client) -> Handle {
-    client.empty(1)
+pub fn tensor() -> TensorCompilationArg {
+    TensorCompilationArg {
+        inplace: None,
+        vectorisation: NonZero::new(1),
+    }
 }
 
 #[allow(unused)]
-pub fn tensor(tensor: &Handle) -> TensorArg<'_, TestRuntime> {
-    unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], 1) }
+pub fn tensor_vec(vectorization: u8) -> TensorCompilationArg {
+    TensorCompilationArg {
+        inplace: None,
+        vectorisation: NonZero::new(vectorization),
+    }
 }
 
 #[allow(unused)]
-pub fn tensor_vec(tensor: &Handle, vectorization: u8) -> TensorArg<'_, TestRuntime> {
-    unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], vectorization) }
-}
-
-#[allow(unused)]
-pub fn array(tensor: &Handle) -> ArrayArg<'_, TestRuntime> {
-    unsafe { ArrayArg::from_raw_parts(tensor, 1, 1) }
+pub fn array() -> ArrayCompilationArg {
+    ArrayCompilationArg {
+        inplace: None,
+        vectorisation: NonZero::new(1),
+    }
 }
 
 pub fn compile(kernel: impl Kernel) -> String {
