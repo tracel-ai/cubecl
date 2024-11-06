@@ -1,40 +1,34 @@
-pub use super::shared::Config;
+use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::tile::Config as TileConfig;
 use crate::matmul::components::{config::PlaneMapper, tile, Ident, MatmulKernel, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-pub type PlaneMma16x16x16<I, O, T> = PlaneMma<I, O, T, 16, 16, 16>;
-pub type PlaneMma16x16x8<I, O, T> = PlaneMma<I, O, T, 16, 16, 8>;
-pub type PlaneMma16x16x32<I, O, T> = PlaneMma<I, O, T, 16, 16, 32>;
-pub type PlaneMma32x8x16<I, O, T> = PlaneMma<I, O, T, 32, 8, 16>;
-pub type PlaneMma8x32x16<I, O, T> = PlaneMma<I, O, T, 8, 32, 16>;
-pub type PlaneMma32x32x32<I, O, T> = PlaneMma<I, O, T, 32, 32, 32>;
+pub type PlaneMma16x16x16<I, O> = PlaneMma<I, O, 16, 16, 16>;
+pub type PlaneMma16x16x8<I, O> = PlaneMma<I, O, 16, 16, 8>;
+pub type PlaneMma16x16x32<I, O> = PlaneMma<I, O, 16, 16, 32>;
+pub type PlaneMma32x8x16<I, O> = PlaneMma<I, O, 32, 8, 16>;
+pub type PlaneMma8x32x16<I, O> = PlaneMma<I, O, 8, 32, 16>;
+pub type PlaneMma32x32x32<I, O> = PlaneMma<I, O, 32, 32, 32>;
 
 /// PlaneMMA instruction uses plane cooperation but does not rely on tensor cores
 ///
 /// # Note
 ///
 /// This is not yet fully optimized
-///  - There are likely unrolling issues,
-///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used
-///  - To fix an obscure bug one loop is done twice
-pub struct PlaneMma<
-    I: Numeric,
-    O: Numeric,
-    T: tile::Config,
-    const M: u32,
-    const N: u32,
-    const K: u32,
-> {
+///  - Operations are not vectorized. The algorithm must be rethought to perform operations on lines, perhaps using dot
+///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used.
+///    A solution could be to always load the stage with lhs in row-major and rhs in col-major, using only parallel fill
+///  - If not vec4, there are patches in read_output that may harm performance
+pub struct PlaneMma<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> {
     _input: PhantomData<I>,
     _output: PhantomData<O>,
-    _config: PhantomData<T>,
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const K: u32> PlaneMapper
-    for PlaneMma<I, O, T, M, N, K>
+impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> PlaneMapper
+    for PlaneMma<I, O, M, N, K>
 {
     fn plane_id() -> u32 {
         UNIT_POS_Y
@@ -46,8 +40,8 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const K: u32>
-    tile::Matmul<I, O, T> for PlaneMma<I, O, T, M, N, K>
+impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Matmul<I, O, Config>
+    for PlaneMma<I, O, M, N, K>
 {
     const M: u32 = M;
     const N: u32 = N;
@@ -57,7 +51,7 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
     type Rhs = Array<I>;
     type Out = Array<O>;
 
-    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: T) {
+    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: Config) {
         let k_jump = config.plane_dim() / Self::N;
         let row_division = config.plane_dim() / Self::M;
 
@@ -74,6 +68,7 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
             for k_inner in 0..k_jump {
                 let a_pk = lhs[k_outer * k_jump + k_inner];
 
+                #[unroll]
                 for n_iter in 0..compute_width {
                     let unit_to_read = k_inner * Self::N + n_iter + unit_offset;
                     let b_kn = subcube_broadcast::<I>(b_kp, unit_to_read);
@@ -83,15 +78,15 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
         }
     }
 
-    fn init_lhs(#[comptime] _config: T) -> Self::Lhs {
+    fn init_lhs(#[comptime] _config: Config) -> Self::Lhs {
         Array::new(Self::K)
     }
 
-    fn init_rhs(#[comptime] config: T) -> Self::Rhs {
+    fn init_rhs(#[comptime] config: Config) -> Self::Rhs {
         Array::new(Self::K * Self::N / config.plane_dim())
     }
 
-    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: T) {
+    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
         match comptime!(config.layout(Ident::Lhs)) {
             MatrixLayout::RowMajor => fill_parallel_lhs(
                 slice,
@@ -114,7 +109,7 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
         }
     }
 
-    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: T) {
+    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
         match comptime!(config.layout(Ident::Rhs)) {
             MatrixLayout::RowMajor => fill_perpendicular_rhs(
                 slice,
@@ -137,19 +132,22 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
         }
     }
 
-    fn init_output(#[comptime] config: T) -> Self::Out {
-        let len = Self::M * Self::N / config.plane_dim();
+    fn init_output(#[comptime] config: Config) -> Self::Out {
+        let len = Self::M * Self::N / (config.plane_dim());
         let mut acc = Array::new(len);
+
+        #[unroll]
         for i in 0..len {
             acc[i] = O::from_int(0);
         }
+
         acc
     }
 
     fn read_output<C: Numeric>(
         out: &Self::Out,
         slice: &mut SliceMut<'_, Line<C>>,
-        #[comptime] config: T,
+        #[comptime] config: Config,
     ) {
         let line_size = config.line_size(Ident::Out);
         let plane_dim = config.plane_dim();
@@ -165,21 +163,39 @@ impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const 
 
         let offset = row_offset + unit % row_division * num_lines;
 
-        if comptime!(line_size == 1) {
-            for col in 0..num_lines {
-                slice[col + offset] = Line::cast_from(out[col]);
-            }
-            // TODO: very obscure bug, fails on wgpu if we don't do the loop twice
-            for col in 0..num_lines {
-                slice[col + offset] = Line::cast_from(out[col]);
-            }
-        } else {
+        if comptime!(line_size >= 4) {
+            #[unroll]
             for col in 0..num_lines {
                 let mut line = Line::<C>::empty(line_size);
+                #[unroll]
                 for j in 0..line_size {
                     line[j] = C::cast_from(out[col * line_size + j]);
                 }
                 slice[col + offset] = line;
+            }
+        } else {
+            // There are weird behaviours on wgpu on metal with vec1 and vec2,
+            // where some values are left empty.
+            // This is patched by repeating loops or deactivating unrolling
+
+            if comptime!(line_size == 1) {
+                #[unroll]
+                for col in 0..num_lines {
+                    slice[col + offset] = Line::cast_from(out[col]);
+                }
+                // It seems we must repeat this loop without unroll
+                for col in 0..num_lines {
+                    slice[col + offset] = Line::cast_from(out[col]);
+                }
+            } else {
+                // Cannot be unrolled, leads to bugs
+                for col in 0..num_lines {
+                    let mut line = Line::<C>::empty(line_size);
+                    for j in 0..line_size {
+                        line[j] = C::cast_from(out[col * line_size + j]);
+                    }
+                    slice[col + offset] = line;
+                }
             }
         }
     }
@@ -302,14 +318,69 @@ fn fill_parallel_rhs<E: Numeric>(
     }
 }
 
-impl<I: Numeric, O: Numeric, T: tile::Config, const M: u32, const N: u32, const K: u32>
-    MatmulKernel<I, O> for PlaneMma<I, O, T, M, N, K>
+impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKernel<I, O>
+    for PlaneMma<I, O, M, N, K>
 {
-    type Config = T;
+    type Config = Config;
 
     fn check_config(config: Self::Config) {
         let plane_dim = config.plane_dim();
         assert!(M * N % plane_dim == 0);
         assert!(K * N % plane_dim == 0);
+    }
+}
+
+#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Configuration for PlaneMma instruction
+pub struct Config {
+    plane_dim: u32,
+    lhs_layout: MatrixLayout,
+    rhs_layout: MatrixLayout,
+    lhs_line_size: u32,
+    rhs_line_size: u32,
+    out_line_size: u32,
+}
+
+impl tile::Config for Config {
+    fn plane_dim(&self) -> u32 {
+        self.plane_dim
+    }
+
+    fn layout(&self, ident: Ident) -> MatrixLayout {
+        match ident {
+            Ident::Lhs => self.lhs_layout,
+            Ident::Rhs => self.rhs_layout,
+            Ident::Out => MatrixLayout::RowMajor,
+        }
+    }
+
+    fn line_size(&self, ident: Ident) -> u32 {
+        match ident {
+            Ident::Lhs => self.lhs_line_size,
+            Ident::Rhs => self.rhs_line_size,
+            Ident::Out => self.out_line_size,
+        }
+    }
+}
+
+impl MatmulConfig for Config {}
+
+impl Config {
+    pub fn new(
+        plane_dim: u32,
+        lhs_layout: MatrixLayout,
+        rhs_layout: MatrixLayout,
+        lhs_line_size: u32,
+        rhs_line_size: u32,
+        out_line_size: u32,
+    ) -> Self {
+        Self {
+            plane_dim,
+            lhs_layout,
+            rhs_layout,
+            lhs_line_size,
+            rhs_line_size,
+            out_line_size,
+        }
     }
 }

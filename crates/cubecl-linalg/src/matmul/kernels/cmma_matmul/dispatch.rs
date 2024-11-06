@@ -38,8 +38,7 @@ impl MatmulLaunchDispatch for PlaneMmaLaunchDispatch {
     type ElementAccumulator = f32;
 
     type TileConfig = tile::plane::Config;
-    type TileMatmul =
-        PlaneMma16x16x16<Self::ElementInput, Self::ElementAccumulator, Self::TileConfig>;
+    type TileMatmul = PlaneMma16x16x16<Self::ElementInput, Self::ElementAccumulator>;
 
     fn cube_dim() -> CubeDim {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
@@ -82,8 +81,7 @@ impl MatmulLaunchDispatch for CmmaLaunchDispatch {
     type ElementAccumulator = f32;
 
     type TileConfig = tile::accelerated::Config;
-    type TileMatmul =
-        Accelerated16x16x16<Self::ElementInput, Self::ElementAccumulator, Self::TileConfig>;
+    type TileMatmul = Accelerated16x16x16<Self::ElementInput, Self::ElementAccumulator>;
 
     fn cube_dim() -> CubeDim {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
