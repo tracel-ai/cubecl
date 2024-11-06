@@ -1,7 +1,10 @@
 use std::fmt::Display;
 
 use cubecl_core::{
-    client::ComputeClient, prelude::Float, prelude::Numeric, server::Handle, CubeElement, Runtime,
+    client::ComputeClient,
+    prelude::{Float, Numeric},
+    server::Handle,
+    CubeElement, Runtime,
 };
 
 use crate::{matmul::components::MatmulProblem, tensor::TensorHandle};
@@ -57,15 +60,19 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) 
     (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
 }
 
-/// Solves a matmul problem on f32 inputs.
+/// Solves a matmul problem with EG inputs, multiplied as ES
 ///
 /// This is a naive CPU implementation, very slow on large payloads,
 /// not designed to be used for other purposes than testing.
-pub(crate) fn matmul_cpu_reference<EG: Numeric + CubeElement>(
+pub(crate) fn matmul_cpu_reference<EG, ES>(
     lhs: &[EG],
     rhs: &[EG],
     problem: &MatmulProblem<EG>,
-) -> Vec<EG> {
+) -> Vec<EG>
+where
+    EG: Numeric + CubeElement,
+    ES: Numeric + CubeElement,
+{
     let m = problem.m;
     let n = problem.n;
     let k = problem.k;
@@ -77,8 +84,11 @@ pub(crate) fn matmul_cpu_reference<EG: Numeric + CubeElement>(
         for i in 0..m {
             for j in 0..n {
                 for k_ in 0..k {
-                    out[(b_ * m * n) + i * n + j] +=
-                        lhs[(b_ * m * k) + i * k + k_] * rhs[(b_ * k * n) + k_ * n + j];
+                    let l: ES = bytemuck::cast(lhs[(b_ * m * k) + i * k + k_]);
+                    let r: ES = bytemuck::cast(rhs[(b_ * k * n) + k_ * n + j]);
+
+                    let out_index = (b_ * m * n) + i * n + j;
+                    out[out_index] += bytemuck::cast::<ES, EG>(l * r);
                 }
             }
         }

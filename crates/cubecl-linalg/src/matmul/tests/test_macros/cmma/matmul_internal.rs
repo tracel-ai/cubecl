@@ -87,7 +87,7 @@ macro_rules! testgen_matmul_internal {
                         D,
                     >(&problem, &$cube_dim, &$cube_count, &$advanced_config);
 
-                    test_matmul_internal::<BatchMatmul, EG, B, G, R>(problem, $cube_dim, $cube_count, config, device);
+                    test_matmul_internal::<BatchMatmul, EG, ES, B, R>(problem, $cube_dim, $cube_count, config, device);
                 }
             };
         }

@@ -25,7 +25,7 @@ struct TensorRawParts<F: Float + CubeElement> {
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_internal<MM, EG, B, G, R>(
+pub fn test_matmul_internal<MM, EG, ES, B, R>(
     problem: MatmulProblem<EG>,
     cube_dim: CubeDim,
     cube_count: CubeCount,
@@ -33,6 +33,7 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
     device: &R::Device,
 ) where
     EG: Float + CubeElement + Display,
+    ES: Float + CubeElement + Display,
     MM: batch::Matmul<EG, B>,
     B: batch::Config,
     R: Runtime,
@@ -79,7 +80,7 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
         );
     }
 
-    assert_result::<EG, R>(
+    assert_result::<EG, ES, R>(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
@@ -118,7 +119,7 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display, R: Runtime>(
         disable_cmma,
     );
 
-    assert_result::<EG, R>(
+    assert_result::<EG, EG, R>(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
@@ -192,14 +193,14 @@ fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> 
     result
 }
 
-fn assert_result<EG: Float + CubeElement + Display, R: Runtime>(
+fn assert_result<EG: Float + CubeElement + Display, ES: Float + CubeElement, R: Runtime>(
     lhs: &Vec<EG>,
     rhs: &Vec<EG>,
     problem: &MatmulProblem<EG>,
     client: &ComputeClient<R::Server, R::Channel>,
     out: Handle,
 ) {
-    let expected = matmul_cpu_reference(lhs, rhs, problem);
+    let expected = matmul_cpu_reference::<EG, ES>(lhs, rhs, problem);
     if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, 10e-5) {
         panic!("{}", e);
     }
