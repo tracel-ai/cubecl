@@ -95,6 +95,31 @@ impl CudaServer {
 
         data
     }
+
+    fn read_async(
+        &mut self,
+        binding: server::Binding,
+    ) -> impl Future<Output = Vec<u8>> + 'static + Send {
+        let ctx = self.get_context();
+        let resource = ctx.memory_management.get_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        );
+
+        let mut data = uninit_vec(resource.size() as usize);
+
+        unsafe {
+            cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
+        };
+
+        let fense = ctx.fense();
+
+        async move {
+            fense.wait();
+            data
+        }
+    }
 }
 
 impl ComputeServer for CudaServer {
@@ -103,8 +128,7 @@ impl ComputeServer for CudaServer {
     type Feature = Feature;
 
     fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        let value = self.read_sync(binding);
-        async { value }
+        self.read_async(binding)
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
@@ -214,8 +238,11 @@ impl ComputeServer for CudaServer {
         self.logger.profile_summary();
 
         let ctx = self.get_context();
-        ctx.sync();
-        async move {}
+        let fense = ctx.fense();
+
+        async move {
+            fense.wait();
+        }
     }
 
     fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
@@ -263,6 +290,27 @@ impl ComputeServer for CudaServer {
     }
 }
 
+struct Fense {
+    stream: *mut cudarc::driver::sys::CUstream_st,
+    event: *mut cudarc::driver::sys::CUevent_st,
+}
+
+unsafe impl Send for Fense {}
+
+impl Fense {
+    fn wait(self) {
+        unsafe {
+            cudarc::driver::result::stream::wait_event(
+                self.stream,
+                self.event,
+                cudarc::driver::sys::CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
+            )
+            .unwrap();
+            cudarc::driver::result::event::destroy(self.event).unwrap();
+        }
+    }
+}
+
 impl CudaContext {
     pub fn new(
         memory_management: MemoryManagement<CudaStorage>,
@@ -278,6 +326,20 @@ impl CudaContext {
             arch,
             timestamps: KernelTimestamps::Disabled,
         }
+    }
+
+    fn fense(&mut self) -> Fense {
+        let stream = self.stream;
+        let event = unsafe {
+            let event = cudarc::driver::result::event::create(
+                cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT,
+            )
+            .unwrap();
+            cudarc::driver::result::event::record(event, stream).unwrap();
+            event
+        };
+
+        Fense { stream, event }
     }
 
     fn sync(&mut self) {
