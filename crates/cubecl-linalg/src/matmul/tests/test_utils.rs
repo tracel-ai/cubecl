@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use cubecl_core::{
     client::ComputeClient,
+    flex32,
     prelude::{Float, Numeric},
     server::Handle,
     CubeElement, Runtime,
@@ -41,6 +42,76 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     Ok(())
 }
 
+pub trait Into2<E> {
+    fn into(self) -> E;
+}
+
+impl<E> Into2<E> for E {
+    fn into(self) -> E {
+        self
+    }
+}
+
+impl Into2<f32> for half::f16 {
+    fn into(self) -> f32 {
+        f32::from(self)
+    }
+}
+
+impl Into2<f32> for half::bf16 {
+    fn into(self) -> f32 {
+        f32::from(self)
+    }
+}
+
+impl Into2<f32> for flex32 {
+    fn into(self) -> f32 {
+        f32::from(self)
+    }
+}
+
+impl Into2<half::bf16> for f32 {
+    fn into(self) -> half::bf16 {
+        half::bf16::from_f32(self)
+    }
+}
+
+impl Into2<half::bf16> for half::f16 {
+    fn into(self) -> half::bf16 {
+        half::bf16::from_f32(self.to_f32())
+    }
+}
+
+impl Into2<half::f16> for half::bf16 {
+    fn into(self) -> half::f16 {
+        half::f16::from_f32(self.to_f32())
+    }
+}
+
+impl Into2<half::f16> for f32 {
+    fn into(self) -> half::f16 {
+        half::f16::from_f32(self)
+    }
+}
+
+impl Into2<half::f16> for flex32 {
+    fn into(self) -> half::f16 {
+        half::f16::from_f32(self.to_f32())
+    }
+}
+
+impl Into2<half::bf16> for flex32 {
+    fn into(self) -> half::bf16 {
+        half::bf16::from_f32(self.to_f32())
+    }
+}
+
+impl Into2<flex32> for f32 {
+    fn into(self) -> flex32 {
+        flex32::from_f32(self)
+    }
+}
+
 /// Generates num_elements random floats for tests.
 ///
 /// This is a naive CPU implementation with fixed seed,
@@ -70,8 +141,8 @@ pub(crate) fn matmul_cpu_reference<EG, ES>(
     problem: &MatmulProblem<EG>,
 ) -> Vec<EG>
 where
-    EG: Numeric + CubeElement,
-    ES: Numeric + CubeElement,
+    EG: Numeric + CubeElement + Into2<ES>,
+    ES: Numeric + CubeElement + Into2<EG>,
 {
     let m = problem.m;
     let n = problem.n;
@@ -84,11 +155,11 @@ where
         for i in 0..m {
             for j in 0..n {
                 for k_ in 0..k {
-                    let l: ES = bytemuck::cast(lhs[(b_ * m * k) + i * k + k_]);
-                    let r: ES = bytemuck::cast(rhs[(b_ * k * n) + k_ * n + j]);
+                    let l: ES = Into2::into(lhs[(b_ * m * k) + i * k + k_]);
+                    let r: ES = Into2::into(rhs[(b_ * k * n) + k_ * n + j]);
 
                     let out_index = (b_ * m * n) + i * n + j;
-                    out[out_index] += bytemuck::cast::<ES, EG>(l * r);
+                    out[out_index] += Into2::into(l * r);
                 }
             }
         }

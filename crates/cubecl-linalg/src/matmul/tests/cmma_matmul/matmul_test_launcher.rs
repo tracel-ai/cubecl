@@ -10,6 +10,7 @@ use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::kernels::cmma_matmul;
+use crate::matmul::tests::test_utils::Into2;
 use crate::tensor::TensorHandle;
 
 use crate::matmul::tests::test_utils::assert_equals_approx;
@@ -32,8 +33,8 @@ pub fn test_matmul_internal<MM, EG, ES, B, R>(
     config: MM::Config,
     device: &R::Device,
 ) where
-    EG: Float + CubeElement + Display,
-    ES: Float + CubeElement + Display,
+    EG: Float + CubeElement + Display + Into2<ES>,
+    ES: Float + CubeElement + Display + Into2<EG>,
     MM: batch::Matmul<EG, B>,
     B: batch::Config,
     R: Runtime,
@@ -91,7 +92,7 @@ pub fn test_matmul_internal<MM, EG, ES, B, R>(
 
 /// Test the correctness of the high-level Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_launch<EG: Float + CubeElement + Display, R: Runtime>(
+pub fn test_matmul_launch<EG: Float + CubeElement + Display + Into2<EG>, R: Runtime>(
     problem: MatmulProblem<EG>,
     disable_cmma: bool,
     device: &R::Device,
@@ -193,7 +194,11 @@ fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> 
     result
 }
 
-fn assert_result<EG: Float + CubeElement + Display, ES: Float + CubeElement, R: Runtime>(
+fn assert_result<
+    EG: Float + CubeElement + Display + Into2<ES>,
+    ES: Float + CubeElement + Into2<EG>,
+    R: Runtime,
+>(
     lhs: &Vec<EG>,
     rhs: &Vec<EG>,
     problem: &MatmulProblem<EG>,
