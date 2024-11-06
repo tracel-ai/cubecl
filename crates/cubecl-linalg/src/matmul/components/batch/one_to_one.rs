@@ -6,6 +6,8 @@ use crate::matmul::components::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::Config as _;
+
 /// Performs matrix multiplication at the batch level,
 /// with one cube assigned to each underlying global matmul
 pub struct Matmul<
@@ -14,17 +16,14 @@ pub struct Matmul<
     GMM: global::Matmul<
         EG,
         ES,
-        global::tensor_view::LhsLoader<EG, ES, B::GmmConfig>,
-        global::tensor_view::RhsLoader<EG, ES, B::GmmConfig>,
-        global::tensor_view::Unloader<EG, B::GmmConfig>,
-        B::GmmConfig,
+        global::tensor_view::LhsLoader<EG, ES>,
+        global::tensor_view::RhsLoader<EG, ES>,
+        global::tensor_view::Unloader<EG>,
     >,
-    B: batch::Config,
 > {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _gmm: PhantomData<GMM>,
-    _config: PhantomData<B>,
 }
 
 #[cube]
@@ -34,13 +33,11 @@ impl<
         GMM: global::Matmul<
             EG,
             ES,
-            global::tensor_view::LhsLoader<EG, ES, B::GmmConfig>,
-            global::tensor_view::RhsLoader<EG, ES, B::GmmConfig>,
-            global::tensor_view::Unloader<EG, B::GmmConfig>,
-            B::GmmConfig,
+            global::tensor_view::LhsLoader<EG, ES>,
+            global::tensor_view::RhsLoader<EG, ES>,
+            global::tensor_view::Unloader<EG>,
         >,
-        B: batch::Config,
-    > batch::Matmul<EG, B> for Matmul<EG, ES, GMM, B>
+    > batch::Matmul<EG> for Matmul<EG, ES, GMM>
 {
     fn execute(
         lhs: Tensor<Line<EG>>,
@@ -55,14 +52,14 @@ impl<
         let k_range = (0, lhs.shape(lhs.rank() - 1));
 
         GMM::execute(
-            global::tensor_view::LhsLoader::new(
+            global::tensor_view::LhsLoader::new::<<Self::Config as batch::Config>::GmmConfig>(
                 lhs,
                 x_offset,
                 k_range.0,
                 nth_batch,
                 config.to_gmm_config(),
             ),
-            global::tensor_view::RhsLoader::new(
+            global::tensor_view::RhsLoader::new::<<Self::Config as batch::Config>::GmmConfig>(
                 rhs,
                 k_range.0,
                 y_offset,
@@ -82,15 +79,13 @@ impl<
         GMM: global::Matmul<
             EG,
             ES,
-            global::tensor_view::LhsLoader<EG, ES, B::GmmConfig>,
-            global::tensor_view::RhsLoader<EG, ES, B::GmmConfig>,
-            global::tensor_view::Unloader<EG, B::GmmConfig>,
-            B::GmmConfig,
+            global::tensor_view::LhsLoader<EG, ES>,
+            global::tensor_view::RhsLoader<EG, ES>,
+            global::tensor_view::Unloader<EG>,
         >,
-        B: batch::Config,
-    > MatmulKernel<EG, EG> for Matmul<EG, ES, GMM, B>
+    > MatmulKernel<EG, EG> for Matmul<EG, ES, GMM>
 {
-    type Config = B;
+    type Config = Config<GMM::Config>;
 
     fn check_config(config: Self::Config) {
         GMM::check_config(config.to_gmm_config())
@@ -103,13 +98,11 @@ impl<
         GMM: global::Matmul<
             EG,
             ES,
-            global::tensor_view::LhsLoader<EG, ES, B::GmmConfig>,
-            global::tensor_view::RhsLoader<EG, ES, B::GmmConfig>,
-            global::tensor_view::Unloader<EG, B::GmmConfig>,
-            B::GmmConfig,
+            global::tensor_view::LhsLoader<EG, ES>,
+            global::tensor_view::RhsLoader<EG, ES>,
+            global::tensor_view::Unloader<EG>,
         >,
-        B: batch::Config,
-    > MatmulLaunch<EG, EG> for Matmul<EG, ES, GMM, B>
+    > MatmulLaunch<EG, EG> for Matmul<EG, ES, GMM>
 {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -118,10 +111,10 @@ impl<
         lhs: TensorArg<'_, R>,
         rhs: TensorArg<'_, R>,
         out: TensorArg<'_, R>,
-        config: B,
+        config: Self::Config,
     ) {
         Self::check_config(config);
-        launch::launch_unchecked::<EG, Self, Self::Config, R>(
+        launch::launch_unchecked::<EG, Self, R>(
             client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }
@@ -129,11 +122,11 @@ impl<
 
 #[cube(launch_unchecked)]
 // TODO input as references
-fn launch<EG: Numeric, BMM: batch::Matmul<EG, B>, B: batch::Config>(
+fn launch<EG: Numeric, BMM: batch::Matmul<EG>>(
     lhs: Tensor<Line<EG>>,
     rhs: Tensor<Line<EG>>,
     out: Tensor<Line<EG>>,
-    #[comptime] config: B,
+    #[comptime] config: BMM::Config,
 ) {
     BMM::execute(lhs, rhs, out, config);
 }

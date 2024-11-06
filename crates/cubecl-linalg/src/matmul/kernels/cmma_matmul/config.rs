@@ -3,8 +3,8 @@ use cubecl_core::prelude::*;
 use crate::matmul::components::batch;
 use crate::matmul::components::global;
 use crate::matmul::components::stage;
-use crate::matmul::components::stage::Matmul as StageMatmul;
-use crate::matmul::components::tile::Matmul as TileMatmul;
+use crate::matmul::components::stage::Matmul as _;
+use crate::matmul::components::tile::Matmul as _;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::StageDim;
 
@@ -44,7 +44,6 @@ where
         <D as MatmulLaunchDispatch>::ElementInput,
         EG,
         <D as MatmulLaunchDispatch>::ElementAccumulator,
-        Tmm<D>,
         <D as MatmulLaunchDispatch>::StageSize,
         CmmaSmmConfig<<D as MatmulLaunchDispatch>::TileConfig>,
     >;

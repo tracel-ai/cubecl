@@ -179,10 +179,9 @@ fn launch_matmul<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
 ) {
     let config = make_cmma_config::<EG, D>(&problem, &cube_dim, &cube_count, &advanced_config);
 
-    type StageMatmul<TMM, T, CSS, EG, ES, EA> =
-        stage::row_accumulate::Matmul<ES, EG, EA, TMM, CSS, CmmaSmmConfig<T>>;
-    type GlobalMatmul<TMM, T, CSS, EG, ES, EA> =
-        global::homogeneous::Matmul<EG, ES, StageMatmul<TMM, T, CSS, EG, ES, EA>, CmmaGmmConfig<T>>;
+    type StageMatmul<TMM, CSS, EG, ES, EA> = stage::row_accumulate::Matmul<ES, EG, EA, TMM, CSS>;
+    type GlobalMatmul<TMM, CSS, EG, ES, EA> =
+        global::homogeneous::Matmul<EG, ES, StageMatmul<TMM, CSS, EG, ES, EA>>;
 
     unsafe {
         batch::one_to_one::Matmul::<
