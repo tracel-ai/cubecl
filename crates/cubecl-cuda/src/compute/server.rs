@@ -1,5 +1,6 @@
 use cubecl_cpp::{formatter::format_cpp, CudaCompiler};
 
+use super::fense::Fense;
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
 use cubecl_core::compute::DebugInformation;
@@ -290,27 +291,6 @@ impl ComputeServer for CudaServer {
     }
 }
 
-struct Fense {
-    stream: *mut cudarc::driver::sys::CUstream_st,
-    event: *mut cudarc::driver::sys::CUevent_st,
-}
-
-unsafe impl Send for Fense {}
-
-impl Fense {
-    fn wait(self) {
-        unsafe {
-            cudarc::driver::result::stream::wait_event(
-                self.stream,
-                self.event,
-                cudarc::driver::sys::CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
-            )
-            .unwrap();
-            cudarc::driver::result::event::destroy(self.event).unwrap();
-        }
-    }
-}
-
 impl CudaContext {
     pub fn new(
         memory_management: MemoryManagement<CudaStorage>,
@@ -329,17 +309,7 @@ impl CudaContext {
     }
 
     fn fense(&mut self) -> Fense {
-        let stream = self.stream;
-        let event = unsafe {
-            let event = cudarc::driver::result::event::create(
-                cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT,
-            )
-            .unwrap();
-            cudarc::driver::result::event::record(event, stream).unwrap();
-            event
-        };
-
-        Fense { stream, event }
+        Fense::new(self.stream)
     }
 
     fn sync(&mut self) {
