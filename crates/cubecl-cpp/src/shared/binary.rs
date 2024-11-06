@@ -358,7 +358,7 @@ impl<D: Dialect> Binary<D> for Index {
 /// float item = var.x; // So we compile to that.
 /// ```
 struct IndexVector<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 /// The goal is to support indexing of vectorized types.
@@ -372,7 +372,7 @@ struct IndexVector<D: Dialect> {
 /// var.x = 1.0;  // So we compile to that.
 /// ```
 struct IndexAssignVector<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> IndexVector<D> {

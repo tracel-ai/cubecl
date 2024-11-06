@@ -121,6 +121,8 @@ impl<D: Dialect> Display for Body<D> {
             )?;
         }
 
+        println!("\n\ninstructions: {:?}\n\n", self.instructions);
+
         for ops in self.instructions.iter() {
             write!(f, "{ops}")?;
         }

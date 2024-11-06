@@ -1,20 +1,49 @@
 use std::fmt::Display;
+use std::hash::Hash;
+use std::{fmt::Debug, marker::PhantomData};
 
 use super::{Component, Dialect, Elem, Variable};
+
+pub trait WmmaCompiler<D: Dialect>:
+    Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
+{
+    fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    fn compile_fragment_ident(
+        ident: &FragmentIdent<D>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result;
+
+    fn compile_fragment_layout(
+        layout: &FragmentLayout<D>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result;
+
+    fn compile_fragment(
+        fragment: &Fragment<D>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result;
+
+    fn compile_instruction(
+        instruction: &WmmaInstruction<D>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum FragmentIdent<D: Dialect> {
     A,
     B,
     Accumulator,
-    _Dialect(std::marker::PhantomData<D>),
+    _Dialect(PhantomData<D>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum FragmentLayout<D: Dialect> {
     ColMajor,
     RowMajor,
-    _Dialect(std::marker::PhantomData<D>),
+    _Dialect(PhantomData<D>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -62,53 +91,85 @@ pub enum WmmaInstruction<D: Dialect> {
 
 impl<D: Dialect> Display for FragmentLayout<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let namespace = D::mma_namespace();
-        match self {
-            FragmentLayout::ColMajor => f.write_str(format!("{namespace}::col_major").as_str()),
-            FragmentLayout::RowMajor => f.write_str(format!("{namespace}::row_major").as_str()),
-            FragmentLayout::_Dialect(_) => Ok(()),
-        }
+        D::WmmaCompiler::compile_fragment_layout(self, f)
     }
 }
 
 impl<D: Dialect> Display for FragmentIdent<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let namespace = D::mma_namespace();
-        match self {
+        D::WmmaCompiler::compile_fragment_ident(self, f)
+    }
+}
+
+impl<D: Dialect> Display for Fragment<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        D::WmmaCompiler::compile_fragment(self, f)
+    }
+}
+
+impl<D: Dialect> Display for WmmaInstruction<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        D::WmmaCompiler::compile_instruction(self, f)
+    }
+}
+
+pub mod wmma_api_base {
+    use super::*;
+
+    pub fn compile_fragment_ident<D: Dialect>(
+        namespace: &str,
+        ident: &FragmentIdent<D>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match ident {
             FragmentIdent::A => write!(f, "{namespace}::matrix_a"),
             FragmentIdent::B => write!(f, "{namespace}::matrix_b"),
             FragmentIdent::Accumulator => write!(f, "{namespace}::accumulator"),
             FragmentIdent::_Dialect(_) => Ok(()),
         }
     }
-}
 
-impl<D: Dialect> Display for Fragment<D> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let namespace = D::mma_namespace();
-        let elem = match self.elem {
+    pub fn compile_fragment_layout<D: Dialect>(
+        namespace: &str,
+        layout: &FragmentLayout<D>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match layout {
+            FragmentLayout::ColMajor => f.write_str(format!("{namespace}::col_major").as_str()),
+            FragmentLayout::RowMajor => f.write_str(format!("{namespace}::row_major").as_str()),
+            FragmentLayout::_Dialect(_) => Ok(()),
+        }
+    }
+
+    pub fn compile_fragment<D: Dialect>(
+        namespace: &str,
+        fragment: &Fragment<D>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let elem = match fragment.elem {
             Elem::TF32 => format!("{namespace}::precision::tf32"),
             elem => format!("{elem}"),
         };
-        match self.layout {
+        match fragment.layout {
             Some(layout) => write!(
                 f,
                 "{namespace}::fragment<{}, {}, {}, {}, {}, {}>",
-                self.ident, self.m, self.n, self.k, elem, layout
+                fragment.ident, fragment.m, fragment.n, fragment.k, elem, layout
             ),
             None => write!(
                 f,
                 "{namespace}::fragment<{}, {}, {}, {}, {}>",
-                self.ident, self.m, self.n, self.k, elem,
+                fragment.ident, fragment.m, fragment.n, fragment.k, elem,
             ),
         }
     }
-}
 
-impl<D: Dialect> Display for WmmaInstruction<D> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let namespace = D::mma_namespace();
-        match self {
+    pub fn compile_instruction<D: Dialect>(
+        namespace: &str,
+        instruction: &WmmaInstruction<D>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match instruction {
             WmmaInstruction::Fill { frag, value } => {
                 writeln!(f, "{namespace}::fill_fragment({frag}, {value});")
             }

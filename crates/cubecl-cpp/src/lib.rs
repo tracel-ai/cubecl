@@ -11,10 +11,11 @@ pub mod formatter;
 #[cfg(feature = "hip")]
 mod hip;
 #[cfg(feature = "hip")]
-pub type HipCompiler = shared::CppCompiler<hip::Hip>;
+// pub type HipCompiler = shared::CppCompiler<hip::Hip<hip::WmmaIntrinsicHip>>;
+pub type HipCompiler = shared::CppCompiler<hip::Hip<hip::WmmaApiHip>>;
 
 #[cfg(feature = "cuda")]
 mod cuda;
 
 #[cfg(feature = "cuda")]
-pub type CudaCompiler = shared::CppCompiler<cuda::Cuda>;
+pub type CudaCompiler = shared::CppCompiler<cuda::Cuda<cuda::WmmaApiCuda>>;
