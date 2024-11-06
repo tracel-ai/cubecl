@@ -184,6 +184,7 @@ impl<S: stage::Config> global::Config for Config<S> {
 impl<S: stage::Config> MatmulConfig for Config<S> {}
 
 impl<S: stage::Config> Config<S> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         smm_config: S,
         check_m_bounds: bool,

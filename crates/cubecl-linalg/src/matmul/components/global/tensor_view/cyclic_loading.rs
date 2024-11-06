@@ -71,8 +71,7 @@ impl CyclicLoading {
                     slice[unit_position / line_size] = Line::cast_from(line_read);
                 }
                 true => {
-                    // TODO get comptime
-                    let slice_line_size = 1;
+                    let slice_line_size = config.stage_line_size(ident);
 
                     if comptime!(slice_line_size == 1) {
                         let tile_offset = nth_tile * tile_num_elements;
@@ -101,6 +100,7 @@ impl CyclicLoading {
                                 + slice_contiguous_idx] = Line::cast_from(elem);
                         }
                     } else {
+                        #[allow(clippy::too_many_arguments)]
                         let _ = comptime!(unsupported_line_size(slice_line_size));
                     }
                 }
@@ -111,7 +111,7 @@ impl CyclicLoading {
 
 fn unsupported_line_size(line_size: u32) {
     panic!(
-        "If load must transpose, then lined stage is not supported. Got {:?}",
+        "Line size for stage is not supported when transposing. Got {:?}.",
         line_size
     )
 }
