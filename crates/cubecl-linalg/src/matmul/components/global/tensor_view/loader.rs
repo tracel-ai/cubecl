@@ -1,7 +1,7 @@
-use crate::matmul::components::global::tensor_view::continuous_loading::ContinuousLoading;
-use crate::matmul::components::global::{self, Loader};
+use crate::matmul::components::global::tensor_view::cyclic_loading::CyclicLoading;
+use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage::{LhsReader, RhsReader, Stage};
-use crate::matmul::components::Ident;
+use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -56,7 +56,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsLoader<EG, ES> {
     type StageReader = LhsReader<ES>;
 
     fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        ContinuousLoading::load_to_slice::<EG, ES, G>(
+        CyclicLoading::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
             this.stage.as_slice_mut(),
             Ident::Lhs,
@@ -75,7 +75,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsLoader<EG, ES> {
     type StageReader = RhsReader<ES>;
 
     fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        ContinuousLoading::load_to_slice::<EG, ES, G>(
+        CyclicLoading::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
             this.stage.as_slice_mut(),
             Ident::Rhs,

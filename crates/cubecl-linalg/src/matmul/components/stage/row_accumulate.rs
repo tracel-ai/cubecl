@@ -5,8 +5,8 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
     config::MatmulConfig,
-    global, stage,
-    stage::{StageReader, StageWriter},
+    global,
+    stage::{self, Config as _, StageReader, StageWriter},
     tile, Ident, MatmulKernel, MatrixLayout, PlaneMapper, StageDim,
 };
 
@@ -54,12 +54,18 @@ where
 
         #[unroll]
         for buffer_iter in 0..SS::NUM_K {
-            let tile_lhs = LhsReader::read_tile(lhs, Self::plane_id(), buffer_iter, 0u32, config);
+            let tile_lhs = LhsReader::read_tile::<Self::Config>(
+                lhs,
+                Self::plane_id(),
+                buffer_iter,
+                0u32,
+                config,
+            );
             TMM::fill_lhs(tile_lhs, &mut instruction_lhs, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = RhsReader::read_tile(
+                let tile_rhs = RhsReader::read_tile::<Self::Config>(
                     rhs,
                     Self::plane_id(),
                     buffer_iter,
@@ -96,7 +102,7 @@ where
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        let out_smem_line_size = global_config.out_smem_line_size();
+        let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
 
@@ -111,7 +117,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_output(accumulator, smem_slice, stage_config.to_tmm_config());
-            SW::write(
+            SW::write::<Acc, G>(
                 out,
                 smem_slice.as_slice(),
                 Self::plane_id(),
