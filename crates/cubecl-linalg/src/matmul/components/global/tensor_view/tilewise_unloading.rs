@@ -32,8 +32,8 @@ impl TilewiseUnloading {
         #[comptime] config: G,
     ) {
         let stage_dim = config.stage_dim(Ident::Out);
-        let slice_line_size = config.out_smem_line_size();
-        let out_line_size = config.line_size(Ident::Out);
+        let slice_line_size = config.stage_line_size(Ident::Out);
+        let out_line_size = config.global_line_size(Ident::Out);
 
         let unit_step = config.plane_dim() * out_line_size;
         let num_unit_writes = stage_dim.tile_num_elements() / unit_step;

@@ -1,4 +1,4 @@
-use crate::matmul::components::global::tensor_view::continuous_loading::ContinuousLoading;
+use crate::matmul::components::global::tensor_view::cyclic_loading::CyclicLoading;
 use crate::matmul::components::global::{Config, Loader};
 use crate::matmul::components::stage::{LhsReader, RhsReader, Stage};
 use crate::matmul::components::Ident;
@@ -71,7 +71,7 @@ impl<EG: Numeric, ES: Numeric, G: Config> Loader<EG, ES, G> for LhsLoader<EG, ES
     type StageReader = LhsReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        ContinuousLoading::load_to_slice::<EG, ES, G>(
+        CyclicLoading::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
             this.stage.as_slice_mut(),
             Ident::Lhs,
@@ -90,7 +90,7 @@ impl<EG: Numeric, ES: Numeric, G: Config> Loader<EG, ES, G> for RhsLoader<EG, ES
     type StageReader = RhsReader<ES, G::SmmConfig>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
-        ContinuousLoading::load_to_slice::<EG, ES, G>(
+        CyclicLoading::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
             this.stage.as_slice_mut(),
             Ident::Rhs,
