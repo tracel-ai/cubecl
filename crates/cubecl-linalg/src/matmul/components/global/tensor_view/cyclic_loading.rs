@@ -100,7 +100,7 @@ impl CyclicLoading {
                                 + slice_contiguous_idx] = Line::cast_from(elem);
                         }
                     } else {
-                        #[allow(clippy::too_many_arguments)]
+                        #[allow(clippy::all)]
                         let _ = comptime!(unsupported_line_size(slice_line_size));
                     }
                 }
