@@ -1,6 +1,6 @@
 use cubecl_cpp::{formatter::format_cpp, CudaCompiler};
 
-use super::fense::Fense;
+use super::fence::Fence;
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
 use cubecl_core::compute::DebugInformation;
@@ -114,10 +114,10 @@ impl CudaServer {
             cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
         };
 
-        let fense = ctx.fense();
+        let fence = ctx.fence();
 
         async move {
-            fense.wait();
+            fence.wait();
             data
         }
     }
@@ -239,10 +239,10 @@ impl ComputeServer for CudaServer {
         self.logger.profile_summary();
 
         let ctx = self.get_context();
-        let fense = ctx.fense();
+        let fence = ctx.fence();
 
         async move {
-            fense.wait();
+            fence.wait();
         }
     }
 
@@ -308,8 +308,8 @@ impl CudaContext {
         }
     }
 
-    fn fense(&mut self) -> Fense {
-        Fense::new(self.stream)
+    fn fence(&mut self) -> Fence {
+        Fence::new(self.stream)
     }
 
     fn sync(&mut self) {

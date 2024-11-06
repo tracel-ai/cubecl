@@ -1,11 +1,11 @@
 use cudarc::driver::sys::{CUevent_flags, CUevent_st, CUevent_wait_flags, CUstream_st};
 
-/// A fense is a simply an [event](CUevent_st) created on a [stream](CUevent_st) that you can wait
+/// A fence is a simply an [event](CUevent_st) created on a [stream](CUevent_st) that you can wait
 /// until completion.
 ///
 /// This is useful for doing synchronization outside of the compute server, which is normally
 /// locked by a mutex or a channel. This allows the server to continue accepting other tasks.
-pub struct Fense {
+pub struct Fence {
     stream: *mut CUstream_st,
     event: *mut CUevent_st,
 }
@@ -15,11 +15,11 @@ pub struct Fense {
 // # Safety
 //
 // Since streams are never closed and we destroy the event after waiting, which comsumes the
-// [Fense], it is safe.
-unsafe impl Send for Fense {}
+// [Fence], it is safe.
+unsafe impl Send for Fence {}
 
-impl Fense {
-    /// Create a new [Fense] on the given stream.
+impl Fence {
+    /// Create a new [Fence] on the given stream.
     ///
     /// # Notes
     ///
@@ -34,7 +34,7 @@ impl Fense {
         }
     }
 
-    /// Wait for the [Fense] to be reached, ensuring that all previous tasks enqueued to the
+    /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](CUstream_st) are completed.
     ///
     /// # Notes
