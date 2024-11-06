@@ -44,8 +44,8 @@ where
         <D as MatmulLaunchDispatch>::ElementInput,
         EG,
         <D as MatmulLaunchDispatch>::ElementAccumulator,
+        Tmm<D>,
         <D as MatmulLaunchDispatch>::StageSize,
-        CmmaSmmConfig<<D as MatmulLaunchDispatch>::TileConfig>,
     >;
 
     let (stage_m, stage_n, stage_k) = (Smm::<D, EG>::M, Smm::<D, EG>::N, Smm::<D, EG>::K);
