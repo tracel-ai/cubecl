@@ -131,41 +131,47 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) 
     (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
 }
 
-/// Solves a matmul problem with EG inputs, multiplied as ES
+/// Solves a matmul problem with EG inputs, multiplied as ES and accumulated as EA
 ///
 /// This is a naive CPU implementation, very slow on large payloads,
 /// not designed to be used for other purposes than testing.
-pub(crate) fn matmul_cpu_reference<EG, ES>(
+pub(crate) fn matmul_cpu_reference<EG, ES, EA>(
     lhs: &[EG],
     rhs: &[EG],
     problem: &MatmulProblem<EG>,
 ) -> Vec<EG>
 where
     EG: Numeric + CubeElement + Into2<ES>,
-    ES: Numeric + CubeElement + Into2<EG>,
+    ES: Numeric + CubeElement + Into2<EA>,
+    EA: Numeric + CubeElement + Into2<EG>,
 {
     let m = problem.m;
     let n = problem.n;
     let k = problem.k;
     let b = problem.num_batches();
 
-    let mut out = vec![EG::from_int(0); m * n * b];
+    let mut out = vec![EA::from_int(0); m * n * b];
 
     for b_ in 0..b {
         for i in 0..m {
             for j in 0..n {
                 for k_ in 0..k {
-                    let l: ES = Into2::into(lhs[(b_ * m * k) + i * k + k_]);
-                    let r: ES = Into2::into(rhs[(b_ * k * n) + k_ * n + j]);
-
+                    let lhs_index = (b_ * m * k) + i * k + k_;
+                    let rhs_index = (b_ * k * n) + k_ * n + j;
                     let out_index = (b_ * m * n) + i * n + j;
-                    out[out_index] += Into2::into(l * r);
+
+                    let l: ES = Into2::into(lhs[lhs_index]);
+                    let r: ES = Into2::into(rhs[rhs_index]);
+                    let prod = l * r;
+                    let casted: EA = Into2::into(prod);
+
+                    out[out_index] += casted;
                 }
             }
         }
     }
 
-    out
+    out.into_iter().map(|ea| Into2::into(ea)).collect::<Vec<EG>>()
 }
 
 /// Deprecated
