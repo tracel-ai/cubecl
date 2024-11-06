@@ -1,38 +1,37 @@
-use std::{io::Write, process::Command};
+use std::{io::Write, num::NonZero, process::Command};
 
 use cubecl_core::{
-    client::ComputeClient,
-    prelude::{ArrayArg, TensorArg},
-    server, Compiler, ExecutionMode, Kernel, Runtime,
+    prelude::{ArrayCompilationArg, TensorCompilationArg},
+    Compiler, CubeDim, ExecutionMode, Kernel, KernelSettings, Runtime,
 };
-use cubecl_cuda::{CudaDevice, CudaRuntime};
+use cubecl_cuda::CudaRuntime;
 
-type Client = ComputeClient<<CudaRuntime as Runtime>::Server, <CudaRuntime as Runtime>::Channel>;
-type Handle = server::Handle;
-
-pub fn client() -> Client {
-    let device = CudaDevice::new(0);
-    CudaRuntime::client(&device)
+pub fn settings() -> KernelSettings {
+    KernelSettings::default().cube_dim(CubeDim::default())
 }
 
 #[allow(unused)]
-pub fn handle(client: &Client) -> Handle {
-    client.empty(1)
+pub fn tensor() -> TensorCompilationArg {
+    TensorCompilationArg {
+        inplace: None,
+        vectorisation: NonZero::new(1),
+    }
 }
 
 #[allow(unused)]
-pub fn tensor(tensor: &Handle) -> TensorArg<'_, CudaRuntime> {
-    unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], 1) }
+pub fn tensor_vec(vec: u8) -> TensorCompilationArg {
+    TensorCompilationArg {
+        inplace: None,
+        vectorisation: NonZero::new(vec),
+    }
 }
 
 #[allow(unused)]
-pub fn tensor_vec(tensor: &Handle, vec: u8) -> TensorArg<'_, CudaRuntime> {
-    unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], vec) }
-}
-
-#[allow(unused)]
-pub fn array(tensor: &Handle) -> ArrayArg<'_, CudaRuntime> {
-    unsafe { ArrayArg::from_raw_parts(tensor, 1, 1) }
+pub fn array() -> ArrayCompilationArg {
+    ArrayCompilationArg {
+        inplace: None,
+        vectorisation: NonZero::new(1),
+    }
 }
 
 pub fn compile(kernel: impl Kernel) -> String {

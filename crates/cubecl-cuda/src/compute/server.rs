@@ -1,5 +1,6 @@
 use cubecl_cpp::{formatter::format_cpp, CudaCompiler};
 
+use super::fence::Fence;
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
 use cubecl_core::compute::DebugInformation;
@@ -95,6 +96,31 @@ impl CudaServer {
 
         data
     }
+
+    fn read_async(
+        &mut self,
+        binding: server::Binding,
+    ) -> impl Future<Output = Vec<u8>> + 'static + Send {
+        let ctx = self.get_context();
+        let resource = ctx.memory_management.get_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        );
+
+        let mut data = uninit_vec(resource.size() as usize);
+
+        unsafe {
+            cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
+        };
+
+        let fence = ctx.fence();
+
+        async move {
+            fence.wait();
+            data
+        }
+    }
 }
 
 impl ComputeServer for CudaServer {
@@ -103,8 +129,7 @@ impl ComputeServer for CudaServer {
     type Feature = Feature;
 
     fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        let value = self.read_sync(binding);
-        async { value }
+        self.read_async(binding)
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
@@ -214,8 +239,11 @@ impl ComputeServer for CudaServer {
         self.logger.profile_summary();
 
         let ctx = self.get_context();
-        ctx.sync();
-        async move {}
+        let fence = ctx.fence();
+
+        async move {
+            fence.wait();
+        }
     }
 
     fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
@@ -278,6 +306,10 @@ impl CudaContext {
             arch,
             timestamps: KernelTimestamps::Disabled,
         }
+    }
+
+    fn fence(&mut self) -> Fence {
+        Fence::new(self.stream)
     }
 
     fn sync(&mut self) {
