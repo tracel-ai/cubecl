@@ -1,6 +1,6 @@
 use cudarc::driver::sys::{CUevent_flags, CUevent_st, CUevent_wait_flags, CUstream_st};
 
-/// A fence is a simply an [event](CUevent_st) created on a [stream](CUevent_st) that you can wait
+/// A fence is simply an [event](CUevent_st) created on a [stream](CUevent_st) that you can wait
 /// until completion.
 ///
 /// This is useful for doing synchronization outside of the compute server, which is normally
@@ -14,7 +14,7 @@ pub struct Fence {
 //
 // # Safety
 //
-// Since streams are never closed and we destroy the event after waiting, which comsumes the
+// Since streams are never closed and we destroy the event after waiting, which consumes the
 // [Fence], it is safe.
 unsafe impl Send for Fence {}
 
