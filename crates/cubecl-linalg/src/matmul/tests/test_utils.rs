@@ -1,7 +1,11 @@
 use std::fmt::Display;
 
 use cubecl_core::{
-    client::ComputeClient, prelude::Float, prelude::Numeric, server::Handle, CubeElement, Runtime,
+    client::ComputeClient,
+    flex32,
+    prelude::{Float, Numeric},
+    server::Handle,
+    CubeElement, Runtime,
 };
 
 use crate::{matmul::components::MatmulProblem, tensor::TensorHandle};
@@ -38,6 +42,76 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     Ok(())
 }
 
+pub trait CastInto<E> {
+    fn cast_into(self) -> E;
+}
+
+impl<E> CastInto<E> for E {
+    fn cast_into(self) -> E {
+        self
+    }
+}
+
+impl CastInto<f32> for half::f16 {
+    fn cast_into(self) -> f32 {
+        f32::from(self)
+    }
+}
+
+impl CastInto<f32> for half::bf16 {
+    fn cast_into(self) -> f32 {
+        f32::from(self)
+    }
+}
+
+impl CastInto<f32> for flex32 {
+    fn cast_into(self) -> f32 {
+        f32::from(self)
+    }
+}
+
+impl CastInto<half::bf16> for f32 {
+    fn cast_into(self) -> half::bf16 {
+        half::bf16::from_f32(self)
+    }
+}
+
+impl CastInto<half::bf16> for half::f16 {
+    fn cast_into(self) -> half::bf16 {
+        half::bf16::from_f32(self.to_f32())
+    }
+}
+
+impl CastInto<half::f16> for half::bf16 {
+    fn cast_into(self) -> half::f16 {
+        half::f16::from_f32(self.to_f32())
+    }
+}
+
+impl CastInto<half::f16> for f32 {
+    fn cast_into(self) -> half::f16 {
+        half::f16::from_f32(self)
+    }
+}
+
+impl CastInto<half::f16> for flex32 {
+    fn cast_into(self) -> half::f16 {
+        half::f16::from_f32(self.to_f32())
+    }
+}
+
+impl CastInto<half::bf16> for flex32 {
+    fn cast_into(self) -> half::bf16 {
+        half::bf16::from_f32(self.to_f32())
+    }
+}
+
+impl CastInto<flex32> for f32 {
+    fn cast_into(self) -> flex32 {
+        flex32::from_f32(self)
+    }
+}
+
 /// Generates num_elements random floats for tests.
 ///
 /// This is a naive CPU implementation with fixed seed,
@@ -57,15 +131,19 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) 
     (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
 }
 
-/// Solves a matmul problem on f32 inputs.
+/// Solves a matmul problem with EG inputs, multiplied as ES
 ///
 /// This is a naive CPU implementation, very slow on large payloads,
 /// not designed to be used for other purposes than testing.
-pub(crate) fn matmul_cpu_reference<EG: Numeric + CubeElement>(
+pub(crate) fn matmul_cpu_reference<EG, ES>(
     lhs: &[EG],
     rhs: &[EG],
     problem: &MatmulProblem<EG>,
-) -> Vec<EG> {
+) -> Vec<EG>
+where
+    EG: Numeric + CubeElement + CastInto<ES>,
+    ES: Numeric + CubeElement + CastInto<EG>,
+{
     let m = problem.m;
     let n = problem.n;
     let k = problem.k;
@@ -77,8 +155,16 @@ pub(crate) fn matmul_cpu_reference<EG: Numeric + CubeElement>(
         for i in 0..m {
             for j in 0..n {
                 for k_ in 0..k {
-                    out[(b_ * m * n) + i * n + j] +=
-                        lhs[(b_ * m * k) + i * k + k_] * rhs[(b_ * k * n) + k_ * n + j];
+                    let lhs_index = b_ * m * k + i * k + k_;
+                    let rhs_index = b_ * k * n + k_ * n + j;
+                    let out_index = b_ * m * n + i * n + j;
+
+                    let l: ES = lhs[lhs_index].cast_into();
+                    let r: ES = rhs[rhs_index].cast_into();
+                    let prod = l * r;
+                    let casted: EG = prod.cast_into();
+
+                    out[out_index] += casted;
                 }
             }
         }
