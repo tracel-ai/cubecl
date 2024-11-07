@@ -23,7 +23,7 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R::Se
             &client,
             CubeCount::Static(cube_count.0, cube_count.1, cube_count.2),
             CubeDim::new(cube_dim.0, cube_dim.1, cube_dim.2),
-            ArrayArg::from_raw_parts(&handle1, length as usize, 1),
+            ArrayArg::from_raw_parts::<u32>(&handle1, length as usize, 1),
         )
     };
 

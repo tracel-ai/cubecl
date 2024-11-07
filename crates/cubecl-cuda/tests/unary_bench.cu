@@ -21,14 +21,12 @@ extern "C" __global__ void kernel(float_4 input_0[], float_4 input_1[],
   uint idxGlobal =
       (absoluteIdx.z * gridDim.x * blockDim.x * gridDim.y * blockDim.y) +
       (absoluteIdx.y * gridDim.x * blockDim.x) + absoluteIdx.x;
-  uint rank = info[0];
-  uint rank_2 = rank * 2;
   uint l_0_0;
   bool l_0_1;
   bool l_0_2;
   float_4 l_0_3;
   float_4 l_0_4;
-  l_0_0 = info[(3 * 2 * info[0]) + 3] / 4;
+  l_0_0 = info[uint(5)];
   l_0_1 = idxGlobal < l_0_0;
   if (l_0_1) {
 
@@ -37,10 +35,10 @@ extern "C" __global__ void kernel(float_4 input_0[], float_4 input_1[],
       l_0_2 = l_0_0 == uint(0);
       if (l_0_2) {
         uint l_3_0;
-        l_3_0 = info[(3 * 2 * info[0]) + 1] / 4;
+        l_3_0 = info[uint(0)];
         l_0_3 = (idxGlobal < l_3_0) ? input_0[idxGlobal] : float_4{};
         uint l_3_1;
-        l_3_1 = info[(3 * 2 * info[0]) + 2] / 4;
+        l_3_1 = info[uint(1)];
         l_0_4 = (idxGlobal < l_3_1) ? input_1[idxGlobal] : float_4{};
         l_0_4 = float_4{
             l_0_3.i_0 * l_0_4.i_0,
@@ -55,7 +53,7 @@ extern "C" __global__ void kernel(float_4 input_0[], float_4 input_1[],
             cos(l_0_4.i_3),
         };
         uint l_3_2;
-        l_3_2 = info[(3 * 2 * info[0]) + 3] / 4;
+        l_3_2 = info[uint(2)];
         l_0_3 = (idxGlobal < l_3_2) ? output_0[idxGlobal] : float_4{};
         l_0_3 = float_4{
             l_0_3.i_0 - l_0_4.i_0,
@@ -65,17 +63,17 @@ extern "C" __global__ void kernel(float_4 input_0[], float_4 input_1[],
         };
         uint l_3_3;
         bool l_3_4;
-        l_3_3 = info[(3 * 2 * info[0]) + 3] / 4;
+        l_3_3 = info[uint(2)];
         l_3_4 = idxGlobal < l_3_3;
         if (l_3_4) {
           output_0[idxGlobal] = l_0_3;
         }
       } else {
         uint l_3_0;
-        l_3_0 = info[(3 * 2 * info[0]) + 1] / 4;
+        l_3_0 = info[uint(0)];
         l_0_4 = (idxGlobal < l_3_0) ? input_0[idxGlobal] : float_4{};
         uint l_3_1;
-        l_3_1 = info[(3 * 2 * info[0]) + 2] / 4;
+        l_3_1 = info[uint(1)];
         l_0_3 = (idxGlobal < l_3_1) ? input_1[idxGlobal] : float_4{};
         l_0_4 = float_4{
             l_0_4.i_0 * l_0_3.i_0,
@@ -90,7 +88,7 @@ extern "C" __global__ void kernel(float_4 input_0[], float_4 input_1[],
             cos(l_0_4.i_3),
         };
         uint l_3_2;
-        l_3_2 = info[(3 * 2 * info[0]) + 3] / 4;
+        l_3_2 = info[uint(2)];
         l_0_3 = (idxGlobal < l_3_2) ? output_0[idxGlobal] : float_4{};
         l_0_3 = float_4{
             l_0_3.i_0 + l_0_4.i_0,
@@ -100,7 +98,7 @@ extern "C" __global__ void kernel(float_4 input_0[], float_4 input_1[],
         };
         uint l_3_3;
         bool l_3_4;
-        l_3_3 = info[(3 * 2 * info[0]) + 3] / 4;
+        l_3_3 = info[uint(2)];
         l_3_4 = idxGlobal < l_3_3;
         if (l_3_4) {
           output_0[idxGlobal] = l_0_3;

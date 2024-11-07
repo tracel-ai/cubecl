@@ -186,7 +186,9 @@ impl Expression {
                     })
                     .into(),
                     OpId::Bitcast => Operator::Bitcast(UnaryOperator { input: args[0] }).into(),
+                    OpId::Rank => Metadata::Rank { var: args[0] }.into(),
                     OpId::Length => Metadata::Length { var: args[0] }.into(),
+                    OpId::BufferLength => Metadata::BufferLength { var: args[0] }.into(),
                     OpId::Shape => Metadata::Shape {
                         var: args[0],
                         dim: args[1],
@@ -346,6 +348,8 @@ pub fn id_of_meta(meta: &Metadata) -> OpId {
         Metadata::Stride { .. } => OpId::Stride,
         Metadata::Shape { .. } => OpId::Shape,
         Metadata::Length { .. } => OpId::Length,
+        Metadata::BufferLength { .. } => OpId::BufferLength,
+        Metadata::Rank { .. } => OpId::Rank,
     }
 }
 

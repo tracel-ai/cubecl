@@ -54,7 +54,6 @@ pub enum VariableKind {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Builtin {
-    Rank,
     UnitPos,
     UnitPosX,
     UnitPosY,

@@ -214,7 +214,7 @@ fn test_subcube_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
         launch(
             CubeCount::Static(1, 1, 1),
             CubeDim::new(input.len() as u32, 1, 1),
-            TensorArg::from_raw_parts(&handle, &strides, &shape, 1),
+            TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1),
         );
     }
 

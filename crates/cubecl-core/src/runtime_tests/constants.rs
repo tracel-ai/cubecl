@@ -19,7 +19,7 @@ pub fn test_constant_array<R: Runtime>(client: ComputeClient<R::Server, R::Chann
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        unsafe { ArrayArg::from_raw_parts(&handle, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
         vec![3, 5, 1],
     );
 

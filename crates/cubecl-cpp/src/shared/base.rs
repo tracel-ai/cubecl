@@ -4,8 +4,8 @@ use std::{collections::HashSet, fmt::Debug, num::NonZero};
 use cubecl_core::{
     cpa,
     ir::{
-        self as gpu, ConstantScalarValue, Elem, Item, Metadata, ReusingAllocator, Scope, UIntKind,
-        Variable,
+        self as gpu, ConstantScalarValue, Elem, Item, KernelDefinition, Metadata, ReusingAllocator,
+        Scope, UIntKind, Variable, VariableKind,
     },
     prelude::CubePrimitive,
     Compiler, Feature,
@@ -44,15 +44,14 @@ pub struct CppCompiler<D: Dialect> {
     shared_memories: Vec<super::SharedMemory<D>>,
     const_arrays: Vec<super::ConstArray<D>>,
     local_arrays: Vec<super::LocalArray<D>>,
-    rank: bool,
+    metadata: cubecl_core::Metadata,
     wrap_size_checked: bool,
     wmma: bool,
     bf16: bool,
     f16: bool,
-    shape: bool,
-    stride: bool,
     num_inputs: usize,
     num_outputs: usize,
+    ext_meta_positions: Vec<u32>,
     items: HashSet<super::Item<D>>,
     strategy: ExecutionMode,
     settings: VariableSettings,
@@ -89,8 +88,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 
 impl<D: Dialect> CppCompiler<D> {
     fn compile_ir(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel<D> {
-        self.num_inputs = value.inputs.len();
-        self.num_outputs = value.outputs.len();
+        self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body);
         let inputs = value
@@ -111,13 +109,10 @@ impl<D: Dialect> CppCompiler<D> {
 
         let body = super::Body {
             instructions,
-            stride: true,
-            shape: true,
             shared_memories: self.shared_memories,
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
-            rank: self.rank,
-            wrap_size_checked: self.wrap_size_checked,
+            warp_size_checked: self.wrap_size_checked,
             settings: self.settings,
         };
 
@@ -132,6 +127,33 @@ impl<D: Dialect> CppCompiler<D> {
             f16: self.f16,
             items: self.items,
         }
+    }
+
+    fn build_metadata(&mut self, value: &KernelDefinition) {
+        self.num_inputs = value.inputs.len();
+        self.num_outputs = value.outputs.len();
+
+        let mut num_ext = 0;
+
+        for binding in value.inputs.iter().chain(value.outputs.iter()) {
+            self.ext_meta_positions.push(num_ext);
+            if binding.has_extended_meta {
+                num_ext += 1;
+            }
+        }
+
+        let num_meta = self.num_inputs + self.num_outputs;
+
+        self.metadata = cubecl_core::Metadata::new(num_meta as u32, num_ext);
+    }
+
+    pub(crate) fn ext_meta_position(&self, var: gpu::Variable) -> u32 {
+        let pos = match var.kind {
+            VariableKind::GlobalInputArray(id) => id as usize,
+            VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
+            other => panic!("Only global arrays have metadata, got {other:?}"),
+        };
+        self.ext_meta_positions[pos]
     }
 
     fn compile_scope(&mut self, scope: &mut gpu::Scope) -> Vec<Instruction<D>> {
@@ -299,29 +321,30 @@ impl<D: Dialect> CppCompiler<D> {
         let out = out.unwrap();
         match metadata {
             gpu::Metadata::Stride { dim, var } => {
-                self.stride = true;
-                let position = match var.kind {
-                    gpu::VariableKind::GlobalInputArray(id) => id as usize,
-                    gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
-                    _ => panic!("Only Input and Output have a stride, got: {:?}", var),
-                };
-                Instruction::Stride {
+                let position = self.ext_meta_position(var);
+                let offset = self.metadata.stride_offset_index(position);
+                Instruction::ExtendedMetadata {
+                    info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    position,
                     out: self.compile_variable(out),
                 }
             }
             gpu::Metadata::Shape { dim, var } => {
-                self.shape = true;
-                let position = match var.kind {
-                    gpu::VariableKind::GlobalInputArray(id) => id as usize,
-                    gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
-                    _ => panic!("Only Input and Output have a shape, got {:?}", var),
-                };
-                Instruction::Shape {
+                let position = self.ext_meta_position(var);
+                let offset = self.metadata.shape_offset_index(position);
+                Instruction::ExtendedMetadata {
+                    info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    position,
                     out: self.compile_variable(out),
+                }
+            }
+            gpu::Metadata::Rank { var } => {
+                let out = self.compile_variable(out);
+                let pos = self.ext_meta_position(var);
+                let offset = self.metadata.rank_index(pos);
+                super::Instruction::Metadata {
+                    info_offset: self.compile_variable(offset.into()),
+                    out,
                 }
             }
             gpu::Metadata::Length { var } => {
@@ -330,12 +353,42 @@ impl<D: Dialect> CppCompiler<D> {
 
                 match input {
                     super::Variable::Slice { .. } => super::Instruction::SliceLength { input, out },
-                    _ => super::Instruction::Length {
-                        input,
-                        out,
-                        num_inputs: self.num_inputs,
-                        num_outputs: self.num_outputs,
-                    },
+                    _ => {
+                        let id = match input {
+                            super::Variable::GlobalInputArray(id, _) => id as u32,
+                            super::Variable::GlobalOutputArray(id, _) => {
+                                self.num_inputs as u32 + id as u32
+                            }
+                            _ => panic!("Can only get length of global array"),
+                        };
+                        let offset = self.metadata.len_index(id);
+                        super::Instruction::Metadata {
+                            info_offset: self.compile_variable(offset.into()),
+                            out,
+                        }
+                    }
+                }
+            }
+            gpu::Metadata::BufferLength { var } => {
+                let input = self.compile_variable(var);
+                let out = self.compile_variable(out);
+
+                match input {
+                    super::Variable::Slice { .. } => super::Instruction::SliceLength { input, out },
+                    _ => {
+                        let id = match input {
+                            super::Variable::GlobalInputArray(id, _) => id as u32,
+                            super::Variable::GlobalOutputArray(id, _) => {
+                                self.num_inputs as u32 + id as u32
+                            }
+                            _ => panic!("Can only get buffer length of global array"),
+                        };
+                        let offset = self.metadata.buffer_len_index(id);
+                        super::Instruction::Metadata {
+                            info_offset: self.compile_variable(offset.into()),
+                            out,
+                        }
+                    }
                 }
             }
         }
@@ -461,9 +514,12 @@ impl<D: Dialect> CppCompiler<D> {
 
                     instructions.extend(self.compile_scope(scope));
 
-                    instructions.push(
-                        self.compile_metadata(Metadata::Length { var: lhs }, Some(array_len)),
-                    );
+                    let length = match has_buffer_length(&lhs) {
+                        true => Metadata::BufferLength { var: lhs },
+                        false => Metadata::Length { var: lhs },
+                    };
+
+                    instructions.push(self.compile_metadata(length, Some(array_len)));
                     instructions.push(Instruction::CheckedIndex {
                         len: self.compile_variable(array_len),
                         lhs: self.compile_variable(lhs),
@@ -742,10 +798,6 @@ impl<D: Dialect> CppCompiler<D> {
                     self.settings.idx_global = true;
                     super::Variable::IdxGlobal
                 }
-                gpu::Builtin::Rank => {
-                    self.rank = true;
-                    super::Variable::Rank
-                }
                 gpu::Builtin::UnitPos => {
                     self.settings.thread_idx_global = true;
                     super::Variable::ThreadIdxGlobal
@@ -915,7 +967,12 @@ impl CheckedIndexAssign {
         let array_len = scope.create_local(Item::new(u32::as_elem()));
         let inside_bound = scope.create_local(Item::new(Elem::Bool));
 
-        cpa!(scope, array_len = len(out));
+        if has_buffer_length(&out) {
+            cpa!(scope, array_len = buffer_len(out));
+        } else {
+            cpa!(scope, array_len = len(out));
+        }
+
         cpa!(scope, inside_bound = lhs < array_len);
 
         cpa!(scope, if(inside_bound).then(|scope| {
@@ -930,6 +987,13 @@ fn has_length(var: &gpu::Variable) -> bool {
         gpu::VariableKind::GlobalInputArray { .. }
             | gpu::VariableKind::GlobalOutputArray { .. }
             | gpu::VariableKind::Slice { .. }
+    )
+}
+
+fn has_buffer_length(var: &gpu::Variable) -> bool {
+    matches!(
+        var.kind,
+        gpu::VariableKind::GlobalInputArray { .. } | gpu::VariableKind::GlobalOutputArray { .. }
     )
 }
 

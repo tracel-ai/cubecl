@@ -65,8 +65,8 @@ macro_rules! test_unary_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
-                        ArrayArg::from_raw_parts(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts(&output_handle, $expected.len(), $out_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
                     )
                 };
 

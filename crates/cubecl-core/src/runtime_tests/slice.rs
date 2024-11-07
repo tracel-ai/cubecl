@@ -59,8 +59,8 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            ArrayArg::from_raw_parts(&input, 5, 1),
-            ArrayArg::from_raw_parts(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
     };
 
@@ -81,8 +81,8 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            ArrayArg::from_raw_parts(&input, 5, 1),
-            ArrayArg::from_raw_parts(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
+            ArrayArg::from_raw_parts::<u32>(&output, 1, 1),
         )
     };
 
@@ -103,8 +103,8 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            ArrayArg::from_raw_parts(&input, 5, 1),
-            ArrayArg::from_raw_parts(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
     };
 
@@ -125,8 +125,8 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            ArrayArg::from_raw_parts(&input, 5, 1),
-            ArrayArg::from_raw_parts(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
     };
 
@@ -144,7 +144,7 @@ pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R::Server, R::Channe
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            ArrayArg::from_raw_parts(&output, 4, 1),
+            ArrayArg::from_raw_parts::<u32>(&output, 4, 1),
         )
     };
 

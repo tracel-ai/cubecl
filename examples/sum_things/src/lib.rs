@@ -112,8 +112,8 @@ fn launch_basic<R: Runtime>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(len as u32, 1, 1),
-            ArrayArg::from_raw_parts(input, len, 1),
-            ArrayArg::from_raw_parts(output, len, 1),
+            ArrayArg::from_raw_parts::<f32>(input, len, 1),
+            ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
         );
     }
@@ -130,8 +130,8 @@ fn launch_subgroup<R: Runtime>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(len as u32, 1, 1),
-            ArrayArg::from_raw_parts(input, len, 1),
-            ArrayArg::from_raw_parts(output, len, 1),
+            ArrayArg::from_raw_parts::<f32>(input, len, 1),
+            ArrayArg::from_raw_parts::<f32>(output, len, 1),
             client
                 .properties()
                 .feature_enabled(cubecl::Feature::Subcube),
@@ -151,8 +151,8 @@ fn launch_trait<R: Runtime, K: SumKind>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(len as u32, 1, 1),
-            ArrayArg::from_raw_parts(input, len, 1),
-            ArrayArg::from_raw_parts(output, len, 1),
+            ArrayArg::from_raw_parts::<f32>(input, len, 1),
+            ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
         );
     }
@@ -169,8 +169,8 @@ fn launch_series<R: Runtime, S: CreateSeries>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(len as u32, 1, 1),
-            ArrayArg::from_raw_parts(input, len, 1),
-            ArrayArg::from_raw_parts(output, len, 1),
+            ArrayArg::from_raw_parts::<f32>(input, len, 1),
+            ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
         );
     }

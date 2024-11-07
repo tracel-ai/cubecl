@@ -370,6 +370,12 @@ macro_rules! cpa {
             var: $input.into(),
         }, $out));
     };
+    // out = buffer_len(array)
+    ($scope:expr, $out:ident = buffer_len($input:expr)) => {
+        $scope.register($crate::ir::Instruction::new($crate::ir::Metadata::BufferLength {
+            var: $input.into(),
+        }, $out));
+    };
     // range(start, end).for_each(|i, scope| { ... })
     ($scope:expr, range($start:expr, $end:expr).for_each($arg:expr)) => {
         $crate::ir::RangeLoop::register($scope, $start.into(), $end.into(), None, false, $arg);

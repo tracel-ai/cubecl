@@ -167,13 +167,13 @@ fn main(
         }
 
         // Open body
-        write!(f, ") {{")?;
+        f.write_str(") {\n")?;
 
         // Local arrays
         for array in self.local_arrays.iter() {
-            write!(
+            writeln!(
                 f,
-                "var a_{}_{}: array<{}, {}>;\n\n",
+                "var a_{}_{}: array<{}, {}>;\n",
                 array.name, array.index, array.item, array.size
             )?;
         }

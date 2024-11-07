@@ -2,7 +2,7 @@ use crate::frontend::{ExpandElementBaseInit, ExpandElementTyped, SizedContainer}
 use crate::prelude::IntoRuntime;
 use crate::{
     frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType, ExpandElement},
-    ir::{Item, Metadata, Variable},
+    ir::{Item, Metadata},
     prelude::Line,
     unexpanded,
 };
@@ -18,10 +18,7 @@ pub struct Tensor<T: CubeType> {
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
     use super::*;
-    use crate::{
-        ir::{Builtin, Instruction},
-        prelude::Array,
-    };
+    use crate::{ir::Instruction, prelude::Array};
 
     impl<T: CubeType> Tensor<T> {
         /// Obtain the stride of input at dimension dim
@@ -34,7 +31,7 @@ mod metadata {
             unexpanded!()
         }
 
-        /// The length of the buffer representing the tensor.
+        /// The number of vectorized elements in the tensor.
         ///
         /// # Warning
         ///
@@ -42,6 +39,17 @@ mod metadata {
         /// you should multiply the length by the vectorization factor.
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> u32 {
+            unexpanded!()
+        }
+
+        /// The length of the buffer representing the tensor in terms of vectorized elements.
+        ///
+        /// # Warning
+        ///
+        /// The buffer length will be affected by the vectorization factor. To obtain the number of
+        /// elements, you should multiply the length by the vectorization factor.
+        #[allow(clippy::len_without_is_empty)]
+        pub fn buffer_len(&self) -> u32 {
             unexpanded!()
         }
 
@@ -74,6 +82,14 @@ mod metadata {
             expand: ExpandElementTyped<Tensor<T>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_len_method(context)
+        }
+
+        // Expand function of [buffer_len](Tensor::buffer_len).
+        pub fn __expand_buffer_len<C: Index>(
+            context: &mut CubeContext,
+            expand: ExpandElementTyped<Tensor<T>>,
+        ) -> ExpandElementTyped<u32> {
+            expand.__expand_buffer_len_method(context)
         }
 
         // Expand function of [rank](Tensor::rank).
@@ -128,9 +144,20 @@ mod metadata {
             elem.__expand_len_method(context)
         }
 
+        // Expand method of [buffer_len](Tensor::buffer_len).
+        pub fn __expand_buffer_len_method(
+            self,
+            context: &mut CubeContext,
+        ) -> ExpandElementTyped<u32> {
+            let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
+            elem.__expand_buffer_len_method(context)
+        }
+
         // Expand method of [rank](Tensor::rank).
-        pub fn __expand_rank_method(self, _context: &mut CubeContext) -> ExpandElementTyped<u32> {
-            ExpandElement::Plain(Variable::builtin(Builtin::Rank)).into()
+        pub fn __expand_rank_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+            let out = context.create_local_binding(Item::new(u32::as_elem()));
+            context.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
+            out.into()
         }
     }
 }
@@ -262,6 +289,14 @@ impl<T: CubeType> CubeType for Tensor<T> {
     type ExpandType = ExpandElementTyped<Tensor<T>>;
 }
 
+impl<T: CubeType> CubeType for *const Tensor<T> {
+    type ExpandType = ExpandElementTyped<Tensor<T>>;
+}
+
+impl<T: CubeType> CubeType for *mut Tensor<T> {
+    type ExpandType = ExpandElementTyped<Tensor<T>>;
+}
+
 impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
     fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
@@ -271,6 +306,18 @@ impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
 
 impl<E: CubePrimitive> IntoRuntime for Tensor<E> {
     fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
-        unimplemented!("Array can't exist at compile time")
+        unimplemented!("Tensor can't exist at compile time")
+    }
+}
+
+impl<E: CubePrimitive> IntoRuntime for *const Tensor<E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Tensor can't exist at compile time")
+    }
+}
+
+impl<E: CubePrimitive> IntoRuntime for *mut Tensor<E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Tensor can't exist at compile time")
     }
 }
