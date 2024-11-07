@@ -17,9 +17,9 @@ const WORKGROUP_SIZE_Z = 1u;
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
-) {let id = (global_id.z * num_workgroups.x * WORKGROUP_SIZE_X * num_workgroups.y * WORKGROUP_SIZE_Y) + (global_id.y * num_workgroups.x * WORKGROUP_SIZE_X) + global_id.x;
-let rank: u32 = info[0];
-let _0 = arrayLength(&output_0_global);
+) {
+let id = (global_id.z * num_workgroups.x * WORKGROUP_SIZE_X * num_workgroups.y * WORKGROUP_SIZE_Y) + (global_id.y * num_workgroups.x * WORKGROUP_SIZE_X) + global_id.x;
+let _0 = info[1u];
 let _1 = id < _0;
 if _1 {
 let _2 = arrays_0[id];

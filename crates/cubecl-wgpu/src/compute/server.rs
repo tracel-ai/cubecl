@@ -362,7 +362,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 .copy_from_slice(data);
         }
 
-        Handle::new(memory, None, None)
+        Handle::new(memory, None, None, aligned_len)
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
@@ -370,6 +370,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             self.memory_management.reserve(size as u64, None),
             None,
             None,
+            size as u64,
         )
     }
 

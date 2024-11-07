@@ -77,9 +77,9 @@ macro_rules! test_binary_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new((lhs.len() / $input_vectorization as usize) as u32, 1, 1),
-                        ArrayArg::from_raw_parts(&lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts(&rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts(&output_handle, $expected.len(), $out_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(&rhs_handle, rhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
                     )
                 };
 

@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use cubecl_core::{prelude::*, Feature};
 
 use crate::matmul::components::stage::{self, S4x4x2, StageSize};
@@ -10,14 +12,14 @@ use crate::matmul::components::{MatmulKernel, MatmulProblem};
 use super::AdvancedConfig;
 
 /// Launch information for a matmul
-pub trait MatmulLaunchDispatch {
+pub trait MatmulLaunchDispatch<EG: Numeric> {
     const PLANE_DIM: u32;
 
     type EG: Numeric;
     type ES: Numeric;
     type EA: Numeric;
 
-    type TileMatmul: tile::Matmul<Self::ES, Self::EA> + MatmulKernel<Self::EG, Self::EA>;
+    type TileMatmul: tile::Matmul<Self::ES, Self::EA> + MatmulKernel<Self::ES, Self::EA>;
 
     type StageSize: StageSize;
     type StageMatmul: stage::Matmul<
@@ -25,7 +27,7 @@ pub trait MatmulLaunchDispatch {
             Self::EG,
             <Self::LhsLoader as global::Loader<Self::EG, Self::ES>>::StageReader,
             <Self::RhsLoader as global::Loader<Self::EG, Self::ES>>::StageReader,
-        > + MatmulKernel<Self::EG, Self::EG>;
+        > + MatmulKernel<Self::ES, Self::EG>;
 
     type LhsLoader: global::Loader<Self::EG, Self::ES>;
     type RhsLoader: global::Loader<Self::EG, Self::ES>;
@@ -41,10 +43,10 @@ pub trait MatmulLaunchDispatch {
     type BatchMatmul: batch::Matmul<Self::EG> + MatmulKernel<Self::EG, Self::EG>;
 
     fn cube_dim() -> CubeDim;
-    fn cube_count<EG: Numeric>(problem: &MatmulProblem<EG>) -> CubeCount;
+    fn cube_count(problem: &MatmulProblem<EG>) -> CubeCount;
 
     fn make_config(
-        problem: &MatmulProblem<Self::EG>,
+        problem: &MatmulProblem<EG>,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
@@ -55,11 +57,13 @@ pub trait MatmulLaunchDispatch {
     ) -> Result<(), ()>;
 }
 
-pub struct PlaneMmaLaunchDispatch {}
+pub struct PlaneMmaLaunchDispatch<EG> {
+    _eg: PhantomData<EG>,
+}
 
-impl MatmulLaunchDispatch for PlaneMmaLaunchDispatch {
+impl<EG: Numeric> MatmulLaunchDispatch<EG> for PlaneMmaLaunchDispatch<EG> {
     const PLANE_DIM: u32 = 32;
-    type EG = f32;
+    type EG = EG;
     type ES = f32;
     type EA = f32;
 
@@ -85,7 +89,7 @@ impl MatmulLaunchDispatch for PlaneMmaLaunchDispatch {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
     }
 
-    fn cube_count<EG: Numeric>(problem: &MatmulProblem<EG>) -> CubeCount {
+    fn cube_count(problem: &MatmulProblem<EG>) -> CubeCount {
         let m_stage = Self::StageSize::NUM_M * Self::TileMatmul::M;
         let n_stage = Self::StageSize::NUM_N * Self::TileMatmul::K;
         let cubes_needed_m = (problem.m as u32 + m_stage - 1) / m_stage;
@@ -100,19 +104,40 @@ impl MatmulLaunchDispatch for PlaneMmaLaunchDispatch {
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
     ) -> <Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config {
+        todo!()
     }
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<(), ()> {
+        if !client.properties().feature_enabled(Feature::Subcube) {
+            return Err(());
+        }
+
+        if !(client
+            .properties()
+            .feature_enabled(Feature::Type(Self::EG::as_elem()))
+            && client
+                .properties()
+                .feature_enabled(Feature::Type(Self::ES::as_elem()))
+            && client
+                .properties()
+                .feature_enabled(Feature::Type(Self::EA::as_elem())))
+        {
+            return Err(());
+        }
+
+        Ok(())
     }
 }
 
-pub struct CmmaLaunchDispatch {}
+pub struct CmmaLaunchDispatch<EG: Numeric> {
+    _eg: PhantomData<EG>,
+}
 
-impl MatmulLaunchDispatch for CmmaLaunchDispatch {
+impl<EG: Numeric> MatmulLaunchDispatch<EG> for CmmaLaunchDispatch<EG> {
     const PLANE_DIM: u32 = 32;
-    type EG = half::f16;
+    type EG = EG;
     type ES = half::f16;
     type EA = f32;
 
@@ -138,7 +163,7 @@ impl MatmulLaunchDispatch for CmmaLaunchDispatch {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
     }
 
-    fn cube_count<EG: Numeric>(problem: &MatmulProblem<EG>) -> CubeCount {
+    fn cube_count(problem: &MatmulProblem<EG>) -> CubeCount {
         let m_stage = Self::StageSize::NUM_M * Self::TileMatmul::M;
         let n_stage = Self::StageSize::NUM_N * Self::TileMatmul::N;
         let cubes_needed_m = (problem.m as u32 + m_stage - 1) / m_stage;
@@ -153,6 +178,7 @@ impl MatmulLaunchDispatch for CmmaLaunchDispatch {
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
     ) -> <Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config {
+        todo!()
     }
 
     fn check_availability<R: Runtime>(
@@ -166,6 +192,19 @@ impl MatmulLaunchDispatch for CmmaLaunchDispatch {
             k: Self::TileMatmul::K as u8,
             n: Self::TileMatmul::N as u8,
         }) {
+            return Err(());
+        }
+
+        if !(client
+            .properties()
+            .feature_enabled(Feature::Type(Self::EG::as_elem()))
+            && client
+                .properties()
+                .feature_enabled(Feature::Type(Self::ES::as_elem()))
+            && client
+                .properties()
+                .feature_enabled(Feature::Type(Self::EA::as_elem())))
+        {
             return Err(());
         }
 

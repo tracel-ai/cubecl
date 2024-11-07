@@ -8,10 +8,7 @@ pub struct Body<D: Dialect> {
     pub shared_memories: Vec<super::SharedMemory<D>>,
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
-    pub stride: bool,
-    pub shape: bool,
-    pub rank: bool,
-    pub wrap_size_checked: bool,
+    pub warp_size_checked: bool,
     pub settings: VariableSettings,
 }
 
@@ -83,20 +80,12 @@ impl<D: Dialect> Display for Body<D> {
             )?;
         }
 
-        if self.wrap_size_checked {
+        if self.warp_size_checked {
             f.write_str(
                 "
  int warpSizeChecked = min(warpSize, blockDim.x * blockDim.y * blockDim.z);
 ",
             )?;
-        }
-
-        if self.rank || self.stride || self.shape {
-            f.write_str("uint rank = info[0];\n")?;
-        }
-
-        if self.stride || self.shape {
-            f.write_str("uint rank_2 = rank * 2;\n")?;
         }
 
         for shared in self.shared_memories.iter() {

@@ -76,6 +76,7 @@ impl ComputeServer for DummyServer {
             self.memory_management.reserve(size as u64, None),
             None,
             None,
+            size as u64,
         )
     }
 

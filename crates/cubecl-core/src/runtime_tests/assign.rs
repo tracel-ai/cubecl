@@ -21,7 +21,7 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        unsafe { ArrayArg::from_raw_parts(&handle, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
     );
 
     let actual = client.read(handle.binding());
