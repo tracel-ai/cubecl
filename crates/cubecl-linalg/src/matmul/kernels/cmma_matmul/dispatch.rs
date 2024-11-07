@@ -4,8 +4,10 @@ use crate::matmul::components::stage::{self, S4x4x2, StageSize};
 use crate::matmul::components::tile::accelerated::Accelerated16x16x16;
 use crate::matmul::components::tile::plane::PlaneMma16x16x16;
 use crate::matmul::components::tile::Matmul;
-use crate::matmul::components::{batch, global, tile, MatrixLayout};
+use crate::matmul::components::{batch, global, tile};
 use crate::matmul::components::{MatmulKernel, MatmulProblem};
+
+use super::AdvancedConfig;
 
 /// Launch information for a matmul
 pub trait MatmulLaunchDispatch {
@@ -40,14 +42,17 @@ pub trait MatmulLaunchDispatch {
 
     fn cube_dim() -> CubeDim;
     fn cube_count<EG: Numeric>(problem: &MatmulProblem<EG>) -> CubeCount;
-    fn tile_config(
-        plane_dim: u32,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
-    ) -> <Self::TileMatmul as MatmulKernel<Self::EG, Self::EA>>::Config;
+
+    fn make_config(
+        problem: &MatmulProblem<Self::EG>,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> <Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config;
+
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), ()>;
 }
 
 pub struct PlaneMmaLaunchDispatch {}
@@ -89,22 +94,17 @@ impl MatmulLaunchDispatch for PlaneMmaLaunchDispatch {
         CubeCount::Static(cubes_needed_m, cubes_needed_n, problem.num_batches() as u32)
     }
 
-    fn tile_config(
-        plane_dim: u32,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
-    ) -> tile::plane::Config {
-        tile::plane::Config::new(
-            plane_dim,
-            lhs_layout,
-            rhs_layout,
-            lhs_line_size,
-            rhs_line_size,
-            out_line_size,
-        )
+    fn make_config(
+        problem: &MatmulProblem<Self::EG>,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> <Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config {
+    }
+
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), ()> {
     }
 }
 
@@ -147,39 +147,28 @@ impl MatmulLaunchDispatch for CmmaLaunchDispatch {
         CubeCount::Static(cubes_needed_m, cubes_needed_n, problem.num_batches() as u32)
     }
 
-    fn tile_config(
-        plane_dim: u32,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
-    ) -> tile::accelerated::Config {
-        tile::accelerated::Config::new(
-            plane_dim,
-            lhs_layout,
-            rhs_layout,
-            lhs_line_size,
-            rhs_line_size,
-            out_line_size,
-        )
-    }
-}
-
-/// Checks if the matmul cmma can be used.
-pub fn check_availability<D: MatmulLaunchDispatch, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
-) -> Result<(), ()> {
-    if !client.properties().feature_enabled(Feature::Cmma {
-        a: D::EG::as_elem(),
-        b: D::EG::as_elem(),
-        c: D::EA::as_elem(),
-        m: D::TileMatmul::M as u8,
-        k: D::TileMatmul::K as u8,
-        n: D::TileMatmul::N as u8,
-    }) {
-        return Err(());
+    fn make_config(
+        problem: &MatmulProblem<Self::EG>,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> <Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config {
     }
 
-    Ok(())
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), ()> {
+        if !client.properties().feature_enabled(Feature::Cmma {
+            a: Self::EG::as_elem(),
+            b: Self::EG::as_elem(),
+            c: Self::EA::as_elem(),
+            m: Self::TileMatmul::M as u8,
+            k: Self::TileMatmul::K as u8,
+            n: Self::TileMatmul::N as u8,
+        }) {
+            return Err(());
+        }
+
+        Ok(())
+    }
 }
