@@ -36,7 +36,7 @@ pub fn test_matmul_internal<MM, EG, ES, EA, B, R>(
     EG: Float + CubeElement + Display + Into2<ES>,
     ES: Float + CubeElement + Display + Into2<EA>,
     EA: Float + CubeElement + Display + Into2<EG>,
-    MM: batch::Matmul<EG, B>,
+    MM: batch::Matmul<EG>,
     B: batch::Config,
     R: Runtime,
 {

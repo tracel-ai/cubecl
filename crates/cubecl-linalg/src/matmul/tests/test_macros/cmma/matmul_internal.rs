@@ -20,6 +20,7 @@ macro_rules! testgen_matmul_internal {
         use std::marker::PhantomData;
         use cubecl_linalg::matmul::kernels::cmma_matmul::{MatmulLaunchDispatch, make_cmma_config, AdvancedConfig};
         use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_internal;
+        use cubecl_linalg::matmul::components::MatmulKernel;
         use cubecl_core::prelude::*;
 
         type T = Config;
@@ -45,7 +46,6 @@ macro_rules! testgen_matmul_internal {
                         type StageSize = $stage_size;
                         type ElementInput = $es;
                         type ElementAccumulator = $ea;
-                        type TileConfig = Config;
                         type TileMatmul = $tile_matmul_type<ES, EA>;
                         fn cube_dim() -> CubeDim {
                             $cube_dim
@@ -60,8 +60,8 @@ macro_rules! testgen_matmul_internal {
                             lhs_line_size: u32,
                             rhs_line_size: u32,
                             out_line_size: u32,
-                        ) -> Self::TileConfig {
-                            Self::TileConfig::new(
+                        ) -> <Self::TileMatmul as MatmulKernel<Self::ElementInput, Self::ElementAccumulator>>::Config {
+                            Config::new(
                                 plane_dim,
                                 lhs_layout,
                                 rhs_layout,
@@ -78,9 +78,9 @@ macro_rules! testgen_matmul_internal {
                     type StageSize = $stage_size;
 
                     type TileMatmul = $tile_matmul_type<ES, EA>;
-                    type StageMatmul = stage::row_accumulate::Matmul<ES, EG, EA, TileMatmul, StageSize, S>;
-                    type GlobalMatmul = global::homogeneous::Matmul<EG, ES, StageMatmul, G>;
-                    type BatchMatmul = batch::one_to_one::Matmul<EG, ES, GlobalMatmul, B>;
+                    type StageMatmul = stage::row_accumulate::Matmul<ES, EG, EA, TileMatmul, StageSize>;
+                    type GlobalMatmul = global::homogeneous::Matmul<EG, ES, StageMatmul>;
+                    type BatchMatmul = batch::one_to_one::Matmul<EG, ES, GlobalMatmul>;
 
                     let config = make_cmma_config::<
                         EG,

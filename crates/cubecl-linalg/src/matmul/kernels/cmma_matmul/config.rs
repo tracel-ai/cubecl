@@ -3,8 +3,9 @@ use cubecl_core::prelude::*;
 use crate::matmul::components::batch;
 use crate::matmul::components::global;
 use crate::matmul::components::stage;
-use crate::matmul::components::stage::Matmul as StageMatmul;
-use crate::matmul::components::tile::Matmul as TileMatmul;
+use crate::matmul::components::stage::Matmul as _;
+use crate::matmul::components::tile::Matmul as _;
+use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::StageDim;
@@ -48,7 +49,7 @@ pub fn make_cmma_config<EG, D>(
     cube_dim: &CubeDim,
     cube_count: &CubeCount,
     advanced_config: &AdvancedConfig,
-) -> CmmaBmmConfig<D::TileConfig>
+) -> CmmaBmmConfig<<D::TileMatmul as MatmulKernel<D::ElementInput, D::ElementAccumulator>>::Config>
 where
     EG: Numeric,
     D: MatmulLaunchDispatch,
@@ -60,7 +61,6 @@ where
         <D as MatmulLaunchDispatch>::ElementAccumulator,
         Tmm<D>,
         <D as MatmulLaunchDispatch>::StageSize,
-        CmmaSmmConfig<<D as MatmulLaunchDispatch>::TileConfig>,
     >;
 
     let (stage_m, stage_n, stage_k) = (Smm::<D, EG>::M, Smm::<D, EG>::N, Smm::<D, EG>::K);
@@ -117,7 +117,9 @@ where
         problem.out_line_size as u32,
     );
     let b = CmmaBmmConfig::new(g, *cube_count_x, *cube_count_y, *cube_count_z);
-    problem.check_config::<CmmaBmmConfig<D::TileConfig>>(&b);
+    problem.check_config::<CmmaBmmConfig<
+        <D::TileMatmul as MatmulKernel<D::ElementInput, D::ElementAccumulator>>::Config,
+    >>(&b);
 
     b
 }
