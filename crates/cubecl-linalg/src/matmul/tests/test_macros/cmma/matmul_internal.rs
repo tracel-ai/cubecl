@@ -20,8 +20,7 @@ macro_rules! testgen_matmul_internal {
             StageDim,
         };
         use std::marker::PhantomData;
-        use cubecl_linalg::matmul::kernels::cmma_matmul::{MatmulLaunchDispatch, make_cmma_config,
-                AdvancedConfig};
+        use cubecl_linalg::matmul::kernels::cmma_matmul::{MatmulLaunchDispatch, AdvancedConfig};
         use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_internal;
         use cubecl_linalg::matmul::components::MatmulKernel;
         use cubecl_core::prelude::*;
@@ -39,37 +38,36 @@ macro_rules! testgen_matmul_internal {
                                                                     ) => {
                 pub fn $test_name<R: Runtime>(device: &R::Device) {
                     let problem = $problem;
-                    struct D {}
-                    impl MatmulLaunchDispatch for D {
-                        const PLANE_DIM: u32 = $plane_dim;
-                        type StageSize = $stage_size;
-                        type ElementInput = $es;
-                        type ElementAccumulator = $ea;
-                        type TileMatmul = $tile_matmul_type<ES, EA>;
-                        fn cube_dim() -> CubeDim {
-                            $cube_dim
-                        }
-                        fn cube_count<EG: Numeric>(_problem: &MatmulProblem<EG>) -> CubeCount {
-                            $cube_count
-                        }
-                        fn tile_config(
-                            plane_dim: u32,
-                            lhs_layout: MatrixLayout,
-                            rhs_layout: MatrixLayout,
-                            lhs_line_size: u32,
-                            rhs_line_size: u32,
-                            out_line_size: u32,
-                        ) -> <Self::TileMatmul as MatmulKernel<Self::ElementInput, Self::ElementAccumulator>>::Config {
-                            Config::new(
-                                plane_dim,
-                                lhs_layout,
-                                rhs_layout,
-                                lhs_line_size,
-                                rhs_line_size,
-                                out_line_size,
-                            )
-                        }
-                    }
+                    // struct D {}
+                    // impl MatmulLaunchDispatch for D {
+                    //     const PLANE_DIM: u32 = $plane_dim;
+                    //     type StageSize = $stage_size;
+                    //     type ElementInput = $es;
+                    //     type ElementAccumulator = $ea;
+                    //     type TileMatmul = $tile_matmul_type<ES, EA>;
+                    //     fn cube_dim() -> CubeDim {
+                    //         $cube_dim
+                    //     }
+                    //     fn cube_count<EG: Numeric>(_problem: &MatmulProblem<EG>) -> CubeCount {
+                    //         $cube_count
+                    //     }
+                    //     fn tile_config(
+                    //         plane_dim: u32,
+                    //         lhs_layout: MatrixLayout,
+                    //         lhs_line_size: u32,
+                    //         rhs_line_size: u32,
+                    //         out_line_size: u32,
+                    //     ) -> <Self::TileMatmul as MatmulKernel<Self::ElementInput, Self::ElementAccumulator>>::Config {
+                    //         Config::new(
+                    //             plane_dim,
+                    //             lhs_layout,
+                    //             rhs_layout,
+                    //             lhs_line_size,
+                    //             rhs_line_size,
+                    //             out_line_size,
+                    //         )
+                    //     }
+                    // }
 
                     type EG = $eg;
                     type ES = $es;
@@ -81,18 +79,9 @@ macro_rules! testgen_matmul_internal {
                     type GlobalMatmul = global::homogeneous::Matmul<EG, ES, StageMatmul>;
                     type BatchMatmul = $batch_matmul_type<EG, ES, GlobalMatmul>;
 
-                    let config = make_cmma_config::<
-                        EG,
-                        D,
-                    >(&problem, &$cube_dim, &$cube_count, &$advanced_config);
+                    let config = D::make_config(&problem, &$cube_dim, &$cube_count, &$advanced_config);
 
-                    test_matmul_internal::<
-                        BatchMatmul,
-                        EG,
-                        <BatchMatmul as MatmulKernel<EG, EG>>::Config,
-                        <GlobalMatmul as MatmulKernel<EG, EG>>::Config,
-                        R,
-                    >(problem, $cube_dim, $cube_count, config, device);
+                    test_matmul_internal::<D, EG, R>(problem, $cube_dim, $cube_count, config, device);
                 }
             };
         }

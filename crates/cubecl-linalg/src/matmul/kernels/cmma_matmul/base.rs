@@ -13,7 +13,7 @@ use crate::matmul::components::{MatmulLaunch, MatmulProblem};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
 use super::config::AdvancedConfig;
-use super::dispatch::{CmmaLaunchDispatch, MatmulLaunchDispatch, PlaneMmaLaunchDispatch};
+use super::{cmma, plane_mma, Algorithm};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -26,10 +26,10 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
     out: TensorHandleRef<'_, R>,
     disable_cmma: bool,
 ) {
-    if !disable_cmma && CmmaLaunchDispatch::<EG>::check_availability::<R>(client).is_ok() {
-        matmul_cmma_ref::<R, EG, CmmaLaunchDispatch<EG>>(client, lhs, rhs, out);
+    if !disable_cmma && cmma::Algorithm::<EG>::check_availability::<R>(client).is_ok() {
+        matmul_cmma_ref::<R, EG, cmma::Algorithm<EG>>(client, lhs, rhs, out);
     } else {
-        matmul_cmma_ref::<R, EG, PlaneMmaLaunchDispatch<EG>>(client, lhs, rhs, out);
+        matmul_cmma_ref::<R, EG, plane_mma::Algorithm<EG>>(client, lhs, rhs, out);
     }
 }
 
@@ -54,7 +54,7 @@ pub fn launch<R: Runtime, EG: Numeric>(
     out
 }
 
-fn matmul_cmma_ref<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch<EG>>(
+fn matmul_cmma_ref<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
@@ -104,7 +104,7 @@ fn matmul_cmma_ref<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch<EG>>(
     }
 }
 
-fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch<EG>>(
+fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
@@ -162,7 +162,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch<EG>
 }
 
 #[allow(clippy::too_many_arguments)]
-fn launch_matmul<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch<EG>>(
+fn launch_matmul<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,

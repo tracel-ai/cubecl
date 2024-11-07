@@ -1,17 +1,8 @@
-use cubecl_core::prelude::*;
-
-use crate::matmul::components::batch;
 use crate::matmul::components::stage;
-use crate::matmul::components::tile::Matmul as _;
-use crate::matmul::components::MatmulKernel;
-use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::StageDim;
 
-use super::dispatch::MatmulLaunchDispatch;
-
 /// Configs that may impact performance
-///
 pub struct AdvancedConfig {
     /// Order in which tiles should be in shared memory
     pub tiling_order: stage::TilingOrderConfig,
@@ -36,92 +27,7 @@ impl Default for AdvancedConfig {
     }
 }
 
-/// Make a config for the cmma batch kernel, given problem definition,
-/// cube settings and advanced config
-pub fn make_cmma_config<EG, D, B>(
-    problem: &MatmulProblem<EG>,
-    cube_dim: &CubeDim,
-    cube_count: &CubeCount,
-    advanced_config: &AdvancedConfig,
-) -> B
-where
-    EG: Numeric,
-    D: MatmulLaunchDispatch,
-    B: batch::Config,
-{
-    type Tmm<D> = <D as MatmulLaunchDispatch>::TileMatmul;
-    type Smm<D, EG> = stage::row_accumulate::Matmul<
-        <D as MatmulLaunchDispatch>::EG,
-        EG,
-        <D as MatmulLaunchDispatch>::EA,
-        Tmm<D>,
-        <D as MatmulLaunchDispatch>::StageSize,
-    >;
-
-    let (stage_m, stage_n, stage_k) = (Smm::<D, EG>::M, Smm::<D, EG>::N, Smm::<D, EG>::K);
-    let (tile_m, tile_n, tile_k) = (Tmm::<D>::M, Tmm::<D>::N, Tmm::<D>::K);
-    let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) =
-        create_stage_dim(stage_m, stage_n, stage_k, tile_m, tile_n, tile_k);
-
-    let check_m_bounds = problem.m as u32 % stage_m != 0;
-    let check_n_bounds = problem.n as u32 % stage_n != 0;
-
-    let plane_dim = cube_dim.x;
-    let num_planes = cube_dim.y;
-
-    let (cube_count_x, cube_count_y, cube_count_z) = if let CubeCount::Static(x, y, z) = cube_count
-    {
-        (x, y, z)
-    } else {
-        panic!("Dynamic cube count unsupported")
-    };
-
-    let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
-        Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
-        _ => (problem.lhs_layout, problem.lhs_line_size),
-    };
-
-    let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
-        Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
-        _ => (problem.rhs_layout, problem.rhs_line_size),
-    };
-
-    let s = CmmaSmmConfig::new(
-        D::tile_config(
-            plane_dim,
-            lhs_tile_layout,
-            rhs_tile_layout,
-            lhs_tile_line_size as u32,
-            rhs_tile_line_size as u32,
-            problem.out_line_size as u32,
-        ),
-        lhs_stage_dim,
-        rhs_stage_dim,
-        out_stage_dim,
-        num_planes,
-        advanced_config.tiling_order,
-    );
-
-    let g = CmmaGmmConfig::new(
-        s,
-        check_m_bounds,
-        check_n_bounds,
-        problem.lhs_layout,
-        problem.rhs_layout,
-        problem.lhs_line_size as u32,
-        problem.rhs_line_size as u32,
-        problem.out_line_size as u32,
-    );
-
-    let b = CmmaBmmConfig::new(g, *cube_count_x, *cube_count_y, *cube_count_z);
-
-    problem
-        .check_config::<CmmaBmmConfig<<D::TileMatmul as MatmulKernel<D::EG, D::EA>>::Config>>(&b);
-
-    b
-}
-
-fn create_stage_dim(
+pub(crate) fn create_stage_dim(
     stage_m: u32,
     stage_n: u32,
     stage_k: u32,
@@ -152,3 +58,86 @@ fn create_stage_dim(
 
     (lhs_stage_dim, rhs_stage_dim, out_stage_dim)
 }
+
+// pub fn make_cmma_config<EG, D, B>(
+//     problem: &MatmulProblem<EG>,
+//     cube_dim: &CubeDim,
+//     cube_count: &CubeCount,
+//     advanced_config: &AdvancedConfig,
+// ) -> B
+// where
+//     EG: Numeric,
+//     D: MatmulLaunchDispatch,
+//     B: batch::Config,
+// {
+//     type Tmm<D> = <D as MatmulLaunchDispatch>::TileMatmul;
+//     type Smm<D, EG> = stage::row_accumulate::Matmul<
+//         <D as MatmulLaunchDispatch>::EG,
+//         EG,
+//         <D as MatmulLaunchDispatch>::EA,
+//         Tmm<D>,
+//         <D as MatmulLaunchDispatch>::StageSize,
+//     >;
+
+//     let (stage_m, stage_n, stage_k) = (Smm::<D, EG>::M, Smm::<D, EG>::N, Smm::<D, EG>::K);
+//     let (tile_m, tile_n, tile_k) = (Tmm::<D>::M, Tmm::<D>::N, Tmm::<D>::K);
+//     let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) =
+//         create_stage_dim(stage_m, stage_n, stage_k, tile_m, tile_n, tile_k);
+
+//     let check_m_bounds = problem.m as u32 % stage_m != 0;
+//     let check_n_bounds = problem.n as u32 % stage_n != 0;
+
+//     let plane_dim = cube_dim.x;
+//     let num_planes = cube_dim.y;
+
+//     let (cube_count_x, cube_count_y, cube_count_z) = if let CubeCount::Static(x, y, z) = cube_count
+//     {
+//         (x, y, z)
+//     } else {
+//         panic!("Dynamic cube count unsupported")
+//     };
+
+//     let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
+//         Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
+//         _ => (problem.lhs_layout, problem.lhs_line_size),
+//     };
+
+//     let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
+//         Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
+//         _ => (problem.rhs_layout, problem.rhs_line_size),
+//     };
+
+//     let s = CmmaSmmConfig::new(
+//         D::tile_config(
+//             plane_dim,
+//             lhs_tile_layout,
+//             rhs_tile_layout,
+//             lhs_tile_line_size as u32,
+//             rhs_tile_line_size as u32,
+//             problem.out_line_size as u32,
+//         ),
+//         lhs_stage_dim,
+//         rhs_stage_dim,
+//         out_stage_dim,
+//         num_planes,
+//         advanced_config.tiling_order,
+//     );
+
+//     let g = CmmaGmmConfig::new(
+//         s,
+//         check_m_bounds,
+//         check_n_bounds,
+//         problem.lhs_layout,
+//         problem.rhs_layout,
+//         problem.lhs_line_size as u32,
+//         problem.rhs_line_size as u32,
+//         problem.out_line_size as u32,
+//     );
+
+//     let b = CmmaBmmConfig::new(g, *cube_count_x, *cube_count_y, *cube_count_z);
+
+//     problem
+//         .check_config::<CmmaBmmConfig<<D::TileMatmul as MatmulKernel<D::EG, D::EA>>::Config>>(&b);
+
+//     b
+// }

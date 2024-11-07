@@ -1,11 +1,10 @@
 mod base;
 mod config;
-mod dispatch;
 
+mod algorithm;
+
+pub use algorithm::{cmma, plane_mma, Algorithm};
 pub use base::{launch, launch_ref};
 
 #[cfg(feature = "export_tests")]
-pub use {
-    config::{make_cmma_config, AdvancedConfig},
-    dispatch::MatmulLaunchDispatch,
-};
+pub use config::AdvancedConfig;

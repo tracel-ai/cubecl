@@ -8,11 +8,13 @@ use cubecl_core::{
     prelude::*,
 };
 
-use crate::matmul::components::batch;
 use crate::matmul::components::Ident;
+use crate::matmul::components::MatmulKernel;
+use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::kernels::cmma_matmul;
+use crate::matmul::kernels::cmma_matmul::Algorithm;
 use crate::tensor::TensorHandle;
 
 use crate::matmul::tests::test_utils::assert_equals_approx;
@@ -28,25 +30,20 @@ struct TensorRawParts<F: Float + CubeElement> {
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_internal<MM, EG, B, G, R>(
+pub fn test_matmul_internal<D, EG, R>(
     problem: MatmulProblem<EG>,
     cube_dim: CubeDim,
     cube_count: CubeCount,
-    config: MM::Config,
+    config: <D::BatchMatmul as MatmulKernel<D::EG, D::EG>>::Config,
     device: &R::Device,
 ) where
+    D: Algorithm<EG>,
     EG: Float + CubeElement + Display,
-    MM: batch::Matmul<EG>,
-    B: batch::Config,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
 
-    if !(client.properties().feature_enabled(Feature::Subcube)
-        && client
-            .properties()
-            .feature_enabled(Feature::Type(EG::as_elem())))
-    {
+    if D::check_availability::<R>(&client).is_err() {
         // Can't execute the test.
         return;
     }
@@ -56,7 +53,7 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
 
     unsafe {
-        MM::launch_unchecked(
+        D::BatchMatmul::launch_unchecked(
             &client,
             cube_dim,
             cube_count,
