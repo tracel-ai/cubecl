@@ -13,8 +13,8 @@ use super::Array;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct ArrayCompilationArg {
-    inplace: Option<u16>,
-    vectorisation: Vectorization,
+    pub inplace: Option<u16>,
+    pub vectorisation: Vectorization,
 }
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).

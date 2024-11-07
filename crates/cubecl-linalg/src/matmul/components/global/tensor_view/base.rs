@@ -77,7 +77,7 @@ impl<EG: Numeric> TensorView<EG> {
         #[comptime] config: G,
     ) -> Line<EG> {
         let tensor = &self.tensor;
-        let line_size = config.line_size(ident);
+        let line_size = config.global_line_size(ident);
         let tile_size_x = config.stage_dim(ident).tile_size_x;
         let tile_size_y = config.stage_dim(ident).tile_size_y;
 

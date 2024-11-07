@@ -29,11 +29,10 @@ use crate::matmul::components::{Ident, MatrixLayout};
 pub trait Matmul<
     EG: Numeric,
     ES: Numeric,
-    Lhs: Loader<EG, ES, G>,
-    Rhs: Loader<EG, ES, G>,
-    Out: Unloader<EG, G>,
-    G: Config,
->: 'static + Send + Sync + MatmulKernel<EG, EG, Config = G>
+    Lhs: Loader<EG, ES>,
+    Rhs: Loader<EG, ES>,
+    Out: Unloader<EG>,
+>: 'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
 {
     /// Performs the matrix multiplication over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
@@ -53,12 +52,12 @@ pub trait Matmul<
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
 /// Advances along the k-dimension to fill the stage with further data.
-pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send + Sync {
+pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
-    type StageReader: StageReader<ES, G::SmmConfig>;
+    type StageReader: StageReader<ES>;
 
     /// Fills the stage at the current k offset and returns a reader for it.
-    fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
+    fn fill_stage<G: Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
@@ -71,10 +70,10 @@ pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send
 ///
 /// It is only a wrapper over the stage writer because there is no K for the output.
 /// Could be deleted in favor of having only the StageWriter
-pub trait Unloader<EG: Numeric, G: Config>: CubeType + 'static + Send + Sync {
-    type StageWriter: StageWriter<EG, G>;
+pub trait Unloader<EG: Numeric>: CubeType + 'static + Send + Sync {
+    type StageWriter: StageWriter<EG>;
 
-    fn as_stage_writer(unloader: Self) -> Self::StageWriter;
+    fn as_stage_writer<G: Config>(unloader: Self) -> Self::StageWriter;
 }
 
 /// Configuration for the Global matmul (GMM) level
@@ -85,18 +84,17 @@ pub trait Config: MatmulConfig {
     /// Convert itself to the underlying stage matmul config
     fn to_smm_config(&self) -> Self::SmmConfig;
 
-    /// Returns the line size for the given ident
-    fn line_size(&self, ident: Ident) -> u32;
+    /// Returns the line size for the global memory corresponding to the given ident
+    fn global_line_size(&self, ident: Ident) -> u32;
+
+    /// Returns the line size for the stage of the given ident
+    fn stage_line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageDim] for the given ident
     fn stage_dim(&self, ident: Ident) -> StageDim;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;
-
-    /// Returns the line size of the shared memory used for reorganizing the output
-    /// before writing to global memory
-    fn out_smem_line_size(&self) -> u32;
 
     /// Returns the number of planes in the cube
     fn num_planes(&self) -> u32;
@@ -112,4 +110,7 @@ pub trait Config: MatmulConfig {
 
     /// Whether it is necessary to add bound checks in the n dimension
     fn check_n_bounds(&self) -> bool;
+
+    /// Whether we transpose data when loading to the stage
+    fn transpose_load(&self, ident: Ident) -> bool;
 }

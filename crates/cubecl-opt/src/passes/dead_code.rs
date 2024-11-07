@@ -328,7 +328,17 @@ pub fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
                 update(continue_target);
                 update(merge);
             }
-            _ => {}
+            ControlFlow::LoopBreak {
+                body,
+                continue_target,
+                merge,
+                ..
+            } => {
+                update(body);
+                update(continue_target);
+                update(merge);
+            }
+            ControlFlow::Return | ControlFlow::None => {}
         }
     }
 }

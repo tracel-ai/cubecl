@@ -5,8 +5,8 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
     config::MatmulConfig,
-    global, stage,
-    stage::{StageReader, StageWriter},
+    global,
+    stage::{self, Config as _, StageReader, StageWriter},
     tile, Ident, MatmulKernel, MatrixLayout, PlaneMapper, StageDim,
 };
 
@@ -20,32 +20,23 @@ use super::StageSize;
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct Matmul<
-    I: Numeric,
-    O: Numeric,
-    Acc: Numeric,
-    Tmm: tile::Matmul<I, Acc, S::TmmConfig>,
-    SS: StageSize,
-    S: stage::Config,
-> {
+pub struct Matmul<I: Numeric, O: Numeric, Acc: Numeric, TMM: tile::Matmul<I, Acc>, SS: StageSize> {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
     _accumulator_precision: PhantomData<Acc>,
-    _instruction: PhantomData<Tmm>,
+    _instruction: PhantomData<TMM>,
     _block_size: PhantomData<SS>,
-    _config: PhantomData<S>,
 }
 
 #[cube]
-impl<I, O, Acc, TMM, SS, S> stage::Matmul<I, O, LhsReader<I, S>, RhsReader<I, S>, S>
-    for Matmul<I, O, Acc, TMM, SS, S>
+impl<I, O, Acc, TMM, SS> stage::Matmul<I, O, LhsReader<I>, RhsReader<I>>
+    for Matmul<I, O, Acc, TMM, SS>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    TMM: tile::Matmul<I, Acc, S::TmmConfig>,
+    TMM: tile::Matmul<I, Acc>,
     SS: StageSize,
-    S: stage::Config,
 {
     const M: u32 = SS::NUM_M * TMM::M;
     const N: u32 = SS::NUM_N * TMM::N;
@@ -53,22 +44,28 @@ where
     type Accumulator = Sequence<TMM::Out>;
 
     fn execute(
-        lhs: &LhsReader<I, S>,
-        rhs: &RhsReader<I, S>,
+        lhs: &LhsReader<I>,
+        rhs: &RhsReader<I>,
         acc: &mut Self::Accumulator,
-        #[comptime] config: S,
+        #[comptime] config: Self::Config,
     ) {
         let mut instruction_lhs = TMM::init_lhs(config.to_tmm_config());
         let mut instruction_rhs = TMM::init_rhs(config.to_tmm_config());
 
         #[unroll]
         for buffer_iter in 0..SS::NUM_K {
-            let tile_lhs = LhsReader::read_tile(lhs, Self::plane_id(), buffer_iter, 0u32, config);
+            let tile_lhs = LhsReader::read_tile::<Self::Config>(
+                lhs,
+                Self::plane_id(),
+                buffer_iter,
+                0u32,
+                config,
+            );
             TMM::fill_lhs(tile_lhs, &mut instruction_lhs, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = RhsReader::read_tile(
+                let tile_rhs = RhsReader::read_tile::<Self::Config>(
                     rhs,
                     Self::plane_id(),
                     buffer_iter,
@@ -88,7 +85,7 @@ where
         }
     }
 
-    fn acc_init_zeros(#[comptime] config: S) -> Self::Accumulator {
+    fn acc_init_zeros(#[comptime] config: Self::Config) -> Self::Accumulator {
         let mut accumulators = Sequence::<TMM::Out>::new();
 
         #[unroll]
@@ -99,13 +96,13 @@ where
         accumulators
     }
 
-    fn acc_read<SW: StageWriter<O, G>, G: global::Config>(
+    fn acc_read<SW: StageWriter<O>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        #[comptime] stage_config: S,
+        #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        let out_smem_line_size = global_config.out_smem_line_size();
+        let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
 
@@ -120,7 +117,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_output(accumulator, smem_slice, stage_config.to_tmm_config());
-            SW::write(
+            SW::write::<Acc, G>(
                 out,
                 smem_slice.as_slice(),
                 Self::plane_id(),
@@ -131,16 +128,15 @@ where
     }
 }
 
-impl<I, O, Acc, TMM, SS, S> MatmulKernel<I, O> for Matmul<I, O, Acc, TMM, SS, S>
+impl<I, O, Acc, TMM, SS> MatmulKernel<I, O> for Matmul<I, O, Acc, TMM, SS>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    TMM: tile::Matmul<I, Acc, S::TmmConfig>,
+    TMM: tile::Matmul<I, Acc>,
     SS: StageSize,
-    S: stage::Config,
 {
-    type Config = S;
+    type Config = Config<TMM::Config>;
 
     fn check_config(config: Self::Config) {
         comptime!(check_num_planes(
@@ -152,14 +148,13 @@ where
 }
 
 #[cube]
-impl<I, O, Acc, Tmm, SS, S> PlaneMapper for Matmul<I, O, Acc, Tmm, SS, S>
+impl<I, O, Acc, Tmm, SS> PlaneMapper for Matmul<I, O, Acc, Tmm, SS>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    Tmm: tile::Matmul<I, Acc, S::TmmConfig>,
+    Tmm: tile::Matmul<I, Acc>,
     SS: StageSize,
-    S: stage::Config,
 {
     fn plane_id() -> u32 {
         UNIT_POS_Y

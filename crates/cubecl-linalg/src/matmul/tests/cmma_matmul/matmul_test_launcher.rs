@@ -36,7 +36,7 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
     device: &R::Device,
 ) where
     EG: Float + CubeElement + Display,
-    MM: batch::Matmul<EG, B>,
+    MM: batch::Matmul<EG>,
     B: batch::Config,
     R: Runtime,
 {

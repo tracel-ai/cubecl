@@ -49,8 +49,8 @@ impl<'a, R: Runtime> core::fmt::Debug for TensorHandleRef<'a, R> {
 /// Compilation argument for a [tensor](Tensor).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TensorCompilationArg {
-    inplace: Option<u16>,
-    vectorisation: Vectorization,
+    pub inplace: Option<u16>,
+    pub vectorisation: Vectorization,
 }
 
 impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
