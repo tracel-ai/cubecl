@@ -248,7 +248,7 @@ impl Display for Operator {
     }
 }
 
-/// All metadata that can be access in a shader.
+/// All metadata that can be accessed in a shader.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[allow(missing_docs)]
 pub enum Metadata {

@@ -215,6 +215,7 @@ pub enum InputInfo {
     Array {
         item: Item,
         visibility: Visibility,
+        /// Whether this input has extended metadata (rank, shape, strides)
         has_extended_meta: bool,
     },
     Scalar {
@@ -256,6 +257,7 @@ pub enum OutputInfo {
         item: Item,
         local: u16,
         position: Variable,
+        /// Whether this output has extended metadata (rank, shape, strides)
         has_extended_meta: bool,
     },
     /// Write the local variable to an existing input binding.
@@ -268,7 +270,11 @@ pub enum OutputInfo {
     /// Simply register the output, but don't automatically add a write to it.
     ///
     /// Useful when a procedure writes to the output using operations.
-    Array { item: Item, has_extended_meta: bool },
+    Array {
+        item: Item,
+        /// Whether this output has extended metadata (rank, shape, strides)
+        has_extended_meta: bool,
+    },
 }
 
 impl OutputInfo {

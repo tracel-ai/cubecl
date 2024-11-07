@@ -35,6 +35,7 @@ const RANK: u32 = 0;
 const SHAPE_OFFSETS: u32 = 1;
 const STRIDE_OFFSETS: u32 = 2;
 
+/// Helper to calculate metadata offsets based on buffer count and position
 #[derive(Clone, Debug, Default)]
 pub struct Metadata {
     num_meta: u32,
@@ -82,6 +83,9 @@ impl Metadata {
     }
 }
 
+/// Builder for a serialized metadata struct
+///
+/// Inputs/Outputs must be added in the same order they're defined in the bind group
 #[derive(Default)]
 pub struct MetadataBuilder {
     buffer_lens: Vec<u32>,
@@ -92,11 +96,13 @@ pub struct MetadataBuilder {
 }
 
 impl MetadataBuilder {
+    /// Add an array to a builder
     pub fn with_array(&mut self, buffer_len: u32, len: u32) {
         self.buffer_lens.push(buffer_len);
         self.lengths.push(len);
     }
 
+    /// Add a tensor to a builder
     pub fn with_tensor(
         &mut self,
         rank: u32,
@@ -112,6 +118,7 @@ impl MetadataBuilder {
         self.strides.push(strides);
     }
 
+    /// Build the final serialized metadata struct
     pub fn finish(self) -> Vec<u32> {
         let mut meta = self.buffer_lens;
         meta.extend(self.lengths);

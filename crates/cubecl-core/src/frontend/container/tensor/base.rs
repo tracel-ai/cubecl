@@ -31,7 +31,7 @@ mod metadata {
             unexpanded!()
         }
 
-        /// The number of unvectorized elements in the tensor.
+        /// The number of vectorized elements in the tensor.
         ///
         /// # Warning
         ///
@@ -42,7 +42,7 @@ mod metadata {
             unexpanded!()
         }
 
-        /// The length of the buffer representing the tensor.
+        /// The length of the buffer representing the tensor in terms of vectorized elements.
         ///
         /// # Warning
         ///
