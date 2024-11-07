@@ -256,7 +256,7 @@ impl<R: Runtime> TensorState<R> {
         };
 
         let elem_size = tensor.elem_size * *vectorization as usize;
-        let buffer_len = tensor.handle.length / elem_size as u64;
+        let buffer_len = tensor.handle.size() / elem_size as u64;
         let len = tensor.shape.iter().product::<usize>() / *vectorization as usize;
         bindings.push(tensor.handle.clone().binding());
         metadata.with_tensor(
@@ -295,7 +295,7 @@ impl<R: Runtime> TensorState<R> {
         };
 
         let elem_size = array.elem_size * *vectorization as usize;
-        let buffer_len = array.handle.length / elem_size as u64;
+        let buffer_len = array.handle.size() / elem_size as u64;
         bindings.push(array.handle.clone().binding());
         metadata.with_array(buffer_len as u32, array.length[0] as u32);
     }

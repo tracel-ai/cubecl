@@ -84,7 +84,7 @@ pub struct Handle {
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
     /// Length of the underlying buffer ignoring offsets
-    pub length: u64,
+    size: u64,
 }
 
 impl Handle {
@@ -107,6 +107,11 @@ impl Handle {
         }
 
         self
+    }
+
+    /// Get the size of the handle, in bytes, accounting for offsets
+    pub fn size(&self) -> u64 {
+        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
     }
 }
 
@@ -145,7 +150,7 @@ impl Clone for Handle {
             memory: self.memory.clone(),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
-            length: self.length,
+            size: self.size,
         }
     }
 }

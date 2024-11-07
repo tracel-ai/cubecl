@@ -207,6 +207,27 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R::Server, R
     assert_eq!(actual[0], 8);
 }
 
+pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+    let handle1 = client.empty(128 * core::mem::size_of::<u32>());
+    let handle1 = handle1
+        .offset_start(32 * core::mem::size_of::<u32>() as u64)
+        .offset_end(32 * core::mem::size_of::<u32>() as u64);
+
+    unsafe {
+        kernel_buffer_len::launch_unchecked::<R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(1, 1, 1),
+            TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[4, 4, 4, 4], 2),
+        )
+    };
+
+    let actual = client.read(handle1.binding());
+    let actual = u32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 32);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_metadata {
@@ -240,7 +261,10 @@ macro_rules! testgen_metadata {
             cubecl_core::runtime_tests::metadata::test_buffer_len_discontiguous::<TestRuntime>(
                 client.clone(),
             );
-            cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime>(client);
+            cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime>(
+                client.clone(),
+            );
+            cubecl_core::runtime_tests::metadata::test_buffer_len_offset::<TestRuntime>(client);
         }
     };
 }
