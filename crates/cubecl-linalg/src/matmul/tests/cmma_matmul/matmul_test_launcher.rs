@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use cubecl_core::ir::Elem;
+use cubecl_core::ir::FloatKind;
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
@@ -88,6 +90,11 @@ pub fn test_matmul_internal<MM, EG, ES, EA, B, R>(
         &problem,
         &client,
         out.handle,
+        if let Elem::Float(FloatKind::F32) = ES::as_elem() {
+            10e-5
+        } else {
+            10e-2
+        },
     );
 }
 
@@ -127,6 +134,7 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
         &problem,
         &client,
         out.handle,
+        10e-2, // We cannot assume inner precision, so we use permissive epsilon
     );
 }
 
@@ -206,9 +214,10 @@ fn assert_result<
     problem: &MatmulProblem<EG>,
     client: &ComputeClient<R::Server, R::Channel>,
     out: Handle,
+    epsilon: f32,
 ) {
     let expected = matmul_cpu_reference::<EG, ES, EA>(lhs, rhs, problem);
-    if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, 10e-5) {
+    if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, epsilon) {
         panic!("{}", e);
     }
 }
