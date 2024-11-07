@@ -4,7 +4,7 @@ use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::base::TensorView;
+use super::base::TensorWriter;
 
 #[derive(CubeType)]
 /// Writes the contents of a tile to the tensor view using a single plane,
@@ -25,7 +25,7 @@ impl PlaneMapper for TilewiseUnloading {
 #[cube]
 impl TilewiseUnloading {
     pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: Config>(
-        write_view: &mut TensorView<EG>,
+        write_view: &mut TensorWriter<EG>,
         slice: &Slice<'_, Line<ES>>,
         tile_x: u32,
         tile_y: u32,

@@ -28,9 +28,9 @@ pub trait Matmul<EG: Numeric>:
 {
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
-        lhs: Tensor<Line<EG>>,
-        rhs: Tensor<Line<EG>>,
-        out: Tensor<Line<EG>>,
+        lhs: &Tensor<Line<EG>>,
+        rhs: &Tensor<Line<EG>>,
+        out: &mut Tensor<Line<EG>>,
         #[comptime] config: Self::Config,
     );
 }

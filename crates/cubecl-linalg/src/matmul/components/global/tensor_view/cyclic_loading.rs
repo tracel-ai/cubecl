@@ -7,7 +7,7 @@ use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::base::TensorView;
+use super::base::TensorReader;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
@@ -28,7 +28,7 @@ impl PlaneMapper for CyclicLoading {
 #[cube]
 impl CyclicLoading {
     pub fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
-        read_view: &TensorView<EG>,
+        read_view: &TensorReader<EG>,
         slice: &mut SliceMut<'_, Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
