@@ -131,7 +131,7 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) 
     (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
 }
 
-/// Solves a matmul problem with EG inputs, multiplied as ES and accumulated as EA
+/// Solves a matmul problem with EG inputs, multiplied as ES
 ///
 /// This is a naive CPU implementation, very slow on large payloads,
 /// not designed to be used for other purposes than testing.

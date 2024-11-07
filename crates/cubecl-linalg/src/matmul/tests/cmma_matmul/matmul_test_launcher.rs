@@ -87,6 +87,7 @@ pub fn test_matmul_internal<MM, EG, ES, B, R>(
         &problem,
         &client,
         out.handle,
+        None,
     );
 }
 
@@ -126,6 +127,8 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
         &problem,
         &client,
         out.handle,
+        // We cannot assume the inner precision of the matmul, therefore we need a permissive epsilon
+        Some(10e-2),
     );
 }
 
@@ -204,20 +207,26 @@ fn assert_result<
     problem: &MatmulProblem<EG>,
     client: &ComputeClient<R::Server, R::Channel>,
     out: Handle,
+    epsilon: Option<f32>,
 ) {
-    let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
-        a: ES::as_elem(),
-        b: ES::as_elem(),
-        c: EG::as_elem(),
-        m: 16,
-        k: 16,
-        n: 16,
-    });
+    let epsilon = match epsilon {
+        Some(epsilon) => epsilon,
+        None => {
+            let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
+                a: ES::as_elem(),
+                b: ES::as_elem(),
+                c: EG::as_elem(),
+                m: 16,
+                k: 16,
+                n: 16,
+            });
 
-    // Need to compensate for the temporary conversion to f16/tf32
-    let epsilon = match maybe_cmma {
-        true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-        false => 10e-5,
+            // Need to compensate for the temporary conversion to f16/tf32
+            match maybe_cmma {
+                true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
+                false => 10e-5,
+            }
+        }
     };
 
     let expected = matmul_cpu_reference(lhs, rhs, problem);
