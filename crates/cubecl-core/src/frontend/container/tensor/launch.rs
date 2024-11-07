@@ -123,7 +123,8 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
         }
     }
 
-    /// Create a new tensor argument specified with its vectorization factor.
+    /// Create a new tensor argument specified with its vectorization factor with a manual element
+    /// size in bytes.
     ///
     /// # Safety
     ///

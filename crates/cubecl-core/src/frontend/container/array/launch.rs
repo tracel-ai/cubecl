@@ -87,7 +87,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         }
     }
 
-    /// Create a new array argument.
+    /// Create a new array argument with a manual element size in bytes.
     ///
     /// # Safety
     ///
