@@ -42,72 +42,72 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     Ok(())
 }
 
-pub trait Into2<E> {
-    fn into(self) -> E;
+pub trait CastInto<E> {
+    fn cast_into(self) -> E;
 }
 
-impl<E> Into2<E> for E {
-    fn into(self) -> E {
+impl<E> CastInto<E> for E {
+    fn cast_into(self) -> E {
         self
     }
 }
 
-impl Into2<f32> for half::f16 {
-    fn into(self) -> f32 {
+impl CastInto<f32> for half::f16 {
+    fn cast_into(self) -> f32 {
         f32::from(self)
     }
 }
 
-impl Into2<f32> for half::bf16 {
-    fn into(self) -> f32 {
+impl CastInto<f32> for half::bf16 {
+    fn cast_into(self) -> f32 {
         f32::from(self)
     }
 }
 
-impl Into2<f32> for flex32 {
-    fn into(self) -> f32 {
+impl CastInto<f32> for flex32 {
+    fn cast_into(self) -> f32 {
         f32::from(self)
     }
 }
 
-impl Into2<half::bf16> for f32 {
-    fn into(self) -> half::bf16 {
+impl CastInto<half::bf16> for f32 {
+    fn cast_into(self) -> half::bf16 {
         half::bf16::from_f32(self)
     }
 }
 
-impl Into2<half::bf16> for half::f16 {
-    fn into(self) -> half::bf16 {
+impl CastInto<half::bf16> for half::f16 {
+    fn cast_into(self) -> half::bf16 {
         half::bf16::from_f32(self.to_f32())
     }
 }
 
-impl Into2<half::f16> for half::bf16 {
-    fn into(self) -> half::f16 {
+impl CastInto<half::f16> for half::bf16 {
+    fn cast_into(self) -> half::f16 {
         half::f16::from_f32(self.to_f32())
     }
 }
 
-impl Into2<half::f16> for f32 {
-    fn into(self) -> half::f16 {
+impl CastInto<half::f16> for f32 {
+    fn cast_into(self) -> half::f16 {
         half::f16::from_f32(self)
     }
 }
 
-impl Into2<half::f16> for flex32 {
-    fn into(self) -> half::f16 {
+impl CastInto<half::f16> for flex32 {
+    fn cast_into(self) -> half::f16 {
         half::f16::from_f32(self.to_f32())
     }
 }
 
-impl Into2<half::bf16> for flex32 {
-    fn into(self) -> half::bf16 {
+impl CastInto<half::bf16> for flex32 {
+    fn cast_into(self) -> half::bf16 {
         half::bf16::from_f32(self.to_f32())
     }
 }
 
-impl Into2<flex32> for f32 {
-    fn into(self) -> flex32 {
+impl CastInto<flex32> for f32 {
+    fn cast_into(self) -> flex32 {
         flex32::from_f32(self)
     }
 }
@@ -141,9 +141,9 @@ pub(crate) fn matmul_cpu_reference<EG, ES, EA>(
     problem: &MatmulProblem<EG>,
 ) -> Vec<EG>
 where
-    EG: Numeric + CubeElement + Into2<ES>,
-    ES: Numeric + CubeElement + Into2<EA>,
-    EA: Numeric + CubeElement + Into2<EG>,
+    EG: Numeric + CubeElement + CastInto<ES>,
+    ES: Numeric + CubeElement + CastInto<EA>,
+    EA: Numeric + CubeElement + CastInto<EG>,
 {
     let m = problem.m;
     let n = problem.n;
@@ -156,14 +156,14 @@ where
         for i in 0..m {
             for j in 0..n {
                 for k_ in 0..k {
-                    let lhs_index = (b_ * m * k) + i * k + k_;
-                    let rhs_index = (b_ * k * n) + k_ * n + j;
-                    let out_index = (b_ * m * n) + i * n + j;
+                    let lhs_index = b_ * m * k + i * k + k_;
+                    let rhs_index = b_ * k * n + k_ * n + j;
+                    let out_index = b_ * m * n + i * n + j;
 
-                    let l: ES = Into2::into(lhs[lhs_index]);
-                    let r: ES = Into2::into(rhs[rhs_index]);
+                    let l: ES = lhs[lhs_index].cast_into();
+                    let r: ES = rhs[rhs_index].cast_into();
                     let prod = l * r;
-                    let casted: EA = Into2::into(prod);
+                    let casted: EA = prod.cast_into();
 
                     out[out_index] += casted;
                 }
@@ -171,7 +171,9 @@ where
         }
     }
 
-    out.into_iter().map(|ea| Into2::into(ea)).collect::<Vec<EG>>()
+    out.into_iter()
+        .map(|ea| CastInto::cast_into(ea))
+        .collect::<Vec<EG>>()
 }
 
 /// Deprecated
