@@ -1,9 +1,7 @@
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::batch;
-use crate::matmul::components::global;
 use crate::matmul::components::stage;
-use crate::matmul::components::stage::Matmul as _;
 use crate::matmul::components::tile::Matmul as _;
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::MatmulProblem;
@@ -11,10 +9,6 @@ use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::StageDim;
 
 use super::dispatch::MatmulLaunchDispatch;
-
-pub(crate) type CmmaSmmConfig<T> = stage::row_accumulate::Config<T>;
-pub(crate) type CmmaGmmConfig<T> = global::homogeneous::Config<CmmaSmmConfig<T>>;
-pub(crate) type CmmaBmmConfig<T> = batch::one_to_one::Config<CmmaGmmConfig<T>>;
 
 /// Configs that may impact performance
 ///
@@ -44,21 +38,22 @@ impl Default for AdvancedConfig {
 
 /// Make a config for the cmma batch kernel, given problem definition,
 /// cube settings and advanced config
-pub fn make_cmma_config<EG, D>(
+pub fn make_cmma_config<EG, D, B>(
     problem: &MatmulProblem<EG>,
     cube_dim: &CubeDim,
     cube_count: &CubeCount,
     advanced_config: &AdvancedConfig,
-) -> CmmaBmmConfig<<D::TileMatmul as MatmulKernel<D::ElementInput, D::ElementAccumulator>>::Config>
+) -> B
 where
     EG: Numeric,
     D: MatmulLaunchDispatch,
+    B: batch::Config,
 {
     type Tmm<D> = <D as MatmulLaunchDispatch>::TileMatmul;
     type Smm<D, EG> = stage::row_accumulate::Matmul<
-        <D as MatmulLaunchDispatch>::ElementInput,
+        <D as MatmulLaunchDispatch>::EG,
         EG,
-        <D as MatmulLaunchDispatch>::ElementAccumulator,
+        <D as MatmulLaunchDispatch>::EA,
         Tmm<D>,
         <D as MatmulLaunchDispatch>::StageSize,
     >;
@@ -106,6 +101,7 @@ where
         num_planes,
         advanced_config.tiling_order,
     );
+
     let g = CmmaGmmConfig::new(
         s,
         check_m_bounds,
@@ -116,10 +112,11 @@ where
         problem.rhs_line_size as u32,
         problem.out_line_size as u32,
     );
+
     let b = CmmaBmmConfig::new(g, *cube_count_x, *cube_count_y, *cube_count_z);
-    problem.check_config::<CmmaBmmConfig<
-        <D::TileMatmul as MatmulKernel<D::ElementInput, D::ElementAccumulator>>::Config,
-    >>(&b);
+
+    problem
+        .check_config::<CmmaBmmConfig<<D::TileMatmul as MatmulKernel<D::EG, D::EA>>::Config>>(&b);
 
     b
 }

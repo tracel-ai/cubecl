@@ -184,8 +184,8 @@ fn launch_matmul<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
     unsafe {
         batch::one_to_one::Matmul::<
             EG,
-            D::ElementInput,
-            GlobalMatmul<D::TileMatmul, D::StageSize, EG, D::ElementInput, D::ElementAccumulator>,
+            D::EG,
+            GlobalMatmul<D::TileMatmul, D::StageSize, EG, D::EG, D::EA>,
         >::launch_unchecked::<R>(
             client,
             cube_dim,
