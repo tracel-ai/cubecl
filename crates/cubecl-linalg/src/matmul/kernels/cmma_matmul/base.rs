@@ -190,19 +190,19 @@ fn launch_matmul<R: Runtime, EG: Numeric, D: MatmulLaunchDispatch>(
             client,
             cube_dim,
             cube_count,
-            TensorArg::<R>::from_raw_parts(
+            TensorArg::<R>::from_raw_parts::<EG>(
                 lhs.handle,
                 lhs.strides,
                 lhs.shape,
                 problem.lhs_line_size,
             ),
-            TensorArg::<R>::from_raw_parts(
+            TensorArg::<R>::from_raw_parts::<EG>(
                 rhs.handle,
                 rhs.strides,
                 rhs.shape,
                 problem.rhs_line_size,
             ),
-            TensorArg::<R>::from_raw_parts(
+            TensorArg::<R>::from_raw_parts::<EG>(
                 out.handle,
                 out.strides,
                 out.shape,

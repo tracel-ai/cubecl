@@ -8,10 +8,7 @@ use std::fmt::Display;
 #[derive(Debug, Clone)]
 pub struct Body {
     pub instructions: Vec<Instruction>,
-    pub rank: bool,
     pub id: bool,
-    pub stride: bool,
-    pub shape: bool,
 }
 
 impl Display for Body {
@@ -20,13 +17,6 @@ impl Display for Body {
             f.write_str(
                 "let id = (global_id.z * num_workgroups.x * WORKGROUP_SIZE_X * num_workgroups.y * WORKGROUP_SIZE_Y) + (global_id.y * num_workgroups.x * WORKGROUP_SIZE_X) + global_id.x;\n",
             )?;
-        }
-        if self.rank || self.stride || self.shape {
-            f.write_str("let rank: u32 = info[0];\n")?;
-        }
-
-        if self.stride || self.shape {
-            f.write_str("let rank_2: u32 = rank * 2u;\n")?;
         }
 
         for ops in self.instructions.iter() {

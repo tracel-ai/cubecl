@@ -41,7 +41,10 @@ impl KernelBuilder {
 
     /// Register an output array and return the [element](ExpandElement) to be used for kernel expansion.
     pub fn output_tensor(&mut self, item: Item) -> ExpandElement {
-        self.outputs.push(OutputInfo::Array { item });
+        self.outputs.push(OutputInfo::Array {
+            item,
+            has_extended_meta: true,
+        });
         let variable = self.context.output(self.num_output, item);
         self.num_output += 1;
 
@@ -53,6 +56,7 @@ impl KernelBuilder {
         self.inputs.push(InputInfo::Array {
             item,
             visibility: Visibility::Read,
+            has_extended_meta: true,
         });
         let variable = self.context.input(self.num_input, item);
         self.num_input += 1;
@@ -61,7 +65,10 @@ impl KernelBuilder {
 
     /// Register an output array and return the [element](ExpandElement) to be used for kernel expansion.
     pub fn output_array(&mut self, item: Item) -> ExpandElement {
-        self.outputs.push(OutputInfo::Array { item });
+        self.outputs.push(OutputInfo::Array {
+            item,
+            has_extended_meta: false,
+        });
         let variable = self.context.output(self.num_output, item);
         self.num_output += 1;
 
@@ -75,7 +82,10 @@ impl KernelBuilder {
             .get_mut(position as usize)
             .expect("Position valid");
 
-        if let InputInfo::Array { visibility, item } = input {
+        if let InputInfo::Array {
+            visibility, item, ..
+        } = input
+        {
             *visibility = Visibility::ReadWrite;
             let variable = self.context.input(position, *item);
             return variable;
@@ -89,6 +99,7 @@ impl KernelBuilder {
         self.inputs.push(InputInfo::Array {
             item,
             visibility: Visibility::Read,
+            has_extended_meta: false,
         });
         let variable = self.context.input(self.num_input, item);
         self.num_input += 1;

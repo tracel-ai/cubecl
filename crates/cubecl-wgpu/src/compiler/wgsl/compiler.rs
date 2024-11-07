@@ -10,25 +10,28 @@ use cubecl_core::{
     ir::{self as cube, HybridAllocator, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
-    Feature,
+    Feature, Metadata,
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
-use wgpu::{ComputePipeline, DeviceDescriptor, ShaderModuleDescriptor};
+use wgpu::{
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
+    ComputePipeline, DeviceDescriptor, PipelineLayoutDescriptor, ShaderModuleDescriptor,
+    ShaderStages,
+};
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
 pub struct WgslCompiler {
     num_inputs: usize,
     num_outputs: usize,
+    metadata: Metadata,
+    ext_meta_pos: Vec<u32>,
     local_invocation_index: bool,
     local_invocation_id: bool,
     global_invocation_id: bool,
     workgroup_id: bool,
     subgroup_size: bool,
-    rank: bool,
     id: bool,
-    stride: bool,
-    shape: bool,
     num_workgroups: bool,
     workgroup_id_no_axis: bool,
     workgroup_size_no_axis: bool,
@@ -72,6 +75,7 @@ impl WgpuCompiler for WgslCompiler {
         mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let source = &kernel.source;
+        let repr = kernel.repr.unwrap();
         let module = match mode {
             ExecutionMode::Checked => server.device.create_shader_module(ShaderModuleDescriptor {
                 label: None,
@@ -87,12 +91,39 @@ impl WgpuCompiler for WgslCompiler {
             },
         };
 
+        let num_bindings = repr.inputs.len() + repr.outputs.len() + repr.named.len();
+        let bindings = (0..num_bindings)
+            .map(|i| BindGroupLayoutEntry {
+                binding: i as u32,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            })
+            .collect::<Vec<_>>();
+        let layout = server
+            .device
+            .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: None,
+                entries: &bindings,
+            });
+        let layout = server
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&layout],
+                push_constant_ranges: &[],
+            });
+
         Arc::new(
             server
                 .device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: None,
-                    layout: None,
+                    layout: Some(&layout),
                     module: &module,
                     entry_point: "main",
                     compilation_options: wgpu::PipelineCompilationOptions {
@@ -169,15 +200,25 @@ impl WgslCompiler {
     fn compile_shader(&mut self, mut value: cube::KernelDefinition) -> wgsl::ComputeShader {
         self.num_inputs = value.inputs.len();
         self.num_outputs = value.outputs.len();
+        let num_meta = value.inputs.len() + value.outputs.len();
+
+        self.ext_meta_pos = Vec::new();
+        let mut num_ext = 0;
+
+        for binding in value.inputs.iter().chain(value.outputs.iter()) {
+            self.ext_meta_pos.push(num_ext);
+            if binding.has_extended_meta {
+                num_ext += 1;
+            }
+        }
+
+        self.metadata = Metadata::new(num_meta as u32, num_ext);
 
         let instructions = self.compile_scope(&mut value.body);
         let extensions = register_extensions(&instructions);
         let body = wgsl::Body {
             instructions,
-            rank: true,
             id: self.id,
-            stride: self.stride,
-            shape: self.shape,
         };
 
         wgsl::ComputeShader {
@@ -258,6 +299,15 @@ impl WgslCompiler {
         }
     }
 
+    fn ext_meta_pos(&self, var: &cube::Variable) -> u32 {
+        let pos = match var.kind {
+            cube::VariableKind::GlobalInputArray(id) => id as usize,
+            cube::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
+            _ => panic!("Only global arrays have metadata"),
+        };
+        self.ext_meta_pos[pos]
+    }
+
     pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
         let item = value.item;
         match value.kind {
@@ -312,10 +362,6 @@ impl WgslCompiler {
                 cube::Builtin::AbsolutePos => {
                     self.id = true;
                     wgsl::Variable::Id
-                }
-                cube::Builtin::Rank => {
-                    self.rank = true;
-                    wgsl::Variable::Rank
                 }
                 cube::Builtin::UnitPos => {
                     self.local_invocation_index = true;
@@ -566,35 +612,72 @@ impl WgslCompiler {
     ) -> wgsl::Instruction {
         let out = out.unwrap();
         match metadata {
+            cube::Metadata::Rank { var } => {
+                let position = self.ext_meta_pos(&var);
+                let offset = self.metadata.rank_index(position);
+                wgsl::Instruction::Metadata {
+                    out: self.compile_variable(out),
+                    info_offset: self.compile_variable(offset.into()),
+                }
+            }
             cube::Metadata::Stride { dim, var } => {
-                self.stride = true;
-                let position = match var.kind {
-                    cube::VariableKind::GlobalInputArray(id) => id as usize,
-                    cube::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
-                    _ => panic!("Only Input and Output have a stride, got: {:?}", var),
-                };
-                wgsl::Instruction::Stride {
+                let position = self.ext_meta_pos(&var);
+                let offset = self.metadata.stride_offset_index(position);
+                wgsl::Instruction::ExtendedMeta {
+                    info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    position,
                     out: self.compile_variable(out),
                 }
             }
             cube::Metadata::Shape { dim, var } => {
-                self.shape = true;
-                let position = match var.kind {
-                    cube::VariableKind::GlobalInputArray(id) => id as usize,
-                    cube::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
-                    _ => panic!("Only Input and Output have a shape, got {:?}", var),
-                };
-                wgsl::Instruction::Shape {
+                let position = self.ext_meta_pos(&var);
+                let offset = self.metadata.shape_offset_index(position);
+                wgsl::Instruction::ExtendedMeta {
+                    info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    position,
                     out: self.compile_variable(out),
                 }
             }
-            cube::Metadata::Length { var } => wgsl::Instruction::Length {
-                out: self.compile_variable(out),
-                var: self.compile_variable(var),
+            cube::Metadata::Length { var } => match var.kind {
+                cube::VariableKind::GlobalInputArray(id) => {
+                    let offset = self.metadata.len_index(id as u32);
+                    wgsl::Instruction::Metadata {
+                        out: self.compile_variable(out),
+                        info_offset: self.compile_variable(offset.into()),
+                    }
+                }
+                cube::VariableKind::GlobalOutputArray(id) => {
+                    let offset = self.metadata.len_index(self.num_inputs as u32 + id as u32);
+                    wgsl::Instruction::Metadata {
+                        out: self.compile_variable(out),
+                        info_offset: self.compile_variable(offset.into()),
+                    }
+                }
+                _ => wgsl::Instruction::Length {
+                    var: self.compile_variable(var),
+                    out: self.compile_variable(out),
+                },
+            },
+            cube::Metadata::BufferLength { var } => match var.kind {
+                cube::VariableKind::GlobalInputArray(id) => {
+                    let offset = self.metadata.buffer_len_index(id as u32);
+                    wgsl::Instruction::Metadata {
+                        out: self.compile_variable(out),
+                        info_offset: self.compile_variable(offset.into()),
+                    }
+                }
+                cube::VariableKind::GlobalOutputArray(id) => {
+                    let id = self.num_inputs as u32 + id as u32;
+                    let offset = self.metadata.buffer_len_index(id);
+                    wgsl::Instruction::Metadata {
+                        out: self.compile_variable(out),
+                        info_offset: self.compile_variable(offset.into()),
+                    }
+                }
+                _ => wgsl::Instruction::Length {
+                    var: self.compile_variable(var),
+                    out: self.compile_variable(out),
+                },
             },
         }
     }

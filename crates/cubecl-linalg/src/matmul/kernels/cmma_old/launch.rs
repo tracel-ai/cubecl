@@ -100,9 +100,9 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
             client,
             cmma_config.cube_count(out.shape),
             cmma_config.cube_dim(),
-            TensorArg::from_raw_parts(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
-            TensorArg::from_raw_parts(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
-            TensorArg::from_raw_parts(out.handle, out.strides, out.shape, out_vectorization),
+            TensorArg::from_raw_parts::<F>(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
+            TensorArg::from_raw_parts::<F>(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
+            TensorArg::from_raw_parts::<F>(out.handle, out.strides, out.shape, out_vectorization),
             cmma_config.comptime_info(m, k, n),
         );
     }

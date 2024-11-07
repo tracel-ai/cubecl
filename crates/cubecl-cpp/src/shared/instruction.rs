@@ -20,11 +20,14 @@ pub struct UnaryInstruction<D: Dialect> {
 
 #[derive(Debug, Clone)]
 pub enum Instruction<D: Dialect> {
-    Length {
-        input: Variable<D>,
+    Metadata {
+        info_offset: Variable<D>,
         out: Variable<D>,
-        num_inputs: usize,
-        num_outputs: usize,
+    },
+    ExtendedMetadata {
+        info_offset: Variable<D>,
+        dim: Variable<D>,
+        out: Variable<D>,
     },
     SliceLength {
         input: Variable<D>,
@@ -97,16 +100,6 @@ pub enum Instruction<D: Dialect> {
     },
     Return,
     Break,
-    Stride {
-        dim: Variable<D>,
-        position: usize,
-        out: Variable<D>,
-    },
-    Shape {
-        dim: Variable<D>,
-        position: usize,
-        out: Variable<D>,
-    },
     Equal(BinaryInstruction<D>),
     NotEqual(BinaryInstruction<D>),
     Lower(BinaryInstruction<D>),
@@ -369,13 +362,17 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("}\n}\n")
             }
-            Instruction::Stride { dim, position, out } => {
+            Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = info[({position} * rank_2) + {dim} + 1];")
+                writeln!(f, "{out} = info[{info_offset}];")
             }
-            Instruction::Shape { dim, position, out } => {
+            Instruction::ExtendedMetadata {
+                info_offset,
+                dim,
+                out,
+            } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = info[({position} * rank_2) + rank + {dim} + 1];")
+                writeln!(f, "{out} = info[info[{info_offset}] + {dim}];")
             }
             Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),
@@ -412,30 +409,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::SliceLength { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {input}_length;")
-            }
-            Instruction::Length {
-                input,
-                out,
-                num_inputs,
-                num_outputs,
-            } => {
-                let offset = num_inputs + num_outputs;
-                let index = match input {
-                    Variable::GlobalInputArray(index, _) => *index as usize,
-                    Variable::GlobalOutputArray(index, _) => *index as usize + num_inputs,
-                    _ => panic!("Can only know the len of a global array."),
-                } + 1;
-                let factor = input.item().vectorization;
-                let out = out.fmt_left();
-
-                if factor == 1 {
-                    return writeln!(f, "{out} = info[({offset} * 2 * info[0]) + {index}];");
-                }
-
-                writeln!(
-                    f,
-                    "{out} = info[({offset} * 2 * info[0]) + {index}] / {factor};"
-                )
             }
             Instruction::Wrap(it) => write!(f, "{it}"),
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),

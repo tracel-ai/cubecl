@@ -323,6 +323,28 @@ impl ValueTable {
                 let expr = Instruction::new(op, &[var], item);
                 (expr, out)
             }
+            Metadata::BufferLength { var } => {
+                let item = out.item;
+                let out = value_of_var(&out);
+                let var = match var.kind {
+                    VariableKind::GlobalInputArray { .. }
+                    | VariableKind::GlobalOutputArray { .. } => self.lookup_or_add_var(var)?,
+                    _ => unreachable!("Buffer length only available on global buffers"),
+                };
+                let expr = Instruction::new(op, &[var], item);
+                (expr, out)
+            }
+            Metadata::Rank { var } => {
+                let item = out.item;
+                let out = value_of_var(&out);
+                let var = match var.kind {
+                    VariableKind::GlobalInputArray { .. }
+                    | VariableKind::GlobalOutputArray { .. } => self.lookup_or_add_var(var)?,
+                    _ => unreachable!("Rank only available on global buffers"),
+                };
+                let expr = Instruction::new(op, &[var], item);
+                (expr, out)
+            }
         };
         Ok((expr.into(), val))
     }
