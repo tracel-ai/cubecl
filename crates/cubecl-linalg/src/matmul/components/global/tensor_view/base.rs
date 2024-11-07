@@ -7,8 +7,8 @@ use cubecl_core::prelude::*;
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorView<E: Numeric> {
-    pub tensor: Tensor<Line<E>>,
+pub struct TensorReader<E: Numeric> {
+    pub tensor: *const Tensor<Line<E>>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -18,15 +18,30 @@ pub struct TensorView<E: Numeric> {
     pub batch_offset: u32,
 }
 
+#[derive(CubeType)]
+/// A view of a tensor that starts reading data from a specified offset.
+/// Ensures safe access by preventing out-of-bounds errors.
+/// Includes pre-fetched shapes and strides for optimized performance.
+pub struct TensorWriter<E: Numeric> {
+    pub tensor: *mut Tensor<Line<E>>,
+    pub x_offset: u32,
+    pub y_offset: u32,
+    pub stride_x: u32,
+    pub stride_y: u32,
+    pub shape_x: u32,
+    pub shape_y: u32,
+    pub batch_offset: u32,
+}
+
+unsafe impl<E: Numeric> Sync for TensorReader<E> {}
+unsafe impl<E: Numeric> Send for TensorReader<E> {}
+unsafe impl<E: Numeric> Sync for TensorWriter<E> {}
+unsafe impl<E: Numeric> Send for TensorWriter<E> {}
+
 #[cube]
-impl<EG: Numeric> TensorView<EG> {
-    /// Instantiate a view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(
-        tensor: Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
-        nth_batch: u32,
-    ) -> TensorView<EG> {
+impl<EG: Numeric> TensorReader<EG> {
+    /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
+    pub fn new(tensor: &Tensor<Line<EG>>, x_offset: u32, y_offset: u32, nth_batch: u32) -> Self {
         let rank = tensor.rank();
         let stride_x = tensor.stride(rank - 2);
         let stride_y = tensor.stride(rank - 1);
@@ -34,7 +49,7 @@ impl<EG: Numeric> TensorView<EG> {
         let shape_y = tensor.shape(rank - 1);
         let stride_b = tensor.stride(rank - 3);
 
-        TensorView::<EG> {
+        TensorReader::<EG> {
             tensor,
             x_offset,
             y_offset,
@@ -76,7 +91,6 @@ impl<EG: Numeric> TensorView<EG> {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Line<EG> {
-        let tensor = &self.tensor;
         let line_size = config.global_line_size(ident);
         let tile_size_x = config.stage_dim(ident).tile_size_x;
         let tile_size_y = config.stage_dim(ident).tile_size_y;
@@ -97,9 +111,42 @@ impl<EG: Numeric> TensorView<EG> {
 
         select(
             view_x < self.shape_x && view_y < self.shape_y,
-            tensor[read_pos],
+            self.read(read_pos),
             Line::empty(line_size).fill(EG::from_int(0)),
         )
+    }
+
+    fn read(&self, position: u32) -> Line<EG> {
+        unsafe { *(*self.tensor).index_unchecked(position) }
+    }
+}
+
+#[cube]
+impl<EG: Numeric> TensorWriter<EG> {
+    /// Instantiate a write view over the given tensor, pre-fetching needed strides and shapes
+    pub fn new(
+        tensor: &mut Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+    ) -> Self {
+        let rank = tensor.rank();
+        let stride_x = tensor.stride(rank - 2);
+        let stride_y = tensor.stride(rank - 1);
+        let shape_x = tensor.shape(rank - 2);
+        let shape_y = tensor.shape(rank - 1);
+        let stride_b = tensor.stride(rank - 3);
+
+        TensorWriter::<EG> {
+            tensor,
+            x_offset,
+            y_offset,
+            stride_x,
+            stride_y,
+            shape_x,
+            shape_y,
+            batch_offset: nth_batch * stride_b,
+        }
     }
 
     /// Writes data into the tensor view at the specified coordinates (write_x, write_y).
@@ -113,7 +160,6 @@ impl<EG: Numeric> TensorView<EG> {
         value: Line<ES>,
         #[comptime] config: G,
     ) {
-        let tensor = &mut self.tensor;
         let stage_dim = config.stage_dim(Ident::Out);
 
         let view_x =
@@ -122,22 +168,26 @@ impl<EG: Numeric> TensorView<EG> {
             tile_y * stage_dim.tile_size_y + unit_id % stage_dim.tile_size_y + self.y_offset;
 
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
-            / tensor.line_size();
+            / config.global_line_size(Ident::Out);
 
         if config.check_m_bounds() {
             if config.check_n_bounds() {
                 if view_x < self.shape_x && view_y < self.shape_y {
-                    tensor[write_position] = Line::cast_from(value);
+                    self.write(write_position, Line::cast_from(value));
                 }
             } else if view_x < self.shape_x {
-                tensor[write_position] = Line::cast_from(value);
+                self.write(write_position, Line::cast_from(value));
             }
         } else if config.check_n_bounds() {
             if view_y < self.shape_y {
-                tensor[write_position] = Line::cast_from(value);
+                self.write(write_position, Line::cast_from(value));
             }
         } else {
-            tensor[write_position] = Line::cast_from(value);
+            self.write(write_position, Line::cast_from(value));
         }
+    }
+
+    fn write(&mut self, position: u32, value: Line<EG>) {
+        unsafe { (*self.tensor).index_assign_unchecked(position, value) }
     }
 }

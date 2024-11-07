@@ -15,9 +15,9 @@ pub(crate) fn gmm_execute<
         global::tensor_view::Unloader<EG>,
     >,
 >(
-    lhs: Tensor<Line<EG>>,
-    rhs: Tensor<Line<EG>>,
-    out: Tensor<Line<EG>>,
+    lhs: &Tensor<Line<EG>>,
+    rhs: &Tensor<Line<EG>>,
+    out: &mut Tensor<Line<EG>>,
     x_offset: u32,
     y_offset: u32,
     nth_batch: u32,
