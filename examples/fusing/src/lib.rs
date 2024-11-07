@@ -45,17 +45,17 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let mut outputs = SequenceArg::new();
 
     unsafe {
-        inputs.push(ArrayArg::from_raw_parts(
+        inputs.push(ArrayArg::from_raw_parts::<f32>(
             &input_handle,
             input.len(),
             vectorization as u8,
         ));
-        outputs.push(ArrayArg::from_raw_parts(
+        outputs.push(ArrayArg::from_raw_parts::<f32>(
             &output_handle_1,
             input.len(),
             vectorization as u8,
         ));
-        outputs.push(ArrayArg::from_raw_parts(
+        outputs.push(ArrayArg::from_raw_parts::<f32>(
             &output_handle_2,
             input.len(),
             vectorization as u8,

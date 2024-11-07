@@ -249,7 +249,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             self.select_block(Some(setup)).unwrap();
             let arr_id = self.state.named[&format!("scalars_{elem}")];
             let item = self.compile_item(ir::Item::new(elem));
-            let arr = Variable::GlobalInputArray(arr_id, item.clone());
+            let arr = Variable::GlobalInputArray(arr_id, item.clone(), 0);
             let const_id = self.const_u32(id as u32);
             let index =
                 Variable::ConstantScalar(const_id, (id as u32).into(), Elem::Int(32, false));

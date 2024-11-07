@@ -1,9 +1,12 @@
 use std::fmt::Display;
 
-use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
 use cubecl_core::Feature;
+use cubecl_core::{
+    ir::{Elem, FloatKind},
+    prelude::*,
+};
 
 use crate::matmul::components::batch;
 use crate::matmul::components::Ident;
@@ -57,19 +60,19 @@ pub fn test_matmul_internal<MM, EG, B, G, R>(
             &client,
             cube_dim,
             cube_count,
-            TensorArg::<R>::from_raw_parts(
+            TensorArg::<R>::from_raw_parts::<EG>(
                 &lhs.handle,
                 &lhs.strides,
                 &lhs.shape,
                 problem.lhs_line_size,
             ),
-            TensorArg::<R>::from_raw_parts(
+            TensorArg::<R>::from_raw_parts::<EG>(
                 &rhs.handle,
                 &rhs.strides,
                 &rhs.shape,
                 problem.rhs_line_size,
             ),
-            TensorArg::<R>::from_raw_parts(
+            TensorArg::<R>::from_raw_parts::<EG>(
                 &out.handle,
                 &out.strides,
                 &out.shape,
@@ -199,8 +202,23 @@ fn assert_result<EG: Float + CubeElement + Display, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     out: Handle,
 ) {
+    let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
+        a: Elem::Float(FloatKind::F16),
+        b: Elem::Float(FloatKind::F16),
+        c: EG::as_elem(),
+        m: 16,
+        k: 16,
+        n: 16,
+    });
+
+    // Need to compensate for the temporary conversion to f16/tf32
+    let epsilon = match maybe_cmma {
+        true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
+        false => 10e-5,
+    };
+
     let expected = matmul_cpu_reference(lhs, rhs, problem);
-    if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, 10e-5) {
+    if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, epsilon) {
         panic!("{}", e);
     }
 }

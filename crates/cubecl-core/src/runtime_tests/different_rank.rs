@@ -54,12 +54,15 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
     let handle_rhs = client.create(as_bytes![F: 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
     let handle_out = client.create(as_bytes![F: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
 
-    let lhs =
-        unsafe { TensorArg::from_raw_parts(&handle_lhs, &strides_lhs, &shape_lhs, vectorisation) };
-    let rhs =
-        unsafe { TensorArg::from_raw_parts(&handle_rhs, &strides_rhs, &shape_rhs, vectorisation) };
-    let out =
-        unsafe { TensorArg::from_raw_parts(&handle_out, &strides_out, &shape_out, vectorisation) };
+    let lhs = unsafe {
+        TensorArg::from_raw_parts::<F>(&handle_lhs, &strides_lhs, &shape_lhs, vectorisation)
+    };
+    let rhs = unsafe {
+        TensorArg::from_raw_parts::<F>(&handle_rhs, &strides_rhs, &shape_rhs, vectorisation)
+    };
+    let out = unsafe {
+        TensorArg::from_raw_parts::<F>(&handle_out, &strides_out, &shape_out, vectorisation)
+    };
 
     kernel_different_rank::launch::<F, R>(
         &client,

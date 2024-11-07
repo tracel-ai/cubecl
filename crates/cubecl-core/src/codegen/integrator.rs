@@ -212,8 +212,15 @@ fn is_contiguous(strides: &[usize]) -> bool {
 /// Information related to an input.
 #[derive(Clone, Debug)]
 pub enum InputInfo {
-    Array { item: Item, visibility: Visibility },
-    Scalar { elem: Elem, size: usize },
+    Array {
+        item: Item,
+        visibility: Visibility,
+        has_extended_meta: bool,
+    },
+    Scalar {
+        elem: Elem,
+        size: usize,
+    },
 }
 
 impl InputInfo {
@@ -221,10 +228,7 @@ impl InputInfo {
     #[allow(dead_code)]
     pub fn item(&self) -> Item {
         match self {
-            InputInfo::Array {
-                item,
-                visibility: _,
-            } => *item,
+            InputInfo::Array { item, .. } => *item,
             InputInfo::Scalar { elem, size: _ } => Item::new(*elem),
         }
     }
@@ -235,18 +239,9 @@ impl OutputInfo {
     #[allow(dead_code)]
     pub fn item(&self) -> Item {
         match self {
-            OutputInfo::ArrayWrite {
-                item,
-                local: _,
-                position: _,
-            } => *item,
-            OutputInfo::InputArrayWrite {
-                item,
-                input: _,
-                local: _,
-                position: _,
-            } => *item,
-            OutputInfo::Array { item } => *item,
+            OutputInfo::ArrayWrite { item, .. } => *item,
+            OutputInfo::InputArrayWrite { item, .. } => *item,
+            OutputInfo::Array { item, .. } => *item,
         }
     }
 }
@@ -261,6 +256,7 @@ pub enum OutputInfo {
         item: Item,
         local: u16,
         position: Variable,
+        has_extended_meta: bool,
     },
     /// Write the local variable to an existing input binding.
     InputArrayWrite {
@@ -272,25 +268,16 @@ pub enum OutputInfo {
     /// Simply register the output, but don't automatically add a write to it.
     ///
     /// Useful when a procedure writes to the output using operations.
-    Array { item: Item },
+    Array { item: Item, has_extended_meta: bool },
 }
 
 impl OutputInfo {
     #[allow(dead_code)]
     pub fn elem_size<R: Runtime>(&self) -> usize {
         let elem = match self {
-            OutputInfo::ArrayWrite {
-                item,
-                local: _,
-                position: _,
-            } => bool_elem(item.elem()),
-            OutputInfo::InputArrayWrite {
-                item,
-                input: _,
-                local: _,
-                position: _,
-            } => bool_elem(item.elem()),
-            OutputInfo::Array { item } => bool_elem(item.elem()),
+            OutputInfo::ArrayWrite { item, .. } => bool_elem(item.elem()),
+            OutputInfo::InputArrayWrite { item, .. } => bool_elem(item.elem()),
+            OutputInfo::Array { item, .. } => bool_elem(item.elem()),
         };
         <R::Compiler as Compiler>::elem_size(elem)
     }
@@ -322,6 +309,7 @@ impl KernelIntegrator {
                 item: Item::new(u32::as_elem()),
                 visibility: Visibility::Read,
                 location: Location::Storage,
+                has_extended_meta: false,
                 size: None, // We avoid putting the length here since it will force a new kernel
                             // for each tensor rank.
             },
@@ -347,11 +335,16 @@ impl KernelIntegrator {
 
         for input in self.expansion.inputs.drain(..) {
             match input {
-                InputInfo::Array { item, visibility } => {
+                InputInfo::Array {
+                    item,
+                    visibility,
+                    has_extended_meta,
+                } => {
                     self.input_bindings.push(Binding {
                         item: bool_item(item),
                         visibility,
                         location: Location::Storage,
+                        has_extended_meta,
                         size: None,
                     });
                 }
@@ -364,6 +357,7 @@ impl KernelIntegrator {
                             item: Item::new(elem),
                             visibility: Visibility::Read,
                             location: Location::Storage,
+                            has_extended_meta: false,
                             size: Some(size),
                         },
                     ));
@@ -390,6 +384,7 @@ impl KernelIntegrator {
                     item,
                     local,
                     position,
+                    has_extended_meta,
                 } => {
                     let item_adapted = bool_item(item);
 
@@ -397,6 +392,7 @@ impl KernelIntegrator {
                         item: item_adapted,
                         visibility: Visibility::ReadWrite,
                         location: Location::Storage,
+                        has_extended_meta,
                         size: None,
                     });
                     self.expansion.scope.write_global(
@@ -431,13 +427,17 @@ impl KernelIntegrator {
                         position,
                     );
                 }
-                OutputInfo::Array { item } => {
+                OutputInfo::Array {
+                    item,
+                    has_extended_meta,
+                } => {
                     let elem_adapted = bool_item(item);
 
                     self.output_bindings.push(Binding {
                         item: elem_adapted,
                         visibility: Visibility::ReadWrite,
                         location: Location::Storage,
+                        has_extended_meta,
                         size: None,
                     });
 
@@ -462,7 +462,7 @@ impl KernelIntegrator {
         };
 
         let (item, local, position) = match output {
-            OutputInfo::ArrayWrite { item, local, position } => (item, local, position),
+            OutputInfo::ArrayWrite { item, local, position, .. } => (item, local, position),
             OutputInfo::InputArrayWrite {
                 item: _,
                 input,
@@ -475,7 +475,7 @@ impl KernelIntegrator {
                 );
                 return;
             }
-            OutputInfo::Array { item: _ } => panic!("Can't register an inplace operation for an array that isn't using a defined writing strategy."),
+            OutputInfo::Array { .. } => panic!("Can't register an inplace operation for an array that isn't using a defined writing strategy."),
         };
 
         let item = match self.input_bindings.get_mut(mapping.pos_input) {

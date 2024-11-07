@@ -92,6 +92,7 @@ where
             handle: &self.handle,
             strides: &self.strides,
             shape: &self.shape,
+            elem_size: E::as_elem().size(),
             runtime: PhantomData,
         }
     }
@@ -101,7 +102,12 @@ where
         let handle: TensorHandleRef<'a, R> = self.as_ref();
 
         unsafe {
-            TensorArg::from_raw_parts(handle.handle, handle.strides, handle.shape, vectorisation)
+            TensorArg::from_raw_parts::<E>(
+                handle.handle,
+                handle.strides,
+                handle.shape,
+                vectorisation,
+            )
         }
     }
 
@@ -153,7 +159,7 @@ where
                 client,
                 cube_count,
                 cube_dim,
-                ArrayArg::from_raw_parts(&output.handle, num_elements, vectorization_factor),
+                ArrayArg::from_raw_parts::<E>(&output.handle, num_elements, vectorization_factor),
             )
         };
 

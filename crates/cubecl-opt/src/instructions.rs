@@ -176,6 +176,9 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match metadata {
+            Metadata::Rank { var } => {
+                visit_read(self, var);
+            }
             Metadata::Stride { dim, var } => {
                 visit_read(self, dim);
                 visit_read(self, var);
@@ -185,6 +188,9 @@ impl Optimizer {
                 visit_read(self, var);
             }
             Metadata::Length { var } => {
+                visit_read(self, var);
+            }
+            Metadata::BufferLength { var } => {
                 visit_read(self, var);
             }
         }

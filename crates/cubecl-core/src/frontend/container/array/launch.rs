@@ -21,6 +21,7 @@ pub struct ArrayCompilationArg {
 pub struct ArrayHandleRef<'a, R: Runtime> {
     pub handle: &'a cubecl_runtime::server::Handle,
     pub(crate) length: [usize; 1],
+    pub elem_size: usize,
     runtime: PhantomData<R>,
 }
 
@@ -65,13 +66,7 @@ pub enum ArrayArg<'a, R: Runtime> {
 
 impl<'a, R: Runtime> ArgSettings<R> for ArrayArg<'a, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
-        if let ArrayArg::Handle {
-            handle,
-            vectorization_factor: _,
-        } = self
-        {
-            launcher.register_array(handle)
-        }
+        launcher.register_array(self)
     }
 }
 
@@ -81,13 +76,30 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     /// # Safety
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
-    pub unsafe fn from_raw_parts(
+    pub unsafe fn from_raw_parts<E: CubePrimitive>(
         handle: &'a cubecl_runtime::server::Handle,
         length: usize,
         vectorization_factor: u8,
     ) -> Self {
         ArrayArg::Handle {
-            handle: ArrayHandleRef::from_raw_parts(handle, length),
+            handle: ArrayHandleRef::from_raw_parts(handle, length, E::as_elem().size()),
+            vectorization_factor,
+        }
+    }
+
+    /// Create a new array argument.
+    ///
+    /// # Safety
+    ///
+    /// Specifying the wrong length may lead to out-of-bounds reads and writes.
+    pub unsafe fn from_raw_parts_and_size(
+        handle: &'a cubecl_runtime::server::Handle,
+        length: usize,
+        vectorization_factor: u8,
+        elem_size: usize,
+    ) -> Self {
+        ArrayArg::Handle {
+            handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
             vectorization_factor,
         }
     }
@@ -102,10 +114,12 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
     pub unsafe fn from_raw_parts(
         handle: &'a cubecl_runtime::server::Handle,
         length: usize,
+        elem_size: usize,
     ) -> Self {
         Self {
             handle,
             length: [length],
+            elem_size,
             runtime: PhantomData,
         }
     }
@@ -118,6 +132,7 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
             handle: self.handle,
             strides: &[1],
             shape,
+            elem_size: self.elem_size,
             runtime: PhantomData,
         }
     }
@@ -129,8 +144,8 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
             ArrayArg::Handle {
-                handle: _,
                 vectorization_factor,
+                ..
             } => ArrayCompilationArg {
                 inplace: None,
                 vectorisation: Vectorization::Some(NonZero::new(*vectorization_factor).unwrap()),

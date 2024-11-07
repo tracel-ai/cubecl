@@ -22,17 +22,17 @@ pub fn handle(client: &Client) -> Handle {
 
 #[allow(unused)]
 pub fn tensor(tensor: &Handle) -> TensorArg<'_, TestRuntime> {
-    unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], 1) }
+    unsafe { TensorArg::from_raw_parts::<f32>(tensor, &[1], &[1], 1) }
 }
 
 #[allow(unused)]
 pub fn tensor_vec(tensor: &Handle, vectorization: u8) -> TensorArg<'_, TestRuntime> {
-    unsafe { TensorArg::from_raw_parts(tensor, &[1], &[1], vectorization) }
+    unsafe { TensorArg::from_raw_parts::<f32>(tensor, &[1], &[1], vectorization) }
 }
 
 #[allow(unused)]
 pub fn array(tensor: &Handle) -> ArrayArg<'_, TestRuntime> {
-    unsafe { ArrayArg::from_raw_parts(tensor, 1, 1) }
+    unsafe { ArrayArg::from_raw_parts::<f32>(tensor, 1, 1) }
 }
 
 pub fn compile(kernel: impl Kernel) -> String {

@@ -214,6 +214,11 @@ mod metadata {
         pub fn len(&self) -> u32 {
             unexpanded!()
         }
+
+        /// Obtain the array buffer length
+        pub fn buffer_len(&self) -> u32 {
+            unexpanded!()
+        }
     }
 
     impl<T: CubeType> ExpandElementTyped<Array<T>> {
@@ -222,6 +227,21 @@ mod metadata {
             let out = context.create_local_binding(Item::new(u32::as_elem()));
             context.register(Instruction::new(
                 Metadata::Length {
+                    var: self.expand.into(),
+                },
+                out.clone().into(),
+            ));
+            out.into()
+        }
+
+        // Expand method of [buffer_len](Array::buffer_len).
+        pub fn __expand_buffer_len_method(
+            self,
+            context: &mut CubeContext,
+        ) -> ExpandElementTyped<u32> {
+            let out = context.create_local_binding(Item::new(u32::as_elem()));
+            context.register(Instruction::new(
+                Metadata::BufferLength {
                     var: self.expand.into(),
                 },
                 out.clone().into(),

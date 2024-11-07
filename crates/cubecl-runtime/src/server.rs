@@ -83,6 +83,8 @@ pub struct Handle {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    /// Length of the underlying buffer ignoring offsets
+    pub length: u64,
 }
 
 impl Handle {
@@ -143,6 +145,7 @@ impl Clone for Handle {
             memory: self.memory.clone(),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
+            length: self.length,
         }
     }
 }

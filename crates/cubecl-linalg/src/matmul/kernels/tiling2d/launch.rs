@@ -130,9 +130,9 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, F: Float>(
             client,
             cube_count,
             cube_dim,
-            TensorArg::from_raw_parts(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
-            TensorArg::from_raw_parts(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
-            TensorArg::from_raw_parts(out.handle, out.strides, out.shape, out_vectorization),
+            TensorArg::from_raw_parts::<F>(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
+            TensorArg::from_raw_parts::<F>(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
+            TensorArg::from_raw_parts::<F>(out.handle, out.strides, out.shape, out_vectorization),
             cube_config,
         );
     }
