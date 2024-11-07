@@ -10,7 +10,7 @@ use cubecl_core::prelude::*;
 use super::Config as _;
 
 /// Performs matrix multiplication at the batch level,
-/// with one cube assigned to each underlying global matmul
+/// with one cube assigned to several underlying global matmuls
 pub struct Matmul<
     EG: Numeric,
     ES: Numeric,
@@ -46,22 +46,50 @@ impl<
         out: Tensor<Line<EG>>,
         #[comptime] config: Self::Config,
     ) {
-        // TODO row/col/swizzle
-        let x_offset = CUBE_POS_X * config.stage_dim(Ident::Lhs).num_elements_x_dim();
-        let y_offset = CUBE_POS_Y * config.stage_dim(Ident::Rhs).num_elements_y_dim();
-        let nth_batch = CUBE_POS_Z;
-        let k_range = (0, lhs.shape(lhs.rank() - 1));
+        let rank = out.rank();
+        let shape_x = out.shape(rank - 2);
+        let shape_y = out.shape(rank - 1);
+        let mut shape_z = 1;
+        #[unroll]
+        for b in 0..rank - 2 {
+            shape_z *= out.shape(b);
+        }
 
-        gmm_execute::<EG, ES, GMM>(
-            lhs,
-            rhs,
-            out,
-            x_offset,
-            y_offset,
-            nth_batch,
-            k_range,
-            config.to_gmm_config(),
-        );
+        let cubes_x = config.cube_count_x();
+        let cubes_y = config.cube_count_y();
+        let cubes_z = config.cube_count_z();
+
+        let stage_x = config.stage_dim(Ident::Out).num_elements_x_dim();
+        let stage_y = config.stage_dim(Ident::Out).num_elements_y_dim();
+        let stage_z = 1;
+
+        let num_stages_x = (shape_x + stage_x - 1) / stage_x;
+        let num_stages_y = (shape_y + stage_y - 1) / stage_y;
+        let num_stages_z = (shape_z + stage_z - 1) / stage_z;
+
+        // Each cube must do (span_x, span_y, span_z) times the matmul
+        let span_x = num_stages_x / cubes_x;
+        let span_y = num_stages_y / cubes_y;
+        let span_z = num_stages_z / cubes_z;
+
+        let cube_offset_x = CUBE_POS_X * span_x;
+        let cube_offset_y = CUBE_POS_Y * span_y;
+        let cube_offset_z = CUBE_POS_Z * span_z;
+
+        let k_range = (0, lhs.shape(rank - 1));
+        let gmm_config = config.to_gmm_config();
+
+        // Outer is batch, as there's no hope of hitting L2 cache for batch
+        for nth_batch in cube_offset_z..cube_offset_z + span_z {
+            // Row/col/swizzle shall impact here. This is row major
+            for x_offset in cube_offset_x..cube_offset_x + span_x {
+                for y_offset in cube_offset_y..cube_offset_y + span_y {
+                    gmm_execute::<EG, ES, GMM>(
+                        lhs, rhs, out, x_offset, y_offset, nth_batch, k_range, gmm_config,
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -141,11 +169,11 @@ impl<G: global::Config> batch::Config for Config<G> {
     }
 
     fn max_m(&self) -> u32 {
-        self.cube_count_x() * self.stage_dim(Ident::Out).num_elements_x_dim()
+        u32::maximum_value()
     }
 
     fn max_n(&self) -> u32 {
-        self.cube_count_y() * self.stage_dim(Ident::Out).num_elements_y_dim()
+        u32::maximum_value()
     }
 
     fn max_batches(&self) -> u32 {
@@ -163,5 +191,9 @@ impl<G: global::Config> Config<G> {
             cube_count_y,
             cube_count_z,
         }
+    }
+
+    fn cube_count_z(&self) -> u32 {
+        self.cube_count_z
     }
 }

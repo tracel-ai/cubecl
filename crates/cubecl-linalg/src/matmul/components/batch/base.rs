@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::batch;
 use crate::matmul::components::{
     config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
 };
@@ -57,4 +58,15 @@ pub trait Config: MatmulConfig {
     fn max_n(&self) -> u32;
     /// Returns the largest number of batches supported with these configs
     fn max_batches(&self) -> u32;
+}
+
+#[cube(launch_unchecked)]
+// TODO input as references
+pub(crate) fn launch<EG: Numeric, BMM: batch::Matmul<EG>>(
+    lhs: Tensor<Line<EG>>,
+    rhs: Tensor<Line<EG>>,
+    out: Tensor<Line<EG>>,
+    #[comptime] config: BMM::Config,
+) {
+    BMM::execute(lhs, rhs, out, config);
 }
