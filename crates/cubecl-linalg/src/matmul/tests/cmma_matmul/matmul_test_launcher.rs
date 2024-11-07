@@ -1,12 +1,9 @@
 use std::fmt::Display;
 
+use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
 use cubecl_core::Feature;
-use cubecl_core::{
-    ir::{Elem, FloatKind},
-    prelude::*,
-};
 
 use crate::matmul::components::batch;
 use crate::matmul::components::Ident;
@@ -29,7 +26,7 @@ struct TensorRawParts<F: Float + CubeElement> {
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_internal<MM, EG, ES, EA, B, R>(
+pub fn test_matmul_internal<MM, EG, ES, B, R>(
     problem: MatmulProblem<EG>,
     cube_dim: CubeDim,
     cube_count: CubeCount,
@@ -37,8 +34,7 @@ pub fn test_matmul_internal<MM, EG, ES, EA, B, R>(
     device: &R::Device,
 ) where
     EG: Float + CubeElement + Display + CastInto<ES>,
-    ES: Float + CubeElement + Display + CastInto<EA>,
-    EA: Float + CubeElement + Display + CastInto<EG>,
+    ES: Float + CubeElement + Display + CastInto<EG>,
     MM: batch::Matmul<EG>,
     B: batch::Config,
     R: Runtime,
@@ -85,7 +81,7 @@ pub fn test_matmul_internal<MM, EG, ES, EA, B, R>(
         );
     }
 
-    assert_result::<EG, ES, EA, R>(
+    assert_result::<EG, ES, R>(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
@@ -124,7 +120,7 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
         disable_cmma,
     );
 
-    assert_result::<EG, EG, EG, R>(
+    assert_result::<EG, EG, R>(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
@@ -200,8 +196,7 @@ fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> 
 
 fn assert_result<
     EG: Float + CubeElement + Display + CastInto<ES>,
-    ES: Float + CubeElement + CastInto<EA>,
-    EA: Float + CubeElement + CastInto<EG>,
+    ES: Float + CubeElement + CastInto<EG>,
     R: Runtime,
 >(
     lhs: &[EG],
@@ -211,8 +206,8 @@ fn assert_result<
     out: Handle,
 ) {
     let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
+        a: ES::as_elem(),
+        b: ES::as_elem(),
         c: EG::as_elem(),
         m: 16,
         k: 16,

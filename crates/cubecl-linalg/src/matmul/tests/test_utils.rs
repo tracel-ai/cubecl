@@ -135,22 +135,21 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) 
 ///
 /// This is a naive CPU implementation, very slow on large payloads,
 /// not designed to be used for other purposes than testing.
-pub(crate) fn matmul_cpu_reference<EG, ES, EA>(
+pub(crate) fn matmul_cpu_reference<EG, ES>(
     lhs: &[EG],
     rhs: &[EG],
     problem: &MatmulProblem<EG>,
 ) -> Vec<EG>
 where
     EG: Numeric + CubeElement + CastInto<ES>,
-    ES: Numeric + CubeElement + CastInto<EA>,
-    EA: Numeric + CubeElement + CastInto<EG>,
+    ES: Numeric + CubeElement + CastInto<EG>,
 {
     let m = problem.m;
     let n = problem.n;
     let k = problem.k;
     let b = problem.num_batches();
 
-    let mut out = vec![EA::from_int(0); m * n * b];
+    let mut out = vec![EG::from_int(0); m * n * b];
 
     for b_ in 0..b {
         for i in 0..m {
@@ -163,7 +162,7 @@ where
                     let l: ES = lhs[lhs_index].cast_into();
                     let r: ES = rhs[rhs_index].cast_into();
                     let prod = l * r;
-                    let casted: EA = prod.cast_into();
+                    let casted: EG = prod.cast_into();
 
                     out[out_index] += casted;
                 }
@@ -171,9 +170,7 @@ where
         }
     }
 
-    out.into_iter()
-        .map(|ea| CastInto::cast_into(ea))
-        .collect::<Vec<EG>>()
+    out
 }
 
 /// Deprecated
