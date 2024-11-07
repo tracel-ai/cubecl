@@ -57,6 +57,7 @@ pub(crate) struct TuneCache<K> {
 }
 
 /// Result of the cache try
+#[derive(Debug)]
 pub enum TuneCacheResult {
     /// An operation is found.
     Hit {
@@ -116,7 +117,8 @@ impl<K: AutotuneKey> TuneCache<K> {
             } => {
                 if cfg!(autotune_persistent_cache) {
                     match checksum_matches {
-                        None | Some(false) => TuneCacheResult::Miss, // Don't know yet - can't use this.
+                        None => TuneCacheResult::Unchecked,   // Don't know yet.
+                        Some(false) => TuneCacheResult::Miss, // Can't use this.
                         Some(true) => TuneCacheResult::Hit {
                             fastest_index: *fastest_index,
                         },
