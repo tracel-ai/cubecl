@@ -5,17 +5,17 @@ use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::base::TensorView;
+use super::base::TensorReader;
 
 #[derive(CubeType)]
 pub struct LhsLoader<EG: Numeric, ES: Numeric> {
-    pub tensor_view: TensorView<EG>,
+    pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
 }
 
 #[derive(CubeType)]
 pub struct RhsLoader<EG: Numeric, ES: Numeric> {
-    pub tensor_view: TensorView<EG>,
+    pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
 }
 
@@ -29,7 +29,7 @@ impl<EG: Numeric, ES: Numeric> LhsLoader<EG, ES> {
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
-        let tensor_view = TensorView::new(tensor, x_offset, y_offset, nth_batch);
+        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, nth_batch);
 
         LhsLoader::<EG, ES> { tensor_view, stage }
     }
@@ -45,7 +45,7 @@ impl<EG: Numeric, ES: Numeric> RhsLoader<EG, ES> {
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
-        let tensor_view = TensorView::new(tensor, x_offset, y_offset, nth_batch);
+        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, nth_batch);
 
         RhsLoader::<EG, ES> { tensor_view, stage }
     }

@@ -266,6 +266,10 @@ impl<T: CubeType> CubeType for *const Tensor<T> {
     type ExpandType = ExpandElementTyped<Tensor<T>>;
 }
 
+impl<T: CubeType> CubeType for *mut Tensor<T> {
+    type ExpandType = ExpandElementTyped<Tensor<T>>;
+}
+
 impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
     fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
@@ -280,6 +284,12 @@ impl<E: CubePrimitive> IntoRuntime for Tensor<E> {
 }
 
 impl<E: CubePrimitive> IntoRuntime for *const Tensor<E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Tensor can't exist at compile time")
+    }
+}
+
+impl<E: CubePrimitive> IntoRuntime for *mut Tensor<E> {
     fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
         unimplemented!("Tensor can't exist at compile time")
     }
