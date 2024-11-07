@@ -22,7 +22,7 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric> {
 #[cube]
 impl<EG: Numeric, ES: Numeric> LhsLoader<EG, ES> {
     pub fn new<G: global::Config>(
-        tensor: Tensor<Line<EG>>,
+        tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
@@ -38,7 +38,7 @@ impl<EG: Numeric, ES: Numeric> LhsLoader<EG, ES> {
 #[cube]
 impl<EG: Numeric, ES: Numeric> RhsLoader<EG, ES> {
     pub fn new<G: global::Config>(
-        tensor: Tensor<Line<EG>>,
+        tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,

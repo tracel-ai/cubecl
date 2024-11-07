@@ -23,7 +23,7 @@ impl<EG: Numeric> global::Unloader<EG> for Unloader<EG> {
 
 #[cube]
 impl<EG: Numeric> Unloader<EG> {
-    pub fn new(tensor: Tensor<Line<EG>>, x_offset: u32, y_offset: u32, batch_offset: u32) -> Self {
+    pub fn new(tensor: &Tensor<Line<EG>>, x_offset: u32, y_offset: u32, batch_offset: u32) -> Self {
         Unloader::<EG> {
             tensor_view: TensorView::new(tensor, x_offset, y_offset, batch_offset),
         }

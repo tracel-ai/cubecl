@@ -40,9 +40,9 @@ impl<
     > batch::Matmul<EG> for Matmul<EG, ES, GMM>
 {
     fn execute(
-        lhs: Tensor<Line<EG>>,
-        rhs: Tensor<Line<EG>>,
-        out: Tensor<Line<EG>>,
+        lhs: &Tensor<Line<EG>>,
+        rhs: &Tensor<Line<EG>>,
+        out: &mut Tensor<Line<EG>>,
         #[comptime] config: Self::Config,
     ) {
         // TODO row/col/swizzle
@@ -123,9 +123,9 @@ impl<
 #[cube(launch_unchecked)]
 // TODO input as references
 fn launch<EG: Numeric, BMM: batch::Matmul<EG>>(
-    lhs: Tensor<Line<EG>>,
-    rhs: Tensor<Line<EG>>,
-    out: Tensor<Line<EG>>,
+    lhs: &Tensor<Line<EG>>,
+    rhs: &Tensor<Line<EG>>,
+    out: &mut Tensor<Line<EG>>,
     #[comptime] config: BMM::Config,
 ) {
     BMM::execute(lhs, rhs, out, config);

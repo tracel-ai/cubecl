@@ -8,7 +8,7 @@ use cubecl_core::prelude::*;
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorView<E: Numeric> {
-    pub tensor: Tensor<Line<E>>,
+    pub tensor: *const Tensor<Line<E>>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -18,11 +18,14 @@ pub struct TensorView<E: Numeric> {
     pub batch_offset: u32,
 }
 
+unsafe impl<E: Numeric> Sync for TensorView<E> {}
+unsafe impl<E: Numeric> Send for TensorView<E> {}
+
 #[cube]
 impl<EG: Numeric> TensorView<EG> {
     /// Instantiate a view over the given tensor, pre-fetching needed strides and shapes
     pub fn new(
-        tensor: Tensor<Line<EG>>,
+        tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
@@ -76,7 +79,6 @@ impl<EG: Numeric> TensorView<EG> {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Line<EG> {
-        let tensor = &self.tensor;
         let line_size = config.global_line_size(ident);
         let tile_size_x = config.stage_dim(ident).tile_size_x;
         let tile_size_y = config.stage_dim(ident).tile_size_y;
@@ -97,7 +99,7 @@ impl<EG: Numeric> TensorView<EG> {
 
         select(
             view_x < self.shape_x && view_y < self.shape_y,
-            tensor[read_pos],
+            read_at_position(self.tensor, read_pos),
             Line::empty(line_size).fill(EG::from_int(0)),
         )
     }
@@ -113,7 +115,6 @@ impl<EG: Numeric> TensorView<EG> {
         value: Line<ES>,
         #[comptime] config: G,
     ) {
-        let tensor = &mut self.tensor;
         let stage_dim = config.stage_dim(Ident::Out);
 
         let view_x =
@@ -122,22 +123,36 @@ impl<EG: Numeric> TensorView<EG> {
             tile_y * stage_dim.tile_size_y + unit_id % stage_dim.tile_size_y + self.y_offset;
 
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
-            / tensor.line_size();
+            / config.global_line_size(Ident::Out);
 
         if config.check_m_bounds() {
             if config.check_n_bounds() {
                 if view_x < self.shape_x && view_y < self.shape_y {
-                    tensor[write_position] = Line::cast_from(value);
+                    write_at_position(self.tensor, write_position, Line::cast_from(value));
                 }
             } else if view_x < self.shape_x {
-                tensor[write_position] = Line::cast_from(value);
+                write_at_position(self.tensor, write_position, Line::cast_from(value));
             }
         } else if config.check_n_bounds() {
             if view_y < self.shape_y {
-                tensor[write_position] = Line::cast_from(value);
+                write_at_position(self.tensor, write_position, Line::cast_from(value));
             }
         } else {
-            tensor[write_position] = Line::cast_from(value);
+            write_at_position(self.tensor, write_position, Line::cast_from(value));
         }
     }
+}
+
+#[cube]
+fn write_at_position<EG: Numeric>(
+    tensor: *const Tensor<Line<EG>>,
+    write_position: u32,
+    value: Line<EG>,
+) {
+    // unsafe { tensor.borrow_mut()[write_position] = Line::cast_from(value) };
+}
+
+#[cube]
+fn read_at_position<EG: Numeric>(tensor: *const Tensor<Line<EG>>, read_position: u32) -> Line<EG> {
+
 }
