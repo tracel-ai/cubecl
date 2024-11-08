@@ -51,13 +51,23 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
         let (module, layout) = kernel
             .repr
             .map(|repr| {
-                let num_bindings = repr.num_bindings as u32;
-                let bindings = (0..num_bindings)
-                    .map(|i| BindGroupLayoutEntry {
-                        binding: i,
+                let bindings = repr
+                    .bindings
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _binding)| BindGroupLayoutEntry {
+                        binding: i as u32,
                         visibility: ShaderStages::COMPUTE,
                         ty: BindingType::Buffer {
+                            #[cfg(not(exclusive_memory_only))]
                             ty: BufferBindingType::Storage { read_only: false },
+                            #[cfg(exclusive_memory_only)]
+                            ty: BufferBindingType::Storage {
+                                read_only: matches!(
+                                    _binding.visibility,
+                                    cubecl_core::ir::Visibility::Read
+                                ),
+                            },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
