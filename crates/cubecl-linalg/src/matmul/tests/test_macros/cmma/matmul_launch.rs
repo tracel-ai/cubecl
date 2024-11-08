@@ -1,7 +1,7 @@
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_matmul_launch {
-    ($eg:ty,) => {
+    ($eg:ty) => {
         use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_launch;
 
         #[test]

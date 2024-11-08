@@ -1,12 +1,9 @@
 use std::fmt::Display;
 
+use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
 use cubecl_core::Feature;
-use cubecl_core::{
-    ir::{Elem, FloatKind},
-    prelude::*,
-};
 
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulLaunch;
@@ -15,6 +12,7 @@ use crate::matmul::components::MatrixLayout;
 use crate::matmul::kernels::matmul;
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::matmul::Algorithm;
+use crate::matmul::tests::test_utils::CastInto;
 use crate::tensor::TensorHandle;
 
 use crate::matmul::tests::test_utils::assert_equals_approx;
@@ -30,14 +28,14 @@ struct TensorRawParts<F: Float + CubeElement> {
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-
-pub fn test_matmul_internal<A, EG, R>(
+pub fn test_matmul_internal<A, EG, ES, R>(
     problem: MatmulProblem,
     advanced_config: AdvancedConfig,
     device: &R::Device,
 ) where
     A: Algorithm<EG>,
-    EG: Float + CubeElement + Display,
+    EG: Float + CubeElement + Display + CastInto<ES>,
+    ES: Float + CubeElement + Display + CastInto<EG>,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
@@ -82,18 +80,19 @@ pub fn test_matmul_internal<A, EG, R>(
         );
     }
 
-    assert_result::<EG, R>(
+    assert_result::<EG, ES, R>(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
         &client,
         out.handle,
+        None,
     );
 }
 
 /// Test the correctness of the high-level Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_launch<EG: Float + CubeElement + Display, R: Runtime>(
+pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: Runtime>(
     problem: MatmulProblem,
     disable_cmma: bool,
     device: &R::Device,
@@ -121,12 +120,14 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display, R: Runtime>(
         disable_cmma,
     );
 
-    assert_result::<EG, R>(
+    assert_result::<EG, EG, R>(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
         &client,
         out.handle,
+        // We cannot assume the inner precision of the matmul, therefore we need a permissive epsilon
+        Some(10e-2),
     );
 }
 
@@ -195,26 +196,36 @@ fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> 
     result
 }
 
-fn assert_result<EG: Float + CubeElement + Display, R: Runtime>(
+fn assert_result<
+    EG: Float + CubeElement + Display + CastInto<ES>,
+    ES: Float + CubeElement + CastInto<EG>,
+    R: Runtime,
+>(
     lhs: &[EG],
     rhs: &[EG],
     problem: &MatmulProblem,
     client: &ComputeClient<R::Server, R::Channel>,
     out: Handle,
+    epsilon: Option<f32>,
 ) {
-    let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: EG::as_elem(),
-        m: 16,
-        k: 16,
-        n: 16,
-    });
+    let epsilon = match epsilon {
+        Some(epsilon) => epsilon,
+        None => {
+            let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
+                a: ES::as_elem(),
+                b: ES::as_elem(),
+                c: EG::as_elem(),
+                m: 16,
+                k: 16,
+                n: 16,
+            });
 
-    // Need to compensate for the temporary conversion to f16/tf32
-    let epsilon = match maybe_cmma {
-        true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-        false => 10e-5,
+            // Need to compensate for the temporary conversion to f16/tf32
+            match maybe_cmma {
+                true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
+                false => 10e-5,
+            }
+        }
     };
 
     let expected = matmul_cpu_reference(lhs, rhs, problem);
