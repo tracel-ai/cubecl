@@ -5,7 +5,7 @@ macro_rules! testgen_matmul_launch {
         use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_launch;
 
         #[test]
-        pub fn test_launch_matmul_b3x4_g300x200x250_col_row() {
+        pub fn test_launch_matmul() {
             type EG = $eg;
             let problem = MatmulProblem {
                 m: 300,
