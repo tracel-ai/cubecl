@@ -186,6 +186,7 @@ impl WgpuStream {
             result
         }
     }
+
     pub fn sync_elapsed(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = TimestampsResult> + Send + 'static>> {

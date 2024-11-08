@@ -1,7 +1,7 @@
 use std::{future::Future, marker::PhantomData, num::NonZero, time::Duration};
 
+use super::manager::WgpuStreamManager;
 use super::stream::PipelineDispatch;
-use super::stream::WgpuStream;
 use super::WgpuStorage;
 use crate::compiler::base::WgpuCompiler;
 use crate::timestamps::KernelTimestamps;
@@ -28,7 +28,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     logger: DebugLogger,
     storage_locked: MemoryLock,
     duration_profiled: Option<Duration>,
-    stream: WgpuStream,
+    stream: WgpuStreamManager,
     _compiler: PhantomData<C>,
 }
 
@@ -47,7 +47,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             timestamps.enable(&device);
         }
 
-        let stream = WgpuStream::new(device.clone(), queue.clone(), timestamps, tasks_max);
+        let stream = WgpuStreamManager::new(device.clone(), queue.clone(), timestamps, tasks_max);
 
         Self {
             memory_management,
@@ -298,13 +298,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn enable_timestamps(&mut self) {
-        self.stream.timestamps.enable(&self.device);
+        self.stream.enable_timestamps();
     }
 
     fn disable_timestamps(&mut self) {
         // Only disable timestamps if profiling isn't enabled.
         if self.logger.profile_level().is_none() {
-            self.stream.timestamps.disable();
+            self.stream.disable_timestamps();
         }
     }
 }
