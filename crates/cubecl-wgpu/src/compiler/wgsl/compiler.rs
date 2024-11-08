@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
 
 use super::{shader::ComputeShader, ConstantArray, Item, SharedMemory};
 use super::{LocalArray, Subgroup};
@@ -6,6 +6,7 @@ use crate::{
     compiler::{base::WgpuCompiler, wgsl},
     WgpuServer,
 };
+use crate::{Pdrc, WgpuServerInner};
 use cubecl_core::{
     ir::{self as cube, HybridAllocator, UIntKind},
     prelude::CompiledKernel,
@@ -70,10 +71,10 @@ impl cubecl_core::Compiler for WgslCompiler {
 
 impl WgpuCompiler for WgslCompiler {
     fn create_pipeline(
-        server: &mut WgpuServer<Self>,
+        server: &mut WgpuServerInner<Self>,
         kernel: CompiledKernel<Self>,
         mode: ExecutionMode,
-    ) -> Arc<ComputePipeline> {
+    ) -> Pdrc<ComputePipeline> {
         let source = &kernel.source;
         let repr = kernel.repr.unwrap();
         let module = match mode {
@@ -118,7 +119,7 @@ impl WgpuCompiler for WgslCompiler {
                 push_constant_ranges: &[],
             });
 
-        Arc::new(
+        Pdrc::new(
             server
                 .device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -136,7 +137,7 @@ impl WgpuCompiler for WgslCompiler {
     }
 
     fn compile(
-        _server: &mut WgpuServer<Self>,
+        _server: &mut WgpuServerInner<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
         mode: ExecutionMode,
     ) -> CompiledKernel<Self> {

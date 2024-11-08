@@ -20,6 +20,18 @@ pub use runtime::*;
 #[cfg(feature = "spirv")]
 pub use compiler::spirv;
 
+/// Platform dependent reference counting. Uses [`alloc::sync::Arc`] on all platforms except
+/// `wasm32` when the feature `atomics` is enabled. Uses [`alloc::rc::Rc`] instead when on
+/// `wasm32` and with the `atomics` feature enabled.
+#[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
+type Pdrc<T> = alloc::sync::Arc<T>;
+
+/// Platform dependent reference counting. Uses [`alloc::sync::Arc`] on all platforms except
+/// `wasm32` when the feature `atomics` is enabled. Uses [`alloc::rc::Rc`] instead when on
+/// `wasm32` and with the `atomics` feature enabled.
+#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+type Pdrc<T> = alloc::rc::Rc<T>;
+
 #[cfg(test)]
 mod tests {
     pub type TestRuntime = crate::WgpuRuntime<crate::WgslCompiler>;

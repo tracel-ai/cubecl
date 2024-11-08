@@ -27,6 +27,7 @@ serde_json = { version = "1.0.119", default-features = false }
 dashmap = "5.5.3"
 hashbrown = "0.14.5"
 spin = { version = "0.9.8", features = ["mutex", "spin_mutex"] }
+rayon = "1"
 
 getrandom = { version = "0.2.15", default-features = false }
 rand = { version = "0.8.5", default-features = false, features = [
@@ -73,6 +74,7 @@ pretty_assertions = "1.4"
 # Async
 embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
+futures = "0.3.31"
 
 [profile.dev]
 opt-level = 2

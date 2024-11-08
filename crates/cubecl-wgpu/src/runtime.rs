@@ -3,9 +3,8 @@ use std::marker::PhantomData;
 use crate::{
     compiler::{base::WgpuCompiler, wgsl::WgslCompiler},
     compute::{WgpuServer, WgpuStorage},
-    AutoGraphicsApi, GraphicsApi, WgpuDevice,
+    AutoGraphicsApi, GraphicsApi, Pdrc, WgpuDevice,
 };
-use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
@@ -31,18 +30,13 @@ static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> 
 
 impl Runtime for WgpuRuntime<WgslCompiler> {
     type Compiler = WgslCompiler;
-    type Server = WgpuServer<WgslCompiler>;
+    type Server = Server;
 
-    type Channel = MutexComputeChannel<WgpuServer<WgslCompiler>>;
+    type Channel = MutexComputeChannel<Server>;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
-        RUNTIME.client(device, move || {
-            let setup = future::block_on(create_setup_for_device::<AutoGraphicsApi, WgslCompiler>(
-                device,
-            ));
-            create_client_on_setup(setup, RuntimeOptions::default())
-        })
+        RUNTIME.client(device, move || create_client(device))
     }
 
     fn name() -> &'static str {
@@ -89,17 +83,96 @@ impl Default for RuntimeOptions {
 #[derive(Clone, Debug)]
 pub struct WgpuSetup {
     /// The underlying wgpu instance.
-    pub instance: Arc<wgpu::Instance>,
+    pub instance: Pdrc<wgpu::Instance>,
     /// The selected 'adapter'. This corresponds to a physical device.
-    pub adapter: Arc<wgpu::Adapter>,
+    pub adapter: Pdrc<wgpu::Adapter>,
     /// The wgpu device Burn will use. Nb: There can only be one device per adapter.
-    pub device: Arc<wgpu::Device>,
+    pub device: Pdrc<wgpu::Device>,
     /// The queue Burn commands will be submitted to.
-    pub queue: Arc<wgpu::Queue>,
+    pub queue: Pdrc<wgpu::Queue>,
+}
+
+pub fn create_client<C: WgpuCompiler>(
+    device: &WgpuDevice,
+) -> ComputeClient<WgpuServer<C>, MutexComputeChannel<WgpuServer<C>>> {
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
+    {
+        let setup = future::block_on(create_setup_for_device::<AutoGraphicsApi, WgslCompiler>(
+            device,
+        ));
+        create_client_on_setup(setup, RuntimeOptions::default())
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+    {
+        let (tx_once, mut rx_once) = futures::channel::oneshot::channel();
+
+        {
+            let device = device.clone();
+
+            rayon::spawn(move || {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let setup = future::block_on(create_setup_for_device::<
+                    AutoGraphicsApi,
+                    WgslCompiler,
+                >(&device));
+
+                let limits = setup.device.limits();
+                let mem_props = MemoryDeviceProperties {
+                    max_page_size: limits.max_storage_buffer_binding_size as u64,
+                    alignment: WgpuStorage::<C>::ALIGNMENT
+                        .max(limits.min_storage_buffer_offset_alignment as u64),
+                };
+
+                let options = RuntimeOptions::default();
+                let memory_management = {
+                    let mem_props = mem_props.clone();
+                    let config = options.memory_config;
+                    let storage = WgpuStorage::new(tx.clone());
+                    MemoryManagement::from_configuration(storage, mem_props, config)
+                };
+                let mut server = crate::compute::WgpuServerInner::new(
+                    memory_management,
+                    setup.device.clone(),
+                    setup.queue,
+                    options.tasks_max,
+                );
+                let channel = MutexComputeChannel::new(WgpuServer::new(tx));
+
+                let features = setup.adapter.features();
+                let mut device_props = DeviceProperties::new(&[], mem_props);
+
+                if features.contains(wgpu::Features::SUBGROUP)
+                    && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
+                {
+                    device_props.register_feature(Feature::Subcube);
+                }
+                C::register_features(&setup.adapter, &setup.device, &mut device_props);
+
+                tx_once
+                    .send(ComputeClient::new(channel, device_props))
+                    .expect("Failed to send back client to the calling thread");
+
+                server.handle_commands(rx)
+            });
+        }
+
+        loop {
+            match rx_once.try_recv() {
+                Ok(client) => {
+                    if let Some(client) = client {
+                        return client;
+                    }
+                }
+                Err(_) => panic!("Failed to get the client from the wgpu thread"),
+            }
+        }
+    }
 }
 
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
 /// Useful when you want to share a device between CubeCL and other wgpu-dependent libraries.
+#[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
 pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
     let device_id = WgpuDevice::Existing(setup.device.as_ref().global_id());
     let client = create_client_on_setup(setup, options);
@@ -109,6 +182,7 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
 
 /// Like [`init_setup_async`], but synchronous.
 /// On wasm, it is necessary to use [`init_setup_async`] instead.
+#[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
 pub fn init_setup<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) -> WgpuSetup {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
@@ -123,6 +197,7 @@ pub fn init_setup<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) 
 /// Initialize a client on the given device with the given options.
 /// This function is useful to configure the runtime options
 /// or to pick a different graphics API.
+#[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
 pub async fn init_setup_async<G: GraphicsApi>(
     device: &WgpuDevice,
     options: RuntimeOptions,
@@ -134,6 +209,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
     return_setup
 }
 
+#[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
 pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     setup: WgpuSetup,
     options: RuntimeOptions,
@@ -185,10 +261,10 @@ pub(crate) async fn create_setup_for_device<G: GraphicsApi, C: WgpuCompiler>(
     );
 
     WgpuSetup {
-        instance: Arc::new(instance),
-        adapter: Arc::new(adapter),
-        device: Arc::new(device),
-        queue: Arc::new(queue),
+        instance: Pdrc::new(instance),
+        adapter: Pdrc::new(adapter),
+        device: Pdrc::new(device),
+        queue: Pdrc::new(queue),
     }
 }
 

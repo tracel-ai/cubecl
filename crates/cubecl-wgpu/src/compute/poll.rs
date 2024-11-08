@@ -58,10 +58,12 @@ mod _impl {
 // On Wasm, the browser handles the polling loop, so we don't need anything.
 #[cfg(target_family = "wasm")]
 mod _impl {
+    use crate::Pdrc;
+
     #[derive(Debug)]
     pub struct WgpuPoll {}
     impl WgpuPoll {
-        pub fn new(_device: alloc::sync::Arc<wgpu::Device>) -> Self {
+        pub fn new(_device: Pdrc<wgpu::Device>) -> Self {
             Self {}
         }
         pub fn start_polling(&self) -> alloc::sync::Arc<()> {

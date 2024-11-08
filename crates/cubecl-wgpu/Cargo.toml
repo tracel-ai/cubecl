@@ -45,6 +45,10 @@ web-time = { workspace = true }
 
 cfg-if = { workspace = true }
 
+[target.'cfg(all(target_arch = "wasm32", target_feature = "atomics"))'.dependencies]
+futures = { workspace = true }
+rayon = { workspace = true }
+
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.4.0", features = [
     "export_tests",
