@@ -11,7 +11,7 @@ use crate::matmul::{
         stage::{self, Config as _, StageReader, StageWriter},
         tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout, PlaneMapper, StageDim,
     },
-    kernels::cmma_matmul::{create_stage_dim, AdvancedConfig},
+    kernels::matmul::{create_stage_dim, AdvancedConfig},
 };
 
 use super::reader::{LhsReader, RhsReader};

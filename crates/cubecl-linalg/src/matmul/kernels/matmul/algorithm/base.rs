@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::components::stage::{self, StageSize};
 use crate::matmul::components::{batch, global, tile};
 use crate::matmul::components::{MatmulKernel, MatmulProblem};
-use crate::matmul::kernels::cmma_matmul::AdvancedConfig;
+use crate::matmul::kernels::matmul::AdvancedConfig;
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm<EG: Numeric> {
@@ -19,14 +19,17 @@ pub trait Algorithm<EG: Numeric> {
     type StageMatmul: stage::Matmul<
             Self::ES,
             Self::EG,
-            <<Self::GlobalMatmul as global::Matmul<Self::EG, Self::ES>>::Lhs as global::Loader<Self::EG, Self::ES>>::StageReader,
-            <<Self::GlobalMatmul as global::Matmul<Self::EG, Self::ES>>::Rhs as global::Loader<Self::EG, Self::ES>>::StageReader,
+            <<Self::GlobalMatmul as global::Matmul<Self::EG, Self::ES>>::Lhs as global::Loader<
+                Self::EG,
+                Self::ES,
+            >>::StageReader,
+            <<Self::GlobalMatmul as global::Matmul<Self::EG, Self::ES>>::Rhs as global::Loader<
+                Self::EG,
+                Self::ES,
+            >>::StageReader,
         > + MatmulKernel<Self::ES, Self::EG>;
 
-    type GlobalMatmul: global::Matmul<
-        Self::EG,
-        Self::ES,
-    >;
+    type GlobalMatmul: global::Matmul<Self::EG, Self::ES>;
 
     type BatchMatmul: batch::Matmul<Self::EG> + MatmulKernel<Self::EG, Self::EG>;
 

@@ -7,7 +7,7 @@ use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::kernels::cmma_matmul::AdvancedConfig;
+use crate::matmul::kernels::matmul::AdvancedConfig;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

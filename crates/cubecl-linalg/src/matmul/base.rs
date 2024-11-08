@@ -7,7 +7,7 @@ use cubecl_core::{
 use crate::tensor::TensorHandle;
 
 use super::kernels::{
-    cmma_matmul,
+    matmul,
     cmma_old::{self, config::PredefinedCmmaConfig, is_available, CmmaConfig},
     tiling2d::{self, Tiling2dConfig},
 };
@@ -28,8 +28,8 @@ pub fn launch<R: Runtime, EG: Float>(
     out: TensorHandle<R, EG>,
 ) {
     match strategy {
-        Strategy::Accelerated => cmma_matmul::launch(client, lhs, rhs, out, false),
-        Strategy::PlaneMma => cmma_matmul::launch(client, lhs, rhs, out, true),
+        Strategy::Accelerated => matmul::launch(client, lhs, rhs, out, false),
+        Strategy::PlaneMma => matmul::launch(client, lhs, rhs, out, true),
         Strategy::CmmaOld(config) => cmma_old::launch(client, lhs, rhs, out, config.clone()),
         Strategy::Tiling2D(config) => tiling2d::launch(client, lhs, rhs, out, config.clone()),
     };

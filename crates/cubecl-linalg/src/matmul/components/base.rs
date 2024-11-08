@@ -1,6 +1,6 @@
 use cubecl_core::prelude::*;
 
-use crate::matmul::kernels::cmma_matmul::AdvancedConfig;
+use crate::matmul::kernels::matmul::AdvancedConfig;
 
 use super::{config::MatmulConfig, MatmulProblem};
 

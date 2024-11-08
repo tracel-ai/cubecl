@@ -12,9 +12,9 @@ use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
-use crate::matmul::kernels::cmma_matmul;
-use crate::matmul::kernels::cmma_matmul::AdvancedConfig;
-use crate::matmul::kernels::cmma_matmul::Algorithm;
+use crate::matmul::kernels::matmul;
+use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::matmul::Algorithm;
 use crate::tensor::TensorHandle;
 
 use crate::matmul::tests::test_utils::assert_equals_approx;
@@ -113,7 +113,7 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display, R: Runtime>(
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
 
-    let out = cmma_matmul::launch::<R, EG>(
+    let out = matmul::launch::<R, EG>(
         &client,
         TensorHandle::new(lhs.shape, lhs.strides, lhs.handle),
         TensorHandle::new(rhs.shape, rhs.strides, rhs.handle),

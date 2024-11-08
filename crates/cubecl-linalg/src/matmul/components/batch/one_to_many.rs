@@ -5,7 +5,7 @@ use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
 };
-use crate::matmul::kernels::cmma_matmul::AdvancedConfig;
+use crate::matmul::kernels::matmul::AdvancedConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

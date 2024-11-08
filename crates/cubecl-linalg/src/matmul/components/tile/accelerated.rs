@@ -4,7 +4,7 @@ use crate::matmul::components::tile::Config as TileConfig;
 use crate::matmul::components::{
     as_cmma_layout, tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout,
 };
-use crate::matmul::kernels::cmma_matmul::AdvancedConfig;
+use crate::matmul::kernels::matmul::AdvancedConfig;
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
 use half::{bf16, f16};

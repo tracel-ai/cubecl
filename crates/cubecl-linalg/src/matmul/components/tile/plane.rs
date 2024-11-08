@@ -2,7 +2,7 @@ use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::Config as TileConfig;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{config::PlaneMapper, tile, Ident, MatmulKernel, MatrixLayout};
-use crate::matmul::kernels::cmma_matmul::AdvancedConfig;
+use crate::matmul::kernels::matmul::AdvancedConfig;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
 use std::marker::PhantomData;
