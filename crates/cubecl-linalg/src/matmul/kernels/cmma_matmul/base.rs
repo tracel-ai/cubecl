@@ -125,7 +125,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
     let out_line_size =
         tensor_line_size(available_vectorizations, out.shape, out.strides, rank - 1);
 
-    let problem = MatmulProblem::<EG> {
+    let problem = MatmulProblem::<D::EG> {
         m: m as usize,
         n: n as usize,
         k: k as usize,
@@ -167,7 +167,7 @@ fn launch_matmul<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
-    problem: MatmulProblem<EG>,
+    problem: MatmulProblem<D::EG>,
     cube_dim: CubeDim,
     cube_count: CubeCount,
     advanced_config: AdvancedConfig,

@@ -37,16 +37,22 @@ pub trait Algorithm<EG: Numeric> {
     type BatchMatmul: batch::Matmul<Self::EG> + MatmulKernel<Self::EG, Self::EG>;
 
     fn cube_dim() -> CubeDim;
-    fn cube_count(problem: &MatmulProblem<EG>) -> CubeCount;
+    fn cube_count(problem: &MatmulProblem<Self::EG>) -> CubeCount;
 
     fn make_config(
-        problem: &MatmulProblem<EG>,
+        problem: &MatmulProblem<Self::EG>,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
-    ) -> <Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config;
+    ) -> <Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config {
+        let config = Self::BatchMatmul::make_config(problem, cube_dim, cube_count, advanced_config);
+        problem.check_config(&config);
+        config
+    }
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), ()>;
+    ) -> Result<(), &str> {
+        Self::BatchMatmul::check_availability::<R>(client)
+    }
 }

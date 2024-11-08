@@ -1,12 +1,13 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::global;
 use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{LhsReader, RhsReader};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
+use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::kernels::cmma_matmul::AdvancedConfig;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -94,6 +95,32 @@ where
 
     fn check_config(config: Self::Config) {
         SMM::check_config(config.to_smm_config());
+    }
+
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), &str> {
+        SMM::check_availability::<R>(client)
+    }
+
+    fn make_config<E: Numeric>(
+        problem: &MatmulProblem<E>,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let smm_config = SMM::make_config(problem, cube_dim, cube_count, advanced_config);
+
+        Config::new(
+            smm_config,
+            problem.m as u32 % SMM::M != 0,
+            problem.n as u32 % SMM::N != 0,
+            problem.lhs_layout,
+            problem.rhs_layout,
+            problem.lhs_line_size as u32,
+            problem.rhs_line_size as u32,
+            problem.out_line_size as u32,
+        )
     }
 }
 

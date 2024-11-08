@@ -1,9 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::shared::gmm_execute;
+use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
 };
+use crate::matmul::kernels::cmma_matmul::AdvancedConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -81,6 +83,29 @@ impl<
 
     fn check_config(config: Self::Config) {
         GMM::check_config(config.to_gmm_config())
+    }
+
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), &str> {
+        GMM::check_availability::<R>(client)
+    }
+
+    fn make_config<E: Numeric>(
+        problem: &MatmulProblem<E>,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let gmm_config = GMM::make_config(problem, cube_dim, cube_count, advanced_config);
+        let (cube_count_x, cube_count_y, cube_count_z) =
+            if let CubeCount::Static(x, y, z) = cube_count {
+                (x, y, z)
+            } else {
+                panic!("Dynamic cube count unsupported")
+            };
+
+        Config::new(gmm_config, *cube_count_x, *cube_count_y, *cube_count_z)
     }
 }
 
