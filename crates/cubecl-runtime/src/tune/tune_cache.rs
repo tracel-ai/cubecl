@@ -117,11 +117,12 @@ impl<K: AutotuneKey> TuneCache<K> {
             } => {
                 if cfg!(autotune_persistent_cache) {
                     match checksum_matches {
-                        None => TuneCacheResult::Unchecked,   // Don't know yet.
-                        Some(false) => TuneCacheResult::Miss, // Can't use this.
+                        #[cfg(autotune_persistent_cache)]
+                        None => TuneCacheResult::Unchecked, // Don't know yet.
                         Some(true) => TuneCacheResult::Hit {
                             fastest_index: *fastest_index,
                         },
+                        _ => TuneCacheResult::Miss, // Some(false) or None so we can't use this.
                     }
                 } else {
                     let _ = checksum_matches;
