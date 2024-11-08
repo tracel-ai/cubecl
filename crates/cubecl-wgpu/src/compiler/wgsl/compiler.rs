@@ -106,7 +106,10 @@ impl WgpuCompiler for WgslCompiler {
                         ty: BufferBindingType::Storage { read_only: false },
                         #[cfg(exclusive_memory_only)]
                         ty: BufferBindingType::Storage {
-                            read_only: matches!(_binding.visibility, Visibility::Read),
+                            read_only: matches!(
+                                _binding.visibility,
+                                super::shader::Visibility::Read
+                            ),
                         },
                         has_dynamic_offset: false,
                         min_binding_size: None,
