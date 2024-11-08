@@ -64,7 +64,7 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) 
 pub(crate) fn matmul_cpu_reference<EG: Numeric + CubeElement>(
     lhs: &[EG],
     rhs: &[EG],
-    problem: &MatmulProblem<EG>,
+    problem: &MatmulProblem,
 ) -> Vec<EG> {
     let m = problem.m;
     let n = problem.n;

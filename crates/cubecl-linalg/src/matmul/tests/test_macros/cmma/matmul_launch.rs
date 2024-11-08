@@ -17,7 +17,7 @@ macro_rules! testgen_matmul_launch {
         #[test]
         pub fn test_launch_matmul_b3x4_g300x200x250_col_row() {
             type EG = $eg;
-            let problem = MatmulProblem::<EG> {
+            let problem = MatmulProblem {
                 m: 300,
                 n: 200,
                 k: 250,
@@ -27,7 +27,6 @@ macro_rules! testgen_matmul_launch {
                 lhs_line_size: 4,
                 rhs_line_size: 4,
                 out_line_size: 4,
-                _element: PhantomData,
             };
 
             test_matmul_launch::<EG, TestRuntime>(problem, false, &Default::default());
@@ -90,9 +89,6 @@ mod asdf {
                 Self::StageSize,
             >;
 
-            type LhsLoader = global::tensor_view::LhsLoader<Self::EG, Self::ES>;
-            type RhsLoader = global::tensor_view::RhsLoader<Self::EG, Self::ES>;
-            type Unloader = global::tensor_view::Unloader<Self::EG>;
             type GlobalMatmul = global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
 
             type BatchMatmul = batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;

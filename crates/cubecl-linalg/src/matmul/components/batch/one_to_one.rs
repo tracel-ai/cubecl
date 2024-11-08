@@ -13,34 +13,15 @@ use super::Config as _;
 
 /// Performs matrix multiplication at the batch level,
 /// with one cube assigned to each underlying global matmul
-pub struct Matmul<
-    EG: Numeric,
-    ES: Numeric,
-    GMM: global::Matmul<
-        EG,
-        ES,
-        global::tensor_view::LhsLoader<EG, ES>,
-        global::tensor_view::RhsLoader<EG, ES>,
-        global::tensor_view::Unloader<EG>,
-    >,
-> {
+pub struct Matmul<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _gmm: PhantomData<GMM>,
 }
 
 #[cube]
-impl<
-        EG: Numeric,
-        ES: Numeric,
-        GMM: global::Matmul<
-            EG,
-            ES,
-            global::tensor_view::LhsLoader<EG, ES>,
-            global::tensor_view::RhsLoader<EG, ES>,
-            global::tensor_view::Unloader<EG>,
-        >,
-    > batch::Matmul<EG> for Matmul<EG, ES, GMM>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
+    for Matmul<EG, ES, GMM>
 {
     fn execute(
         lhs: &Tensor<Line<EG>>,
@@ -67,17 +48,8 @@ impl<
     }
 }
 
-impl<
-        EG: Numeric,
-        ES: Numeric,
-        GMM: global::Matmul<
-            EG,
-            ES,
-            global::tensor_view::LhsLoader<EG, ES>,
-            global::tensor_view::RhsLoader<EG, ES>,
-            global::tensor_view::Unloader<EG>,
-        >,
-    > MatmulKernel<EG, EG> for Matmul<EG, ES, GMM>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulKernel<EG, EG>
+    for Matmul<EG, ES, GMM>
 {
     type Config = Config<GMM::Config>;
 
@@ -109,17 +81,8 @@ impl<
     }
 }
 
-impl<
-        EG: Numeric,
-        ES: Numeric,
-        GMM: global::Matmul<
-            EG,
-            ES,
-            global::tensor_view::LhsLoader<EG, ES>,
-            global::tensor_view::RhsLoader<EG, ES>,
-            global::tensor_view::Unloader<EG>,
-        >,
-    > MatmulLaunch<EG, EG> for Matmul<EG, ES, GMM>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulLaunch<EG, EG>
+    for Matmul<EG, ES, GMM>
 {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,

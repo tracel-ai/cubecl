@@ -19,19 +19,13 @@ pub trait Algorithm<EG: Numeric> {
     type StageMatmul: stage::Matmul<
             Self::ES,
             Self::EG,
-            <Self::LhsLoader as global::Loader<Self::EG, Self::ES>>::StageReader,
-            <Self::RhsLoader as global::Loader<Self::EG, Self::ES>>::StageReader,
+            <<Self::GlobalMatmul as global::Matmul<Self::EG, Self::ES>>::Lhs as global::Loader<Self::EG, Self::ES>>::StageReader,
+            <<Self::GlobalMatmul as global::Matmul<Self::EG, Self::ES>>::Rhs as global::Loader<Self::EG, Self::ES>>::StageReader,
         > + MatmulKernel<Self::ES, Self::EG>;
 
-    type LhsLoader: global::Loader<Self::EG, Self::ES>;
-    type RhsLoader: global::Loader<Self::EG, Self::ES>;
-    type Unloader: global::Unloader<Self::EG>;
     type GlobalMatmul: global::Matmul<
         Self::EG,
         Self::ES,
-        Self::LhsLoader,
-        Self::RhsLoader,
-        Self::Unloader,
     >;
 
     type BatchMatmul: batch::Matmul<Self::EG> + MatmulKernel<Self::EG, Self::EG>;

@@ -29,23 +29,20 @@ pub struct Matmul<
 }
 
 #[cube]
-impl<EG, ES, SMM>
-    global::Matmul<
-        EG,
-        ES,
-        tensor_view::LhsLoader<EG, ES>,
-        tensor_view::RhsLoader<EG, ES>,
-        tensor_view::Unloader<EG>,
-    > for Matmul<EG, ES, SMM>
+impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
     SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
 {
+    type Lhs = tensor_view::LhsLoader<EG, ES>;
+    type Rhs = tensor_view::RhsLoader<EG, ES>;
+    type Out = tensor_view::Unloader<EG>;
+
     fn execute(
-        mut lhs_loader: tensor_view::LhsLoader<EG, ES>,
-        mut rhs_loader: tensor_view::RhsLoader<EG, ES>,
-        mut out_unloader: tensor_view::Unloader<EG>,
+        mut lhs_loader: Self::Lhs,
+        mut rhs_loader: Self::Rhs,
+        mut out_unloader: Self::Out,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {

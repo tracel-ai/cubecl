@@ -31,9 +31,6 @@ impl<EG: Numeric> base::Algorithm<EG> for Algorithm<EG> {
         Self::StageSize,
     >;
 
-    type LhsLoader = global::tensor_view::LhsLoader<Self::EG, Self::ES>;
-    type RhsLoader = global::tensor_view::RhsLoader<Self::EG, Self::ES>;
-    type Unloader = global::tensor_view::Unloader<Self::EG>;
     type GlobalMatmul = global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
 
     type BatchMatmul = batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;

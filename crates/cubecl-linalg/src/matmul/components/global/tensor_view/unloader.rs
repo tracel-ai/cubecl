@@ -18,11 +18,8 @@ impl<EG: Numeric> global::Unloader<EG> for Unloader<EG> {
     fn as_stage_writer<G: global::Config>(this: Self) -> Self::StageWriter {
         this
     }
-}
 
-#[cube]
-impl<EG: Numeric> Unloader<EG> {
-    pub fn new(
+    fn new(
         tensor: &mut Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
