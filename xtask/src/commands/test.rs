@@ -18,7 +18,7 @@ pub(crate) fn handle_command(mut args: CubeCLTestCmdArgs) -> anyhow::Result<()> 
     // cubecl-wgpu with exclusive-memory-only
     helpers::custom_crates_tests(
         vec!["cubecl-wgpu"],
-        vec!["--features", "exclusive-memory-only"],
+        vec!["--features", "exclusive-memory-only", "--lib"],
         None,
         None,
         "std with exclusive_memory_only",

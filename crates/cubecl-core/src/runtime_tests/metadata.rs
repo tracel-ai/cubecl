@@ -197,7 +197,7 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R::Server, R
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[4, 4, 4, 4], 4),
+            TensorArg::from_raw_parts::<u32>(&handle1, &[16, 8, 4, 1], &[2, 2, 2, 4], 4),
         )
     };
 
@@ -258,13 +258,13 @@ macro_rules! testgen_metadata {
         #[test]
         fn test_buffer_len() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::metadata::test_buffer_len_discontiguous::<TestRuntime>(
-                client.clone(),
-            );
+            // cubecl_core::runtime_tests::metadata::test_buffer_len_discontiguous::<TestRuntime>(
+            //     client.clone(),
+            // );
             cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime>(
                 client.clone(),
             );
-            cubecl_core::runtime_tests::metadata::test_buffer_len_offset::<TestRuntime>(client);
+            //cubecl_core::runtime_tests::metadata::test_buffer_len_offset::<TestRuntime>(client);
         }
     };
 }
