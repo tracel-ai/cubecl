@@ -75,7 +75,6 @@ impl WgpuCompiler for WgslCompiler {
         mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let source = &kernel.source;
-        let repr = kernel.repr.unwrap();
         let module = match mode {
             ExecutionMode::Checked => server.device.create_shader_module(ShaderModuleDescriptor {
                 label: None,
@@ -91,39 +90,51 @@ impl WgpuCompiler for WgslCompiler {
             },
         };
 
-        let num_bindings = repr.inputs.len() + repr.outputs.len() + repr.named.len();
-        let bindings = (0..num_bindings)
-            .map(|i| BindGroupLayoutEntry {
-                binding: i as u32,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            })
-            .collect::<Vec<_>>();
-        let layout = server
-            .device
-            .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: None,
-                entries: &bindings,
-            });
-        let layout = server
-            .device
-            .create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&layout],
-                push_constant_ranges: &[],
-            });
+        let layout = kernel.repr.map(|repr| {
+            let bindings = repr
+                .inputs
+                .iter()
+                .chain(repr.outputs.iter())
+                .chain(repr.named.iter().map(|it| &it.1))
+                .enumerate();
+            let bindings = bindings
+                .map(|(i, _binding)| BindGroupLayoutEntry {
+                    binding: i as u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        #[cfg(not(exclusive_memory_only))]
+                        ty: BufferBindingType::Storage { read_only: false },
+                        #[cfg(exclusive_memory_only)]
+                        ty: BufferBindingType::Storage {
+                            read_only: matches!(_binding.visibility, Visibility::Read),
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                })
+                .collect::<Vec<_>>();
+            let layout = server
+                .device
+                .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &bindings,
+                });
+            server
+                .device
+                .create_pipeline_layout(&PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[&layout],
+                    push_constant_ranges: &[],
+                })
+        });
 
         Arc::new(
             server
                 .device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: None,
-                    layout: Some(&layout),
+                    layout: layout.as_ref(),
                     module: &module,
                     entry_point: "main",
                     compilation_options: wgpu::PipelineCompilationOptions {
