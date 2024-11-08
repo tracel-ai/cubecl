@@ -20,7 +20,7 @@ macro_rules! testgen_matmul_internal {
             StageDim,
         };
         use std::marker::PhantomData;
-        use cubecl_linalg::matmul::kernels::cmma_matmul::{MatmulLaunchDispatch, AdvancedConfig};
+        use cubecl_linalg::matmul::kernels::cmma_matmul::{AdvancedConfig};
         use cubecl_linalg::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_internal;
         use cubecl_linalg::matmul::components::MatmulKernel;
         use cubecl_core::prelude::*;

@@ -17,8 +17,8 @@ pub trait MatmulKernel<I: Numeric, O: Numeric> {
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<(), &str>;
 
-    fn make_config<EG: Numeric>(
-        problem: &MatmulProblem<EG>,
+    fn make_config(
+        problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,

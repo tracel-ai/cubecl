@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use cubecl_core::prelude::*;
 
 use cubecl_core::{
@@ -125,7 +123,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
     let out_line_size =
         tensor_line_size(available_vectorizations, out.shape, out.strides, rank - 1);
 
-    let problem = MatmulProblem::<D::EG> {
+    let problem = MatmulProblem {
         m: m as usize,
         n: n as usize,
         k: k as usize,
@@ -141,7 +139,6 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
         lhs_line_size,
         rhs_line_size,
         out_line_size,
-        _element: PhantomData,
     };
 
     let cube_dim = D::cube_dim();
@@ -167,7 +164,7 @@ fn launch_matmul<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
     lhs: TensorHandleRef<'_, R>,
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
-    problem: MatmulProblem<D::EG>,
+    problem: MatmulProblem,
     cube_dim: CubeDim,
     cube_count: CubeCount,
     advanced_config: AdvancedConfig,

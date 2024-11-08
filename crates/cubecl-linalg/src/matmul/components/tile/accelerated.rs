@@ -106,13 +106,13 @@ macro_rules! instruction {
                 check_availability::<I, O, R>(Self::M, Self::N, Self::K, client)
             }
 
-            fn make_config<EG: Numeric>(
-                problem: &MatmulProblem<EG>,
+            fn make_config(
+                problem: &MatmulProblem,
                 cube_dim: &CubeDim,
                 cube_count: &CubeCount,
                 advanced_config: &AdvancedConfig,
             ) -> Self::Config {
-                make_config::<EG>(problem, cube_dim, cube_count, advanced_config)
+                make_config(problem, cube_dim, cube_count, advanced_config)
             }
         }
     };
@@ -233,8 +233,8 @@ fn check_plane_dim(actual_plane_dim: u32) {
     );
 }
 
-fn make_config<EG: Numeric>(
-    problem: &MatmulProblem<EG>,
+fn make_config(
+    problem: &MatmulProblem,
     cube_dim: &CubeDim,
     _cube_count: &CubeCount,
     advanced_config: &AdvancedConfig,

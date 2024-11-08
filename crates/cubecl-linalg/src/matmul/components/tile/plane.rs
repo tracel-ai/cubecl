@@ -351,8 +351,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
         Ok(())
     }
 
-    fn make_config<EG: Numeric>(
-        problem: &MatmulProblem<EG>,
+    fn make_config(
+        problem: &MatmulProblem,
         cube_dim: &CubeDim,
         _cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,

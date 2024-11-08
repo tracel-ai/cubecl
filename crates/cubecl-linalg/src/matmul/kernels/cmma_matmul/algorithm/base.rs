@@ -37,10 +37,10 @@ pub trait Algorithm<EG: Numeric> {
     type BatchMatmul: batch::Matmul<Self::EG> + MatmulKernel<Self::EG, Self::EG>;
 
     fn cube_dim() -> CubeDim;
-    fn cube_count(problem: &MatmulProblem<Self::EG>) -> CubeCount;
+    fn cube_count(problem: &MatmulProblem) -> CubeCount;
 
     fn make_config(
-        problem: &MatmulProblem<Self::EG>,
+        problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,

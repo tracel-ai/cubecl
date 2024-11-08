@@ -42,7 +42,7 @@ impl<EG: Numeric> base::Algorithm<EG> for Algorithm<EG> {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
     }
 
-    fn cube_count(problem: &MatmulProblem<EG>) -> CubeCount {
+    fn cube_count(problem: &MatmulProblem) -> CubeCount {
         let m_stage = Self::StageSize::NUM_M * Self::TileMatmul::M;
         let n_stage = Self::StageSize::NUM_N * Self::TileMatmul::K;
         let cubes_needed_m = (problem.m as u32 + m_stage - 1) / m_stage;

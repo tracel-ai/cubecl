@@ -103,8 +103,8 @@ where
         SMM::check_availability::<R>(client)
     }
 
-    fn make_config<E: Numeric>(
-        problem: &MatmulProblem<E>,
+    fn make_config(
+        problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,

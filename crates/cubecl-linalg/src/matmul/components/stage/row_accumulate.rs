@@ -156,8 +156,8 @@ where
         TMM::check_availability::<R>(client)
     }
 
-    fn make_config<EG: Numeric>(
-        problem: &MatmulProblem<EG>,
+    fn make_config(
+        problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
