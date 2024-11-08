@@ -7,8 +7,8 @@ use cubecl_core::{
 use crate::tensor::TensorHandle;
 
 use super::kernels::{
-    matmul,
     cmma_old::{self, config::PredefinedCmmaConfig, is_available, CmmaConfig},
+    matmul,
     tiling2d::{self, Tiling2dConfig},
 };
 

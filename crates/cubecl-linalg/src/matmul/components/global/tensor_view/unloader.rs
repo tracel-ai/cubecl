@@ -19,12 +19,7 @@ impl<EG: Numeric> global::Unloader<EG> for Unloader<EG> {
         this
     }
 
-    fn new(
-        tensor: &mut Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-    ) -> Self {
+    fn new(tensor: &mut Tensor<Line<EG>>, x_offset: u32, y_offset: u32, batch_offset: u32) -> Self {
         Unloader::<EG> {
             tensor_view: TensorWriter::new(tensor, x_offset, y_offset, batch_offset),
         }
