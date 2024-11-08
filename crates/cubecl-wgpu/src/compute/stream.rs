@@ -8,7 +8,7 @@ use cubecl_runtime::{storage::BindingResource, TimestampsError, TimestampsResult
 use wgpu::ComputePipeline;
 
 #[derive(Debug)]
-pub struct Stream {
+pub struct WgpuStream {
     pass: Option<wgpu::ComputePass<'static>>,
     encoder: wgpu::CommandEncoder,
     pub timestamps: KernelTimestamps,
@@ -25,7 +25,7 @@ pub enum PipelineDispatch<C: WgpuCompiler> {
     Dynamic(BindingResource<WgpuServer<C>>),
 }
 
-impl Stream {
+impl WgpuStream {
     pub fn new(
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,

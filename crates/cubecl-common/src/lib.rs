@@ -25,4 +25,7 @@ pub mod reader;
 /// Future utils with a compatible API for native, non-std and wasm environments.
 pub mod future;
 
+/// todo
+pub mod stream;
+
 extern crate alloc;

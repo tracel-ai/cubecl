@@ -1,7 +1,7 @@
 use std::{future::Future, marker::PhantomData, num::NonZero, time::Duration};
 
 use super::stream::PipelineDispatch;
-use super::stream::Stream;
+use super::stream::WgpuStream;
 use super::WgpuStorage;
 use crate::compiler::base::WgpuCompiler;
 use crate::timestamps::KernelTimestamps;
@@ -28,7 +28,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     logger: DebugLogger,
     storage_locked: MemoryLock,
     duration_profiled: Option<Duration>,
-    stream: Stream,
+    stream: WgpuStream,
     _compiler: PhantomData<C>,
 }
 
@@ -47,7 +47,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             timestamps.enable(&device);
         }
 
-        let stream = Stream::new(device.clone(), queue.clone(), timestamps, tasks_max);
+        let stream = WgpuStream::new(device.clone(), queue.clone(), timestamps, tasks_max);
 
         Self {
             memory_management,
