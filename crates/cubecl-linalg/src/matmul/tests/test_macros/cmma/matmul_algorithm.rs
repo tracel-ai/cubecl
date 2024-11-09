@@ -64,7 +64,7 @@ macro_rules! matmul_test_define {
 
             let advanced_config = AdvancedConfig::default();
 
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -118,7 +118,7 @@ macro_rules! matmul_test_define {
 
             let advanced_config = AdvancedConfig::default();
 
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -168,7 +168,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -218,7 +218,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -268,7 +268,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -318,7 +318,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -368,7 +368,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -422,7 +422,7 @@ macro_rules! matmul_test_define {
                 ..Default::default()
             };
 
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -476,7 +476,7 @@ macro_rules! matmul_test_define {
                 ..Default::default()
             };
 
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -526,7 +526,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -576,7 +576,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -626,7 +626,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -676,7 +676,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -726,7 +726,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -776,7 +776,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -826,7 +826,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -876,7 +876,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -926,7 +926,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -976,7 +976,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1030,7 +1030,7 @@ macro_rules! matmul_test_define {
                 ..Default::default()
             };
 
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1083,7 +1083,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1136,7 +1136,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1189,7 +1189,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (Some(MatrixLayout::ColMajor), None),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1242,7 +1242,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (Some(MatrixLayout::RowMajor), None),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1295,7 +1295,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1348,7 +1348,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1401,7 +1401,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (Some(MatrixLayout::ColMajor), None),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1454,7 +1454,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (Some(MatrixLayout::RowMajor), None),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1507,7 +1507,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1560,7 +1560,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1613,7 +1613,7 @@ macro_rules! matmul_test_define {
                 enforced_tile_layout: (Some(MatrixLayout::RowMajor), Some(MatrixLayout::ColMajor)),
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1663,7 +1663,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1713,7 +1713,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1763,7 +1763,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1813,7 +1813,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1863,7 +1863,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1913,7 +1913,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -1963,7 +1963,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2013,7 +2013,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2063,7 +2063,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2113,7 +2113,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2166,7 +2166,7 @@ macro_rules! matmul_test_define {
                 tiling_order: TilingOrderConfig::YMajor,
                 ..Default::default()
             };
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2216,7 +2216,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2266,7 +2266,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2316,7 +2316,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2366,7 +2366,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2416,7 +2416,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2466,7 +2466,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2516,7 +2516,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2566,7 +2566,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2616,7 +2616,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2666,7 +2666,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2716,7 +2716,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2766,7 +2766,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2816,7 +2816,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2866,7 +2866,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2916,7 +2916,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
@@ -2966,7 +2966,7 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig::default();
-            test_matmul_internal::<Test, $eg, $es, TestRuntime>(
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
                 advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),

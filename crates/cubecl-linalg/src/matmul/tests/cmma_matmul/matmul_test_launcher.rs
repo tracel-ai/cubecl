@@ -28,7 +28,7 @@ struct TensorRawParts<F: Float + CubeElement> {
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_internal<A, EG, ES, R>(
+pub fn test_matmul_algorithm<A, EG, ES, R>(
     problem: MatmulProblem,
     advanced_config: AdvancedConfig,
     device: &R::Device,

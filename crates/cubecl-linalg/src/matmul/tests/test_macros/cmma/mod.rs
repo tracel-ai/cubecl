@@ -24,7 +24,7 @@ macro_rules! testgen_cmma_matmul {
                     MatmulProblem, MatrixLayout,
                 },
                 kernels::matmul::{self, AdvancedConfig},
-                tests::cmma_matmul::matmul_test_launcher::test_matmul_internal,
+                tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm,
             };
             use cubecl_core::prelude::*;
 
@@ -79,7 +79,7 @@ macro_rules! testgen_plane_mma {
                     MatmulProblem, MatrixLayout,
                 },
                 kernels::matmul::{self, AdvancedConfig},
-                tests::cmma_matmul::matmul_test_launcher::test_matmul_internal,
+                tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm,
             };
             use cubecl_core::prelude::*;
 
