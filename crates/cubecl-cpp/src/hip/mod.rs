@@ -9,14 +9,14 @@ use crate::shared::{
 const ROCWMMA_NAMESPACE: &str = "rocwmma";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct WmmaIntrinsic {}
+pub struct WmmaIntrinsicCompiler {}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Hip<M: WmmaCompiler<Self>> {
+pub struct HipDialect<M: WmmaCompiler<Self>> {
     _wmma_compiler: PhantomData<M>,
 }
 
-impl<M: WmmaCompiler<Self>> Dialect for Hip<M> {
+impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
     type WmmaCompiler = M;
 
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -56,9 +56,9 @@ impl<M: WmmaCompiler<Self>> Dialect for Hip<M> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct WmmaApiHip {}
+pub struct RocWmmaCompiler {}
 
-impl WmmaCompiler<Hip<Self>> for WmmaApiHip {
+impl WmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
     fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <rocwmma/rocwmma.hpp>\n")
     }
@@ -68,28 +68,28 @@ impl WmmaCompiler<Hip<Self>> for WmmaApiHip {
     }
 
     fn compile_fragment_ident(
-        ident: &FragmentIdent<Hip<Self>>,
+        ident: &FragmentIdent<HipDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment_ident(ROCWMMA_NAMESPACE, ident, f)
     }
 
     fn compile_fragment_layout(
-        layout: &FragmentLayout<Hip<Self>>,
+        layout: &FragmentLayout<HipDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment_layout(ROCWMMA_NAMESPACE, layout, f)
     }
 
     fn compile_fragment(
-        fragment: &Fragment<Hip<Self>>,
+        fragment: &Fragment<HipDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment(ROCWMMA_NAMESPACE, fragment, f)
     }
 
     fn compile_instruction(
-        instruction: &WmmaInstruction<Hip<Self>>,
+        instruction: &WmmaInstruction<HipDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_instruction(ROCWMMA_NAMESPACE, instruction, f)
@@ -97,9 +97,9 @@ impl WmmaCompiler<Hip<Self>> for WmmaApiHip {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct WmmaIntrinsicHip {}
+pub struct WmmaIntrinsic {}
 
-impl WmmaCompiler<Hip<Self>> for WmmaIntrinsicHip {
+impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
@@ -110,7 +110,7 @@ impl WmmaCompiler<Hip<Self>> for WmmaIntrinsicHip {
     }
 
     fn compile_fragment_ident(
-        _ident: &FragmentIdent<Hip<Self>>,
+        _ident: &FragmentIdent<HipDialect<Self>>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         // nothing to do
@@ -118,7 +118,7 @@ impl WmmaCompiler<Hip<Self>> for WmmaIntrinsicHip {
     }
 
     fn compile_fragment_layout(
-        _layout: &FragmentLayout<Hip<Self>>,
+        _layout: &FragmentLayout<HipDialect<Self>>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         // nothing to do
@@ -126,7 +126,7 @@ impl WmmaCompiler<Hip<Self>> for WmmaIntrinsicHip {
     }
 
     fn compile_fragment(
-        fragment: &Fragment<Hip<Self>>,
+        fragment: &Fragment<HipDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match fragment.ident {
@@ -137,7 +137,7 @@ impl WmmaCompiler<Hip<Self>> for WmmaIntrinsicHip {
     }
 
     fn compile_instruction(
-        instruction: &WmmaInstruction<Hip<Self>>,
+        instruction: &WmmaInstruction<HipDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match instruction {

@@ -1,6 +1,6 @@
 use std::{ffi::CStr, mem::MaybeUninit, str::FromStr};
 
-use cubecl_cpp::{register_supported_types, HipCompiler};
+use cubecl_cpp::register_supported_types;
 
 use cubecl_core::{Feature, MemoryConfiguration, Runtime};
 use cubecl_hip_sys::HIP_SUCCESS;
@@ -14,7 +14,7 @@ use cubecl_runtime::{
 use crate::{
     arch::AMDArchitecture,
     compute::{HipContext, HipServer, HipStorage},
-    device::HipDevice,
+    device::HipDevice, HipCompiler,
 };
 
 /// The values that control how a HIP Runtime will perform its calculations.

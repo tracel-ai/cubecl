@@ -8,11 +8,11 @@ use crate::shared::{
 const WMMA_NAMESPACE: &str = "nvcuda::wmma";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Cuda<M: WmmaCompiler<Self>> {
+pub struct CudaDialect<M: WmmaCompiler<Self>> {
     _wmma_compiler: PhantomData<M>,
 }
 
-impl<M: WmmaCompiler<Self>> Dialect for Cuda<M> {
+impl<M: WmmaCompiler<Self>> Dialect for CudaDialect<M> {
     type WmmaCompiler = M;
 
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -50,9 +50,9 @@ impl<M: WmmaCompiler<Self>> Dialect for Cuda<M> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct WmmaApiCuda {}
+pub struct CudaWmmaCompiler {}
 
-impl WmmaCompiler<Cuda<Self>> for WmmaApiCuda {
+impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
     fn includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
@@ -62,28 +62,28 @@ impl WmmaCompiler<Cuda<Self>> for WmmaApiCuda {
     }
 
     fn compile_fragment_ident(
-        ident: &FragmentIdent<Cuda<Self>>,
+        ident: &FragmentIdent<CudaDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment_ident(WMMA_NAMESPACE, ident, f)
     }
 
     fn compile_fragment_layout(
-        layout: &FragmentLayout<Cuda<Self>>,
+        layout: &FragmentLayout<CudaDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment_layout(WMMA_NAMESPACE, layout, f)
     }
 
     fn compile_fragment(
-        fragment: &Fragment<Cuda<Self>>,
+        fragment: &Fragment<CudaDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment(WMMA_NAMESPACE, fragment, f)
     }
 
     fn compile_instruction(
-        instruction: &WmmaInstruction<Cuda<Self>>,
+        instruction: &WmmaInstruction<CudaDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_instruction(WMMA_NAMESPACE, instruction, f)

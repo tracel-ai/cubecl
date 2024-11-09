@@ -14,6 +14,10 @@ pub mod runtime;
 pub use device::*;
 #[cfg(target_os = "linux")]
 pub use runtime::HipRuntime;
+#[cfg(feature = "rocwmma")]
+pub type HipCompiler = cubecl_cpp::HipCompilerRocWmma;
+#[cfg(feature = "wmma_intrinsic")]
+pub type HipCompiler = cubecl_cpp::HipCompilerInstrinsic;
 
 #[cfg(target_os = "linux")]
 #[cfg(test)]

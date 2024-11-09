@@ -15,8 +15,11 @@ default = [
   "cubecl-runtime/default",
   "cubecl-common/default",
   "cubecl-core/default",
+  "rocwmma",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+rocwmma = []
+wmma_intrinsic = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.4.0", dev-dependencies = false }
