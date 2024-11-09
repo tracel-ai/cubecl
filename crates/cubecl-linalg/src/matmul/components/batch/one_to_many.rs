@@ -32,8 +32,11 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
         let rank = out.rank();
         let shape_x = out.shape(rank - 2);
         let shape_y = out.shape(rank - 1);
-        let mut shape_z = 1;
 
+        let k_range = (0, lhs.shape(rank - 1));
+        let gmm_config = config.to_gmm_config();
+
+        let mut shape_z = 1;
         for b in 0..rank - 2 {
             shape_z *= out.shape(b);
         }
@@ -46,34 +49,32 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
         let stage_y = config.stage_dim(Ident::Out).num_elements_y_dim();
         let stage_z = 1;
 
-        let num_stages_x = (shape_x + stage_x - 1) / stage_x;
-        let num_stages_y = (shape_y + stage_y - 1) / stage_y;
-        let num_stages_z = (shape_z + stage_z - 1) / stage_z;
-
-        // Each cube must do (span_x, span_y, span_z) times the matmul
-        let span_x = num_stages_x / cubes_x;
-        let span_y = num_stages_y / cubes_y;
-        let span_z = num_stages_z / cubes_z;
-
-        let cube_offset_x = CUBE_POS_X * span_x;
-        let cube_offset_y = CUBE_POS_Y * span_y;
-        let cube_offset_z = CUBE_POS_Z * span_z;
-
-        let k_range = (0, lhs.shape(rank - 1));
-        let gmm_config = config.to_gmm_config();
+        let (start_x, end_x, step_x) = get_range(shape_x, stage_x, CUBE_POS_X, cubes_x);
+        let (start_y, end_y, step_y) = get_range(shape_y, stage_y, CUBE_POS_Y, cubes_y);
+        let (start_z, end_z, step_z) = get_range(shape_z, stage_z, CUBE_POS_Z, cubes_z);
 
         // Outer is batch, as there's no hope of hitting L2 cache for batch
-        for nth_batch in cube_offset_z..cube_offset_z + span_z {
-            // Row/col/swizzle shall impact here. This is row major
-            for x_offset in cube_offset_x..cube_offset_x + span_x {
-                for y_offset in cube_offset_y..cube_offset_y + span_y {
+        for z_iter in range_stepped(start_z, end_z, step_z) {
+            // TODO: Row/col/swizzle shall impact here. This is row major
+            for x_iter in range_stepped(start_x, end_x, step_x) {
+                for y_iter in range_stepped(start_y, end_y, step_y) {
                     gmm_execute::<EG, ES, GMM>(
-                        lhs, rhs, out, x_offset, y_offset, nth_batch, k_range, gmm_config,
+                        lhs, rhs, out, x_iter, y_iter, z_iter, k_range, gmm_config,
                     );
                 }
             }
         }
     }
+}
+
+#[cube]
+fn get_range(shape: u32, stage: u32, cube_pos: u32, cubes: u32) -> (u32, u32, u32) {
+    let num_stages = (shape + stage - 1) / stage;
+    let num = (num_stages + cubes - 1) / cubes;
+    let span = num * stage;
+    let start = cube_pos * span;
+    let end = Min::min(start + span, shape);
+    (start, end, stage)
 }
 
 impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulKernel<EG, EG>
@@ -165,7 +166,7 @@ impl<G: global::Config> batch::Config for Config<G> {
     }
 
     fn max_batches(&self) -> u32 {
-        self.cube_count_z
+        u32::maximum_value()
     }
 }
 

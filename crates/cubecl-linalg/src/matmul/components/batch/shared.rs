@@ -5,6 +5,8 @@ use crate::matmul::components::global;
 use crate::matmul::components::global::{Loader, Unloader};
 
 #[cube]
+/// Execute global matmul on lhs, rhs, writing in out.
+/// x and y offsets are absolute rows and columns
 pub(crate) fn gmm_execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
     lhs: &Tensor<Line<EG>>,
     rhs: &Tensor<Line<EG>>,
