@@ -37,6 +37,7 @@ cubecl-spirv = { path = "../cubecl-spirv", version = "0.4.0", optional = true }
 bytemuck = { workspace = true }
 wgpu = { version = "22.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
 
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 async-channel = { workspace = true }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }

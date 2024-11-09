@@ -67,7 +67,7 @@ impl Default for RuntimeOptions {
         #[cfg(test)]
         const DEFAULT_MAX_TASKS: usize = 1;
         #[cfg(not(test))]
-        const DEFAULT_MAX_TASKS: usize = 16;
+        const DEFAULT_MAX_TASKS: usize = 32;
 
         let tasks_max = match std::env::var("CUBECL_WGPU_MAX_TASKS") {
             Ok(value) => value

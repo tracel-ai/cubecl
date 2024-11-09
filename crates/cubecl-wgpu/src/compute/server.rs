@@ -1,8 +1,7 @@
 use std::{future::Future, marker::PhantomData, num::NonZero, time::Duration};
 
-use super::manager::WgpuStreamManager;
-use super::stream::PipelineDispatch;
 use super::WgpuStorage;
+use super::{processor::PipelineDispatch, s::WgpuS};
 use crate::compiler::base::WgpuCompiler;
 use crate::timestamps::KernelTimestamps;
 use alloc::sync::Arc;
@@ -28,7 +27,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     logger: DebugLogger,
     storage_locked: MemoryLock,
     duration_profiled: Option<Duration>,
-    stream: WgpuStreamManager,
+    stream: WgpuS<C>,
     _compiler: PhantomData<C>,
 }
 
@@ -47,7 +46,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             timestamps.enable(&device);
         }
 
-        let stream = WgpuStreamManager::new(device.clone(), queue.clone(), timestamps, tasks_max);
+        let stream = WgpuS::new(device.clone(), queue.clone(), timestamps, tasks_max);
 
         Self {
             memory_management,
@@ -105,9 +104,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
         let rb = self.get_resource(binding);
         let resource = rb.resource();
+
         // Clear compute pass.
         self.stream
-            .read_buffer(&resource.buffer, resource.offset(), resource.size())
+            .read_buffer(resource.buffer.clone(), resource.offset(), resource.size())
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
