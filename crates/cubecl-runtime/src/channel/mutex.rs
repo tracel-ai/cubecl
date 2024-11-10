@@ -41,9 +41,11 @@ where
         // Nb: The order here is really important - the mutex guard has to be dropped before
         // the future is polled. Just calling lock().read().await can deadlock.
         let fut = {
+            log::info!("Locked ...");
             let mut server = self.server.lock();
             server.read(handle)
         };
+        log::info!("Unlocked ...");
         fut.await
     }
 

@@ -10,7 +10,7 @@ use cubecl_common::future;
 use cubecl_core::{Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::DeviceProperties;
-use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
+use cubecl_runtime::{channel::MpscComputeChannel, client::ComputeClient, ComputeRuntime};
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
@@ -26,14 +26,14 @@ pub struct WgpuRuntime<C: WgpuCompiler = WgslCompiler>(PhantomData<C>);
 type Server = WgpuServer<WgslCompiler>;
 
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
-static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
+static RUNTIME: ComputeRuntime<WgpuDevice, Server, MpscComputeChannel<Server>> =
     ComputeRuntime::new();
 
 impl Runtime for WgpuRuntime<WgslCompiler> {
     type Compiler = WgslCompiler;
     type Server = WgpuServer<WgslCompiler>;
 
-    type Channel = MutexComputeChannel<WgpuServer<WgslCompiler>>;
+    type Channel = MpscComputeChannel<WgpuServer<WgslCompiler>>;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
@@ -67,7 +67,7 @@ impl Default for RuntimeOptions {
         #[cfg(test)]
         const DEFAULT_MAX_TASKS: usize = 1;
         #[cfg(not(test))]
-        const DEFAULT_MAX_TASKS: usize = 32;
+        const DEFAULT_MAX_TASKS: usize = 64;
 
         let tasks_max = match std::env::var("CUBECL_WGPU_MAX_TASKS") {
             Ok(value) => value
@@ -137,7 +137,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
 pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     setup: WgpuSetup,
     options: RuntimeOptions,
-) -> ComputeClient<WgpuServer<C>, MutexComputeChannel<WgpuServer<C>>> {
+) -> ComputeClient<WgpuServer<C>, MpscComputeChannel<WgpuServer<C>>> {
     let limits = setup.device.limits();
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as u64,
@@ -157,7 +157,7 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         setup.queue,
         options.tasks_max,
     );
-    let channel = MutexComputeChannel::new(server);
+    let channel = MpscComputeChannel::new(server);
 
     let features = setup.adapter.features();
     let mut device_props = DeviceProperties::new(&[], mem_props);

@@ -10,7 +10,7 @@ use ash::{
     },
 };
 use cubecl_core::{
-    channel::MutexComputeChannel,
+    channel::MpscComputeChannel,
     client::ComputeClient,
     future,
     ir::{Elem, FloatKind, IntKind, UIntKind},
@@ -39,7 +39,7 @@ pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 type Server = WgpuServer<SpirvCompiler<GLCompute>>;
 
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
-static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
+static RUNTIME: ComputeRuntime<WgpuDevice, Server, MpscComputeChannel<Server>> =
     ComputeRuntime::new();
 
 impl WgpuCompiler for SpirvCompiler<GLCompute> {
@@ -339,7 +339,7 @@ impl Runtime for WgpuRuntime<VkSpirvCompiler> {
     type Compiler = VkSpirvCompiler;
     type Server = WgpuServer<VkSpirvCompiler>;
 
-    type Channel = MutexComputeChannel<WgpuServer<VkSpirvCompiler>>;
+    type Channel = MpscComputeChannel<WgpuServer<VkSpirvCompiler>>;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {

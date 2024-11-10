@@ -54,7 +54,7 @@ where
 {
     /// Create a new mpsc compute channel.
     pub fn new(mut server: Server) -> Self {
-        let (sender, receiver) = async_channel::unbounded();
+        let (sender, receiver) = async_channel::bounded(1);
 
         let _handle = thread::spawn(move || {
             // Run the whole procedure as one blocking future. This is much simpler than trying

@@ -1,3 +1,4 @@
+use async_channel::Sender;
 use cubecl_common::stream::StreamId;
 use std::{
     future::Future,
@@ -17,7 +18,7 @@ use wgpu::ComputePipeline;
 
 #[derive(Debug)]
 pub struct WgpuS<C: WgpuCompiler> {
-    caller: std::sync::mpsc::SyncSender<Message<C>>,
+    caller: Sender<Message<C>>,
     should_flush: Arc<AtomicBool>,
 }
 
@@ -52,7 +53,7 @@ impl<C: WgpuCompiler> WgpuS<C> {
             }),
         );
 
-        self.caller.send(msg).unwrap();
+        self.caller.send_blocking(msg).unwrap();
         self.should_flush
             .swap(false, std::sync::atomic::Ordering::Relaxed)
     }
@@ -63,7 +64,7 @@ impl<C: WgpuCompiler> WgpuS<C> {
         offset: u64,
         size: u64,
     ) -> impl Future<Output = Vec<u8>> + 'static {
-        let (sender, rev) = async_channel::bounded(1);
+        let (sender, rev) = async_channel::bounded(10);
         let msg = Message::new(
             StreamId::current(),
             Task::Sync(SyncTask::Read {
@@ -74,7 +75,7 @@ impl<C: WgpuCompiler> WgpuS<C> {
             }),
         );
 
-        self.caller.send(msg).unwrap();
+        self.caller.send_blocking(msg).unwrap();
 
         async move {
             match rev.recv().await {
@@ -87,13 +88,13 @@ impl<C: WgpuCompiler> WgpuS<C> {
     pub fn sync_elapsed(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = TimestampsResult> + Send + 'static>> {
-        let (sender, rev) = async_channel::bounded(1);
+        let (sender, rev) = async_channel::bounded(10);
         let msg = Message::new(
             StreamId::current(),
             Task::Sync(SyncTask::SyncElapsed { callback: sender }),
         );
 
-        self.caller.send(msg).unwrap();
+        self.caller.send_blocking(msg).unwrap();
 
         Box::pin(async move {
             match rev.recv().await {
@@ -104,13 +105,13 @@ impl<C: WgpuCompiler> WgpuS<C> {
     }
 
     pub fn sync(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        let (sender, rev) = async_channel::bounded(1);
+        let (sender, rev) = async_channel::bounded(10);
         let msg = Message::new(
             StreamId::current(),
             Task::Sync(SyncTask::Sync { callback: sender }),
         );
 
-        self.caller.send(msg).unwrap();
+        self.caller.send_blocking(msg).unwrap();
 
         Box::pin(async move {
             match rev.recv().await {
@@ -122,12 +123,12 @@ impl<C: WgpuCompiler> WgpuS<C> {
 
     pub fn enable_timestamps(&mut self) {
         let msg = Message::new(StreamId::current(), Task::EnableTimestamp);
-        self.caller.send(msg).unwrap();
+        self.caller.send_blocking(msg).unwrap();
     }
 
     pub fn disable_timestamps(&mut self) {
         let msg = Message::new(StreamId::current(), Task::DisableTimestamp);
-        self.caller.send(msg).unwrap();
+        self.caller.send_blocking(msg).unwrap();
     }
 
     pub fn flush(&mut self) {
