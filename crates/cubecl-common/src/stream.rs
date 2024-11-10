@@ -20,6 +20,7 @@ impl StreamId {
 
     #[cfg(feature = "std")]
     fn from_current_thread() -> u64 {
+        return 0;
         use core::hash::Hash;
 
         std::thread_local! {

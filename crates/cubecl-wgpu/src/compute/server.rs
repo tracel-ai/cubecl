@@ -1,7 +1,9 @@
 use std::{future::Future, marker::PhantomData, num::NonZero, time::Duration};
 
+use super::manager::WgpuStreamManager;
+use super::processor::PipelineDispatch;
+use super::s::WgpuS;
 use super::WgpuStorage;
-use super::{processor::PipelineDispatch, s::WgpuS};
 use crate::compiler::base::WgpuCompiler;
 use crate::timestamps::KernelTimestamps;
 use alloc::sync::Arc;
@@ -28,6 +30,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     storage_locked: MemoryLock,
     duration_profiled: Option<Duration>,
     stream: WgpuS<C>,
+    // stream: WgpuStreamManager,
     _compiler: PhantomData<C>,
 }
 
@@ -47,6 +50,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
 
         let stream = WgpuS::new(device.clone(), queue.clone(), timestamps, tasks_max);
+        // let stream = WgpuStreamManager::new(device.clone(), queue.clone(), timestamps, tasks_max);
 
         Self {
             memory_management,

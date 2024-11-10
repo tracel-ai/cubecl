@@ -141,6 +141,7 @@ impl WgpuStream {
         offset: u64,
         size: u64,
     ) -> impl Future<Output = Vec<u8>> + 'static {
+        self.pass = None;
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
         let align = wgpu::COPY_BUFFER_ALIGNMENT;
@@ -167,7 +168,8 @@ impl WgpuStream {
                     .try_send(v)
                     .expect("Unable to send buffer slice result to async channel.");
             });
-        let poll = self.poll.start_polling();
+
+        self.device.poll(wgpu::MaintainBase::Wait);
 
         async move {
             receiver
@@ -175,8 +177,6 @@ impl WgpuStream {
                 .await
                 .expect("Unable to receive buffer slice result.")
                 .expect("Failed to map buffer");
-            // Can stop polling now.
-            drop(poll);
 
             let result = {
                 let data = staging_buffer.slice(..).get_mapped_range();
@@ -299,6 +299,7 @@ impl WgpuStream {
     }
 
     pub fn flush(&mut self) {
+        // log::info!("Flushing...");
         // End the current compute pass.
         self.pass = None;
         let new_encoder = create_encoder(&self.device);

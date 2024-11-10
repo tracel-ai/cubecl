@@ -23,7 +23,6 @@ pub struct WgpuStreamManager {
     streams: BTreeMap<StreamId, WgpuStream>,
     buffer2stream: BTreeMap<wgpu::Id<wgpu::Buffer>, StreamId>,
     stream2buffer: BTreeMap<StreamId, BTreeSet<wgpu::Id<wgpu::Buffer>>>,
-    read_stream: WgpuStream,
 }
 
 impl WgpuStreamManager {
@@ -33,12 +32,6 @@ impl WgpuStreamManager {
         timestamps: KernelTimestamps,
         tasks_max: usize,
     ) -> Self {
-        let read_stream = WgpuStream::new(
-            device.clone(),
-            queue.clone(),
-            timestamps.duplicate(&device),
-            tasks_max,
-        );
         Self {
             device,
             queue,
@@ -47,7 +40,6 @@ impl WgpuStreamManager {
             streams: BTreeMap::new(),
             buffer2stream: BTreeMap::new(),
             stream2buffer: BTreeMap::new(),
-            read_stream,
         }
     }
 
@@ -97,7 +89,7 @@ impl WgpuStreamManager {
 
         match self.streams.get_mut(&stream_id) {
             Some(stream) => stream.read_buffer(buffer, offset, size),
-            None => self.read_stream.read_buffer(buffer, offset, size),
+            None => panic!(""),
         }
     }
 
@@ -170,6 +162,7 @@ impl WgpuStreamManager {
         resources: &[BindingResource<WgpuServer<C>>],
         stream_id: StreamId,
     ) {
+        return;
         let mut flushes = Vec::new();
         let buffers = match self.stream2buffer.get_mut(&stream_id) {
             Some(val) => val,

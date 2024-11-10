@@ -17,7 +17,7 @@ use wgpu::ComputePipeline;
 
 #[derive(Debug)]
 pub struct WgpuS<C: WgpuCompiler> {
-    caller: async_channel::Sender<Message<C>>,
+    caller: std::sync::mpsc::SyncSender<Message<C>>,
     should_flush: Arc<AtomicBool>,
 }
 
@@ -52,7 +52,7 @@ impl<C: WgpuCompiler> WgpuS<C> {
             }),
         );
 
-        self.caller.send_blocking(msg).unwrap();
+        self.caller.send(msg).unwrap();
         self.should_flush
             .swap(false, std::sync::atomic::Ordering::Relaxed)
     }
@@ -74,7 +74,7 @@ impl<C: WgpuCompiler> WgpuS<C> {
             }),
         );
 
-        self.caller.send_blocking(msg).unwrap();
+        self.caller.send(msg).unwrap();
 
         async move {
             match rev.recv().await {
@@ -93,7 +93,7 @@ impl<C: WgpuCompiler> WgpuS<C> {
             Task::Sync(SyncTask::SyncElapsed { callback: sender }),
         );
 
-        self.caller.send_blocking(msg).unwrap();
+        self.caller.send(msg).unwrap();
 
         Box::pin(async move {
             match rev.recv().await {
@@ -110,7 +110,7 @@ impl<C: WgpuCompiler> WgpuS<C> {
             Task::Sync(SyncTask::Sync { callback: sender }),
         );
 
-        self.caller.send_blocking(msg).unwrap();
+        self.caller.send(msg).unwrap();
 
         Box::pin(async move {
             match rev.recv().await {
@@ -122,12 +122,12 @@ impl<C: WgpuCompiler> WgpuS<C> {
 
     pub fn enable_timestamps(&mut self) {
         let msg = Message::new(StreamId::current(), Task::EnableTimestamp);
-        self.caller.send_blocking(msg).unwrap();
+        self.caller.send(msg).unwrap();
     }
 
     pub fn disable_timestamps(&mut self) {
         let msg = Message::new(StreamId::current(), Task::DisableTimestamp);
-        self.caller.send_blocking(msg).unwrap();
+        self.caller.send(msg).unwrap();
     }
 
     pub fn flush(&mut self) {

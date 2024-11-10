@@ -1,4 +1,3 @@
-use async_channel::Sender;
 use cubecl_common::stream::StreamId;
 use cubecl_core::future::block_on;
 use std::{
@@ -15,7 +14,7 @@ use crate::compiler::base::WgpuCompiler;
 
 use super::{timestamps::KernelTimestamps, WgpuServer};
 use cubecl_runtime::{storage::BindingResource, TimestampsError, TimestampsResult};
-use wgpu::ComputePipeline;
+use wgpu::{ComputePipeline, SubmissionIndex};
 
 #[derive(Debug)]
 pub struct WgpuProcessor<C: WgpuCompiler> {
@@ -28,8 +27,7 @@ pub struct WgpuProcessor<C: WgpuCompiler> {
     queue: Arc<wgpu::Queue>,
     sync_buffer: Option<wgpu::Buffer>,
     compiler: PhantomData<C>,
-    deffered: Vec<SyncTask>,
-    reads: Vec<DeferredJob>,
+    deferred: Vec<DeferredJob>,
     should_flush: Arc<AtomicBool>,
     submitmax: usize,
     index: Option<wgpu::SubmissionIndex>,
@@ -124,17 +122,17 @@ impl<C: WgpuCompiler> WgpuProcessor<C> {
         let should_flush = Arc::new(AtomicBool::new(false));
 
         // #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: 32,
-            usage: wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::INDIRECT,
-            mapped_at_creation: false,
-        }));
+        // let sync_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+        //     label: None,
+        //     size: 32,
+        //     usage: wgpu::BufferUsages::COPY_DST
+        //         | wgpu::BufferUsages::STORAGE
+        //         | wgpu::BufferUsages::COPY_SRC
+        //         | wgpu::BufferUsages::INDIRECT,
+        //     mapped_at_creation: false,
+        // }));
         // #[cfg(not(target_family = "wasm"))]
-        // let sync_buffer = None;
+        let sync_buffer = None;
 
         Self {
             pass: None,
@@ -147,31 +145,32 @@ impl<C: WgpuCompiler> WgpuProcessor<C> {
             sync_buffer,
             compiler: PhantomData,
             should_flush,
-            deffered: Vec::new(),
             submitmax: 0,
             index: None,
-            reads: Vec::new(),
+            deferred: Vec::new(),
         }
     }
 
-    pub fn start(mut self) -> (Sender<Message<C>>, Arc<AtomicBool>) {
-        let (sender, receiver) = async_channel::bounded::<Message<C>>(1);
+    pub fn start(mut self) -> (std::sync::mpsc::SyncSender<Message<C>>, Arc<AtomicBool>) {
+        // let (sender, receiver) = async_channel::bounded::<Message<C>>(10);
+        let (sender, receiver) = std::sync::mpsc::sync_channel::<Message<C>>(self.tasks_max);
         let should_flush = self.should_flush.clone();
 
         let fut = async move {
-            let mut reveicing = BTreeSet::<StreamId>::new();
-
-            while let Ok(msg) = receiver.recv().await {
-                match &msg.task {
-                    Task::Sync(_) => {
-                        reveicing.remove(&msg.id);
+            loop {
+                match receiver.recv() {
+                    Ok(msg) => {
+                        self.on_task(msg.task, false).await;
                     }
-                    _ => {
-                        reveicing.insert(msg.id);
-                    }
-                };
-
-                self.on_task(msg.task, false).await;
+                    _ => return,
+                    // Err(err) => match err {
+                    //     std::sync::mpsc::RecvTimeoutError::Timeout => {
+                    //         log::info!("Time out");
+                    //         self.executed_deferred().await
+                    //     }
+                    //     std::sync::mpsc::RecvTimeoutError::Disconnected => return,
+                    // },
+                }
             }
         };
 
@@ -182,73 +181,128 @@ impl<C: WgpuCompiler> WgpuProcessor<C> {
         (sender, should_flush)
     }
 
-    async fn executed_deffered(&mut self) {
-        log::info!("Execute deffered {}...", self.deffered.len());
-        self.submit();
-
-        if self.deffered.is_empty() {
-            return;
-        }
-
-        let mut futures: Vec<Pin<Box<dyn Future<Output = ()> + Send + 'static>>> = Vec::new();
-        let mut deffered = Vec::new();
-
-        core::mem::swap(&mut deffered, &mut self.deffered);
-
-        for task in deffered {
-            match task {
-                SyncTask::Read {
-                    buffer,
-                    offset,
-                    size,
-                    callback,
-                } => {
-                    let fut = self.read_buffer(&buffer, offset, size);
-
-                    futures.push(Box::pin(async move {
-                        log::info!("Waiting on read");
-                        let data = fut.await;
-                        log::info!("Read done.");
-                        callback.send(data).await.unwrap();
-                    }));
-                }
-                SyncTask::Sync { callback } => {
-                    let fut = self.sync();
-
-                    futures.push(Box::pin(async move {
-                        log::info!("Waiting on sync");
-                        fut.await;
-                        log::info!("Sync done.");
+    async fn on_task(&mut self, task: Task<C>, can_deffer: bool) {
+        match task {
+            Task::Async(task) => {
+                self.register_compute(task.pipeline, task.resources, task.dispatch);
+            }
+            Task::Sync(sync_task) => {
+                match sync_task {
+                    SyncTask::Read {
+                        buffer,
+                        offset,
+                        size,
+                        callback,
+                    } => {
+                        self.read_buffer_defer(&buffer, offset, size, callback);
+                    }
+                    SyncTask::Sync { callback } => {
+                        // self.sync().await;
                         callback.send(()).await.unwrap();
-                    }));
-                }
-                SyncTask::SyncElapsed { callback } => {
-                    let fut = self.sync_elapsed();
-
-                    futures.push(Box::pin(async move {
-                        log::info!("Waiting on sync elapsed.");
-                        let result = fut.await;
-                        log::info!("Sync elapse done.");
-                        callback.send(result).await.unwrap();
-                    }));
+                    }
+                    SyncTask::SyncElapsed { callback } => {
+                        let ret = self.sync_elapsed().await;
+                        callback.send(ret).await.unwrap();
+                    }
+                };
+                if !can_deffer {
+                    self.executed_deferred().await;
                 }
             }
+            Task::EnableTimestamp => self.timestamps.enable(&self.device),
+            Task::DisableTimestamp => self.timestamps.disable(),
         }
 
+        if self.tasks_max <= self.tasks_count {
+            self.executed_deferred().await;
+        }
+    }
+
+    fn register_compute(
+        &mut self,
+        pipeline: Arc<ComputePipeline>,
+        resources: Vec<BindingResource<WgpuServer<C>>>,
+        dispatch: PipelineDispatch<C>,
+    ) {
+        // Start a new compute pass if needed. The forget_lifetime allows
+        // to store this with a 'static lifetime, but the compute pass must
+        // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
+        let pass = self.pass.get_or_insert_with(|| {
+            // Write out timestamps. The first compute pass writes both a start and end timestamp.
+            // the second timestamp writes out only an end stamp.
+            let timestamps =
+                if let KernelTimestamps::Native { query_set, init } = &mut self.timestamps {
+                    let result = Some(wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: if !*init { Some(0) } else { None },
+                        end_of_pass_write_index: Some(1),
+                    });
+                    *init = true;
+                    result
+                } else {
+                    None
+                };
+
+            self.encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: timestamps,
+                })
+                .forget_lifetime()
+        });
+
+        self.tasks_count += 1;
+
+        let entries = &resources
+            .iter()
+            .enumerate()
+            .map(|(i, r)| wgpu::BindGroupEntry {
+                binding: i as u32,
+                resource: r.resource().as_wgpu_bind_resource(),
+            })
+            .collect::<Vec<_>>();
+
+        let group_layout = pipeline.get_bind_group_layout(0);
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &group_layout,
+            entries,
+        });
+
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+
+        match dispatch {
+            PipelineDispatch::Static(x, y, z) => {
+                pass.dispatch_workgroups(x, y, z);
+            }
+            PipelineDispatch::Dynamic(binding_resource) => {
+                pass.dispatch_workgroups_indirect(
+                    &binding_resource.resource().buffer,
+                    binding_resource.resource().offset(),
+                );
+            }
+        }
+    }
+
+    async fn executed_deferred(&mut self) {
+        let index = self.submit();
+
+        let mut deferred = Vec::new();
+        core::mem::swap(&mut deferred, &mut self.deferred);
         let device = self.device.clone();
 
         std::thread::spawn(move || {
-            device.poll(wgpu::MaintainBase::Wait);
-
-            block_on(async move {
-                for fut in futures {
-                    fut.await;
-                }
-            });
+            for read in deferred.drain(..) {
+                block_on(read.execute(&index, &device));
+            }
         });
     }
 
     fn sync_elapsed(&mut self) -> Pin<Box<dyn Future<Output = TimestampsResult> + Send + 'static>> {
+        log::info!("SYNC ELAPSED");
+        self.pass = None;
+
         enum TimestampMethod {
             Buffer(wgpu::Buffer, u64),
             StartTime(Instant),
@@ -322,6 +376,9 @@ impl<C: WgpuCompiler> WgpuProcessor<C> {
     }
 
     fn sync(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        log::info!("SYNC");
+        let index = self.submit();
+
         let mut buffer = None;
         core::mem::swap(&mut buffer, &mut self.sync_buffer);
 
@@ -344,7 +401,7 @@ impl<C: WgpuCompiler> WgpuProcessor<C> {
                 {
                     let device = self.device.clone();
                     Box::pin(async move {
-                        device.poll(wgpu::MaintainBase::Wait);
+                        device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
                     })
                 }
                 #[cfg(target_family = "wasm")]
@@ -361,6 +418,7 @@ impl<C: WgpuCompiler> WgpuProcessor<C> {
         offset: u64,
         size: u64,
     ) -> impl Future<Output = Vec<u8>> + 'static {
+        self.pass = None;
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
         let align = wgpu::COPY_BUFFER_ALIGNMENT;
@@ -373,25 +431,24 @@ impl<C: WgpuCompiler> WgpuProcessor<C> {
             mapped_at_creation: false,
         });
 
-        log::info!("Copy.");
-
         self.encoder
             .copy_buffer_to_buffer(buffer, offset, &staging_buffer, 0, aligned_len);
 
-        log::info!("Here.");
+        let index = self.submit();
+
+        let device = self.device.clone();
 
         let (sender, receiver) = async_channel::bounded(1);
         staging_buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |v| {
-                log::info!("Inside map async.");
                 sender
                     .try_send(v)
                     .expect("Unable to send buffer slice result to async channel.");
             });
 
         async move {
-            log::info!("Here awaiting.");
+            device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
             receiver
                 .recv()
                 .await
@@ -407,101 +464,37 @@ impl<C: WgpuCompiler> WgpuProcessor<C> {
         }
     }
 
-    async fn on_task(&mut self, task: Task<C>, can_deffer: bool) {
-        match task {
-            Task::Async(task) => {
-                self.register_compute(task.pipeline, task.resources, task.dispatch);
-            }
-            Task::Sync(sync_task) => {
-                match sync_task {
-                    SyncTask::Read { buffer, offset, size, callback } => {
-                    },
-                    SyncTask::Sync { callback } => todo!(),
-                    SyncTask::SyncElapsed { callback } => todo!(),
-                }
-                self.deffered.push(sync_task);
-                if !can_deffer {
-                    self.executed_deffered().await;
-                }
-            }
-            Task::EnableTimestamp => self.timestamps.enable(&self.device),
-            Task::DisableTimestamp => self.timestamps.disable(),
-        }
-
-        if self.tasks_max <= self.tasks_count {
-            log::info!("Task max");
-            self.executed_deffered().await;
-        }
-    }
-
-    fn register_compute(
+    fn read_buffer_defer(
         &mut self,
-        pipeline: Arc<ComputePipeline>,
-        resources: Vec<BindingResource<WgpuServer<C>>>,
-        dispatch: PipelineDispatch<C>,
+        buffer: &wgpu::Buffer,
+        offset: u64,
+        size: u64,
+        callback: Callback<Vec<u8>>,
     ) {
-        // Start a new compute pass if needed. The forget_lifetime allows
-        // to store this with a 'static lifetime, but the compute pass must
-        // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
-        let pass = self.pass.get_or_insert_with(|| {
-            // Write out timestamps. The first compute pass writes both a start and end timestamp.
-            // the second timestamp writes out only an end stamp.
-            let timestamps =
-                if let KernelTimestamps::Native { query_set, init } = &mut self.timestamps {
-                    let result = Some(wgpu::ComputePassTimestampWrites {
-                        query_set,
-                        beginning_of_pass_write_index: if !*init { Some(0) } else { None },
-                        end_of_pass_write_index: Some(1),
-                    });
-                    *init = true;
-                    result
-                } else {
-                    None
-                };
+        self.pass = None;
+        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+        // memory is 32 bytes aligned (see WgpuStorage).
+        let align = wgpu::COPY_BUFFER_ALIGNMENT;
+        let aligned_len = size.div_ceil(align) * align;
 
-            self.encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: timestamps,
-                })
-                .forget_lifetime()
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("staging_buffer"),
+            size: aligned_len,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
-        self.tasks_count += 1;
+        self.encoder
+            .copy_buffer_to_buffer(buffer, offset, &staging_buffer, 0, aligned_len);
 
-        let entries = &resources
-            .iter()
-            .enumerate()
-            .map(|(i, r)| wgpu::BindGroupEntry {
-                binding: i as u32,
-                resource: r.resource().as_wgpu_bind_resource(),
-            })
-            .collect::<Vec<_>>();
-
-        let group_layout = pipeline.get_bind_group_layout(0);
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &group_layout,
-            entries,
+        self.deferred.push(DeferredJob {
+            staging_buffer,
+            callback,
+            size: size as usize,
         });
-
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-
-        match dispatch {
-            PipelineDispatch::Static(x, y, z) => {
-                pass.dispatch_workgroups(x, y, z);
-            }
-            PipelineDispatch::Dynamic(binding_resource) => {
-                pass.dispatch_workgroups_indirect(
-                    &binding_resource.resource().buffer,
-                    binding_resource.resource().offset(),
-                );
-            }
-        }
     }
 
-    fn submit(&mut self) {
+    fn submit(&mut self) -> SubmissionIndex {
         // End the current compute pass.
         self.pass = None;
         self.submitmax += 1;
@@ -510,26 +503,30 @@ impl<C: WgpuCompiler> WgpuProcessor<C> {
         let encoder = std::mem::replace(&mut self.encoder, new_encoder);
         let index = self.queue.submit([encoder.finish()]);
 
-        const MAX_NUM_BATCH: usize = 8;
+        // const MAX_NUM_BATCH: usize = 10;
 
-        if self.index.is_none() {
-            self.index = Some(index);
-        } else if self.submitmax >= MAX_NUM_BATCH {
-            if let Some(index) = self.index.take() {
-                log::info!("Waiting");
-                self.device
-                    .poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
-            }
-            self.index = Some(index);
-            self.submitmax = 0;
-        } else {
-            self.submitmax += 1;
+        // if self.index.is_none() {
+        //     self.index = Some(index.clone());
+        // } else if self.submitmax >= MAX_NUM_BATCH {
+        //     if let Some(index) = self.index.take() {
+        //         log::info!("Waiting");
+        //         self.device
+        //             .poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
+        //     }
+        //     self.index = Some(index.clone());
+        //     self.submitmax = 0;
+        // } else {
+        //     self.submitmax += 1;
+        // }
+
+        if self.tasks_count != self.tasks_max {
+            log::info!("Submitted {} tasks", self.tasks_count);
         }
-
-        log::info!("Submitted {} tasks", self.tasks_count);
         self.tasks_count = 0;
         self.should_flush
             .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        index
     }
 }
 
