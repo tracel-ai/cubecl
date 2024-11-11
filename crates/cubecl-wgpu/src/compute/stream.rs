@@ -1,14 +1,12 @@
-use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
-use crate::compiler::base::WgpuCompiler;
-
-use super::{poll::WgpuPoll, timestamps::KernelTimestamps, WgpuServer};
-use cubecl_runtime::{storage::BindingResource, TimestampsError, TimestampsResult};
+use super::{poll::WgpuPoll, timestamps::KernelTimestamps, WgpuResource};
+use cubecl_runtime::{TimestampsError, TimestampsResult};
 use wgpu::ComputePipeline;
 
 #[derive(Debug)]
-pub struct WgpuStream<C: WgpuCompiler> {
+pub struct WgpuStream {
     pass: Option<wgpu::ComputePass<'static>>,
     encoder: wgpu::CommandEncoder,
     pub timestamps: KernelTimestamps,
@@ -18,15 +16,14 @@ pub struct WgpuStream<C: WgpuCompiler> {
     queue: Arc<wgpu::Queue>,
     poll: WgpuPoll,
     sync_buffer: Option<wgpu::Buffer>,
-    compiler: PhantomData<C>,
 }
 
-pub enum PipelineDispatch<C: WgpuCompiler> {
+pub enum PipelineDispatch {
     Static(u32, u32, u32),
-    Dynamic(BindingResource<WgpuServer<C>>),
+    Dynamic(WgpuResource),
 }
 
-impl<C: WgpuCompiler> WgpuStream<C> {
+impl WgpuStream {
     pub fn new(
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
@@ -59,15 +56,14 @@ impl<C: WgpuCompiler> WgpuStream<C> {
             tasks_max,
             poll,
             sync_buffer,
-            compiler: PhantomData,
         }
     }
 
     pub fn register(
         &mut self,
         pipeline: Arc<ComputePipeline>,
-        resources: Vec<BindingResource<WgpuServer<C>>>,
-        dispatch: PipelineDispatch<C>,
+        resources: Vec<WgpuResource>,
+        dispatch: PipelineDispatch,
     ) -> bool {
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must
@@ -103,7 +99,7 @@ impl<C: WgpuCompiler> WgpuStream<C> {
             .enumerate()
             .map(|(i, r)| wgpu::BindGroupEntry {
                 binding: i as u32,
-                resource: r.resource().as_wgpu_bind_resource(),
+                resource: r.as_wgpu_bind_resource(),
             })
             .collect::<Vec<_>>();
 
@@ -123,8 +119,8 @@ impl<C: WgpuCompiler> WgpuStream<C> {
             }
             PipelineDispatch::Dynamic(binding_resource) => {
                 pass.dispatch_workgroups_indirect(
-                    &binding_resource.resource().buffer,
-                    binding_resource.resource().offset(),
+                    &binding_resource.buffer,
+                    binding_resource.offset(),
                 );
             }
         }

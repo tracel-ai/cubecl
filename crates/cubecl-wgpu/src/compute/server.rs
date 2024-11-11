@@ -29,7 +29,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     logger: DebugLogger,
     storage_locked: MemoryLock,
     duration_profiled: Option<Duration>,
-    stream: WgpuStream<C>,
+    stream: WgpuStream,
     _compiler: PhantomData<C>,
 }
 
@@ -215,13 +215,15 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // there was a way to tie the lifetime of the resource to the memory handle.
         let resources: Vec<_> = bindings
             .iter()
-            .map(|binding| self.get_resource(binding.clone()))
+            .map(|binding| self.get_resource(binding.clone()).into_resource())
             .collect();
 
         // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
         // needs to be longer than the compute pass, so we can't do this just before dispatching.
         let dispatch = match count.clone() {
-            CubeCount::Dynamic(binding) => PipelineDispatch::Dynamic(self.get_resource(binding)),
+            CubeCount::Dynamic(binding) => {
+                PipelineDispatch::Dynamic(self.get_resource(binding).into_resource())
+            }
             CubeCount::Static(x, y, z) => PipelineDispatch::Static(x, y, z),
         };
 
