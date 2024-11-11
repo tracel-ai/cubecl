@@ -20,10 +20,7 @@ default = [
     "cubecl-hip?/default",
     "cubecl-wgpu?/default",
 ]
-exclusive-memory-only = [
-    "cubecl-wgpu?/exclusive-memory-only",
-    "cubecl-runtime/exclusive-memory-only",
-]
+exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 linalg = ["dep:cubecl-linalg"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
