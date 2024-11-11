@@ -11,7 +11,7 @@ use crate::matmul::components::{MatmulLaunch, MatmulProblem};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
 use super::config::AdvancedConfig;
-use super::{cmma, plane_mma, Algorithm};
+use super::{cmma::Cmma, plane_mma::PlaneMma, Algorithm};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -24,10 +24,10 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
     out: TensorHandleRef<'_, R>,
     disable_cmma: bool,
 ) {
-    if !disable_cmma && cmma::Algorithm::<EG>::check_availability::<R>(client).is_ok() {
-        matmul_cmma_ref::<R, EG, cmma::Algorithm<EG>>(client, lhs, rhs, out);
+    if !disable_cmma && Cmma::<EG>::check_availability::<R>(client).is_ok() {
+        matmul_cmma_ref::<R, EG, Cmma<EG>>(client, lhs, rhs, out);
     } else {
-        matmul_cmma_ref::<R, EG, plane_mma::Algorithm<EG>>(client, lhs, rhs, out);
+        matmul_cmma_ref::<R, EG, PlaneMma<EG>>(client, lhs, rhs, out);
     }
 }
 

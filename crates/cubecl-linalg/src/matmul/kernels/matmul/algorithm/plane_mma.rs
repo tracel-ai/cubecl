@@ -10,11 +10,11 @@ use crate::matmul::components::{batch, global};
 
 use super::base;
 
-pub struct Algorithm<EG> {
+pub struct PlaneMma<EG> {
     pub _eg: PhantomData<EG>,
 }
 
-impl<EG: Numeric> base::Algorithm<EG> for Algorithm<EG> {
+impl<EG: Numeric> base::Algorithm<EG> for PlaneMma<EG> {
     const PLANE_DIM: u32 = 32;
     type EG = EG;
     type ES = f32;
