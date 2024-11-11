@@ -107,7 +107,13 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
     type Representation = SpirvKernel;
 
     fn compile(value: KernelDefinition, mode: ExecutionMode) -> Self::Representation {
-        let num_bindings = value.inputs.len() + value.outputs.len() + value.named.len();
+        let bindings = value
+            .inputs
+            .clone()
+            .into_iter()
+            .chain(value.outputs.clone())
+            .chain(value.named.clone().into_iter().map(|it| it.1))
+            .collect();
         let num_meta = value.inputs.len() + value.outputs.len();
         let mut ext_meta_pos = Vec::new();
         let mut num_ext = 0;
@@ -129,7 +135,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         SpirvKernel {
             module,
             optimizer,
-            num_bindings,
+            bindings,
         }
     }
 
