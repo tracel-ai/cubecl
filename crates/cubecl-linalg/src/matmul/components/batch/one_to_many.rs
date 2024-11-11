@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::batch::shared::gmm_execute;
+use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
@@ -13,15 +13,16 @@ use super::Config as _;
 
 /// Performs matrix multiplication at the batch level,
 /// with one cube assigned to several underlying global matmuls
-pub struct Matmul<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> {
+pub struct Matmul<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _gmm: PhantomData<GMM>,
+    _s: PhantomData<S>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
-    for Matmul<EG, ES, GMM>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> batch::Matmul<EG>
+    for Matmul<EG, ES, GMM, S>
 {
     fn execute(
         lhs: &Tensor<Line<EG>>,
@@ -32,9 +33,6 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
         let rank = out.rank();
         let shape_x = out.shape(rank - 2);
         let shape_y = out.shape(rank - 1);
-
-        let k_range = (0, lhs.shape(rank - 1));
-        let gmm_config = config.to_gmm_config();
 
         let mut shape_z = 1;
         for b in 0..rank - 2 {
@@ -49,36 +47,20 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
         let stage_y = config.stage_dim(Ident::Out).num_elements_y_dim();
         let stage_z = 1;
 
-        let (start_x, end_x, step_x) = get_range(shape_x, stage_x, CUBE_POS_X, cubes_x);
-        let (start_y, end_y, step_y) = get_range(shape_y, stage_y, CUBE_POS_Y, cubes_y);
-        let (start_z, end_z, step_z) = get_range(shape_z, stage_z, CUBE_POS_Z, cubes_z);
+        let span = Span::new(
+            SpanDim::new(shape_x, stage_x, CUBE_POS_X, cubes_x),
+            SpanDim::new(shape_y, stage_y, CUBE_POS_Y, cubes_y),
+            SpanDim::new(shape_z, stage_z, CUBE_POS_Z, cubes_z),
+        );
 
-        // Outer is batch, as there's no hope of hitting L2 cache for batch
-        for z_iter in range_stepped(start_z, end_z, step_z) {
-            // TODO: Row/col/swizzle shall impact here. This is row major
-            for x_iter in range_stepped(start_x, end_x, step_x) {
-                for y_iter in range_stepped(start_y, end_y, step_y) {
-                    gmm_execute::<EG, ES, GMM>(
-                        lhs, rhs, out, x_iter, y_iter, z_iter, k_range, gmm_config,
-                    );
-                }
-            }
-        }
+        let k_range = (0, lhs.shape(rank - 1));
+
+        S::execute::<EG, ES, GMM>(lhs, rhs, out, span, k_range, config.to_gmm_config());
     }
 }
 
-#[cube]
-fn get_range(shape: u32, stage: u32, cube_pos: u32, cubes: u32) -> (u32, u32, u32) {
-    let num_stages = (shape + stage - 1) / stage;
-    let num = (num_stages + cubes - 1) / cubes;
-    let span = num * stage;
-    let start = cube_pos * span;
-    let end = Min::min(start + span, shape);
-    (start, end, stage)
-}
-
-impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulKernel<EG, EG>
-    for Matmul<EG, ES, GMM>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> MatmulKernel<EG, EG>
+    for Matmul<EG, ES, GMM, S>
 {
     type Config = Config<GMM::Config>;
 
@@ -110,8 +92,8 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulKernel<EG, EG>
     }
 }
 
-impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulLaunch<EG, EG>
-    for Matmul<EG, ES, GMM>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> MatmulLaunch<EG, EG>
+    for Matmul<EG, ES, GMM, S>
 {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
