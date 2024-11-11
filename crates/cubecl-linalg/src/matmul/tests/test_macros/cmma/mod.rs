@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-pub mod matmul_internal;
+pub mod matmul_algorithm;
 pub mod matmul_launch;
 
 #[macro_export]
@@ -15,10 +15,22 @@ macro_rules! testgen_cmma_matmul {
             use super::*;
             use cubecl_linalg::matmul::tests;
             use cubecl_linalg::matmul::components::tile::accelerated::*;
+            use cubecl_core::prelude::*;
+            use cubecl_linalg::matmul::{
+                components::{
+                    batch, global,
+                    stage::{self, *},
+                    tile::plane::PlaneMma16x16x16,
+                    MatmulProblem, MatrixLayout,
+                },
+                kernels::matmul::{self, AdvancedConfig},
+                tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm,
+            };
+            use cubecl_core::prelude::*;
 
             pub type FloatT = $float;
 
-            cubecl_linalg::testgen_matmul_internal!(
+            cubecl_linalg::matmul_test_define!(
                 Accelerated16x16x16,
                 Accelerated32x8x16,
                 Accelerated8x32x16,
@@ -59,11 +71,22 @@ macro_rules! testgen_plane_mma {
             use super::*;
             use cubecl_linalg::matmul::tests;
             use cubecl_linalg::matmul::components::tile::plane::*;
+            use cubecl_linalg::matmul::{
+                components::{
+                    batch, global,
+                    stage::{self, *},
+                    tile::plane::PlaneMma16x16x16,
+                    MatmulProblem, MatrixLayout,
+                },
+                kernels::matmul::{self, AdvancedConfig},
+                tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm,
+            };
+            use cubecl_core::prelude::*;
 
             pub type FloatGlobal = $float;
             pub type FloatStage = $float_stage;
 
-            cubecl_linalg::testgen_matmul_internal!(
+            cubecl_linalg::matmul_test_define!(
                 PlaneMma16x16x16,
                 PlaneMma32x8x16,
                 PlaneMma8x32x16,

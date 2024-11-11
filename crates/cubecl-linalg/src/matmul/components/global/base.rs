@@ -26,14 +26,13 @@ use crate::matmul::components::{Ident, MatrixLayout};
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important that Loaders and Unloaders perform checks to avoid out-of-bounds
 /// before loading data.
-pub trait Matmul<
-    EG: Numeric,
-    ES: Numeric,
-    Lhs: Loader<EG, ES>,
-    Rhs: Loader<EG, ES>,
-    Out: Unloader<EG>,
->: 'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
+pub trait Matmul<EG: Numeric, ES: Numeric>:
+    'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
 {
+    type Lhs: Loader<EG, ES>;
+    type Rhs: Loader<EG, ES>;
+    type Out: Unloader<EG>;
+
     /// Performs the matrix multiplication over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
     /// using the output unloader.
@@ -41,9 +40,9 @@ pub trait Matmul<
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
-        lhs_loader: Lhs,
-        rhs_loader: Rhs,
-        unloader: Out,
+        lhs_loader: Self::Lhs,
+        rhs_loader: Self::Rhs,
+        unloader: Self::Out,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
@@ -61,6 +60,14 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
+
+    fn new<G: Config>(
+        tensor: &Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: G,
+    ) -> Self;
 }
 
 #[cube]
@@ -74,6 +81,8 @@ pub trait Unloader<EG: Numeric>: CubeType + 'static + Send + Sync {
     type StageWriter: StageWriter<EG>;
 
     fn as_stage_writer<G: Config>(unloader: Self) -> Self::StageWriter;
+
+    fn new(tensor: &mut Tensor<Line<EG>>, x_offset: u32, y_offset: u32, batch_offset: u32) -> Self;
 }
 
 /// Configuration for the Global matmul (GMM) level

@@ -1,12 +1,8 @@
-use std::marker::PhantomData;
-
-use cubecl_core::prelude::Numeric;
-
-use super::{batch::Config, MatrixLayout};
+use super::{batch, MatrixLayout};
 
 #[derive(Clone)]
 /// Description of a matmul problem to solve, regardless of actual data
-pub struct MatmulProblem<EG: Numeric> {
+pub struct MatmulProblem {
     pub m: usize,
     pub n: usize,
     pub k: usize,
@@ -16,10 +12,9 @@ pub struct MatmulProblem<EG: Numeric> {
     pub lhs_line_size: u8,
     pub rhs_line_size: u8,
     pub out_line_size: u8,
-    pub _element: PhantomData<EG>,
 }
 
-impl<EG: Numeric> MatmulProblem<EG> {
+impl MatmulProblem {
     /// Returns the total number of batches
     pub(crate) fn num_batches(&self) -> usize {
         self.batches.iter().copied().product()
@@ -31,7 +26,7 @@ impl<EG: Numeric> MatmulProblem<EG> {
     ///
     ///  - If dimensions of the problem are larger than allowed by the config
     ///  - If line sizes do not divide well the dimension in which they are aligned
-    pub(crate) fn check_config<B: Config>(&self, config: &B) {
+    pub(crate) fn check_config<B: batch::Config>(&self, config: &B) {
         assert!(
             self.m <= config.max_m() as usize,
             "Problem has m={} but these configs can only have m<={}",

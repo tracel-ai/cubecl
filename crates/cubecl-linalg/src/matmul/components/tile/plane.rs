@@ -1,8 +1,10 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::Config as TileConfig;
+use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{config::PlaneMapper, tile, Ident, MatmulKernel, MatrixLayout};
-use cubecl_core as cubecl;
+use crate::matmul::kernels::matmul::AdvancedConfig;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, Feature};
 use std::marker::PhantomData;
 
 pub type PlaneMma16x16x16<I, O> = PlaneMma<I, O, 16, 16, 16>;
@@ -327,6 +329,52 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
         let plane_dim = config.plane_dim();
         assert!(M * N % plane_dim == 0);
         assert!(K * N % plane_dim == 0);
+    }
+
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), &str> {
+        if !client.properties().feature_enabled(Feature::Subcube) {
+            return Err("Planes not supported.");
+        }
+
+        if !(client
+            .properties()
+            .feature_enabled(Feature::Type(I::as_elem()))
+            && client
+                .properties()
+                .feature_enabled(Feature::Type(O::as_elem())))
+        {
+            return Err("Types not supported.");
+        }
+
+        Ok(())
+    }
+
+    fn make_config(
+        problem: &MatmulProblem,
+        cube_dim: &CubeDim,
+        _cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
+            Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
+            _ => (problem.lhs_layout, problem.lhs_line_size),
+        };
+
+        let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
+            Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
+            _ => (problem.rhs_layout, problem.rhs_line_size),
+        };
+
+        Config::new(
+            cube_dim.x,
+            lhs_tile_layout,
+            rhs_tile_layout,
+            lhs_tile_line_size as u32,
+            rhs_tile_line_size as u32,
+            problem.out_line_size as u32,
+        )
     }
 }
 
