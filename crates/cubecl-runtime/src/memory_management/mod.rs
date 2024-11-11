@@ -79,3 +79,12 @@ pub struct MemoryDeviceProperties {
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
 }
+
+/// Properties of the device related to topology.
+#[derive(Debug, Clone)]
+pub struct TopologyProperties {
+    /// The minimum size of a subcube on this device
+    pub subcube_size_min: u32,
+    /// The maximum size of a subcube on this device
+    pub subcube_size_max: u32,
+}
