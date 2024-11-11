@@ -905,8 +905,16 @@ impl<D: Dialect> CppCompiler<D> {
             self.compile_elem(item.elem),
             item.vectorization.map(NonZero::get).unwrap_or(1).into(),
         );
-        self.items.insert(item);
-        self.items.insert(item.optimized());
+        if item.elem != super::Elem::TF32 {
+            self.items.insert(item);
+            self.items.insert(item.optimized());
+        } else {
+            // TF32 is represented as `float` in C++
+            let mut item = item;
+            item.elem = super::Elem::F32;
+            self.items.insert(item);
+        }
+
         item
     }
 
