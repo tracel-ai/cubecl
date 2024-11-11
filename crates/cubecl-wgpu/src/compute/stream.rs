@@ -283,7 +283,7 @@ impl<C: WgpuCompiler> WgpuStream<C> {
                 //
                 // For now, instead do a dummy readback. This *seems* to wait for the entire
                 // queue to be done.
-                let fut = self.read_buffer(&buf, 0, 32);
+                let fut = self.read_buffer(buf, 0, 32);
                 core::mem::swap(&mut buffer, &mut self.sync_buffer);
 
                 Box::pin(async move {
