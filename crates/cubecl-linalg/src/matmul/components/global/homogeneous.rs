@@ -1,12 +1,13 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::global;
 use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{LhsReader, RhsReader};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
+use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::kernels::matmul::AdvancedConfig;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -28,23 +29,20 @@ pub struct Matmul<
 }
 
 #[cube]
-impl<EG, ES, SMM>
-    global::Matmul<
-        EG,
-        ES,
-        tensor_view::LhsLoader<EG, ES>,
-        tensor_view::RhsLoader<EG, ES>,
-        tensor_view::Unloader<EG>,
-    > for Matmul<EG, ES, SMM>
+impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
     SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
 {
+    type Lhs = tensor_view::LhsLoader<EG, ES>;
+    type Rhs = tensor_view::RhsLoader<EG, ES>;
+    type Out = tensor_view::Unloader<EG>;
+
     fn execute(
-        mut lhs_loader: tensor_view::LhsLoader<EG, ES>,
-        mut rhs_loader: tensor_view::RhsLoader<EG, ES>,
-        mut out_unloader: tensor_view::Unloader<EG>,
+        mut lhs_loader: Self::Lhs,
+        mut rhs_loader: Self::Rhs,
+        mut out_unloader: Self::Out,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -94,6 +92,32 @@ where
 
     fn check_config(config: Self::Config) {
         SMM::check_config(config.to_smm_config());
+    }
+
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), &str> {
+        SMM::check_availability::<R>(client)
+    }
+
+    fn make_config(
+        problem: &MatmulProblem,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let smm_config = SMM::make_config(problem, cube_dim, cube_count, advanced_config);
+
+        Config::new(
+            smm_config,
+            problem.m as u32 % SMM::M != 0,
+            problem.n as u32 % SMM::N != 0,
+            problem.lhs_layout,
+            problem.rhs_layout,
+            problem.lhs_line_size as u32,
+            problem.rhs_line_size as u32,
+            problem.out_line_size as u32,
+        )
     }
 }
 

@@ -1,7 +1,11 @@
 use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::tile::base::Matmul as _;
 use crate::matmul::components::tile::Config as TileConfig;
-use crate::matmul::components::{as_cmma_layout, tile, Ident, MatmulKernel, MatrixLayout};
-use cubecl_core as cubecl;
+use crate::matmul::components::{
+    as_cmma_layout, tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout,
+};
+use crate::matmul::kernels::matmul::AdvancedConfig;
+use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
 use half::{bf16, f16};
 use std::marker::PhantomData;
@@ -95,6 +99,21 @@ macro_rules! instruction {
             fn check_config(config: Self::Config) {
                 comptime!(check_plane_dim(config.plane_dim()));
             }
+
+            fn check_availability<R: Runtime>(
+                client: &ComputeClient<R::Server, R::Channel>,
+            ) -> Result<(), &str> {
+                check_availability::<I, O, R>(Self::M, Self::N, Self::K, client)
+            }
+
+            fn make_config(
+                problem: &MatmulProblem,
+                cube_dim: &CubeDim,
+                cube_count: &CubeCount,
+                advanced_config: &AdvancedConfig,
+            ) -> Self::Config {
+                make_config(problem, cube_dim, cube_count, advanced_config)
+            }
         }
     };
 }
@@ -178,10 +197,66 @@ fn read_output<O: Numeric, C: Numeric>(out: &Fragment<O>, slice: &mut SliceMut<'
     cmma::store(slice, &out.matrix, out.stride, cmma::MatrixLayout::RowMajor);
 }
 
+fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
+    m: u32,
+    n: u32,
+    k: u32,
+    client: &ComputeClient<R::Server, R::Channel>,
+) -> Result<(), &str> {
+    if !client.properties().feature_enabled(Feature::Cmma {
+        a: I::as_elem(),
+        b: I::as_elem(),
+        c: O::as_elem(),
+        m: m as u8,
+        k: k as u8,
+        n: n as u8,
+    }) {
+        return Err("Cmma not supported.");
+    }
+
+    if !(client
+        .properties()
+        .feature_enabled(Feature::Type(I::as_elem()))
+        && client
+            .properties()
+            .feature_enabled(Feature::Type(O::as_elem())))
+    {
+        return Err("Types not supported.");
+    }
+
+    Ok(())
+}
+
 fn check_plane_dim(actual_plane_dim: u32) {
     assert_eq!(32, actual_plane_dim, "Error: Expected plane dimension to be 32, but found {}. Please ensure that cube dimension x is set correctly.",
         actual_plane_dim
     );
+}
+
+fn make_config(
+    problem: &MatmulProblem,
+    cube_dim: &CubeDim,
+    _cube_count: &CubeCount,
+    advanced_config: &AdvancedConfig,
+) -> Config {
+    let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
+        Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
+        _ => (problem.lhs_layout, problem.lhs_line_size),
+    };
+
+    let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
+        Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
+        _ => (problem.rhs_layout, problem.rhs_line_size),
+    };
+
+    Config::new(
+        cube_dim.x,
+        lhs_tile_layout,
+        rhs_tile_layout,
+        lhs_tile_line_size as u32,
+        rhs_tile_line_size as u32,
+        problem.out_line_size as u32,
+    )
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]

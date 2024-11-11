@@ -3,11 +3,15 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{
-    config::MatmulConfig,
-    global,
-    stage::{self, Config as _, StageReader, StageWriter},
-    tile, Ident, MatmulKernel, MatrixLayout, PlaneMapper, StageDim,
+use crate::matmul::components::stage::base::Matmul as _;
+use crate::matmul::{
+    components::{
+        config::MatmulConfig,
+        global,
+        stage::{self, Config as _, StageReader, StageWriter},
+        tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout, PlaneMapper, StageDim,
+    },
+    kernels::matmul::{create_stage_dim, AdvancedConfig},
 };
 
 use super::reader::{LhsReader, RhsReader};
@@ -144,6 +148,35 @@ where
             config.num_planes()
         ));
         TMM::check_config(config.to_tmm_config());
+    }
+
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), &str> {
+        TMM::check_availability::<R>(client)
+    }
+
+    fn make_config(
+        problem: &MatmulProblem,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let tmm_config = TMM::make_config(problem, cube_dim, cube_count, advanced_config);
+
+        let (stage_m, stage_n, stage_k) = (Self::M, Self::N, Self::K);
+        let (tile_m, tile_n, tile_k) = (TMM::M, TMM::N, TMM::K);
+        let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) =
+            create_stage_dim(stage_m, stage_n, stage_k, tile_m, tile_n, tile_k);
+
+        Config::new(
+            tmm_config,
+            lhs_stage_dim,
+            rhs_stage_dim,
+            out_stage_dim,
+            cube_dim.y,
+            advanced_config.tiling_order,
+        )
     }
 }
 

@@ -5,11 +5,13 @@ use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
 use cubecl_core::Feature;
 
-use crate::matmul::components::batch;
 use crate::matmul::components::Ident;
+use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
-use crate::matmul::kernels::cmma_matmul;
+use crate::matmul::kernels::matmul;
+use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::test_utils::CastInto;
 use crate::tensor::TensorHandle;
 
@@ -26,26 +28,19 @@ struct TensorRawParts<F: Float + CubeElement> {
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_internal<MM, EG, ES, B, R>(
-    problem: MatmulProblem<EG>,
-    cube_dim: CubeDim,
-    cube_count: CubeCount,
-    config: MM::Config,
+pub fn test_matmul_algorithm<A, EG, ES, R>(
+    problem: MatmulProblem,
+    advanced_config: AdvancedConfig,
     device: &R::Device,
 ) where
+    A: Algorithm<EG>,
     EG: Float + CubeElement + Display + CastInto<ES>,
     ES: Float + CubeElement + Display + CastInto<EG>,
-    MM: batch::Matmul<EG>,
-    B: batch::Config,
     R: Runtime,
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
 
-    if !(client.properties().feature_enabled(Feature::Subcube)
-        && client
-            .properties()
-            .feature_enabled(Feature::Type(EG::as_elem())))
-    {
+    if A::check_availability::<R>(&client).is_err() {
         // Can't execute the test.
         return;
     }
@@ -54,8 +49,12 @@ pub fn test_matmul_internal<MM, EG, ES, B, R>(
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
 
+    let cube_dim = A::cube_dim();
+    let cube_count = A::cube_count(&problem);
+    let config = A::make_config(&problem, &cube_dim, &cube_count, &advanced_config);
+
     unsafe {
-        MM::launch_unchecked(
+        A::BatchMatmul::launch_unchecked(
             &client,
             cube_dim,
             cube_count,
@@ -94,7 +93,7 @@ pub fn test_matmul_internal<MM, EG, ES, B, R>(
 /// Test the correctness of the high-level Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: Runtime>(
-    problem: MatmulProblem<EG>,
+    problem: MatmulProblem,
     disable_cmma: bool,
     device: &R::Device,
 ) {
@@ -113,7 +112,7 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
 
-    let out = cmma_matmul::launch::<R, EG>(
+    let out = matmul::launch::<R, EG>(
         &client,
         TensorHandle::new(lhs.shape, lhs.strides, lhs.handle),
         TensorHandle::new(rhs.shape, rhs.strides, rhs.handle),
@@ -134,7 +133,7 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
 
 fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
-    problem: &MatmulProblem<EG>,
+    problem: &MatmulProblem,
     ident: Ident,
 ) -> TensorRawParts<EG> {
     match ident {
@@ -204,7 +203,7 @@ fn assert_result<
 >(
     lhs: &[EG],
     rhs: &[EG],
-    problem: &MatmulProblem<EG>,
+    problem: &MatmulProblem,
     client: &ComputeClient<R::Server, R::Channel>,
     out: Handle,
     epsilon: Option<f32>,
@@ -236,7 +235,7 @@ fn assert_result<
 }
 
 /// Returns the total number of elements for the identified tensor, inferred by the problem definition
-fn tensor_size<EG: Numeric>(problem: &MatmulProblem<EG>, ident: Ident) -> usize {
+fn tensor_size(problem: &MatmulProblem, ident: Ident) -> usize {
     match ident {
         Ident::Lhs => problem.num_batches() * problem.m * problem.k,
         Ident::Rhs => problem.num_batches() * problem.k * problem.n,
@@ -245,7 +244,7 @@ fn tensor_size<EG: Numeric>(problem: &MatmulProblem<EG>, ident: Ident) -> usize 
 }
 
 /// Returns the shape of the identified tensor, inferred by the problem definition
-fn shape<EG: Numeric>(problem: &MatmulProblem<EG>, ident: Ident) -> Vec<usize> {
+fn shape(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
     problem
         .batches
         .iter()
@@ -259,7 +258,7 @@ fn shape<EG: Numeric>(problem: &MatmulProblem<EG>, ident: Ident) -> Vec<usize> {
 }
 
 /// Returns the stride of the identified tensor, inferred by the problem definition
-pub(crate) fn strides<EG: Numeric>(problem: &MatmulProblem<EG>, ident: Ident) -> Vec<usize> {
+pub(crate) fn strides(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
     let mut strides = Vec::with_capacity(problem.batches.len() + 2);
 
     let (last_batch, x, y) = match ident {

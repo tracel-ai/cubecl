@@ -1,6 +1,8 @@
 use cubecl_core::prelude::*;
 
-use super::config::MatmulConfig;
+use crate::matmul::kernels::matmul::AdvancedConfig;
+
+use super::{config::MatmulConfig, MatmulProblem};
 
 /// Provides configuration for a matmul kernel at any level
 pub trait MatmulKernel<I: Numeric, O: Numeric> {
@@ -9,6 +11,18 @@ pub trait MatmulKernel<I: Numeric, O: Numeric> {
 
     /// Asserts that the configuration for this matmul will lead to a valid computation
     fn check_config(config: Self::Config);
+
+    /// Checks if the client can handle the features used in this computation
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), &str>;
+
+    fn make_config(
+        problem: &MatmulProblem,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config;
 }
 
 /// Provides launch entry point to solve a matmul
