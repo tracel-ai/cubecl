@@ -7,7 +7,7 @@ use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{MemoryDeviceProperties, MemoryManagement},
+    memory_management::{MemoryDeviceProperties, MemoryManagement, TopologyProperties},
     ComputeRuntime, DeviceProperties,
 };
 
