@@ -137,7 +137,7 @@ impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
 }
 
 #[cube]
-fn swizzle(nth: u32, height: u32, #[comptime] swizzle_width: u32) -> (u32, u32) {
+pub fn swizzle(nth: u32, height: u32, #[comptime] swizzle_width: u32) -> (u32, u32) {
     let num_elem_per_swizzle_col = height * swizzle_width;
 
     let swizzle_id = nth % num_elem_per_swizzle_col;
