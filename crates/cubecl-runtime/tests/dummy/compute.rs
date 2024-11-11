@@ -1,11 +1,11 @@
 use super::DummyServer;
-use cubecl_runtime::channel::MutexComputeChannel;
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::memory_management::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryManagement,
 };
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::{AutotuneOperationSet, LocalTuner};
+use cubecl_runtime::{channel::MutexComputeChannel, memory_management::TopologyProperties};
 use cubecl_runtime::{ComputeRuntime, DeviceProperties};
 
 /// The dummy device.
@@ -33,6 +33,10 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         max_page_size: 1024 * 1024 * 512,
         alignment: 32,
     };
+    let topology = TopologyProperties {
+        subcube_size_min: 32,
+        subcube_size_max: 32,
+    };
     let memory_management = MemoryManagement::from_configuration(
         storage,
         mem_properties.clone(),
@@ -40,7 +44,10 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
     );
     let server = DummyServer::new(memory_management);
     let channel = MutexComputeChannel::new(server);
-    ComputeClient::new(channel, DeviceProperties::new(&[], mem_properties))
+    ComputeClient::new(
+        channel,
+        DeviceProperties::new(&[], mem_properties, topology),
+    )
 }
 
 pub fn client(device: &DummyDevice) -> DummyClient {
