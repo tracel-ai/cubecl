@@ -176,7 +176,7 @@ impl<C: CubePrimitive> Matrix<C> {
         n: u32,
         k: u32,
         layout: MatrixLayout,
-        value: Slice<C>,
+        value: &Slice<C>,
         stride: u32,
     ) -> Self {
         Matrix { _c: PhantomData }
@@ -301,7 +301,7 @@ pub mod load {
 #[allow(unused_variables)]
 pub fn load_with_layout<C: CubeType>(
     mat: &Matrix<C>,
-    value: Slice<C>,
+    value: &Slice<C>,
     stride: u32,
     layout: MatrixLayout,
 ) {

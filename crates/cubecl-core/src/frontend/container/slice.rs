@@ -29,7 +29,7 @@ pub struct Slice<E> {
 ///
 /// # Safety
 ///
-/// Since data can be accessed by any unit id in a kernel, this can never be safed.
+/// Since data can be accessed by any unit in a kernel, this can never be safe.
 pub struct SliceMut<E> {
     _e: PhantomData<E>,
 }

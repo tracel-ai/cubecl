@@ -16,7 +16,7 @@ pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
         16,
         16,
         cmma::MatrixLayout::RowMajor,
-        lhs.to_slice(),
+        &lhs.to_slice(),
         16,
     );
     let b = cmma::Matrix::<f16>::from_slice(
@@ -25,7 +25,7 @@ pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
         16,
         16,
         cmma::MatrixLayout::ColMajor,
-        rhs.to_slice(),
+        &rhs.to_slice(),
         16,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -56,7 +56,7 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
         16,
         8,
         cmma::MatrixLayout::RowMajor,
-        lhs.to_slice(),
+        &lhs.to_slice(),
         8,
     );
     let b = cmma::Matrix::<tf32>::from_slice(
@@ -65,7 +65,7 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
         16,
         8,
         cmma::MatrixLayout::RowMajor,
-        rhs.to_slice(),
+        &rhs.to_slice(),
         16,
     );
     let c = cmma::Matrix::<f32>::from_value(
