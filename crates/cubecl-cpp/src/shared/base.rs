@@ -17,9 +17,7 @@ use super::{
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
 
-pub trait Dialect: Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static {
-    type WmmaCompiler: WmmaCompiler<Self>;
-
+pub trait Dialect: WmmaCompiler<Self> + Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static {
     // includes
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_bf16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;

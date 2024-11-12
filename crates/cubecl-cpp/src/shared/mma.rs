@@ -120,25 +120,25 @@ pub enum WmmaInstruction<D: Dialect> {
 impl<D: Dialect> Display for FragmentLayout<D>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::WmmaCompiler::compile_fragment_layout(self, f)
+        D::compile_fragment_layout(self, f)
     }
 }
 
 impl<D: Dialect> Display for FragmentIdent<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::WmmaCompiler::compile_fragment_ident(self, f)
+        D::compile_fragment_ident(self, f)
     }
 }
 
 impl<D: Dialect> Display for Fragment<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::WmmaCompiler::compile_fragment(self, f)
+        D::compile_fragment(self, f)
     }
 }
 
 impl<D: Dialect> Display for WmmaInstruction<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::WmmaCompiler::compile_instruction(self, f)
+        D::compile_instruction(self, f)
     }
 }
 

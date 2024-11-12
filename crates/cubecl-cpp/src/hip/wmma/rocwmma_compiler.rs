@@ -8,7 +8,7 @@ const ROCWMMA_NAMESPACE: &str = "rocwmma";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct RocWmmaCompiler {}
 
-impl WmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
+impl WmmaCompiler<HipDialect<RocWmmaCompiler>> for HipDialect<RocWmmaCompiler> {
     type Architecture = AMDArchitecture;
 
     fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

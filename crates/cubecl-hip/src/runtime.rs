@@ -1,6 +1,6 @@
 use std::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, str::FromStr};
 
-use cubecl_cpp::{hip::arch::AMDArchitecture, register_supported_types, shared::{register_wmma_features, WmmaCompiler}, Dialect};
+use cubecl_cpp::{hip::{arch::AMDArchitecture, HipDialect}, register_supported_types, shared::{register_wmma_features, WmmaCompiler}, Dialect};
 
 use cubecl_core::{Feature, MemoryConfiguration, Runtime};
 use cubecl_hip_sys::HIP_SUCCESS;
@@ -23,9 +23,9 @@ pub struct RuntimeOptions {
 }
 
 #[derive(Debug)]
-pub struct HipRuntime<D: Dialect>
+pub struct HipRuntime<M: WmmaCompiler>
 {
-    _dialect: PhantomData<D>,
+    _wmma_compiler: PhantomData<M>,
 }
 
 static RUNTIME: ComputeRuntime<HipDevice, Server, MutexComputeChannel<Server>> =
@@ -36,7 +36,7 @@ type Channel = MutexComputeChannel<Server>;
 
 const MEMORY_OFFSET_ALIGNMENT: u64 = 32;
 
-fn create_client<D: Dialect>(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
+fn create_client<M: WmmaCompiler<HipDialect>>(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let mut ctx: cubecl_hip_sys::hipCtx_t = std::ptr::null_mut();
 
     #[allow(unused_assignments)]
@@ -112,7 +112,7 @@ fn create_client<D: Dialect>(device: &HipDevice, options: RuntimeOptions) -> Com
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }
 
-impl<D: Dialect> Runtime for HipRuntime<D> {
+impl<M: WmmaCompiler> Runtime for HipRuntime<M> {
     type Compiler = HipCompiler;
     type Server = HipServer;
     type Channel = MutexComputeChannel<HipServer>;
@@ -120,7 +120,7 @@ impl<D: Dialect> Runtime for HipRuntime<D> {
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            create_client::<D>(device, RuntimeOptions::default())
+            create_client::<M>(device, RuntimeOptions::default())
         })
     }
 

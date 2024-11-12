@@ -3,12 +3,11 @@ use std::marker::PhantomData;
 use crate::shared::{Dialect, Variable, WmmaCompiler};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct HipDialect<M: WmmaCompiler<Self>> {
+pub struct HipDialect <M> {
     _wmma_compiler: PhantomData<M>,
 }
 
 impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
-    type WmmaCompiler = M;
 
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <hip/hip_fp16.h>\n")

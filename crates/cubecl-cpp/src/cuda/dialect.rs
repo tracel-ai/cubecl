@@ -3,12 +3,11 @@ use std::marker::PhantomData;
 use crate::shared::{Dialect, Variable, WmmaCompiler};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct CudaDialect<M: WmmaCompiler<Self>> {
+pub struct CudaDialect<M> {
     _wmma_compiler: PhantomData<M>,
 }
 
 impl<M: WmmaCompiler<Self>> Dialect for CudaDialect<M> {
-    type WmmaCompiler = M;
 
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <cuda_fp16.h>\n")

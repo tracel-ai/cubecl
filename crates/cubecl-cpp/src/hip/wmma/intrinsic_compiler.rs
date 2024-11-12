@@ -1,6 +1,6 @@
 use crate::{hip::{arch::AMDArchitecture, HipDialect}, shared::{
     Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, Variable, WmmaCompiler, WmmaInstruction
-}, Dialect};
+}};
 use cubecl_core::ir::{self as gpu};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
