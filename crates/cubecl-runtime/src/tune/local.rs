@@ -116,7 +116,6 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             TuneCacheResult::Pending => {
                 // We're waiting for results to come in.
             }
-            #[cfg(autotune_persistent_cache)]
             TuneCacheResult::Unchecked => {
                 panic!("Should have checked the cache already.")
             }
@@ -142,7 +141,6 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                 TuneCacheResult::Miss => {
                     panic!("Should have at least started autotuning");
                 }
-                #[cfg(autotune_persistent_cache)]
                 TuneCacheResult::Unchecked => {
                     panic!("Should have checked the cache.")
                 }
