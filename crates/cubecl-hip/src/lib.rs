@@ -13,20 +13,16 @@ pub mod runtime;
 pub use device::*;
 #[cfg(target_os = "linux")]
 pub use runtime::HipRuntime;
-#[cfg(feature = "rocwmma")]
-pub type HipDialect = cubecl_cpp::HipDialectRocWmma;
-#[cfg(feature = "rocwmma")]
-pub type HipCompiler = cubecl_cpp::HipCompilerRocWmma;
 
-#[cfg(feature = "wmma_intrinsic")]
-pub type HipDialect = cubecl_cpp::HipDialectInstrinsic;
-#[cfg(feature = "wmma_intrinsic")]
-pub type HipCompiler = cubecl_cpp::HipCompilerInstrinsic;
+#[cfg(not(feature = "rocwmma"))]
+pub(crate) type HipWmmaCompiler = cubecl_cpp::hip::wmma::WmmaIntrinsicCompiler;
+#[cfg(feature = "rocwmma")]
+pub(crate) type HipWmmaCompiler = cubecl_cpp::hip::wmma::RocWmmaCompiler;
 
 #[cfg(target_os = "linux")]
 #[cfg(test)]
 mod tests {
-    pub type TestRuntime = crate::HipRuntime<HipDialect>;
+    pub type TestRuntime = crate::HipRuntime;
 
     cubecl_core::testgen_all!();
     cubecl_linalg::testgen_cmma_old!();

@@ -1,6 +1,8 @@
 use cubecl_cpp::formatter::format_cpp;
+use cubecl_cpp::hip::HipDialect;
+use cubecl_cpp::shared::CppCompiler;
 
-use crate::HipCompiler;
+use crate::HipWmmaCompiler;
 
 use super::storage::HipStorage;
 use super::HipResource;
@@ -97,7 +99,7 @@ impl HipServer {
 }
 
 impl ComputeServer for HipServer {
-    type Kernel = Box<dyn CubeTask<HipCompiler>>;
+    type Kernel = Box<dyn CubeTask<CppCompiler<HipDialect<HipWmmaCompiler>>>>;
     type Storage = HipStorage;
     type Feature = Feature;
 
@@ -300,7 +302,7 @@ impl HipContext {
     fn compile_kernel(
         &mut self,
         kernel_id: &KernelId,
-        cube_kernel: Box<dyn CubeTask<HipCompiler>>,
+        cube_kernel: Box<dyn CubeTask<CppCompiler<HipDialect<HipWmmaCompiler>>>>,
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {

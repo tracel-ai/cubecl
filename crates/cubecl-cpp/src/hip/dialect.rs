@@ -3,12 +3,56 @@ use std::marker::PhantomData;
 use crate::shared::{Dialect, Variable, WmmaCompiler};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct HipDialect <M> {
+pub struct HipDialect<M> {
     _wmma_compiler: PhantomData<M>,
 }
 
-impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
+impl<M: WmmaCompiler<Self>> WmmaCompiler<Self> for HipDialect<M> {
+    type Architecture = M::Architecture;
 
+    fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        M::includes(f)
+    }
+
+    fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        M::deftypes(f)
+    }
+
+    fn compile_fragment_ident(
+        ident: &crate::shared::FragmentIdent<Self>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        M::compile_fragment_ident(ident, f)
+    }
+
+    fn compile_fragment_layout(
+        layout: &crate::shared::FragmentLayout<Self>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        M::compile_fragment_layout(layout, f)
+    }
+
+    fn compile_fragment(
+        fragment: &crate::shared::Fragment<Self>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        M::compile_fragment(fragment, f)
+    }
+
+    fn compile_instruction(
+        instruction: &crate::shared::WmmaInstruction<Self>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        M::compile_instruction(instruction, f)
+    }
+
+    fn supported_wmma_combinations(
+        arch: &Self::Architecture,
+    ) -> crate::shared::SupportedWmmaCombinations {
+        M::supported_wmma_combinations(arch)
+    }
+}
+impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <hip/hip_fp16.h>\n")
     }

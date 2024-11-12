@@ -1,18 +1,24 @@
-use std::fmt::Display;
-use std::hash::Hash;
-use std::{fmt::Debug, marker::PhantomData};
 use cubecl_core::ir::{self as gpu};
 use cubecl_core::Feature;
 use cubecl_runtime::DeviceProperties;
+use std::fmt::Display;
+use std::hash::Hash;
+use std::str::FromStr;
+use std::{fmt::Debug, marker::PhantomData};
 
 use super::{Component, Dialect, Elem, Variable};
 
 pub type SupportedWmmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, Vec<(u8, u8, u8)>)>;
 
+pub trait Architecture: FromStr<Err = String> {
+    fn warp_size(&self) -> u32;
+    fn is_wmma_capable(&self) -> bool;
+}
+
 pub trait WmmaCompiler<D: Dialect>:
-Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
+    Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
-    type Architecture;
+    type Architecture: Architecture;
 
     fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
@@ -42,7 +48,8 @@ Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 
 pub fn register_wmma_features(
     supported_combinations: SupportedWmmaCombinations,
-    properties: &mut DeviceProperties<Feature>) {
+    properties: &mut DeviceProperties<Feature>,
+) {
     // TODO: move this commented line to register explicitly at the runtime level
     // properties.register_feature(Feature::CmmaWarpSize(self.warp_size()));
     for (i, o, c, tdims) in supported_combinations {
@@ -117,8 +124,7 @@ pub enum WmmaInstruction<D: Dialect> {
     },
 }
 
-impl<D: Dialect> Display for FragmentLayout<D>
-{
+impl<D: Dialect> Display for FragmentLayout<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         D::compile_fragment_layout(self, f)
     }

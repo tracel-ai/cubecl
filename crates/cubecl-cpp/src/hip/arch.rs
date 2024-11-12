@@ -1,5 +1,7 @@
 use std::str::FromStr;
 
+use crate::shared::Architecture;
+
 pub enum AMDArchitecture {
     // RDNA
     // gfx1100, gfx1101, gfx1102
@@ -32,8 +34,8 @@ impl FromStr for AMDArchitecture {
     }
 }
 
-impl AMDArchitecture {
-    pub fn warp_size(&self) -> i32 {
+impl Architecture for AMDArchitecture {
+    fn warp_size(&self) -> u32 {
         // CDNA supports wave64 (gfx9 and gfx940+) and RDNA wave32 (gfx11)
         match self {
             AMDArchitecture::GFX11 => 32,
@@ -42,8 +44,7 @@ impl AMDArchitecture {
         }
     }
 
-    // TODO verify that rocWMMA is installed on the system
-    pub fn is_wmma_capable(&self) -> bool {
+    fn is_wmma_capable(&self) -> bool {
         match self {
             AMDArchitecture::GFX11
             | AMDArchitecture::GFX908

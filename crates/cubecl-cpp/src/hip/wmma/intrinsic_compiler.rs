@@ -1,6 +1,10 @@
-use crate::{hip::{arch::AMDArchitecture, HipDialect}, shared::{
-    Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, Variable, WmmaCompiler, WmmaInstruction
-}};
+use crate::{
+    hip::{arch::AMDArchitecture, HipDialect},
+    shared::{
+        Architecture, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, Variable,
+        WmmaCompiler, WmmaInstruction,
+    },
+};
 use cubecl_core::ir::{self as gpu};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -128,7 +132,7 @@ for (int i = 0; i < 8; ++i) {{
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
                 //                           m   n   k
-                .map(|(i, o, c)| {(i, o, c, vec![(16, 16, 16)])})
+                .map(|(i, o, c)| (i, o, c, vec![(16, 16, 16)]))
                 .collect();
             result.extend(combinations);
         }

@@ -1,6 +1,10 @@
-use crate::{hip::{arch::AMDArchitecture, HipDialect}, shared::{
-    wmma_api_base, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, WmmaCompiler, WmmaInstruction
-}};
+use crate::{
+    hip::{arch::AMDArchitecture, HipDialect},
+    shared::{
+        wmma_api_base, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations,
+        WmmaCompiler, WmmaInstruction,
+    },
+};
 use cubecl_core::ir::{self as gpu};
 
 const ROCWMMA_NAMESPACE: &str = "rocwmma";
@@ -8,7 +12,7 @@ const ROCWMMA_NAMESPACE: &str = "rocwmma";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct RocWmmaCompiler {}
 
-impl WmmaCompiler<HipDialect<RocWmmaCompiler>> for HipDialect<RocWmmaCompiler> {
+impl WmmaCompiler<HipDialect<RocWmmaCompiler>> for RocWmmaCompiler {
     type Architecture = AMDArchitecture;
 
     fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -288,5 +292,4 @@ impl WmmaCompiler<HipDialect<RocWmmaCompiler>> for HipDialect<RocWmmaCompiler> {
             Self::Architecture::Other => vec![],
         }
     }
-
 }
