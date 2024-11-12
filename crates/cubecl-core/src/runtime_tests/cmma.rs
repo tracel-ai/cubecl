@@ -39,7 +39,12 @@ pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
 
     cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
 
-    cmma::store(&mut out.to_slice_mut(), &c, 16, cmma::MatrixLayout::RowMajor);
+    cmma::store(
+        &mut out.to_slice_mut(),
+        &c,
+        16,
+        cmma::MatrixLayout::RowMajor,
+    );
 }
 
 #[cube(launch)]
@@ -74,7 +79,12 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
 
     cmma::execute::<tf32, tf32, f32, f32>(&a, &b, &c, &c);
 
-    cmma::store(&mut out.to_slice_mut(), &c, 16, cmma::MatrixLayout::RowMajor);
+    cmma::store(
+        &mut out.to_slice_mut(),
+        &c,
+        16,
+        cmma::MatrixLayout::RowMajor,
+    );
 }
 
 pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {

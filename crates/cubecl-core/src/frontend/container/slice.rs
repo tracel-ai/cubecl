@@ -39,6 +39,7 @@ mod metadata {
 
     impl<E> Slice<E> {
         /// Get the length of the slice.
+        #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> u32 {
             unexpanded!()
         }
