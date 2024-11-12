@@ -176,7 +176,7 @@ impl<C: CubePrimitive> Matrix<C> {
         n: u32,
         k: u32,
         layout: MatrixLayout,
-        value: &Slice<'_, C>,
+        value: Slice<C>,
         stride: u32,
     ) -> Self {
         Matrix { _c: PhantomData }
@@ -227,7 +227,7 @@ impl<C: CubePrimitive> Matrix<C> {
         n: ExpandElementTyped<u32>,
         k: ExpandElementTyped<u32>,
         layout: MatrixLayout,
-        value: ExpandElementTyped<Slice<'static, C>>,
+        value: ExpandElementTyped<Slice<C>>,
         stride: ExpandElementTyped<u32>,
     ) -> MatrixExpand<C> {
         let mat = Self::__expand_uninitialized(context, ident, m, n, k, layout);
@@ -262,11 +262,7 @@ pub mod fill {
 
 /// Load the matrix with the provided array using the stride.
 #[allow(unused_variables)]
-pub fn load<C: CubePrimitive, V: CubePrimitive>(
-    mat: &Matrix<C>,
-    value: &Slice<'_, V>,
-    stride: u32,
-) {
+pub fn load<C: CubePrimitive, V: CubePrimitive>(mat: &Matrix<C>, value: &Slice<V>, stride: u32) {
     unexpanded!()
 }
 
@@ -279,7 +275,7 @@ pub mod load {
     pub fn expand<C: CubePrimitive, V: CubePrimitive>(
         context: &mut CubeContext,
         mat: MatrixExpand<C>,
-        value: ExpandElementTyped<Slice<'static, V>>,
+        value: ExpandElementTyped<Slice<V>>,
         stride: ExpandElementTyped<u32>,
     ) {
         let stride: ExpandElement = stride.into();
@@ -305,7 +301,7 @@ pub mod load {
 #[allow(unused_variables)]
 pub fn load_with_layout<C: CubeType>(
     mat: &Matrix<C>,
-    value: &Slice<'_, C>,
+    value: Slice<C>,
     stride: u32,
     layout: MatrixLayout,
 ) {
@@ -321,7 +317,7 @@ pub mod load_with_layout {
     pub fn expand<C: CubeType>(
         context: &mut CubeContext,
         mat: MatrixExpand<C>,
-        value: ExpandElementTyped<Slice<'static, C>>,
+        value: ExpandElementTyped<Slice<C>>,
         stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) {
@@ -341,7 +337,7 @@ pub mod load_with_layout {
 /// Store the matrix in the given array following the given stride and layout.
 #[allow(unused_variables)]
 pub fn store<C: CubePrimitive, O: CubePrimitive>(
-    output: &mut SliceMut<'_, O>,
+    output: &mut SliceMut<O>,
     mat: &Matrix<C>,
     stride: u32,
     layout: MatrixLayout,
@@ -357,7 +353,7 @@ pub mod store {
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         context: &mut CubeContext,
-        output: ExpandElementTyped<SliceMut<'static, O>>,
+        output: ExpandElementTyped<SliceMut<O>>,
         mat: MatrixExpand<C>,
         stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,

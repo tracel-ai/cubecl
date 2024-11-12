@@ -26,7 +26,7 @@ impl PlaneMapper for TilewiseUnloading {
 impl TilewiseUnloading {
     pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: Config>(
         write_view: &mut TensorWriter<EG>,
-        slice: &Slice<'_, Line<ES>>,
+        slice: Slice<Line<ES>>,
         tile_x: u32,
         tile_y: u32,
         #[comptime] config: G,

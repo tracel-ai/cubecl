@@ -58,10 +58,10 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     fn init_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
     /// Fill the container of LHS with data
-    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+    fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
 
     /// Fill the container of RHS with data
-    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
+    fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
     /// Create the container to receive the execution output.
     ///
@@ -74,7 +74,7 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     /// Write the content of the output container to the given slice
     fn read_output<C: Numeric>(
         out: &Self::Out,
-        slice: &mut SliceMut<'_, Line<C>>,
+        slice: &mut SliceMut<Line<C>>,
         #[comptime] config: Self::Config,
     );
 }

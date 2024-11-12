@@ -30,7 +30,7 @@ impl<EG: Numeric> global::Unloader<EG> for Unloader<EG> {
 impl<EG: Numeric> StageWriter<EG> for Unloader<EG> {
     fn write<ES: Numeric, G: global::Config>(
         this: &mut Self,
-        slice: &Slice<'_, Line<ES>>,
+        slice: Slice<Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: G,
