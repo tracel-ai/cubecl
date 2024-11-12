@@ -21,6 +21,7 @@ use super::Line;
 /// # Safety
 ///
 /// Since data can't be deallocated during kernel execution, this is safe.
+#[derive(Clone)]
 pub struct Slice<E> {
     _e: PhantomData<E>,
 }
@@ -29,7 +30,7 @@ pub struct Slice<E> {
 ///
 /// # Safety
 ///
-/// Since data can be accessed by any unit in a kernel, this can never be safe.
+/// Since data can be accessed by any unit during kernel execution, this can never be safe.
 pub struct SliceMut<E> {
     _e: PhantomData<E>,
 }
@@ -61,7 +62,7 @@ mod metadata {
         }
 
         /// Returns the same slice, but with lines of length 1.
-        pub fn to_aligned(&self) -> SliceMut<Line<E>>
+        pub fn into_aligned(self) -> SliceMut<Line<E>>
         where
             E: CubePrimitive,
         {
@@ -86,6 +87,17 @@ mod metadata {
         {
             self.expand.into()
         }
+
+        // Expand method of [clone](Clone::clone).
+        pub fn __expand_clone_method(
+            self,
+            _context: &mut CubeContext,
+        ) -> ExpandElementTyped<Slice<Line<C>>>
+        where
+            C: CubePrimitive,
+        {
+            self.expand.into()
+        }
     }
 
     impl<C: CubeType> ExpandElementTyped<SliceMut<C>> {
@@ -95,8 +107,8 @@ mod metadata {
             elem.__expand_len_method(context)
         }
 
-        // Expand method of [len](SliceMut::to_aligned).
-        pub fn __expand_to_aligned_method(
+        // Expand method of [len](SliceMut::into_aligned).
+        pub fn __expand_into_aligned_method(
             self,
             _context: &mut CubeContext,
         ) -> ExpandElementTyped<SliceMut<Line<C>>>
@@ -240,14 +252,6 @@ impl<C: CubeType> Init for ExpandElementTyped<SliceMut<C>> {
 impl<C: CubeType<ExpandType = ExpandElementTyped<C>>> SizedContainer for Slice<C> {
     type Item = C;
 }
-
-// impl<C: CubeType> CubeIndex<ExpandElementTyped<u32>> for Slice<C> {
-//     type Output = C;
-// }
-//
-// impl<C: CubeType> CubeIndex<ExpandElementTyped<u32>> for SliceMut<C> {
-//     type Output = C;
-// }
 
 impl<T: CubeType> Iterator for Slice<T> {
     type Item = T;
