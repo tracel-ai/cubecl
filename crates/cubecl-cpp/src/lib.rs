@@ -1,23 +1,27 @@
 #[macro_use]
 extern crate derive_new;
 
-mod shared;
+pub mod shared;
 
 pub use shared::register_supported_types;
-pub use shared::Dialect;
+pub use shared::{Dialect, WmmaCompiler};
 
 /// Format CPP code.
 pub mod formatter;
 
 #[cfg(feature = "hip")]
-mod hip;
+pub mod hip;
 #[cfg(feature = "hip")]
-pub type HipCompilerInstrinsic = shared::CppCompiler<hip::HipDialect<hip::WmmaIntrinsicCompiler>>;
+pub type HipDialectIntrinsic = hip::HipDialect<hip::wmma::WmmaIntrinsicCompiler>;
 #[cfg(feature = "hip")]
-pub type HipCompilerRocWmma = shared::CppCompiler<hip::HipDialect<hip::RocWmmaCompiler>>;
+pub type HipCompilerInstrinsic = shared::CppCompiler<HipDialectIntrinsic>;
+#[cfg(feature = "hip")]
+pub type HipDialectRocWmma = hip::HipDialect<hip::wmma::RocWmmaCompiler>;
+#[cfg(feature = "hip")]
+pub type HipCompilerRocWmma = shared::CppCompiler<HipDialectRocWmma>;
 
 #[cfg(feature = "cuda")]
-mod cuda;
+pub mod cuda;
 
 #[cfg(feature = "cuda")]
-pub type CudaCompiler = shared::CppCompiler<cuda::CudaDialect<cuda::CudaWmmaCompiler>>;
+pub type CudaCompiler = shared::CppCompiler<cuda::CudaDialect<cuda::wmma::CudaWmmaCompiler>>;

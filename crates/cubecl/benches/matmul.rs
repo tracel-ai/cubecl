@@ -101,28 +101,28 @@ fn main() {
         // TODO: unless annotated OOM, all the benches can randomly hang
         // Full-precision ----------------------------------------------------
         // Tiling2D
-        run::<cubecl::hip::HipRuntime, f32>(
+        run::<cubecl::hip::HipRuntime<cubecl::hip::HipDialect>, f32>(
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
         );
         // PlaneMma
-        // run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        // run::<cubecl::hip::HipRuntime<cubecl::hip::HipDialect>, f32>(Default::default(), matmul::Strategy::PlaneMma);
         // CmmaOld
-        // run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
+        // run::<cubecl::hip::HipRuntime,<cubecl::hip::HipDialect> f32>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
         // Accelerated
-        run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
+        run::<cubecl::hip::HipRuntime<cubecl::hip::HipDialect>, f32>(Default::default(), matmul::Strategy::Accelerated);
         // Half-precision ----------------------------------------------------
         // Tiling2D
-        run::<cubecl::hip::HipRuntime, half::f16>(
+        run::<cubecl::hip::HipRuntime<cubecl::hip::HipDialect>, half::f16>(
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
         );
         // PlaneMma: OOM
-        // run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
+        // run::<cubecl::hip::HipRuntime<cubecl::hip::HipDialect>, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
         // CmmaOld: OOM
-        // run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
+        // run::<cubecl::hip::HipRuntime<cubecl::hip::HipDialect>, half::f16>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
         // Accelerated
-        run::<cubecl::hip::HipRuntime, half::f16>(
+        run::<cubecl::hip::HipRuntime<cubecl::hip::HipDialect>, half::f16>(
             Default::default(),
             matmul::Strategy::Accelerated,
         );

@@ -1,6 +1,6 @@
-use std::{ffi::CStr, mem::MaybeUninit, str::FromStr};
+use std::{ffi::CStr, marker::PhantomData, mem::MaybeUninit, str::FromStr};
 
-use cubecl_cpp::register_supported_types;
+use cubecl_cpp::{hip::arch::AMDArchitecture, register_supported_types, shared::{register_wmma_features, WmmaCompiler}, Dialect};
 
 use cubecl_core::{Feature, MemoryConfiguration, Runtime};
 use cubecl_hip_sys::HIP_SUCCESS;
@@ -12,10 +12,8 @@ use cubecl_runtime::{
 };
 
 use crate::{
-    arch::AMDArchitecture,
     compute::{HipContext, HipServer, HipStorage},
-    device::HipDevice, HipCompiler,
-};
+    device::HipDevice, HipCompiler};
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -25,7 +23,10 @@ pub struct RuntimeOptions {
 }
 
 #[derive(Debug)]
-pub struct HipRuntime;
+pub struct HipRuntime<D: Dialect>
+{
+    _dialect: PhantomData<D>,
+}
 
 static RUNTIME: ComputeRuntime<HipDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
@@ -35,7 +36,7 @@ type Channel = MutexComputeChannel<Server>;
 
 const MEMORY_OFFSET_ALIGNMENT: u64 = 32;
 
-fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
+fn create_client<D: Dialect>(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let mut ctx: cubecl_hip_sys::hipCtx_t = std::ptr::null_mut();
 
     #[allow(unused_assignments)]
@@ -55,7 +56,7 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
             .to_str()
             .unwrap();
     };
-    let arch = AMDArchitecture::from_str(prop_arch_name).unwrap();
+    let arch = <D::WmmaCompiler as WmmaCompiler<D>>::Architecture::from_str(prop_arch_name).unwrap();
     assert_eq!(prop_warp_size, arch.warp_size());
 
     unsafe {
@@ -105,12 +106,13 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     let server = HipServer::new(hip_ctx);
     let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, topology);
     register_supported_types(&mut device_props);
-    arch.register_wmma_features(&mut device_props);
+    let supported_wmma_combinations = D::WmmaCompiler::supported_wmma_combinations(arch);
+    register_wmma_features(supported_wmma_combinations, &mut device_props);
 
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }
 
-impl Runtime for HipRuntime {
+impl<D: Dialect> Runtime for HipRuntime<D> {
     type Compiler = HipCompiler;
     type Server = HipServer;
     type Channel = MutexComputeChannel<HipServer>;
@@ -118,7 +120,7 @@ impl Runtime for HipRuntime {
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            create_client(device, RuntimeOptions::default())
+            create_client::<D>(device, RuntimeOptions::default())
         })
     }
 
