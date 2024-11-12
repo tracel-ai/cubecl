@@ -46,55 +46,89 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
     fn create_pipeline(
         server: &mut WgpuServer<Self>,
         kernel: CompiledKernel<Self>,
-        _mode: ExecutionMode,
+        mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
-        let repr = kernel
+        let (module, layout) = kernel
             .repr
-            .expect("Need compiled repr to assemble to spirv");
-        let spirv = repr.assemble();
+            .map(|repr| {
+                let bindings = repr
+                    .bindings
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _binding)| BindGroupLayoutEntry {
+                        binding: i as u32,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            #[cfg(not(exclusive_memory_only))]
+                            ty: BufferBindingType::Storage { read_only: false },
+                            #[cfg(exclusive_memory_only)]
+                            ty: BufferBindingType::Storage {
+                                read_only: matches!(
+                                    _binding.visibility,
+                                    cubecl_core::ir::Visibility::Read
+                                ),
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    })
+                    .collect::<Vec<_>>();
+                let layout = server
+                    .device
+                    .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                        label: None,
+                        entries: &bindings,
+                    });
+                let layout = server
+                    .device
+                    .create_pipeline_layout(&PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[&layout],
+                        push_constant_ranges: &[],
+                    });
 
-        let num_bindings = repr.num_bindings as u32;
-        let bindings = (0..num_bindings)
-            .map(|i| BindGroupLayoutEntry {
-                binding: i,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
+                let spirv = repr.assemble();
+
+                let module = unsafe {
+                    server
+                        .device
+                        .create_shader_module_spirv(&ShaderModuleDescriptorSpirV {
+                            label: None,
+                            source: Cow::Borrowed(&spirv),
+                        })
+                };
+                (module, Some(layout))
             })
-            .collect::<Vec<_>>();
-        let layout = server
-            .device
-            .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: None,
-                entries: &bindings,
+            .unwrap_or_else(|| {
+                let source = &kernel.source;
+                let module = match mode {
+                    ExecutionMode::Checked => {
+                        server
+                            .device
+                            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                                label: None,
+                                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                            })
+                    }
+                    ExecutionMode::Unchecked => unsafe {
+                        server
+                            .device
+                            .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
+                                label: None,
+                                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                            })
+                    },
+                };
+                (module, None)
             });
-        let layout = server
-            .device
-            .create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&layout],
-                push_constant_ranges: &[],
-            });
-
-        let module = unsafe {
-            server
-                .device
-                .create_shader_module_spirv(&ShaderModuleDescriptorSpirV {
-                    label: None,
-                    source: Cow::Borrowed(&spirv),
-                })
-        };
 
         Arc::new(
             server
                 .device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: None,
-                    layout: Some(&layout),
+                    layout: layout.as_ref(),
                     module: &module,
                     entry_point: Some("main"),
                     compilation_options: wgpu::PipelineCompilationOptions {

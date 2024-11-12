@@ -9,8 +9,8 @@ use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::DeviceProperties;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
+use cubecl_runtime::{memory_management::TopologyProperties, DeviceProperties};
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
@@ -159,6 +159,10 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
     };
+    let topology = TopologyProperties {
+        subcube_size_min: setup.adapter.limits().min_subgroup_size,
+        subcube_size_max: setup.adapter.limits().max_subgroup_size,
+    };
 
     let memory_management = {
         let device = setup.device.clone();
@@ -176,8 +180,11 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     let channel = MutexComputeChannel::new(server);
 
     let features = setup.adapter.features();
-    let mut device_props = DeviceProperties::new(&[], mem_props);
-    if features.contains(wgpu::Features::SUBGROUP) {
+    let mut device_props = DeviceProperties::new(&[], mem_props, topology);
+
+    if features.contains(wgpu::Features::SUBGROUP)
+        && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
+    {
         device_props.register_feature(Feature::Subcube);
     }
     C::register_features(&setup.adapter, &setup.device, &mut device_props);

@@ -174,18 +174,17 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
-    Stride {
-        dim: Variable,
-        position: usize,
-        out: Variable,
-    },
     Length {
         var: Variable,
         out: Variable,
     },
-    Shape {
+    Metadata {
+        info_offset: Variable,
+        out: Variable,
+    },
+    ExtendedMeta {
+        info_offset: Variable,
         dim: Variable,
-        position: usize,
         out: Variable,
     },
     RangeLoop {
@@ -616,16 +615,17 @@ impl Display for Instruction {
                     writeln!(f, "{out} = {input};")
                 }
             }
-            Instruction::Stride { dim, position, out } => {
+            Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = info[({position}u * rank_2) + {dim} + 1u];")
+                writeln!(f, "{out} = info[{info_offset}];")
             }
-            Instruction::Shape { dim, position, out } => {
+            Instruction::ExtendedMeta {
+                dim,
+                info_offset,
+                out,
+            } => {
                 let out = out.fmt_left();
-                writeln!(
-                    f,
-                    "{out} = info[({position}u * rank_2) + rank + {dim} + 1u];"
-                )
+                writeln!(f, "{out} = info[info[{info_offset}] + {dim}];")
             }
             Instruction::RangeLoop {
                 i,
@@ -751,7 +751,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 match var {
                     Variable::Slice { .. } => writeln!(f, "{out} = {var}_length;"),
-                    _ => writeln!(f, "{out} = arrayLength(&{var});"),
+                    _ => writeln!(f, "{out} = arrayLength({var});"),
                 }
             }
             Instruction::Loop { instructions } => {

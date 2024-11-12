@@ -1,10 +1,10 @@
 use std::{
-    mem::transmute,
+    mem::{replace, transmute},
     rc::Rc,
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use cubecl_core::ir::{ConstantScalarValue, VariableKind};
+use cubecl_core::ir::{ConstantScalarValue, Instruction, Operation, VariableKind};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{visit_noop, AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer};
@@ -151,6 +151,44 @@ fn search_dead_blocks(opt: &mut Optimizer) -> bool {
     false
 }
 
+/// Eliminates invalid phi nodes left over from other optimizations like branch elimination.
+pub struct EliminateDeadPhi;
+
+impl OptimizerPass for EliminateDeadPhi {
+    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
+        for block in opt.node_ids() {
+            let predecessors = opt.predecessors(block);
+            if !opt.program[block].phi_nodes.borrow().is_empty() && predecessors.len() == 1 {
+                let predecessor = predecessors[0];
+                let removed_phi = opt.program[block]
+                    .phi_nodes
+                    .borrow_mut()
+                    .drain(..)
+                    .collect::<Vec<_>>();
+                let assigns = removed_phi
+                    .into_iter()
+                    .map(|phi| {
+                        let value = phi
+                            .entries
+                            .into_iter()
+                            .find(|it| it.block == predecessor)
+                            .unwrap()
+                            .value;
+                        Instruction::new(Operation::Copy(value), phi.out)
+                    })
+                    .collect();
+
+                let instructions = replace(&mut *opt.program[block].ops.borrow_mut(), assigns);
+                opt.program[block]
+                    .ops
+                    .borrow_mut()
+                    .extend(instructions.into_iter().map(|it| it.1));
+                changes.inc();
+            }
+        }
+    }
+}
+
 /// Merges unnecessary basic blocks left over from constant branch evaluation and dead code
 /// elimination
 pub struct MergeBlocks;
@@ -290,7 +328,17 @@ pub fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
                 update(continue_target);
                 update(merge);
             }
-            _ => {}
+            ControlFlow::LoopBreak {
+                body,
+                continue_target,
+                merge,
+                ..
+            } => {
+                update(body);
+                update(continue_target);
+                update(merge);
+            }
+            ControlFlow::Return | ControlFlow::None => {}
         }
     }
 }

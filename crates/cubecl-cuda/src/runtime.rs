@@ -7,7 +7,7 @@ use cubecl_core::{
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{MemoryDeviceProperties, MemoryManagement},
+    memory_management::{MemoryDeviceProperties, MemoryManagement, TopologyProperties},
     storage::ComputeStorage,
     ComputeRuntime, DeviceProperties,
 };
@@ -72,14 +72,27 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         alignment: CudaStorage::ALIGNMENT,
     };
 
+    let warp_size = unsafe {
+        cudarc::driver::result::device::get_attribute(
+            device_ptr,
+            cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_WARP_SIZE,
+        )
+        .unwrap()
+    };
+    let topology = TopologyProperties {
+        subcube_size_min: warp_size as u32,
+        subcube_size_max: warp_size as u32,
+    };
+
     let memory_management = MemoryManagement::from_configuration(
         storage,
         mem_properties.clone(),
         options.memory_config,
     );
+
     let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
     let mut server = CudaServer::new(cuda_ctx);
-    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties, topology);
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     register_wmma_features(&mut device_props, server.arch_version());
@@ -122,6 +135,7 @@ fn register_wmma_features(properties: &mut DeviceProperties<Feature>, arch: u32)
     }
 
     if wmma {
+        properties.register_feature(Feature::CmmaWarpSize(32));
         // Types fully supported.
         for (a, b, c) in [
             (

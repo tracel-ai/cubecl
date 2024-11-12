@@ -85,6 +85,50 @@ mod new {
     }
 }
 
+/// Module that contains the implementation details of the line_size function.
+mod line {
+    use crate::prelude::Line;
+
+    use super::*;
+
+    impl<P: CubePrimitive> Array<Line<P>> {
+        /// Get the size of each line contained in the tensor.
+        ///
+        /// Same as the following:
+        ///
+        /// ```rust, ignore
+        /// let size = tensor[0].size();
+        /// ```
+        pub fn line_size(&self) -> u32 {
+            unexpanded!()
+        }
+
+        // Expand function of [size](Tensor::line_size).
+        pub fn __expand_line_size(
+            expand: <Self as CubeType>::ExpandType,
+            context: &mut CubeContext,
+        ) -> u32 {
+            expand.__expand_line_size_method(context)
+        }
+    }
+
+    impl<P: CubePrimitive> ExpandElementTyped<Array<Line<P>>> {
+        /// Comptime version of [size](Array::line_size).
+        pub fn line_size(&self) -> u32 {
+            self.expand
+                .item
+                .vectorization
+                .unwrap_or(NonZero::new(1).unwrap())
+                .get() as u32
+        }
+
+        // Expand method of [size](Array::line_size).
+        pub fn __expand_line_size_method(&self, _content: &mut CubeContext) -> u32 {
+            self.line_size()
+        }
+    }
+}
+
 /// Module that contains the implementation details of vectorization functions.
 ///
 /// TODO: Remove vectorization in favor of the line API.
@@ -170,6 +214,11 @@ mod metadata {
         pub fn len(&self) -> u32 {
             unexpanded!()
         }
+
+        /// Obtain the array buffer length
+        pub fn buffer_len(&self) -> u32 {
+            unexpanded!()
+        }
     }
 
     impl<T: CubeType> ExpandElementTyped<Array<T>> {
@@ -178,6 +227,21 @@ mod metadata {
             let out = context.create_local_binding(Item::new(u32::as_elem()));
             context.register(Instruction::new(
                 Metadata::Length {
+                    var: self.expand.into(),
+                },
+                out.clone().into(),
+            ));
+            out.into()
+        }
+
+        // Expand method of [buffer_len](Array::buffer_len).
+        pub fn __expand_buffer_len_method(
+            self,
+            context: &mut CubeContext,
+        ) -> ExpandElementTyped<u32> {
+            let out = context.create_local_binding(Item::new(u32::as_elem()));
+            context.register(Instruction::new(
+                Metadata::BufferLength {
                     var: self.expand.into(),
                 },
                 out.clone().into(),

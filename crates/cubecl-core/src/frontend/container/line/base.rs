@@ -1,8 +1,8 @@
 use std::num::NonZero;
 
 use crate::{
-    ir::{ConstantScalarValue, Item},
-    prelude::{CubeContext, ExpandElement},
+    ir::{ConstantScalarValue, Item, Operator},
+    prelude::{binary_expand_fixed_output, CubeContext, Dot, ExpandElement, Numeric},
     unexpanded,
 };
 
@@ -190,5 +190,22 @@ impl<P: CubePrimitive> IntoRuntime for Line<P> {
 impl<P: CubePrimitive> CubePrimitive for Line<P> {
     fn as_elem() -> crate::ir::Elem {
         P::as_elem()
+    }
+}
+
+impl<N: Numeric> Dot for Line<N> {
+    fn dot(self, _rhs: Self) -> Self {
+        unexpanded!()
+    }
+
+    fn __expand_dot(
+        context: &mut CubeContext,
+        lhs: ExpandElementTyped<Self>,
+        rhs: ExpandElementTyped<Self>,
+    ) -> ExpandElementTyped<Self> {
+        let lhs: ExpandElement = lhs.into();
+        let mut item = lhs.item;
+        item.vectorization = None;
+        binary_expand_fixed_output(context, lhs, rhs.into(), item, Operator::Dot).into()
     }
 }

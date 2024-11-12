@@ -1,10 +1,10 @@
 use cubecl_core::ir as core;
 use cubecl_core::ir::Metadata;
-use rspirv::spirv::Word;
+use rspirv::spirv::{StorageClass, Word};
 
 use crate::{
     item::{Elem, Item},
-    variable::Variable,
+    variable::{Globals, Variable},
     SpirvCompiler, SpirvTarget,
 };
 
@@ -12,86 +12,60 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_meta(&mut self, meta: Metadata, out: Option<core::Variable>) {
         let out = out.unwrap();
         match meta {
+            Metadata::Rank { var } => {
+                let var = self.compile_variable(var);
+                let out = self.compile_variable(out);
+                let pos = self.ext_pos(&var);
+
+                let out_id = self.read(&out);
+
+                let offset = self.metadata.rank_index(pos);
+                self.load_const_metadata(offset, Some(out_id));
+                self.write(&out, out_id);
+            }
             Metadata::Length { var } => {
                 let var = self.compile_variable(var);
                 let out = self.compile_variable(out);
                 self.length(&var, Some(&out));
             }
+            Metadata::BufferLength { var } => {
+                let var = self.compile_variable(var);
+                let out = self.compile_variable(out);
+                self.buffer_length(&var, Some(&out));
+            }
             Metadata::Stride { dim, var } => {
-                let int_ty = Item::Scalar(Elem::Int(32, false));
                 let int = self.type_int(32, 0);
-                let position = match var.kind {
-                    core::VariableKind::GlobalInputArray(id) => id as usize,
-                    core::VariableKind::GlobalOutputArray(id) => {
-                        self.state.inputs.len() + id as usize
-                    }
-                    _ => panic!("Only Input and Output have a stride, got: {:?}", var),
-                };
 
+                let var = self.compile_variable(var);
                 let dim = self.compile_variable(dim);
                 let out = self.compile_variable(out);
-                let one = self.const_u32(1);
 
+                let pos = self.ext_pos(&var);
+
+                let offs_offset = self.metadata.stride_offset_index(pos);
+                let offset = self.load_const_metadata(offs_offset, None);
                 let dim_id = self.read(&dim);
-                let rank_2 = self.rank_2();
 
-                let index = match position > 1 {
-                    true => {
-                        let position = self.const_u32(position as u32);
-                        self.i_mul(int, None, position, rank_2).unwrap()
-                    }
-                    false => rank_2,
-                };
-                let index = match position > 0 {
-                    true => self.i_add(int, None, index, dim_id).unwrap(),
-                    false => dim_id,
-                };
-                let index = self.i_add(int, None, index, one).unwrap();
-                let index = Variable::Raw(index, int_ty.clone());
-                let info = Variable::Named {
-                    id: self.state.named["info"],
-                    item: int_ty,
-                    is_array: true,
-                };
-                self.read_indexed_unchecked(&out, &info, &index);
+                let index = self.i_add(int, None, offset, dim_id).unwrap();
+                let index = Variable::Id(index);
+                self.load_dyn_metadata(&index, &out);
             }
             Metadata::Shape { dim, var } => {
-                let int_ty = Item::Scalar(Elem::Int(32, false));
                 let int = self.type_int(32, 0);
-                let position = match var.kind {
-                    core::VariableKind::GlobalInputArray(id) => id as usize,
-                    core::VariableKind::GlobalOutputArray(id) => {
-                        self.state.inputs.len() + id as usize
-                    }
-                    _ => panic!("Only Input and Output have a stride, got: {:?}", var),
-                };
+
+                let var = self.compile_variable(var);
                 let dim = self.compile_variable(dim);
                 let out = self.compile_variable(out);
-                let one = self.const_u32(1);
 
+                let pos = self.ext_pos(&var);
+
+                let offs_offset = self.metadata.shape_offset_index(pos);
+                let offset = self.load_const_metadata(offs_offset, None);
                 let dim_id = self.read(&dim);
-                let rank = self.rank();
-                let rank_2 = self.rank_2();
-                let index = match position > 1 {
-                    true => {
-                        let position = self.const_u32(position as u32);
-                        self.i_mul(int, None, position, rank_2).unwrap()
-                    }
-                    false => rank_2,
-                };
-                let index = match position > 0 {
-                    true => self.i_add(int, None, index, rank).unwrap(),
-                    false => rank,
-                };
-                let index = self.i_add(int, None, index, dim_id).unwrap();
-                let index = self.i_add(int, None, index, one).unwrap();
-                let index = Variable::Raw(index, int_ty.clone());
-                let info = Variable::Named {
-                    id: self.state.named["info"],
-                    item: int_ty,
-                    is_array: true,
-                };
-                self.read_indexed_unchecked(&out, &info, &index);
+
+                let index = self.i_add(int, None, offset, dim_id).unwrap();
+                let index = Variable::Id(index);
+                self.load_dyn_metadata(&index, &out);
             }
         }
     }
@@ -106,8 +80,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         };
 
         let id = match var {
-            Variable::GlobalInputArray(ptr, _) | Variable::GlobalOutputArray(ptr, _) => {
-                self.array_length(out_ty, out_id, *ptr, 0).unwrap()
+            Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => {
+                let offset = self.metadata.len_index(*pos);
+                let id = self.load_const_metadata(offset, out_id);
+
+                if let Some(out_id) = out_id {
+                    self.debug_name(out_id, format!("buffer_len({pos})"));
+                }
+                id
             }
             Variable::Slice {
                 const_len: Some(len),
@@ -133,5 +113,55 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             self.write(out, id);
         }
         id
+    }
+
+    pub fn buffer_length(&mut self, var: &Variable, out: Option<&Variable>) -> Word {
+        let out_id = out.map(|it| self.write_id(it));
+
+        let position = match var {
+            Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => *pos,
+            _ => panic!("Only Input and Output have a buffer length, got: {:?}", var),
+        };
+        let offset = self.metadata.buffer_len_index(position);
+        let id = self.load_const_metadata(offset, out_id);
+
+        if let Some(out) = out {
+            self.debug_name(out_id.unwrap(), format!("buffer_len({position})"));
+            self.write(out, id);
+        }
+        id
+    }
+
+    pub fn load_const_metadata(&mut self, index: u32, out: Option<Word>) -> Word {
+        self.get_or_insert_global(Globals::Metadata(index), |b| {
+            let int = Item::Scalar(Elem::Int(32, false));
+            let int_ty = int.id(b);
+            let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(b);
+            let info = b.state.named["info"];
+            let zero = b.const_u32(0);
+            let index = b.const_u32(index);
+            let info_ptr = b
+                .access_chain(int_ptr, None, info, vec![zero, index])
+                .unwrap();
+            b.load(int_ty, out, info_ptr, None, vec![]).unwrap()
+        })
+    }
+
+    pub fn load_dyn_metadata(&mut self, index: &Variable, out: &Variable) -> Word {
+        let int_ty = Item::Scalar(Elem::Int(32, false));
+        let info = Variable::Named {
+            id: self.state.named["info"],
+            item: int_ty,
+            is_array: false,
+        };
+        self.read_indexed_unchecked(out, &info, index)
+    }
+
+    fn ext_pos(&self, var: &Variable) -> u32 {
+        let pos = match var {
+            Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => *pos,
+            _ => panic!("Only global buffers have rank"),
+        };
+        self.ext_meta_pos[pos as usize]
     }
 }

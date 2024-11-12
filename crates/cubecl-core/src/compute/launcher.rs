@@ -1,14 +1,16 @@
 use std::marker::PhantomData;
 
-use crate::ir::{Elem, FloatKind, IntKind};
-use crate::prelude::ArrayHandleRef;
+use crate::prelude::{ArrayArg, TensorArg};
 use crate::KernelSettings;
-use crate::{calculate_num_elems_dyn_rank, frontend::TensorHandleRef, Kernel, Runtime};
 use crate::{compute::KernelTask, ir::UIntKind};
+use crate::{
+    ir::{Elem, FloatKind, IntKind},
+    MetadataBuilder,
+};
+use crate::{Kernel, Runtime};
 use bytemuck::NoUninit;
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{Binding, CubeCount};
-use num_traits::ToPrimitive;
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
@@ -32,13 +34,13 @@ pub struct KernelLauncher<R: Runtime> {
 
 impl<R: Runtime> KernelLauncher<R> {
     /// Register a tensor to be launched.
-    pub fn register_tensor(&mut self, tensor: &TensorHandleRef<'_, R>) {
-        self.tensors.push(tensor);
+    pub fn register_tensor(&mut self, tensor: &TensorArg<'_, R>) {
+        self.tensors.push_tensor(tensor);
     }
 
     /// Register an array to be launched.
-    pub fn register_array(&mut self, array: &ArrayHandleRef<'_, R>) {
-        self.tensors.push(&array.as_tensor());
+    pub fn register_array(&mut self, array: &ArrayArg<'_, R>) {
+        self.tensors.push_array(array);
     }
 
     /// Register a u8 scalar to be launched.
@@ -211,8 +213,7 @@ pub enum TensorState<R: Runtime> {
     /// The registered tensors.
     Some {
         bindings: Vec<Binding>,
-        metadata: Vec<u32>,
-        lengths: Vec<u32>,
+        metadata: MetadataBuilder,
         runtime: PhantomData<R>,
     },
 }
@@ -229,94 +230,74 @@ pub enum ScalarState<T> {
 
 impl<R: Runtime> TensorState<R> {
     /// Push a new tensor to the state.
-    pub fn push(&mut self, tensor: &TensorHandleRef<'_, R>) {
+    pub fn push_tensor(&mut self, tensor: &TensorArg<'_, R>) {
+        let (tensor, vectorization) = match tensor {
+            TensorArg::Handle {
+                handle,
+                vectorization_factor,
+                ..
+            } => (handle, vectorization_factor),
+            TensorArg::Alias { .. } => return,
+        };
+
         if let TensorState::Empty = self {
             *self = TensorState::Some {
                 bindings: Vec::with_capacity(1),
-                metadata: Vec::new(),
-                lengths: Vec::new(),
+                metadata: MetadataBuilder::default(),
                 runtime: PhantomData,
             };
         };
 
-        let (bindings, metadata, lengths) = match self {
-            TensorState::Empty => panic!("Should be init"),
-            TensorState::Some {
-                bindings,
-                metadata,
-                lengths,
-                runtime: _,
-            } => (bindings, metadata, lengths),
+        let TensorState::Some {
+            bindings, metadata, ..
+        } = self
+        else {
+            panic!("Should be init")
         };
 
+        let elem_size = tensor.elem_size * *vectorization as usize;
+        let buffer_len = tensor.handle.size() / elem_size as u64;
+        let len = tensor.shape.iter().product::<usize>() / *vectorization as usize;
         bindings.push(tensor.handle.clone().binding());
-
-        if metadata.is_empty() {
-            let rank = tensor.strides.len() as u32;
-            metadata.push(rank);
-        } else if tensor.strides.len() > metadata[0] as usize {
-            let rank = tensor.strides.len() as u32;
-            Self::adjust_rank(metadata, bindings.len() - 1, rank);
-        }
-
-        Self::register_strides(tensor.strides, tensor.shape, metadata);
-        Self::register_shape(tensor.shape, metadata);
-
-        if R::require_array_lengths() {
-            let len = calculate_num_elems_dyn_rank(tensor.shape);
-            lengths.push(len as u32);
-        }
+        metadata.with_tensor(
+            tensor.strides.len() as u32,
+            buffer_len as u32,
+            len as u32,
+            tensor.shape.iter().map(|it| *it as u32).collect(),
+            tensor.strides.iter().map(|it| *it as u32).collect(),
+        );
     }
 
-    fn adjust_rank(metadata: &mut Vec<u32>, num_registered: usize, rank: u32) {
-        let old_rank = metadata[0] as usize;
-        let rank_diff = rank as usize - old_rank;
-        let mut updated_metadata = Vec::with_capacity(2 * rank_diff * num_registered);
-        updated_metadata.push(rank);
+    /// Push a new array to the state.
+    pub fn push_array(&mut self, array: &ArrayArg<'_, R>) {
+        let (array, vectorization) = match array {
+            ArrayArg::Handle {
+                handle,
+                vectorization_factor,
+                ..
+            } => (handle, vectorization_factor),
+            ArrayArg::Alias { .. } => return,
+        };
 
-        for pos in 0..num_registered {
-            let stride_index = (pos * old_rank * 2) + 1;
-            let shape_index = stride_index + old_rank;
+        if let TensorState::Empty = self {
+            *self = TensorState::Some {
+                bindings: Vec::with_capacity(1),
+                metadata: MetadataBuilder::default(),
+                runtime: PhantomData,
+            };
+        };
 
-            let strides_old = &metadata[stride_index..stride_index + old_rank];
-            let shape_old = &metadata[shape_index..shape_index + old_rank];
+        let TensorState::Some {
+            bindings, metadata, ..
+        } = self
+        else {
+            panic!("Should be init")
+        };
 
-            Self::register_strides(strides_old, shape_old, &mut updated_metadata);
-            Self::register_shape(shape_old, &mut updated_metadata);
-        }
-
-        core::mem::swap(&mut updated_metadata, metadata);
-    }
-
-    fn register_strides<T: ToPrimitive>(strides: &[T], shape: &[T], output: &mut Vec<u32>) {
-        let old_rank = output[0] as usize;
-        let rank_diff = i32::abs(old_rank as i32 - shape.len() as i32) as usize;
-
-        if rank_diff > 0 {
-            let padded_strides = shape.iter().map(|a| a.to_u32().unwrap()).sum::<u32>();
-
-            for _ in 0..rank_diff {
-                output.push(padded_strides);
-            }
-        }
-
-        for stride in strides.iter().take(old_rank) {
-            output.push(stride.to_u32().unwrap());
-        }
-    }
-
-    fn register_shape<T: ToPrimitive>(shape: &[T], output: &mut Vec<u32>) {
-        let old_rank = output[0] as usize;
-        let rank_diff = i32::abs(old_rank as i32 - shape.len() as i32) as usize;
-
-        if rank_diff > 0 {
-            for _ in 0..rank_diff {
-                output.push(1);
-            }
-        }
-        for elem in shape.iter().take(old_rank) {
-            output.push(elem.to_u32().unwrap());
-        }
+        let elem_size = array.elem_size * *vectorization as usize;
+        let buffer_len = array.handle.size() / elem_size as u64;
+        bindings.push(array.handle.clone().binding());
+        metadata.with_array(buffer_len as u32, array.length[0] as u32);
     }
 
     fn register(
@@ -326,16 +307,11 @@ impl<R: Runtime> TensorState<R> {
     ) {
         if let Self::Some {
             bindings,
-            mut metadata,
-            lengths,
+            metadata,
             runtime: _,
         } = self
         {
-            if R::require_array_lengths() {
-                for len in lengths {
-                    metadata.push(len);
-                }
-            }
+            let metadata = metadata.finish();
 
             bindings_global.extend(bindings);
             bindings_global.push(client.create(bytemuck::cast_slice(&metadata)).binding());

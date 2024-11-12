@@ -1,4 +1,4 @@
-use cubecl_core::ir as core;
+use cubecl_core::{ir as core, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use std::{
     collections::HashSet,
@@ -39,6 +39,8 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
 
     pub capabilities: HashSet<Capability>,
     pub state: LookupTables,
+    pub ext_meta_pos: Vec<u32>,
+    pub metadata: Metadata,
 }
 
 unsafe impl<T: SpirvTarget> Send for SpirvCompiler<T> {}
@@ -60,6 +62,8 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             state: self.state.clone(),
             debug: self.debug,
             visited: self.visited.clone(),
+            metadata: self.metadata.clone(),
+            ext_meta_pos: self.ext_meta_pos.clone(),
         }
     }
 }
@@ -79,6 +83,8 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             current_block: Default::default(),
             debug: env::var("CUBECL_DEBUG_LOG").is_ok(),
             visited: Default::default(),
+            metadata: Default::default(),
+            ext_meta_pos: Default::default(),
         }
     }
 }
@@ -100,17 +106,36 @@ impl<T: SpirvTarget> DerefMut for SpirvCompiler<T> {
 impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
     type Representation = SpirvKernel;
 
-    fn compile(kernel: KernelDefinition, mode: ExecutionMode) -> Self::Representation {
-        let num_bindings = kernel.inputs.len() + kernel.outputs.len() + kernel.named.len();
+    fn compile(value: KernelDefinition, mode: ExecutionMode) -> Self::Representation {
+        let bindings = value
+            .inputs
+            .clone()
+            .into_iter()
+            .chain(value.outputs.clone())
+            .chain(value.named.clone().into_iter().map(|it| it.1))
+            .collect();
+        let num_meta = value.inputs.len() + value.outputs.len();
+        let mut ext_meta_pos = Vec::new();
+        let mut num_ext = 0;
+
+        for binding in value.inputs.iter().chain(value.outputs.iter()) {
+            ext_meta_pos.push(num_ext);
+            if binding.has_extended_meta {
+                num_ext += 1;
+            }
+        }
+
         let (module, optimizer) = Self {
             mode,
+            metadata: Metadata::new(num_meta as u32, num_ext),
+            ext_meta_pos,
             ..Default::default()
         }
-        .compile_kernel(kernel);
+        .compile_kernel(value);
         SpirvKernel {
             module,
             optimizer,
-            num_bindings,
+            bindings,
         }
     }
 

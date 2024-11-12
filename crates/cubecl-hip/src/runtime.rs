@@ -1,3 +1,5 @@
+use std::{ffi::CStr, mem::MaybeUninit, str::FromStr};
+
 use cubecl_cpp::{register_supported_types, HipCompiler};
 
 use cubecl_core::{Feature, MemoryConfiguration, Runtime};
@@ -5,11 +7,12 @@ use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{MemoryDeviceProperties, MemoryManagement},
+    memory_management::{MemoryDeviceProperties, MemoryManagement, TopologyProperties},
     ComputeRuntime, DeviceProperties,
 };
 
 use crate::{
+    arch::AMDArchitecture,
     compute::{HipContext, HipServer, HipStorage},
     device::HipDevice,
 };
@@ -34,6 +37,27 @@ const MEMORY_OFFSET_ALIGNMENT: u64 = 32;
 
 fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let mut ctx: cubecl_hip_sys::hipCtx_t = std::ptr::null_mut();
+
+    #[allow(unused_assignments)]
+    let mut prop_warp_size = 0;
+    #[allow(unused_assignments)]
+    let mut prop_arch_name = "";
+    unsafe {
+        let mut ll_device_props = MaybeUninit::uninit();
+        let status = cubecl_hip_sys::hipGetDevicePropertiesR0600(
+            ll_device_props.as_mut_ptr(),
+            device.index as cubecl_hip_sys::hipDevice_t,
+        );
+        assert_eq!(status, HIP_SUCCESS, "Should get device properties");
+        let ll_device_props = ll_device_props.assume_init();
+        prop_warp_size = ll_device_props.warpSize;
+        prop_arch_name = CStr::from_ptr(ll_device_props.gcnArchName.as_ptr())
+            .to_str()
+            .unwrap();
+    };
+    let arch = AMDArchitecture::from_str(prop_arch_name).unwrap();
+    assert_eq!(prop_warp_size, arch.warp_size());
+
     unsafe {
         let status =
             cubecl_hip_sys::hipCtxCreate(&mut ctx, 0, device.index as cubecl_hip_sys::hipDevice_t);
@@ -65,6 +89,10 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
         max_page_size: max_memory as u64 / 4,
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
+    let topology = TopologyProperties {
+        subcube_size_min: prop_warp_size as u32,
+        subcube_size_max: prop_warp_size as u32,
+    };
     let memory_management = MemoryManagement::from_configuration(
         storage,
         mem_properties.clone(),
@@ -72,10 +100,9 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     );
     let hip_ctx = HipContext::new(memory_management, stream, ctx);
     let server = HipServer::new(hip_ctx);
-    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties, topology);
     register_supported_types(&mut device_props);
-    // TODO
-    // register_wmma_features(&mut device_props);
+    arch.register_wmma_features(&mut device_props);
 
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }
@@ -104,7 +131,3 @@ impl Runtime for HipRuntime {
         &[8, 4, 2]
     }
 }
-
-// TODO
-// fn register_wmma_features(_properties: &mut DeviceProperties<Feature>) {
-// }

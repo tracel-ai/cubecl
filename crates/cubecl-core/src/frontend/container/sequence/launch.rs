@@ -28,7 +28,7 @@ impl<'a, R: Runtime, T: LaunchArg> SequenceArg<'a, R, T> {
 }
 
 pub struct SequenceCompilationArg<C: LaunchArg> {
-    values: Vec<C::CompilationArg>,
+    pub values: Vec<C::CompilationArg>,
 }
 
 impl<C: LaunchArg> Clone for SequenceCompilationArg<C> {

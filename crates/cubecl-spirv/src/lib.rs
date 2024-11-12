@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use cubecl_core::CompilerRepresentation;
+use cubecl_core::{ir::Binding, CompilerRepresentation};
 use cubecl_opt::Optimizer;
 use rspirv::{
     binary::{Assemble, Disassemble},
@@ -29,7 +29,7 @@ pub use target::*;
 pub struct SpirvKernel {
     pub module: Module,
     pub optimizer: Optimizer,
-    pub num_bindings: usize,
+    pub bindings: Vec<Binding>,
 }
 
 impl CompilerRepresentation for SpirvKernel {

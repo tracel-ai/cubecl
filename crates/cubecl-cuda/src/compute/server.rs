@@ -1,5 +1,6 @@
 use cubecl_cpp::{formatter::format_cpp, CudaCompiler};
 
+use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
 use cubecl_core::compute::DebugInformation;
@@ -95,6 +96,44 @@ impl CudaServer {
 
         data
     }
+
+    fn read_async(
+        &mut self,
+        binding: server::Binding,
+    ) -> impl Future<Output = Vec<u8>> + 'static + Send {
+        let ctx = self.get_context();
+        let resource = ctx.memory_management.get_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        );
+
+        let mut data = uninit_vec(resource.size() as usize);
+
+        unsafe {
+            cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
+        };
+
+        let fence = ctx.fence();
+
+        async move {
+            fence.wait();
+            data
+        }
+    }
+
+    fn sync_stream_async(&mut self) -> impl Future<Output = ()> + 'static + Send {
+        let ctx = self.get_context();
+        // We can't use a fence here because no action has been recorded on the context.
+        // We need at least one action to be recorded after the context is initialized
+        // with `cudarc::driver::result::ctx::set_current(self.ctx.context)` for the fence
+        // to have any effect. Otherwise, it seems to be ignored.
+        let sync = ctx.lazy_sync_stream();
+
+        async move {
+            sync.wait();
+        }
+    }
 }
 
 impl ComputeServer for CudaServer {
@@ -103,8 +142,7 @@ impl ComputeServer for CudaServer {
     type Feature = Feature;
 
     fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        let value = self.read_sync(binding);
-        async { value }
+        self.read_async(binding)
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
@@ -128,7 +166,7 @@ impl ComputeServer for CudaServer {
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
         let handle = ctx.memory_management.reserve(size as u64, None);
-        server::Handle::new(handle, None, None)
+        server::Handle::new(handle, None, None, size as u64)
     }
 
     unsafe fn execute(
@@ -211,11 +249,7 @@ impl ComputeServer for CudaServer {
     fn flush(&mut self) {}
 
     fn sync(&mut self) -> impl Future<Output = ()> + 'static {
-        self.logger.profile_summary();
-
-        let ctx = self.get_context();
-        ctx.sync();
-        async move {}
+        self.sync_stream_async()
     }
 
     fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
@@ -278,6 +312,14 @@ impl CudaContext {
             arch,
             timestamps: KernelTimestamps::Disabled,
         }
+    }
+
+    fn fence(&mut self) -> Fence {
+        Fence::new(self.stream)
+    }
+
+    fn lazy_sync_stream(&mut self) -> SyncStream {
+        SyncStream::new(self.stream)
     }
 
     fn sync(&mut self) {

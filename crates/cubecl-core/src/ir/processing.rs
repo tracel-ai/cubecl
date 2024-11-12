@@ -268,7 +268,9 @@ impl ScopeProcessing {
                     Metadata::Shape { dim, .. } => {
                         sanitize_constant_scalar_ref_elem(dim, u32::as_elem());
                     }
-                    Metadata::Length { .. } => {
+                    Metadata::Length { .. }
+                    | Metadata::BufferLength { .. }
+                    | Metadata::Rank { .. } => {
                         // Nothing to do
                     }
                 },

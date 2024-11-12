@@ -1,10 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::{
-    frontend::indexation::Index,
-    frontend::Tensor,
+    frontend::{indexation::Index, Tensor},
     ir::{self, Operator},
-    prelude::CubeContext,
+    prelude::{CubeContext, IntoRuntime},
     unexpanded,
 };
 use crate::{
@@ -210,6 +209,10 @@ impl<'a, E: CubeType> CubeType for Slice<'a, E> {
     type ExpandType = ExpandElementTyped<Slice<'static, E>>;
 }
 
+impl<'a, E: CubeType> CubeType for &Slice<'a, E> {
+    type ExpandType = ExpandElementTyped<Slice<'static, E>>;
+}
+
 impl<'a, C: CubeType> Init for ExpandElementTyped<Slice<'a, C>> {
     fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
         // The type can't be deeply cloned/copied.
@@ -218,6 +221,10 @@ impl<'a, C: CubeType> Init for ExpandElementTyped<Slice<'a, C>> {
 }
 
 impl<'a, E: CubeType> CubeType for SliceMut<'a, E> {
+    type ExpandType = ExpandElementTyped<SliceMut<'static, E>>;
+}
+
+impl<'a, E: CubeType> CubeType for &mut SliceMut<'a, E> {
     type ExpandType = ExpandElementTyped<SliceMut<'static, E>>;
 }
 
@@ -475,4 +482,22 @@ pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
     ));
 
     out
+}
+
+impl<'a, E: CubePrimitive> IntoRuntime for Slice<'a, E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Array can't exist at compile time")
+    }
+}
+
+impl<'a, E: CubePrimitive> IntoRuntime for &Slice<'a, E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Array can't exist at compile time")
+    }
+}
+
+impl<'a, E: CubePrimitive> IntoRuntime for SliceMut<'a, E> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        unimplemented!("Array can't exist at compile time")
+    }
 }

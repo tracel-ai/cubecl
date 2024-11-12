@@ -291,6 +291,7 @@ pub struct Binding {
     pub visibility: Visibility,
     pub item: Item,
     pub size: Option<usize>,
+    pub has_extended_meta: bool,
 }
 
 #[derive(new, Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]

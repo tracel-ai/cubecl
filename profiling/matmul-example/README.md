@@ -20,7 +20,7 @@ Make sure your code uses the CUDA runtime API and device for launching the kerne
 mod cube_cuda {
     use cubecl::cuda::{CudaDevice, CudaRuntime};
     use cubecl::frontend::F32;
-    use cubecl::linalg::{matmul::tiling2d, tensor::TensorHandle};
+    use cubecl::linalg::{matmul::kernels::tiling2d, tensor::TensorHandle};
     use cubecl::prelude::*;
     use cubecl::Runtime;
 

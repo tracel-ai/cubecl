@@ -1,7 +1,13 @@
 use common::*;
+use constant_array_kernel::ConstantArrayKernel;
 use cubecl_core as cubecl;
-use cubecl_core::{prelude::*, CubeCount, CubeDim};
+use cubecl_core::prelude::*;
+use cubecl_wgpu::WgpuRuntime;
+use execute_unary_kernel::ExecuteUnaryKernel;
+use kernel_sum::KernelSum;
 use pretty_assertions::assert_eq;
+use sequence_for_loop_kernel::SequenceForLoopKernel;
+use slice_assign_kernel::SliceAssignKernel;
 
 mod common;
 
@@ -15,16 +21,7 @@ pub fn slice_assign_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
 
 #[test]
 pub fn slice_assign() {
-    let client = client();
-    let input = handle(&client);
-    let output = handle(&client);
-
-    let kernel = slice_assign_kernel::create_dummy_kernel::<TestRuntime>(
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new(1, 1, 1),
-        tensor(&input),
-        tensor(&output),
-    );
+    let kernel = SliceAssignKernel::<WgpuRuntime>::new(settings(1, 1), tensor(), tensor());
     let expected = include_str!("slice_assign.wgsl").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
@@ -41,14 +38,7 @@ pub fn kernel_sum(output: &mut Tensor<f32>) {
 
 #[test]
 pub fn subcube_sum() {
-    let client = client();
-    let output = handle(&client);
-
-    let kernel = kernel_sum::create_dummy_kernel::<TestRuntime>(
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new(4, 1, 1),
-        tensor(&output),
-    );
+    let kernel = KernelSum::<WgpuRuntime>::new(settings(4, 1), tensor());
     let expected = include_str!("subcube_sum.wgsl").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
@@ -70,14 +60,7 @@ pub fn sequence_for_loop_kernel(output: &mut Array<f32>) {
 
 #[test]
 pub fn sequence_for_loop() {
-    let client = client();
-    let output = handle(&client);
-
-    let kernel = sequence_for_loop_kernel::create_dummy_kernel::<TestRuntime>(
-        CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
-        array(&output),
-    );
+    let kernel = SequenceForLoopKernel::<WgpuRuntime>::new(settings(16, 16), array());
     let expected = include_str!("sequence_for_loop.wgsl").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
@@ -97,17 +80,11 @@ fn execute_unary_kernel<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Te
 
 #[test]
 pub fn unary_bench() {
-    let client = client();
-    let lhs = handle(&client);
-    let rhs = handle(&client);
-    let out = handle(&client);
-
-    let kernel = execute_unary_kernel::create_dummy_kernel::<f32, TestRuntime>(
-        CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
-        tensor_vec(&lhs, 4),
-        tensor_vec(&rhs, 4),
-        tensor_vec(&out, 4),
+    let kernel = ExecuteUnaryKernel::<f32, WgpuRuntime>::new(
+        settings(16, 16),
+        tensor_vec(4),
+        tensor_vec(4),
+        tensor_vec(4),
     );
     let expected = include_str!("unary_bench.wgsl").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
@@ -124,16 +101,9 @@ fn constant_array_kernel<F: Float>(out: &mut Tensor<F>, #[comptime] data: Vec<u3
 
 #[test]
 pub fn constant_array() {
-    let client = client();
-    let out = handle(&client);
     let data: Vec<u32> = vec![3, 5, 1];
 
-    let kernel = constant_array_kernel::create_dummy_kernel::<f32, TestRuntime>(
-        CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
-        tensor_vec(&out, 1),
-        data,
-    );
+    let kernel = ConstantArrayKernel::<f32, WgpuRuntime>::new(settings(16, 16), tensor(), data);
     let expected = include_str!("constant_array.wgsl").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }

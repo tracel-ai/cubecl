@@ -14,7 +14,7 @@ const WORKGROUP_SIZE_Z = 1u;
 @workgroup_size(16, 16, 1)
 fn main(
     @builtin(local_invocation_index) local_idx: u32,
-) {let rank: u32 = info[0];
+) {
 let _0 = local_idx != 0u;
 if _0 {
 return;

@@ -3,6 +3,7 @@
 extern crate derive_new;
 extern crate alloc;
 
+pub mod arch;
 #[cfg(target_os = "linux")]
 pub mod compute;
 #[cfg(target_os = "linux")]
@@ -20,5 +21,5 @@ mod tests {
     pub type TestRuntime = crate::HipRuntime;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_all!();
+    cubecl_linalg::testgen_cmma_old!();
 }

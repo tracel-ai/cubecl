@@ -17,8 +17,8 @@ use rspirv::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
     SubgroupSize(Word),
-    GlobalInputArray(Word, Item),
-    GlobalOutputArray(Word, Item),
+    GlobalInputArray(Word, Item, u32),
+    GlobalOutputArray(Word, Item, u32),
     GlobalScalar(Word, Elem),
     ConstantScalar(Word, ConstVal, Elem),
     Local {
@@ -180,8 +180,8 @@ impl From<f32> for ConstVal {
 impl Variable {
     pub fn id<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>) -> Word {
         match self {
-            Variable::GlobalInputArray(id, _) => *id,
-            Variable::GlobalOutputArray(id, _) => *id,
+            Variable::GlobalInputArray(id, _, _) => *id,
+            Variable::GlobalOutputArray(id, _, _) => *id,
             Variable::GlobalScalar(id, _) => *id,
             Variable::ConstantScalar(id, _, _) => *id,
             Variable::Local { id, .. } => *id,
@@ -222,8 +222,8 @@ impl Variable {
 
     pub fn item(&self) -> Item {
         match self {
-            Variable::GlobalInputArray(_, item) => item.clone(),
-            Variable::GlobalOutputArray(_, item) => item.clone(),
+            Variable::GlobalInputArray(_, item, _) => item.clone(),
+            Variable::GlobalOutputArray(_, item, _) => item.clone(),
             Variable::GlobalScalar(_, elem) => Item::Scalar(*elem),
             Variable::ConstantScalar(_, _, elem) => Item::Scalar(*elem),
             Variable::Local { item, .. } => item.clone(),
@@ -264,8 +264,8 @@ impl Variable {
     pub fn has_len(&self) -> bool {
         matches!(
             self,
-            Variable::GlobalInputArray(_, _)
-                | Variable::GlobalOutputArray(_, _)
+            Variable::GlobalInputArray(_, _, _)
+                | Variable::GlobalOutputArray(_, _, _)
                 | Variable::Named {
                     is_array: false,
                     ..
@@ -274,6 +274,18 @@ impl Variable {
                 | Variable::SharedMemory(_, _, _)
                 | Variable::ConstantArray(_, _, _)
                 | Variable::LocalArray(_, _, _)
+        )
+    }
+
+    pub fn has_buffer_len(&self) -> bool {
+        matches!(
+            self,
+            Variable::GlobalInputArray(_, _, _)
+                | Variable::GlobalOutputArray(_, _, _)
+                | Variable::Named {
+                    is_array: false,
+                    ..
+                }
         )
     }
 
@@ -296,20 +308,18 @@ impl Variable {
 pub enum IndexedVariable {
     Pointer(Word, Item),
     Composite(Word, u32, Item),
+    DynamicComposite(Word, u32, Item),
     Scalar(Variable),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Globals {
-    Rank2,
-
     Id,
     LocalInvocationId,
     LocalInvocationIdX,
     LocalInvocationIdY,
     LocalInvocationIdZ,
     LocalInvocationIndex,
-    Rank,
     WorkgroupId,
     WorkgroupIdX,
     WorkgroupIdY,
@@ -330,6 +340,8 @@ pub enum Globals {
     NumWorkgroupsY,
     NumWorkgroupsZ,
     SubgroupSize,
+
+    Metadata(u32),
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -355,12 +367,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 .expect("Tried accessing non-existing slice")
                 .into(),
             core::VariableKind::GlobalInputArray(id) => {
+                let pos = id as u32;
                 let id = self.state.inputs[id as usize];
-                Variable::GlobalInputArray(id, self.compile_item(item))
+                Variable::GlobalInputArray(id, self.compile_item(item), pos)
             }
             core::VariableKind::GlobalOutputArray(id) => {
+                let pos = self.state.inputs.len() as u32 + id as u32;
                 let id = self.state.outputs[id as usize];
-                Variable::GlobalOutputArray(id, self.compile_item(item))
+                Variable::GlobalOutputArray(id, self.compile_item(item), pos)
             }
             core::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.elem),
             core::VariableKind::Local { id, depth } => {
@@ -432,38 +446,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn rank(&mut self) -> Word {
-        self.get_or_insert_global(Globals::Rank, |b| {
-            let int = Item::Scalar(Elem::Int(32, false));
-            let int_ty = int.id(b);
-            let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(int)).id(b);
-            let info = b.state.named["info"];
-            let zero = b.const_u32(0);
-            let rank_ptr = b
-                .access_chain(int_ptr, None, info, vec![zero, zero])
-                .unwrap();
-            let rank = b.load(int_ty, None, rank_ptr, None, vec![]).unwrap();
-            b.debug_name(rank, "rank");
-            rank
-        })
-    }
-
-    pub fn rank_2(&mut self) -> Word {
-        self.get_or_insert_global(Globals::Rank2, |b| {
-            let int = Item::Scalar(Elem::Int(32, false));
-            let int_ty = int.id(b);
-            let rank = b.rank();
-            let two = b.const_u32(2);
-            let rank_2 = b.i_mul(int_ty, None, rank, two).unwrap();
-            b.debug_name(rank_2, "rank*2");
-            rank_2
-        })
-    }
-
     pub fn read(&mut self, variable: &Variable) -> Word {
         match variable {
-            Variable::GlobalInputArray(id, _) => *id,
-            Variable::GlobalOutputArray(id, _) => *id,
+            Variable::GlobalInputArray(id, _, _) => *id,
+            Variable::GlobalOutputArray(id, _, _) => *id,
             Variable::SharedMemory(id, _, _) => *id,
             Variable::ConstantArray(id, _, _) => *id,
             Variable::LocalArray(id, _, _) => *id,
@@ -502,8 +488,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         };
         let index_id = self.read(index);
         match variable {
-            Variable::GlobalInputArray(id, item)
-            | Variable::GlobalOutputArray(id, item)
+            Variable::GlobalInputArray(id, item, _)
+            | Variable::GlobalOutputArray(id, item, _)
             | Variable::Named { id, item, .. } => {
                 let ptr_ty =
                     Item::Pointer(StorageClass::StorageBuffer, Box::new(item.clone())).id(self);
@@ -525,12 +511,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::LocalBinding {
                 id,
                 item: Item::Vector(elem, vec),
-            } => IndexedVariable::Composite(
+            } if index.as_const().is_some() => IndexedVariable::Composite(
                 self.get_binding(*id),
-                index
-                    .as_const()
-                    .expect("Index into vector must be constant")
-                    .as_u32(),
+                index.as_const().unwrap().as_u32(),
+                Item::Vector(*elem, *vec),
+            ),
+            Variable::LocalBinding {
+                id,
+                item: Item::Vector(elem, vec),
+            } => IndexedVariable::DynamicComposite(
+                self.get_binding(*id),
+                self.read(index),
                 Item::Vector(*elem, *vec),
             ),
             Variable::Versioned {
@@ -604,6 +595,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 b.composite_extract(ty, Some(out_id), var, vec![index])
                     .unwrap()
             }
+            IndexedVariable::DynamicComposite(var, index, item) => {
+                let elem = item.elem();
+                let ty = elem.id(b);
+                let out_id = b.write_id(out);
+                b.vector_extract_dynamic(ty, Some(out_id), var, index)
+                    .unwrap()
+            }
             IndexedVariable::Scalar(var) => {
                 let ty = out.item().id(b);
                 let input = b.read(&var);
@@ -641,6 +639,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.composite_extract(ty, Some(out_id), var, vec![index])
                     .unwrap()
             }
+            IndexedVariable::DynamicComposite(var, index, item) => {
+                let elem = item.elem();
+                let ty = elem.id(self);
+                let out_id = self.write_id(out);
+                self.vector_extract_dynamic(ty, Some(out_id), var, index)
+                    .unwrap()
+            }
             IndexedVariable::Scalar(var) => {
                 let ty = out.item().id(self);
                 let input = self.read(&var);
@@ -667,8 +672,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::GlobalScalar(id, _) => *id,
             Variable::Raw(id, _) => *id,
             Variable::ConstantScalar(_, _, _) => panic!("Can't write to constant scalar"),
-            Variable::GlobalInputArray(_, _)
-            | Variable::GlobalOutputArray(_, _)
+            Variable::GlobalInputArray(_, _, _)
+            | Variable::GlobalOutputArray(_, _, _)
             | Variable::Slice { .. }
             | Variable::Named { .. }
             | Variable::SharedMemory(_, _, _)
@@ -701,6 +706,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .unwrap();
                 b.write(out, id);
             }
+            IndexedVariable::DynamicComposite(var, index, item) => {
+                let ty = item.id(b);
+                let id = b
+                    .vector_insert_dynamic(ty, None, value, var, index)
+                    .unwrap();
+                b.write(out, id);
+            }
             IndexedVariable::Scalar(var) => b.write(&var, value),
         };
         if checked && !always_in_bounds {
@@ -719,6 +731,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let ty = item.id(self);
                 let out_id = self
                     .composite_insert(ty, None, value, var, vec![index])
+                    .unwrap();
+                self.write(out, out_id);
+            }
+            IndexedVariable::DynamicComposite(var, index, item) => {
+                let ty = item.id(self);
+                let out_id = self
+                    .vector_insert_dynamic(ty, None, value, var, index)
                     .unwrap();
                 self.write(out, out_id);
             }

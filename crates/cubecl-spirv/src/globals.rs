@@ -180,7 +180,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 Variable::GlobalInvocationIdZ(id)
             }
-            Builtin::Rank => Variable::Rank(self.rank()),
         }
     }
 

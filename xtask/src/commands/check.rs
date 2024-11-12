@@ -16,6 +16,7 @@ pub(crate) fn handle_command(mut args: CubeCLCheckCmdArgs) -> anyhow::Result<()>
     base_commands::check::handle_command(args.try_into().unwrap())?;
     // Specific additional commands to test specific features
     // cubecl-wgpu with SPIR-V
+    // cubecl-wgpu with exclusive-memory-only
     // cubecl-runtime without default features
     helpers::custom_crates_check(
         vec!["cubecl-wgpu"],
@@ -23,6 +24,13 @@ pub(crate) fn handle_command(mut args: CubeCLCheckCmdArgs) -> anyhow::Result<()>
         None,
         None,
         "std with SPIR-V compiler",
+    )?;
+    helpers::custom_crates_check(
+        vec!["cubecl-wgpu"],
+        vec!["--features", "exclusive-memory-only"],
+        None,
+        None,
+        "std with exclusive_memory_only",
     )?;
     helpers::custom_crates_check(
         vec!["cubecl-runtime"],
