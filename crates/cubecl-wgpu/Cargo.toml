@@ -15,9 +15,10 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
+    "spirv",
 ]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
-spirv = ["cubecl-spirv", "ash"]
+spirv = ["cubecl-spirv", "ash", "wgpu/spirv", "wgpu-core/vulkan"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 spirv-dump = ["sanitize-filename"]
@@ -36,6 +37,8 @@ cubecl-spirv = { path = "../cubecl-spirv", version = "0.4.0", optional = true }
 
 bytemuck = { workspace = true }
 wgpu = { version = "23.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
+wgpu-core = { version = "23.0.0" }
+wgpu-hal = { version = "23.0.0" }
 
 async-channel = { workspace = true }
 derive-new = { workspace = true }

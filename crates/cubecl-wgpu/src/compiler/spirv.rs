@@ -284,7 +284,7 @@ fn request_device(
         adapter
             .device_from_raw(
                 vk_device,
-                true,
+                None,
                 &device_extensions,
                 features,
                 &wgpu::MemoryHints::MemoryUsage,
