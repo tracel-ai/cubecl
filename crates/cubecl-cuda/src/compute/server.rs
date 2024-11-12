@@ -249,6 +249,7 @@ impl ComputeServer for CudaServer {
     fn flush(&mut self) {}
 
     fn sync(&mut self) -> impl Future<Output = ()> + 'static {
+        self.logger.profile_summary();
         self.sync_stream_async()
     }
 
