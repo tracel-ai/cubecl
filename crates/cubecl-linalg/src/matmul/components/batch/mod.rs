@@ -3,7 +3,7 @@ pub mod one_to_one;
 
 mod base;
 mod shared;
-mod slice;
+mod span;
 
 pub use base::*;
-pub use slice::*;
+pub use span::*;

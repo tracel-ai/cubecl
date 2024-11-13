@@ -79,3 +79,25 @@ pub struct MemoryDeviceProperties {
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
 }
+
+/// Properties of the device related to topology.
+///
+/// # Subcube size min/max
+///
+/// This is a range of possible values for the subcube size.
+///
+/// For Nvidia GPUs and HIP, this is a single fixed value.
+///
+/// For wgpu with AMD GPUs this is a rannge of possible values, but the actual configured value
+/// is undefined and can only be queried at runtime. Should usually be 32, but not guaranteed.
+///
+/// For Intel GPUs, this is variable based on the number of registers used in the kernel. No way to
+/// query this at compile time is currently available. As a result, the minimum value should usually
+/// be assumed.
+#[derive(Debug, Clone)]
+pub struct TopologyProperties {
+    /// The minimum size of a subcube on this device
+    pub subcube_size_min: u32,
+    /// The maximum size of a subcube on this device
+    pub subcube_size_max: u32,
+}

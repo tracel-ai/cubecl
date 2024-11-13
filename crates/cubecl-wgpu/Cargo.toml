@@ -16,8 +16,8 @@ default = [
     "cubecl-common/default",
     "cubecl-core/default",
 ]
-exclusive-memory-only = []
-spirv = ["cubecl-spirv", "ash", "spirv-dump"]
+exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
+spirv = ["cubecl-spirv", "ash"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 spirv-dump = ["sanitize-filename"]

@@ -55,7 +55,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::ES,
                     Self::GlobalMatmul,
-                    batch::RowMajorSliceMatmul,
+                    batch::RowMajorSpanMatmul,
                 >;
 
                 fn cube_dim() -> CubeDim {
@@ -112,7 +112,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::ES,
                     Self::GlobalMatmul,
-                    batch::RowMajorSliceMatmul,
+                    batch::RowMajorSpanMatmul,
                 >;
 
                 fn cube_dim() -> CubeDim {
@@ -169,7 +169,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::ES,
                     Self::GlobalMatmul,
-                    batch::RowMajorSliceMatmul,
+                    batch::RowMajorSpanMatmul,
                 >;
 
                 fn cube_dim() -> CubeDim {
@@ -226,7 +226,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::ES,
                     Self::GlobalMatmul,
-                    batch::RowMajorSliceMatmul,
+                    batch::RowMajorSpanMatmul,
                 >;
 
                 fn cube_dim() -> CubeDim {
@@ -283,7 +283,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::ES,
                     Self::GlobalMatmul,
-                    batch::RowMajorSliceMatmul,
+                    batch::RowMajorSpanMatmul,
                 >;
 
                 fn cube_dim() -> CubeDim {
@@ -305,7 +305,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bm2_g32x32x32_s1x1x1_t16x16x16_rr_ln4_colSlice() {
+        pub fn bm2_g32x32x32_s1x1x1_t16x16x16_rr_ln4_colspan() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -340,7 +340,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::ES,
                     Self::GlobalMatmul,
-                    batch::ColMajorSliceMatmul,
+                    batch::ColMajorSpanMatmul,
                 >;
 
                 fn cube_dim() -> CubeDim {
@@ -362,7 +362,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bm2_g32x32x32_s1x1x1_t16x16x16_rr_ln4_swizzleSlice() {
+        pub fn bm2_g32x32x32_s1x1x1_t16x16x16_rr_ln4_swizzlespan() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -397,7 +397,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::ES,
                     Self::GlobalMatmul,
-                    batch::SwizzleSliceMatmul<2>,
+                    batch::SwizzleSpanMatmul<2>,
                 >;
 
                 fn cube_dim() -> CubeDim {
@@ -454,7 +454,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::ES,
                     Self::GlobalMatmul,
-                    batch::RowMajorSliceMatmul,
+                    batch::RowMajorSpanMatmul,
                 >;
 
                 fn cube_dim() -> CubeDim {

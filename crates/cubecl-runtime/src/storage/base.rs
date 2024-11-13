@@ -100,4 +100,14 @@ impl<Server: ComputeServer> BindingResource<Server> {
     pub fn resource(&self) -> &<Server::Storage as ComputeStorage>::Resource {
         &self.resource
     }
+
+    /// Same as [resource](Self::resource), however consumes the binding.
+    ///
+    /// # Warning
+    ///
+    /// Make sure you use the resource before requesting more memory from the storage, since
+    /// this resource might get allocated again.
+    pub fn into_resource(self) -> <Server::Storage as ComputeStorage>::Resource {
+        self.resource
+    }
 }

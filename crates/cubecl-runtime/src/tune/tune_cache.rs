@@ -65,7 +65,6 @@ pub enum TuneCacheResult {
         fastest_index: usize,
     },
     /// The operation might be cached, but we don't know yet whether the checksum is valid.
-    #[cfg(autotune_persistent_cache)]
     Unchecked,
     /// We don't know yet what is fastest, but are waiting for a result to come in.
     Pending,

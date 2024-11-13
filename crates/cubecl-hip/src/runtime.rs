@@ -7,7 +7,7 @@ use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{MemoryDeviceProperties, MemoryManagement},
+    memory_management::{MemoryDeviceProperties, MemoryManagement, TopologyProperties},
     ComputeRuntime, DeviceProperties,
 };
 
@@ -89,6 +89,10 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
         max_page_size: max_memory as u64 / 4,
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
+    let topology = TopologyProperties {
+        subcube_size_min: prop_warp_size as u32,
+        subcube_size_max: prop_warp_size as u32,
+    };
     let memory_management = MemoryManagement::from_configuration(
         storage,
         mem_properties.clone(),
@@ -96,7 +100,7 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     );
     let hip_ctx = HipContext::new(memory_management, stream, ctx);
     let server = HipServer::new(hip_ctx);
-    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties);
+    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties, topology);
     register_supported_types(&mut device_props);
     arch.register_wmma_features(&mut device_props);
 
