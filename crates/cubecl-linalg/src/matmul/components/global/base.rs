@@ -32,7 +32,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     type Lhs: Loader<EG, ES>;
     type Rhs: Loader<EG, ES>;
     type Out: Unloader<EG>;
-    type Accumulator: Accumulator;
+    type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
@@ -50,6 +50,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     );
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+    fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
 #[cube]
@@ -126,10 +127,4 @@ pub trait Config: MatmulConfig {
 
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;
-}
-
-#[cube]
-pub trait Accumulator: CubeType {
-    fn initialize() -> Self;
-    fn reset(acc: &mut Self) -> Self;
 }

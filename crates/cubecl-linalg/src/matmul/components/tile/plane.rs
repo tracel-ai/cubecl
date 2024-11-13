@@ -51,9 +51,14 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
     type Lhs = Array<I>;
     type Rhs = Array<I>;
-    type Out = Array<O>;
+    type Accumulator = Array<O>;
 
-    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: Config) {
+    fn execute(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+        out: &mut Self::Accumulator,
+        #[comptime] config: Config,
+    ) {
         let k_jump = config.plane_dim() / Self::N;
         let row_division = config.plane_dim() / Self::M;
 
@@ -134,20 +139,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         }
     }
 
-    fn init_output(#[comptime] config: Config) -> Self::Out {
-        let len = Self::M * Self::N / (config.plane_dim());
-        let mut acc = Array::new(len);
-
-        #[unroll]
-        for i in 0..len {
-            acc[i] = O::from_int(0);
-        }
-
-        acc
-    }
-
     fn read_output<C: Numeric>(
-        out: &Self::Out,
+        out: &Self::Accumulator,
         slice: &mut SliceMut<'_, Line<C>>,
         #[comptime] config: Config,
     ) {
@@ -199,6 +192,27 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                     slice[col + offset] = line;
                 }
             }
+        }
+    }
+
+    fn init_accumulator(#[comptime] config: Config) -> Self::Accumulator {
+        let len = Self::M * Self::N / (config.plane_dim());
+        let mut acc = Array::new(len);
+
+        #[unroll]
+        for i in 0..len {
+            acc[i] = O::from_int(0);
+        }
+
+        acc
+    }
+
+    fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
+        let len = Self::M * Self::N / (config.plane_dim());
+
+        #[unroll]
+        for i in 0..len {
+            acc[i] = O::from_int(0);
         }
     }
 }

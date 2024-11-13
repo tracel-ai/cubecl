@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global::Accumulator;
 use crate::matmul::components::stage::base::Matmul as _;
 use crate::matmul::{
     components::{
@@ -34,27 +33,6 @@ pub struct Matmul<I: Numeric, O: Numeric, Acc: Numeric, TMM: tile::Matmul<I, Acc
 }
 
 #[cube]
-impl<T: CubeType> Accumulator for Sequence<T> {
-    fn initialize() -> Self {
-        let acc = Sequence::<T>::new();
-
-        #[unroll]
-        for _ in 0..SS::NUM_N {
-            acc.push(T::initialize(config.to_tmm_config()));
-        }
-
-        acc
-    }
-
-    fn reset(acc: &mut Self) -> Self {
-        #[unroll]
-        for i in 0..SS::NUM_N {
-            acc.index(i).initialize(config.to_tmm_config());
-        }
-    }
-}
-
-#[cube]
 impl<I, O, Acc, TMM, SS> stage::Matmul<I, O, LhsReader<I>, RhsReader<I>>
     for Matmul<I, O, Acc, TMM, SS>
 where
@@ -67,7 +45,7 @@ where
     const M: u32 = SS::NUM_M * TMM::M;
     const N: u32 = SS::NUM_N * TMM::N;
     const K: u32 = SS::NUM_K * TMM::K;
-    type Accumulator = Sequence<TMM::Out>;
+    type Accumulator = Sequence<TMM::Accumulator>;
 
     fn execute(
         lhs: &LhsReader<I>,
@@ -111,17 +89,6 @@ where
         }
     }
 
-    fn acc_init_zeros(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let mut accumulators = Sequence::<TMM::Out>::new();
-
-        #[unroll]
-        for _ in 0..SS::NUM_N {
-            accumulators.push(TMM::init_output(config.to_tmm_config()));
-        }
-
-        accumulators
-    }
-
     fn acc_read<SW: StageWriter<O>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut SW,
@@ -150,6 +117,24 @@ where
                 accumulator_iter,
                 global_config,
             );
+        }
+    }
+
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+        let mut acc = Sequence::<TMM::Accumulator>::new();
+
+        #[unroll]
+        for _ in 0..SS::NUM_N {
+            acc.push(TMM::init_accumulator(config.to_tmm_config()));
+        }
+
+        acc
+    }
+
+    fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
+        #[unroll]
+        for i in 0..SS::NUM_N {
+            TMM::reset_accumulator(&mut acc.index_mut(i), config.to_tmm_config());
         }
     }
 }

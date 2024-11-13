@@ -42,12 +42,12 @@ macro_rules! instruction {
 
             type Lhs = Fragment<I>;
             type Rhs = Fragment<I>;
-            type Out = Fragment<O>;
+            type Accumulator = Fragment<O>;
 
             fn execute(
                 lhs: &Self::Lhs,
                 rhs: &Self::Rhs,
-                out: &mut Self::Out,
+                out: &mut Self::Accumulator,
                 #[comptime] _config: Config,
             ) {
                 execute::<I, O>(lhs, rhs, out);
@@ -77,16 +77,20 @@ macro_rules! instruction {
                 fill_rhs(slice, rhs);
             }
 
-            fn init_output(#[comptime] _config: Config) -> Self::Out {
-                init_output(Self::M, Self::N, Self::K)
-            }
-
             fn read_output<C: Numeric>(
-                out: &Self::Out,
+                out: &Self::Accumulator,
                 slice: &mut SliceMut<'_, Line<C>>,
                 #[comptime] _config: Config,
             ) {
                 read_output::<O, C>(out, slice);
+            }
+
+            fn init_accumulator(#[comptime] _config: Self::Config) -> Self::Accumulator {
+                init_output(Self::M, Self::N, Self::K)
+            }
+
+            fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
+                cmma::fill(&acc.matrix, O::from_int(0));
             }
         }
 
