@@ -29,7 +29,6 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
         out: &mut Tensor<Line<EG>>,
         #[comptime] config: Self::Config,
     ) {
-        // TODO row/col/swizzle
         let x_offset = CUBE_POS_X * config.stage_dim(Ident::Lhs).num_elements_x_dim();
         let y_offset = CUBE_POS_Y * config.stage_dim(Ident::Rhs).num_elements_y_dim();
         let nth_batch = CUBE_POS_Z;
