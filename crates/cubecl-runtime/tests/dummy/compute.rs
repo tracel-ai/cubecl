@@ -33,7 +33,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         max_page_size: 1024 * 1024 * 512,
         alignment: 32,
     };
-    let topology = TopologyProperties {
+    let topology = HardwareProperties {
         plane_size_min: 32,
         plane_size_max: 32,
         max_bindings: 32,

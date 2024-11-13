@@ -143,13 +143,11 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
     };
-    let topology = TopologyProperties {
+    let hardware_props = HardwareProperties {
         plane_size_min: setup.adapter.limits().min_subgroup_size,
         plane_size_max: setup.adapter.limits().max_subgroup_size,
         max_bindings: limits.max_bind_groups,
-
     };
-
     let memory_management = {
         let device = setup.device.clone();
         let mem_props = mem_props.clone();
