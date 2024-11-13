@@ -1,4 +1,3 @@
-pub(super) mod poll;
 pub(super) mod stream;
 pub(super) mod timestamps;
 

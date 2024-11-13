@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
-use super::{poll::WgpuPoll, timestamps::KernelTimestamps, WgpuResource};
+use super::{timestamps::KernelTimestamps, WgpuResource};
 use cubecl_runtime::{TimestampsError, TimestampsResult};
 use wgpu::ComputePipeline;
 
@@ -14,7 +14,6 @@ pub struct WgpuStream {
     tasks_max: usize,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-    poll: WgpuPoll,
     sync_buffer: Option<wgpu::Buffer>,
 }
 
@@ -30,7 +29,6 @@ impl WgpuStream {
         timestamps: KernelTimestamps,
         tasks_max: usize,
     ) -> Self {
-        let poll = WgpuPoll::new(device.clone());
         let encoder = create_encoder(&device);
 
         #[cfg(target_family = "wasm")]
@@ -54,7 +52,6 @@ impl WgpuStream {
             queue,
             tasks_count: 0,
             tasks_max,
-            poll,
             sync_buffer,
         }
     }
@@ -156,7 +153,7 @@ impl WgpuStream {
             .copy_buffer_to_buffer(buffer, offset, &staging_buffer, 0, aligned_len);
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        self.flush();
+        let index = self.flush();
 
         let (sender, receiver) = async_channel::bounded(1);
         staging_buffer
@@ -167,17 +164,16 @@ impl WgpuStream {
                     .expect("Unable to send buffer slice result to async channel.");
             });
 
-        let poll = self.poll.start_polling();
+        let device = self.device.clone();
 
         async move {
+            device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
+
             receiver
                 .recv()
                 .await
                 .expect("Unable to receive buffer slice result.")
                 .expect("Failed to map buffer");
-
-            // Can stop polling now.
-            core::mem::drop(poll);
 
             let result = {
                 let data = staging_buffer.slice(..).get_mapped_range();
@@ -300,15 +296,16 @@ impl WgpuStream {
         }
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self) -> wgpu::SubmissionIndex {
         // End the current compute pass.
         self.pass = None;
 
         let new_encoder = create_encoder(&self.device);
         let encoder = std::mem::replace(&mut self.encoder, new_encoder);
 
-        self.queue.submit([encoder.finish()]);
+        let index = self.queue.submit([encoder.finish()]);
         self.tasks_count = 0;
+        index
     }
 }
 
