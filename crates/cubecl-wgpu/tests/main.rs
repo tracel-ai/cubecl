@@ -4,6 +4,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_wgpu::WgpuRuntime;
 use execute_unary_kernel::ExecuteUnaryKernel;
+use kernel_elect::KernelElect;
 use kernel_sum::KernelSum;
 use pretty_assertions::assert_eq;
 use sequence_for_loop_kernel::SequenceForLoopKernel;
@@ -40,6 +41,19 @@ pub fn kernel_sum(output: &mut Tensor<f32>) {
 pub fn subcube_sum() {
     let kernel = KernelSum::<WgpuRuntime>::new(settings(4, 1), tensor());
     let expected = load_kernel_string!("subcube_sum.wgsl");
+    assert_eq!(compile(kernel), expected);
+}
+
+#[cube(launch, create_dummy_kernel)]
+pub fn kernel_elect(output: &mut Tensor<u32>) {
+    let elected = cubecl_core::prelude::subcube_elect();
+    output[UNIT_POS] = elected as u32;
+}
+
+#[test]
+pub fn subcube_elect() {
+    let kernel = KernelElect::<WgpuRuntime>::new(settings(4, 1), tensor());
+    let expected = load_kernel_string!("subcube_elect.wgsl");
     assert_eq!(compile(kernel), expected);
 }
 
