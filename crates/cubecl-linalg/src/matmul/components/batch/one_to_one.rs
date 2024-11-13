@@ -34,6 +34,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
         let nth_batch = CUBE_POS_Z;
         let k_range = (0, lhs.shape(lhs.rank() - 1));
 
+        let gmm_config = config.to_gmm_config();
         gmm_execute::<EG, ES, GMM>(
             lhs,
             rhs,
@@ -41,8 +42,9 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
             x_offset,
             y_offset,
             nth_batch,
+            &mut GMM::init_accumulator(gmm_config),
             k_range,
-            config.to_gmm_config(),
+            gmm_config,
         );
     }
 }

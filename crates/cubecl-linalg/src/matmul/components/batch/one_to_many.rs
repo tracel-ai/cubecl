@@ -55,7 +55,9 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> batch
 
         let k_range = (0, lhs.shape(rank - 1));
 
-        S::execute::<EG, ES, GMM>(lhs, rhs, out, span, k_range, config.to_gmm_config());
+        let gmm_config = config.to_gmm_config();
+        let acc = GMM::init_accumulator(gmm_config);
+        S::execute::<EG, ES, GMM>(lhs, rhs, out, span, acc, k_range, gmm_config);
     }
 }
 
