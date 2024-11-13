@@ -64,7 +64,7 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
     /// Write the content of the output container to the given slice
-    fn read_output<C: Numeric>(
+    fn read_accumulator<C: Numeric>(
         out: &Self::Accumulator,
         slice: &mut SliceMut<'_, Line<C>>,
         #[comptime] config: Self::Config,

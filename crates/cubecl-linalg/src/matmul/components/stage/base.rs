@@ -41,7 +41,7 @@ pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I>, Rhs: StageReader<I
     fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn acc_read<Out: StageWriter<O>, G: global::Config>(
+    fn read_accumulator<Out: StageWriter<O>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut Out,
         #[comptime] stage_config: Self::Config,

@@ -89,7 +89,7 @@ where
         }
     }
 
-    fn acc_read<SW: StageWriter<O>, G: global::Config>(
+    fn read_accumulator<SW: StageWriter<O>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut SW,
         #[comptime] stage_config: Self::Config,
@@ -109,7 +109,7 @@ where
         for accumulator_iter in 0..acc.len() {
             let accumulator = acc.index(accumulator_iter);
             let smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
-            TMM::read_output(accumulator, smem_slice, stage_config.to_tmm_config());
+            TMM::read_accumulator(accumulator, smem_slice, stage_config.to_tmm_config());
             SW::write::<Acc, G>(
                 out,
                 smem_slice.as_slice(),
@@ -134,7 +134,7 @@ where
     fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         #[unroll]
         for i in 0..SS::NUM_N {
-            TMM::reset_accumulator(&mut acc.index_mut(i), config.to_tmm_config());
+            TMM::reset_accumulator(acc.index_mut(i), config.to_tmm_config());
         }
     }
 }

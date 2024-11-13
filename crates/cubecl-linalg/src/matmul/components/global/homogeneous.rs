@@ -73,8 +73,8 @@ where
             tensor_view::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::acc_read::<tensor_view::Unloader<EG>, Self::Config>(
-            &acc,
+        SMM::read_accumulator::<tensor_view::Unloader<EG>, Self::Config>(
+            acc,
             &mut out_unloader,
             config.to_smm_config(),
             config,

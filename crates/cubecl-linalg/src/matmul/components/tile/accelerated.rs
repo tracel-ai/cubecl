@@ -77,12 +77,12 @@ macro_rules! instruction {
                 fill_rhs(slice, rhs);
             }
 
-            fn read_output<C: Numeric>(
+            fn read_accumulator<C: Numeric>(
                 out: &Self::Accumulator,
                 slice: &mut SliceMut<'_, Line<C>>,
                 #[comptime] _config: Config,
             ) {
-                read_output::<O, C>(out, slice);
+                read_accumulator::<O, C>(out, slice);
             }
 
             fn init_accumulator(#[comptime] _config: Self::Config) -> Self::Accumulator {
@@ -197,7 +197,7 @@ fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
 }
 
 #[cube]
-fn read_output<O: Numeric, C: Numeric>(out: &Fragment<O>, slice: &mut SliceMut<'_, Line<C>>) {
+fn read_accumulator<O: Numeric, C: Numeric>(out: &Fragment<O>, slice: &mut SliceMut<'_, Line<C>>) {
     cmma::store(slice, &out.matrix, out.stride, cmma::MatrixLayout::RowMajor);
 }
 

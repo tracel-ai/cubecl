@@ -139,7 +139,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         }
     }
 
-    fn read_output<C: Numeric>(
+    fn read_accumulator<C: Numeric>(
         out: &Self::Accumulator,
         slice: &mut SliceMut<'_, Line<C>>,
         #[comptime] config: Config,
