@@ -144,8 +144,8 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
     };
     let topology = TopologyProperties {
-        subcube_size_min: setup.adapter.limits().min_subgroup_size,
-        subcube_size_max: setup.adapter.limits().max_subgroup_size,
+        plane_size_min: setup.adapter.limits().min_subgroup_size,
+        plane_size_max: setup.adapter.limits().max_subgroup_size,
     };
 
     let memory_management = {
@@ -169,7 +169,7 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     if features.contains(wgpu::Features::SUBGROUP)
         && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
     {
-        device_props.register_feature(Feature::Subcube);
+        device_props.register_feature(Feature::Plane);
     }
     C::register_features(&setup.adapter, &setup.device, &mut device_props);
     ComputeClient::new(channel, device_props)

@@ -34,8 +34,8 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         alignment: 32,
     };
     let topology = TopologyProperties {
-        subcube_size_min: 32,
-        subcube_size_max: 32,
+        plane_size_min: 32,
+        plane_size_max: 32,
     };
     let memory_management = MemoryManagement::from_configuration(
         storage,

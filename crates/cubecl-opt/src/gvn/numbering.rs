@@ -116,7 +116,7 @@ impl ValueTable {
             }
             Operation::Operator(operator) => self.create_expr_op(operator, inst.out()),
             Operation::Metadata(metadata) => self.create_expr_meta(metadata, inst.out()),
-            Operation::Subcube(_) | Operation::Atomic(_) => Err(value_of_var(&inst.out())),
+            Operation::Plane(_) | Operation::Atomic(_) => Err(value_of_var(&inst.out())),
             Operation::Branch(_) | Operation::Synchronization(_) | Operation::CoopMma(_) => {
                 Err(None)
             }

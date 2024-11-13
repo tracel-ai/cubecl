@@ -4,9 +4,9 @@ mod kernel;
 mod local_allocator;
 mod macros;
 mod operation;
+mod plane;
 mod processing;
 mod scope;
-mod subcube;
 mod synchronization;
 mod variable;
 
@@ -16,8 +16,8 @@ pub use cmma::*;
 pub use kernel::*;
 pub use local_allocator::*;
 pub use operation::*;
+pub use plane::*;
 pub use scope::*;
-pub use subcube::*;
 pub use synchronization::*;
 pub use variable::*;
 

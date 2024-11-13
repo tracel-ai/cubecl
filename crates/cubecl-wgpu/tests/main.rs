@@ -29,7 +29,7 @@ pub fn slice_assign() {
 #[cube(launch, create_dummy_kernel)]
 pub fn kernel_sum(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = cubecl_core::prelude::subcube_sum(val);
+    let val2 = cubecl_core::prelude::plane_sum(val);
 
     if UNIT_POS == 0 {
         output[0] = val2;
@@ -37,9 +37,9 @@ pub fn kernel_sum(output: &mut Tensor<f32>) {
 }
 
 #[test]
-pub fn subcube_sum() {
+pub fn plane_sum() {
     let kernel = KernelSum::<WgpuRuntime>::new(settings(4, 1), tensor());
-    let expected = include_str!("subcube_sum.wgsl").replace("\r\n", "\n");
+    let expected = include_str!("plane_sum.wgsl").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
 

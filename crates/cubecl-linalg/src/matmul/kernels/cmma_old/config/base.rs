@@ -228,7 +228,7 @@ pub struct ComptimeCmmaInfo {
     pub num_compute_planes: u32,
     /// The number of buffers, should equal block_size_k / tile_size_k
     pub num_buffers: u32,
-    /// Number of cmma per subcube performed in one pass
+    /// Number of cmma per plane performed in one pass
     pub num_accumulators: u32,
     pub write_out_strategy: WriteOutStrategy,
     pub rasterization_strategy: RasterizationStrategy,

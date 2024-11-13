@@ -29,8 +29,8 @@ pub use runtime::*;
 pub use cubecl_macros::*;
 pub use cubecl_runtime::benchmark;
 
-/// An approximation of the subcube dimension.
-pub const SUBCUBE_DIM_APPROX: usize = 16;
+/// An approximation of the plane dimension.
+pub const PLANE_DIM_APPROX: usize = 16;
 
 use crate::ir::KernelDefinition;
 use frontend::LaunchArg;

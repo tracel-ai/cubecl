@@ -32,20 +32,20 @@ arise when trying to execute that kernel.
 
 ## Feature Specialization
 
-You could also achieve the sum using subcube operations. We will write a kernel that uses that
+You could also achieve the sum using plane operations. We will write a kernel that uses that
 instruction when available based on a comptime feature flag. When it isn't available, it will fall
 back on the previous implementation essentially making it portable.
 
 ```rust
 #[cube(launch)]
-fn sum_subgroup<F: Float>(
+fn sum_plane<F: Float>(
     input: &Array<F>,
     output: &mut Array<F>,
-    #[comptime] subgroup: bool,
+    #[comptime] plane: bool,
     #[comptime] end: Option<u32>,
 ) {
-    if subgroup {
-        output[UNIT_POS] = subcube_sum(input[UNIT_POS]);
+    if plane {
+        output[UNIT_POS] = plane_sum(input[UNIT_POS]);
     } else {
         sum_basic(input, output, end);
     }

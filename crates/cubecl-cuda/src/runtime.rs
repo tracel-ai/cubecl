@@ -80,8 +80,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         .unwrap()
     };
     let topology = TopologyProperties {
-        subcube_size_min: warp_size as u32,
-        subcube_size_max: warp_size as u32,
+        plane_size_min: warp_size as u32,
+        plane_size_max: warp_size as u32,
     };
 
     let memory_management = MemoryManagement::from_configuration(
@@ -92,7 +92,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
 
     let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
     let mut server = CudaServer::new(cuda_ctx);
-    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties, topology);
+    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, topology);
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     register_wmma_features(&mut device_props, server.arch_version());

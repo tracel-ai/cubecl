@@ -215,50 +215,50 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
             },
-            gpu::Operation::Subcube(op) => {
+            gpu::Operation::Plane(op) => {
                 self.wrap_size_checked = true;
                 let out = self.compile_variable(out.unwrap());
                 match op {
-                    gpu::Subcube::Sum(op) => {
+                    gpu::Plane::Sum(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::ReduceSum {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
-                    gpu::Subcube::Prod(op) => {
+                    gpu::Plane::Prod(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::ReduceProd {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
-                    gpu::Subcube::Max(op) => {
+                    gpu::Plane::Max(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::ReduceMax {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
-                    gpu::Subcube::Min(op) => {
+                    gpu::Plane::Min(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::ReduceMin {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
-                    gpu::Subcube::Elect => {
+                    gpu::Plane::Elect => {
                         instructions.push(Instruction::Wrap(WarpInstruction::Elect { out }))
                     }
-                    gpu::Subcube::All(op) => {
+                    gpu::Plane::All(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::All {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
-                    gpu::Subcube::Any(op) => {
+                    gpu::Plane::Any(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::Any {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
-                    gpu::Subcube::Broadcast(op) => {
+                    gpu::Plane::Broadcast(op) => {
                         instructions.push(Instruction::Wrap(WarpInstruction::Broadcast {
                             input: self.compile_variable(op.lhs),
                             id: self.compile_variable(op.rhs),
@@ -838,7 +838,7 @@ impl<D: Dialect> CppCompiler<D> {
                     self.settings.grid_dim_global = true;
                     super::Variable::GridDimGlobal
                 }
-                gpu::Builtin::SubcubeDim => super::Variable::WarpSize,
+                gpu::Builtin::PlaneDim => super::Variable::WarpSize,
             },
             gpu::VariableKind::LocalArray { id, depth, length } => {
                 let item = self.compile_item(item);

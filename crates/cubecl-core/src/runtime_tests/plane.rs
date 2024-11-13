@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 #[cube(launch)]
 pub fn kernel_sum<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_sum(val);
+    let val2 = plane_sum(val);
 
     if UNIT_POS == 0 {
         output[0] = val2;
@@ -15,7 +15,7 @@ pub fn kernel_sum<F: Float>(output: &mut Tensor<F>) {
 #[cube(launch)]
 pub fn kernel_prod<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_prod(val);
+    let val2 = plane_prod(val);
 
     if UNIT_POS == 0 {
         output[0] = val2;
@@ -25,7 +25,7 @@ pub fn kernel_prod<F: Float>(output: &mut Tensor<F>) {
 #[cube(launch)]
 pub fn kernel_max<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_max(val);
+    let val2 = plane_max(val);
 
     if UNIT_POS == 0 {
         output[0] = val2;
@@ -35,7 +35,7 @@ pub fn kernel_max<F: Float>(output: &mut Tensor<F>) {
 #[cube(launch)]
 pub fn kernel_min<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_min(val);
+    let val2 = plane_min(val);
 
     if UNIT_POS == 0 {
         output[0] = val2;
@@ -45,21 +45,21 @@ pub fn kernel_min<F: Float>(output: &mut Tensor<F>) {
 #[cube(launch)]
 pub fn kernel_all<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_all(val < F::new(5.0));
+    let val2 = plane_all(val < F::new(5.0));
     output[UNIT_POS] = F::cast_from(val2);
 }
 
 #[cube(launch)]
 pub fn kernel_any<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_any(val < F::new(5.0));
+    let val2 = plane_any(val < F::new(5.0));
     output[UNIT_POS] = F::cast_from(val2);
 }
 
 #[cube(launch)]
 pub fn kernel_elect<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
-    let elect = subcube_elect();
+    let elect = plane_elect();
     if elect {
         output[4] += val;
     }
@@ -68,17 +68,17 @@ pub fn kernel_elect<F: Float>(output: &mut Tensor<F>) {
 #[cube(launch)]
 pub fn kernel_broadcast<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
-    let val2 = subcube_broadcast(val, 2);
+    let val2 = plane_broadcast(val, 2);
 
     if UNIT_POS == 0 {
         output[0] = val2;
     }
 }
 
-pub fn test_subcube_sum<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_sum<TestRuntime: Runtime, F: Float + CubeElement>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
 ) {
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 4.0, 5.0, 7.0, 1.0],
         as_type![F: 17.0, 5.0, 7.0, 1.0],
         client.clone(),
@@ -88,10 +88,10 @@ pub fn test_subcube_sum<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_subcube_prod<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_prod<TestRuntime: Runtime, F: Float + CubeElement>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
 ) {
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 4.0, 5.0, 7.0, 1.0],
         as_type![F: 140.0, 5.0, 7.0, 1.0],
         client.clone(),
@@ -100,10 +100,10 @@ pub fn test_subcube_prod<TestRuntime: Runtime, F: Float + CubeElement>(
         },
     );
 }
-pub fn test_subcube_max<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_max<TestRuntime: Runtime, F: Float + CubeElement>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
 ) {
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 4.0, 5.0, 7.0, 1.0],
         as_type![F: 7.0, 5.0, 7.0, 1.0],
         client.clone(),
@@ -113,10 +113,10 @@ pub fn test_subcube_max<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_subcube_min<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_min<TestRuntime: Runtime, F: Float + CubeElement>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
 ) {
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 4.0, 5.0, 7.0, 1.0],
         as_type![F: 1.0, 5.0, 7.0, 1.0],
         client.clone(),
@@ -126,10 +126,10 @@ pub fn test_subcube_min<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_subcube_all<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_all<TestRuntime: Runtime, F: Float + CubeElement>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
 ) {
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 2.0, 1.0, -6.0, 3.0],
         as_type![F: 1.0, 1.0, 1.0, 1.0],
         client.clone(),
@@ -137,7 +137,7 @@ pub fn test_subcube_all<TestRuntime: Runtime, F: Float + CubeElement>(
             kernel_all::launch::<F, TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 2.0, -10.0, 2.0, 7.0],
         as_type![F: 0.0, 0.0, 0.0, 0.0],
         client.clone(),
@@ -147,10 +147,10 @@ pub fn test_subcube_all<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_subcube_any<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_any<TestRuntime: Runtime, F: Float + CubeElement>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
 ) {
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 2.0, 1.0, -6.0, 3.0],
         as_type![F: 1.0, 1.0, 1.0, 1.0],
         client.clone(),
@@ -158,7 +158,7 @@ pub fn test_subcube_any<TestRuntime: Runtime, F: Float + CubeElement>(
             kernel_any::launch::<F, TestRuntime>(&client, cube_dim, settings, handle)
         },
     );
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 8.0, 10.0, 20.0, 7.0],
         as_type![F: 0.0, 0.0, 0.0, 0.0],
         client.clone(),
@@ -168,10 +168,10 @@ pub fn test_subcube_any<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_subcube_elect<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_elect<TestRuntime: Runtime, F: Float + CubeElement>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
 ) {
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 2.0, 1.0, -6.0, 3.0],
         as_type![F: 2.0, 1.0, 1.0, 5.0],
         client.clone(),
@@ -181,10 +181,10 @@ pub fn test_subcube_elect<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_subcube_broadcast<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_broadcast<TestRuntime: Runtime, F: Float + CubeElement>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
 ) {
-    test_subcube_operation::<TestRuntime, F, _>(
+    test_plane_operation::<TestRuntime, F, _>(
         as_type![F: 2.0, 1.0, -6.0, 3.0],
         as_type![F: -6.0, 1.0, -6.0, 3.0],
         client.clone(),
@@ -194,7 +194,7 @@ pub fn test_subcube_broadcast<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-fn test_subcube_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
+fn test_plane_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
     input: &[F],
     expected: &[F],
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
@@ -202,7 +202,7 @@ fn test_subcube_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
 ) where
     Launch: Fn(CubeCount, CubeDim, TensorArg<'_, TestRuntime>),
 {
-    if !client.properties().feature_enabled(Feature::Subcube) {
+    if !client.properties().feature_enabled(Feature::Plane) {
         // Can't execute the test.
         return;
     }
@@ -226,61 +226,57 @@ fn test_subcube_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
 
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! testgen_subcube {
+macro_rules! testgen_plane {
     () => {
         use super::*;
 
         #[test]
-        fn test_subcube_sum() {
+        fn test_plane_sum() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_sum::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::plane::test_plane_sum::<TestRuntime, FloatType>(client);
         }
 
         #[test]
-        fn test_subcube_prod() {
+        fn test_plane_prod() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_prod::<TestRuntime, FloatType>(
-                client,
-            );
+            cubecl_core::runtime_tests::plane::test_plane_prod::<TestRuntime, FloatType>(client);
         }
 
         #[test]
-        fn test_subcube_max() {
+        fn test_plane_max() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_max::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::plane::test_plane_max::<TestRuntime, FloatType>(client);
         }
 
         #[test]
-        fn test_subcube_min() {
+        fn test_plane_min() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_min::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::plane::test_plane_min::<TestRuntime, FloatType>(client);
         }
 
         #[test]
-        fn test_subcube_all() {
+        fn test_plane_all() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_all::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::plane::test_plane_all::<TestRuntime, FloatType>(client);
         }
 
         #[test]
-        fn test_subcube_any() {
+        fn test_plane_any() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_any::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::plane::test_plane_any::<TestRuntime, FloatType>(client);
         }
 
         #[ignore]
         #[test]
-        fn test_subcube_elect() {
+        fn test_plane_elect() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_elect::<TestRuntime, FloatType>(
-                client,
-            );
+            cubecl_core::runtime_tests::plane::test_plane_elect::<TestRuntime, FloatType>(client);
         }
 
         #[test]
-        fn test_subcube_broadcast() {
+        fn test_plane_broadcast() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::subcube::test_subcube_broadcast::<TestRuntime, FloatType>(
+            cubecl_core::runtime_tests::plane::test_plane_broadcast::<TestRuntime, FloatType>(
                 client,
             );
         }
