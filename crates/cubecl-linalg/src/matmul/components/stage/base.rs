@@ -64,7 +64,7 @@ pub trait StageReader<ES: Numeric>: CubeType {
         buffer_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: S,
-    ) -> &Slice<'_, Line<ES>>;
+    ) -> Slice<Line<ES>>;
 }
 
 #[cube]
@@ -75,7 +75,7 @@ pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
     /// plane and accumulator indexes.
     fn write<ES: Numeric, G: global::Config>(
         this: &mut Self,
-        slice: &Slice<'_, Line<ES>>,
+        slice: Slice<Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: G,

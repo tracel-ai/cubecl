@@ -65,7 +65,7 @@ where
                 0u32,
                 config,
             );
-            TMM::fill_lhs(tile_lhs, &mut instruction_lhs, config.to_tmm_config());
+            TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
@@ -76,7 +76,7 @@ where
                     accumulator_iter,
                     config,
                 );
-                TMM::fill_rhs(tile_rhs, &mut instruction_rhs, config.to_tmm_config());
+                TMM::fill_rhs(&tile_rhs, &mut instruction_rhs, config.to_tmm_config());
 
                 let accumulator = acc.index_mut(accumulator_iter);
                 TMM::execute(
@@ -119,11 +119,11 @@ where
         #[unroll]
         for accumulator_iter in 0..acc.len() {
             let accumulator = acc.index(accumulator_iter);
-            let smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
-            TMM::read_output(accumulator, smem_slice, stage_config.to_tmm_config());
+            let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
+            TMM::read_output(accumulator, &mut smem_slice, stage_config.to_tmm_config());
             SW::write::<Acc, G>(
                 out,
-                smem_slice.as_slice(),
+                smem_slice.to_slice(),
                 Self::plane_id(),
                 accumulator_iter,
                 global_config,

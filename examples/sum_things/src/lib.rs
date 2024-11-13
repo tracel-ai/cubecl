@@ -68,7 +68,7 @@ fn sum_trait<F: Float, K: SumKind>(
     output: &mut Array<F>,
     #[comptime] end: Option<u32>,
 ) {
-    output[UNIT_POS] = K::sum(input.as_slice(), end);
+    output[UNIT_POS] = K::sum(&input.to_slice(), end);
 }
 
 #[cube]
@@ -84,7 +84,7 @@ fn series<F: Float, S: CreateSeries>(
     output: &mut Array<F>,
     #[comptime] end: Option<u32>,
 ) {
-    output[UNIT_POS] = S::execute(input.as_slice(), end);
+    output[UNIT_POS] = S::execute(&input.to_slice(), end);
 }
 
 struct SumThenMul<K: SumKind> {

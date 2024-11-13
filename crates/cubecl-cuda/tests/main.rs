@@ -14,7 +14,7 @@ mod common;
 #[cube(launch_unchecked, create_dummy_kernel)]
 pub fn slice_assign_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
     if UNIT_POS == 0 {
-        let slice_1 = output.slice_mut(2, 3);
+        let mut slice_1 = output.slice_mut(2, 3);
         slice_1[0] = input[0];
     }
 }

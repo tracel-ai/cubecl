@@ -26,7 +26,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsLoader<EG, ES> {
     fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         CyclicLoading::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
-            this.stage.as_slice_mut(),
+            &mut this.stage.as_slice_mut(),
             Ident::Lhs,
             config,
         );
@@ -58,7 +58,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsLoader<EG, ES> {
     fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         CyclicLoading::load_to_slice::<EG, ES, G>(
             &this.tensor_view,
-            this.stage.as_slice_mut(),
+            &mut this.stage.as_slice_mut(),
             Ident::Rhs,
             config,
         );
