@@ -43,3 +43,13 @@ pub fn compile(kernel: impl Kernel) -> String {
     )
     .to_string()
 }
+
+#[macro_export]
+macro_rules! load_kernel_string {
+    ($file:expr) => {
+        include_str!($file)
+            .replace("\r\n", "\n")
+            .trim_end()
+            .to_string()
+    };
+}
