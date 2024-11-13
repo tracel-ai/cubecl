@@ -85,8 +85,8 @@ where
         SMM::init_accumulator(config.to_smm_config())
     }
 
-    fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        SMM::reset_accumulator(acc, config.to_smm_config());
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
+        SMM::zero_accumulator(acc, config.to_smm_config());
     }
 }
 

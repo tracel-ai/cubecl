@@ -94,7 +94,7 @@ impl SpanMatmul for RowMajorSpanMatmul {
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
             for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
                 for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
-                    GMM::reset_accumulator(&mut acc, config);
+                    GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<EG, ES, GMM>(
                         lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
                     );
@@ -117,7 +117,7 @@ impl SpanMatmul for ColMajorSpanMatmul {
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
             for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
                 for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
-                    GMM::reset_accumulator(&mut acc, config);
+                    GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<EG, ES, GMM>(
                         lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
                     );
@@ -142,7 +142,7 @@ impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
 
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
             for n in 0..num_swizzle {
-                GMM::reset_accumulator(&mut acc, config);
+                GMM::zero_accumulator(&mut acc, config);
                 let (row, col) = swizzle(n, span.row.num_iterations(), W);
 
                 let row_iter = span.row.start + row * span.row.step;

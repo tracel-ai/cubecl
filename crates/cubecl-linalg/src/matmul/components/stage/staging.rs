@@ -34,7 +34,7 @@ impl<ES: Numeric> Stage<ES> {
         y: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
-    ) -> &Slice<'_, Line<ES>> {
+    ) -> Slice<Line<ES>> {
         let stage_dim = config.stage_dim(ident);
 
         let nth_tile = match config.tiling_order() {
@@ -53,7 +53,7 @@ impl<ES: Numeric> Stage<ES> {
     }
 
     /// Return the whole stage as a mutable slice, for loading
-    pub fn as_slice_mut(&mut self) -> &mut SliceMut<'_, Line<ES>> {
-        self.smem.as_slice_mut()
+    pub fn as_slice_mut(&mut self) -> SliceMut<Line<ES>> {
+        self.smem.to_slice_mut()
     }
 }

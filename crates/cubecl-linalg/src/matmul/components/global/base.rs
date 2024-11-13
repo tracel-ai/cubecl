@@ -50,7 +50,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     );
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
-    fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
 #[cube]

@@ -24,15 +24,15 @@ impl OutputWriter for ReuseSmemWriter {
         let smem_stride = comptime_info.tile_size_m * comptime_info.tile_size_n;
         let smem_size = num_compute_planes * smem_stride;
 
-        let acc_sm = SharedMemory::<F>::new(smem_size);
+        let mut acc_sm = SharedMemory::<F>::new(smem_size);
 
         let slice_offset = plane_id * smem_stride;
-        let slice = acc_sm.slice_mut_unsafe(slice_offset, slice_offset + smem_stride);
+        let mut slice = acc_sm.slice_mut(slice_offset, slice_offset + smem_stride);
 
         #[unroll]
         for n in 0..num_accumulators {
             cmma::store::<F, F>(
-                slice,
+                &mut slice,
                 accumulators.index(n),
                 comptime_info.tile_size_n,
                 cmma::MatrixLayout::RowMajor,

@@ -29,7 +29,7 @@ impl PlaneMapper for CyclicLoading {
 impl CyclicLoading {
     pub fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<'_, Line<ES>>,
+        slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {

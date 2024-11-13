@@ -61,25 +61,17 @@ macro_rules! instruction {
                 init_rhs(config.layout(Ident::Rhs), Self::M, Self::N, Self::K)
             }
 
-            fn fill_lhs(
-                slice: &Slice<'_, Line<I>>,
-                lhs: &mut Self::Lhs,
-                #[comptime] _config: Config,
-            ) {
+            fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] _config: Config) {
                 fill_lhs(slice, lhs);
             }
 
-            fn fill_rhs(
-                slice: &Slice<'_, Line<I>>,
-                rhs: &mut Self::Rhs,
-                #[comptime] _config: Config,
-            ) {
+            fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] _config: Config) {
                 fill_rhs(slice, rhs);
             }
 
             fn read_accumulator<C: Numeric>(
                 out: &Self::Accumulator,
-                slice: &mut SliceMut<'_, Line<C>>,
+                slice: &mut SliceMut<Line<C>>,
                 #[comptime] _config: Config,
             ) {
                 read_accumulator::<O, C>(out, slice);
@@ -89,7 +81,7 @@ macro_rules! instruction {
                 init_output(Self::M, Self::N, Self::K)
             }
 
-            fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
+            fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
                 cmma::fill(&acc.matrix, O::from_int(0));
             }
         }
@@ -170,12 +162,12 @@ fn init_rhs<I: Numeric>(#[comptime] layout: MatrixLayout, m: u32, n: u32, k: u32
 }
 
 #[cube]
-fn fill_lhs<C: CubePrimitive, I: Numeric>(slice: &Slice<'_, C>, lhs: &mut Fragment<I>) {
+fn fill_lhs<C: CubePrimitive, I: Numeric>(slice: &Slice<C>, lhs: &mut Fragment<I>) {
     cmma::load(&lhs.matrix, slice, lhs.stride);
 }
 
 #[cube]
-fn fill_rhs<C: CubePrimitive, I: Numeric>(slice: &Slice<'_, C>, rhs: &mut Fragment<I>) {
+fn fill_rhs<C: CubePrimitive, I: Numeric>(slice: &Slice<C>, rhs: &mut Fragment<I>) {
     cmma::load(&rhs.matrix, slice, rhs.stride);
 }
 
@@ -197,7 +189,7 @@ fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
 }
 
 #[cube]
-fn read_accumulator<O: Numeric, C: Numeric>(out: &Fragment<O>, slice: &mut SliceMut<'_, Line<C>>) {
+fn read_accumulator<O: Numeric, C: Numeric>(out: &Fragment<O>, slice: &mut SliceMut<Line<C>>) {
     cmma::store(slice, &out.matrix, out.stride, cmma::MatrixLayout::RowMajor);
 }
 

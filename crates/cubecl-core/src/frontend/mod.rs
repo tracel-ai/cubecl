@@ -9,7 +9,7 @@ mod context;
 mod element;
 mod indexation;
 mod operation;
-mod subcube;
+mod plane;
 mod topology;
 
 pub use branch::{range, range_stepped, RangeExpand, SteppedRangeExpand};
@@ -19,5 +19,5 @@ pub use context::*;
 pub use element::*;
 pub use indexation::*;
 pub use operation::*;
-pub use subcube::*;
+pub use plane::*;
 pub use topology::*;

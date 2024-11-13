@@ -24,7 +24,7 @@ fn sum_subgroup<F: Float>(
     #[comptime] end: Option<u32>,
 ) {
     if subgroup {
-        output[UNIT_POS] = subcube_sum(input[UNIT_POS]);
+        output[UNIT_POS] = plane_sum(input[UNIT_POS]);
     } else {
         sum_basic(input, output, end);
     }
@@ -36,7 +36,7 @@ trait SumKind: 'static + Send + Sync {
 }
 
 struct SumBasic;
-struct SumSubcube;
+struct SumPlane;
 
 #[cube]
 impl SumKind for SumBasic {
@@ -56,9 +56,9 @@ impl SumKind for SumBasic {
 }
 
 #[cube]
-impl SumKind for SumSubcube {
+impl SumKind for SumPlane {
     fn sum<F: Float>(input: &Slice<F>, #[comptime] _end: Option<u32>) -> F {
-        subcube_sum(input[UNIT_POS])
+        plane_sum(input[UNIT_POS])
     }
 }
 
@@ -68,7 +68,7 @@ fn sum_trait<F: Float, K: SumKind>(
     output: &mut Array<F>,
     #[comptime] end: Option<u32>,
 ) {
-    output[UNIT_POS] = K::sum(input.as_slice(), end);
+    output[UNIT_POS] = K::sum(&input.to_slice(), end);
 }
 
 #[cube]
@@ -84,7 +84,7 @@ fn series<F: Float, S: CreateSeries>(
     output: &mut Array<F>,
     #[comptime] end: Option<u32>,
 ) {
-    output[UNIT_POS] = S::execute(input.as_slice(), end);
+    output[UNIT_POS] = S::execute(&input.to_slice(), end);
 }
 
 struct SumThenMul<K: SumKind> {
@@ -132,9 +132,7 @@ fn launch_subgroup<R: Runtime>(
             CubeDim::new(len as u32, 1, 1),
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
-            client
-                .properties()
-                .feature_enabled(cubecl::Feature::Subcube),
+            client.properties().feature_enabled(cubecl::Feature::Plane),
             Some(len as u32),
         );
     }
@@ -179,7 +177,7 @@ fn launch_series<R: Runtime, S: CreateSeries>(
 #[derive(Debug)]
 enum KernelKind {
     Basic,
-    Subcube,
+    Plane,
     TraitSum,
     SeriesSumThenMul,
 }
@@ -194,31 +192,25 @@ pub fn launch<R: Runtime>(device: &R::Device) {
 
     for kind in [
         KernelKind::Basic,
-        KernelKind::Subcube,
+        KernelKind::Plane,
         KernelKind::TraitSum,
         KernelKind::SeriesSumThenMul,
     ] {
         match kind {
             KernelKind::Basic => launch_basic::<R>(&client, &input, &output, len),
-            KernelKind::Subcube => launch_subgroup::<R>(&client, &input, &output, len),
+            KernelKind::Plane => launch_subgroup::<R>(&client, &input, &output, len),
             KernelKind::TraitSum => {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.
-                if client
-                    .properties()
-                    .feature_enabled(cubecl::Feature::Subcube)
-                {
-                    launch_trait::<R, SumSubcube>(&client, &input, &output, len)
+                if client.properties().feature_enabled(cubecl::Feature::Plane) {
+                    launch_trait::<R, SumPlane>(&client, &input, &output, len)
                 } else {
                     launch_trait::<R, SumBasic>(&client, &input, &output, len)
                 }
             }
             KernelKind::SeriesSumThenMul => {
-                if client
-                    .properties()
-                    .feature_enabled(cubecl::Feature::Subcube)
-                {
-                    launch_series::<R, SumThenMul<SumSubcube>>(&client, &input, &output, len)
+                if client.properties().feature_enabled(cubecl::Feature::Plane) {
+                    launch_series::<R, SumThenMul<SumPlane>>(&client, &input, &output, len)
                 } else {
                     launch_series::<R, SumThenMul<SumBasic>>(&client, &input, &output, len)
                 }

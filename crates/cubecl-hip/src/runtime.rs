@@ -90,8 +90,8 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
     let topology = TopologyProperties {
-        subcube_size_min: prop_warp_size as u32,
-        subcube_size_max: prop_warp_size as u32,
+        plane_size_min: prop_warp_size as u32,
+        plane_size_max: prop_warp_size as u32,
     };
     let memory_management = MemoryManagement::from_configuration(
         storage,
@@ -100,7 +100,7 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
     );
     let hip_ctx = HipContext::new(memory_management, stream, ctx);
     let server = HipServer::new(hip_ctx);
-    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties, topology);
+    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, topology);
     register_supported_types(&mut device_props);
     arch.register_wmma_features(&mut device_props);
 

@@ -104,7 +104,7 @@ pub mod index_assign {
     impl_index!(SharedMemory);
     impl_index_vec!(i64, i32, i16, i8, f16, bf16, flex32, tf32, f32, f64, u64, u32, u16, u8);
 
-    impl<'a, E: CubeType, I: Index> CubeIndexMut<I> for SliceMut<'a, E> {}
+    impl<E: CubeType, I: Index> CubeIndexMut<I> for SliceMut<E> {}
 }
 
 pub mod index {
@@ -174,11 +174,11 @@ pub mod index {
     impl_index!(SharedMemory);
     impl_index_vec!(i64, i32, i16, i8, f16, flex32, tf32, bf16, f32, f64, u64, u32, u16, u8);
 
-    impl<'a, E: CubeType, I: Index> CubeIndex<I> for Slice<'a, E> {
+    impl<E: CubeType, I: Index> CubeIndex<I> for Slice<E> {
         type Output = E;
     }
 
-    impl<'a, E: CubeType, I: Index> CubeIndex<I> for SliceMut<'a, E> {
+    impl<E: CubeType, I: Index> CubeIndex<I> for SliceMut<E> {
         type Output = E;
     }
 }

@@ -26,7 +26,7 @@ impl<ES: Numeric> StageReader<ES> for LhsReader<ES> {
         buffer_offset: u32,
         _accumulator_offset: u32,
         #[comptime] config: S,
-    ) -> &Slice<'_, Line<ES>> {
+    ) -> Slice<Line<ES>> {
         this.stage
             .get_tile::<S>(compute_plane_offset, buffer_offset, Ident::Lhs, config)
     }
@@ -40,7 +40,7 @@ impl<ES: Numeric> StageReader<ES> for RhsReader<ES> {
         buffer_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: S,
-    ) -> &Slice<'_, Line<ES>> {
+    ) -> Slice<Line<ES>> {
         this.stage
             .get_tile::<S>(buffer_offset, accumulator_offset, Ident::Rhs, config)
     }

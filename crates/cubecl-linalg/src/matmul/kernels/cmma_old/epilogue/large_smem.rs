@@ -35,10 +35,10 @@ impl OutputWriter for LargeSmemWriter {
             let slice_start = slice_offset + n * smem_stride;
             let slice_end = slice_start + smem_stride;
 
-            let slice = acc_sm.slice_mut(slice_start, slice_end);
+            let mut slice = acc_sm.slice_mut(slice_start, slice_end);
 
             cmma::store::<F, F>(
-                slice,
+                &mut slice,
                 accumulators.index(n),
                 comptime_info.tile_size_n,
                 cmma::MatrixLayout::RowMajor,

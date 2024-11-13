@@ -48,8 +48,11 @@ pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I>, Rhs: StageReader<I
         #[comptime] global_config: G,
     );
 
+    /// Create an instance of the accumulator
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
-    fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+
+    /// Set the accumulator to zeros
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
 #[cube]
@@ -64,7 +67,7 @@ pub trait StageReader<ES: Numeric>: CubeType {
         buffer_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: S,
-    ) -> &Slice<'_, Line<ES>>;
+    ) -> Slice<Line<ES>>;
 }
 
 #[cube]
@@ -75,7 +78,7 @@ pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
     /// plane and accumulator indexes.
     fn write<ES: Numeric, G: global::Config>(
         this: &mut Self,
-        slice: &Slice<'_, Line<ES>>,
+        slice: Slice<Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: G,

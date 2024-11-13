@@ -7,9 +7,9 @@ pub mod constants;
 pub mod different_rank;
 pub mod launch;
 pub mod metadata;
+pub mod plane;
 pub mod sequence;
 pub mod slice;
-pub mod subcube;
 pub mod topology;
 pub mod unary;
 
@@ -71,9 +71,9 @@ macro_rules! testgen_float {
         cubecl_core::testgen_const_match!();
         cubecl_core::testgen_different_rank!();
         cubecl_core::testgen_launch!();
+        cubecl_core::testgen_plane!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_slice!();
-        cubecl_core::testgen_subcube!();
         cubecl_core::testgen_unary!();
     };
 }

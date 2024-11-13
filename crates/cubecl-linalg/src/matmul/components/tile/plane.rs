@@ -78,7 +78,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                 #[unroll]
                 for n_iter in 0..compute_width {
                     let unit_to_read = k_inner * Self::N + n_iter + unit_offset;
-                    let b_kn = subcube_broadcast::<I>(b_kp, unit_to_read);
+                    let b_kn = plane_broadcast::<I>(b_kp, unit_to_read);
                     out[n_iter] += O::cast_from(a_pk * b_kn);
                 }
             }
@@ -93,11 +93,11 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         Array::new(Self::K * Self::N / config.plane_dim())
     }
 
-    fn fill_lhs(slice: &Slice<'_, Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
+    fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
         match comptime!(config.layout(Ident::Lhs)) {
             MatrixLayout::RowMajor => fill_parallel_lhs(
                 slice,
-                lhs.as_slice_mut(),
+                &mut lhs.to_slice_mut(),
                 Self::plane_unit(),
                 Self::M,
                 Self::K,
@@ -106,7 +106,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
             ),
             MatrixLayout::ColMajor => fill_perpendicular_lhs(
                 slice,
-                lhs.as_slice_mut(),
+                &mut lhs.to_slice_mut(),
                 Self::plane_unit(),
                 Self::M,
                 Self::K,
@@ -116,11 +116,11 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         }
     }
 
-    fn fill_rhs(slice: &Slice<'_, Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
+    fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
         match comptime!(config.layout(Ident::Rhs)) {
             MatrixLayout::RowMajor => fill_perpendicular_rhs(
                 slice,
-                rhs.as_slice_mut(),
+                &mut rhs.to_slice_mut(),
                 Self::plane_unit(),
                 Self::N,
                 Self::K,
@@ -129,7 +129,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
             ),
             MatrixLayout::ColMajor => fill_parallel_rhs(
                 slice,
-                rhs.as_slice_mut(),
+                &mut rhs.to_slice_mut(),
                 Self::plane_unit(),
                 Self::N,
                 Self::K,
@@ -141,7 +141,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
     fn read_accumulator<C: Numeric>(
         out: &Self::Accumulator,
-        slice: &mut SliceMut<'_, Line<C>>,
+        slice: &mut SliceMut<Line<C>>,
         #[comptime] config: Config,
     ) {
         let line_size = config.line_size(Ident::Out);
@@ -207,7 +207,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         acc
     }
 
-    fn reset_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         let len = Self::M * Self::N / (config.plane_dim());
 
         #[unroll]
@@ -219,8 +219,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
 #[cube]
 fn fill_parallel_lhs<E: Numeric>(
-    slice_from: &Slice<'_, Line<E>>,
-    slice_to: &mut SliceMut<'_, E>,
+    slice_from: &Slice<Line<E>>,
+    slice_to: &mut SliceMut<E>,
     unit: u32,
     #[comptime] m: u32,
     #[comptime] k: u32,
@@ -246,8 +246,8 @@ fn fill_parallel_lhs<E: Numeric>(
 
 #[cube]
 fn fill_perpendicular_lhs<E: Numeric>(
-    slice_from: &Slice<'_, Line<E>>,
-    slice_to: &mut SliceMut<'_, E>,
+    slice_from: &Slice<Line<E>>,
+    slice_to: &mut SliceMut<E>,
     unit: u32,
     #[comptime] m: u32,
     #[comptime] k: u32,
@@ -273,8 +273,8 @@ fn fill_perpendicular_lhs<E: Numeric>(
 
 #[cube]
 fn fill_perpendicular_rhs<E: Numeric>(
-    slice_from: &Slice<'_, Line<E>>,
-    slice_to: &mut SliceMut<'_, E>,
+    slice_from: &Slice<Line<E>>,
+    slice_to: &mut SliceMut<E>,
     unit: u32,
     #[comptime] n: u32,
     #[comptime] k: u32,
@@ -306,8 +306,8 @@ fn fill_perpendicular_rhs<E: Numeric>(
 
 #[cube]
 fn fill_parallel_rhs<E: Numeric>(
-    slice_from: &Slice<'_, Line<E>>,
-    slice_to: &mut SliceMut<'_, E>,
+    slice_from: &Slice<Line<E>>,
+    slice_to: &mut SliceMut<E>,
     unit: u32,
     #[comptime] n: u32,
     #[comptime] k: u32,
@@ -348,7 +348,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<(), &str> {
-        if !client.properties().feature_enabled(Feature::Subcube) {
+        if !client.properties().feature_enabled(Feature::Plane) {
             return Err("Planes not supported.");
         }
 

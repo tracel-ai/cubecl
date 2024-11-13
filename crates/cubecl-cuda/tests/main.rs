@@ -14,7 +14,7 @@ mod common;
 #[cube(launch_unchecked, create_dummy_kernel)]
 pub fn slice_assign_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
     if UNIT_POS == 0 {
-        let slice_1 = output.slice_mut(2, 3);
+        let mut slice_1 = output.slice_mut(2, 3);
         slice_1[0] = input[0];
     }
 }
@@ -30,7 +30,7 @@ pub fn slice_assign() {
 #[cube(launch, create_dummy_kernel)]
 pub fn kernel_sum(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = cubecl_core::prelude::subcube_sum(val);
+    let val2 = cubecl_core::prelude::plane_sum(val);
 
     if UNIT_POS == 0 {
         output[0] = val2;
@@ -38,10 +38,10 @@ pub fn kernel_sum(output: &mut Tensor<f32>) {
 }
 
 #[test]
-pub fn subcube_sum() {
+pub fn plane_sum() {
     let kernel = KernelSum::<CudaRuntime>::new(settings(), tensor());
 
-    let expected = include_str!("subcube_sum.cu").replace("\r\n", "\n");
+    let expected = include_str!("plane_sum.cu").replace("\r\n", "\n");
     let expected = expected.trim();
     assert_eq!(compile(kernel), expected);
 }
