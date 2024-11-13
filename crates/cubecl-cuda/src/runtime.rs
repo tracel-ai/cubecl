@@ -95,8 +95,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
 
     let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
     let mut server = CudaServer::new(cuda_ctx);
-    let mut device_props =
-        DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
+    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     register_wmma_features(&mut device_props, server.arch_version());
