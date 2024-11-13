@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 /// while ensuring thread-safety
 pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send + Sync {
     /// Given a binding, returns owned resource as bytes
-    fn read(&self, binding: Binding) -> impl Future<Output = Vec<u8>> + Send;
+    fn read(&self, binding: Binding) -> impl Future<Output = Vec<u8>> + Send + 'static;
 
     /// Given a resource handle, return the storage resource.
     fn get_resource(&self, binding: Binding) -> BindingResource<Server>;

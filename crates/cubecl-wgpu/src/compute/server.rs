@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData, num::NonZero, time::Duration};
+use std::{future::Future, marker::PhantomData, num::NonZero, pin::Pin, time::Duration};
 
 use super::{
     stream::{PipelineDispatch, WgpuStream},
@@ -103,7 +103,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     type Storage = WgpuStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
+    fn read(
+        &mut self,
+        binding: server::Binding,
+    ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'static>> {
         let rb = self.get_resource(binding);
         let resource = rb.resource();
 
@@ -113,7 +116,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             .read_buffer(&resource.buffer, resource.offset(), resource.size());
         self.on_flushed();
 
-        fut
+        Box::pin(fut)
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {

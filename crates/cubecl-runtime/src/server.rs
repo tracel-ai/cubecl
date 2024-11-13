@@ -7,7 +7,7 @@ use crate::{
     ExecutionMode,
 };
 use alloc::vec::Vec;
-use core::{fmt::Debug, future::Future};
+use core::{fmt::Debug, future::Future, pin::Pin};
 use cubecl_common::benchmark::TimestampsResult;
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -26,7 +26,8 @@ where
     type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Given a handle, returns the owned resource as bytes.
-    fn read(&mut self, binding: Binding) -> impl Future<Output = Vec<u8>> + Send + 'static;
+    fn read(&mut self, binding: Binding)
+        -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'static>>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self>;

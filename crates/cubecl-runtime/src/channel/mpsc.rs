@@ -1,3 +1,4 @@
+use core::future::Future;
 use std::{sync::Arc, thread};
 
 use cubecl_common::benchmark::TimestampsResult;
@@ -124,11 +125,14 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
-    async fn read(&self, binding: Binding) -> Vec<u8> {
+    fn read(&self, binding: Binding) -> impl Future<Output = Vec<u8>> + 'static {
         let sender = self.state.sender.clone();
         let (callback, response) = async_channel::unbounded();
-        sender.send(Message::Read(binding, callback)).await.unwrap();
-        handle_response(response.recv().await)
+
+        async move {
+            sender.send(Message::Read(binding, callback)).await.unwrap();
+            handle_response(response.recv().await)
+        }
     }
 
     fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
