@@ -34,6 +34,8 @@ pub struct HipRuntime;
 static RUNTIME: ComputeRuntime<HipDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
+pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
+
 type Server = HipServer;
 type Channel = MutexComputeChannel<Server>;
 
@@ -119,7 +121,7 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
 }
 
 impl Runtime for HipRuntime {
-    type Compiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
+    type Compiler = HipCompiler;
     type Server = HipServer;
     type Channel = MutexComputeChannel<HipServer>;
     type Device = HipDevice;

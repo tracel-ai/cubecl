@@ -39,7 +39,6 @@ pub struct CppCompiler<D: Dialect> {
     shared_memories: Vec<SharedMemory<D>>,
     const_arrays: Vec<ConstArray<D>>,
     local_arrays: Vec<LocalArray<D>>,
-    rank: bool,
     metadata: cubecl_core::Metadata,
     wrap_size_checked: bool,
     wmma: bool,
@@ -125,7 +124,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn build_metadata(&mut self, value: &KernelDefinition) {
+    fn build_metadata(&mut self, value: &gpu::KernelDefinition) {
         self.num_inputs = value.inputs.len();
         self.num_outputs = value.outputs.len();
 
@@ -145,8 +144,8 @@ impl<D: Dialect> CppCompiler<D> {
 
     pub(crate) fn ext_meta_position(&self, var: gpu::Variable) -> u32 {
         let pos = match var.kind {
-            VariableKind::GlobalInputArray(id) => id as usize,
-            VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
+            gpu::VariableKind::GlobalInputArray(id) => id as usize,
+            gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
             other => panic!("Only global arrays have metadata, got {other:?}"),
         };
         self.ext_meta_positions[pos]

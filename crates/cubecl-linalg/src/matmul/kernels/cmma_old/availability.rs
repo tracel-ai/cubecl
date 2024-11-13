@@ -23,6 +23,10 @@ pub fn check_cmma_availability<R: Runtime, F: CubePrimitive>(
     cmma_config: &CmmaConfig,
 ) -> Result<(), UnavailabilityReason> {
     let tile_dim: TileDimension = cmma_config.tile_dimension_strategy.into();
+    println!("tile dim m: {:?}", tile_dim.m);
+    println!("tile dim n: {:?}", tile_dim.n);
+    println!("tile dim k: {:?}", tile_dim.k);
+    println!("c type: {:?}", F::as_elem());
     if !client.properties().feature_enabled(Feature::Cmma {
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),

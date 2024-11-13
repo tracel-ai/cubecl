@@ -1,4 +1,4 @@
-use super::{Body, Dialect, Item, Variable, WmmaCompiler};
+use super::{Body, Dialect, Item, Variable};
 use cubecl_core::{ir::CubeDim, CompilerRepresentation};
 use std::{collections::HashSet, fmt::Display};
 

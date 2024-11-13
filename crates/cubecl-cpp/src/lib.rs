@@ -22,6 +22,5 @@ pub type HipCompilerRocWmma = shared::CppCompiler<HipDialectRocWmma>;
 
 #[cfg(feature = "cuda")]
 pub mod cuda;
-
 #[cfg(feature = "cuda")]
 pub type CudaCompiler = shared::CppCompiler<cuda::CudaDialect<cuda::wmma::CudaWmmaCompiler>>;

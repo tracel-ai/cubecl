@@ -52,6 +52,7 @@ impl<M: WmmaCompiler<Self>> WmmaCompiler<Self> for HipDialect<M> {
         M::supported_wmma_combinations(arch)
     }
 }
+
 impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <hip/hip_fp16.h>\n")
