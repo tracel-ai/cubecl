@@ -142,10 +142,7 @@ impl ComputeServer for CudaServer {
     type Storage = CudaStorage;
     type Feature = Feature;
 
-    fn read(
-        &mut self,
-        binding: server::Binding,
-    ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'static>> {
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
         self.read_async(binding)
     }
 

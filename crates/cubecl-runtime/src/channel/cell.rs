@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, CubeCount, Handle};
 use crate::storage::BindingResource;
@@ -46,13 +44,13 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send + 'static,
 {
-    fn read(&self, binding: Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        // Do the borrow and call within the future
+    async fn read(&self, binding: Binding) -> Vec<u8> {
+        // Do the borrow and call within the future, drop before awaiting the future.
         let fut = {
             let mut server = self.server.borrow_mut();
             server.read(binding)
         };
-        fut
+        fut.await
     }
 
     fn get_resource(&self, binding: Binding) -> BindingResource<Server> {

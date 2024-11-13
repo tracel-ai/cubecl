@@ -1,6 +1,5 @@
 use cubecl_runtime::{TimestampsError, TimestampsResult};
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -50,13 +49,10 @@ impl ComputeServer for DummyServer {
     type Storage = BytesStorage;
     type Feature = ();
 
-    fn read(
-        &mut self,
-        binding: Binding,
-    ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'static>> {
+    fn read(&mut self, binding: Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
         let bytes_handle = self.memory_management.get(binding.memory);
         let bytes = self.memory_management.storage().get(&bytes_handle);
-        Box::pin(async move { bytes.read().to_vec() })
+        async move { bytes.read().to_vec() }
     }
 
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {

@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, CubeCount, Handle};
 use crate::storage::BindingResource;
@@ -39,14 +37,14 @@ impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
     Server: ComputeServer,
 {
-    fn read(&self, handle: Binding) -> impl Future<Output = Vec<u8>> + 'static {
+    async fn read(&self, handle: Binding) -> Vec<u8> {
         // Nb: The order here is really important - the mutex guard has to be dropped before
         // the future is polled.
         let fut = {
             let mut server = self.server.lock();
             server.read(handle)
         };
-        fut
+        fut.await
     }
 
     fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
