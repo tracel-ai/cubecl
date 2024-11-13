@@ -7,7 +7,7 @@ use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{MemoryDeviceProperties, MemoryManagement, TopologyProperties},
+    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     ComputeRuntime, DeviceProperties,
 };
 
@@ -89,9 +89,12 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
         max_page_size: max_memory as u64 / 4,
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
-    let topology = TopologyProperties {
+    let topology = HardwareProperties {
         plane_size_min: prop_warp_size as u32,
         plane_size_max: prop_warp_size as u32,
+        // This is a guess - not clear if ROCM has a limit on the number of bindings,
+        // but it's dubious it's more than this.
+        max_bindings: 1024,
     };
     let memory_management = MemoryManagement::from_configuration(
         storage,
