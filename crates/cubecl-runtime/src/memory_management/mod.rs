@@ -80,7 +80,7 @@ pub struct MemoryDeviceProperties {
     pub alignment: u64,
 }
 
-/// Properties of the device related to topology.
+/// Properties of the device related to the accelerator hardware.
 ///
 /// # Plane size min/max
 ///
@@ -95,9 +95,11 @@ pub struct MemoryDeviceProperties {
 /// query this at compile time is currently available. As a result, the minimum value should usually
 /// be assumed.
 #[derive(Debug, Clone)]
-pub struct TopologyProperties {
+pub struct HardwareProperties {
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
     /// The maximum size of a plane on this device
     pub plane_size_max: u32,
+    /// minimum number of bindings for a kernel that can be used at once.
+    pub max_bindings: u32,
 }

@@ -7,7 +7,7 @@ use cubecl_core::{
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{MemoryDeviceProperties, MemoryManagement, TopologyProperties},
+    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
     ComputeRuntime, DeviceProperties,
 };
@@ -79,9 +79,12 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         )
         .unwrap()
     };
-    let topology = TopologyProperties {
+    let hardware_props = HardwareProperties {
         plane_size_min: warp_size as u32,
         plane_size_max: warp_size as u32,
+        // This is a guess - not clear if CUDA has a limit on the number of bindings,
+        // but it's dubious it's more than this.
+        max_bindings: 1024,
     };
 
     let memory_management = MemoryManagement::from_configuration(
@@ -92,7 +95,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
 
     let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
     let mut server = CudaServer::new(cuda_ctx);
-    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, topology);
+    let mut device_props =
+        DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     register_wmma_features(&mut device_props, server.arch_version());
