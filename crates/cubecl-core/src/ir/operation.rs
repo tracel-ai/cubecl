@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::prelude::AtomicOp;
 
-use super::{Branch, CoopMma, Item, Select, Subcube, Synchronization, Variable};
+use super::{Branch, CoopMma, Item, Plane, Select, Synchronization, Variable};
 use serde::{Deserialize, Serialize};
 
 /// All operations that can be used in a GPU compute shader.
@@ -21,7 +21,7 @@ pub enum Operation {
     Metadata(Metadata),
     Branch(Branch),
     Synchronization(Synchronization),
-    Subcube(Subcube),
+    Plane(Plane),
     CoopMma(CoopMma),
 }
 
@@ -100,7 +100,7 @@ impl Display for Operation {
             Operation::Metadata(metadata) => write!(f, "{metadata}"),
             Operation::Branch(branch) => write!(f, "{branch}"),
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
-            Operation::Subcube(subcube) => write!(f, "{subcube}"),
+            Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
             Operation::Copy(variable) => write!(f, "{variable}"),
         }

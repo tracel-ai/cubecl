@@ -1,5 +1,5 @@
 use super::{ConstantScalarValue, Scope, Variable, VariableKind};
-use crate::SUBCUBE_DIM_APPROX;
+use crate::PLANE_DIM_APPROX;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::num::NonZero;
@@ -311,8 +311,8 @@ impl CubeDim {
 impl Default for CubeDim {
     fn default() -> Self {
         Self {
-            x: SUBCUBE_DIM_APPROX as u32,
-            y: SUBCUBE_DIM_APPROX as u32,
+            x: PLANE_DIM_APPROX as u32,
+            y: PLANE_DIM_APPROX as u32,
             z: 1,
         }
     }

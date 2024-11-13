@@ -30,7 +30,7 @@ pub const KEYWORDS: [&str; 21] = [
     "CUBE_COUNT_X",
     "CUBE_COUNT_Y",
     "CUBE_COUNT_Z",
-    "SUBCUBE_DIM",
+    "PLANE_DIM",
 ];
 
 pub type Scope = usize;
