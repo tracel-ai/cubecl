@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
+use crate::matmul::components::batch::slice::{Slice, SliceDim, SliceMatmul};
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
@@ -13,7 +13,7 @@ use super::Config as _;
 
 /// Performs matrix multiplication at the batch level,
 /// with one cube assigned to several underlying global matmuls
-pub struct Matmul<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> {
+pub struct Matmul<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SliceMatmul> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _gmm: PhantomData<GMM>,
@@ -21,7 +21,7 @@ pub struct Matmul<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: Span
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> batch::Matmul<EG>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SliceMatmul> batch::Matmul<EG>
     for Matmul<EG, ES, GMM, S>
 {
     fn execute(
@@ -47,19 +47,21 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> batch
         let stage_y = config.stage_dim(Ident::Out).num_elements_y_dim();
         let stage_z = 1;
 
-        let span = Span::new(
-            SpanDim::new(shape_x, stage_x, CUBE_POS_X, cubes_x),
-            SpanDim::new(shape_y, stage_y, CUBE_POS_Y, cubes_y),
-            SpanDim::new(shape_z, stage_z, CUBE_POS_Z, cubes_z),
+        let span = Slice::new(
+            SliceDim::new(shape_x, stage_x, CUBE_POS_X, cubes_x),
+            SliceDim::new(shape_y, stage_y, CUBE_POS_Y, cubes_y),
+            SliceDim::new(shape_z, stage_z, CUBE_POS_Z, cubes_z),
         );
 
         let k_range = (0, lhs.shape(rank - 1));
 
-        S::execute::<EG, ES, GMM>(lhs, rhs, out, span, k_range, config.to_gmm_config());
+        let gmm_config = config.to_gmm_config();
+        let acc = GMM::init_accumulator(gmm_config);
+        S::execute::<EG, ES, GMM>(lhs, rhs, out, span, acc, k_range, gmm_config);
     }
 }
 
-impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> MatmulKernel<EG, EG>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SliceMatmul> MatmulKernel<EG, EG>
     for Matmul<EG, ES, GMM, S>
 {
     type Config = Config<GMM::Config>;
@@ -92,7 +94,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> Matmu
     }
 }
 
-impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul> MatmulLaunch<EG, EG>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SliceMatmul> MatmulLaunch<EG, EG>
     for Matmul<EG, ES, GMM, S>
 {
     unsafe fn launch_unchecked<R: Runtime>(

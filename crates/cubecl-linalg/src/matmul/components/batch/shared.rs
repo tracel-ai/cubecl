@@ -14,6 +14,7 @@ pub(crate) fn gmm_execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>
     x_offset: u32,
     y_offset: u32,
     nth_batch: u32,
+    acc: &mut GMM::Accumulator,
     k_range: (u32, u32),
     #[comptime] config: GMM::Config,
 ) {
@@ -21,6 +22,7 @@ pub(crate) fn gmm_execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>
         GMM::Lhs::new::<GMM::Config>(lhs, x_offset, k_range.0, nth_batch, config),
         GMM::Rhs::new::<GMM::Config>(rhs, k_range.0, y_offset, nth_batch, config),
         GMM::Out::new(out, x_offset, y_offset, nth_batch),
+        acc,
         k_range,
         config,
     );

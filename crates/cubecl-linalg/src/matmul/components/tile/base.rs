@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{config::MatmulConfig, Ident, MatmulKernel, MatrixLayout};
+use crate::matmul::components::{config::MatmulConfig, global::Accumulator, Ident, MatmulKernel, MatrixLayout};
 
 #[cube]
 /// Provides matrix multiplication operations at the tile level.
@@ -31,7 +31,7 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     /// Contains RHS data that can be split across the units
     type Rhs: CubeType;
     /// Contains output data that can be split across the units
-    type Out: CubeType;
+    type Out: Accumulator;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the output
     fn execute(

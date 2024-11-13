@@ -38,19 +38,19 @@ where
     type Lhs = tensor_view::LhsLoader<EG, ES>;
     type Rhs = tensor_view::RhsLoader<EG, ES>;
     type Out = tensor_view::Unloader<EG>;
+    type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::Lhs,
         mut rhs_loader: Self::Rhs,
         mut out_unloader: Self::Out,
+        acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
         let k_step = SMM::K;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
-
-        let mut acc = SMM::acc_init_zeros(config.to_smm_config());
 
         for _ in 0..num_loops {
             let lhs_stage_reader =
@@ -63,7 +63,7 @@ where
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
-                &mut acc,
+                acc,
                 config.to_smm_config(),
             );
 
@@ -79,6 +79,10 @@ where
             config.to_smm_config(),
             config,
         );
+    }
+
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+        SMM::acc_init_zeros(config.to_smm_config())
     }
 }
 

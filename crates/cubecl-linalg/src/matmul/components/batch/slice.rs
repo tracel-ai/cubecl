@@ -1,40 +1,40 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global;
+use crate::matmul::components::global::{self, Accumulator};
 
 use super::shared::gmm_execute;
 
 #[derive(CubeType)]
-pub struct Span {
-    x: SpanDim,
-    y: SpanDim,
-    z: SpanDim,
+pub struct Slice {
+    x: SliceDim,
+    y: SliceDim,
+    z: SliceDim,
 }
 
 #[cube]
-impl Span {
-    pub fn new(x: SpanDim, y: SpanDim, z: SpanDim) -> Span {
-        Span { x, y, z }
+impl Slice {
+    pub fn new(x: SliceDim, y: SliceDim, z: SliceDim) -> Slice {
+        Slice { x, y, z }
     }
 }
 
 #[derive(CubeType)]
-pub struct SpanDim {
+pub struct SliceDim {
     start: u32,
     end: u32,
     step: u32,
 }
 
 #[cube]
-impl SpanDim {
-    pub fn new(shape: u32, stage: u32, cube_pos: u32, num_cubes: u32) -> SpanDim {
+impl SliceDim {
+    pub fn new(shape: u32, stage: u32, cube_pos: u32, num_cubes: u32) -> SliceDim {
         let num_stages = (shape + stage - 1) / stage;
         let num = (num_stages + num_cubes - 1) / num_cubes;
         let span = num * stage;
         let start = cube_pos * span;
         let end = Min::min(start + span, shape);
-        SpanDim {
+        SliceDim {
             start,
             end,
             step: stage,
@@ -48,35 +48,38 @@ impl SpanDim {
 }
 
 #[cube]
-pub trait SpanMatmul: 'static + Send + Sync {
+pub trait SliceMatmul: 'static + Send + Sync {
     fn execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
         lhs: &Tensor<Line<EG>>,
         rhs: &Tensor<Line<EG>>,
         out: &mut Tensor<Line<EG>>,
-        span: Span,
+        slice: Slice,
+        acc: GMM::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     );
 }
 
 #[derive(CubeType)]
-pub struct RowMajorSpanMatmul {}
+pub struct RowMajorSliceMatmul {}
 
 #[cube]
-impl SpanMatmul for RowMajorSpanMatmul {
+impl SliceMatmul for RowMajorSliceMatmul {
     fn execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
         lhs: &Tensor<Line<EG>>,
         rhs: &Tensor<Line<EG>>,
         out: &mut Tensor<Line<EG>>,
-        span: Span,
+        slice: Slice,
+        mut acc: GMM::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     ) {
-        for z_iter in range_stepped(span.z.start, span.z.end, span.z.step) {
-            for x_iter in range_stepped(span.x.start, span.x.end, span.x.step) {
-                for y_iter in range_stepped(span.y.start, span.y.end, span.y.step) {
+        for z_iter in range_stepped(slice.z.start, slice.z.end, slice.z.step) {
+            for x_iter in range_stepped(slice.x.start, slice.x.end, slice.x.step) {
+                for y_iter in range_stepped(slice.y.start, slice.y.end, slice.y.step) {
+                    GMM::Accumulator::reset(&mut acc);
                     gmm_execute::<EG, ES, GMM>(
-                        lhs, rhs, out, x_iter, y_iter, z_iter, k_range, config,
+                        lhs, rhs, out, x_iter, y_iter, z_iter, &mut acc, k_range, config,
                     );
                 }
             }
@@ -85,23 +88,25 @@ impl SpanMatmul for RowMajorSpanMatmul {
 }
 
 #[derive(CubeType)]
-pub struct ColMajorSpanMatmul {}
+pub struct ColMajorSliceMatmul {}
 
 #[cube]
-impl SpanMatmul for ColMajorSpanMatmul {
+impl SliceMatmul for ColMajorSliceMatmul {
     fn execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
         lhs: &Tensor<Line<EG>>,
         rhs: &Tensor<Line<EG>>,
         out: &mut Tensor<Line<EG>>,
-        span: Span,
+        slice: Slice,
+        mut acc: GMM::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     ) {
-        for z_iter in range_stepped(span.z.start, span.z.end, span.z.step) {
-            for y_iter in range_stepped(span.y.start, span.y.end, span.y.step) {
-                for x_iter in range_stepped(span.x.start, span.x.end, span.x.step) {
+        for z_iter in range_stepped(slice.z.start, slice.z.end, slice.z.step) {
+            for y_iter in range_stepped(slice.y.start, slice.y.end, slice.y.step) {
+                for x_iter in range_stepped(slice.x.start, slice.x.end, slice.x.step) {
+                    GMM::Accumulator::reset(&mut acc);
                     gmm_execute::<EG, ES, GMM>(
-                        lhs, rhs, out, x_iter, y_iter, z_iter, k_range, config,
+                        lhs, rhs, out, x_iter, y_iter, z_iter, &mut acc, k_range, config,
                     );
                 }
             }
@@ -110,27 +115,31 @@ impl SpanMatmul for ColMajorSpanMatmul {
 }
 
 #[derive(CubeType)]
-pub struct SwizzleSpanMatmul<const W: u32> {}
+pub struct SwizzleSliceMatmul<const W: u32> {}
 
 #[cube]
-impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
+impl<const W: u32> SliceMatmul for SwizzleSliceMatmul<W> {
     fn execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
         lhs: &Tensor<Line<EG>>,
         rhs: &Tensor<Line<EG>>,
         out: &mut Tensor<Line<EG>>,
-        span: Span,
+        slice: Slice,
+        mut acc: GMM::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     ) {
-        let num_swizzle = span.x.num_iterations() * span.y.num_iterations();
+        let num_swizzle = slice.x.num_iterations() * slice.y.num_iterations();
 
-        for z_iter in range_stepped(span.z.start, span.z.end, span.z.step) {
+        for z_iter in range_stepped(slice.z.start, slice.z.end, slice.z.step) {
             for n in 0..num_swizzle {
-                let (row, col) = swizzle(n, span.x.num_iterations(), W);
+                GMM::Accumulator::reset(&mut acc);
+                let (row, col) = swizzle(n, slice.x.num_iterations(), W);
 
-                let x_iter = span.x.start + row * span.x.step;
-                let y_iter = span.y.start + col * span.y.step;
-                gmm_execute::<EG, ES, GMM>(lhs, rhs, out, x_iter, y_iter, z_iter, k_range, config);
+                let x_iter = slice.x.start + row * slice.x.step;
+                let y_iter = slice.y.start + col * slice.y.step;
+                gmm_execute::<EG, ES, GMM>(
+                    lhs, rhs, out, x_iter, y_iter, z_iter, &mut acc, k_range, config,
+                );
             }
         }
     }

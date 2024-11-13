@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::global::Accumulator;
 use crate::matmul::components::stage::base::Matmul as _;
 use crate::matmul::{
     components::{
@@ -30,6 +31,27 @@ pub struct Matmul<I: Numeric, O: Numeric, Acc: Numeric, TMM: tile::Matmul<I, Acc
     _accumulator_precision: PhantomData<Acc>,
     _instruction: PhantomData<TMM>,
     _block_size: PhantomData<SS>,
+}
+
+#[cube]
+impl<T: CubeType> Accumulator for Sequence<T> {
+    fn initialize() -> Self {
+        let acc = Sequence::<T>::new();
+
+        #[unroll]
+        for _ in 0..SS::NUM_N {
+            acc.push(T::initialize(config.to_tmm_config()));
+        }
+
+        acc
+    }
+
+    fn reset(acc: &mut Self) -> Self {
+        #[unroll]
+        for i in 0..SS::NUM_N {
+            acc.index(i).initialize(config.to_tmm_config());
+        }
+    }
 }
 
 #[cube]

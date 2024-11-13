@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::global::Accumulator;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{global, tile, MatmulKernel};
 use crate::matmul::components::{Ident, MatrixLayout};
@@ -35,7 +36,7 @@ pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I>, Rhs: StageReader<I
 
     /// Contains the matrix multiplication output, that can be shared across the different planes of the cube.
     /// The same Accumulator will be added to across multiple executions of the stage matmul.
-    type Accumulator: CubeType;
+    type Accumulator: Accumulator;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
