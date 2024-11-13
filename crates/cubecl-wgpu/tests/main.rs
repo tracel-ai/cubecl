@@ -40,20 +40,20 @@ pub fn kernel_sum(output: &mut Tensor<f32>) {
 #[test]
 pub fn plane_sum() {
     let kernel = KernelSum::<WgpuRuntime>::new(settings(4, 1), tensor());
-    let expected = load_kernel_string!("subcube_sum.wgsl");
+    let expected = load_kernel_string!("plane_sum.wgsl");
     assert_eq!(compile(kernel), expected);
 }
 
 #[cube(launch, create_dummy_kernel)]
 pub fn kernel_elect(output: &mut Tensor<u32>) {
-    let elected = cubecl_core::prelude::subcube_elect();
+    let elected = cubecl_core::prelude::plane_elect();
     output[UNIT_POS] = elected as u32;
 }
 
 #[test]
-pub fn subcube_elect() {
+pub fn plane_elect() {
     let kernel = KernelElect::<WgpuRuntime>::new(settings(4, 1), tensor());
-    let expected = load_kernel_string!("subcube_elect.wgsl");
+    let expected = load_kernel_string!("plane_elect.wgsl");
     assert_eq!(compile(kernel), expected);
 }
 
