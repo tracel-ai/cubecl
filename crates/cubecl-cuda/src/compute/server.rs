@@ -22,7 +22,6 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -101,7 +100,7 @@ impl CudaServer {
     fn read_async(
         &mut self,
         binding: server::Binding,
-    ) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send + 'static>> {
+    ) -> impl Future<Output = Vec<u8>> + Send + 'static {
         let ctx = self.get_context();
         let resource = ctx.memory_management.get_resource(
             binding.memory,
@@ -117,10 +116,10 @@ impl CudaServer {
 
         let fence = ctx.fence();
 
-        Box::pin(async move {
+        async move {
             fence.wait();
             data
-        })
+        }
     }
 
     fn sync_stream_async(&mut self) -> impl Future<Output = ()> + 'static + Send {
