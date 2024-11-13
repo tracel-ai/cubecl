@@ -157,15 +157,10 @@ pub fn create_client<C: WgpuCompiler>(
             });
         }
 
-        loop {
-            match rx_once.try_recv() {
-                Ok(client) => {
-                    if let Some(client) = client {
-                        return client;
-                    }
-                }
-                Err(_) => panic!("Failed to get the client from the wgpu thread"),
-            }
+        if let Ok(client) = futures::executor::block_on(rx_once) {
+            client
+        } else {
+            panic!("Failed to get the client from the wgpu thread")
         }
     }
 }

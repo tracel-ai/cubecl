@@ -806,20 +806,15 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
         {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::GetResource { tx, binding })
                 .expect("Failed to send the message to the WgpuServerInner");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(binding) => {
-                        if let Some(binding) = binding {
-                            return binding;
-                        }
-                    }
-                    Err(_) => panic!("Failed to receive the response from the WgpuServerInner"),
-                }
+            if let Ok(binding) = futures::executor::block_on(rx) {
+                binding
+            } else {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
     }
@@ -837,7 +832,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
         {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::Create {
                     tx,
@@ -847,15 +842,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 })
                 .expect("Failed to send the message to the WgpuServerInner");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(handle) => {
-                        if let Some(handle) = handle {
-                            return handle;
-                        }
-                    }
-                    Err(_) => panic!("Failed to receive the response from the WgpuServerInner"),
-                }
+            if let Ok(handle) = futures::executor::block_on(rx) {
+                handle
+            } else {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
     }
@@ -868,20 +858,15 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
         {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::Empty { tx, size })
                 .expect("Failed to send the message to the WgpuServerInner");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(handle) => {
-                        if let Some(handle) = handle {
-                            return handle;
-                        }
-                    }
-                    Err(_) => panic!("Failed to receive the response from the WgpuServerInner"),
-                }
+            if let Ok(handle) = futures::executor::block_on(rx) {
+                handle
+            } else {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
     }
@@ -900,7 +885,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
         {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::Execute {
                     tx,
@@ -911,15 +896,8 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 })
                 .expect("Failed to send the message to the WgpuServerInner");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(response) => {
-                        if response.is_some() {
-                            break;
-                        }
-                    }
-                    Err(_) => panic!("Failed to receive the response from the WgpuServerInner"),
-                }
+            if futures::executor::block_on(rx).is_err() {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
     }
@@ -932,20 +910,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
         {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::Flush { tx })
                 .expect("Failed to send the message to the WgpuServerInner");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(response) => {
-                        if response.is_some() {
-                            break;
-                        }
-                    }
-                    Err(_) => panic!("Failed to receive the response from the WgpuServerInner"),
-                }
+            if futures::executor::block_on(rx).is_err() {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
     }
@@ -998,20 +969,15 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
         {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::MemoryUsage { tx })
                 .expect("Failed to send the message to the WgpuServerInner");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(memory_usage) => {
-                        if let Some(memory_usage) = memory_usage {
-                            return memory_usage;
-                        }
-                    }
-                    Err(_) => panic!("Failed to receive the response from the WgpuServerInner"),
-                }
+            if let Ok(memory_usage) = futures::executor::block_on(rx) {
+                memory_usage
+            } else {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
     }
@@ -1024,20 +990,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
         {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::EnableTimestamps { tx })
                 .expect("Failed to send the message to the WgpuServerInner");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(response) => {
-                        if response.is_some() {
-                            break;
-                        }
-                    }
-                    Err(_) => panic!("Failed to receive the response from the WgpuServerInner"),
-                }
+            if futures::executor::block_on(rx).is_err() {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
     }
@@ -1050,20 +1009,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
         {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::DisableTimestamps { tx })
                 .expect("Failed to send the message to the WgpuServerInner");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(response) => {
-                        if response.is_some() {
-                            break;
-                        }
-                    }
-                    Err(_) => panic!("Failed to receive the response from the WgpuServerInner"),
-                }
+            if futures::executor::block_on(rx).is_err() {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
     }

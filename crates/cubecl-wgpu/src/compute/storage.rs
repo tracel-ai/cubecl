@@ -140,7 +140,7 @@ mod _impl {
 
         /// Actually deallocates buffers tagged to be deallocated.
         pub fn perform_deallocations(&mut self) {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::PerformDeallocations {
                     tx,
@@ -148,17 +148,8 @@ mod _impl {
                 })
                 .expect("Failed to send command to the wgpu server");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(response) => {
-                        if response.is_some() {
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        panic!("Failed to receive the response from the wgpu server: {err}")
-                    }
-                }
+            if futures::executor::block_on(rx).is_err() {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
     }
@@ -177,22 +168,15 @@ mod _impl {
         }
 
         fn alloc(&mut self, size: u64) -> StorageHandle {
-            let (tx, mut rx) = futures::channel::oneshot::channel();
+            let (tx, rx) = futures::channel::oneshot::channel();
             self.tx
                 .send(ServerCommand::Alloc { tx, size })
                 .expect("Failed to send command to the wgpu server");
 
-            loop {
-                match rx.try_recv() {
-                    Ok(handle) => {
-                        if let Some(handle) = handle {
-                            return handle;
-                        }
-                    }
-                    Err(err) => {
-                        panic!("Failed to receive the response from the wgpu server: {err}")
-                    }
-                }
+            if let Ok(handle) = futures::executor::block_on(rx) {
+                handle
+            } else {
+                panic!("Failed to receive the response from the WgpuServerInner")
             }
         }
 
