@@ -41,7 +41,10 @@ pub enum Subgroup {
 impl Display for Subgroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Subgroup::Elect { out } => writeln!(f, "{out} = subgroupElect();"),
+            Subgroup::Elect { out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupElect();")
+            }
             Subgroup::All { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupAll({input});")
