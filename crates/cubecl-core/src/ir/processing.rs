@@ -295,7 +295,7 @@ impl ScopeProcessing {
                 Operation::Synchronization(_) => {
                     // Nothing to do.
                 }
-                Operation::Subcube(_) => {
+                Operation::Plane(_) => {
                     // Nothing to do since no constant is possible.
                 }
                 Operation::CoopMma(op) => match op {

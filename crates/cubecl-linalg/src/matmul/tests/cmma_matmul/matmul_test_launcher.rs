@@ -99,7 +99,7 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
 ) {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
 
-    if !(client.properties().feature_enabled(Feature::Subcube)
+    if !(client.properties().feature_enabled(Feature::Plane)
         && client
             .properties()
             .feature_enabled(Feature::Type(EG::as_elem())))
