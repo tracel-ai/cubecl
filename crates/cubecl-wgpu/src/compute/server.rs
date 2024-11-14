@@ -1,5 +1,3 @@
-#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-use std::rc::Rc;
 use std::{future::Future, marker::PhantomData, num::NonZero, pin::Pin, time::Duration};
 
 use super::poll::WgpuPoll;
@@ -7,11 +5,9 @@ use super::WgpuStorage;
 use crate::{compiler::base::WgpuCompiler, Pdrc};
 use cubecl_common::future;
 use cubecl_core::{compute::DebugInformation, prelude::*, server::Handle, Feature, KernelId};
-#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-use cubecl_runtime::storage::{StorageHandle, StorageId, StorageUtilization};
 use cubecl_runtime::{
     debug::{DebugLogger, ProfileLevel},
-    memory_management::{MemoryHandle, MemoryLock, MemoryManagement, MemoryUsage},
+    memory_management::{MemoryHandle, MemoryLock, MemoryManagement},
     server::{self, ComputeServer},
     storage::{BindingResource, ComputeStorage},
     ExecutionMode, TimestampsError, TimestampsResult,
@@ -25,11 +21,8 @@ use wgpu::{
 
 /// Wgpu compute server.
 #[derive(Debug)]
-pub struct WgpuServerInner<C: WgpuCompiler> {
-    #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
+pub struct WgpuServer<C: WgpuCompiler> {
     memory_management: MemoryManagement<WgpuStorage>,
-    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-    memory_management: MemoryManagement<WgpuStorage<C>>,
     pub(crate) device: Pdrc<wgpu::Device>,
     queue: Pdrc<wgpu::Queue>,
     encoder: CommandEncoder,
@@ -42,78 +35,7 @@ pub struct WgpuServerInner<C: WgpuCompiler> {
     storage_locked: MemoryLock,
     duration_profiled: Option<Duration>,
     timestamps: KernelTimestamps,
-    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-    memory: HashMap<StorageId, Rc<wgpu::Buffer>>,
     _compiler: PhantomData<C>,
-}
-
-#[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-pub type WgpuServer<C> = WgpuServerInner<C>;
-
-#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-#[derive(Debug)]
-pub struct WgpuServer<C: WgpuCompiler> {
-    tx: std::sync::mpsc::Sender<ServerCommand<C>>,
-}
-
-#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-impl<C: WgpuCompiler> WgpuServer<C> {
-    pub fn new(tx: std::sync::mpsc::Sender<ServerCommand<C>>) -> Self {
-        WgpuServer { tx }
-    }
-}
-
-#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-pub enum ServerCommand<C: WgpuCompiler> {
-    Read {
-        tx: futures::channel::oneshot::Sender<Vec<u8>>,
-        binding: server::Binding,
-    },
-    GetResource {
-        tx: futures::channel::oneshot::Sender<BindingResource<WgpuServer<C>>>,
-        binding: server::Binding,
-    },
-    Create {
-        tx: futures::channel::oneshot::Sender<server::Handle>,
-        data: &'static [u8],
-    },
-    Empty {
-        tx: futures::channel::oneshot::Sender<server::Handle>,
-        size: usize,
-    },
-    Execute {
-        tx: futures::channel::oneshot::Sender<()>,
-        kernel: <WgpuServer<C> as ComputeServer>::Kernel,
-        count: CubeCount,
-        bindings: Vec<server::Binding>,
-        mode: ExecutionMode,
-    },
-    Flush {
-        tx: futures::channel::oneshot::Sender<()>,
-    },
-    Sync {
-        tx: futures::channel::oneshot::Sender<()>,
-    },
-    SyncElapsed {
-        tx: futures::channel::oneshot::Sender<TimestampsResult>,
-    },
-    MemoryUsage {
-        tx: futures::channel::oneshot::Sender<MemoryUsage>,
-    },
-    EnableTimestamps {
-        tx: futures::channel::oneshot::Sender<()>,
-    },
-    DisableTimestamps {
-        tx: futures::channel::oneshot::Sender<()>,
-    },
-    Alloc {
-        tx: futures::channel::oneshot::Sender<StorageHandle>,
-        size: u64,
-    },
-    PerformDeallocations {
-        tx: futures::channel::oneshot::Sender<()>,
-        deallocations: Vec<StorageId>,
-    },
 }
 
 trait FutureWasmNotSend<O>: Future<Output = O> + WasmNotSend {}
@@ -162,13 +84,10 @@ fn create_encoder(device: &wgpu::Device) -> CommandEncoder {
     })
 }
 
-impl<C: WgpuCompiler> WgpuServerInner<C> {
+impl<C: WgpuCompiler> WgpuServer<C> {
     /// Create a new server.
     pub fn new(
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
         memory_management: MemoryManagement<WgpuStorage>,
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        memory_management: MemoryManagement<WgpuStorage<C>>,
         device: Pdrc<wgpu::Device>,
         queue: Pdrc<wgpu::Queue>,
         tasks_max: usize,
@@ -194,8 +113,6 @@ impl<C: WgpuCompiler> WgpuServerInner<C> {
             poll: WgpuPoll::new(device.clone()),
             duration_profiled: None,
             timestamps,
-            #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-            memory: HashMap::default(),
             _compiler: PhantomData,
         }
     }
@@ -383,25 +300,19 @@ impl<C: WgpuCompiler> WgpuServerInner<C> {
             }
         }
     }
+}
 
-    fn read(
-        &mut self,
-        binding: server::Binding,
-    ) -> impl Future<Output = Vec<u8>> + WasmNotSend + 'static {
+impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
+    type Kernel = Box<dyn CubeTask<C>>;
+    type Storage = WgpuStorage;
+    type Feature = Feature;
+
+    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
         let rb = self.get_resource(binding);
         let resource = rb.resource();
         self.clear_compute_pass();
 
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        let buffer = &resource.buffer;
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        let buffer = &self
-            .memory
-            .get(&resource.buffer)
-            .expect("Buffer does not exist in the wgpu server memory")
-            .clone();
-
-        self.read_wgpu_buffer(buffer, resource.offset(), resource.size())
+        self.read_wgpu_buffer(&resource.buffer, resource.offset(), resource.size())
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<WgpuServer<C>> {
@@ -453,16 +364,7 @@ impl<C: WgpuCompiler> WgpuServerInner<C> {
 
             // Write to the staging buffer. Next queue submission this will copy the data to the GPU.
             self.queue
-                .write_buffer_with(
-                    #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-                    &resource.buffer,
-                    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-                    self.memory
-                        .get(&resource.buffer)
-                        .expect("Buffer does not exist in the wgpu server memory"),
-                    resource.offset(),
-                    len,
-                )
+                .write_buffer_with(&resource.buffer, resource.offset(), len)
                 .expect("Failed to write to staging buffer.")[0..data.len()]
                 .copy_from_slice(data);
         }
@@ -520,10 +422,7 @@ impl<C: WgpuCompiler> WgpuServerInner<C> {
             .enumerate()
             .map(|(i, r)| wgpu::BindGroupEntry {
                 binding: i as u32,
-                resource: r.resource().as_wgpu_bind_resource(
-                    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-                    &self.memory,
-                ),
+                resource: r.resource().as_wgpu_bind_resource(),
             })
             .collect::<Vec<_>>();
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -578,12 +477,7 @@ impl<C: WgpuCompiler> WgpuServerInner<C> {
             CubeCount::Dynamic(_) => {
                 let binding_resource = dispatch_br.as_ref().unwrap();
                 pass.dispatch_workgroups_indirect(
-                    #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
                     &binding_resource.resource().buffer,
-                    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-                    self.memory
-                        .get(&binding_resource.resource().buffer)
-                        .expect("Buffer does not exist in the wgpu server memory"),
                     binding_resource.resource().offset(),
                 );
             }
@@ -682,341 +576,6 @@ impl<C: WgpuCompiler> WgpuServerInner<C> {
         // Only disable timestamps if profiling isn't enabled.
         if self.logger.profile_level().is_none() {
             self.timestamps.disable();
-        }
-    }
-
-    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-    pub fn handle_commands(&mut self, rx: std::sync::mpsc::Receiver<ServerCommand<C>>) -> ! {
-        loop {
-            match rx.recv() {
-                Ok(command) => match command {
-                    ServerCommand::Read { tx, binding } => tx
-                        .send(futures::executor::block_on(self.read(binding)))
-                        .expect("Failed to send response"),
-                    ServerCommand::GetResource { tx, binding } => {
-                        if tx.send(self.get_resource(binding)).is_err() {
-                            panic!("Failed to send response")
-                        }
-                    }
-                    ServerCommand::Create { tx, data } => {
-                        tx.send(self.create(data)).expect("Failed to send response")
-                    }
-                    ServerCommand::Empty { tx, size } => {
-                        tx.send(self.empty(size)).expect("Failed to send response")
-                    }
-                    ServerCommand::Execute {
-                        tx,
-                        kernel,
-                        count,
-                        bindings,
-                        mode,
-                    } => tx
-                        .send(unsafe { self.execute(kernel, count, bindings, mode) })
-                        .expect("Failed to send response"),
-                    ServerCommand::Flush { tx } => {
-                        tx.send(self.flush()).expect("Failed to send response")
-                    }
-                    ServerCommand::Sync { tx } => tx
-                        .send(futures::executor::block_on(self.sync()))
-                        .expect("Failed to send response"),
-                    ServerCommand::SyncElapsed { tx } => tx
-                        .send(futures::executor::block_on(self.sync_elapsed()))
-                        .expect("Failed to send response"),
-                    ServerCommand::MemoryUsage { tx } => tx
-                        .send(self.memory_usage())
-                        .expect("Failed to send response"),
-                    ServerCommand::EnableTimestamps { tx } => tx
-                        .send(self.enable_timestamps())
-                        .expect("Failed to send response"),
-                    ServerCommand::DisableTimestamps { tx } => tx
-                        .send(self.disable_timestamps())
-                        .expect("Failed to send response"),
-                    ServerCommand::Alloc { tx, size } => {
-                        let id = StorageId::new();
-                        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                            label: None,
-                            size,
-                            usage: wgpu::BufferUsages::COPY_DST
-                                | wgpu::BufferUsages::STORAGE
-                                | wgpu::BufferUsages::COPY_SRC
-                                | wgpu::BufferUsages::INDIRECT,
-                            mapped_at_creation: false,
-                        });
-
-                        self.memory.insert(id, Rc::new(buffer));
-
-                        tx.send(StorageHandle::new(
-                            id,
-                            StorageUtilization { offset: 0, size },
-                        ))
-                        .expect("Failed to send response");
-                    }
-                    ServerCommand::PerformDeallocations {
-                        tx,
-                        mut deallocations,
-                    } => {
-                        for id in deallocations.drain(..) {
-                            if let Some(buffer) = self.memory.remove(&id) {
-                                buffer.destroy()
-                            }
-                        }
-
-                        tx.send(()).expect("Failed to send response");
-                    }
-                },
-                Err(err) => log::error!("Failed to receive command: {err}"),
-            }
-        }
-    }
-}
-
-impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
-    type Kernel = Box<dyn CubeTask<C>>;
-    #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-    type Storage = WgpuStorage;
-    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-    type Storage = WgpuStorage<C>;
-    type Feature = Feature;
-
-    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.read(binding)
-        }
-
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::Read { tx, binding })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            async move {
-                rx.await
-                    .expect("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.get_resource(binding)
-        }
-
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::GetResource { tx, binding })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            if let Ok(binding) = futures::executor::block_on(rx) {
-                binding
-            } else {
-                panic!("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    /// When we create a new handle from existing data, we use custom allocations so that we don't
-    /// have to execute the current pending tasks.
-    ///
-    /// This is important, otherwise the compute passes are going to be too small and we won't be able to
-    /// fully utilize the GPU.
-    fn create(&mut self, data: &[u8]) -> server::Handle {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.create(data)
-        }
-
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::Create {
-                    tx,
-                    // Safety: Since we wait for the execution of the command to finish below
-                    // we can be sure that this data will not disappear
-                    data: unsafe { std::mem::transmute(data) },
-                })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            if let Ok(handle) = futures::executor::block_on(rx) {
-                handle
-            } else {
-                panic!("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    fn empty(&mut self, size: usize) -> server::Handle {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.empty(size)
-        }
-
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::Empty { tx, size })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            if let Ok(handle) = futures::executor::block_on(rx) {
-                handle
-            } else {
-                panic!("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    unsafe fn execute(
-        &mut self,
-        kernel: Self::Kernel,
-        count: CubeCount,
-        bindings: Vec<server::Binding>,
-        mode: ExecutionMode,
-    ) {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.execute(kernel, count, bindings, mode)
-        }
-
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::Execute {
-                    tx,
-                    kernel,
-                    count,
-                    bindings,
-                    mode,
-                })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            if futures::executor::block_on(rx).is_err() {
-                panic!("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    fn flush(&mut self) {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.flush()
-        }
-
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::Flush { tx })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            if futures::executor::block_on(rx).is_err() {
-                panic!("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self) -> impl Future<Output = ()> + 'static {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.sync()
-        }
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::Sync { tx })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            async move {
-                rx.await
-                    .expect("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    /// Returns the total time of GPU work this sync completes.
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.sync_elapsed()
-        }
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::SyncElapsed { tx })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            async move {
-                rx.await
-                    .expect("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    fn memory_usage(&self) -> MemoryUsage {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.memory_usage()
-        }
-
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::MemoryUsage { tx })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            if let Ok(memory_usage) = futures::executor::block_on(rx) {
-                memory_usage
-            } else {
-                panic!("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    fn enable_timestamps(&mut self) {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.enable_timestamps()
-        }
-
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::EnableTimestamps { tx })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            if futures::executor::block_on(rx).is_err() {
-                panic!("Failed to receive the response from the WgpuServerInner")
-            }
-        }
-    }
-
-    fn disable_timestamps(&mut self) {
-        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-        {
-            self.disable_timestamps()
-        }
-
-        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-        {
-            let (tx, rx) = futures::channel::oneshot::channel();
-            self.tx
-                .send(ServerCommand::DisableTimestamps { tx })
-                .expect("Failed to send the message to the WgpuServerInner");
-
-            if futures::executor::block_on(rx).is_err() {
-                panic!("Failed to receive the response from the WgpuServerInner")
-            }
         }
     }
 }

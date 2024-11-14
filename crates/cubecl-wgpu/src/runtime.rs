@@ -1,4 +1,6 @@
 use std::marker::PhantomData;
+#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     compiler::{base::WgpuCompiler, wgsl::WgslCompiler},
@@ -6,10 +8,12 @@ use crate::{
     AutoGraphicsApi, GraphicsApi, Pdrc, WgpuDevice,
 };
 use cubecl_common::future;
-use cubecl_core::{Feature, Runtime};
+use cubecl_core::{channel::ComputeChannel, server::ComputeServer, Feature, Runtime};
+use cubecl_runtime::client::ComputeClient;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::DeviceProperties;
-use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
+#[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
+use cubecl_runtime::{channel::MutexComputeChannel, ComputeRuntime};
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
@@ -24,7 +28,13 @@ pub struct WgpuRuntime<C: WgpuCompiler = WgslCompiler>(PhantomData<C>);
 
 type Server = WgpuServer<WgslCompiler>;
 
+#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+thread_local! {
+    static LOCAL_RUNTIME: RefCell<hashbrown::HashMap<WgpuDevice, Rc<RefCell<Server>>>> = RefCell::new(hashbrown::HashMap::default());
+}
+
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
+#[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
 static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
@@ -32,11 +42,78 @@ impl Runtime for WgpuRuntime<WgslCompiler> {
     type Compiler = WgslCompiler;
     type Server = Server;
 
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
     type Channel = MutexComputeChannel<Server>;
+    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+    type Channel = ThreadLocalChannel;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
-        RUNTIME.client(device, move || create_client(device))
+        #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
+        {
+            RUNTIME.client(device, move || {
+                let setup = future::block_on(create_setup_for_device::<
+                    AutoGraphicsApi,
+                    WgslCompiler,
+                >(device));
+                create_client_on_setup(setup, RuntimeOptions::default())
+            })
+        }
+
+        #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+        {
+            let setup = future::block_on(create_setup_for_device::<AutoGraphicsApi, WgslCompiler>(
+                device,
+            ));
+
+            let limits = setup.device.limits();
+            let mem_props = MemoryDeviceProperties {
+                max_page_size: limits.max_storage_buffer_binding_size as u64,
+                alignment: WgpuStorage::ALIGNMENT
+                    .max(limits.min_storage_buffer_offset_alignment as u64),
+            };
+
+            let options = RuntimeOptions::default();
+            let memory_management = {
+                let mem_props = mem_props.clone();
+                let config = options.memory_config;
+                let storage = WgpuStorage::new(setup.device.clone());
+                MemoryManagement::from_configuration(storage, mem_props, config)
+            };
+            let server = crate::compute::WgpuServer::new(
+                memory_management,
+                setup.device.clone(),
+                setup.queue,
+                options.tasks_max,
+            );
+
+            LOCAL_RUNTIME.with(|runtime| {
+                runtime
+                    .borrow_mut()
+                    .insert(device.clone(), Rc::new(RefCell::new(server)));
+            });
+
+            let features = setup.adapter.features();
+            let mut device_props = DeviceProperties::new(&[], mem_props);
+
+            if features.contains(wgpu::Features::SUBGROUP)
+                && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
+            {
+                device_props.register_feature(Feature::Subcube);
+            }
+            <WgslCompiler as WgpuCompiler>::register_features(
+                &setup.adapter,
+                &setup.device,
+                &mut device_props,
+            );
+
+            ComputeClient::new(
+                ThreadLocalChannel {
+                    device: device.clone(),
+                },
+                device_props,
+            )
+        }
     }
 
     fn name() -> &'static str {
@@ -90,79 +167,6 @@ pub struct WgpuSetup {
     pub device: Pdrc<wgpu::Device>,
     /// The queue Burn commands will be submitted to.
     pub queue: Pdrc<wgpu::Queue>,
-}
-
-pub fn create_client<C: WgpuCompiler>(
-    device: &WgpuDevice,
-) -> ComputeClient<WgpuServer<C>, MutexComputeChannel<WgpuServer<C>>> {
-    #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-    {
-        let setup = future::block_on(create_setup_for_device::<AutoGraphicsApi, WgslCompiler>(
-            device,
-        ));
-        create_client_on_setup(setup, RuntimeOptions::default())
-    }
-
-    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-    {
-        let (tx_once, mut rx_once) = futures::channel::oneshot::channel();
-
-        {
-            let device = device.clone();
-
-            rayon::spawn(move || {
-                let (tx, rx) = std::sync::mpsc::channel();
-                let setup = future::block_on(create_setup_for_device::<
-                    AutoGraphicsApi,
-                    WgslCompiler,
-                >(&device));
-
-                let limits = setup.device.limits();
-                let mem_props = MemoryDeviceProperties {
-                    max_page_size: limits.max_storage_buffer_binding_size as u64,
-                    alignment: WgpuStorage::<C>::ALIGNMENT
-                        .max(limits.min_storage_buffer_offset_alignment as u64),
-                };
-
-                let options = RuntimeOptions::default();
-                let memory_management = {
-                    let mem_props = mem_props.clone();
-                    let config = options.memory_config;
-                    let storage = WgpuStorage::new(tx.clone());
-                    MemoryManagement::from_configuration(storage, mem_props, config)
-                };
-                let mut server = crate::compute::WgpuServerInner::new(
-                    memory_management,
-                    setup.device.clone(),
-                    setup.queue,
-                    options.tasks_max,
-                );
-                let channel = MutexComputeChannel::new(WgpuServer::new(tx));
-
-                let features = setup.adapter.features();
-                let mut device_props = DeviceProperties::new(&[], mem_props);
-
-                if features.contains(wgpu::Features::SUBGROUP)
-                    && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
-                {
-                    device_props.register_feature(Feature::Subcube);
-                }
-                C::register_features(&setup.adapter, &setup.device, &mut device_props);
-
-                tx_once
-                    .send(ComputeClient::new(channel, device_props))
-                    .expect("Failed to send back client to the calling thread");
-
-                server.handle_commands(rx)
-            });
-        }
-
-        if let Ok(client) = futures::executor::block_on(rx_once) {
-            client
-        } else {
-            panic!("Failed to get the client from the wgpu thread")
-        }
-    }
 }
 
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
@@ -408,4 +412,92 @@ fn get_device_override() -> Option<WgpuDevice> {
             }
             override_device
         })
+}
+
+#[derive(Debug, Clone)]
+pub struct ThreadLocalChannel {
+    device: WgpuDevice,
+}
+
+impl ComputeChannel<Server> for ThreadLocalChannel {
+    fn read(
+        &self,
+        binding: cubecl_core::server::Binding,
+    ) -> impl std::future::Future<Output = Vec<u8>> {
+        LOCAL_RUNTIME.with(|runtime| {
+            let server = runtime.borrow()[&self.device].clone();
+            async move { server.borrow_mut().read(binding).await }
+        })
+    }
+
+    fn get_resource(
+        &self,
+        binding: cubecl_core::server::Binding,
+    ) -> cubecl_runtime::storage::BindingResource<Server> {
+        LOCAL_RUNTIME.with(|runtime| {
+            runtime.borrow()[&self.device]
+                .borrow_mut()
+                .get_resource(binding)
+        })
+    }
+
+    fn create(&self, data: &[u8]) -> cubecl_core::server::Handle {
+        LOCAL_RUNTIME.with(|runtime| runtime.borrow()[&self.device].borrow_mut().create(data))
+    }
+
+    fn empty(&self, size: usize) -> cubecl_core::server::Handle {
+        LOCAL_RUNTIME.with(|runtime| runtime.borrow()[&self.device].borrow_mut().empty(size))
+    }
+
+    unsafe fn execute(
+        &self,
+        kernel: <Server as ComputeServer>::Kernel,
+        count: cubecl_core::CubeCount,
+        bindings: Vec<cubecl_core::server::Binding>,
+        mode: cubecl_core::ExecutionMode,
+    ) {
+        LOCAL_RUNTIME.with(|runtime| {
+            let runtime = runtime.borrow();
+            let mut server = runtime[&self.device].borrow_mut();
+            unsafe { server.execute(kernel, count, bindings, mode) }
+        })
+    }
+
+    fn flush(&self) {
+        LOCAL_RUNTIME.with(|runtime| runtime.borrow()[&self.device].borrow_mut().flush())
+    }
+
+    fn sync(&self) -> impl std::future::Future<Output = ()> {
+        LOCAL_RUNTIME.with(|runtime| {
+            let server = runtime.borrow()[&self.device].clone();
+            async move { server.borrow_mut().sync().await }
+        })
+    }
+
+    fn sync_elapsed(&self) -> impl std::future::Future<Output = cubecl_runtime::TimestampsResult> {
+        LOCAL_RUNTIME.with(|runtime| {
+            let server = runtime.borrow()[&self.device].clone();
+            async move { server.borrow_mut().sync_elapsed().await }
+        })
+    }
+
+    fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
+        LOCAL_RUNTIME.with(|runtime| runtime.borrow()[&self.device].borrow_mut().memory_usage())
+    }
+
+    fn enable_timestamps(&self) {
+        LOCAL_RUNTIME.with(|runtime| {
+            runtime.borrow()[&self.device]
+                .borrow_mut()
+                .enable_timestamps()
+        })
+    }
+
+    fn disable_timestamps(&self) {
+        LOCAL_RUNTIME.with(|runtime| {
+            runtime.borrow()[&self.device]
+                .borrow_mut()
+                .disable_timestamps()
+        })
+    }
 }

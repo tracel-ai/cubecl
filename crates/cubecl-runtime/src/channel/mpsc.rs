@@ -6,7 +6,7 @@ use super::ComputeChannel;
 use crate::{
     memory_management::MemoryUsage,
     server::{Binding, ComputeServer, CubeCount, Handle},
-    storage::BindingResource,
+    storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
 
@@ -50,7 +50,8 @@ where
 
 impl<Server> MpscComputeChannel<Server>
 where
-    Server: ComputeServer + 'static,
+    Server: ComputeServer + Send + 'static,
+    <Server::Storage as ComputeStorage>::Resource: Send,
 {
     /// Create a new mpsc compute channel.
     pub fn new(mut server: Server) -> Self {
@@ -123,6 +124,7 @@ impl<Server: ComputeServer> Clone for MpscComputeChannel<Server> {
 impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
+    <Server::Storage as ComputeStorage>::Resource: Send,
 {
     async fn read(&self, binding: Binding) -> Vec<u8> {
         let sender = self.state.sender.clone();

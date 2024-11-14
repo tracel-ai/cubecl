@@ -224,7 +224,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 }
 
-fn spawn_benchmark_task(future: impl Future<Output = ()> + Send + 'static) {
+fn spawn_benchmark_task(future: impl Future<Output = ()> + 'static) {
     // On wasm, spawn the tuning as a detached task.
     #[cfg(target_family = "wasm")]
     wasm_bindgen_futures::spawn_local(future);

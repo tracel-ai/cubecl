@@ -14,7 +14,7 @@ use cubecl_common::benchmark::TimestampsResult;
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
-pub trait ComputeServer: Send + core::fmt::Debug
+pub trait ComputeServer: core::fmt::Debug
 where
     Self: Sized,
 {
@@ -26,7 +26,7 @@ where
     type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Given a handle, returns the owned resource as bytes.
-    fn read(&mut self, binding: Binding) -> impl Future<Output = Vec<u8>> + Send + 'static;
+    fn read(&mut self, binding: Binding) -> impl Future<Output = Vec<u8>> + 'static;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self>;
@@ -57,12 +57,12 @@ where
     fn flush(&mut self);
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self) -> impl Future<Output = ()> + Send + 'static;
+    fn sync(&mut self) -> impl Future<Output = ()> + 'static;
 
     /// Wait for the completion of every task in the server.
     ///
     /// Returns the (approximate) total amount of GPU work done since the last sync.
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + Send + 'static;
+    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static;
 
     /// The current memory usage of the server.
     fn memory_usage(&self) -> MemoryUsage;

@@ -35,7 +35,7 @@ where
 
 impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
-    Server: ComputeServer,
+    Server: ComputeServer + Send,
 {
     async fn read(&self, handle: Binding) -> Vec<u8> {
         // Nb: The order here is really important - the mutex guard has to be dropped before

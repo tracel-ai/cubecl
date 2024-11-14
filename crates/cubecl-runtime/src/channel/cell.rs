@@ -42,7 +42,7 @@ where
 
 impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
-    Server: ComputeServer + Send,
+    Server: ComputeServer,
 {
     async fn read(&self, binding: Binding) -> Vec<u8> {
         let future = {
@@ -108,8 +108,3 @@ where
         self.server.borrow_mut().disable_timestamps();
     }
 }
-
-/// This is unsafe, since no concurrency is supported by the `RefCell` channel.
-/// However using this channel should only be done in single threaded environments such as `no-std`.
-unsafe impl<Server: ComputeServer> Send for RefCellComputeChannel<Server> {}
-unsafe impl<Server: ComputeServer> Sync for RefCellComputeChannel<Server> {}

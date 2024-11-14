@@ -63,10 +63,10 @@ impl StorageHandle {
 }
 
 /// Storage types are responsible for allocating and deallocating memory.
-pub trait ComputeStorage: Send {
+pub trait ComputeStorage {
     /// The resource associated type determines the way data is implemented and how
     /// it can be accessed by kernels.
-    type Resource: Send;
+    type Resource;
 
     /// The alignment memory is allocated with in this storage.
     const ALIGNMENT: u64;
