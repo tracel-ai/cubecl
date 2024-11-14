@@ -18,6 +18,10 @@ impl<M: WmmaCompiler<Self>> WmmaCompiler<Self> for HipDialect<M> {
         M::deftypes(f)
     }
 
+    fn named_bindings(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        M::named_bindings(f)
+    }
+
     fn compile_fragment_ident(
         ident: &crate::shared::FragmentIdent<Self>,
         f: &mut std::fmt::Formatter<'_>,

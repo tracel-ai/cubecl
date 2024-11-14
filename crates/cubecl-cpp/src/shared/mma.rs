@@ -16,12 +16,13 @@ pub trait Architecture: FromStr<Err = String> {
 }
 
 pub trait WmmaCompiler<D: Dialect>:
-    Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
+Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
     type Architecture: Architecture;
 
     fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn named_bindings(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
     fn compile_fragment_ident(
         ident: &FragmentIdent<D>,
@@ -208,6 +209,7 @@ pub mod wmma_api_base {
             WmmaInstruction::Fill { frag, value } => {
                 writeln!(f, "{namespace}::fill_fragment({frag}, {value});")
             }
+
             WmmaInstruction::Load {
                 frag,
                 value,
@@ -225,6 +227,7 @@ pub mod wmma_api_base {
                     )
                 }
             }
+
             WmmaInstruction::Load {
                 frag,
                 value,
@@ -247,6 +250,7 @@ pub mod wmma_api_base {
                     )
                 }
             }
+
             WmmaInstruction::Execute {
                 frag_a,
                 frag_b,
@@ -256,6 +260,7 @@ pub mod wmma_api_base {
                 f,
                 "{namespace}::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
             ),
+
             WmmaInstruction::Store {
                 output,
                 frag,

@@ -20,6 +20,10 @@ impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
         Ok(())
     }
 
+    fn named_bindings(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+
     fn compile_fragment_ident(
         ident: &FragmentIdent<CudaDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,

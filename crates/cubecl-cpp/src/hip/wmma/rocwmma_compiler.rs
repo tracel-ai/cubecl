@@ -23,6 +23,10 @@ impl WmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
         Ok(())
     }
 
+    fn named_bindings(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+
     fn compile_fragment_ident(
         ident: &FragmentIdent<HipDialect<Self>>,
         f: &mut std::fmt::Formatter<'_>,

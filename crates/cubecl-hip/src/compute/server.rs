@@ -1,9 +1,6 @@
 use cubecl_cpp::formatter::format_cpp;
-use cubecl_cpp::hip::HipDialect;
-use cubecl_cpp::shared::CppCompiler;
 
 use crate::runtime::HipCompiler;
-use crate::HipWmmaCompiler;
 
 use super::storage::HipStorage;
 use super::HipResource;
