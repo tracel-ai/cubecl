@@ -1,4 +1,5 @@
 use crate::matmul::components::config::PlaneMapper;
+use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Config;
 use crate::matmul::components::stage::{
     TilingOrder, TilingOrderConfig, XMajorTiling, YMajorTiling,
@@ -6,8 +7,6 @@ use crate::matmul::components::stage::{
 use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::base::TensorReader;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,

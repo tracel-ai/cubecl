@@ -1,5 +1,6 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::global::Loader;
+use crate::matmul::components::global::base::Loader as _;
+use crate::matmul::components::global::Config as _;
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{LhsReader, RhsReader};
 use crate::matmul::components::MatmulKernel;
@@ -13,7 +14,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::{tensor_view, Config as _};
+use super::loader::{LhsLoader, RhsLoader};
+use super::unloader::Unloader;
 
 /// Performs matrix multiplication at the global level, with planes split between two roles:
 /// - Some planes load data to the stage
@@ -54,9 +56,13 @@ where
     ES: Numeric,
     SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
 {
-    type Lhs = tensor_view::LhsLoader<EG, ES>;
-    type Rhs = tensor_view::RhsLoader<EG, ES>;
-    type Out = tensor_view::Unloader<EG>;
+    // TODO will be different loaders, that only load partially and give a reader with hardcoded buffer index
+    // Then stage matmul will be given readers that can't read any buffer
+    // Stage matmul will still be able to loop on buffers, but on less, typically 1.
+    // What must be untied is the stage size from the number of buffers stage matmul thinks there are
+    type Lhs = LhsLoader<EG, ES>;
+    type Rhs = RhsLoader<EG, ES>;
+    type Out = Unloader<EG>;
 
     fn execute(
         mut lhs_loader: Self::Lhs,
@@ -75,80 +81,70 @@ where
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;
-        let num_outer_loops = (range + k_step - 1) / k_step;
+        let num_stages = (range + k_step - 1) / k_step;
+        let num_loops = num_stages * num_buffers;
 
         let mut acc = SMM::acc_init_zeros(config.to_smm_config());
 
-        for _ in 0..num_outer_loops {
-            for buffer_idx in 0..num_buffers {
-                let (lhs_stage_reader, rhs_stage_reader) = if is_producer {
-                    (
-                        &tensor_view::LhsLoader::fill_buffer::<Self::Config>(
-                            &mut lhs_loader,
-                            buffer_idx,
-                            config,
-                        ),
-                        &tensor_view::RhsLoader::fill_buffer::<Self::Config>(
-                            &mut rhs_loader,
-                            buffer_idx,
-                            config,
-                        ),
-                    )
-                } else {
-                    (
-                        &tensor_view::LhsLoader::get_buffer_reader::<Self::Config>(
-                            &mut lhs_loader,
-                            buffer_idx,
-                            config,
-                        ),
-                        &tensor_view::RhsLoader::get_buffer_reader::<Self::Config>(
-                            &mut lhs_loader,
-                            buffer_idx,
-                            config,
-                        ),
-                    )
-                };
+        for _ in 0..num_loops {
+            // The new loader should keep track of which buffer it's at, using the view advancement
+            // It should also know from its constructor if it's consumer or producer
 
-                sync_units();
+            let lhs_stage_reader = Self::Lhs::fill_stage::<Self::Config>(&mut lhs_loader, config);
+            let rhs_stage_reader = Self::Rhs::fill_stage::<Self::Config>(&mut rhs_loader, config);
 
-                if is_consumer {
-                    SMM::execute(
-                        lhs_stage_reader,
-                        rhs_stage_reader,
-                        &mut acc,
-                        config.to_smm_config(),
-                    );
-                } else {
-                }
+            sync_units();
 
-                tensor_view::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-                tensor_view::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-
-                let lhs_stage_reader = &tensor_view::LhsLoader::fill_buffer::<Self::Config>(
-                    &mut lhs_loader,
-                    buffer_idx + 1,
-                    is_producer,
-                    config,
+            if is_consumer {
+                SMM::execute(
+                    &lhs_stage_reader,
+                    &rhs_stage_reader,
+                    &mut acc,
+                    config.to_smm_config(),
                 );
-                let rhs_stage_reader = &tensor_view::RhsLoader::fill_buffer::<Self::Config>(
-                    &mut rhs_loader,
-                    buffer_idx + 1,
-                    is_producer,
-                    config,
-                );
-
-                sync_units();
-
-                // The view must follow the producers. Consumers are always a step behind
             }
+
+            Self::Lhs::advance_view(&mut lhs_loader, buffer_step);
+            Self::Rhs::advance_view(&mut rhs_loader, buffer_step);
         }
 
-        SMM::acc_read::<tensor_view::Unloader<EG>, Self::Config>(
-            &acc,
-            &mut out_unloader,
-            config.to_smm_config(),
-            config,
-        );
+        if is_consumer {
+            SMM::acc_read::<Self::Out, Self::Config>(
+                &acc,
+                &mut out_unloader,
+                config.to_smm_config(),
+                config,
+            );
+        }
+    }
+
+    fn init_lhs_loader(
+        lhs: &Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::Lhs {
+        Self::Lhs::new::<Self::Config>(lhs, x_offset, y_offset, nth_batch, config)
+    }
+
+    fn init_rhs_loader(
+        rhs: &Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::Rhs {
+        Self::Rhs::new::<Self::Config>(rhs, x_offset, y_offset, nth_batch, config)
+    }
+
+    fn init_unloader(
+        out: &mut Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Out {
+        Self::Out::new(out, x_offset, y_offset, batch_offset)
     }
 }
 

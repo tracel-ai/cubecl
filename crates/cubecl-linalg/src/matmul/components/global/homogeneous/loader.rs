@@ -1,11 +1,10 @@
-use crate::matmul::components::global::tensor_view::cyclic_loading::CyclicLoading;
+use crate::matmul::components::global::homogeneous::cyclic_loading::CyclicLoading;
+use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage::{LhsReader, RhsReader, Stage};
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::base::TensorReader;
 
 #[derive(CubeType)]
 pub struct LhsLoader<EG: Numeric, ES: Numeric> {
@@ -36,8 +35,11 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsLoader<EG, ES> {
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Lhs);
     }
+}
 
-    fn new<G: global::Config>(
+#[cube]
+impl<EG: Numeric, ES: Numeric> LhsLoader<EG, ES> {
+    pub fn new<G: global::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
@@ -68,8 +70,11 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsLoader<EG, ES> {
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Rhs);
     }
+}
 
-    fn new<G: global::Config>(
+#[cube]
+impl<EG: Numeric, ES: Numeric> RhsLoader<EG, ES> {
+    pub fn new<G: global::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,

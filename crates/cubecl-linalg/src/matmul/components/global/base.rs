@@ -46,6 +46,29 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
+
+    fn init_lhs_loader(
+        lhs: &Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::Lhs;
+
+    fn init_rhs_loader(
+        rhs: &Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::Rhs;
+
+    fn init_unloader(
+        out: &mut Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Out;
 }
 
 #[cube]
@@ -60,14 +83,6 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
-
-    fn new<G: Config>(
-        tensor: &Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
-        nth_batch: u32,
-        #[comptime] config: G,
-    ) -> Self;
 }
 
 #[cube]
@@ -81,8 +96,6 @@ pub trait Unloader<EG: Numeric>: CubeType + 'static + Send + Sync {
     type StageWriter: StageWriter<EG>;
 
     fn as_stage_writer<G: Config>(unloader: Self) -> Self::StageWriter;
-
-    fn new(tensor: &mut Tensor<Line<EG>>, x_offset: u32, y_offset: u32, batch_offset: u32) -> Self;
 }
 
 /// Configuration for the Global matmul (GMM) level

@@ -1,5 +1,5 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::global::Loader;
+use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{LhsReader, RhsReader};
@@ -13,7 +13,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::{tensor_view, Config as _};
+use super::loader::{LhsLoader, RhsLoader};
+use super::unloader::Unloader;
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
@@ -35,9 +36,9 @@ where
     ES: Numeric,
     SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
 {
-    type Lhs = tensor_view::LhsLoader<EG, ES>;
-    type Rhs = tensor_view::RhsLoader<EG, ES>;
-    type Out = tensor_view::Unloader<EG>;
+    type Lhs = LhsLoader<EG, ES>;
+    type Rhs = RhsLoader<EG, ES>;
+    type Out = Unloader<EG>;
 
     fn execute(
         mut lhs_loader: Self::Lhs,
@@ -53,10 +54,8 @@ where
         let mut acc = SMM::acc_init_zeros(config.to_smm_config());
 
         for _ in 0..num_loops {
-            let lhs_stage_reader =
-                &tensor_view::LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, config);
-            let rhs_stage_reader =
-                &tensor_view::RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, config);
+            let lhs_stage_reader = &Self::Lhs::fill_stage::<Self::Config>(&mut lhs_loader, config);
+            let rhs_stage_reader = &Self::Rhs::fill_stage::<Self::Config>(&mut rhs_loader, config);
 
             sync_units();
 
@@ -69,16 +68,45 @@ where
 
             sync_units();
 
-            tensor_view::LhsLoader::advance_view(&mut lhs_loader, k_step);
-            tensor_view::RhsLoader::advance_view(&mut rhs_loader, k_step);
+            Self::Lhs::advance_view(&mut lhs_loader, k_step);
+            Self::Rhs::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::acc_read::<tensor_view::Unloader<EG>, Self::Config>(
+        SMM::acc_read::<Self::Out, Self::Config>(
             &acc,
             &mut out_unloader,
             config.to_smm_config(),
             config,
         );
+    }
+
+    fn init_lhs_loader(
+        lhs: &Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::Lhs {
+        Self::Lhs::new::<Self::Config>(lhs, x_offset, y_offset, nth_batch, config)
+    }
+
+    fn init_rhs_loader(
+        rhs: &Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::Rhs {
+        Self::Rhs::new::<Self::Config>(rhs, x_offset, y_offset, nth_batch, config)
+    }
+
+    fn init_unloader(
+        out: &mut Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Out {
+        Self::Out::new(out, x_offset, y_offset, batch_offset)
     }
 }
 

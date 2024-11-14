@@ -1,10 +1,9 @@
 use crate::matmul::components::config::PlaneMapper;
+use crate::matmul::components::global::tensor_view::TensorWriter;
 use crate::matmul::components::global::Config;
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::base::TensorWriter;
 
 #[derive(CubeType)]
 /// Writes the contents of a tile to the tensor view using a single plane,
