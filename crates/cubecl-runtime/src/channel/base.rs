@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 
 /// The ComputeChannel trait links the ComputeClient to the ComputeServer
 /// while ensuring thread-safety
-pub trait ComputeChannel<Server: ComputeServer>: Send + Clone + core::fmt::Debug {
+pub trait ComputeChannel<Server: ComputeServer>: Sync + Send + Clone + core::fmt::Debug {
     /// Given a binding, returns owned resource as bytes
     fn read(&self, binding: Binding) -> impl Future<Output = Vec<u8>>;
 
