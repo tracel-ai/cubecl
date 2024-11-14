@@ -4,23 +4,24 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::base::Matmul as _;
+use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
 use crate::matmul::{
     components::{
         config::MatmulConfig,
         global,
-        stage::{self, Config as _, StageReader, StageWriter},
+        stage::{self, Config as _, StageWriter},
         tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout, PlaneMapper, StageDim,
     },
     kernels::matmul::{create_stage_dim, AdvancedConfig},
 };
 
-use super::reader::{LhsReader, RhsReader};
-use super::tiling_order::TilingOrderConfig;
-use super::StageSize;
+use super::{LhsBufferReader, RhsBufferReader};
 
 /// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
 /// - One plane per tile in m dimension,
 /// - One accumulator per tile in n dimension
+///
+/// Very similar to row accumulate, except is unable to have more than one buffer, and takes BufferReaders for StageReaders
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
@@ -33,8 +34,7 @@ pub struct Matmul<I: Numeric, O: Numeric, Acc: Numeric, TMM: tile::Matmul<I, Acc
 }
 
 #[cube]
-impl<I, O, Acc, TMM, SS> stage::Matmul<I, O, LhsReader<I>, RhsReader<I>>
-    for Matmul<I, O, Acc, TMM, SS>
+impl<I, O, Acc, TMM, SS> stage::Matmul<I, O> for Matmul<I, O, Acc, TMM, SS>
 where
     I: Numeric,
     O: Numeric,
@@ -46,46 +46,34 @@ where
     const N: u32 = SS::NUM_N * TMM::N;
     const K: u32 = SS::NUM_K * TMM::K;
     type Accumulator = Sequence<TMM::Out>;
+    type Lhs = LhsBufferReader<I>;
+    type Rhs = RhsBufferReader<I>;
 
     fn execute(
-        lhs: &LhsReader<I>,
-        rhs: &RhsReader<I>,
+        lhs: &LhsBufferReader<I>,
+        rhs: &RhsBufferReader<I>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
         let mut instruction_lhs = TMM::init_lhs(config.to_tmm_config());
         let mut instruction_rhs = TMM::init_rhs(config.to_tmm_config());
 
+        let tile_lhs = LhsBufferReader::read_tile::<Self::Config>(lhs, Self::plane_id(), config);
+        TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
+
         #[unroll]
-        for buffer_iter in 0..SS::NUM_K {
-            let tile_lhs = LhsReader::read_tile::<Self::Config>(
-                lhs,
-                Self::plane_id(),
-                buffer_iter,
-                0u32,
-                config,
+        for accumulator_iter in 0..acc.len() {
+            let tile_rhs =
+                RhsBufferReader::read_tile::<Self::Config>(rhs, accumulator_iter, config);
+            TMM::fill_rhs(&tile_rhs, &mut instruction_rhs, config.to_tmm_config());
+
+            let accumulator = acc.index_mut(accumulator_iter);
+            TMM::execute(
+                &instruction_lhs,
+                &instruction_rhs,
+                accumulator,
+                config.to_tmm_config(),
             );
-            TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
-
-            #[unroll]
-            for accumulator_iter in 0..acc.len() {
-                let tile_rhs = RhsReader::read_tile::<Self::Config>(
-                    rhs,
-                    Self::plane_id(),
-                    buffer_iter,
-                    accumulator_iter,
-                    config,
-                );
-                TMM::fill_rhs(&tile_rhs, &mut instruction_rhs, config.to_tmm_config());
-
-                let accumulator = acc.index_mut(accumulator_iter);
-                TMM::execute(
-                    &instruction_lhs,
-                    &instruction_rhs,
-                    accumulator,
-                    config.to_tmm_config(),
-                );
-            }
         }
     }
 

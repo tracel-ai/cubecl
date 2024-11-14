@@ -89,7 +89,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
     }
 
     fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
-        match comptime!(config.layout(Ident::Lhs)) {
+        match config.layout(Ident::Lhs) {
             MatrixLayout::RowMajor => fill_parallel_lhs(
                 slice,
                 &mut lhs.to_slice_mut(),

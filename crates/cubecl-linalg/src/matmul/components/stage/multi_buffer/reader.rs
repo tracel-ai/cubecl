@@ -1,10 +1,7 @@
-use crate::matmul::components::stage::StageReader;
+use crate::matmul::components::stage::{Config, Stage};
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::staging::Stage;
-use super::Config;
 
 #[derive(CubeType)]
 /// Stage reader for LHS
@@ -19,12 +16,11 @@ pub struct RhsReader<ES: Numeric> {
 }
 
 #[cube]
-impl<ES: Numeric> StageReader<ES> for LhsReader<ES> {
-    fn read_tile<S: Config>(
+impl<ES: Numeric> LhsReader<ES> {
+    pub fn read_tile<S: Config>(
         this: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
-        _accumulator_offset: u32,
         #[comptime] config: S,
     ) -> Slice<Line<ES>> {
         this.stage
@@ -33,10 +29,9 @@ impl<ES: Numeric> StageReader<ES> for LhsReader<ES> {
 }
 
 #[cube]
-impl<ES: Numeric> StageReader<ES> for RhsReader<ES> {
-    fn read_tile<S: Config>(
+impl<ES: Numeric> RhsReader<ES> {
+    pub fn read_tile<S: Config>(
         this: &Self,
-        _compute_plane_offset: u32,
         buffer_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: S,

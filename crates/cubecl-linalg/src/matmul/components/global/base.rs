@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::stage::{self, StageReader, StageWriter, TilingOrderConfig};
+use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{Ident, MatrixLayout};
@@ -76,7 +76,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
 /// Advances along the k-dimension to fill the stage with further data.
 pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
-    type StageReader: StageReader<ES>;
+    type StageReader: CubeType;
 
     /// Fills the stage at the current k offset and returns a reader for it.
     fn fill_stage<G: Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader;

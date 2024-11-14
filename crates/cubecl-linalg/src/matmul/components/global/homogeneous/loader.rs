@@ -1,7 +1,8 @@
 use crate::matmul::components::global::homogeneous::cyclic_loading::CyclicLoading;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Loader;
-use crate::matmul::components::stage::{LhsReader, RhsReader, Stage};
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use crate::matmul::components::stage::Stage;
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

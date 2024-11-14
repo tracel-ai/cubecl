@@ -23,7 +23,7 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
     type TileMatmul = Accelerated16x16x16<Self::ES, Self::EA>;
 
     type StageSize = S4x4x2;
-    type StageMatmul = stage::row_accumulate::Matmul<
+    type StageMatmul = stage::multi_buffer::Matmul<
         Self::ES,
         Self::EG,
         Self::EA,

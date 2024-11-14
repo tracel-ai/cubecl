@@ -1,8 +1,7 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::global::base::Loader as _;
-use crate::matmul::components::global::Config as _;
+use crate::matmul::components::global::{Config as _, Loader};
+use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
-use crate::matmul::components::stage::{LhsReader, RhsReader};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{global, MatmulProblem};
@@ -14,27 +13,21 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::loader::{LhsLoader, RhsLoader};
+use super::loader::{LhsBufferLoader, RhsBufferLoader};
 use super::unloader::Unloader;
 
 /// Performs matrix multiplication at the global level, with planes split between two roles:
 /// - Some planes load data to the stage
 /// - Some planes are used in the stage matmul computation
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct Matmul<
-    EG: Numeric,
-    ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
-> {
+pub struct Matmul<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>> PlaneMapper
-    for Matmul<EG, ES, SMM>
-{
+impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> PlaneMapper for Matmul<EG, ES, SMM> {
     fn plane_id() -> u32 {
         // The change is rather in the smm where it must consider there are less planes
         // Also it's in the config that the GMM can influence the SMM
@@ -54,14 +47,14 @@ impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
+    SMM: stage::Matmul<ES, EG, Lhs = LhsBufferReader<ES>, Rhs = RhsBufferReader<ES>>,
 {
     // TODO will be different loaders, that only load partially and give a reader with hardcoded buffer index
     // Then stage matmul will be given readers that can't read any buffer
     // Stage matmul will still be able to loop on buffers, but on less, typically 1.
     // What must be untied is the stage size from the number of buffers stage matmul thinks there are
-    type Lhs = LhsLoader<EG, ES>;
-    type Rhs = RhsLoader<EG, ES>;
+    type Lhs = LhsBufferLoader<EG, ES>;
+    type Rhs = RhsBufferLoader<EG, ES>;
     type Out = Unloader<EG>;
 
     fn execute(
@@ -152,7 +145,7 @@ impl<EG, ES, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
+    SMM: stage::Matmul<ES, EG>,
 {
     type Config = Config<SMM::Config>;
 

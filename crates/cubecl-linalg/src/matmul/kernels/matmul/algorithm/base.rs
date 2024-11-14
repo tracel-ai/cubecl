@@ -24,8 +24,8 @@ pub trait Algorithm<EG: Numeric> {
     type StageMatmul: stage::Matmul<
             Self::ES,
             Self::EG,
-            LhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
-            RhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
+            Lhs = LhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
+            Rhs = RhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
         > + MatmulKernel<Self::ES, Self::EG>;
 
     type GlobalMatmul: global::Matmul<Self::EG, Self::ES>;

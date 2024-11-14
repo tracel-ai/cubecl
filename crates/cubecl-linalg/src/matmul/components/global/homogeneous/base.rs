@@ -1,8 +1,8 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::TilingOrderConfig;
-use crate::matmul::components::stage::{LhsReader, RhsReader};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{global, MatmulProblem};
@@ -19,11 +19,7 @@ use super::unloader::Unloader;
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct Matmul<
-    EG: Numeric,
-    ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
-> {
+pub struct Matmul<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _stage_matmul: PhantomData<SMM>,
@@ -34,7 +30,7 @@ impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
+    SMM: stage::Matmul<ES, EG, Lhs = LhsReader<ES>, Rhs = RhsReader<ES>>,
 {
     type Lhs = LhsLoader<EG, ES>;
     type Rhs = RhsLoader<EG, ES>;
@@ -114,7 +110,7 @@ impl<EG, ES, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
+    SMM: stage::Matmul<ES, EG>,
 {
     type Config = Config<SMM::Config>;
 
