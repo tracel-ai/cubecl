@@ -25,6 +25,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     memory_management: MemoryManagement<WgpuStorage>,
     pub(crate) device: Pdrc<wgpu::Device>,
     queue: Pdrc<wgpu::Queue>,
+    pub(crate) adapter: Pdrc<wgpu::Adapter>,
     encoder: CommandEncoder,
     current_pass: Option<ComputePass<'static>>,
     tasks_count: usize,
@@ -90,6 +91,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         memory_management: MemoryManagement<WgpuStorage>,
         device: Pdrc<wgpu::Device>,
         queue: Pdrc<wgpu::Queue>,
+        adapter: Pdrc<wgpu::Adapter>,
         tasks_max: usize,
     ) -> Self {
         let logger = DebugLogger::default();
@@ -99,18 +101,22 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             timestamps.enable(&device);
         }
 
+        let encoder = create_encoder(&device);
+        let poll = WgpuPoll::new(device.clone());
+
         Self {
             memory_management,
-            device: device.clone(),
-            queue: queue.clone(),
-            encoder: create_encoder(&device),
+            device,
+            queue,
+            adapter,
+            encoder,
             current_pass: None,
             tasks_count: 0,
             storage_locked: MemoryLock::default(),
             pipelines: HashMap::new(),
             tasks_max,
             logger,
-            poll: WgpuPoll::new(device.clone()),
+            poll,
             duration_profiled: None,
             timestamps,
             _compiler: PhantomData,

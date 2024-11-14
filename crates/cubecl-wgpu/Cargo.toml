@@ -39,6 +39,7 @@ wgpu = { version = "22.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
 
 async-channel = { workspace = true }
 derive-new = { workspace = true }
+futures-lite = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }
 web-time = { workspace = true }
@@ -46,8 +47,7 @@ web-time = { workspace = true }
 cfg-if = { workspace = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_feature = "atomics"))'.dependencies]
-futures = { workspace = true }
-rayon = { workspace = true }
+wasm-bindgen = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.4.0", features = [
