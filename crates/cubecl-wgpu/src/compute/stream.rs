@@ -171,7 +171,6 @@ impl WgpuStream {
                     .expect("Unable to send buffer slice result to async channel.");
             });
 
-        log::info!("Start polling");
         let poll = self.poll.start_polling();
 
         async move {
@@ -180,8 +179,6 @@ impl WgpuStream {
                 .await
                 .expect("Unable to receive buffer slice result.")
                 .expect("Failed to map buffer");
-
-            log::info!("Got the value");
 
             // Can stop polling now.
             core::mem::drop(poll);
@@ -327,7 +324,7 @@ impl WgpuStream {
         // - Too little and GPU utilization is really bad.
         //
         // TODO: Could be smarter and dynamic based on stats.
-        const MAX_TOTAL_TASKS: usize = 420;
+        const MAX_TOTAL_TASKS: usize = 512;
 
         if self.tasks_count_submitted >= MAX_TOTAL_TASKS {
             let index = self.last_index.take().unwrap();
