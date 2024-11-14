@@ -16,6 +16,8 @@ pub struct WgpuStream {
     queue: Arc<wgpu::Queue>,
     poll: WgpuPoll,
     sync_buffer: Option<wgpu::Buffer>,
+    last_index: Option<wgpu::SubmissionIndex>,
+    tasks_count_submitted: usize,
 }
 
 pub enum PipelineDispatch {
@@ -56,6 +58,8 @@ impl WgpuStream {
             tasks_max,
             poll,
             sync_buffer,
+            tasks_count_submitted: 0,
+            last_index: None,
         }
     }
 
@@ -167,6 +171,7 @@ impl WgpuStream {
                     .expect("Unable to send buffer slice result to async channel.");
             });
 
+        log::info!("Start polling");
         let poll = self.poll.start_polling();
 
         async move {
@@ -175,6 +180,8 @@ impl WgpuStream {
                 .await
                 .expect("Unable to receive buffer slice result.")
                 .expect("Failed to map buffer");
+
+            log::info!("Got the value");
 
             // Can stop polling now.
             core::mem::drop(poll);
@@ -307,7 +314,28 @@ impl WgpuStream {
         let new_encoder = create_encoder(&self.device);
         let encoder = std::mem::replace(&mut self.encoder, new_encoder);
 
-        self.queue.submit([encoder.finish()]);
+        let index = self.queue.submit([encoder.finish()]);
+
+        if self.tasks_count_submitted == 0 {
+            self.last_index = Some(index);
+        }
+        self.tasks_count_submitted += self.tasks_count;
+
+        // Enough to keep the GPU busy.
+        //
+        // - Too much can hang the GPU and create slowdown.
+        // - Too little and GPU utilization is really bad.
+        //
+        // TODO: Could be smarter and dynamic based on stats.
+        const MAX_TOTAL_TASKS: usize = 420;
+
+        if self.tasks_count_submitted >= MAX_TOTAL_TASKS {
+            let index = self.last_index.take().unwrap();
+            self.device
+                .poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
+            self.tasks_count_submitted = 0;
+        }
+
         self.tasks_count = 0;
     }
 }

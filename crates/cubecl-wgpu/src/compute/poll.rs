@@ -1,6 +1,6 @@
 #[cfg(not(target_family = "wasm"))]
 mod _impl {
-    use std::thread::JoinHandle;
+    use std::{thread::JoinHandle, time::Duration};
 
     #[derive(Debug)]
     pub struct WgpuPoll {
@@ -20,6 +20,7 @@ mod _impl {
                 // a handle.
                 if std::sync::Arc::strong_count(&thread_check) > 2 {
                     device.poll(wgpu::MaintainBase::Poll);
+                    // log::info!("Poll with {}", std::sync::Arc::strong_count(&thread_check));
                 } else {
                     // Do not cancel thread while someone still needs to poll.
                     if cancel_receiver.try_recv().is_ok() {
@@ -29,6 +30,7 @@ mod _impl {
                     std::thread::park();
                 }
                 std::thread::yield_now();
+                std::thread::sleep(Duration::from_micros(10));
             });
 
             Self {
