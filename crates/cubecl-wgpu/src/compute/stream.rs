@@ -16,8 +16,7 @@ pub struct WgpuStream {
     queue: Arc<wgpu::Queue>,
     poll: WgpuPoll,
     sync_buffer: Option<wgpu::Buffer>,
-    last_index: Option<wgpu::SubmissionIndex>,
-    tasks_count_submitted: usize,
+    submission_load: SubmissionLoad,
 }
 
 pub enum PipelineDispatch {
@@ -58,8 +57,7 @@ impl WgpuStream {
             tasks_max,
             poll,
             sync_buffer,
-            tasks_count_submitted: 0,
-            last_index: None,
+            submission_load: SubmissionLoad::default(),
         }
     }
 
@@ -313,29 +311,87 @@ impl WgpuStream {
 
         let index = self.queue.submit([encoder.finish()]);
 
-        if self.tasks_count_submitted == 0 {
-            self.last_index = Some(index);
-        }
-        self.tasks_count_submitted += self.tasks_count;
-
-        // Enough to keep the GPU busy.
-        //
-        // - Too much can hang the GPU and create slowdown.
-        // - Too little and GPU utilization is really bad.
-        //
-        // TODO: Could be smarter and dynamic based on stats.
-        const MAX_TOTAL_TASKS: usize = 512;
-
-        if self.tasks_count_submitted >= MAX_TOTAL_TASKS {
-            let index = self.last_index.take().unwrap();
-            self.device
-                .poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
-            self.tasks_count_submitted = 0;
-        }
+        self.submission_load
+            .regulate(&self.device, self.tasks_count, index);
 
         self.tasks_count = 0;
     }
 }
+
+#[cfg(not(target_family = "wasm"))]
+mod __submission_load {
+
+    #[derive(Default, Debug)]
+    pub enum SubmissionLoad {
+        Init {
+            last_index: wgpu::SubmissionIndex,
+            tasks_count_submitted: usize,
+        },
+        #[default]
+        Empty,
+    }
+
+    impl SubmissionLoad {
+        pub fn regulate(
+            &mut self,
+            device: &wgpu::Device,
+            tasks_count: usize,
+            mut index: wgpu::SubmissionIndex,
+        ) {
+            match self {
+                SubmissionLoad::Init {
+                    last_index,
+                    tasks_count_submitted,
+                } => {
+                    *tasks_count_submitted += tasks_count;
+
+                    // Enough to keep the GPU busy.
+                    //
+                    // - Too much can hang the GPU and create slowdown.
+                    // - Too little and GPU utilization is really bad.
+                    //
+                    // TODO: Could be smarter and dynamic based on stats.
+                    const MAX_TOTAL_TASKS: usize = 512;
+
+                    if *tasks_count_submitted >= MAX_TOTAL_TASKS {
+                        core::mem::swap(last_index, &mut index);
+                        device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
+
+                        *tasks_count_submitted = 0;
+                    }
+                }
+                SubmissionLoad::Empty => {
+                    *self = Self::Init {
+                        last_index: index,
+                        tasks_count_submitted: 0,
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_family = "wasm")]
+mod __submission_load_wasm {
+    #[derive(Default, Debug)]
+    pub struct SubmissionLoad;
+
+    impl SubmissionLoad {
+        pub fn regulate(
+            &mut self,
+            _device: &wgpu::Device,
+            _tasks_count: usize,
+            _index: wgpu::SubmissionIndex,
+        ) {
+            // Nothing to do.
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+use __submission_load::*;
+#[cfg(target_family = "wasm")]
+use __submission_load_wasm::*;
 
 fn create_encoder(device: &wgpu::Device) -> wgpu::CommandEncoder {
     device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
