@@ -7,7 +7,11 @@ use crate::{
     compute::{WgpuServer, WgpuStorage},
     AutoGraphicsApi, GraphicsApi, Pdrc, WgpuDevice,
 };
-use cubecl_core::{channel::ComputeChannel, server::ComputeServer, Feature, Runtime};
+#[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
+use cubecl_core::future;
+#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+use cubecl_core::{channel::ComputeChannel, server::ComputeServer};
+use cubecl_core::{Feature, Runtime};
 #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
 use cubecl_runtime::channel::MutexComputeChannel;
 use cubecl_runtime::{
@@ -31,6 +35,7 @@ thread_local! {
     static LOCAL_DEVICE: RefCell<hashbrown::HashMap<WgpuDevice, Rc<RefCell<Server>>>> = RefCell::new(hashbrown::HashMap::default());
 }
 
+#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
 static RUNTIME: ComputeRuntime<WgpuDevice, Server, ThreadLocalChannel> = ComputeRuntime::new();
 
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
@@ -214,6 +219,7 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         memory_management,
         setup.device.clone(),
         setup.queue,
+        setup.adapter.clone(),
         options.tasks_max,
     );
     let channel = MutexComputeChannel::new(server);

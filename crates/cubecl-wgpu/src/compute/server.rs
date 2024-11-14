@@ -25,6 +25,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     memory_management: MemoryManagement<WgpuStorage>,
     pub(crate) device: Pdrc<wgpu::Device>,
     queue: Pdrc<wgpu::Queue>,
+    #[allow(unused)]
     pub(crate) adapter: Pdrc<wgpu::Adapter>,
     encoder: CommandEncoder,
     current_pass: Option<ComputePass<'static>>,
