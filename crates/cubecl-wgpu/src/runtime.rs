@@ -68,8 +68,8 @@ impl Runtime for WgpuRuntime<WgslCompiler> {
             {
                 let server = LOCAL_DEVICE.with_borrow_mut(|runtime| {
                     runtime
-                        .entry(device.clone())
-                        .or_insert_with(|| ThreadLocalChannel::make_server(device))
+                        .get(device)
+                        .expect(&format!("The wgpu server for {device:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread"))
                         .clone()
                 });
                 let server = server.borrow();
@@ -156,6 +156,32 @@ pub struct WgpuSetup {
     pub device: Pdrc<wgpu::Device>,
     /// The queue Burn commands will be submitted to.
     pub queue: Pdrc<wgpu::Queue>,
+}
+
+#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+pub async fn init_thread_server(device: WgpuDevice, options: RuntimeOptions) {
+    let setup = create_setup_for_device::<AutoGraphicsApi, WgslCompiler>(&device).await;
+
+    let limits = setup.device.limits();
+    let mem_props = MemoryDeviceProperties {
+        max_page_size: limits.max_storage_buffer_binding_size as u64,
+        alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
+    };
+    let memory_management = {
+        let mem_props = mem_props.clone();
+        let config = options.memory_config;
+        let storage = WgpuStorage::new(setup.device.clone());
+        MemoryManagement::from_configuration(storage, mem_props, config)
+    };
+    let server = crate::compute::WgpuServer::new(
+        memory_management,
+        setup.device,
+        setup.queue,
+        setup.adapter,
+        options.tasks_max,
+    );
+
+    LOCAL_DEVICE.with_borrow_mut(|map| map.insert(device, Rc::new(RefCell::new(server))));
 }
 
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
@@ -465,8 +491,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     ) -> cubecl_runtime::storage::BindingResource<Server> {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device));
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ));
             server.borrow_mut().get_resource(binding)
         })
     }
@@ -474,8 +503,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     fn create(&self, data: &[u8]) -> cubecl_core::server::Handle {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device));
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ));
             server.borrow_mut().create(data)
         })
     }
@@ -483,8 +515,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     fn empty(&self, size: usize) -> cubecl_core::server::Handle {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device));
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ));
             server.borrow_mut().empty(size)
         })
     }
@@ -498,8 +533,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     ) {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device));
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ));
             unsafe { server.borrow_mut().execute(kernel, count, bindings, mode) }
         })
     }
@@ -507,8 +545,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     fn flush(&self) {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device));
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ));
             server.borrow_mut().flush()
         })
     }
@@ -516,8 +557,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     fn sync(&self) -> impl std::future::Future<Output = ()> {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device))
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ))
                 .clone();
             async move { server.borrow_mut().sync().await }
         })
@@ -526,8 +570,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     fn sync_elapsed(&self) -> impl std::future::Future<Output = cubecl_runtime::TimestampsResult> {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device))
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ))
                 .clone();
             async move { server.borrow_mut().sync_elapsed().await }
         })
@@ -536,8 +583,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device));
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ));
             server.borrow_mut().memory_usage()
         })
     }
@@ -545,8 +595,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     fn enable_timestamps(&self) {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device));
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ));
             server.borrow_mut().enable_timestamps()
         })
     }
@@ -554,8 +607,11 @@ impl ComputeChannel<Server> for ThreadLocalChannel {
     fn disable_timestamps(&self) {
         LOCAL_DEVICE.with_borrow_mut(|runtime| {
             let server = runtime
-                .entry(self.device.clone())
-                .or_insert_with(|| Self::make_server(&self.device));
+                .get(&self.device)
+                .expect(&format!(
+                    "The wgpu server for {:?} was not initialized with `init_thread_server`. `init_thread_server` needs to be called once on each thread before any computation is done on that thread",
+                    self.device,
+                ));
             server.borrow_mut().disable_timestamps()
         })
     }
