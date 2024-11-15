@@ -39,7 +39,12 @@ fn reduce_sum_vector<N: Numeric>(
     // of the memory yields the expected output.
     for i in 0..num_blocks {
         let start = i * block_size + UNIT_POS_Y * config.plane_size;
-        let sum = plane_sum(input[start + UNIT_POS_X]);
+        let value = select(
+            start + UNIT_POS_X < input.len(),
+            input[start + UNIT_POS_X],
+            Line::empty(config.line_size).fill(N::from_int(0)),
+        );
+        let sum = plane_sum(value);
         if UNIT_POS_X == 0 {
             memory[UNIT_POS_Y] += sum;
         }
