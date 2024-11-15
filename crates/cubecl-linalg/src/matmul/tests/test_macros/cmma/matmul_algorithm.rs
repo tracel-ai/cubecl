@@ -55,7 +55,7 @@ macro_rules! matmul_test_define {
                     batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
 
                 fn cube_dim() -> CubeDim {
-                    CubeDim::new($plane_dim, 1, 1)
+                    CubeDim::new($plane_dim, 2, 1)
                 }
 
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {

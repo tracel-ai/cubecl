@@ -110,6 +110,8 @@ pub trait Config: MatmulConfig {
     /// Returns the number of planes in the cube
     fn num_planes(&self) -> u32;
 
+    fn num_compute_planes(&self) -> u32;
+
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 

@@ -132,14 +132,7 @@ where
 #[cube]
 impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> Matmul<EG, ES, SMM> {
     fn is_consumer(#[comptime] config: <Self as MatmulKernel<EG, EG>>::Config) -> bool {
-        // This is not stored but recomputed each time
-        // Should be configurable
-        // The change is rather in the smm where it must consider there are less planes
-        // Also it's in the config that the GMM can influence the SMM
-        // By changing num_planes, mostly, but also the plane mapper should have config as parameter
-        // otherwise cannot know the offset
-
-        UNIT_POS_Y * 2 / config.plane_dim() == 1
+        UNIT_POS_Y < config.num_consumers()
     }
 }
 
@@ -152,6 +145,8 @@ where
     type Config = Config<SMM::Config>;
 
     fn check_config(config: Self::Config) {
+        assert!(config.num_consumers() > 0);
+        assert!(config.num_producers() > 0);
         SMM::check_config(config.to_smm_config());
     }
 
@@ -248,6 +243,14 @@ impl<S: stage::Config> global::Config for Config<S> {
 
     fn transpose_load(&self, ident: Ident) -> bool {
         self.layout(ident) != self.smm_config.layout(ident)
+    }
+
+    fn num_producers(&self) -> u32 {
+        self.num_planes() - self.num_consumers()
+    }
+
+    fn num_consumers(&self) -> u32 {
+        self.smm_config.num_compute_planes()
     }
 }
 

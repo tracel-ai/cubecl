@@ -1,6 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Config;
-use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::components::{global, Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -11,7 +10,7 @@ pub struct BufferLoading {}
 
 #[cube]
 impl BufferLoading {
-    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
+    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         buffer_idx: u32,
@@ -23,16 +22,15 @@ impl BufferLoading {
 
         let num_buffer_elements = stage_dim.buffer_num_elements(ident);
 
-        // TODO make sure num planes is diminished
-        let total_units = comptime!(config.num_planes() * config.plane_dim());
+        let num_planes = config.num_producers();
+        let total_units = comptime!(num_planes * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_buffer_elements / jump_length;
 
         #[allow(clippy::all)]
         let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
 
-        // TODO make sure plane_id is offseted
-        let plane_id = UNIT_POS_Y - 0;
+        let plane_id = UNIT_POS_Y - config.num_consumers();
         let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 

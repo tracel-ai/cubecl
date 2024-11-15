@@ -1,5 +1,6 @@
 use crate::matmul::components::global::producer_consumer::buffer_loading::BufferLoading;
 use crate::matmul::components::global::tensor_view::TensorReader;
+use crate::matmul::components::global::Config;
 use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::Stage;
@@ -29,7 +30,7 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric> {
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
     type StageReader = LhsBufferReader<ES>;
 
-    fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
+    fn fill_stage<G: Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         if this.is_producer {
             BufferLoading::load_to_slice::<EG, ES, G>(
                 &this.tensor_view,
