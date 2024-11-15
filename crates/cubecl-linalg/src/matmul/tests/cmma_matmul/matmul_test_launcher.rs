@@ -138,7 +138,8 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
 ) -> TensorRawParts<EG> {
     match ident {
         Ident::Lhs => {
-            let original_data: Vec<EG> = generate_random_data(tensor_size(problem, Ident::Lhs));
+            let original_data: Vec<EG> =
+                generate_random_data(tensor_size(problem, Ident::Lhs), 1234);
             let data = match problem.lhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
@@ -154,7 +155,8 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
             }
         }
         Ident::Rhs => {
-            let original_data: Vec<EG> = generate_random_data(tensor_size(problem, Ident::Rhs));
+            let original_data: Vec<EG> =
+                generate_random_data(tensor_size(problem, Ident::Rhs), 5678);
             let data = match problem.rhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
