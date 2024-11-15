@@ -37,6 +37,31 @@ macro_rules! testgen_reduce {
         }
 
         #[test]
+        pub fn reduce_sum_vector_single_plane_line_size_four() {
+            impl_reduce_sum_test::<TestRuntime, u32>(
+                &Default::default(),
+                TestCase {
+                    input: TestTensorParts {
+                        values: (0..32).collect(),
+                        stride: vec![1],
+                        shape: vec![32],
+                    },
+                    output: TestTensorParts {
+                        values: vec![0, 0, 0, 0],
+                        stride: vec![1],
+                        shape: vec![1],
+                    },
+                    line_size: 4,
+                    expected: vec![112, 120, 128, 136],
+                    tolerance: None,
+                    cube_count: CubeCount::Static(1, 1, 1),
+                    cube_dim: CubeDim::new(32, 1, 1),
+                    sum_dim: 0,
+                },
+            )
+        }
+
+        #[test]
         pub fn reduce_sum_vector_long_single_plane() {
             impl_reduce_sum_test::<TestRuntime, u32>(
                 &Default::default(),
