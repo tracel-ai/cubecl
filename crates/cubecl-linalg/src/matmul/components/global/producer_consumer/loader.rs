@@ -1,3 +1,4 @@
+use crate::matmul::components::global::producer_consumer::buffer_loading::BufferLoading;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
@@ -30,13 +31,13 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
 
     fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         if this.is_producer {
-            // TODO load if producer
-            // BufferLoading::load_to_slice::<EG, ES, G>(
-            //     &this.tensor_view,
-            //     &mut this.stage.as_slice_mut(),
-            //     Ident::Lhs,
-            //     config,
-            // );
+            BufferLoading::load_to_slice::<EG, ES, G>(
+                &this.tensor_view,
+                &mut this.stage.as_slice_mut(),
+                this.buffer_iter,
+                Ident::Lhs,
+                config,
+            );
         }
 
         LhsBufferReader::<ES> {
@@ -78,9 +79,15 @@ impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
     type StageReader = RhsBufferReader<ES>;
 
-    fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] _config: G) -> Self::StageReader {
+    fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         if this.is_producer {
-            // TODO load if producer
+            BufferLoading::load_to_slice::<EG, ES, G>(
+                &this.tensor_view,
+                &mut this.stage.as_slice_mut(),
+                this.buffer_iter,
+                Ident::Lhs,
+                config,
+            );
         }
 
         RhsBufferReader::<ES> {

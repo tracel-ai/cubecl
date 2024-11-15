@@ -10,7 +10,7 @@ use crate::matmul::{
         config::MatmulConfig,
         global,
         stage::{self, Config as _, StageWriter},
-        tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout, PlaneMapper, StageDim,
+        tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout, StageDim,
     },
     kernels::matmul::{create_stage_dim, AdvancedConfig},
 };
@@ -59,7 +59,7 @@ where
         #[unroll]
         for buffer_iter in 0..SS::NUM_K {
             let tile_lhs =
-                LhsReader::read_tile::<Self::Config>(lhs, Self::plane_id(), buffer_iter, config);
+                LhsReader::read_tile::<Self::Config>(lhs, UNIT_POS_Y, buffer_iter, config);
             TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
 
             #[unroll]
@@ -104,7 +104,7 @@ where
         let num_tile_lines =
             stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
 
-        let start = num_tile_lines * Self::plane_id();
+        let start = num_tile_lines * UNIT_POS_Y;
         let mut out_smem = SharedMemory::<Acc>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
@@ -118,7 +118,7 @@ where
             SW::write::<Acc, G>(
                 out,
                 smem_slice.to_slice(),
-                Self::plane_id(),
+                UNIT_POS_Y,
                 accumulator_iter,
                 global_config,
             );
@@ -171,24 +171,6 @@ where
             cube_dim.y,
             advanced_config.tiling_order,
         )
-    }
-}
-
-#[cube]
-impl<I, O, Acc, Tmm, SS> PlaneMapper for Matmul<I, O, Acc, Tmm, SS>
-where
-    I: Numeric,
-    O: Numeric,
-    Acc: Numeric,
-    Tmm: tile::Matmul<I, Acc>,
-    SS: StageSize,
-{
-    fn plane_id() -> u32 {
-        UNIT_POS_Y
-    }
-
-    fn plane_unit() -> u32 {
-        UNIT_POS_X
     }
 }
 

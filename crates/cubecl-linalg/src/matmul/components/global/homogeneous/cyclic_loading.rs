@@ -1,4 +1,3 @@
-use crate::matmul::components::config::PlaneMapper;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Config;
 use crate::matmul::components::stage::{
@@ -12,17 +11,6 @@ use cubecl_core::prelude::*;
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicLoading {}
-
-#[cube]
-impl PlaneMapper for CyclicLoading {
-    fn plane_id() -> u32 {
-        UNIT_POS_Y
-    }
-
-    fn plane_unit() -> u32 {
-        UNIT_POS_X
-    }
-}
 
 #[cube]
 impl CyclicLoading {
@@ -43,7 +31,7 @@ impl CyclicLoading {
         #[allow(clippy::all)]
         let _ = comptime!(check_jump_divides_well(num_stage_elements, jump_length));
 
-        let unit_id = Self::plane_id() * config.plane_dim() + Self::plane_unit();
+        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
         for i in 0..num_loads_per_unit {

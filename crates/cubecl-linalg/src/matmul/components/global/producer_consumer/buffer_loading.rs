@@ -1,9 +1,5 @@
-use crate::matmul::components::config::PlaneMapper;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Config;
-use crate::matmul::components::stage::{
-    TilingOrder, TilingOrderConfig, XMajorTiling, YMajorTiling,
-};
 use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -14,22 +10,11 @@ use cubecl_core::prelude::*;
 pub struct BufferLoading {}
 
 #[cube]
-impl PlaneMapper for BufferLoading {
-    fn plane_id() -> u32 {
-        // TODO offset here
-        UNIT_POS_Y
-    }
-
-    fn plane_unit() -> u32 {
-        UNIT_POS_X
-    }
-}
-
-#[cube]
 impl BufferLoading {
     pub fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
+        buffer_idx: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -46,7 +31,9 @@ impl BufferLoading {
         #[allow(clippy::all)]
         let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
 
-        let unit_id = Self::plane_id() * config.plane_dim() + Self::plane_unit();
+        // TODO make sure plane_id is offseted
+        let plane_id = UNIT_POS_Y - 0;
+        let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
         for i in 0..num_loads_per_unit {
@@ -56,13 +43,10 @@ impl BufferLoading {
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = match config.tiling_order() {
-                TilingOrderConfig::XMajor => {
-                    XMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-                }
-                TilingOrderConfig::YMajor => {
-                    YMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-                }
+            let (tile_x, tile_y) = match ident {
+                Ident::Lhs => (nth_tile, buffer_idx),
+                Ident::Rhs => (buffer_idx, nth_tile),
+                Ident::Out => unreachable!(),
             };
 
             let line_read =

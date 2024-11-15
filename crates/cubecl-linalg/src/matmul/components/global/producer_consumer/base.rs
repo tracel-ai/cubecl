@@ -1,12 +1,12 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
+use crate::matmul::components::stage;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{global, MatmulProblem};
-use crate::matmul::components::{stage, PlaneMapper};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 
@@ -24,22 +24,6 @@ pub struct Matmul<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _stage_matmul: PhantomData<SMM>,
-}
-
-#[cube]
-impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> PlaneMapper for Matmul<EG, ES, SMM> {
-    fn plane_id() -> u32 {
-        // The change is rather in the smm where it must consider there are less planes
-        // Also it's in the config that the GMM can influence the SMM
-        // By changing num_planes, mostly, but also the plane mapper should have config as parameter
-        // otherwise cannot know the offset
-
-        UNIT_POS_Y
-    }
-
-    fn plane_unit() -> u32 {
-        UNIT_POS_X
-    }
 }
 
 #[cube]
@@ -150,7 +134,12 @@ impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> Matmul<EG, ES, SMM> {
     fn is_consumer(#[comptime] config: <Self as MatmulKernel<EG, EG>>::Config) -> bool {
         // This is not stored but recomputed each time
         // Should be configurable
-        Self::plane_id() * 2 / config.plane_dim() == 1
+        // The change is rather in the smm where it must consider there are less planes
+        // Also it's in the config that the GMM can influence the SMM
+        // By changing num_planes, mostly, but also the plane mapper should have config as parameter
+        // otherwise cannot know the offset
+
+        UNIT_POS_Y * 2 / config.plane_dim() == 1
     }
 }
 

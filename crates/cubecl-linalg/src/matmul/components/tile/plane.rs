@@ -1,7 +1,7 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::Config as TileConfig;
 use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::{config::PlaneMapper, tile, Ident, MatmulKernel, MatrixLayout};
+use crate::matmul::components::{tile, Ident, MatmulKernel, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
@@ -29,19 +29,6 @@ pub struct PlaneMma<I: Numeric, O: Numeric, const M: u32, const N: u32, const K:
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> PlaneMapper
-    for PlaneMma<I, O, M, N, K>
-{
-    fn plane_id() -> u32 {
-        UNIT_POS_Y
-    }
-
-    fn plane_unit() -> u32 {
-        UNIT_POS_X
-    }
-}
-
-#[cube]
 impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Matmul<I, O>
     for PlaneMma<I, O, M, N, K>
 {
@@ -60,7 +47,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         let num_jumps = Self::K / k_jump;
         let compute_width = Self::N / row_division;
 
-        let unit_offset = Self::plane_unit() % row_division * compute_width;
+        let unit_offset = UNIT_POS_X % row_division * compute_width;
 
         #[unroll]
         for k_outer in 0..num_jumps {
@@ -93,7 +80,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
             MatrixLayout::RowMajor => fill_parallel_lhs(
                 slice,
                 &mut lhs.to_slice_mut(),
-                Self::plane_unit(),
+                UNIT_POS_X,
                 Self::M,
                 Self::K,
                 config.line_size(Ident::Lhs),
@@ -102,7 +89,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
             MatrixLayout::ColMajor => fill_perpendicular_lhs(
                 slice,
                 &mut lhs.to_slice_mut(),
-                Self::plane_unit(),
+                UNIT_POS_X,
                 Self::M,
                 Self::K,
                 config.line_size(Ident::Lhs),
@@ -116,7 +103,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
             MatrixLayout::RowMajor => fill_perpendicular_rhs(
                 slice,
                 &mut rhs.to_slice_mut(),
-                Self::plane_unit(),
+                UNIT_POS_X,
                 Self::N,
                 Self::K,
                 config.line_size(Ident::Rhs),
@@ -125,7 +112,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
             MatrixLayout::ColMajor => fill_parallel_rhs(
                 slice,
                 &mut rhs.to_slice_mut(),
-                Self::plane_unit(),
+                UNIT_POS_X,
                 Self::N,
                 Self::K,
                 config.line_size(Ident::Rhs),
@@ -158,7 +145,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         let compute_width = Self::N / row_division;
         let num_lines = compute_width / line_size;
 
-        let unit = Self::plane_unit();
+        let unit = UNIT_POS_X;
 
         let row = unit / row_division;
         let row_offset = row * Self::N / line_size;
