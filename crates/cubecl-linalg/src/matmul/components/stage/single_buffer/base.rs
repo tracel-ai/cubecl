@@ -100,7 +100,7 @@ where
 
         let start = num_tile_lines * UNIT_POS_Y;
         let mut out_smem = SharedMemory::<Acc>::new_lined(
-            num_tile_lines * stage_config.num_planes(),
+            num_tile_lines * stage_config.num_compute_planes(),
             out_smem_line_size,
         );
 
