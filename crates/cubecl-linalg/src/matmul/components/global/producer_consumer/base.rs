@@ -1,4 +1,5 @@
 use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
@@ -14,7 +15,6 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use super::loader::{LhsBufferLoader, RhsBufferLoader};
-use super::unloader::Unloader;
 
 /// Performs matrix multiplication at the global level, with planes split between two roles:
 /// - Some planes load data to the stage
@@ -49,10 +49,6 @@ where
     ES: Numeric,
     SMM: stage::Matmul<ES, EG, Lhs = LhsBufferReader<ES>, Rhs = RhsBufferReader<ES>>,
 {
-    // TODO will be different loaders, that only load partially and give a reader with hardcoded buffer index
-    // Then stage matmul will be given readers that can't read any buffer
-    // Stage matmul will still be able to loop on buffers, but on less, typically 1.
-    // What must be untied is the stage size from the number of buffers stage matmul thinks there are
     type Lhs = LhsBufferLoader<EG, ES>;
     type Rhs = RhsBufferLoader<EG, ES>;
     type Out = Unloader<EG>;
@@ -64,10 +60,7 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        // First half will load, second half will compute
-        // Should be configurable
-        let is_consumer = Self::plane_id() * 2 / config.plane_dim() == 1;
-        let is_producer = !is_consumer;
+        let is_consumer = Self::is_consumer(config);
 
         let num_buffers = config.stage_dim(Ident::Lhs).num_tiles_y;
         let buffer_step = config.stage_dim(Ident::Lhs).tile_size_y;
@@ -80,9 +73,6 @@ where
         let mut acc = SMM::acc_init_zeros(config.to_smm_config());
 
         for _ in 0..num_loops {
-            // The new loader should keep track of which buffer it's at, using the view advancement
-            // It should also know from its constructor if it's consumer or producer
-
             let lhs_stage_reader = Self::Lhs::fill_stage::<Self::Config>(&mut lhs_loader, config);
             let rhs_stage_reader = Self::Rhs::fill_stage::<Self::Config>(&mut rhs_loader, config);
 
@@ -118,7 +108,14 @@ where
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::Lhs {
-        Self::Lhs::new::<Self::Config>(lhs, x_offset, y_offset, nth_batch, config)
+        Self::Lhs::new::<Self::Config>(
+            lhs,
+            x_offset,
+            y_offset,
+            nth_batch,
+            !Self::is_consumer(config),
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -128,7 +125,14 @@ where
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::Rhs {
-        Self::Rhs::new::<Self::Config>(rhs, x_offset, y_offset, nth_batch, config)
+        Self::Rhs::new::<Self::Config>(
+            rhs,
+            x_offset,
+            y_offset,
+            nth_batch,
+            !Self::is_consumer(config),
+            config,
+        )
     }
 
     fn init_unloader(
@@ -138,6 +142,15 @@ where
         batch_offset: u32,
     ) -> Self::Out {
         Self::Out::new(out, x_offset, y_offset, batch_offset)
+    }
+}
+
+#[cube]
+impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> Matmul<EG, ES, SMM> {
+    fn is_consumer(#[comptime] config: <Self as MatmulKernel<EG, EG>>::Config) -> bool {
+        // This is not stored but recomputed each time
+        // Should be configurable
+        Self::plane_id() * 2 / config.plane_dim() == 1
     }
 }
 

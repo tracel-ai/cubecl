@@ -98,4 +98,13 @@ impl StageDim {
     pub fn num_elements_y_dim(&self) -> u32 {
         self.num_tiles_y * self.tile_size_y
     }
+
+    pub fn buffer_num_elements(&self, ident: Ident) -> u32 {
+        self.tile_num_elements()
+            * match ident {
+                Ident::Lhs => self.num_tiles_x,
+                Ident::Rhs => self.num_tiles_y,
+                Ident::Out => panic!("Out has no buffer"),
+            }
+    }
 }

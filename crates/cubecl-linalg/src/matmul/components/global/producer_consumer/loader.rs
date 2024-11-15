@@ -12,6 +12,7 @@ pub struct LhsBufferLoader<EG: Numeric, ES: Numeric> {
     pub stage: Stage<ES>,
     buffer_iter: u32,
     num_buffers: u32,
+    is_producer: bool,
 }
 
 #[derive(CubeType)]
@@ -20,14 +21,24 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric> {
     pub stage: Stage<ES>,
     buffer_iter: u32,
     num_buffers: u32,
+    is_producer: bool,
 }
 
 #[cube]
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
     type StageReader = LhsBufferReader<ES>;
 
-    fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] _config: G) -> Self::StageReader {
-        // TODO load if producer
+    fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
+        if this.is_producer {
+            // TODO load if producer
+            // BufferLoading::load_to_slice::<EG, ES, G>(
+            //     &this.tensor_view,
+            //     &mut this.stage.as_slice_mut(),
+            //     Ident::Lhs,
+            //     config,
+            // );
+        }
+
         LhsBufferReader::<ES> {
             stage: this.stage,
             buffer: this.buffer_iter,
@@ -47,9 +58,9 @@ impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
+        is_producer: bool,
         #[comptime] config: G,
     ) -> Self {
-        // TMP
         let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, nth_batch);
 
@@ -58,6 +69,7 @@ impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
             stage,
             buffer_iter: 0,
             num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y,
+            is_producer,
         }
     }
 }
@@ -67,7 +79,10 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
     type StageReader = RhsBufferReader<ES>;
 
     fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] _config: G) -> Self::StageReader {
-        // TODO load if producer
+        if this.is_producer {
+            // TODO load if producer
+        }
+
         RhsBufferReader::<ES> {
             stage: this.stage,
             buffer: this.buffer_iter,
@@ -87,9 +102,9 @@ impl<EG: Numeric, ES: Numeric> RhsBufferLoader<EG, ES> {
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
+        is_producer: bool,
         #[comptime] config: G,
     ) -> Self {
-        // TMP
         let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, nth_batch);
 
@@ -98,6 +113,7 @@ impl<EG: Numeric, ES: Numeric> RhsBufferLoader<EG, ES> {
             stage,
             buffer_iter: 0,
             num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y,
+            is_producer,
         }
     }
 }

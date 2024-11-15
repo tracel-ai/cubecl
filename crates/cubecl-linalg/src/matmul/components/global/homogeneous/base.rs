@@ -1,4 +1,5 @@
 use crate::matmul::components::config::MatmulConfig;
+use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
@@ -14,7 +15,6 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use super::loader::{LhsLoader, RhsLoader};
-use super::unloader::Unloader;
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
