@@ -160,28 +160,31 @@ pub struct WgpuSetup {
 
 #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
 pub async fn init_thread_server(device: WgpuDevice, options: RuntimeOptions) {
-    let setup = create_setup_for_device::<AutoGraphicsApi, WgslCompiler>(&device).await;
+    if !LOCAL_DEVICE.with_borrow(|map| map.contains_key(&device)) {
+        let setup = create_setup_for_device::<AutoGraphicsApi, WgslCompiler>(&device).await;
 
-    let limits = setup.device.limits();
-    let mem_props = MemoryDeviceProperties {
-        max_page_size: limits.max_storage_buffer_binding_size as u64,
-        alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
-    };
-    let memory_management = {
-        let mem_props = mem_props.clone();
-        let config = options.memory_config;
-        let storage = WgpuStorage::new(setup.device.clone());
-        MemoryManagement::from_configuration(storage, mem_props, config)
-    };
-    let server = crate::compute::WgpuServer::new(
-        memory_management,
-        setup.device,
-        setup.queue,
-        setup.adapter,
-        options.tasks_max,
-    );
+        let limits = setup.device.limits();
+        let mem_props = MemoryDeviceProperties {
+            max_page_size: limits.max_storage_buffer_binding_size as u64,
+            alignment: WgpuStorage::ALIGNMENT
+                .max(limits.min_storage_buffer_offset_alignment as u64),
+        };
+        let memory_management = {
+            let mem_props = mem_props.clone();
+            let config = options.memory_config;
+            let storage = WgpuStorage::new(setup.device.clone());
+            MemoryManagement::from_configuration(storage, mem_props, config)
+        };
+        let server = crate::compute::WgpuServer::new(
+            memory_management,
+            setup.device,
+            setup.queue,
+            setup.adapter,
+            options.tasks_max,
+        );
 
-    LOCAL_DEVICE.with_borrow_mut(|map| map.insert(device, Rc::new(RefCell::new(server))));
+        LOCAL_DEVICE.with_borrow_mut(|map| map.insert(device, Rc::new(RefCell::new(server))));
+    }
 }
 
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
