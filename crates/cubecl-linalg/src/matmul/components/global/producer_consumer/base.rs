@@ -137,6 +137,10 @@ where
     }
 }
 
+fn printstuff<D: std::fmt::Debug>(x: D) {
+    println!("{:?}", x)
+}
+
 #[cube]
 impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> Matmul<EG, ES, SMM> {
     fn is_consumer(#[comptime] config: <Self as MatmulKernel<EG, EG>>::Config) -> bool {
@@ -154,6 +158,10 @@ where
 
     fn check_config(config: Self::Config) {
         assert!(config.num_producers() > 0, "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.");
+        assert!(
+            config.stage_dim(Ident::Lhs).num_tiles_y > 1,
+            "Producer-consumer needs at least 2 buffers."
+        );
         SMM::check_config(config.to_smm_config());
     }
 

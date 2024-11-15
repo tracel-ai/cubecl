@@ -120,7 +120,7 @@ impl<EG: Numeric, ES: Numeric> RhsBufferLoader<EG, ES> {
             tensor_view,
             stage,
             buffer_iter: 0,
-            num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y,
+            num_buffers: config.stage_dim(Ident::Rhs).num_tiles_x,
             is_producer,
         }
     }
