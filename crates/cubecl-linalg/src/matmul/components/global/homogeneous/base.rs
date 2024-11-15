@@ -35,19 +35,19 @@ where
     type Lhs = LhsLoader<EG, ES>;
     type Rhs = RhsLoader<EG, ES>;
     type Out = Unloader<EG>;
+    type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::Lhs,
         mut rhs_loader: Self::Rhs,
         mut out_unloader: Self::Out,
+        acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
         let k_step = SMM::K;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
-
-        let mut acc = SMM::acc_init_zeros(config.to_smm_config());
 
         for _ in 0..num_loops {
             let lhs_stage_reader = &Self::Lhs::fill_stage::<Self::Config>(&mut lhs_loader, config);
@@ -58,7 +58,7 @@ where
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
-                &mut acc,
+                acc,
                 config.to_smm_config(),
             );
 
@@ -68,7 +68,7 @@ where
             Self::Rhs::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::acc_read::<Self::Out, Self::Config>(
+        SMM::read_accumulator::<Self::Out, Self::Config>(
             &acc,
             &mut out_unloader,
             config.to_smm_config(),
@@ -103,6 +103,14 @@ where
         batch_offset: u32,
     ) -> Self::Out {
         Self::Out::new(out, x_offset, y_offset, batch_offset)
+    }
+
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+        SMM::init_accumulator(config.to_smm_config())
+    }
+
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
+        SMM::zero_accumulator(acc, config.to_smm_config());
     }
 }
 

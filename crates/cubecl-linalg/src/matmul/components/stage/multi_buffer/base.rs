@@ -43,9 +43,9 @@ where
     const M: u32 = SS::NUM_M * TMM::M;
     const N: u32 = SS::NUM_N * TMM::N;
     const K: u32 = SS::NUM_K * TMM::K;
-    type Accumulator = Sequence<TMM::Out>;
     type Lhs = LhsReader<I>;
     type Rhs = RhsReader<I>;
+    type Accumulator = Sequence<TMM::Accumulator>;
 
     fn execute(
         lhs: &LhsReader<I>,
@@ -83,18 +83,7 @@ where
         }
     }
 
-    fn acc_init_zeros(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let mut accumulators = Sequence::<TMM::Out>::new();
-
-        #[unroll]
-        for _ in 0..SS::NUM_N {
-            accumulators.push(TMM::init_output(config.to_tmm_config()));
-        }
-
-        accumulators
-    }
-
-    fn acc_read<SW: StageWriter<O>, G: global::Config>(
+    fn read_accumulator<SW: StageWriter<O>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut SW,
         #[comptime] stage_config: Self::Config,
@@ -114,7 +103,7 @@ where
         for accumulator_iter in 0..acc.len() {
             let accumulator = acc.index(accumulator_iter);
             let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
-            TMM::read_output(accumulator, &mut smem_slice, stage_config.to_tmm_config());
+            TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
             SW::write::<Acc, G>(
                 out,
                 smem_slice.to_slice(),
@@ -122,6 +111,24 @@ where
                 accumulator_iter,
                 global_config,
             );
+        }
+    }
+
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+        let mut acc = Sequence::<TMM::Accumulator>::new();
+
+        #[unroll]
+        for _ in 0..SS::NUM_N {
+            acc.push(TMM::init_accumulator(config.to_tmm_config()));
+        }
+
+        acc
+    }
+
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
+        #[unroll]
+        for i in 0..SS::NUM_N {
+            TMM::zero_accumulator(acc.index_mut(i), config.to_tmm_config());
         }
     }
 }

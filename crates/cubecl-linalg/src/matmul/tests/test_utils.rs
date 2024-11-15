@@ -117,7 +117,10 @@ impl CastInto<flex32> for f32 {
 ///
 /// This is a naive CPU implementation with fixed seed,
 /// not designed to be used for other purposes than testing.
-pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) -> Vec<F> {
+pub(crate) fn generate_random_data<F: Float + CubeElement>(
+    num_elements: usize,
+    mut seed: u64,
+) -> Vec<F> {
     fn lcg(seed: &mut u64) -> f32 {
         const A: u64 = 1664525;
         const C: u64 = 1013904223;
@@ -126,8 +129,6 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) 
         *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % (1u64 << 32);
         (*seed as f64 / M * 2.0 - 1.0) as f32
     }
-
-    let mut seed = 12345;
 
     (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
 }
@@ -252,7 +253,7 @@ impl MatmulTestCase {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
-        let data = generate_random_data::<F>(shape.iter().product());
+        let data = generate_random_data::<F>(shape.iter().product(), 999);
         let handle = client.create(bytemuck::cast_slice(&data));
         TensorHandle::new_contiguous(shape, handle)
     }

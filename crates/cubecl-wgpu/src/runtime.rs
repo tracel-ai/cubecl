@@ -10,7 +10,7 @@ use cubecl_common::future;
 use cubecl_core::{Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
-use cubecl_runtime::{memory_management::TopologyProperties, DeviceProperties};
+use cubecl_runtime::{memory_management::HardwareProperties, DeviceProperties};
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
@@ -67,7 +67,7 @@ impl Default for RuntimeOptions {
         #[cfg(test)]
         const DEFAULT_MAX_TASKS: usize = 1;
         #[cfg(not(test))]
-        const DEFAULT_MAX_TASKS: usize = 16;
+        const DEFAULT_MAX_TASKS: usize = 32;
 
         let tasks_max = match std::env::var("CUBECL_WGPU_MAX_TASKS") {
             Ok(value) => value
@@ -143,11 +143,11 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
     };
-    let topology = TopologyProperties {
-        subcube_size_min: setup.adapter.limits().min_subgroup_size,
-        subcube_size_max: setup.adapter.limits().max_subgroup_size,
+    let hardware_props = HardwareProperties {
+        plane_size_min: setup.adapter.limits().min_subgroup_size,
+        plane_size_max: setup.adapter.limits().max_subgroup_size,
+        max_bindings: limits.max_bind_groups,
     };
-
     let memory_management = {
         let device = setup.device.clone();
         let mem_props = mem_props.clone();
@@ -164,12 +164,12 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     let channel = MutexComputeChannel::new(server);
 
     let features = setup.adapter.features();
-    let mut device_props = DeviceProperties::new(&[], mem_props, topology);
+    let mut device_props = DeviceProperties::new(&[], mem_props, hardware_props);
 
     if features.contains(wgpu::Features::SUBGROUP)
         && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
     {
-        device_props.register_feature(Feature::Subcube);
+        device_props.register_feature(Feature::Plane);
     }
     C::register_features(&setup.adapter, &setup.device, &mut device_props);
     ComputeClient::new(channel, device_props)

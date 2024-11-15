@@ -444,7 +444,7 @@ impl WgslCompiler {
                     self.num_workgroup_no_axis = true;
                     wgsl::Variable::NumWorkgroups
                 }
-                cube::Builtin::SubcubeDim => {
+                cube::Builtin::PlaneDim => {
                     self.subgroup_size = true;
                     wgsl::Variable::SubgroupSize
                 }
@@ -512,7 +512,7 @@ impl WgslCompiler {
             cube::Operation::Synchronization(val) => {
                 self.compile_synchronization(instructions, val)
             }
-            cube::Operation::Subcube(op) => self.compile_subgroup(instructions, op, out),
+            cube::Operation::Plane(op) => self.compile_subgroup(instructions, op, out),
             cube::Operation::CoopMma(_) => {
                 panic!("Cooperative matrix-multiply and accumulate isn't supported on wgpu.")
             }
@@ -522,40 +522,40 @@ impl WgslCompiler {
     fn compile_subgroup(
         &mut self,
         instructions: &mut Vec<wgsl::Instruction>,
-        subgroup: cube::Subcube,
+        subgroup: cube::Plane,
         out: Option<cube::Variable>,
     ) {
         let out = out.unwrap();
         let op = match subgroup {
-            cube::Subcube::Elect => Subgroup::Elect {
+            cube::Plane::Elect => Subgroup::Elect {
                 out: self.compile_variable(out),
             },
-            cube::Subcube::All(op) => Subgroup::All {
+            cube::Plane::All(op) => Subgroup::All {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
-            cube::Subcube::Any(op) => Subgroup::Any {
+            cube::Plane::Any(op) => Subgroup::Any {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
-            cube::Subcube::Broadcast(op) => Subgroup::Broadcast {
+            cube::Plane::Broadcast(op) => Subgroup::Broadcast {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             },
-            cube::Subcube::Sum(op) => Subgroup::Sum {
+            cube::Plane::Sum(op) => Subgroup::Sum {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
-            cube::Subcube::Prod(op) => Subgroup::Prod {
+            cube::Plane::Prod(op) => Subgroup::Prod {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
-            cube::Subcube::Min(op) => Subgroup::Min {
+            cube::Plane::Min(op) => Subgroup::Min {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
-            cube::Subcube::Max(op) => Subgroup::Max {
+            cube::Plane::Max(op) => Subgroup::Max {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },

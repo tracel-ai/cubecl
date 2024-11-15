@@ -38,9 +38,14 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
     type Lhs = Array<I>;
     type Rhs = Array<I>;
-    type Out = Array<O>;
+    type Accumulator = Array<O>;
 
-    fn execute(lhs: &Self::Lhs, rhs: &Self::Rhs, out: &mut Self::Out, #[comptime] config: Config) {
+    fn execute(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+        out: &mut Self::Accumulator,
+        #[comptime] config: Config,
+    ) {
         let k_jump = config.plane_dim() / Self::N;
         let row_division = config.plane_dim() / Self::M;
 
@@ -60,7 +65,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                 #[unroll]
                 for n_iter in 0..compute_width {
                     let unit_to_read = k_inner * Self::N + n_iter + unit_offset;
-                    let b_kn = subcube_broadcast::<I>(b_kp, unit_to_read);
+                    let b_kn = plane_broadcast::<I>(b_kp, unit_to_read);
                     out[n_iter] += O::cast_from(a_pk * b_kn);
                 }
             }
@@ -121,20 +126,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         }
     }
 
-    fn init_output(#[comptime] config: Config) -> Self::Out {
-        let len = Self::M * Self::N / (config.plane_dim());
-        let mut acc = Array::new(len);
-
-        #[unroll]
-        for i in 0..len {
-            acc[i] = O::from_int(0);
-        }
-
-        acc
-    }
-
-    fn read_output<C: Numeric>(
-        out: &Self::Out,
+    fn read_accumulator<C: Numeric>(
+        out: &Self::Accumulator,
         slice: &mut SliceMut<Line<C>>,
         #[comptime] config: Config,
     ) {
@@ -186,6 +179,27 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
                     slice[col + offset] = line;
                 }
             }
+        }
+    }
+
+    fn init_accumulator(#[comptime] config: Config) -> Self::Accumulator {
+        let len = Self::M * Self::N / (config.plane_dim());
+        let mut acc = Array::new(len);
+
+        #[unroll]
+        for i in 0..len {
+            acc[i] = O::from_int(0);
+        }
+
+        acc
+    }
+
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
+        let len = Self::M * Self::N / (config.plane_dim());
+
+        #[unroll]
+        for i in 0..len {
+            acc[i] = O::from_int(0);
         }
     }
 }
@@ -321,7 +335,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<(), &str> {
-        if !client.properties().feature_enabled(Feature::Subcube) {
+        if !client.properties().feature_enabled(Feature::Plane) {
             return Err("Planes not supported.");
         }
 

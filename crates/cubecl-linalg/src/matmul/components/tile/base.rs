@@ -31,13 +31,13 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     /// Contains RHS data that can be split across the units
     type Rhs: CubeType;
     /// Contains output data that can be split across the units
-    type Out: CubeType;
+    type Accumulator: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the output
     fn execute(
         lhs: &Self::Lhs,
         rhs: &Self::Rhs,
-        out: &mut Self::Out,
+        out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
 
@@ -63,20 +63,23 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     /// Fill the container of RHS with data
     fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
+    /// Write the content of the output container to the given slice
+    fn read_accumulator<C: Numeric>(
+        out: &Self::Accumulator,
+        slice: &mut SliceMut<Line<C>>,
+        #[comptime] config: Self::Config,
+    );
+
     /// Create the container to receive the execution output.
     ///
     /// # Safety
     ///
     /// The output container must be initialized to some value (typically 0),
     /// because the execution adds to the already present value.
-    fn init_output(#[comptime] config: Self::Config) -> Self::Out;
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    /// Write the content of the output container to the given slice
-    fn read_output<C: Numeric>(
-        out: &Self::Out,
-        slice: &mut SliceMut<Line<C>>,
-        #[comptime] config: Self::Config,
-    );
+    /// Set the accumulator to zeros
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
 /// Configuration for the Tile matmul (TMM) level

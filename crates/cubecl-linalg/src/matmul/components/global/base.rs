@@ -32,6 +32,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     type Lhs: Loader<EG, ES>;
     type Rhs: Loader<EG, ES>;
     type Out: Unloader<EG>;
+    type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
@@ -43,6 +44,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         lhs_loader: Self::Lhs,
         rhs_loader: Self::Rhs,
         unloader: Self::Out,
+        acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
@@ -69,6 +71,10 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         y_offset: u32,
         batch_offset: u32,
     ) -> Self::Out;
+
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
 #[cube]

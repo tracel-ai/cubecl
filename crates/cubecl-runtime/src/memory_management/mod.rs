@@ -80,24 +80,26 @@ pub struct MemoryDeviceProperties {
     pub alignment: u64,
 }
 
-/// Properties of the device related to topology.
+/// Properties of the device related to the accelerator hardware.
 ///
-/// # Subcube size min/max
+/// # Plane size min/max
 ///
-/// This is a range of possible values for the subcube size.
+/// This is a range of possible values for the plane size.
 ///
 /// For Nvidia GPUs and HIP, this is a single fixed value.
 ///
-/// For wgpu with AMD GPUs this is a rannge of possible values, but the actual configured value
+/// For wgpu with AMD GPUs this is a range of possible values, but the actual configured value
 /// is undefined and can only be queried at runtime. Should usually be 32, but not guaranteed.
 ///
 /// For Intel GPUs, this is variable based on the number of registers used in the kernel. No way to
 /// query this at compile time is currently available. As a result, the minimum value should usually
 /// be assumed.
 #[derive(Debug, Clone)]
-pub struct TopologyProperties {
-    /// The minimum size of a subcube on this device
-    pub subcube_size_min: u32,
-    /// The maximum size of a subcube on this device
-    pub subcube_size_max: u32,
+pub struct HardwareProperties {
+    /// The minimum size of a plane on this device
+    pub plane_size_min: u32,
+    /// The maximum size of a plane on this device
+    pub plane_size_max: u32,
+    /// minimum number of bindings for a kernel that can be used at once.
+    pub max_bindings: u32,
 }

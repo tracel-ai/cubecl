@@ -48,16 +48,19 @@ pub trait Matmul<I: Numeric, O: Numeric>:
         #[comptime] config: Self::Config,
     );
 
-    /// Creates an accumulator initialized to zeros
-    fn acc_init_zeros(#[comptime] config: Self::Config) -> Self::Accumulator;
-
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn acc_read<Out: StageWriter<O>, G: global::Config>(
+    fn read_accumulator<Out: StageWriter<O>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut Out,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
+
+    /// Create an instance of the accumulator
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    /// Set the accumulator to zeros
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
 // #[cube]
