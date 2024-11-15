@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use cubecl_core::prelude::*;
+use cubecl_core::{prelude::*, Feature};
 
 use crate::reduce::sum::{reduce_sum, ReduceConfig};
 
@@ -212,6 +212,10 @@ pub fn impl_reduce_sum_test<R: Runtime, N: Numeric + CubeElement + std::fmt::Dis
     test: TestCase<N>,
 ) {
     let client = R::client(device);
+    if !client.properties().feature_enabled(Feature::Plane) {
+        // Can't execute the test.
+        return;
+    }
 
     let input_handle = client.create(N::as_bytes(&test.input.values));
     let output_handle = client.create(N::as_bytes(&test.output.values));
