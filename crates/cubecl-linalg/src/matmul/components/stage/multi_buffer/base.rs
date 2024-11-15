@@ -227,10 +227,6 @@ impl<T: tile::Config> stage::Config for Config<T> {
         self.num_planes
     }
 
-    fn num_compute_planes(&self) -> u32 {
-        self.num_planes()
-    }
-
     fn plane_dim(&self) -> u32 {
         self.tmm_config.plane_dim()
     }

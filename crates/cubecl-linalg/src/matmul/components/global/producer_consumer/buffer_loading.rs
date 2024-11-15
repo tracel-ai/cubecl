@@ -17,6 +17,8 @@ impl BufferLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
+        // TODO refactor for less duplication with cyclic_loading
+
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
@@ -55,7 +57,6 @@ impl BufferLoading {
                     slice[unit_position / line_size] = Line::cast_from(line_read);
                 }
                 true => {
-                    // TODO refactor for less duplication
                     let slice_line_size = config.stage_line_size(ident);
 
                     if comptime!(slice_line_size == 1) {

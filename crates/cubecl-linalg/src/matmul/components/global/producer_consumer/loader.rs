@@ -86,7 +86,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
                 &this.tensor_view,
                 &mut this.stage.as_slice_mut(),
                 this.buffer_iter,
-                Ident::Lhs,
+                Ident::Rhs,
                 config,
             );
         }

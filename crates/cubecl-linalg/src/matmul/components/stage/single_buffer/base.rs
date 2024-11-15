@@ -107,7 +107,7 @@ where
 
         let start = num_tile_lines * UNIT_POS_Y;
         let mut out_smem = SharedMemory::<Acc>::new_lined(
-            num_tile_lines * stage_config.num_compute_planes(),
+            num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
         );
 
@@ -138,10 +138,6 @@ where
     type Config = Config<TMM::Config>;
 
     fn check_config(config: Self::Config) {
-        comptime!(check_num_planes(
-            config.stage_dim(Ident::Lhs).num_tiles_x,
-            config.num_compute_planes()
-        ));
         TMM::check_config(config.to_tmm_config());
     }
 
@@ -169,18 +165,10 @@ where
             lhs_stage_dim,
             rhs_stage_dim,
             out_stage_dim,
-            cube_dim.y,
+            lhs_stage_dim.num_tiles_x,
             advanced_config.tiling_order,
         )
     }
-}
-
-fn check_num_planes(expected_num_planes: u32, actual_num_planes: u32) {
-    assert_eq!(
-        expected_num_planes, actual_num_planes,
-        "Error: Expected {expected_num_planes} planes, but found {actual_num_planes}. 
-        The number of planes is equal to cube dimension y which should be set to {expected_num_planes}.",
-    );
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -219,11 +207,6 @@ impl<T: tile::Config> stage::Config for Config<T> {
 
     fn num_planes(&self) -> u32 {
         self.num_planes
-    }
-
-    fn num_compute_planes(&self) -> u32 {
-        // TODO configurable
-        self.num_planes() / 2
     }
 
     fn plane_dim(&self) -> u32 {

@@ -153,8 +153,7 @@ where
     type Config = Config<SMM::Config>;
 
     fn check_config(config: Self::Config) {
-        assert!(config.num_consumers() > 0);
-        assert!(config.num_producers() > 0);
+        assert!(config.num_producers() > 0, "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.");
         SMM::check_config(config.to_smm_config());
     }
 
@@ -181,6 +180,7 @@ where
             problem.lhs_line_size as u32,
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
+            cube_dim.y,
         )
     }
 }
@@ -196,6 +196,7 @@ pub struct Config<S: stage::Config> {
     lhs_line_size: u32,
     rhs_line_size: u32,
     out_line_size: u32,
+    num_planes: u32,
 }
 
 impl<S: stage::Config> global::Config for Config<S> {
@@ -230,7 +231,7 @@ impl<S: stage::Config> global::Config for Config<S> {
     }
 
     fn num_planes(&self) -> u32 {
-        self.smm_config.num_planes()
+        self.num_planes
     }
 
     fn plane_dim(&self) -> u32 {
@@ -258,7 +259,7 @@ impl<S: stage::Config> global::Config for Config<S> {
     }
 
     fn num_consumers(&self) -> u32 {
-        self.smm_config.num_compute_planes()
+        self.smm_config.num_planes()
     }
 }
 
@@ -275,6 +276,7 @@ impl<S: stage::Config> Config<S> {
         lhs_line_size: u32,
         rhs_line_size: u32,
         out_line_size: u32,
+        num_planes: u32,
     ) -> Self {
         Self {
             smm_config,
@@ -285,6 +287,7 @@ impl<S: stage::Config> Config<S> {
             lhs_line_size,
             rhs_line_size,
             out_line_size,
+            num_planes,
         }
     }
 }
