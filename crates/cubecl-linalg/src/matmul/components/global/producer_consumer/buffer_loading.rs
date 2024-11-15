@@ -24,40 +24,29 @@ impl BufferLoading {
 
         let num_planes = config.num_producers();
         let total_units = comptime!(num_planes * config.plane_dim());
-        // 128
         let jump_length = comptime!(total_units * line_size);
-        // 2
         let num_loads_per_unit = num_buffer_elements / jump_length;
 
         #[allow(clippy::all)]
         let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
 
-        // 1 - 1 = 0
         let plane_id = UNIT_POS_Y - config.num_consumers();
-        // 0..32
         let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
-        // 0..32 * 4
         let unit_position_base = unit_id * line_size;
 
         for i in 0..num_loads_per_unit {
-            //0,4,..124 + (0 or 128)
-            // 0,4..256
             let unit_position = unit_position_base + i * jump_length;
 
             let tile_num_elements = stage_dim.tile_num_elements();
-            // 0
             let nth_tile = unit_position / tile_num_elements;
-            // = unit_position
             let pos_within_tile = unit_position % tile_num_elements;
 
-            // 0,0
             let (tile_x, tile_y) = match ident {
                 Ident::Lhs => (nth_tile, buffer_idx),
                 Ident::Rhs => (buffer_idx, nth_tile),
                 Ident::Out => unreachable!(),
             };
 
-            // 0,0, 0..256
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
@@ -103,11 +92,6 @@ impl BufferLoading {
             }
         }
     }
-}
-
-use std::fmt::Debug;
-fn printstuff<D: Debug>(stuff: D) {
-    println!("{:?}", stuff)
 }
 
 fn unsupported_line_size(line_size: u32) {

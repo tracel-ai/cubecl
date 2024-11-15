@@ -56,8 +56,6 @@ where
         let num_stages = (range + k_step - 1) / k_step;
         let num_loops = num_stages * num_buffers;
 
-        SMM::zero_accumulator(acc, config.to_smm_config());
-
         for _ in 0..num_loops {
             let lhs_stage_reader = Self::Lhs::fill_stage::<Self::Config>(&mut lhs_loader, config);
             let rhs_stage_reader = Self::Rhs::fill_stage::<Self::Config>(&mut rhs_loader, config);
