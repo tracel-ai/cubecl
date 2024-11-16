@@ -391,6 +391,10 @@ impl Runtime for WgpuRuntime<VkSpirvCompiler> {
     fn supported_line_sizes() -> &'static [u8] {
         &[4, 2]
     }
+
+    fn extension() -> &'static str {
+        "spv"
+    }
 }
 
 #[cfg(feature = "spirv-dump")]

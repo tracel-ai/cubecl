@@ -127,6 +127,10 @@ impl Runtime for CudaRuntime {
     fn supported_line_sizes() -> &'static [u8] {
         &[8, 4, 2]
     }
+
+    fn extension() -> &'static str {
+        "cu"
+    }
 }
 
 fn register_wmma_features(properties: &mut DeviceProperties<Feature>, arch: u32) {
