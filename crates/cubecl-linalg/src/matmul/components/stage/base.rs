@@ -141,6 +141,7 @@ macro_rules! create_cmma_stage {
 // This list is not exhaustive. Add what you need.
 create_cmma_stage!(S1x1x1, 1, 1, 1);
 create_cmma_stage!(S1x1x2, 1, 1, 2);
+create_cmma_stage!(S1x1x3, 1, 1, 3);
 create_cmma_stage!(S1x2x1, 1, 2, 1);
 create_cmma_stage!(S1x2x2, 1, 2, 2);
 create_cmma_stage!(S2x1x1, 2, 1, 1);
