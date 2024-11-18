@@ -52,6 +52,10 @@ impl Runtime for WgpuRuntime<WgslCompiler> {
     fn supported_line_sizes() -> &'static [u8] {
         &[4, 2]
     }
+
+    fn extension() -> &'static str {
+        "wgsl"
+    }
 }
 
 /// The values that control how a WGPU Runtime will perform its calculations.
