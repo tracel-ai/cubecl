@@ -30,10 +30,19 @@ pub trait Dialect: Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 's
     fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     // warp instructions (all threads participating)
     fn warp_shuffle(input: &CppVariable<Self>, id: &CppVariable<Self>) -> String;
+    fn warp_shuffle_indexed(
+        input: &CppVariable<Self>,
+        index: usize,
+        id: &CppVariable<Self>,
+    ) -> String;
     fn warp_shuffle_xor(out: &CppVariable<Self>) -> String;
+    fn warp_shuffle_xor_indexed(out: &CppVariable<Self>, index: usize) -> String;
     fn warp_shuffle_down(out: &CppVariable<Self>) -> String;
+    fn warp_shuffle_down_indexed(out: &CppVariable<Self>, index: usize) -> String;
     fn warp_all(out: &CppVariable<Self>) -> String;
+    fn warp_all_indexed(out: &CppVariable<Self>, index: usize) -> String;
     fn warp_any(out: &CppVariable<Self>) -> String;
+    fn warp_any_indexed(out: &CppVariable<Self>, index: usize) -> String;
     // Matrix-Multiple Accumulate
     fn mma_namespace() -> &'static str;
 }
