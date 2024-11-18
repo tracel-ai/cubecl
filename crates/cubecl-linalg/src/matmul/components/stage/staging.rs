@@ -1,5 +1,5 @@
 use crate::matmul::components::stage::tiling_order::{
-    TilingOrderConfig, RowMajorTiling, ColMajorTiling,
+    ColMajorTiling, RowMajorTiling, TilingOrderConfig,
 };
 use crate::matmul::components::stage::{Config, TilingOrder};
 use crate::matmul::components::Ident;

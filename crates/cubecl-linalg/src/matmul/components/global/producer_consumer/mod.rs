@@ -1,5 +1,5 @@
 mod base;
-mod loader;
 mod buffer_loading;
+mod loader;
 
 pub use base::*;

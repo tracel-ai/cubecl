@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::global;
-use crate::matmul::components::global::tilewise_unloading::TilewiseUnloading;
 use crate::matmul::components::global::tensor_view::TensorWriter;
+use crate::matmul::components::global::tilewise_unloading::TilewiseUnloading;
 use crate::matmul::components::stage::StageWriter;
 
 #[derive(CubeType)]

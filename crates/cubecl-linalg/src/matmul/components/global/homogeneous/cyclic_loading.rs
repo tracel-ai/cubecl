@@ -1,7 +1,7 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Config;
 use crate::matmul::components::stage::{
-    TilingOrder, TilingOrderConfig, RowMajorTiling, ColMajorTiling,
+    ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
 use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
