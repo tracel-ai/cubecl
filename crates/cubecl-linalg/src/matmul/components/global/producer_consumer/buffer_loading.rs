@@ -1,6 +1,6 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::TilingOrderConfig;
-use crate::matmul::components::{global, Ident, MatrixLayout};
+use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -14,23 +14,10 @@ impl BufferLoading {
     pub fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
-        buffer_idx: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
         // TODO refactor for less duplication with cyclic_loading
-        //
-        // First tile is finely overloaded
-        // Second tile is never loaded to
-
-        // match config.tiling_order() {
-        //     TilingOrderConfig::XMajor => {
-        //         XMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-        //     }
-        //     TilingOrderConfig::YMajor => {
-        //         YMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-        //     }
-        // };
 
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
@@ -56,49 +43,50 @@ impl BufferLoading {
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = get_tiles_x_y::<G>(nth_tile, buffer_idx, ident, config);
+            let (tile_x, tile_y) = get_tiles_x_y::<G>(nth_tile, ident, config);
 
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
             match config.transpose_load(ident) {
                 false => {
-                    // TODO this assumes continuous
                     slice[unit_position / line_size] = Line::cast_from(line_read);
                 }
                 true => {
-                    let slice_line_size = config.stage_line_size(ident);
+                    // TODO adjust to changes
 
-                    if comptime!(slice_line_size == 1) {
-                        let tile_offset = nth_tile * tile_num_elements;
+                    // let slice_line_size = config.stage_line_size(ident);
 
-                        let tile_size_x = config.stage_dim(ident).tile_size_x;
-                        let tile_size_y = config.stage_dim(ident).tile_size_y;
+                    // if comptime!(slice_line_size == 1) {
+                    //     let tile_offset = nth_tile * tile_num_elements;
 
-                        let (height, width) = match config.layout(ident) {
-                            MatrixLayout::RowMajor => (tile_size_x, tile_size_y),
-                            MatrixLayout::ColMajor => (tile_size_y, tile_size_x),
-                        };
+                    //     let tile_size_x = config.stage_dim(ident).tile_size_x;
+                    //     let tile_size_y = config.stage_dim(ident).tile_size_y;
 
-                        let global_strided_idx = pos_within_tile / width;
-                        let global_contiguous_idx = pos_within_tile % width;
+                    //     let (height, width) = match config.layout(ident) {
+                    //         MatrixLayout::RowMajor => (tile_size_x, tile_size_y),
+                    //         MatrixLayout::ColMajor => (tile_size_y, tile_size_x),
+                    //     };
 
-                        let slice_strided_root = global_contiguous_idx;
-                        let slice_contiguous_idx = global_strided_idx;
-                        let slice_stride = height;
+                    //     let global_strided_idx = pos_within_tile / width;
+                    //     let global_contiguous_idx = pos_within_tile % width;
 
-                        #[unroll]
-                        for iter in 0..config.global_line_size(ident) {
-                            let slice_strided_idx = slice_strided_root + iter;
-                            let elem = line_read[iter];
-                            slice[tile_offset
-                                + slice_strided_idx * slice_stride
-                                + slice_contiguous_idx] = Line::cast_from(elem);
-                        }
-                    } else {
-                        #[allow(clippy::all)]
-                        let _ = comptime!(unsupported_line_size(slice_line_size));
-                    }
+                    //     let slice_strided_root = global_contiguous_idx;
+                    //     let slice_contiguous_idx = global_strided_idx;
+                    //     let slice_stride = height;
+
+                    //     #[unroll]
+                    //     for iter in 0..config.global_line_size(ident) {
+                    //         let slice_strided_idx = slice_strided_root + iter;
+                    //         let elem = line_read[iter];
+                    //         slice[tile_offset
+                    //             + slice_strided_idx * slice_stride
+                    //             + slice_contiguous_idx] = Line::cast_from(elem);
+                    //     }
+                    // } else {
+                    //     #[allow(clippy::all)]
+                    //     let _ = comptime!(unsupported_line_size(slice_line_size));
+                    // }
                 }
             }
         }
@@ -108,13 +96,12 @@ impl BufferLoading {
 #[cube]
 fn get_tiles_x_y<G: global::Config>(
     nth_tile: u32,
-    buffer_idx: u32,
     #[comptime] ident: Ident,
     #[comptime] config: G,
 ) -> (u32, u32) {
     match comptime!(ident) {
         Ident::Lhs => match config.tiling_order(ident) {
-            TilingOrderConfig::XMajor => (nth_tile, buffer_idx),
+            TilingOrderConfig::XMajor => (nth_tile, 0),
             TilingOrderConfig::YMajor => {
                 let _ = comptime!(unsupported_tiling_order(ident, config.tiling_order(ident)));
                 (0u32, 0u32) //unreachable
@@ -125,7 +112,7 @@ fn get_tiles_x_y<G: global::Config>(
                 let _ = comptime!(unsupported_tiling_order(ident, config.tiling_order(ident)));
                 (0u32, 0u32) //unreachable
             }
-            TilingOrderConfig::YMajor => (buffer_idx, nth_tile),
+            TilingOrderConfig::YMajor => (0, nth_tile),
         },
         Ident::Out => {
             //unreachable

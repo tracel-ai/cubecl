@@ -32,10 +32,14 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
 
     fn fill_stage<G: Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         if this.is_producer {
+            let tile_num_elements = config.stage_dim(Ident::Lhs).tile_num_elements();
+            let line_size = config.stage_line_size(Ident::Lhs);
+            let start = this.buffer_iter * tile_num_elements / line_size;
+            let end = start + tile_num_elements / line_size;
+
             BufferLoading::load_to_slice::<EG, ES, G>(
                 &this.tensor_view,
-                &mut this.stage.as_slice_mut(),
-                this.buffer_iter,
+                &mut this.stage.as_slice_mut().slice_mut(start, end),
                 Ident::Lhs,
                 config,
             );
@@ -82,10 +86,14 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
 
     fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         if this.is_producer {
+            let tile_num_elements = config.stage_dim(Ident::Rhs).tile_num_elements();
+            let line_size = config.stage_line_size(Ident::Rhs);
+            let start = this.buffer_iter * tile_num_elements / line_size;
+            let end = start + tile_num_elements / line_size;
+
             BufferLoading::load_to_slice::<EG, ES, G>(
                 &this.tensor_view,
-                &mut this.stage.as_slice_mut(),
-                this.buffer_iter,
+                &mut this.stage.as_slice_mut().slice_mut(start, end),
                 Ident::Rhs,
                 config,
             );
