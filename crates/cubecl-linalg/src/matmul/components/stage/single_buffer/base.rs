@@ -21,7 +21,7 @@ use super::{LhsBufferReader, RhsBufferReader};
 /// - One plane per tile in m dimension,
 /// - One accumulator per tile in n dimension
 ///
-/// Very similar to row accumulate, except is unable to have more than one buffer, and takes BufferReaders for StageReaders
+/// Very similar to multi buffer, except is unable to have more than one buffer, and takes BufferReaders for StageReaders
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
@@ -173,7 +173,7 @@ where
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the row accumulate matmul
+/// Configuration for the single buffer matmul
 pub struct Config<T: tile::Config> {
     tmm_config: T,
     lhs_stage_dim: StageDim,
