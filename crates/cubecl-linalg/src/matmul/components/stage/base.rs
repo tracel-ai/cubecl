@@ -142,7 +142,9 @@ macro_rules! create_cmma_stage {
 create_cmma_stage!(S1x1x1, 1, 1, 1);
 create_cmma_stage!(S1x1x2, 1, 1, 2);
 create_cmma_stage!(S1x2x1, 1, 2, 1);
+create_cmma_stage!(S1x2x2, 1, 2, 2);
 create_cmma_stage!(S2x1x1, 2, 1, 1);
+create_cmma_stage!(S2x1x2, 2, 1, 2);
 create_cmma_stage!(S2x2x1, 2, 2, 1);
 create_cmma_stage!(S2x2x2, 2, 2, 2);
 create_cmma_stage!(S4x4x1, 4, 4, 1);

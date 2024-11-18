@@ -1,5 +1,4 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -13,7 +12,7 @@ pub struct BufferLoading {}
 impl BufferLoading {
     pub fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        buffer_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -38,17 +37,17 @@ impl BufferLoading {
             let unit_position = unit_position_base + i * jump_length;
 
             let tile_num_elements = stage_dim.tile_num_elements();
-            let nth_tile = unit_position / tile_num_elements;
+            let nth_buffer_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = get_tiles_x_y::<G>(nth_tile, ident, config);
+            let (tile_x, tile_y) = get_tiles_x_y::<G>(nth_buffer_tile, ident);
 
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
             match config.transpose_load(ident) {
                 false => {
-                    slice[unit_position / line_size] = Line::cast_from(line_read);
+                    buffer_slice[unit_position / line_size] = Line::cast_from(line_read);
                 }
                 true => {
                     #[allow(clippy::all)]
@@ -60,38 +59,21 @@ impl BufferLoading {
 }
 
 #[cube]
-fn get_tiles_x_y<G: global::Config>(
-    nth_tile: u32,
-    #[comptime] ident: Ident,
-    #[comptime] config: G,
-) -> (u32, u32) {
+fn get_tiles_x_y<G: global::Config>(nth_buffer_tile: u32, #[comptime] ident: Ident) -> (u32, u32) {
     match comptime!(ident) {
-        Ident::Lhs => match config.tiling_order(ident) {
-            TilingOrderConfig::XMajor => (nth_tile, 0),
-            TilingOrderConfig::YMajor => {
-                let _ = comptime!(unsupported_tiling_order(ident, config.tiling_order(ident)));
-                (0u32, 0u32) //unreachable
-            }
-        },
-        Ident::Rhs => match config.tiling_order(ident) {
-            TilingOrderConfig::XMajor => {
-                let _ = comptime!(unsupported_tiling_order(ident, config.tiling_order(ident)));
-                (0u32, 0u32) //unreachable
-            }
-            TilingOrderConfig::YMajor => (0, nth_tile),
-        },
+        Ident::Lhs => {
+            // Assuming ColMajor tiling order
+            (nth_buffer_tile, 0)
+        }
+        Ident::Rhs => {
+            // Assuming RowMajor tiling order
+            (0, nth_buffer_tile)
+        }
         Ident::Out => {
             //unreachable
             (0u32, 0u32)
         }
     }
-}
-
-fn unsupported_tiling_order(ident: Ident, tiling_order: TilingOrderConfig) {
-    panic!(
-        "Ident {:?} cannot work with tiling order {:?} in producer consumer setup.",
-        ident, tiling_order
-    )
 }
 
 fn unsupported_transpose_load() {

@@ -4,6 +4,7 @@ use crate::matmul::components::global::Config;
 use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::Stage;
+use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -134,15 +135,34 @@ fn load_buffer<EG: Numeric, ES: Numeric, G: global::Config>(
     #[comptime] ident: Ident,
     #[comptime] config: G,
 ) {
-    let tile_num_elements = config.stage_dim(ident).tile_num_elements();
+    let buffer_num_elements = config.stage_dim(ident).buffer_num_elements(ident);
     let line_size = config.stage_line_size(ident);
-    let start = buffer_iter * tile_num_elements / line_size;
-    let end = start + tile_num_elements / line_size;
+    let buffer_num_lines = buffer_num_elements / line_size;
 
-    BufferLoading::load_to_slice::<EG, ES, G>(
-        &tensor_view,
-        &mut stage.as_slice_mut().slice_mut(start, end),
-        ident,
-        config,
-    );
+    #[allow(clippy::all)]
+    let _ = comptime!(check_buffers_contiguous(ident, config));
+
+    let start = buffer_iter * buffer_num_lines;
+    let end = start + buffer_num_lines;
+    let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
+
+    BufferLoading::load_to_slice::<EG, ES, G>(&tensor_view, buffer_slice, ident, config);
+}
+
+fn check_buffers_contiguous<G: global::Config>(ident: Ident, config: G) {
+    match ident {
+        Ident::Lhs => {
+            if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {
+                panic!("Lhs must have ColMajor tiling order in producer consumer setting")
+            }
+        }
+        Ident::Rhs => {
+            if let TilingOrderConfig::ColMajor = config.tiling_order(ident) {
+                panic!("Rhs must have RowMajor tiling order in producer consumer setting")
+            }
+        }
+        Ident::Out => {
+            unreachable!()
+        }
+    }
 }

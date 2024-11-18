@@ -23,8 +23,8 @@ pub struct AdvancedConfig {
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
-            lhs_tiling_order: stage::TilingOrderConfig::XMajor,
-            rhs_tiling_order: stage::TilingOrderConfig::XMajor,
+            lhs_tiling_order: stage::TilingOrderConfig::RowMajor,
+            rhs_tiling_order: stage::TilingOrderConfig::RowMajor,
             enforced_tile_layout: (None, None),
         }
     }

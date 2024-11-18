@@ -1,7 +1,7 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Config;
 use crate::matmul::components::stage::{
-    TilingOrder, TilingOrderConfig, XMajorTiling, YMajorTiling,
+    TilingOrder, TilingOrderConfig, RowMajorTiling, ColMajorTiling,
 };
 use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
@@ -42,11 +42,11 @@ impl CyclicLoading {
             let pos_within_tile = unit_position % tile_num_elements;
 
             let (tile_x, tile_y) = match config.tiling_order(ident) {
-                TilingOrderConfig::XMajor => {
-                    XMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+                TilingOrderConfig::RowMajor => {
+                    RowMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
                 }
-                TilingOrderConfig::YMajor => {
-                    YMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+                TilingOrderConfig::ColMajor => {
+                    ColMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
                 }
             };
 
