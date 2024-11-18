@@ -19,7 +19,7 @@ impl BufferLoading {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_buffer_elements = stage_dim.buffer_num_elements(ident);
+        let num_buffer_elements = stage_dim.buffer_num_elements();
 
         let num_planes = config.num_producers();
         let total_units = comptime!(num_planes * config.plane_dim());

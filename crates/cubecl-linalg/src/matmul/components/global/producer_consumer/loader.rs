@@ -135,7 +135,7 @@ fn load_buffer<EG: Numeric, ES: Numeric, G: global::Config>(
     #[comptime] ident: Ident,
     #[comptime] config: G,
 ) {
-    let buffer_num_elements = config.stage_dim(ident).buffer_num_elements(ident);
+    let buffer_num_elements = config.stage_dim(ident).buffer_num_elements();
     let line_size = config.stage_line_size(ident);
     let buffer_num_lines = buffer_num_elements / line_size;
 
