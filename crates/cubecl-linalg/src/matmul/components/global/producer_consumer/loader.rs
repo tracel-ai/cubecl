@@ -146,7 +146,7 @@ fn load_buffer<EG: Numeric, ES: Numeric, G: global::Config>(
     let end = start + buffer_num_lines;
     let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
 
-    BufferLoading::load_to_slice::<EG, ES, G>(&tensor_view, buffer_slice, ident, config);
+    BufferLoading::load_to_slice::<EG, ES, G>(tensor_view, buffer_slice, ident, config);
 }
 
 fn check_buffers_contiguous<G: global::Config>(ident: Ident, config: G) {

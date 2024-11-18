@@ -17,8 +17,9 @@ use std::marker::PhantomData;
 use super::loader::{LhsBufferLoader, RhsBufferLoader};
 
 /// Performs matrix multiplication at the global level, with planes split between two roles:
-/// - Some planes load data to the stage
-/// - Some planes are used in the stage matmul computation
+/// - First n planes are used in the stage matmul computation, with n the number of planes needed by the underlying stage matmul
+/// - Remaining planes load data to the stage
+///
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
 pub struct Matmul<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> {
     _eg: PhantomData<EG>,

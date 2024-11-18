@@ -40,7 +40,7 @@ impl BufferLoading {
             let nth_buffer_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = get_tiles_x_y::<G>(nth_buffer_tile, ident);
+            let (tile_x, tile_y) = get_tiles_x_y(nth_buffer_tile, ident);
 
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
@@ -59,7 +59,7 @@ impl BufferLoading {
 }
 
 #[cube]
-fn get_tiles_x_y<G: global::Config>(nth_buffer_tile: u32, #[comptime] ident: Ident) -> (u32, u32) {
+fn get_tiles_x_y(nth_buffer_tile: u32, #[comptime] ident: Ident) -> (u32, u32) {
     match comptime!(ident) {
         Ident::Lhs => {
             // Assuming ColMajor tiling order

@@ -69,7 +69,7 @@ where
         }
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
-            &acc,
+            acc,
             &mut out_unloader,
             config.to_smm_config(),
             config,
