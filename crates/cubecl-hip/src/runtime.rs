@@ -133,4 +133,8 @@ impl Runtime for HipRuntime {
     fn supported_line_sizes() -> &'static [u8] {
         &[8, 4, 2]
     }
+
+    fn extension() -> &'static str {
+        "hip"
+    }
 }
