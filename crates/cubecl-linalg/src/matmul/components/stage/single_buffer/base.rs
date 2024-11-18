@@ -166,7 +166,8 @@ where
             rhs_stage_dim,
             out_stage_dim,
             lhs_stage_dim.num_tiles_x,
-            advanced_config.tiling_order,
+            advanced_config.lhs_tiling_order,
+            advanced_config.rhs_tiling_order,
         )
     }
 }
@@ -179,7 +180,8 @@ pub struct Config<T: tile::Config> {
     rhs_stage_dim: StageDim,
     out_stage_dim: StageDim,
     num_planes: u32,
-    tiling_order: TilingOrderConfig,
+    lhs_tiling_order: TilingOrderConfig,
+    rhs_tiling_order: TilingOrderConfig,
 }
 
 impl<T: tile::Config> stage::Config for Config<T> {
@@ -213,8 +215,12 @@ impl<T: tile::Config> stage::Config for Config<T> {
         self.tmm_config.plane_dim()
     }
 
-    fn tiling_order(&self) -> TilingOrderConfig {
-        self.tiling_order
+    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
+        match ident {
+            Ident::Lhs => self.lhs_tiling_order,
+            Ident::Rhs => self.rhs_tiling_order,
+            Ident::Out => unreachable!(),
+        }
     }
 }
 
@@ -227,7 +233,8 @@ impl<T: tile::Config> Config<T> {
         rhs_stage_dim: StageDim,
         out_stage_dim: StageDim,
         num_planes: u32,
-        tiling_order: TilingOrderConfig,
+        lhs_tiling_order: TilingOrderConfig,
+        rhs_tiling_order: TilingOrderConfig,
     ) -> Self {
         Self {
             tmm_config,
@@ -235,7 +242,8 @@ impl<T: tile::Config> Config<T> {
             rhs_stage_dim,
             out_stage_dim,
             num_planes,
-            tiling_order,
+            lhs_tiling_order,
+            rhs_tiling_order,
         }
     }
 }

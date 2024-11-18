@@ -137,7 +137,7 @@ pub trait Config: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Returns the order in which tiles should be loaded to the stage
-    fn tiling_order(&self) -> TilingOrderConfig;
+    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
 
     /// Whether it is necessary to add bound checks in the m dimension
     fn check_m_bounds(&self) -> bool;

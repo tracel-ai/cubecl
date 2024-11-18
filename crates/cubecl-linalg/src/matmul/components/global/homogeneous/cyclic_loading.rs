@@ -41,7 +41,7 @@ impl CyclicLoading {
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = match config.tiling_order() {
+            let (tile_x, tile_y) = match config.tiling_order(ident) {
                 TilingOrderConfig::XMajor => {
                     XMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
                 }

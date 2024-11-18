@@ -4,8 +4,10 @@ use crate::matmul::components::StageDim;
 
 /// Configs that may impact performance
 pub struct AdvancedConfig {
-    /// Order in which tiles should be in shared memory
-    pub tiling_order: stage::TilingOrderConfig,
+    /// Order in which tiles should be in lhs shared memory
+    pub lhs_tiling_order: stage::TilingOrderConfig,
+    /// Order in which tiles should be in rhs shared memory
+    pub rhs_tiling_order: stage::TilingOrderConfig,
     /// Ensure the inputs to tile matmul are in specified layout
     ///
     /// # Notes
@@ -21,7 +23,8 @@ pub struct AdvancedConfig {
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
-            tiling_order: stage::TilingOrderConfig::XMajor,
+            lhs_tiling_order: stage::TilingOrderConfig::XMajor,
+            rhs_tiling_order: stage::TilingOrderConfig::XMajor,
             enforced_tile_layout: (None, None),
         }
     }

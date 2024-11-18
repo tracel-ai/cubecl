@@ -1,4 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
+use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::{global, Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -18,6 +19,18 @@ impl BufferLoading {
         #[comptime] config: G,
     ) {
         // TODO refactor for less duplication with cyclic_loading
+        //
+        // First tile is finely overloaded
+        // Second tile is never loaded to
+
+        // match config.tiling_order() {
+        //     TilingOrderConfig::XMajor => {
+        //         XMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+        //     }
+        //     TilingOrderConfig::YMajor => {
+        //         YMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+        //     }
+        // };
 
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
@@ -43,17 +56,14 @@ impl BufferLoading {
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = match ident {
-                Ident::Lhs => (nth_tile, buffer_idx),
-                Ident::Rhs => (buffer_idx, nth_tile),
-                Ident::Out => unreachable!(),
-            };
+            let (tile_x, tile_y) = get_tiles_x_y::<G>(nth_tile, buffer_idx, ident, config);
 
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
             match config.transpose_load(ident) {
                 false => {
+                    // TODO this assumes continuous
                     slice[unit_position / line_size] = Line::cast_from(line_read);
                 }
                 true => {
@@ -93,6 +103,42 @@ impl BufferLoading {
             }
         }
     }
+}
+
+#[cube]
+fn get_tiles_x_y<G: global::Config>(
+    nth_tile: u32,
+    buffer_idx: u32,
+    #[comptime] ident: Ident,
+    #[comptime] config: G,
+) -> (u32, u32) {
+    match comptime!(ident) {
+        Ident::Lhs => match config.tiling_order(ident) {
+            TilingOrderConfig::XMajor => (nth_tile, buffer_idx),
+            TilingOrderConfig::YMajor => {
+                let _ = comptime!(unsupported_tiling_order(ident, config.tiling_order(ident)));
+                (0u32, 0u32) //unreachable
+            }
+        },
+        Ident::Rhs => match config.tiling_order(ident) {
+            TilingOrderConfig::XMajor => {
+                let _ = comptime!(unsupported_tiling_order(ident, config.tiling_order(ident)));
+                (0u32, 0u32) //unreachable
+            }
+            TilingOrderConfig::YMajor => (buffer_idx, nth_tile),
+        },
+        Ident::Out => {
+            //unreachable
+            (0u32, 0u32)
+        }
+    }
+}
+
+fn unsupported_tiling_order(ident: Ident, tiling_order: TilingOrderConfig) {
+    panic!(
+        "Ident {:?} cannot work with tiling order {:?} in producer consumer setup.",
+        ident, tiling_order
+    )
 }
 
 fn unsupported_line_size(line_size: u32) {

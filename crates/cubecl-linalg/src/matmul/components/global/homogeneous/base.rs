@@ -205,8 +205,8 @@ impl<S: stage::Config> global::Config for Config<S> {
         self.smm_config.plane_dim()
     }
 
-    fn tiling_order(&self) -> TilingOrderConfig {
-        self.smm_config.tiling_order()
+    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
+        self.smm_config.tiling_order(ident)
     }
 
     fn check_m_bounds(&self) -> bool {
