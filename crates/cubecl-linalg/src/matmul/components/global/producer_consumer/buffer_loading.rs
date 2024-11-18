@@ -17,8 +17,6 @@ impl BufferLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        // TODO refactor for less duplication with cyclic_loading
-
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
@@ -53,40 +51,8 @@ impl BufferLoading {
                     slice[unit_position / line_size] = Line::cast_from(line_read);
                 }
                 true => {
-                    // TODO adjust to changes
-
-                    // let slice_line_size = config.stage_line_size(ident);
-
-                    // if comptime!(slice_line_size == 1) {
-                    //     let tile_offset = nth_tile * tile_num_elements;
-
-                    //     let tile_size_x = config.stage_dim(ident).tile_size_x;
-                    //     let tile_size_y = config.stage_dim(ident).tile_size_y;
-
-                    //     let (height, width) = match config.layout(ident) {
-                    //         MatrixLayout::RowMajor => (tile_size_x, tile_size_y),
-                    //         MatrixLayout::ColMajor => (tile_size_y, tile_size_x),
-                    //     };
-
-                    //     let global_strided_idx = pos_within_tile / width;
-                    //     let global_contiguous_idx = pos_within_tile % width;
-
-                    //     let slice_strided_root = global_contiguous_idx;
-                    //     let slice_contiguous_idx = global_strided_idx;
-                    //     let slice_stride = height;
-
-                    //     #[unroll]
-                    //     for iter in 0..config.global_line_size(ident) {
-                    //         let slice_strided_idx = slice_strided_root + iter;
-                    //         let elem = line_read[iter];
-                    //         slice[tile_offset
-                    //             + slice_strided_idx * slice_stride
-                    //             + slice_contiguous_idx] = Line::cast_from(elem);
-                    //     }
-                    // } else {
-                    //     #[allow(clippy::all)]
-                    //     let _ = comptime!(unsupported_line_size(slice_line_size));
-                    // }
+                    #[allow(clippy::all)]
+                    let _ = comptime!(unsupported_transpose_load());
                 }
             }
         }
@@ -128,11 +94,8 @@ fn unsupported_tiling_order(ident: Ident, tiling_order: TilingOrderConfig) {
     )
 }
 
-fn unsupported_line_size(line_size: u32) {
-    panic!(
-        "Line size for stage is not supported when transposing. Got {:?}.",
-        line_size
-    )
+fn unsupported_transpose_load() {
+    panic!("Transpose load not yet supported in producer consumer setup")
 }
 
 fn check_jump_divides_well(num_stage_elements: u32, jump_length: u32) {

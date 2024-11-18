@@ -32,14 +32,10 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
 
     fn fill_stage<G: Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         if this.is_producer {
-            let tile_num_elements = config.stage_dim(Ident::Lhs).tile_num_elements();
-            let line_size = config.stage_line_size(Ident::Lhs);
-            let start = this.buffer_iter * tile_num_elements / line_size;
-            let end = start + tile_num_elements / line_size;
-
-            BufferLoading::load_to_slice::<EG, ES, G>(
+            load_buffer::<EG, ES, G>(
+                this.buffer_iter,
                 &this.tensor_view,
-                &mut this.stage.as_slice_mut().slice_mut(start, end),
+                &mut this.stage,
                 Ident::Lhs,
                 config,
             );
@@ -86,14 +82,10 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
 
     fn fill_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader {
         if this.is_producer {
-            let tile_num_elements = config.stage_dim(Ident::Rhs).tile_num_elements();
-            let line_size = config.stage_line_size(Ident::Rhs);
-            let start = this.buffer_iter * tile_num_elements / line_size;
-            let end = start + tile_num_elements / line_size;
-
-            BufferLoading::load_to_slice::<EG, ES, G>(
+            load_buffer::<EG, ES, G>(
+                this.buffer_iter,
                 &this.tensor_view,
-                &mut this.stage.as_slice_mut().slice_mut(start, end),
+                &mut this.stage,
                 Ident::Rhs,
                 config,
             );
@@ -107,7 +99,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
-        this.tensor_view.update_view(k_offset, Ident::Lhs);
+        this.tensor_view.update_view(k_offset, Ident::Rhs);
     }
 }
 
@@ -132,4 +124,25 @@ impl<EG: Numeric, ES: Numeric> RhsBufferLoader<EG, ES> {
             is_producer,
         }
     }
+}
+
+#[cube]
+fn load_buffer<EG: Numeric, ES: Numeric, G: global::Config>(
+    buffer_iter: u32,
+    tensor_view: &TensorReader<EG>,
+    stage: &mut Stage<ES>,
+    #[comptime] ident: Ident,
+    #[comptime] config: G,
+) {
+    let tile_num_elements = config.stage_dim(ident).tile_num_elements();
+    let line_size = config.stage_line_size(ident);
+    let start = buffer_iter * tile_num_elements / line_size;
+    let end = start + tile_num_elements / line_size;
+
+    BufferLoading::load_to_slice::<EG, ES, G>(
+        &tensor_view,
+        &mut stage.as_slice_mut().slice_mut(start, end),
+        ident,
+        config,
+    );
 }

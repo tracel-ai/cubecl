@@ -137,10 +137,6 @@ where
     }
 }
 
-fn printstuff<D: std::fmt::Debug>(x: D) {
-    println!("{:?}", x)
-}
-
 #[cube]
 impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> Matmul<EG, ES, SMM> {
     fn is_consumer(#[comptime] config: <Self as MatmulKernel<EG, EG>>::Config) -> bool {
