@@ -32,8 +32,8 @@ where
     ES: Numeric,
     SMM: stage::Matmul<ES, EG, Lhs = LhsReader<ES>, Rhs = RhsReader<ES>>,
 {
-    type Lhs = LhsLoader<EG, ES>;
-    type Rhs = RhsLoader<EG, ES>;
+    type Lhs = LhsLoader<EG, ES, SMM::Config>;
+    type Rhs = RhsLoader<EG, ES, SMM::Config>;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
@@ -50,8 +50,8 @@ where
         let num_loops = (range + k_step - 1) / k_step;
 
         for _ in 0..num_loops {
-            let lhs_stage_reader = &Self::Lhs::fill_stage::<Self::Config>(&mut lhs_loader, config);
-            let rhs_stage_reader = &Self::Rhs::fill_stage::<Self::Config>(&mut rhs_loader, config);
+            let lhs_stage_reader = &Self::Lhs::fill_stage(&mut lhs_loader, config);
+            let rhs_stage_reader = &Self::Rhs::fill_stage(&mut rhs_loader, config);
 
             sync_units();
 

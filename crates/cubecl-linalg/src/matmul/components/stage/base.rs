@@ -63,21 +63,6 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
-// #[cube]
-// /// Input to the stage matmul, responsible of handing slices of data
-// /// at precise locations in the stage
-// pub trait StageReader<ES: Numeric>: CubeType {
-//     /// Hands a portion of data from the stage, whose location is function of the
-//     /// plane, buffer and accumulator indexes.
-//     fn read_tile<S: Config>(
-//         this: &Self,
-//         compute_plane_offset: u32,
-//         buffer_offset: u32,
-//         accumulator_offset: u32,
-//         #[comptime] config: S,
-//     ) -> Slice<Line<ES>>;
-// }
-
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory

@@ -29,8 +29,8 @@ use crate::matmul::components::{Ident, MatrixLayout};
 pub trait Matmul<EG: Numeric, ES: Numeric>:
     'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
 {
-    type Lhs: Loader<EG, ES>;
-    type Rhs: Loader<EG, ES>;
+    type Lhs: Loader<EG, ES, Self::Config>;
+    type Rhs: Loader<EG, ES, Self::Config>;
     type Out: Unloader<EG>;
     type Accumulator: CubeType;
 
@@ -80,12 +80,12 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
 /// Advances along the k-dimension to fill the stage with further data.
-pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
+pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: CubeType;
 
     /// Fills the stage at the current k offset and returns a reader for it.
-    fn fill_stage<G: Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
+    fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);

@@ -5,10 +5,16 @@ use crate::matmul::components::{batch, global, tile};
 use crate::matmul::components::{MatmulKernel, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 
-type LhsStageReader<GMM, EG, ES> =
-    <<GMM as global::Matmul<EG, ES>>::Lhs as global::Loader<EG, ES>>::StageReader;
-type RhsStageReader<GMM, EG, ES> =
-    <<GMM as global::Matmul<EG, ES>>::Rhs as global::Loader<EG, ES>>::StageReader;
+type LhsStageReader<GMM, EG, ES> = <<GMM as global::Matmul<EG, ES>>::Lhs as global::Loader<
+    EG,
+    ES,
+    <GMM as MatmulKernel<EG, EG>>::Config,
+>>::StageReader;
+type RhsStageReader<GMM, EG, ES> = <<GMM as global::Matmul<EG, ES>>::Rhs as global::Loader<
+    EG,
+    ES,
+    <GMM as MatmulKernel<EG, EG>>::Config,
+>>::StageReader;
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm<EG: Numeric> {

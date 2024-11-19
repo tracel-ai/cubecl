@@ -34,8 +34,8 @@ where
     ES: Numeric,
     SMM: stage::Matmul<ES, EG, Lhs = LhsBufferReader<ES>, Rhs = RhsBufferReader<ES>>,
 {
-    type Lhs = LhsBufferLoader<EG, ES>;
-    type Rhs = RhsBufferLoader<EG, ES>;
+    type Lhs = LhsBufferLoader<EG, ES, SMM::Config>;
+    type Rhs = RhsBufferLoader<EG, ES, SMM::Config>;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
@@ -58,8 +58,8 @@ where
         let num_loops = num_stages * num_buffers;
 
         for _ in 0..num_loops {
-            let lhs_stage_reader = Self::Lhs::fill_stage::<Self::Config>(&mut lhs_loader, config);
-            let rhs_stage_reader = Self::Rhs::fill_stage::<Self::Config>(&mut rhs_loader, config);
+            let lhs_stage_reader = Self::Lhs::fill_stage(&mut lhs_loader, config);
+            let rhs_stage_reader = Self::Rhs::fill_stage(&mut rhs_loader, config);
 
             sync_units();
 
@@ -93,7 +93,7 @@ where
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::Lhs {
-        Self::Lhs::new::<Self::Config>(
+        Self::Lhs::new(
             lhs,
             x_offset,
             y_offset,
@@ -110,7 +110,7 @@ where
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::Rhs {
-        Self::Rhs::new::<Self::Config>(
+        Self::Rhs::new(
             rhs,
             x_offset,
             y_offset,
