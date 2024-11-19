@@ -1,5 +1,6 @@
-use crate::matmul::components::stage::{Config, Stage};
-use crate::matmul::components::Ident;
+use crate::matmul::components::stage::multi_buffer;
+use crate::matmul::components::stage::Stage;
+use crate::matmul::components::{tile, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -17,27 +18,35 @@ pub struct RhsReader<ES: Numeric> {
 
 #[cube]
 impl<ES: Numeric> LhsReader<ES> {
-    pub fn read_tile<S: Config>(
+    pub fn read_tile<T: tile::Config>(
         this: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
-        #[comptime] config: S,
+        #[comptime] config: multi_buffer::Config<T>,
     ) -> Slice<Line<ES>> {
-        this.stage
-            .get_tile::<S>(compute_plane_offset, buffer_offset, Ident::Lhs, config)
+        this.stage.get_tile::<multi_buffer::Config<T>>(
+            compute_plane_offset,
+            buffer_offset,
+            Ident::Lhs,
+            config,
+        )
     }
 }
 
 #[cube]
 impl<ES: Numeric> RhsReader<ES> {
-    pub fn read_tile<S: Config>(
+    pub fn read_tile<T: tile::Config>(
         this: &Self,
         buffer_offset: u32,
         accumulator_offset: u32,
-        #[comptime] config: S,
+        #[comptime] config: multi_buffer::Config<T>,
     ) -> Slice<Line<ES>> {
-        this.stage
-            .get_tile::<S>(buffer_offset, accumulator_offset, Ident::Rhs, config)
+        this.stage.get_tile::<multi_buffer::Config<T>>(
+            buffer_offset,
+            accumulator_offset,
+            Ident::Rhs,
+            config,
+        )
     }
 }
 

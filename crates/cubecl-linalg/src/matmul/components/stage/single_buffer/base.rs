@@ -58,13 +58,12 @@ where
         let mut instruction_lhs = TMM::init_lhs(config.to_tmm_config());
         let mut instruction_rhs = TMM::init_rhs(config.to_tmm_config());
 
-        let tile_lhs = LhsBufferReader::read_tile::<Self::Config>(lhs, UNIT_POS_Y, config);
+        let tile_lhs = LhsBufferReader::read_tile::<TMM::Config>(lhs, UNIT_POS_Y, config);
         TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
 
         #[unroll]
         for accumulator_iter in 0..acc.len() {
-            let tile_rhs =
-                RhsBufferReader::read_tile::<Self::Config>(rhs, accumulator_iter, config);
+            let tile_rhs = RhsBufferReader::read_tile::<TMM::Config>(rhs, accumulator_iter, config);
             TMM::fill_rhs(&tile_rhs, &mut instruction_rhs, config.to_tmm_config());
 
             let accumulator = acc.index_mut(accumulator_iter);

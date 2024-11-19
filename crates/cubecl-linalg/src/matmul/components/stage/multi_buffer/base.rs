@@ -59,17 +59,13 @@ where
         #[unroll]
         for buffer_iter in 0..SS::NUM_K {
             let tile_lhs =
-                LhsReader::read_tile::<Self::Config>(lhs, UNIT_POS_Y, buffer_iter, config);
+                LhsReader::read_tile::<TMM::Config>(lhs, UNIT_POS_Y, buffer_iter, config);
             TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = RhsReader::read_tile::<Self::Config>(
-                    rhs,
-                    buffer_iter,
-                    accumulator_iter,
-                    config,
-                );
+                let tile_rhs =
+                    RhsReader::read_tile::<TMM::Config>(rhs, buffer_iter, accumulator_iter, config);
                 TMM::fill_rhs(&tile_rhs, &mut instruction_rhs, config.to_tmm_config());
 
                 let accumulator = acc.index_mut(accumulator_iter);
