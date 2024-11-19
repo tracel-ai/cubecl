@@ -33,12 +33,8 @@ impl<EG: Numeric> base::Algorithm<EG> for PlaneMma<EG> {
 
     type GlobalMatmul = global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
 
-    type BatchMatmul = batch::one_to_one::Matmul<
-        Self::EG,
-        Self::ES,
-        Self::GlobalMatmul,
-        batch::NaturalDispatch,
-    >;
+    type BatchMatmul =
+        batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul, batch::NaturalDispatch>;
 
     fn cube_dim() -> CubeDim {
         CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
