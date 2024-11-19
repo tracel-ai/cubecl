@@ -1,5 +1,5 @@
 use crate::matmul::components::stage::tiling_order::{
-    TilingOrderConfig, XMajorTiling, YMajorTiling,
+    ColMajorTiling, RowMajorTiling, TilingOrderConfig,
 };
 use crate::matmul::components::stage::{Config, TilingOrder};
 use crate::matmul::components::Ident;
@@ -37,12 +37,12 @@ impl<ES: Numeric> Stage<ES> {
     ) -> Slice<Line<ES>> {
         let stage_dim = config.stage_dim(ident);
 
-        let nth_tile = match config.tiling_order() {
-            TilingOrderConfig::XMajor => {
-                XMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+        let nth_tile = match config.tiling_order(ident) {
+            TilingOrderConfig::RowMajor => {
+                RowMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
             }
-            TilingOrderConfig::YMajor => {
-                YMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
+            TilingOrderConfig::ColMajor => {
+                ColMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
             }
         };
 

@@ -13,19 +13,19 @@ pub trait TilingOrder: Clone + Copy + 'static + Send + Sync {
 #[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug)]
 /// Config determining which existing TilingOrder to use
 pub enum TilingOrderConfig {
-    XMajor,
-    YMajor,
+    RowMajor,
+    ColMajor,
 }
 
 #[derive(Clone, Copy)]
 /// Tiles are conceptually stored in row-major order, regardless of the actual data layout.
-pub struct XMajorTiling {}
+pub struct RowMajorTiling {}
 #[derive(Clone, Copy)]
 /// Tiles are conceptually stored in column-major order, regardless of the actual data layout.
-pub struct YMajorTiling {}
+pub struct ColMajorTiling {}
 
 #[cube]
-impl TilingOrder for XMajorTiling {
+impl TilingOrder for RowMajorTiling {
     fn to_x_y(nth: u32, _num_x: u32, num_y: u32) -> (u32, u32) {
         (nth / num_y, nth % num_y)
     }
@@ -36,7 +36,7 @@ impl TilingOrder for XMajorTiling {
 }
 
 #[cube]
-impl TilingOrder for YMajorTiling {
+impl TilingOrder for ColMajorTiling {
     fn to_x_y(nth: u32, num_x: u32, _num_y: u32) -> (u32, u32) {
         (nth % num_x, nth / num_x)
     }

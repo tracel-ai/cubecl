@@ -4,19 +4,18 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::base::Matmul as _;
+use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
 use crate::matmul::{
     components::{
         config::MatmulConfig,
         global,
-        stage::{self, Config as _, StageReader, StageWriter},
-        tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout, PlaneMapper, StageDim,
+        stage::{self, Config as _, StageWriter},
+        tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout, StageDim,
     },
     kernels::matmul::{create_stage_dim, AdvancedConfig},
 };
 
 use super::reader::{LhsReader, RhsReader};
-use super::tiling_order::TilingOrderConfig;
-use super::StageSize;
 
 /// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
 /// - One plane per tile in m dimension,
@@ -33,8 +32,7 @@ pub struct Matmul<I: Numeric, O: Numeric, Acc: Numeric, TMM: tile::Matmul<I, Acc
 }
 
 #[cube]
-impl<I, O, Acc, TMM, SS> stage::Matmul<I, O, LhsReader<I>, RhsReader<I>>
-    for Matmul<I, O, Acc, TMM, SS>
+impl<I, O, Acc, TMM, SS> stage::Matmul<I, O> for Matmul<I, O, Acc, TMM, SS>
 where
     I: Numeric,
     O: Numeric,
@@ -45,6 +43,8 @@ where
     const M: u32 = SS::NUM_M * TMM::M;
     const N: u32 = SS::NUM_N * TMM::N;
     const K: u32 = SS::NUM_K * TMM::K;
+    type Lhs = LhsReader<I>;
+    type Rhs = RhsReader<I>;
     type Accumulator = Sequence<TMM::Accumulator>;
 
     fn execute(
@@ -58,24 +58,14 @@ where
 
         #[unroll]
         for buffer_iter in 0..SS::NUM_K {
-            let tile_lhs = LhsReader::read_tile::<Self::Config>(
-                lhs,
-                Self::plane_id(),
-                buffer_iter,
-                0u32,
-                config,
-            );
+            let tile_lhs =
+                LhsReader::read_tile::<TMM::Config>(lhs, UNIT_POS_Y, buffer_iter, config);
             TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = RhsReader::read_tile::<Self::Config>(
-                    rhs,
-                    Self::plane_id(),
-                    buffer_iter,
-                    accumulator_iter,
-                    config,
-                );
+                let tile_rhs =
+                    RhsReader::read_tile::<TMM::Config>(rhs, buffer_iter, accumulator_iter, config);
                 TMM::fill_rhs(&tile_rhs, &mut instruction_rhs, config.to_tmm_config());
 
                 let accumulator = acc.index_mut(accumulator_iter);
@@ -99,7 +89,7 @@ where
         let num_tile_lines =
             stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
 
-        let start = num_tile_lines * Self::plane_id();
+        let start = num_tile_lines * UNIT_POS_Y;
         let mut out_smem = SharedMemory::<Acc>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
@@ -113,7 +103,7 @@ where
             SW::write::<Acc, G>(
                 out,
                 smem_slice.to_slice(),
-                Self::plane_id(),
+                UNIT_POS_Y,
                 accumulator_iter,
                 global_config,
             );
@@ -182,26 +172,9 @@ where
             rhs_stage_dim,
             out_stage_dim,
             cube_dim.y,
-            advanced_config.tiling_order,
+            advanced_config.lhs_tiling_order,
+            advanced_config.rhs_tiling_order,
         )
-    }
-}
-
-#[cube]
-impl<I, O, Acc, Tmm, SS> PlaneMapper for Matmul<I, O, Acc, Tmm, SS>
-where
-    I: Numeric,
-    O: Numeric,
-    Acc: Numeric,
-    Tmm: tile::Matmul<I, Acc>,
-    SS: StageSize,
-{
-    fn plane_id() -> u32 {
-        UNIT_POS_Y
-    }
-
-    fn plane_unit() -> u32 {
-        UNIT_POS_X
     }
 }
 
@@ -214,14 +187,15 @@ fn check_num_planes(expected_num_planes: u32, actual_num_planes: u32) {
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the row accumulate matmul
+/// Configuration for the multi buffer matmul
 pub struct Config<T: tile::Config> {
     tmm_config: T,
     lhs_stage_dim: StageDim,
     rhs_stage_dim: StageDim,
     out_stage_dim: StageDim,
     num_planes: u32,
-    tiling_order: TilingOrderConfig,
+    lhs_tiling_order: TilingOrderConfig,
+    rhs_tiling_order: TilingOrderConfig,
 }
 
 impl<T: tile::Config> stage::Config for Config<T> {
@@ -255,8 +229,12 @@ impl<T: tile::Config> stage::Config for Config<T> {
         self.tmm_config.plane_dim()
     }
 
-    fn tiling_order(&self) -> TilingOrderConfig {
-        self.tiling_order
+    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
+        match ident {
+            Ident::Lhs => self.lhs_tiling_order,
+            Ident::Rhs => self.rhs_tiling_order,
+            Ident::Out => unreachable!(),
+        }
     }
 }
 
@@ -269,7 +247,8 @@ impl<T: tile::Config> Config<T> {
         rhs_stage_dim: StageDim,
         out_stage_dim: StageDim,
         num_planes: u32,
-        tiling_order: TilingOrderConfig,
+        lhs_tiling_order: TilingOrderConfig,
+        rhs_tiling_order: TilingOrderConfig,
     ) -> Self {
         Self {
             tmm_config,
@@ -277,7 +256,8 @@ impl<T: tile::Config> Config<T> {
             rhs_stage_dim,
             out_stage_dim,
             num_planes,
-            tiling_order,
+            lhs_tiling_order,
+            rhs_tiling_order,
         }
     }
 }

@@ -1,11 +1,14 @@
 use crate::matmul::components::stage;
+use crate::matmul::components::Ident;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::StageDim;
 
 /// Configs that may impact performance
 pub struct AdvancedConfig {
-    /// Order in which tiles should be in shared memory
-    pub tiling_order: stage::TilingOrderConfig,
+    /// Order in which tiles should be in lhs shared memory
+    pub lhs_tiling_order: stage::TilingOrderConfig,
+    /// Order in which tiles should be in rhs shared memory
+    pub rhs_tiling_order: stage::TilingOrderConfig,
     /// Ensure the inputs to tile matmul are in specified layout
     ///
     /// # Notes
@@ -21,7 +24,8 @@ pub struct AdvancedConfig {
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
-            tiling_order: stage::TilingOrderConfig::XMajor,
+            lhs_tiling_order: stage::TilingOrderConfig::RowMajor,
+            rhs_tiling_order: stage::TilingOrderConfig::RowMajor,
             enforced_tile_layout: (None, None),
         }
     }
@@ -35,26 +39,29 @@ pub fn create_stage_dim(
     tile_n: u32,
     tile_k: u32,
 ) -> (StageDim, StageDim, StageDim) {
-    let lhs_stage_dim = StageDim {
-        tile_size_x: tile_m,
-        tile_size_y: tile_k,
-        num_tiles_x: stage_m / tile_m,
-        num_tiles_y: stage_k / tile_k,
-    };
+    let lhs_stage_dim = StageDim::new(
+        Ident::Lhs,
+        tile_m,
+        tile_k,
+        stage_m / tile_m,
+        stage_k / tile_k,
+    );
 
-    let rhs_stage_dim = StageDim {
-        tile_size_x: tile_k,
-        tile_size_y: tile_n,
-        num_tiles_x: stage_k / tile_k,
-        num_tiles_y: stage_n / tile_n,
-    };
+    let rhs_stage_dim = StageDim::new(
+        Ident::Rhs,
+        tile_k,
+        tile_n,
+        stage_k / tile_k,
+        stage_n / tile_n,
+    );
 
-    let out_stage_dim = StageDim {
-        tile_size_x: tile_m,
-        tile_size_y: tile_n,
-        num_tiles_x: stage_m / tile_m,
-        num_tiles_y: stage_n / tile_n,
-    };
+    let out_stage_dim = StageDim::new(
+        Ident::Out,
+        tile_m,
+        tile_n,
+        stage_m / tile_m,
+        stage_n / tile_n,
+    );
 
     (lhs_stage_dim, rhs_stage_dim, out_stage_dim)
 }

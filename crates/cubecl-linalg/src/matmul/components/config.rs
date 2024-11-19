@@ -3,22 +3,6 @@ use cubecl_core::prelude::*;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-#[cube]
-/// Gives indexes for the current unit
-///
-/// Typically corresponds directly to unit positions within the cube, but
-/// can be customized
-pub trait PlaneMapper {
-    /// In which plane the unit lies
-    ///
-    /// Typically UNIT_POS_Y
-    fn plane_id() -> u32;
-    /// The position of the unit within the plane
-    ///
-    /// Typically UNIT_POS_X
-    fn plane_unit() -> u32;
-}
-
 /// A config for a matmul
 ///
 /// Useful to aggregate many trait bounds
@@ -76,9 +60,30 @@ pub struct StageDim {
     pub tile_size_y: u32,
     pub num_tiles_x: u32,
     pub num_tiles_y: u32,
+    pub num_tiles_per_buffer: u32,
 }
 
 impl StageDim {
+    pub fn new(
+        ident: Ident,
+        tile_size_x: u32,
+        tile_size_y: u32,
+        num_tiles_x: u32,
+        num_tiles_y: u32,
+    ) -> Self {
+        Self {
+            tile_size_x,
+            tile_size_y,
+            num_tiles_x,
+            num_tiles_y,
+            num_tiles_per_buffer: match ident {
+                Ident::Lhs => num_tiles_x,
+                Ident::Rhs => num_tiles_y,
+                Ident::Out => 0,
+            },
+        }
+    }
+
     /// Returns the total number of elements of the stage
     pub fn num_elements(&self) -> u32 {
         self.num_tiles_x * self.num_tiles_y * self.tile_num_elements()
@@ -97,5 +102,13 @@ impl StageDim {
     /// Returns the width of the stage, i.e. the number of elements across the y dimension
     pub fn num_elements_y_dim(&self) -> u32 {
         self.num_tiles_y * self.tile_size_y
+    }
+
+    pub fn buffer_num_elements(&self) -> u32 {
+        // Would be cleaner with an option, but it's not supported for CubeType
+        if self.num_tiles_per_buffer == 0 {
+            panic!("Should not call buffer_num_elements on output")
+        }
+        self.tile_num_elements() * self.num_tiles_per_buffer
     }
 }
