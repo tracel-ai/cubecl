@@ -14,11 +14,7 @@ pub mod hip;
 #[cfg(feature = "hip")]
 pub type HipDialectIntrinsic = hip::HipDialect<hip::wmma::WmmaIntrinsicCompiler>;
 #[cfg(feature = "hip")]
-pub type HipCompilerInstrinsic = shared::CppCompiler<HipDialectIntrinsic>;
-#[cfg(feature = "hip")]
 pub type HipDialectRocWmma = hip::HipDialect<hip::wmma::RocWmmaCompiler>;
-#[cfg(feature = "hip")]
-pub type HipCompilerRocWmma = shared::CppCompiler<HipDialectRocWmma>;
 
 #[cfg(feature = "cuda")]
 pub mod cuda;
