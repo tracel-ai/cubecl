@@ -19,8 +19,8 @@ macro_rules! matmul_test_define {
         $ea:ty,
         $plane_dim:expr
     ) => {
+        #[test]
         pub fn bo1_gpc16x16x480_s1x1x3_t16x16x16_rr_ln4() {
-            // Triple buffering
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -39,7 +39,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x3;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::single_buffer::Matmul<
@@ -47,7 +46,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x3,
                 >;
                 type GlobalMatmul =
                     global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -94,7 +93,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -102,7 +100,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -151,7 +149,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::single_buffer::Matmul<
@@ -159,7 +156,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -211,7 +208,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x2x2;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::single_buffer::Matmul<
@@ -219,7 +215,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x2x2,
                 >;
                 type GlobalMatmul =
                     global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -272,7 +268,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x1x2;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::single_buffer::Matmul<
@@ -280,7 +275,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x1x2,
                 >;
                 type GlobalMatmul =
                     global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -333,7 +328,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x2;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::single_buffer::Matmul<
@@ -341,7 +335,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x2,
                 >;
                 type GlobalMatmul =
                     global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -394,7 +388,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x2;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::single_buffer::Matmul<
@@ -402,7 +395,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x2,
                 >;
                 type GlobalMatmul =
                     global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -455,7 +448,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -463,7 +455,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -513,7 +505,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -521,7 +512,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -571,7 +562,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -579,7 +569,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -629,7 +619,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -637,7 +626,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -687,7 +676,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -695,7 +683,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -745,7 +733,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -753,7 +740,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -803,7 +790,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -811,7 +797,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -861,7 +847,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -869,7 +854,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -919,7 +904,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -927,7 +911,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -977,7 +961,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -985,7 +968,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1035,7 +1018,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -1043,7 +1025,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1093,7 +1075,6 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
@@ -1101,7 +1082,7 @@ macro_rules! matmul_test_define {
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1149,14 +1130,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1203,14 +1184,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1257,14 +1238,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1311,14 +1292,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1365,14 +1346,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1419,14 +1400,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1478,14 +1459,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1537,14 +1518,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1591,14 +1572,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1645,14 +1626,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1699,14 +1680,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1753,14 +1734,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1807,14 +1788,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1861,14 +1842,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1915,14 +1896,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -1969,14 +1950,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2023,14 +2004,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2077,14 +2058,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2135,14 +2116,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2192,14 +2173,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2249,14 +2230,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2306,14 +2287,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2363,14 +2344,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2420,14 +2401,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2477,14 +2458,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2534,14 +2515,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2591,14 +2572,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2648,14 +2629,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2705,14 +2686,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2762,14 +2743,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2816,14 +2797,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2870,14 +2851,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2924,14 +2905,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -2978,14 +2959,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3032,14 +3013,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3086,14 +3067,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3140,14 +3121,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3194,14 +3175,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3248,14 +3229,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3302,14 +3283,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3360,14 +3341,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3414,14 +3395,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3468,14 +3449,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3522,14 +3503,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3576,14 +3557,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3630,14 +3611,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x2x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x2x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3684,14 +3665,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3738,14 +3719,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3792,14 +3773,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3846,14 +3827,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3900,14 +3881,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -3954,14 +3935,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -4008,14 +3989,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -4062,14 +4043,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S8x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S8x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -4116,14 +4097,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
@@ -4170,14 +4151,14 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
                 type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;

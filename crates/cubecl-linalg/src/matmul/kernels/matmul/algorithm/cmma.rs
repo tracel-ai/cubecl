@@ -22,14 +22,8 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
 
     type TileMatmul = Accelerated16x16x16<Self::ES, Self::EA>;
 
-    type StageSize = S4x4x2;
-    type StageMatmul = stage::multi_buffer::Matmul<
-        Self::ES,
-        Self::EG,
-        Self::EA,
-        Self::TileMatmul,
-        Self::StageSize,
-    >;
+    type StageMatmul =
+        stage::multi_buffer::Matmul<Self::ES, Self::EG, Self::EA, Self::TileMatmul, S4x4x2>;
 
     type GlobalMatmul = global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
 
@@ -37,12 +31,12 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
         batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul, batch::NaturalDispatch>;
 
     fn cube_dim() -> CubeDim {
-        CubeDim::new(Self::PLANE_DIM, Self::StageSize::NUM_M, 1)
+        CubeDim::new(Self::PLANE_DIM, S4x4x2::NUM_M, 1)
     }
 
     fn cube_count(problem: &MatmulProblem) -> CubeCount {
-        let m_stage = Self::StageSize::NUM_M * Self::TileMatmul::M;
-        let n_stage = Self::StageSize::NUM_N * Self::TileMatmul::N;
+        let m_stage = S4x4x2::NUM_M * Self::TileMatmul::M;
+        let n_stage = S4x4x2::NUM_N * Self::TileMatmul::N;
         let cubes_needed_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_needed_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
