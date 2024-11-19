@@ -18,8 +18,8 @@ impl<M: WmmaCompiler<Self>> WmmaCompiler<Self> for CudaDialect<M> {
         M::deftypes(f)
     }
 
-    fn named_bindings(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::named_bindings(f)
+    fn local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        M::local_variables(f)
     }
 
     fn compile_fragment_ident(

@@ -22,7 +22,7 @@ pub trait WmmaCompiler<D: Dialect>:
 
     fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn named_bindings(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
     fn compile_fragment_ident(
         ident: &FragmentIdent<D>,

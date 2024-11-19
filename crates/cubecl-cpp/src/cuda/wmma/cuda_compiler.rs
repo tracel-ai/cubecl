@@ -24,7 +24,7 @@ impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
         Ok(())
     }
 
-    fn named_bindings(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 

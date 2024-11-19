@@ -121,7 +121,7 @@ impl<D: Dialect> Display for Body<D> {
             )?;
         }
 
-        D::named_bindings(f)?;
+        D::local_variables(f)?;
 
         for ops in self.instructions.iter() {
             write!(f, "{ops}")?;

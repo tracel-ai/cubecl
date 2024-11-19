@@ -22,7 +22,7 @@ impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         f.write_str("typedef float float8 __attribute__((ext_vector_type(8)));\n")
     }
 
-    fn named_bindings(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively
         // in other words fragments are duplicated
         // so lanes 0,16 / 1,17 / ... / 15, 31 are the same
