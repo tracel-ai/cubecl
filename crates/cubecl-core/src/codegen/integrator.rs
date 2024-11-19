@@ -26,6 +26,7 @@ pub struct KernelExpansion {
     pub inputs: Vec<InputInfo>,
     pub outputs: Vec<OutputInfo>,
     pub scope: Scope,
+    pub kernel_name: String,
 }
 
 /// Simply indicate the output that can be replaced by the input.
@@ -55,6 +56,7 @@ pub struct KernelSettings {
     vectorization_partial: Vec<VectorizationPartial>,
     pub cube_dim: CubeDim,
     pub reading_strategy: Vec<(u16, ReadingStrategy)>,
+    pub kernel_name: String,
 }
 
 impl core::fmt::Display for KernelSettings {
@@ -191,6 +193,13 @@ impl KernelSettings {
     #[allow(dead_code)]
     pub fn cube_dim(mut self, cube_dim: CubeDim) -> Self {
         self.cube_dim = cube_dim;
+        self
+    }
+
+    /// Set kernel name.
+    #[allow(dead_code)]
+    pub fn kernel_name(mut self, name: &'static str) -> Self {
+        self.kernel_name = name.to_string();
         self
     }
 }
@@ -331,6 +340,7 @@ impl KernelIntegrator {
             named,
             cube_dim: settings.cube_dim,
             body: self.expansion.scope,
+            kernel_name: self.expansion.kernel_name,
         }
     }
 

@@ -374,7 +374,7 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
-        let func_name = CString::new("kernel".to_string()).unwrap();
+        let func_name = CString::new(kernel_compiled.kernel_name).unwrap();
         let func = unsafe {
             let module =
                 cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _).unwrap();

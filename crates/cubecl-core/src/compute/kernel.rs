@@ -7,6 +7,7 @@ use cubecl_runtime::ExecutionMode;
 /// A kernel, compiled in the target language
 pub struct CompiledKernel<C: Compiler> {
     pub name: Option<&'static str>,
+    pub kernel_name: String,
     /// Source code of the kernel
     pub source: String,
     /// In-memory representation of the kernel
@@ -188,6 +189,7 @@ pub struct KernelTask<C: Compiler, K: Kernel> {
 impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
     fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
         let gpu_ir = self.kernel_definition.define();
+        let kernel_name = gpu_ir.kernel_name.clone();
         let cube_dim = gpu_ir.cube_dim;
         let lower_level_ir = C::compile(gpu_ir, mode);
         let shared_mem_bytes = lower_level_ir.shared_memory_size();
@@ -199,6 +201,7 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
             cube_dim,
             shared_mem_bytes,
             debug_info: None,
+            kernel_name,
         }
     }
 

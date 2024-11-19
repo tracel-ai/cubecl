@@ -59,6 +59,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub bf16: bool,
     pub f16: bool,
     pub items: HashSet<super::Item<D>>,
+    pub kernel_name: String,
 }
 
 impl<D: Dialect> CompilerRepresentation for ComputeKernel<D> {
@@ -122,8 +123,9 @@ struct __align__({alignment}) {item} {{"
             f,
             "
 
-extern \"C\" __global__ void kernel(
+extern \"C\" __global__ void {}(
 ",
+            self.kernel_name
         )?;
 
         let num_bindings = self.inputs.len() + self.outputs.len() + self.named.len();
