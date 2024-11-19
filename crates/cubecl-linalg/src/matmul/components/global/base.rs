@@ -127,12 +127,6 @@ pub trait Config: MatmulConfig {
     /// Returns the number of planes in the cube
     fn num_planes(&self) -> u32;
 
-    /// Returns the number of planes in the cube
-    fn num_producers(&self) -> u32;
-
-    /// Returns the number of planes in the cube
-    fn num_consumers(&self) -> u32;
-
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 

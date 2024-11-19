@@ -258,14 +258,6 @@ impl<S: stage::Config> global::Config for Config<S> {
     fn transpose_load(&self, ident: Ident) -> bool {
         self.layout(ident) != self.smm_config.layout(ident)
     }
-
-    fn num_producers(&self) -> u32 {
-        self.num_planes() - self.num_consumers()
-    }
-
-    fn num_consumers(&self) -> u32 {
-        self.smm_config.num_planes()
-    }
 }
 
 impl<S: stage::Config> MatmulConfig for Config<S> {}
@@ -294,5 +286,13 @@ impl<S: stage::Config> Config<S> {
             out_line_size,
             num_planes,
         }
+    }
+
+    pub fn num_producers(&self) -> u32 {
+        self.num_planes() - self.num_consumers()
+    }
+
+    pub fn num_consumers(&self) -> u32 {
+        self.smm_config.num_planes()
     }
 }
