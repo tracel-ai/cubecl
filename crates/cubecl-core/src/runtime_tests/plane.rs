@@ -101,7 +101,7 @@ pub fn test_plane_sum<TestRuntime: Runtime, F: Float + CubeElement + Sized>(
             kernel_sum::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(32, 1, 1),
+                CubeDim::new(plane_size, 1, 1),
                 handle,
             )
         },
@@ -140,7 +140,7 @@ pub fn test_plane_prod<TestRuntime: Runtime, F: Float + CubeElement>(
             kernel_prod::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(32, 1, 1),
+                CubeDim::new(plane_size, 1, 1),
                 handle,
             )
         },
@@ -176,7 +176,7 @@ pub fn test_plane_max<TestRuntime: Runtime, F: Float + CubeElement>(
             kernel_max::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(32, 1, 1),
+                CubeDim::new(plane_size, 1, 1),
                 handle,
             )
         },
@@ -212,7 +212,7 @@ pub fn test_plane_min<TestRuntime: Runtime, F: Float + CubeElement>(
             kernel_min::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(32, 1, 1),
+                CubeDim::new(plane_size, 1, 1),
                 handle,
             )
         },
@@ -250,7 +250,7 @@ pub fn test_plane_all<TestRuntime: Runtime, F: Float + CubeElement>(
             kernel_all::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(32, 1, 1),
+                CubeDim::new(plane_size, 1, 1),
                 handle,
             )
         },
@@ -288,7 +288,7 @@ pub fn test_plane_any<TestRuntime: Runtime, F: Float + CubeElement>(
             kernel_any::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(32, 1, 1),
+                CubeDim::new(plane_size, 1, 1),
                 handle,
             )
         },
@@ -317,7 +317,7 @@ pub fn test_plane_elect<TestRuntime: Runtime, F: Float + CubeElement>(
             kernel_any::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(32, 1, 1),
+                CubeDim::new(plane_size, 1, 1),
                 handle,
             )
         },
@@ -349,7 +349,7 @@ pub fn test_plane_broadcast<TestRuntime: Runtime, F: Float + CubeElement>(
             kernel_broadcast::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(32, 1, 1),
+                CubeDim::new(plane_size, 1, 1),
                 handle,
             )
         },
