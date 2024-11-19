@@ -43,7 +43,7 @@ pub struct CppCompiler<D: Dialect> {
     const_arrays: Vec<ConstArray<D>>,
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
-    wrap_size_checked: bool,
+    warp_size_checked: bool,
     wmma: bool,
     bf16: bool,
     f16: bool,
@@ -110,7 +110,7 @@ impl<D: Dialect> CppCompiler<D> {
             shared_memories: self.shared_memories,
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
-            warp_size_checked: self.wrap_size_checked,
+            warp_size_checked: self.warp_size_checked,
             settings: self.settings,
         };
 
@@ -214,7 +214,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
             },
             gpu::Operation::Plane(op) => {
-                self.wrap_size_checked = true;
+                self.warp_size_checked = true;
                 let out = self.compile_variable(out.unwrap());
                 match op {
                     gpu::Plane::Sum(op) => {
