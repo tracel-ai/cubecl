@@ -31,6 +31,10 @@ impl Dialect for Hip {
     fn warp_shuffle(input: &Variable<Self>, id: &Variable<Self>) -> String {
         format!("__shfl({input}, {id})")
     }
+    fn warp_shuffle_indexed(out: &Variable<Self>, index: usize, id: &Variable<Self>) -> String {
+        let indexed = out.index(index);
+        format!("__shfl_xor({indexed}, {id})")
+    }
     fn warp_shuffle_xor(out: &Variable<Self>) -> String {
         format!("__shfl_xor({out}, offset)")
     }
