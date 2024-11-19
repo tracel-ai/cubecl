@@ -1,6 +1,6 @@
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::stage::{self, StageSize};
+use crate::matmul::components::stage::{self};
 use crate::matmul::components::{batch, global, tile};
 use crate::matmul::components::{MatmulKernel, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
@@ -26,7 +26,6 @@ pub trait Algorithm<EG: Numeric> {
 
     type TileMatmul: tile::Matmul<Self::ES, Self::EA> + MatmulKernel<Self::ES, Self::EA>;
 
-    type StageSize: StageSize;
     type StageMatmul: stage::Matmul<
             Self::ES,
             Self::EG,
