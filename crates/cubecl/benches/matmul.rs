@@ -61,7 +61,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
     client.enable_timestamps();
 
     let bench = MatmulBench::<R, E> {
-        b: 1,
+        b: 8,
         m: 2048,
         k: 2048,
         n: 2048,
@@ -130,25 +130,25 @@ fn main() {
 
     #[cfg(feature = "cuda")]
     {
-        run::<cubecl::cuda::CudaRuntime, f32>(
-            Default::default(),
-            matmul::Strategy::Tiling2D(Default::default()),
-        );
+        // run::<cubecl::cuda::CudaRuntime, f32>(
+        //     Default::default(),
+        //     matmul::Strategy::Tiling2D(Default::default()),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, half::f16>(
+        //     Default::default(),
+        //     matmul::Strategy::Tiling2D(Default::default()),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f32>(
+        //     Default::default(),
+        //     matmul::Strategy::CmmaOld(Default::default()),
+        // );
         run::<cubecl::cuda::CudaRuntime, half::f16>(
-            Default::default(),
-            matmul::Strategy::Tiling2D(Default::default()),
-        );
-        run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
             matmul::Strategy::CmmaOld(Default::default()),
         );
-        run::<cubecl::cuda::CudaRuntime, half::f16>(
-            Default::default(),
-            matmul::Strategy::CmmaOld(Default::default()),
-        );
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
-        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
+        //run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        //run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
         run::<cubecl::cuda::CudaRuntime, half::f16>(
             Default::default(),
             matmul::Strategy::Accelerated,
