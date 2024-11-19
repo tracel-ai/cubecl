@@ -10,7 +10,8 @@ impl FromStr for CudaArchitecture {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!()
+        let version = s.parse().map_err(|e| format!("bad cuda architecture: {e}"))?;
+        Ok(Self { version })
     }
 }
 
