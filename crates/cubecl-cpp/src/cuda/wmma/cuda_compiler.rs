@@ -1,6 +1,10 @@
-use crate::{cuda::{arch::CudaArchitecture, CudaDialect}, shared::{
-    wmma_api_base, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, WmmaCompiler, WmmaInstruction
-}};
+use crate::{
+    cuda::{arch::CudaArchitecture, CudaDialect},
+    shared::{
+        wmma_api_base, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations,
+        WmmaCompiler, WmmaInstruction,
+    },
+};
 use cubecl_core::ir::{self as gpu};
 
 const WMMA_NAMESPACE: &str = "nvcuda::wmma";
@@ -87,12 +91,9 @@ impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
                 gpu::Elem::Float(gpu::FloatKind::TF32),
                 gpu::Elem::Float(gpu::FloatKind::TF32),
                 gpu::Elem::Float(gpu::FloatKind::F32),
-                vec![(16, 8, 16)]
+                vec![(16, 8, 16)],
             ));
         }
         result
     }
 }
-
-
-

@@ -16,7 +16,7 @@ pub trait Architecture: FromStr<Err = String> {
 }
 
 pub trait WmmaCompiler<D: Dialect>:
-Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
+    Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
     type Architecture: Architecture;
 

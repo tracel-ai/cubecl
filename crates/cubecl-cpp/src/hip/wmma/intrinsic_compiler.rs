@@ -1,7 +1,8 @@
 use crate::{
     hip::{arch::AMDArchitecture, HipDialect},
     shared::{
-        Architecture, Component, Elem, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, Variable, WmmaCompiler, WmmaInstruction
+        Architecture, Component, Elem, Fragment, FragmentIdent, FragmentLayout,
+        SupportedWmmaCombinations, Variable, WmmaCompiler, WmmaInstruction,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -76,35 +77,34 @@ for (uint i = 0; i < uint(8); ++i) {{
                     )
                 }
             }
-            WmmaInstruction::Load {
-                frag,
-                value,
-                .. } => {
+            WmmaInstruction::Load { frag, value, .. } => {
                 // Matrix A must be in column major layout
                 // Matrix B must be in row major layout
                 let item = value.item();
                 let mut value_ident = format!("{value}");
                 if item.vectorization > 1 {
                     // TODO: find a wa to not remove vectorization
-                    write!(f, "__half* {value}_half = reinterpret_cast<__half*>({value});\n")?;
+                    write!(
+                        f,
+                        "__half* {value}_half = reinterpret_cast<__half*>({value});\n"
+                    )?;
                     value_ident = format!("{value}_half");
                 }
                 let index = match frag {
-                    Variable::WmmaFragment {
-                        frag: inner,
-                        ..
-                    } => {
-                        if (inner.ident == FragmentIdent::A && inner.layout.unwrap() == FragmentLayout::ColMajor) ||
-                            (inner.ident == FragmentIdent::B && inner.layout.unwrap() == FragmentLayout::RowMajor) {
+                    Variable::WmmaFragment { frag: inner, .. } => {
+                        if (inner.ident == FragmentIdent::A
+                            && inner.layout.unwrap() == FragmentLayout::ColMajor)
+                            || (inner.ident == FragmentIdent::B
+                                && inner.layout.unwrap() == FragmentLayout::RowMajor)
+                        {
                             // correct layout
                             "i * uint(16) + wmmaLane"
-                        }
-                        else {
+                        } else {
                             // transpose
                             "i + wmmaLane * uint(16)"
                         }
-                    },
-                    other => panic!("{other} is not a WMMMA fragment!")
+                    }
+                    other => panic!("{other} is not a WMMMA fragment!"),
                 };
                 write!(
                     f,
@@ -120,13 +120,15 @@ for (uint i = 0; i < uint(8); ++i) {{
                 frag_c,
                 frag_d,
             } => {
-                let ab_format = if let Variable::WmmaFragment {frag: inner_a, ..} = frag_a {
-                    if let Variable::WmmaFragment {frag: inner_b, ..} = frag_b {
+                let ab_format = if let Variable::WmmaFragment { frag: inner_a, .. } = frag_a {
+                    if let Variable::WmmaFragment { frag: inner_b, .. } = frag_b {
                         if inner_a.elem == inner_b.elem {
                             match inner_a.elem {
                                 Elem::F16 => "f16",
                                 Elem::BF16 => "bf16",
-                                other => panic!("{other} format not supported for {frag_a} and {frag_b}")
+                                other => {
+                                    panic!("{other} format not supported for {frag_a} and {frag_b}")
+                                }
                             }
                         } else {
                             panic!("{frag_a} and {frag_b} have different types (respectively {} and {})", inner_a.elem, inner_b.elem)
@@ -137,14 +139,16 @@ for (uint i = 0; i < uint(8); ++i) {{
                 } else {
                     panic!("{frag_a} is not a WMMA fragment!")
                 };
-                let cd_format = if let Variable::WmmaFragment {frag: inner_c, ..} = frag_c {
-                    if let Variable::WmmaFragment {frag: inner_d, ..} = frag_d {
+                let cd_format = if let Variable::WmmaFragment { frag: inner_c, .. } = frag_c {
+                    if let Variable::WmmaFragment { frag: inner_d, .. } = frag_d {
                         if inner_c.elem == inner_d.elem {
                             match inner_c.elem {
                                 Elem::F32 => "f32",
                                 Elem::F16 => "f16",
                                 Elem::BF16 => "bf16",
-                                other => panic!("{other} format not supported for {frag_c} and {frag_d}")
+                                other => {
+                                    panic!("{other} format not supported for {frag_c} and {frag_d}")
+                                }
                             }
                         } else {
                             panic!("{frag_c} and {frag_d} have different types (respectively {} and {})", inner_c.elem, inner_d.elem)
@@ -160,7 +164,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                     f,
                     "{frag_d} = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w32({frag_a}, {frag_b}, {frag_c});"
                 )
-            },
+            }
             WmmaInstruction::Store {
                 output,
                 frag,
@@ -170,8 +174,10 @@ for (uint i = 0; i < uint(8); ++i) {{
                 let item = output.item();
                 let mut output_ident = format!("{output}");
                 if item.vectorization > 1 {
-                    // TODO: find a wa to not remove vectorization
-                    write!(f, "float* {output}_float = reinterpret_cast<float*>({output});\n")?;
+                    write!(
+                        f,
+                        "float* {output}_float = reinterpret_cast<float*>({output});\n"
+                    )?;
                     output_ident = format!("{output}_float");
                 }
                 // frag holds a result column where threads 0-15 of the wavefront have the even rows and threads 16-31 the odd rows
@@ -193,6 +199,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                     FragmentLayout::RowMajor => format!("wmmaLane + rowIdx * uint(16)"),
                     FragmentLayout::_Dialect(_) => "".to_string(),
                 };
+                // TODO: find a way to not remove vectorization
                 write!(
                     f,
                     "for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
@@ -201,7 +208,7 @@ for (uint i = 0; i < uint(8); ++i) {{
 }}
  "
                 )
-            },
+            }
         }
     }
 
