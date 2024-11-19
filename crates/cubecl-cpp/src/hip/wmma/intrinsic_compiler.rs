@@ -83,10 +83,9 @@ for (uint i = 0; i < uint(8); ++i) {{
                 let item = value.item();
                 let mut value_ident = format!("{value}");
                 if item.vectorization > 1 {
-                    // TODO: find a wa to not remove vectorization
-                    write!(
+                    writeln!(
                         f,
-                        "__half* {value}_half = reinterpret_cast<__half*>({value});\n"
+                        "__half* {value}_half = reinterpret_cast<__half*>({value});"
                     )?;
                     value_ident = format!("{value}_half");
                 }
@@ -174,9 +173,9 @@ for (uint i = 0; i < uint(8); ++i) {{
                 let item = output.item();
                 let mut output_ident = format!("{output}");
                 if item.vectorization > 1 {
-                    write!(
+                    writeln!(
                         f,
-                        "float* {output}_float = reinterpret_cast<float*>({output});\n"
+                        "float* {output}_float = reinterpret_cast<float*>({output});"
                     )?;
                     output_ident = format!("{output}_float");
                 }
@@ -195,11 +194,10 @@ for (uint i = 0; i < uint(8); ++i) {{
                 };
                 // FragmentLayout here represents the desired layout of the matrix C
                 let output_idx = match layout {
-                    FragmentLayout::ColMajor => format!("wmmaLane * uint(16) + rowIdx"),
-                    FragmentLayout::RowMajor => format!("wmmaLane + rowIdx * uint(16)"),
-                    FragmentLayout::_Dialect(_) => "".to_string(),
+                    FragmentLayout::ColMajor => "wmmaLane * uint(16) + rowIdx",
+                    FragmentLayout::RowMajor => "wmmaLane + rowIdx * uint(16)",
+                    FragmentLayout::_Dialect(_) => "",
                 };
-                // TODO: find a way to not remove vectorization
                 write!(
                     f,
                     "for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
