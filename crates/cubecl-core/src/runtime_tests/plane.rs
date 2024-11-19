@@ -116,8 +116,8 @@ pub fn test_plane_prod<TestRuntime: Runtime, F: Float + CubeElement>(
     let input: Vec<f32> = (0..plane_size * vectorization as u32)
         .map(|x| match x % 3 {
             0 => 0.5,
-            1 => 1.0,
-            2 => 2.0,
+            1 => 1.25,
+            2 => 1.75,
             _ => unreachable!(),
         }) // keep the values relatively close to 1 to avoid overflow.
         .collect();
