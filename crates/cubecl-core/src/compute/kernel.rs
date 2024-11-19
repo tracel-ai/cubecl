@@ -239,6 +239,7 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
             cube_dim,
             shared_mem_bytes,
             debug_info: None,
+            kernel_name,
         }
     }
 
