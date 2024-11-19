@@ -13,7 +13,8 @@ use cubecl_core::{
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
 
 use super::{
-    Instruction, UnaryInstruction, Variable as CppVariable, VariableSettings, WarpInstruction,
+    IndexedVariable, Instruction, UnaryInstruction, Variable as CppVariable, VariableSettings,
+    WarpInstruction,
 };
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
@@ -29,11 +30,11 @@ pub trait Dialect: Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 's
     fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     // warp instructions (all threads participating)
-    fn warp_shuffle(input: &CppVariable<Self>, id: &CppVariable<Self>) -> String;
-    fn warp_shuffle_xor(out: &CppVariable<Self>) -> String;
-    fn warp_shuffle_down(out: &CppVariable<Self>) -> String;
-    fn warp_all(out: &CppVariable<Self>) -> String;
-    fn warp_any(out: &CppVariable<Self>) -> String;
+    fn warp_shuffle(input: &IndexedVariable<Self>, id: &CppVariable<Self>) -> String;
+    fn warp_shuffle_xor(out: &IndexedVariable<Self>) -> String;
+    fn warp_shuffle_down(out: &IndexedVariable<Self>) -> String;
+    fn warp_all(out: &IndexedVariable<Self>) -> String;
+    fn warp_any(out: &IndexedVariable<Self>) -> String;
     // Matrix-Multiple Accumulate
     fn mma_namespace() -> &'static str;
 }
