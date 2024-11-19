@@ -10,8 +10,9 @@ use cubecl_core::{
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
 
 use super::{
-    IndexedVariable, Instruction, UnaryInstruction, Variable as CppVariable, VariableSettings,
-    WarpInstruction,
+    AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Elem, Fragment,
+    FragmentIdent, FragmentLayout, IndexedVariable, Instruction, Item, LocalArray, SharedMemory,
+    UnaryInstruction, Variable, VariableSettings, WarpInstruction, WmmaCompiler, WmmaInstruction,
 };
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
@@ -28,11 +29,11 @@ pub trait Dialect:
     fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     // warp instructions (all threads participating)
-    fn warp_shuffle(input: &Variable<Self>, id: &Variable<Self>) -> String;
-    fn warp_shuffle_xor(out: &Variable<Self>) -> String;
-    fn warp_shuffle_down(out: &Variable<Self>) -> String;
-    fn warp_all(out: &Variable<Self>) -> String;
-    fn warp_any(out: &Variable<Self>) -> String;
+    fn warp_shuffle(input: &IndexedVariable<Self>, id: &Variable<Self>) -> String;
+    fn warp_shuffle_xor(out: &IndexedVariable<Self>) -> String;
+    fn warp_shuffle_down(out: &IndexedVariable<Self>) -> String;
+    fn warp_all(out: &IndexedVariable<Self>) -> String;
+    fn warp_any(out: &IndexedVariable<Self>) -> String;
 }
 
 #[allow(clippy::too_many_arguments)]
