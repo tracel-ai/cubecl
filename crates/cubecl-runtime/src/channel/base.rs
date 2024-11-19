@@ -14,6 +14,9 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Given a binding, returns owned resource as bytes
     fn read(&self, binding: Binding) -> impl Future<Output = Vec<u8>> + Send;
 
+    /// Given bindings, returns owned resources as bytes
+    fn read_many(&self, bindings: Vec<Binding>) -> impl Future<Output = Vec<Vec<u8>>> + Send;
+
     /// Given a resource handle, return the storage resource.
     fn get_resource(&self, binding: Binding) -> BindingResource<Server>;
 

@@ -36,6 +36,7 @@ where
     Server: ComputeServer,
 {
     Read(Binding, Callback<Vec<u8>>),
+    ReadMany(Vec<Binding>, Callback<Vec<Vec<u8>>>),
     GetResource(Binding, Callback<BindingResource<Server>>),
     Create(Vec<u8>, Callback<Handle>),
     Empty(usize, Callback<Handle>),
@@ -64,6 +65,10 @@ where
                     match message {
                         Message::Read(binding, callback) => {
                             let data = server.read(binding).await;
+                            callback.send(data).await.unwrap();
+                        }
+                        Message::ReadMany(bindings, callback) => {
+                            let data = server.read_many(bindings).await;
                             callback.send(data).await.unwrap();
                         }
                         Message::GetResource(binding, callback) => {
@@ -128,6 +133,16 @@ where
         let sender = self.state.sender.clone();
         let (callback, response) = async_channel::unbounded();
         sender.send(Message::Read(binding, callback)).await.unwrap();
+        handle_response(response.recv().await)
+    }
+
+    async fn read_many(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
+        let sender = self.state.sender.clone();
+        let (callback, response) = async_channel::unbounded();
+        sender
+            .send(Message::ReadMany(bindings, callback))
+            .await
+            .unwrap();
         handle_response(response.recv().await)
     }
 

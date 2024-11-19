@@ -52,6 +52,14 @@ where
         future.await
     }
 
+    async fn read_many(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
+        let future = {
+            let mut server = self.server.borrow_mut();
+            server.read_many(bindings)
+        };
+        future.await
+    }
+
     fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
         self.server.borrow_mut().get_resource(binding)
     }

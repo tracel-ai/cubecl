@@ -104,6 +104,17 @@ impl ComputeServer for HipServer {
         async { value }
     }
 
+    fn read_many(
+        &mut self,
+        bindings: Vec<server::Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+        let value = bindings
+            .into_iter()
+            .map(|binding| self.read_sync(binding))
+            .collect();
+        async { value }
+    }
+
     fn memory_usage(&self) -> MemoryUsage {
         self.ctx.memory_usage()
     }

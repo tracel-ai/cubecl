@@ -52,6 +52,20 @@ where
         }
     }
 
+    /// Given bindings, returns owned resources as bytes.
+    pub async fn read_many_async(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
+        self.channel.read_many(bindings).await
+    }
+
+    /// Given bindings, returns owned resources as bytes.
+    ///
+    /// # Remarks
+    ///
+    /// Panics if the read operation fails.
+    pub fn read_many(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
+        cubecl_common::reader::read_sync(self.channel.read_many(bindings))
+    }
+
     /// Given a binding, returns owned resource as bytes.
     pub async fn read_async(&self, binding: Binding) -> Vec<u8> {
         self.channel.read(binding).await

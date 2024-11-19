@@ -116,6 +116,31 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         fut
     }
 
+    fn read_many(
+        &mut self,
+        bindings: Vec<server::Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
+        let ressources = bindings
+            .into_iter()
+            .map(|binding| {
+                let rb = self.get_resource(binding);
+                let ressource = rb.resource();
+
+                (
+                    ressource.buffer.clone(),
+                    ressource.offset(),
+                    ressource.size(),
+                )
+            })
+            .collect();
+
+        // Clear compute pass.
+        let fut = self.stream.read_buffers(ressources);
+        self.on_flushed();
+
+        fut
+    }
+
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
         // Keep track of any buffer that might be used in the wgpu queue, as we cannot copy into them
         // after they have any outstanding compute work. Calling get_resource repeatedly

@@ -135,6 +135,78 @@ impl WgpuStream {
         }
     }
 
+    pub fn read_buffers(
+        &mut self,
+        buffers: Vec<(Arc<wgpu::Buffer>, u64, u64)>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+        self.pass = None;
+        let mut staging_buffers = Vec::with_capacity(buffers.len());
+        let mut callbacks = Vec::with_capacity(buffers.len());
+
+        for (buffer, offset, size) in buffers {
+            // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+            // memory is 32 bytes aligned (see WgpuStorage).
+            let align = wgpu::COPY_BUFFER_ALIGNMENT;
+            let aligned_len = size.div_ceil(align) * align;
+
+            let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: aligned_len,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.encoder
+                .copy_buffer_to_buffer(&buffer, offset, &staging_buffer, 0, aligned_len);
+            staging_buffers.push((staging_buffer, size));
+        }
+
+        // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
+        self.flush();
+
+        for (staging_buffer, _size) in staging_buffers.iter() {
+            let (sender, receiver) = async_channel::bounded(1);
+            staging_buffer
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |v| {
+                    sender
+                        .try_send(v)
+                        .expect("Unable to send buffer slice result to async channel.");
+                });
+
+            callbacks.push(receiver);
+        }
+
+        let poll = self.poll.start_polling();
+
+        async move {
+            for callback in callbacks {
+                callback
+                    .recv()
+                    .await
+                    .expect("Unable to receive buffer slice result.")
+                    .expect("Failed to map buffer");
+            }
+
+            // Can stop polling now.
+            core::mem::drop(poll);
+
+            let result = {
+                staging_buffers
+                    .iter()
+                    .map(|(staging_buffer, size)| {
+                        let data = staging_buffer.slice(..).get_mapped_range();
+                        bytemuck::cast_slice(&data[0..(*size as usize)]).to_vec()
+                    })
+                    .collect()
+            };
+
+            for (staging_buffer, _size) in staging_buffers {
+                staging_buffer.unmap();
+            }
+            result
+        }
+    }
+
     pub fn read_buffer(
         &mut self,
         buffer: &wgpu::Buffer,

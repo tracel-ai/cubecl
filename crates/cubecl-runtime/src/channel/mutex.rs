@@ -47,6 +47,16 @@ where
         fut.await
     }
 
+    async fn read_many(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
+        // Nb: The order here is really important - the mutex guard has to be dropped before
+        // the future is polled. Just calling lock().read().await can deadlock.
+        let fut = {
+            let mut server = self.server.lock();
+            server.read_many(bindings)
+        };
+        fut.await
+    }
+
     fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
         self.server.lock().get_resource(binding)
     }
