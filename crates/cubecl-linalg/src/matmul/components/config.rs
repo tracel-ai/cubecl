@@ -51,7 +51,7 @@ pub struct StageDims {
 /// x direction, and `num_tiles_y` tiles of size `tile_size_y` in y dimension.
 ///
 /// Dimensions x and y are respectively the row and column dimensions,
-/// regardless of the [super::matrix::MatrixLayout]:
+/// regardless of the [MatrixLayout]:
 ///  - Lhs: x=m, y=k
 ///  - Rhs: x=k, y=n
 ///  - Out: x=m, y=n

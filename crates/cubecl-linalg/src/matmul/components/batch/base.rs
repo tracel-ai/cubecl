@@ -47,11 +47,6 @@ pub trait Config: MatmulConfig {
     /// Returns the [StageDim] for the given ident
     fn stage_dim(&self, ident: Ident) -> StageDim;
 
-    /// Returns the number of cubes launched across the x dimension
-    fn cube_count_x(&self) -> u32;
-    /// Returns the number of cubes launched across the y dimension
-    fn cube_count_y(&self) -> u32;
-
     /// Returns the largest m dimension supported with these configs
     fn max_m(&self) -> u32;
     /// Returns the largest n dimension supported with these configs
