@@ -29,16 +29,14 @@ pub struct TransposedDispatch;
 ///
 /// # Generics
 /// - W: Width of a swizzle column
-/// - H: Height of swizzle columns (number of rows)
-pub struct SwizzleXFirstDispatch<const W: u32, const H: u32>;
+pub struct SwizzleNaturalDispatch<const W: u32>;
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 /// Processes data in a swizzled pattern, prioritizing cubes along the y-axis first.
 ///
 /// # Generics
 /// - W: Width of a swizzle column
-/// - H: Height of swizzle columns (number of rows)
-pub struct SwizzleYFirstDispatch<const W: u32, const H: u32>;
+pub struct SwizzleTransposedDispatch<const W: u32>;
 
 #[cube]
 impl CubeDispatch for NaturalDispatch {
@@ -87,10 +85,11 @@ impl CubeDispatch for TransposedDispatch {
 }
 
 #[cube]
-impl<const W: u32, const H: u32> CubeDispatch for SwizzleXFirstDispatch<W, H> {
+impl<const W: u32> CubeDispatch for SwizzleNaturalDispatch<W> {
     fn x_y_indices() -> (u32, u32) {
-        let nth_cube = CUBE_POS_Y * CUBE_DIM_X + CUBE_POS_X;
-        swizzle(nth_cube, H, W)
+        let height = CUBE_COUNT_X;
+        let nth_cube = CUBE_POS_Y * height + CUBE_POS_X;
+        swizzle(nth_cube, height, W)
     }
 
     fn batch_index() -> u32 {
@@ -111,10 +110,11 @@ impl<const W: u32, const H: u32> CubeDispatch for SwizzleXFirstDispatch<W, H> {
 }
 
 #[cube]
-impl<const W: u32, const H: u32> CubeDispatch for SwizzleYFirstDispatch<W, H> {
+impl<const W: u32> CubeDispatch for SwizzleTransposedDispatch<W> {
     fn x_y_indices() -> (u32, u32) {
-        let nth_cube = CUBE_POS_X * CUBE_DIM_Y + CUBE_POS_Y;
-        swizzle(nth_cube, H, W)
+        let height = CUBE_COUNT_Y;
+        let nth_cube = CUBE_POS_X * height + CUBE_POS_Y;
+        swizzle(nth_cube, height, W)
     }
 
     fn batch_index() -> u32 {
