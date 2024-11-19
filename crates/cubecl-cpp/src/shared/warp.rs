@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::shared::{Component, Elem};
 
-use super::{Dialect, Variable};
+use super::{Dialect, IndexedVariable, Variable};
 
 #[derive(Clone, Debug)]
 pub enum WarpInstruction<D: Dialect> {
@@ -55,24 +55,20 @@ unsigned int leader = __ffs(mask) - 1;
 {out} = threadIdx.x % warpSize == leader;
             "
             ),
-            WarpInstruction::All { input, out } => {
-                reduce_quantifier(f, input, out, D::warp_all_indexed)
-            }
-            WarpInstruction::Any { input, out } => {
-                reduce_quantifier(f, input, out, D::warp_any_indexed)
-            }
+            WarpInstruction::All { input, out } => reduce_quantifier(f, input, out, D::warp_all),
+            WarpInstruction::Any { input, out } => reduce_quantifier(f, input, out, D::warp_any),
             WarpInstruction::Broadcast { input, id, out } => {
                 let input_optimized = input.optimized();
                 let out_optimized = out.optimized();
                 for k in 0..out_optimized.item().vectorization {
-                    let __shfl = D::warp_shuffle_indexed(&input_optimized, k, id);
-                    let out_indexed = out_optimized.index(k);
+                    let __shfl = D::warp_shuffle(&input_optimized.index(k), id);
+                    let indexed = out_optimized.index(k);
                     write!(
                         f,
                         "
                         {{
                             for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{
-                                {out_indexed} = {__shfl};
+                                {indexed} = {__shfl};
                             }}
                         }}
                         "
@@ -100,14 +96,14 @@ fn reduce_operator<D: Dialect>(
     let optimized = out.optimized();
 
     for k in 0..optimized.item().vectorization {
-        let __shfl_xor = D::warp_shuffle_xor_indexed(&optimized, k);
-        let out_indexed = optimized.index(k);
+        let indexed = optimized.index(k);
+        let __shfl_xor = D::warp_shuffle_xor(&indexed);
         write!(
             f,
             "
             {{
                 for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{
-                   {out_indexed} {op} {__shfl_xor};
+                   {indexed} {op} {__shfl_xor};
                 }}
             }}
             "
@@ -138,14 +134,14 @@ fn reduce_comparison<D: Dialect>(
     };
 
     for k in 0..optimized.item().vectorization {
-        let __shfl_down = D::warp_shuffle_down_indexed(&optimized, k);
-        let out_indexed = optimized.index(k);
+        let indexed = optimized.index(k);
+        let __shfl_down = D::warp_shuffle_down(&indexed);
         write!(
             f,
             "
             {{
                 for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
-                    {out_indexed} = {instruction}({out_indexed}, {__shfl_down});
+                    {indexed} = {instruction}({indexed}, {__shfl_down});
                 }}
             }}
             "
@@ -154,7 +150,7 @@ fn reduce_comparison<D: Dialect>(
     Ok(())
 }
 
-fn reduce_quantifier<D: Dialect, Q: Fn(&Variable<D>, usize) -> String>(
+fn reduce_quantifier<D: Dialect, Q: Fn(&IndexedVariable<D>) -> String>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
     out: &Variable<D>,
@@ -168,14 +164,14 @@ fn reduce_quantifier<D: Dialect, Q: Fn(&Variable<D>, usize) -> String>(
     )?;
     let optimized = out.optimized();
     for k in 0..optimized.item().vectorization {
-        let __all = quantifier(&optimized, k);
-        let out_indexed = optimized.index(k);
+        let indexed = optimized.index(k);
+        let __all = quantifier(&indexed);
         write!(
             f,
             "
             {{
                 for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{
-                    {out_indexed} = {__all};
+                    {indexed} = {__all};
                 }}
             }}
             "

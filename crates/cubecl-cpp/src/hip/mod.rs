@@ -1,4 +1,4 @@
-use crate::shared::{Dialect, Variable};
+use crate::shared::{Dialect, IndexedVariable, Variable};
 
 const MMA_NAMESPACE: &str = "rocwmma";
 
@@ -28,40 +28,20 @@ impl Dialect for Hip {
         f.write_str("hip_bfloat16")
     }
 
-    fn warp_shuffle(input: &Variable<Self>, id: &Variable<Self>) -> String {
+    fn warp_shuffle(input: &IndexedVariable<Self>, id: &Variable<Self>) -> String {
         format!("__shfl({input}, {id})")
     }
-    fn warp_shuffle_indexed(out: &Variable<Self>, index: usize, id: &Variable<Self>) -> String {
-        let indexed = out.index(index);
-        format!("__shfl_xor({indexed}, {id})")
-    }
-    fn warp_shuffle_xor(out: &Variable<Self>) -> String {
+    fn warp_shuffle_xor(out: &IndexedVariable<Self>) -> String {
         format!("__shfl_xor({out}, offset)")
     }
-    fn warp_shuffle_xor_indexed(out: &Variable<Self>, index: usize) -> String {
-        let indexed = out.index(index);
-        format!("__shfl_xor({indexed}, offset)")
-    }
-    fn warp_shuffle_down(out: &Variable<Self>) -> String {
+    fn warp_shuffle_down(out: &IndexedVariable<Self>) -> String {
         format!("__shfl_down({out}, offset)")
     }
-    fn warp_shuffle_down_indexed(out: &Variable<Self>, index: usize) -> String {
-        let indexed = out.index(index);
-        format!("__shfl_down({indexed}, offset)")
-    }
-    fn warp_all(out: &Variable<Self>) -> String {
+    fn warp_all(out: &IndexedVariable<Self>) -> String {
         format!("__all({out})")
     }
-    fn warp_all_indexed(out: &Variable<Self>, index: usize) -> String {
-        let indexed = out.index(index);
-        format!("__all({indexed})")
-    }
-    fn warp_any(out: &Variable<Self>) -> String {
+    fn warp_any(out: &IndexedVariable<Self>) -> String {
         format!("__any({out})")
-    }
-    fn warp_any_indexed(out: &Variable<Self>, index: usize) -> String {
-        let indexed = out.index(index);
-        format!("__any({indexed})")
     }
 
     fn mma_namespace() -> &'static str {
