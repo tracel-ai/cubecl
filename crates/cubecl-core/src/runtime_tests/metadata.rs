@@ -95,7 +95,7 @@ pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
         )
     };
 
-    let actual = client.read(handle3.binding());
+    let actual = client.read_one(handle3.binding());
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = vec![2, 3, 4, 5, 9, 8, 7, 6, 10, 11, 12, 13];
 
@@ -118,7 +118,7 @@ pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R::Server, R
         )
     };
 
-    let actual = client.read(handle3.binding());
+    let actual = client.read_one(handle3.binding());
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = vec![2, 3, 4, 5, 9, 8, 7, 10, 11, 4, 3, 2];
 
@@ -141,7 +141,7 @@ pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R::Server, 
         )
     };
 
-    let actual = client.read(handle3.binding());
+    let actual = client.read_one(handle3.binding());
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = vec![1, 2, 3, 4, 4, 5, 6, 3, 2];
 
@@ -164,7 +164,7 @@ pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R::Server, R::
         )
     };
 
-    let actual = client.read(handle3.binding());
+    let actual = client.read_one(handle3.binding());
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = vec![2 * 3 * 4 * 5, 9 * 8 * 7, 10 * 11];
 
@@ -183,7 +183,7 @@ pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R::Server
         )
     };
 
-    let actual = client.read(handle1.binding());
+    let actual = client.read_one(handle1.binding());
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual[0], 64);
@@ -201,7 +201,7 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R::Server, R
         )
     };
 
-    let actual = client.read(handle1.binding());
+    let actual = client.read_one(handle1.binding());
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual[0], 8);
@@ -222,7 +222,7 @@ pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R::Server, R::Ch
         )
     };
 
-    let actual = client.read(handle1.binding());
+    let actual = client.read_one(handle1.binding());
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual[0], 32);

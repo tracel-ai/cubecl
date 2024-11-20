@@ -218,7 +218,7 @@ fn test_plane_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
         );
     }
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual, expected);

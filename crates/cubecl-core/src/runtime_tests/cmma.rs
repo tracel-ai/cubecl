@@ -120,7 +120,7 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
         )
     };
 
-    let actual = client.read(out.binding());
+    let actual = client.read_one(out.binding());
     let actual = f32::from_bytes(&actual);
 
     let expected = [
@@ -181,7 +181,7 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
         )
     };
 
-    let actual = client.read(out.binding());
+    let actual = client.read_one(out.binding());
     let actual = f32::from_bytes(&actual);
 
     let expected = [

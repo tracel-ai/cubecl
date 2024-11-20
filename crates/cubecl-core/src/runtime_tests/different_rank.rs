@@ -73,7 +73,7 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
         out,
     );
 
-    let actual = client.read(handle_out.binding());
+    let actual = client.read_one(handle_out.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(
