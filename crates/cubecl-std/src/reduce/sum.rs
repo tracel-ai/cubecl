@@ -10,7 +10,7 @@ pub struct ReduceConfig {
 
 /// Compute the sum of all elements of `input` and write it to the first element of `output`.
 ///
-/// This doesn't reduce values accross lines. For a version that does, use [reduce_sum_lined].
+/// This doesn't reduce values across lines. For a version that does, use [reduce_sum_lined].
 ///
 /// This is a work in progress toward a more general multi-dimensional reduce kernel.
 #[cube(launch_unchecked)]
