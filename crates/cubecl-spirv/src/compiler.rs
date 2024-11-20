@@ -24,6 +24,9 @@ use crate::{
     SpirvKernel,
 };
 
+#[derive(Clone, Debug, Default)]
+pub struct CompilationOptions {}
+
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
     builder: Builder,
@@ -41,6 +44,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub state: LookupTables,
     pub ext_meta_pos: Vec<u32>,
     pub metadata: Metadata,
+    compilation_options: CompilationOptions,
 }
 
 unsafe impl<T: SpirvTarget> Send for SpirvCompiler<T> {}
@@ -64,6 +68,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             visited: self.visited.clone(),
             metadata: self.metadata.clone(),
             ext_meta_pos: self.ext_meta_pos.clone(),
+            compilation_options: self.compilation_options.clone(),
         }
     }
 }
@@ -85,6 +90,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             visited: Default::default(),
             metadata: Default::default(),
             ext_meta_pos: Default::default(),
+            compilation_options: Default::default(),
         }
     }
 }
@@ -105,8 +111,13 @@ impl<T: SpirvTarget> DerefMut for SpirvCompiler<T> {
 
 impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
     type Representation = SpirvKernel;
+    type CompilationOptions = CompilationOptions;
 
-    fn compile(value: KernelDefinition, mode: ExecutionMode) -> Self::Representation {
+    fn compile(
+        value: KernelDefinition,
+        compilation_options: &Self::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> Self::Representation {
         let bindings = value
             .inputs
             .clone()
@@ -128,6 +139,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         let (module, optimizer) = Self {
             mode,
             metadata: Metadata::new(num_meta as u32, num_ext),
+            compilation_options: compilation_options.clone(),
             ext_meta_pos,
             ..Default::default()
         }

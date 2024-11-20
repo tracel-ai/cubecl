@@ -19,6 +19,9 @@ use wgpu::{
     ShaderStages,
 };
 
+#[derive(Clone, Debug, Default)]
+pub struct CompilationOptions {}
+
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
 pub struct WgslCompiler {
@@ -39,6 +42,8 @@ pub struct WgslCompiler {
     shared_memories: Vec<SharedMemory>,
     const_arrays: Vec<ConstantArray>,
     local_arrays: Vec<LocalArray>,
+    #[allow(dead_code)]
+    compilation_options: CompilationOptions,
 }
 
 impl core::fmt::Debug for WgslCompiler {
@@ -49,9 +54,17 @@ impl core::fmt::Debug for WgslCompiler {
 
 impl cubecl_core::Compiler for WgslCompiler {
     type Representation = ComputeShader;
+    type CompilationOptions = CompilationOptions;
 
-    fn compile(shader: cube::KernelDefinition, _mode: ExecutionMode) -> Self::Representation {
-        let mut compiler = Self::default();
+    fn compile(
+        shader: cube::KernelDefinition,
+        compilation_options: &Self::CompilationOptions,
+        _mode: ExecutionMode,
+    ) -> Self::Representation {
+        let mut compiler = Self {
+            compilation_options: compilation_options.clone(),
+            ..Self::default()
+        };
         compiler.compile_shader(shader)
     }
 
@@ -150,11 +163,11 @@ impl WgpuCompiler for WgslCompiler {
     }
 
     fn compile(
-        _server: &mut WgpuServer<Self>,
+        server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
         mode: ExecutionMode,
     ) -> CompiledKernel<Self> {
-        kernel.compile(mode)
+        kernel.compile(&server.compilation_options, mode)
     }
 
     async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {

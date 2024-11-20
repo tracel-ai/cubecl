@@ -1,4 +1,5 @@
 use cubecl_cpp::formatter::format_cpp;
+use cubecl_cpp::shared::CompilationOptions;
 
 use crate::runtime::HipCompiler;
 
@@ -37,6 +38,7 @@ pub(crate) struct HipContext {
     memory_management: MemoryManagement<HipStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
     timestamps: KernelTimestamps,
+    compilation_options: CompilationOptions,
 }
 
 #[derive(Debug)]
@@ -276,6 +278,7 @@ impl ComputeServer for HipServer {
 impl HipContext {
     pub fn new(
         memory_management: MemoryManagement<HipStorage>,
+        compilation_options: CompilationOptions,
         stream: cubecl_hip_sys::hipStream_t,
         context: cubecl_hip_sys::hipCtx_t,
     ) -> Self {
@@ -285,6 +288,7 @@ impl HipContext {
             stream,
             context,
             timestamps: KernelTimestamps::Disabled,
+            compilation_options,
         }
     }
 
@@ -313,7 +317,7 @@ impl HipContext {
         let func_name = CString::new("kernel".to_string()).unwrap();
         // CubeCL compilation
         // jitc = just-in-time compiled
-        let mut jitc_kernel = cube_kernel.compile(mode);
+        let mut jitc_kernel = cube_kernel.compile(&self.compilation_options, mode);
 
         if logger.is_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));

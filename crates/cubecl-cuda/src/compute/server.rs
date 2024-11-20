@@ -1,5 +1,6 @@
-use cubecl_cpp::cuda::arch::CudaArchitecture;
-use cubecl_cpp::{formatter::format_cpp, CudaCompiler};
+use cubecl_cpp::{
+    cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions, CudaCompiler,
+};
 
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
@@ -39,6 +40,7 @@ pub(crate) struct CudaContext {
     module_names: HashMap<KernelId, CompiledKernel>,
     timestamps: KernelTimestamps,
     pub(crate) arch: CudaArchitecture,
+    compilation_options: CompilationOptions,
 }
 
 #[derive(Debug)]
@@ -305,6 +307,7 @@ impl ComputeServer for CudaServer {
 impl CudaContext {
     pub fn new(
         memory_management: MemoryManagement<CudaStorage>,
+        compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
         arch: CudaArchitecture,
@@ -316,6 +319,7 @@ impl CudaContext {
             stream,
             arch,
             timestamps: KernelTimestamps::Disabled,
+            compilation_options,
         }
     }
 
@@ -340,7 +344,7 @@ impl CudaContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
-        let mut kernel_compiled = kernel.compile(mode);
+        let mut kernel_compiled = kernel.compile(&self.compilation_options, mode);
 
         if logger.is_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -372,7 +376,7 @@ impl CudaContext {
                         message += format!("\n    {line}").as_str();
                     }
                 }
-                let source = kernel.compile(mode).source;
+                let source = kernel.compile(&self.compilation_options, mode).source;
                 panic!("{message}\n[Source]  \n{source}");
             };
             cudarc::nvrtc::result::get_ptx(program).unwrap()
