@@ -198,8 +198,8 @@ impl KernelSettings {
 
     /// Set kernel name.
     #[allow(dead_code)]
-    pub fn kernel_name(mut self, name: &'static str) -> Self {
-        self.kernel_name = name.to_string();
+    pub fn kernel_name<S: AsRef<str>>(mut self, name: S) -> Self {
+        self.kernel_name = name.as_ref().to_string();
         self
     }
 }

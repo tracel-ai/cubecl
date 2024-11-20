@@ -226,20 +226,19 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
         mode: ExecutionMode,
     ) -> CompiledKernel<C> {
         let gpu_ir = self.kernel_definition.define();
-        let kernel_name = gpu_ir.kernel_name.clone();
+        let entrypoint_name = gpu_ir.kernel_name.clone();
         let cube_dim = gpu_ir.cube_dim;
         let lower_level_ir = C::compile(gpu_ir, compilation_options, mode);
         let shared_mem_bytes = lower_level_ir.shared_memory_size();
 
         CompiledKernel {
-            entrypoint_name: kernel_name,
+            entrypoint_name,
             debug_name: Some(core::any::type_name::<K>()),
             source: lower_level_ir.to_string(),
             repr: Some(lower_level_ir),
             cube_dim,
             shared_mem_bytes,
             debug_info: None,
-            kernel_name,
         }
     }
 
