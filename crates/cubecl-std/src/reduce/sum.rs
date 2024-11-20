@@ -24,7 +24,7 @@ pub fn reduce_sum<N: Numeric>(
 
 /// Compute the sum of all elements of `input` and write it to the first element of `output`.
 ///
-/// This reduces values accross lines. For a version that doesn't, use [reduce_sum].
+/// This reduces values across lines. For a version that doesn't, use [reduce_sum].
 ///
 /// This is a work in progress toward a more general multi-dimensional reduce kernel.
 #[cube(launch_unchecked)]
