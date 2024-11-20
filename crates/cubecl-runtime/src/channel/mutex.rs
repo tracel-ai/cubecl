@@ -37,22 +37,12 @@ impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
     Server: ComputeServer,
 {
-    async fn read(&self, handle: Binding) -> Vec<u8> {
+    async fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
         // Nb: The order here is really important - the mutex guard has to be dropped before
         // the future is polled. Just calling lock().read().await can deadlock.
         let fut = {
             let mut server = self.server.lock();
-            server.read(handle)
-        };
-        fut.await
-    }
-
-    async fn read_many(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
-        // Nb: The order here is really important - the mutex guard has to be dropped before
-        // the future is polled. Just calling lock().read().await can deadlock.
-        let fut = {
-            let mut server = self.server.lock();
-            server.read_many(bindings)
+            server.read(bindings)
         };
         fut.await
     }

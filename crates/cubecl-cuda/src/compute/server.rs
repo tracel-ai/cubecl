@@ -99,31 +99,6 @@ impl CudaServer {
 
     fn read_async(
         &mut self,
-        binding: server::Binding,
-    ) -> impl Future<Output = Vec<u8>> + 'static + Send {
-        let ctx = self.get_context();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
-
-        let mut data = uninit_vec(resource.size() as usize);
-
-        unsafe {
-            cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
-        };
-
-        let fence = ctx.fence();
-
-        async move {
-            fence.wait();
-            data
-        }
-    }
-
-    fn read_many_async(
-        &mut self,
         bindings: Vec<server::Binding>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + 'static + Send {
         let ctx = self.get_context();
@@ -172,15 +147,11 @@ impl ComputeServer for CudaServer {
     type Storage = CudaStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        self.read_async(binding)
-    }
-
-    fn read_many(
+    fn read(
         &mut self,
         bindings: Vec<server::Binding>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
-        self.read_many_async(bindings)
+        self.read_async(bindings)
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
