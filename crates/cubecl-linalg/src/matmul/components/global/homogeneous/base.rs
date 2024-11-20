@@ -49,6 +49,9 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
+        let (mut instruction_lhs, mut instruction_rhs) =
+            SMM::init_instruction_inputs(config.to_smm_config());
+
         for _ in 0..num_loops {
             let lhs_stage_reader = &Self::Lhs::fill_stage(&mut lhs_loader, config);
             let rhs_stage_reader = &Self::Rhs::fill_stage(&mut rhs_loader, config);
@@ -58,6 +61,8 @@ where
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
+                &mut instruction_lhs,
+                &mut instruction_rhs,
                 acc,
                 config.to_smm_config(),
             );

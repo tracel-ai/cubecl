@@ -46,37 +46,45 @@ where
     type Lhs = LhsReader<I>;
     type Rhs = RhsReader<I>;
     type Accumulator = Sequence<TMM::Accumulator>;
+    type InstructionLhs = TMM::Lhs;
+    type InstructionRhs = TMM::Rhs;
 
     fn execute(
         lhs: &LhsReader<I>,
         rhs: &RhsReader<I>,
+        instruction_lhs: &mut Self::InstructionLhs,
+        instruction_rhs: &mut Self::InstructionRhs,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        let mut instruction_lhs = TMM::init_lhs(config.to_tmm_config());
-        let mut instruction_rhs = TMM::init_rhs(config.to_tmm_config());
-
         #[unroll]
         for buffer_iter in 0..SS::NUM_K {
             let tile_lhs =
                 LhsReader::read_tile::<TMM::Config>(lhs, UNIT_POS_Y, buffer_iter, config);
-            TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
+            TMM::fill_lhs(&tile_lhs, instruction_lhs, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
                 let tile_rhs =
                     RhsReader::read_tile::<TMM::Config>(rhs, buffer_iter, accumulator_iter, config);
-                TMM::fill_rhs(&tile_rhs, &mut instruction_rhs, config.to_tmm_config());
+                TMM::fill_rhs(&tile_rhs, instruction_rhs, config.to_tmm_config());
 
                 let accumulator = acc.index_mut(accumulator_iter);
                 TMM::execute(
-                    &instruction_lhs,
-                    &instruction_rhs,
+                    instruction_lhs,
+                    instruction_rhs,
                     accumulator,
                     config.to_tmm_config(),
                 );
             }
         }
+    }
+
+    fn init_instruction_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {
+        (
+            TMM::init_lhs(config.to_tmm_config()),
+            TMM::init_rhs(config.to_tmm_config()),
+        )
     }
 
     fn read_accumulator<SW: StageWriter<O>, G: global::Config>(

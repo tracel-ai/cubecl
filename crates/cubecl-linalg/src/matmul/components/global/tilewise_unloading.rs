@@ -28,6 +28,7 @@ impl TilewiseUnloading {
         #[allow(clippy::all)]
         let _ = comptime!(check_line_size(out_line_size, slice_line_size));
 
+        #[unroll]
         for i in 0..num_unit_writes {
             let unit_write = UNIT_POS_X * out_line_size + i * unit_step;
 

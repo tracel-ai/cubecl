@@ -24,7 +24,7 @@ use super::{LhsBufferReader, RhsBufferReader};
 /// Very similar to multi buffer, except is unable to have more than one buffer, and takes BufferReaders for StageReaders
 ///
 /// # Assumptions
-/// - There are as many planes as the stage size in m
+/// - There are at least as many planes as the stage size in m
 pub struct Matmul<I: Numeric, O: Numeric, Acc: Numeric, TMM: tile::Matmul<I, Acc>, SS: StageSize> {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
@@ -45,35 +45,43 @@ where
     const M: u32 = SS::NUM_M * TMM::M;
     const N: u32 = SS::NUM_N * TMM::N;
     const K: u32 = SS::NUM_K * TMM::K;
-    type Accumulator = Sequence<TMM::Accumulator>;
     type Lhs = LhsBufferReader<I>;
     type Rhs = RhsBufferReader<I>;
+    type Accumulator = Sequence<TMM::Accumulator>;
+    type InstructionLhs = TMM::Lhs;
+    type InstructionRhs = TMM::Rhs;
 
     fn execute(
         lhs: &LhsBufferReader<I>,
         rhs: &RhsBufferReader<I>,
+        instruction_lhs: &mut Self::InstructionLhs,
+        instruction_rhs: &mut Self::InstructionRhs,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        let mut instruction_lhs = TMM::init_lhs(config.to_tmm_config());
-        let mut instruction_rhs = TMM::init_rhs(config.to_tmm_config());
-
         let tile_lhs = LhsBufferReader::read_tile::<TMM::Config>(lhs, UNIT_POS_Y, config);
-        TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
+        TMM::fill_lhs(&tile_lhs, instruction_lhs, config.to_tmm_config());
 
         #[unroll]
         for accumulator_iter in 0..acc.len() {
             let tile_rhs = RhsBufferReader::read_tile::<TMM::Config>(rhs, accumulator_iter, config);
-            TMM::fill_rhs(&tile_rhs, &mut instruction_rhs, config.to_tmm_config());
+            TMM::fill_rhs(&tile_rhs, instruction_rhs, config.to_tmm_config());
 
             let accumulator = acc.index_mut(accumulator_iter);
             TMM::execute(
-                &instruction_lhs,
-                &instruction_rhs,
+                instruction_lhs,
+                instruction_rhs,
                 accumulator,
                 config.to_tmm_config(),
             );
         }
+    }
+
+    fn init_instruction_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {
+        (
+            TMM::init_lhs(config.to_tmm_config()),
+            TMM::init_rhs(config.to_tmm_config()),
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
