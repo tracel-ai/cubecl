@@ -10,7 +10,7 @@ use super::sum::reduce_sum_lined;
 macro_rules! testgen_reduce {
     () => {
         use super::*;
-        use cubecl_core::{CubeCount, CubeDim};
+        use cubecl_core::CubeCount;
         use cubecl_std::reduce::test::{impl_reduce_sum_test, TestCase, TestTensorParts};
 
         #[test]

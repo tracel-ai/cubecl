@@ -1,4 +1,6 @@
-use cubecl_cpp::{formatter::format_cpp, HipCompiler};
+use cubecl_cpp::formatter::format_cpp;
+
+use crate::runtime::HipCompiler;
 
 use super::storage::HipStorage;
 use super::HipResource;

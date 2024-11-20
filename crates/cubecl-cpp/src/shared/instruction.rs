@@ -527,7 +527,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
 }
 
 struct Fma<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Fma<D> {
@@ -560,7 +560,7 @@ impl<D: Dialect> Fma<D> {
 }
 
 struct Clamp<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Clamp<D> {
@@ -606,7 +606,7 @@ impl<D: Dialect> Clamp<D> {
 }
 
 struct Remainder<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Remainder<D> {
@@ -677,7 +677,7 @@ impl<D: Dialect> Remainder<D> {
 }
 
 struct Magnitude<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Magnitude<D> {
@@ -705,7 +705,7 @@ impl<D: Dialect> Magnitude<D> {
 }
 
 struct Normalize<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Normalize<D> {
@@ -747,7 +747,7 @@ impl<D: Dialect> Normalize<D> {
 }
 
 struct Dot<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Dot<D> {
