@@ -103,8 +103,6 @@ pub(crate) fn test_cmma<R: Runtime, F: Float + CubeElement + Display>(
     device: &R::Device,
 ) -> Result<(), String> {
     let client = R::client(device);
-    println!("Device properties: {:?}", client.properties());
-    println!("Config: {:?}", config);
     if is_available::<R, F>(&client, &config).is_ok() {
         let lhs = case.random_lhs::<R, F>(&client);
         let rhs = case.random_rhs::<R, F>(&client);
