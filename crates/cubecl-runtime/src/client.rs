@@ -68,7 +68,7 @@ where
 
     /// Given a binding, returns owned resource as bytes.
     pub async fn read_one_async(&self, binding: Binding) -> Vec<u8> {
-        self.channel.read(vec![binding]).await.remove(0)
+        self.channel.read([binding].into()).await.remove(0)
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -76,7 +76,7 @@ where
     /// # Remarks
     /// Panics if the read operation fails.
     pub fn read_one(&self, binding: Binding) -> Vec<u8> {
-        cubecl_common::reader::read_sync(self.channel.read(vec![binding])).remove(0)
+        cubecl_common::reader::read_sync(self.channel.read([binding].into())).remove(0)
     }
 
     /// Given a resource handle, returns the storage resource.
