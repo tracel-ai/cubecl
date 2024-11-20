@@ -69,6 +69,15 @@ macro_rules! instruction {
                 fill_rhs(slice, rhs);
             }
 
+            fn fill_accumulator(
+                slice: &Slice<Line<O>>,
+                acc: &mut Self::Accumulator,
+                stride: u32,
+                #[comptime] config: Config,
+            ) {
+                fill_accumulator(slice, acc, stride, config);
+            }
+
             fn read_accumulator<C: Numeric>(
                 out: &Self::Accumulator,
                 slice: &mut SliceMut<Line<C>>,
@@ -172,6 +181,17 @@ fn fill_rhs<C: CubePrimitive, I: Numeric>(slice: &Slice<C>, rhs: &mut Fragment<I
 }
 
 #[cube]
+fn fill_accumulator<C: CubePrimitive, I: Numeric>(
+    slice: &Slice<C>,
+    acc: &mut Fragment<I>,
+    stride: u32,
+    #[comptime] config: Config,
+) {
+    let layout = as_cmma_layout(config.layout(Ident::Out));
+    cmma::load_with_layout(&acc.matrix, slice, stride, layout);
+}
+
+#[cube]
 fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
     unsafe {
         let matrix = cmma::Matrix::<O>::uninitialized(
@@ -181,8 +201,6 @@ fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
             k,
             cmma::MatrixLayout::Undefined,
         );
-
-        cmma::fill(&matrix, O::from_int(0));
 
         Fragment::<O> { matrix, stride: n }
     }

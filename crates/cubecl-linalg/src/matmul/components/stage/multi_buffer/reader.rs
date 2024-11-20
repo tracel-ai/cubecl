@@ -15,6 +15,12 @@ pub struct RhsReader<ES: Numeric> {
     pub stage: Stage<ES>,
 }
 
+#[derive(CubeType)]
+/// Stage reader for RHS
+pub struct AccumulatorReader<ES: Numeric> {
+    pub stage: Stage<ES>,
+}
+
 #[cube]
 impl<ES: Numeric> LhsReader<ES> {
     pub fn read_tile<S: Config>(
@@ -42,6 +48,19 @@ impl<ES: Numeric> RhsReader<ES> {
 }
 
 #[cube]
+impl<ES: Numeric> AccumulatorReader<ES> {
+    pub fn read_tile<S: Config>(
+        this: &Self,
+        buffer_offset: u32,
+        accumulator_offset: u32,
+        #[comptime] config: S,
+    ) -> Slice<Line<ES>> {
+        this.stage
+            .get_tile::<S>(buffer_offset, accumulator_offset, Ident::Rhs, config)
+    }
+}
+
+#[cube]
 impl<ES: Numeric> LhsReader<ES> {
     pub fn new(stage: Stage<ES>) -> LhsReader<ES> {
         LhsReader::<ES> { stage }
@@ -52,5 +71,12 @@ impl<ES: Numeric> LhsReader<ES> {
 impl<ES: Numeric> RhsReader<ES> {
     pub fn new(stage: Stage<ES>) -> RhsReader<ES> {
         RhsReader::<ES> { stage }
+    }
+}
+
+#[cube]
+impl<ES: Numeric> AccumulatorReader<ES> {
+    pub fn new(stage: Stage<ES>) -> AccumulatorReader<ES> {
+        AccumulatorReader::<ES> { stage }
     }
 }

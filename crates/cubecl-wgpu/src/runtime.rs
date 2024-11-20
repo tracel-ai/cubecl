@@ -53,6 +53,11 @@ impl Runtime for WgpuRuntime<WgslCompiler> {
         &[4, 2]
     }
 
+    fn max_cube_count() -> (u32, u32, u32) {
+        let max_dim = u16::MAX as u32;
+        (max_dim, max_dim, max_dim)
+    }
+
     fn extension() -> &'static str {
         "wgsl"
     }

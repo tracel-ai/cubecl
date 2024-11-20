@@ -3,8 +3,11 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::stage::base::Matmul as _;
-use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
+use crate::matmul::components::{
+    global::homogeneous::ZeroAccumulator,
+    stage::{StageSize, TilingOrderConfig},
+};
+use crate::matmul::components::{global::AccumulatorLoader, stage::base::Matmul as _};
 use crate::matmul::{
     components::{
         config::MatmulConfig,
@@ -25,22 +28,31 @@ use super::{LhsBufferReader, RhsBufferReader};
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct Matmul<I: Numeric, O: Numeric, Acc: Numeric, TMM: tile::Matmul<I, Acc>, SS: StageSize> {
+pub struct Matmul<
+    I: Numeric,
+    O: Numeric,
+    Acc: Numeric,
+    TMM: tile::Matmul<I, Acc>,
+    SS: StageSize,
+    AccInit: AccumulatorLoader<I, Acc> = ZeroAccumulator,
+> {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
     _accumulator_precision: PhantomData<Acc>,
     _instruction: PhantomData<TMM>,
     _block_size: PhantomData<SS>,
+    _acc_init: PhantomData<AccInit>,
 }
 
 #[cube]
-impl<I, O, Acc, TMM, SS> stage::Matmul<I, O> for Matmul<I, O, Acc, TMM, SS>
+impl<I, O, Acc, TMM, SS, AccInit> stage::Matmul<I, O> for Matmul<I, O, Acc, TMM, SS, AccInit>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
     TMM: tile::Matmul<I, Acc>,
     SS: StageSize,
+    AccInit: AccumulatorLoader<I, Acc>,
 {
     const M: u32 = SS::NUM_M * TMM::M;
     const N: u32 = SS::NUM_N * TMM::N;
@@ -48,6 +60,7 @@ where
     type Accumulator = Sequence<TMM::Accumulator>;
     type Lhs = LhsBufferReader<I>;
     type Rhs = RhsBufferReader<I>;
+    type AccumulatorInit = AccInit;
 
     fn execute(
         lhs: &LhsBufferReader<I>,
@@ -95,6 +108,22 @@ where
         }
     }
 
+    fn fill_accumulator(
+        loader: &mut Self::AccumulatorInit,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    ) {
+        #[unroll]
+        for n in 0..SS::NUM_N {
+            Self::AccumulatorInit::load::<I, TMM>(
+                loader,
+                acc.index_mut(n),
+                n,
+                config.to_tmm_config(),
+            );
+        }
+    }
+
     fn read_accumulator<SW: StageWriter<O>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut SW,
@@ -127,13 +156,14 @@ where
     }
 }
 
-impl<I, O, Acc, TMM, SS> MatmulKernel<I, O> for Matmul<I, O, Acc, TMM, SS>
+impl<I, O, Acc, TMM, SS, AccInit> MatmulKernel<I, O> for Matmul<I, O, Acc, TMM, SS, AccInit>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
     TMM: tile::Matmul<I, Acc>,
     SS: StageSize,
+    AccInit: AccumulatorLoader<I, Acc>,
 {
     type Config = Config<TMM::Config>;
 

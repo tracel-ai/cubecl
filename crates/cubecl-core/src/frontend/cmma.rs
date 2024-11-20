@@ -299,9 +299,9 @@ pub mod load {
 /// Load the matrix with the provided array using the stride with an explicit layout.
 /// Explicit layouts are required when loading accumulators.
 #[allow(unused_variables)]
-pub fn load_with_layout<C: CubeType>(
+pub fn load_with_layout<C: CubePrimitive, V: CubePrimitive>(
     mat: &Matrix<C>,
-    value: &Slice<C>,
+    value: &Slice<V>,
     stride: u32,
     layout: MatrixLayout,
 ) {
@@ -314,10 +314,10 @@ pub mod load_with_layout {
 
     /// Expand method of [load_with_layout()].
     #[allow(unused_variables)]
-    pub fn expand<C: CubeType>(
+    pub fn expand<C: CubeType, V: CubePrimitive>(
         context: &mut CubeContext,
         mat: MatrixExpand<C>,
-        value: ExpandElementTyped<Slice<C>>,
+        value: ExpandElementTyped<Slice<V>>,
         stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) {

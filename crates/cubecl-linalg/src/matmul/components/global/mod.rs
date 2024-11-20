@@ -4,6 +4,6 @@ pub mod tensor_view;
 
 mod base;
 mod tilewise_unloading;
-mod unloader;
+pub mod unloader;
 
 pub use base::*;

@@ -106,7 +106,9 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        SMM::init_accumulator(config.to_smm_config())
+        let mut acc = SMM::init_accumulator(config.to_smm_config());
+        Self::zero_accumulator(&mut acc, config);
+        acc
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {

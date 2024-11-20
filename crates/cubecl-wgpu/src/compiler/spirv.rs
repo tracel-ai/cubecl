@@ -395,6 +395,11 @@ impl Runtime for WgpuRuntime<VkSpirvCompiler> {
     fn extension() -> &'static str {
         "spv"
     }
+
+    fn max_cube_count() -> (u32, u32, u32) {
+        let max_dim = u16::MAX as u32;
+        (max_dim, max_dim, max_dim)
+    }
 }
 
 #[cfg(feature = "spirv-dump")]

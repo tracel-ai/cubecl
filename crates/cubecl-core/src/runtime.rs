@@ -35,6 +35,8 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     /// Returns the supported line sizes for the current runtime's compiler.
     fn supported_line_sizes() -> &'static [u8];
+    /// Returns the maximum cube count on each dimension that can be launched.
+    fn max_cube_count() -> (u32, u32, u32);
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

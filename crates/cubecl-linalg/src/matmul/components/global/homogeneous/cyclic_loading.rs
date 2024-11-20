@@ -107,6 +107,7 @@ fn check_jump_divides_well(num_stage_elements: u32, jump_length: u32) {
     assert!(
         num_stage_elements % jump_length == 0,
         "Too many data will be loaded, resulting in out of bounds. 
-        Try setting line size and number of planes so that jump_length divides num_stage_elements."
+        Try setting line size and number of planes so that jump_length divides num_stage_elements.
+        Elements per stage: {num_stage_elements}, jump_length: {jump_length}."
     );
 }

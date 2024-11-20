@@ -39,6 +39,7 @@ pub trait Matmul<I: Numeric, O: Numeric>:
 
     type Lhs: CubeType;
     type Rhs: CubeType;
+    type AccumulatorInit: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     fn execute(
@@ -61,6 +62,13 @@ pub trait Matmul<I: Numeric, O: Numeric>:
 
     /// Set the accumulator to zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+
+    /// Fill the accumulator with data
+    fn fill_accumulator(
+        loader: &mut Self::AccumulatorInit,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    );
 }
 
 // #[cube]
@@ -150,5 +158,12 @@ create_cmma_stage!(S2x2x1, 2, 2, 1);
 create_cmma_stage!(S2x2x2, 2, 2, 2);
 create_cmma_stage!(S4x4x1, 4, 4, 1);
 create_cmma_stage!(S4x4x2, 4, 4, 2);
+create_cmma_stage!(S4x2x4, 4, 2, 4);
 create_cmma_stage!(S8x1x1, 8, 1, 1);
+create_cmma_stage!(S8x2x2, 8, 2, 2);
+create_cmma_stage!(S8x4x1, 8, 4, 1);
+create_cmma_stage!(S8x4x2, 8, 4, 2);
+create_cmma_stage!(S8x2x4, 8, 4, 2);
+create_cmma_stage!(S2x2x8, 2, 2, 8);
+create_cmma_stage!(S16x4x4, 16, 4, 4);
 create_cmma_stage!(S8x8x1, 8, 8, 1);

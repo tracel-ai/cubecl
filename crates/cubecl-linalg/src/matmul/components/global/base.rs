@@ -1,10 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
+use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
 
 #[cube]
@@ -89,6 +89,25 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
+}
+
+#[cube]
+/// Input to the global matmul, responsible of filling the stage and providing a reader for it.
+/// Advances along the k-dimension to fill the stage with further data.
+pub trait AccumulatorLoader<O: Numeric, Acc: Numeric>: CubeType + 'static + Send + Sync {
+    /// The stage reader which matches the input of the underlying stage matmul.
+    type StageReader: CubeType;
+
+    /// Fills the stage at the current k offset and returns a reader for it.
+    fn fill_stage<G: Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
+
+    /// Load accumulator
+    fn load<I: Numeric, Tile: tile::Matmul<I, Acc>>(
+        this: &mut Self,
+        acc: &mut Tile::Accumulator,
+        n_tile: u32,
+        #[comptime] config: Tile::Config,
+    );
 }
 
 #[cube]

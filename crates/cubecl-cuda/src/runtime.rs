@@ -128,6 +128,10 @@ impl Runtime for CudaRuntime {
         &[8, 4, 2]
     }
 
+    fn max_cube_count() -> (u32, u32, u32) {
+        (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
+    }
+
     fn extension() -> &'static str {
         "cu"
     }
