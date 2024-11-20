@@ -387,7 +387,7 @@ impl<D: Dialect> IndexVector<D> {
             _ => {
                 let elem = out.elem();
                 let out = out.fmt_left();
-                return writeln!(f, "{out} = *(({elem}*)&{lhs} + {rhs});");
+                return writeln!(f, "{out} = reinterpret_cast<{elem}*>(&{lhs})[{rhs}];");
             }
         };
 
