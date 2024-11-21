@@ -1,7 +1,8 @@
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
 use crate::shared::Architecture;
 
+#[derive(Debug)]
 pub struct CudaArchitecture {
     pub version: u32,
 }
@@ -14,6 +15,12 @@ impl FromStr for CudaArchitecture {
             .parse()
             .map_err(|e| format!("bad cuda architecture: {e}"))?;
         Ok(Self { version })
+    }
+}
+
+impl Display for CudaArchitecture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.version)
     }
 }
 
