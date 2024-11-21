@@ -26,7 +26,7 @@ impl Ident {
         match self {
             Ident::Lhs => InputIdent::Lhs,
             Ident::Rhs => InputIdent::Rhs,
-            Ident::Out => panic!(),
+            Ident::Out => panic!("Out is not an input."),
         }
     }
 }
