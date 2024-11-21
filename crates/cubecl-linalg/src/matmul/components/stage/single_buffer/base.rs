@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::stage::base::Matmul as _;
 use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
 use crate::matmul::components::{LhsStageDim, OutStageDim, RhsStageDim};
@@ -220,10 +221,9 @@ impl<T: tile::Config> stage::Config for Config<T> {
     }
 
     fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
-        match ident {
-            Ident::Lhs => self.lhs_tiling_order,
-            Ident::Rhs => self.rhs_tiling_order,
-            Ident::Out => unreachable!(),
+        match ident.as_input() {
+            InputIdent::Lhs => self.lhs_tiling_order,
+            InputIdent::Rhs => self.rhs_tiling_order,
         }
     }
 }

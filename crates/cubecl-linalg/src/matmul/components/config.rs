@@ -21,6 +21,21 @@ pub enum Ident {
     Out,
 }
 
+impl Ident {
+    pub fn as_input(&self) -> InputIdent {
+        match self {
+            Ident::Lhs => InputIdent::Lhs,
+            Ident::Rhs => InputIdent::Rhs,
+            Ident::Out => panic!("Out is not an input."),
+        }
+    }
+}
+
+pub enum InputIdent {
+    Lhs,
+    Rhs,
+}
+
 #[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug)]
 /// Layout of a 2D structure such as a tensor, shared memory or slice,
 /// used within any matmul kernel level

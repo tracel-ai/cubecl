@@ -148,6 +148,7 @@ where
             smm_config,
             problem.m as u32 % SMM::M != 0,
             problem.n as u32 % SMM::N != 0,
+            problem.k as u32 % SMM::K != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,
@@ -163,6 +164,7 @@ pub struct Config<S: stage::Config> {
     smm_config: S,
     check_m_bounds: bool,
     check_n_bounds: bool,
+    check_k_bounds: bool,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
     lhs_line_size: u32,
@@ -221,6 +223,10 @@ impl<S: stage::Config> global::Config for Config<S> {
         self.check_n_bounds
     }
 
+    fn check_k_bounds(&self) -> bool {
+        self.check_k_bounds
+    }
+
     fn transpose_load(&self, ident: Ident) -> bool {
         self.layout(ident) != self.smm_config.layout(ident)
     }
@@ -234,6 +240,7 @@ impl<S: stage::Config> Config<S> {
         smm_config: S,
         check_m_bounds: bool,
         check_n_bounds: bool,
+        check_k_bounds: bool,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
         lhs_line_size: u32,
@@ -244,6 +251,7 @@ impl<S: stage::Config> Config<S> {
             smm_config,
             check_m_bounds,
             check_n_bounds,
+            check_k_bounds,
             lhs_layout,
             rhs_layout,
             lhs_line_size,
