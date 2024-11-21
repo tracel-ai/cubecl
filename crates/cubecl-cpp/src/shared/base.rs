@@ -36,9 +36,15 @@ pub trait Dialect:
     fn warp_any(out: &IndexedVariable<Self>) -> String;
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct CompilationOptions {
     pub warp_size: u32,
+}
+
+impl Default for CompilationOptions {
+    fn default() -> Self {
+        Self { warp_size: 32 }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
