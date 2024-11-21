@@ -12,10 +12,10 @@ fn main() {
 
         let args = parse();
         run::<cubecl::cuda::CudaRuntime, half::f16>(Strategy::Accelerated, args);
-        run::<cubecl::cuda::CudaRuntime, half::f16>(
-            Strategy::CmmaOld(PredefinedCmmaConfig::M128K16.into()),
-            args,
-        );
+        // run::<cubecl::cuda::CudaRuntime, half::f16>(
+        //     Strategy::CmmaOld(PredefinedCmmaConfig::M128K16.into()),
+        //     args,
+        // );
     }
     #[cfg(feature = "wgpu-spirv")]
     {

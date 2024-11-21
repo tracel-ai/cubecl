@@ -34,6 +34,7 @@ impl CyclicLoading {
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
+        // #[unroll]
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
 
@@ -82,7 +83,7 @@ impl CyclicLoading {
                         let slice_contiguous_idx = global_strided_idx;
                         let slice_stride = height;
 
-                        #[unroll]
+                        // #[unroll]
                         for iter in 0..config.global_line_size(ident) {
                             let slice_strided_idx = slice_strided_root + iter;
                             let elem = line_read[iter];
