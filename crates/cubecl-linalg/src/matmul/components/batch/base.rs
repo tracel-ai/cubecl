@@ -45,12 +45,14 @@ pub trait Config: MatmulConfig {
     fn to_gmm_config(&self) -> Self::GmmConfig;
 
     /// Returns the [StageDim] for the given ident
-    fn stage_dim(&self, ident: Ident) -> StageDim;
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim>;
 
     /// Returns the largest m dimension supported with these configs
     fn max_m(&self) -> u32;
+
     /// Returns the largest n dimension supported with these configs
     fn max_n(&self) -> u32;
+
     /// Returns the largest number of batches supported with these configs
     fn max_batches(&self) -> u32;
 }

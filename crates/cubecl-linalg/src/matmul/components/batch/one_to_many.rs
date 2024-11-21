@@ -11,8 +11,11 @@ use cubecl_core::prelude::*;
 
 use super::{Config as _, CubeDispatch};
 
-/// Performs matrix multiplication at the batch level,
-/// with one cube assigned to several underlying global matmuls
+/// Executes matrix multiplication at the batch level,
+/// assigning each cube to handle multiple global matmuls.
+///
+/// The algorithm supports any number of cubes,
+/// looping as needed to process all data.
 pub struct Matmul<
     EG: Numeric,
     ES: Numeric,
@@ -50,8 +53,8 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul, C: Cu
         let cubes_y = config.cube_count_y();
         let cubes_z = config.cube_count_batch();
 
-        let stage_x = config.stage_dim(Ident::Out).num_elements_x_dim();
-        let stage_y = config.stage_dim(Ident::Out).num_elements_y_dim();
+        let stage_x = config.stage_dim(Ident::Out).height();
+        let stage_y = config.stage_dim(Ident::Out).width();
         let stage_z = 1;
 
         let (x_index, y_index) = C::x_y_indices();
@@ -135,7 +138,7 @@ impl<G: global::Config, C: CubeDispatch> batch::Config for Config<G, C> {
         self.gmm_config
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         self.gmm_config.stage_dim(ident)
     }
 

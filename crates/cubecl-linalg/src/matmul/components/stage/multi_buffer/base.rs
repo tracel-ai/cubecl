@@ -5,6 +5,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::base::Matmul as _;
 use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
+use crate::matmul::components::{LhsStageDim, OutStageDim, RhsStageDim};
 use crate::matmul::{
     components::{
         config::MatmulConfig,
@@ -43,40 +44,47 @@ where
     const M: u32 = SS::NUM_M * TMM::M;
     const N: u32 = SS::NUM_N * TMM::N;
     const K: u32 = SS::NUM_K * TMM::K;
-    type Lhs = LhsReader<I>;
-    type Rhs = RhsReader<I>;
+    type LhsReader = LhsReader<I>;
+    type RhsReader = RhsReader<I>;
     type Accumulator = Sequence<TMM::Accumulator>;
+    type LhsTile = TMM::Lhs;
+    type RhsTile = TMM::Rhs;
 
     fn execute(
-        lhs: &LhsReader<I>,
-        rhs: &RhsReader<I>,
+        lhs_reader: &LhsReader<I>,
+        rhs_reader: &RhsReader<I>,
+        lhs_tile: &mut Self::LhsTile,
+        rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        let mut instruction_lhs = TMM::init_lhs(config.to_tmm_config());
-        let mut instruction_rhs = TMM::init_rhs(config.to_tmm_config());
-
         #[unroll]
         for buffer_iter in 0..SS::NUM_K {
             let tile_lhs =
-                LhsReader::read_tile::<TMM::Config>(lhs, UNIT_POS_Y, buffer_iter, config);
-            TMM::fill_lhs(&tile_lhs, &mut instruction_lhs, config.to_tmm_config());
+                LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
+            TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs =
-                    RhsReader::read_tile::<TMM::Config>(rhs, buffer_iter, accumulator_iter, config);
-                TMM::fill_rhs(&tile_rhs, &mut instruction_rhs, config.to_tmm_config());
+                let tile_rhs = RhsReader::read_tile::<TMM::Config>(
+                    rhs_reader,
+                    buffer_iter,
+                    accumulator_iter,
+                    config,
+                );
+                TMM::fill_rhs(&tile_rhs, rhs_tile, config.to_tmm_config());
 
                 let accumulator = acc.index_mut(accumulator_iter);
-                TMM::execute(
-                    &instruction_lhs,
-                    &instruction_rhs,
-                    accumulator,
-                    config.to_tmm_config(),
-                );
+                TMM::execute(lhs_tile, rhs_tile, accumulator, config.to_tmm_config());
             }
         }
+    }
+
+    fn init_tile_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {
+        (
+            TMM::init_lhs(config.to_tmm_config()),
+            TMM::init_rhs(config.to_tmm_config()),
+        )
     }
 
     fn read_accumulator<SW: StageWriter<O>, G: global::Config>(
@@ -141,7 +149,7 @@ where
 
     fn check_config(config: Self::Config) {
         comptime!(check_num_planes(
-            config.stage_dim(Ident::Lhs).num_tiles_x,
+            config.stage_dim(Ident::Lhs).num_tiles_x_dim(),
             config.num_planes()
         ));
         TMM::check_config(config.to_tmm_config());
@@ -190,9 +198,9 @@ fn check_num_planes(expected_num_planes: u32, actual_num_planes: u32) {
 /// Configuration for the multi buffer matmul
 pub struct Config<T: tile::Config> {
     tmm_config: T,
-    lhs_stage_dim: StageDim,
-    rhs_stage_dim: StageDim,
-    out_stage_dim: StageDim,
+    lhs_stage_dim: LhsStageDim,
+    rhs_stage_dim: RhsStageDim,
+    out_stage_dim: OutStageDim,
     num_planes: u32,
     lhs_tiling_order: TilingOrderConfig,
     rhs_tiling_order: TilingOrderConfig,
@@ -209,11 +217,11 @@ impl<T: tile::Config> stage::Config for Config<T> {
         self.tmm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         match ident {
-            Ident::Lhs => self.lhs_stage_dim,
-            Ident::Rhs => self.rhs_stage_dim,
-            Ident::Out => self.out_stage_dim,
+            Ident::Lhs => Box::new(self.lhs_stage_dim),
+            Ident::Rhs => Box::new(self.rhs_stage_dim),
+            Ident::Out => Box::new(self.out_stage_dim),
         }
     }
 
@@ -243,9 +251,9 @@ impl<T: tile::Config> MatmulConfig for Config<T> {}
 impl<T: tile::Config> Config<T> {
     pub fn new(
         tmm_config: T,
-        lhs_stage_dim: StageDim,
-        rhs_stage_dim: StageDim,
-        out_stage_dim: StageDim,
+        lhs_stage_dim: LhsStageDim,
+        rhs_stage_dim: RhsStageDim,
+        out_stage_dim: OutStageDim,
         num_planes: u32,
         lhs_tiling_order: TilingOrderConfig,
         rhs_tiling_order: TilingOrderConfig,

@@ -11,8 +11,11 @@ use cubecl_core::prelude::*;
 
 use super::{Config as _, CubeDispatch};
 
-/// Performs matrix multiplication at the batch level,
-/// with one cube assigned to each underlying global matmul
+/// Executes matrix multiplication at the batch level,
+/// assigning each cube to a single global matmul.
+///
+/// Note: This algorithm requires one cube per global matmul;
+/// insufficient cubes will result in incomplete computations.
 pub struct Matmul<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
@@ -31,8 +34,8 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> bat
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();
-        let x_offset = x_index * config.stage_dim(Ident::Lhs).num_elements_x_dim();
-        let y_offset = y_index * config.stage_dim(Ident::Rhs).num_elements_y_dim();
+        let x_offset = x_index * config.stage_dim(Ident::Lhs).height();
+        let y_offset = y_index * config.stage_dim(Ident::Rhs).width();
         let nth_batch = C::batch_index();
         let k_range = (0, lhs.shape(lhs.rank() - 1));
 
@@ -117,16 +120,16 @@ impl<G: global::Config, C: CubeDispatch> batch::Config for Config<G, C> {
         self.gmm_config
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         self.gmm_config.stage_dim(ident)
     }
 
     fn max_m(&self) -> u32 {
-        C::max_x(self.cube_count) * self.stage_dim(Ident::Out).num_elements_x_dim()
+        C::max_x(self.cube_count) * self.stage_dim(Ident::Out).height()
     }
 
     fn max_n(&self) -> u32 {
-        C::max_y(self.cube_count) * self.stage_dim(Ident::Out).num_elements_y_dim()
+        C::max_y(self.cube_count) * self.stage_dim(Ident::Out).width()
     }
 
     fn max_batches(&self) -> u32 {
