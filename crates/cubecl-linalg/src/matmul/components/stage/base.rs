@@ -37,25 +37,25 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     /// The same Accumulator will be added to across multiple executions of the stage matmul.
     type Accumulator: CubeType;
 
-    type Lhs: CubeType;
-    type Rhs: CubeType;
+    type LhsReader: CubeType;
+    type RhsReader: CubeType;
 
-    type InstructionLhs: CubeType;
-    type InstructionRhs: CubeType;
+    type LhsTile: CubeType;
+    type RhsTile: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     fn execute(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-        instruction_lhs: &mut Self::InstructionLhs,
-        instruction_rhs: &mut Self::InstructionRhs,
+        lhs: &Self::LhsReader,
+        rhs: &Self::RhsReader,
+        instruction_lhs: &mut Self::LhsTile,
+        instruction_rhs: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
 
-    fn init_instruction_inputs(
+    fn init_tile_inputs(
         #[comptime] config: Self::Config,
-    ) -> (Self::InstructionLhs, Self::InstructionRhs);
+    ) -> (Self::LhsTile, Self::RhsTile);
 
     /// Reads the result of the accumulator and hands it to the stage writer
     fn read_accumulator<Out: StageWriter<O>, G: global::Config>(

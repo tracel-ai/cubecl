@@ -42,6 +42,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul, C: Cu
         let shape_y = out.shape(rank - 1);
 
         let mut shape_z = 1;
+        #[unroll]
         for b in 0..rank - 2 {
             shape_z *= out.shape(b);
         }

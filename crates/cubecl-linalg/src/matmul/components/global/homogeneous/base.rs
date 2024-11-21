@@ -30,16 +30,16 @@ impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, Lhs = LhsReader<ES>, Rhs = RhsReader<ES>>,
+    SMM: stage::Matmul<ES, EG, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
 {
-    type Lhs = LhsLoader<EG, ES, SMM::Config>;
-    type Rhs = RhsLoader<EG, ES, SMM::Config>;
+    type LhsLoader = LhsLoader<EG, ES, SMM::Config>;
+    type RhsLoader = RhsLoader<EG, ES, SMM::Config>;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
-        mut lhs_loader: Self::Lhs,
-        mut rhs_loader: Self::Rhs,
+        mut lhs_loader: Self::LhsLoader,
+        mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -49,28 +49,27 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
-        let (mut instruction_lhs, mut instruction_rhs) =
-            SMM::init_instruction_inputs(config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         for _ in 0..num_loops {
-            let lhs_stage_reader = &Self::Lhs::fill_stage(&mut lhs_loader, config);
-            let rhs_stage_reader = &Self::Rhs::fill_stage(&mut rhs_loader, config);
+            let lhs_stage_reader = &Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            let rhs_stage_reader = &Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             sync_units();
 
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
-                &mut instruction_lhs,
-                &mut instruction_rhs,
+                &mut lhs_tile,
+                &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
             );
 
             sync_units();
 
-            Self::Lhs::advance_view(&mut lhs_loader, k_step);
-            Self::Rhs::advance_view(&mut rhs_loader, k_step);
+            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
@@ -87,8 +86,8 @@ where
         y_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Lhs {
-        Self::Lhs::new::<Self::Config>(lhs, x_offset, y_offset, nth_batch, config)
+    ) -> Self::LhsLoader {
+        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, nth_batch, config)
     }
 
     fn init_rhs_loader(
@@ -97,8 +96,8 @@ where
         y_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Rhs {
-        Self::Rhs::new::<Self::Config>(rhs, x_offset, y_offset, nth_batch, config)
+    ) -> Self::RhsLoader {
+        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, nth_batch, config)
     }
 
     fn init_unloader(

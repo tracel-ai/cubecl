@@ -29,8 +29,8 @@ use crate::matmul::components::{Ident, MatrixLayout};
 pub trait Matmul<EG: Numeric, ES: Numeric>:
     'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
 {
-    type Lhs: Loader<EG, ES, Self::Config>;
-    type Rhs: Loader<EG, ES, Self::Config>;
+    type LhsLoader: Loader<EG, ES, Self::Config>;
+    type RhsLoader: Loader<EG, ES, Self::Config>;
     type Out: Unloader<EG>;
     type Accumulator: CubeType;
 
@@ -41,8 +41,8 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
-        lhs_loader: Self::Lhs,
-        rhs_loader: Self::Rhs,
+        lhs_loader: Self::LhsLoader,
+        rhs_loader: Self::RhsLoader,
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -55,7 +55,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         y_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Lhs;
+    ) -> Self::LhsLoader;
 
     fn init_rhs_loader(
         rhs: &Tensor<Line<EG>>,
@@ -63,7 +63,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         y_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Rhs;
+    ) -> Self::RhsLoader;
 
     fn init_unloader(
         out: &mut Tensor<Line<EG>>,

@@ -32,16 +32,16 @@ impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, Lhs = LhsBufferReader<ES>, Rhs = RhsBufferReader<ES>>,
+    SMM: stage::Matmul<ES, EG, LhsReader = LhsBufferReader<ES>, RhsReader = RhsBufferReader<ES>>,
 {
-    type Lhs = LhsBufferLoader<EG, ES, SMM::Config>;
-    type Rhs = RhsBufferLoader<EG, ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<EG, ES, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<EG, ES, SMM::Config>;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
-        mut lhs_loader: Self::Lhs,
-        mut rhs_loader: Self::Rhs,
+        mut lhs_loader: Self::LhsLoader,
+        mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -57,12 +57,11 @@ where
         let num_stages = (range + k_step - 1) / k_step;
         let num_loops = num_stages * num_buffers;
 
-        let (mut instruction_lhs, mut instruction_rhs) =
-            SMM::init_instruction_inputs(config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         for _ in 0..num_loops {
-            let lhs_stage_reader = Self::Lhs::fill_stage(&mut lhs_loader, config);
-            let rhs_stage_reader = Self::Rhs::fill_stage(&mut rhs_loader, config);
+            let lhs_stage_reader = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            let rhs_stage_reader = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             sync_units();
 
@@ -70,15 +69,15 @@ where
                 SMM::execute(
                     &lhs_stage_reader,
                     &rhs_stage_reader,
-                    &mut instruction_lhs,
-                    &mut instruction_rhs,
+                    &mut lhs_tile,
+                    &mut rhs_tile,
                     acc,
                     config.to_smm_config(),
                 );
             }
 
-            Self::Lhs::advance_view(&mut lhs_loader, buffer_step);
-            Self::Rhs::advance_view(&mut rhs_loader, buffer_step);
+            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
         }
 
         if is_consumer {
@@ -97,8 +96,8 @@ where
         y_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Lhs {
-        Self::Lhs::new(
+    ) -> Self::LhsLoader {
+        Self::LhsLoader::new(
             lhs,
             x_offset,
             y_offset,
@@ -114,8 +113,8 @@ where
         y_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Rhs {
-        Self::Rhs::new(
+    ) -> Self::RhsLoader {
+        Self::RhsLoader::new(
             rhs,
             x_offset,
             y_offset,

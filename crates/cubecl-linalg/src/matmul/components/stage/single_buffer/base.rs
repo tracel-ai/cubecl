@@ -45,39 +45,35 @@ where
     const M: u32 = SS::NUM_M * TMM::M;
     const N: u32 = SS::NUM_N * TMM::N;
     const K: u32 = SS::NUM_K * TMM::K;
-    type Lhs = LhsBufferReader<I>;
-    type Rhs = RhsBufferReader<I>;
+    type LhsReader = LhsBufferReader<I>;
+    type RhsReader = RhsBufferReader<I>;
     type Accumulator = Sequence<TMM::Accumulator>;
-    type InstructionLhs = TMM::Lhs;
-    type InstructionRhs = TMM::Rhs;
+    type LhsTile = TMM::Lhs;
+    type RhsTile = TMM::Rhs;
 
     fn execute(
-        lhs: &LhsBufferReader<I>,
-        rhs: &RhsBufferReader<I>,
-        instruction_lhs: &mut Self::InstructionLhs,
-        instruction_rhs: &mut Self::InstructionRhs,
+        lhs_reader: &LhsBufferReader<I>,
+        rhs_reader: &RhsBufferReader<I>,
+        lhs_tile: &mut Self::LhsTile,
+        rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        let tile_lhs = LhsBufferReader::read_tile::<TMM::Config>(lhs, UNIT_POS_Y, config);
-        TMM::fill_lhs(&tile_lhs, instruction_lhs, config.to_tmm_config());
+        let tile_lhs = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
+        TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
 
         #[unroll]
         for accumulator_iter in 0..acc.len() {
-            let tile_rhs = RhsBufferReader::read_tile::<TMM::Config>(rhs, accumulator_iter, config);
-            TMM::fill_rhs(&tile_rhs, instruction_rhs, config.to_tmm_config());
+            let tile_rhs =
+                RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, accumulator_iter, config);
+            TMM::fill_rhs(&tile_rhs, rhs_tile, config.to_tmm_config());
 
             let accumulator = acc.index_mut(accumulator_iter);
-            TMM::execute(
-                instruction_lhs,
-                instruction_rhs,
-                accumulator,
-                config.to_tmm_config(),
-            );
+            TMM::execute(lhs_tile, rhs_tile, accumulator, config.to_tmm_config());
         }
     }
 
-    fn init_instruction_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {
+    fn init_tile_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {
         (
             TMM::init_lhs(config.to_tmm_config()),
             TMM::init_rhs(config.to_tmm_config()),
