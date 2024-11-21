@@ -1,3 +1,4 @@
+use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global;
 use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
@@ -63,14 +64,13 @@ impl<EG: Numeric> TensorReader<EG> {
 
     /// Advance the view along the k dimension by a specified offset, `k_offset`.
     pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: Ident) {
-        match ident {
-            Ident::Lhs => {
+        match ident.as_input() {
+            InputIdent::Lhs => {
                 self.y_offset += k_offset;
             }
-            Ident::Rhs => {
+            InputIdent::Rhs => {
                 self.x_offset += k_offset;
             }
-            Ident::Out => {}
         }
     }
 
@@ -109,11 +109,29 @@ impl<EG: Numeric> TensorReader<EG> {
         let read_pos =
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
-        select(
-            view_x < self.shape_x && view_y < self.shape_y,
-            self.read(read_pos),
-            Line::empty(line_size).fill(EG::from_int(0)),
-        )
+        let (check_x_bounds, check_y_bounds) = match ident.as_input() {
+            InputIdent::Lhs => (config.check_m_bounds(), config.check_k_bounds()),
+            InputIdent::Rhs => (config.check_k_bounds(), config.check_n_bounds()),
+        };
+
+        match comptime!((check_x_bounds, check_y_bounds)) {
+            (true, true) => select(
+                view_x < self.shape_x && view_y < self.shape_y,
+                self.read(read_pos),
+                Line::empty(line_size).fill(EG::from_int(0)),
+            ),
+            (true, false) => select(
+                view_x < self.shape_x,
+                self.read(read_pos),
+                Line::empty(line_size).fill(EG::from_int(0)),
+            ),
+            (false, true) => select(
+                view_y < self.shape_y,
+                self.read(read_pos),
+                Line::empty(line_size).fill(EG::from_int(0)),
+            ),
+            (false, false) => self.read(read_pos),
+        }
     }
 
     fn read(&self, position: u32) -> Line<EG> {
@@ -170,20 +188,25 @@ impl<EG: Numeric> TensorWriter<EG> {
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
             / config.global_line_size(Ident::Out);
 
-        if config.check_m_bounds() {
-            if config.check_n_bounds() {
+        match comptime!((config.check_m_bounds(), config.check_n_bounds())) {
+            (true, true) => {
                 if view_x < self.shape_x && view_y < self.shape_y {
                     self.write(write_position, Line::cast_from(value));
                 }
-            } else if view_x < self.shape_x {
+            }
+            (true, false) => {
+                if view_x < self.shape_x {
+                    self.write(write_position, Line::cast_from(value));
+                }
+            }
+            (false, true) => {
+                if view_y < self.shape_y {
+                    self.write(write_position, Line::cast_from(value));
+                }
+            }
+            (false, false) => {
                 self.write(write_position, Line::cast_from(value));
             }
-        } else if config.check_n_bounds() {
-            if view_y < self.shape_y {
-                self.write(write_position, Line::cast_from(value));
-            }
-        } else {
-            self.write(write_position, Line::cast_from(value));
         }
     }
 
