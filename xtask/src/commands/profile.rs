@@ -97,7 +97,7 @@ impl Profile {
             ],
             None,
             Some(target_path),
-            format!("Can profile {name}").as_str(),
+            format!("Should profile {name}").as_str(),
         )?;
 
         let output = format!("{name}.ncu-rep");
@@ -106,7 +106,7 @@ impl Profile {
             &[&output],
             None,
             Some(target_path),
-            format!("Can open results for {name}").as_str(),
+            format!("Should open results for {name}").as_str(),
         )
     }
 }
