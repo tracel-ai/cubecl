@@ -20,6 +20,14 @@ pub(crate) struct ProfileOptionsArgs {
     pub ncu_path: String,
     #[arg(long, default_value = "/usr/local/cuda/bin/ncu-ui")]
     pub ncu_ui_path: String,
+    #[arg(short, long, default_value = "2")]
+    pub batch: usize,
+    #[arg(short, default_value = "4096")]
+    pub m: usize,
+    #[arg(short, default_value = "4096")]
+    pub n: usize,
+    #[arg(short, default_value = "4096")]
+    pub k: usize,
 }
 
 pub(crate) struct Profile {}
@@ -67,6 +75,10 @@ impl Profile {
     fn profile(name: &str, options: &ProfileOptionsArgs) -> anyhow::Result<()> {
         const TARGET_RELEASE_PATH: &'static str = "./target/release";
         let target_path = Path::new(TARGET_RELEASE_PATH);
+        let b = format!("{}", options.batch);
+        let m = format!("{}", options.m);
+        let n = format!("{}", options.n);
+        let k = format!("{}", options.k);
 
         run_process(
             "sudo",
@@ -78,6 +90,10 @@ impl Profile {
                 name,
                 "--force-overwrite",
                 name,
+                &b,
+                &m,
+                &n,
+                &k,
             ],
             None,
             Some(&target_path),

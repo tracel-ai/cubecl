@@ -7,13 +7,39 @@ use cubecl::{
 
 fn main() {
     #[cfg(feature = "cuda")]
-    run::<cubecl::cuda::CudaRuntime, half::f16>(Strategy::Accelerated);
+    {
+        use cubecl_linalg::matmul::kernels::cmma_old::PredefinedCmmaConfig;
+
+        let args = parse();
+        run::<cubecl::cuda::CudaRuntime, half::f16>(Strategy::Accelerated, args);
+        run::<cubecl::cuda::CudaRuntime, half::f16>(
+            Strategy::CmmaOld(PredefinedCmmaConfig::M128K16.into()),
+            args,
+        );
+    }
     #[cfg(feature = "wgpu")]
-    run::<cubecl::wgpu::WgpuRuntime, f32>(Strategy::PlaneMma);
+    {
+        let args = parse();
+        run::<cubecl::wgpu::WgpuRuntime, f32>(Strategy::PlaneMma, args);
+    }
 }
 
-pub fn run<R: Runtime, E: Float>(strategy: Strategy) {
-    let profiling = Profiling::<R, E>::new(strategy, 1, 4096, 4096, 4096);
+pub fn parse() -> [usize; 4] {
+    use std::env;
+
+    const USAGE: &str = "Usage: <batch> <m> <n> <k>";
+
+    // Collect command-line arguments
+    let args: Vec<usize> = env::args()
+        .skip(1)
+        .map(|arg| str::parse::<usize>(&arg).expect(USAGE))
+        .collect();
+
+    args.try_into().expect(USAGE)
+}
+
+pub fn run<R: Runtime, E: Float>(strategy: Strategy, args: [usize; 4]) {
+    let profiling = Profiling::<R, E>::new(strategy, args[0], args[1], args[2], args[3]);
     profiling.run();
 }
 
