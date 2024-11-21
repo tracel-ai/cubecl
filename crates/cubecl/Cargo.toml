@@ -38,9 +38,11 @@ cubecl-hip = { path = "../cubecl-hip", version = "0.4.0", default-features = fal
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.4.0", default-features = false, optional = true }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.4.0", default-features = false }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.4.0", default-features = false, optional = true }
-
-[dev-dependencies]
 half = { workspace = true }
+
+[[bin]]
+name = "matmul-profile"
+path = "src/bin/matmul_profile.rs"
 
 [[bench]]
 harness = false
