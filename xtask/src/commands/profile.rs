@@ -73,7 +73,7 @@ impl Profile {
     }
 
     fn profile(name: &str, options: &ProfileOptionsArgs) -> anyhow::Result<()> {
-        const TARGET_RELEASE_PATH: &'static str = "./target/release";
+        const TARGET_RELEASE_PATH: &str = "./target/release";
         let target_path = Path::new(TARGET_RELEASE_PATH);
         let b = format!("{}", options.batch);
         let m = format!("{}", options.m);
@@ -96,7 +96,7 @@ impl Profile {
                 &k,
             ],
             None,
-            Some(&target_path),
+            Some(target_path),
             format!("Can profile {name}").as_str(),
         )?;
 
