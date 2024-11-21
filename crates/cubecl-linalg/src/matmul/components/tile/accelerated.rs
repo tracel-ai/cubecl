@@ -117,7 +117,7 @@ fn execute<I: Numeric, O: Numeric>(
     rhs: &cmma::Matrix<I>,
     out: &mut cmma::Matrix<O>,
 ) {
-    cmma::execute::<I, I, O, O>(&lhs, &rhs, &out, &out);
+    cmma::execute::<I, I, O, O>(lhs, rhs, out, out);
 }
 
 #[cube]
@@ -153,7 +153,7 @@ fn fill_lhs<C: CubePrimitive, I: Numeric>(
     #[comptime] k: u32,
 ) {
     cmma::load(
-        &lhs,
+        lhs,
         slice,
         match config.layout(Ident::Lhs) {
             MatrixLayout::RowMajor => k,
@@ -171,7 +171,7 @@ fn fill_rhs<C: CubePrimitive, I: Numeric>(
     #[comptime] k: u32,
 ) {
     cmma::load(
-        &rhs,
+        rhs,
         slice,
         match config.layout(Ident::Rhs) {
             MatrixLayout::RowMajor => n,
@@ -207,7 +207,7 @@ fn read_accumulator<O: Numeric, C: Numeric>(
     slice: &mut SliceMut<Line<C>>,
     #[comptime] n: u32,
 ) {
-    cmma::store(slice, &out, n, cmma::MatrixLayout::RowMajor);
+    cmma::store(slice, out, n, cmma::MatrixLayout::RowMajor);
 }
 
 fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
