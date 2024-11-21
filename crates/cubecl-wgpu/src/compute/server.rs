@@ -107,22 +107,18 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         &mut self,
         bindings: Vec<server::Binding>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
-        let ressources = bindings
+        let resources = bindings
             .into_iter()
             .map(|binding| {
                 let rb = self.get_resource(binding);
-                let ressource = rb.resource();
+                let resource = rb.resource();
 
-                (
-                    ressource.buffer.clone(),
-                    ressource.offset(),
-                    ressource.size(),
-                )
+                (resource.buffer.clone(), resource.offset(), resource.size())
             })
             .collect();
 
         // Clear compute pass.
-        let fut = self.stream.read_buffers(ressources);
+        let fut = self.stream.read_buffers(resources);
         self.on_flushed();
 
         fut
