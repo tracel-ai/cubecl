@@ -17,7 +17,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read(output.binding());
+    let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -190,8 +190,8 @@ impl MatmulTestCase {
         rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Vec<F> {
-        let lhs_binding = &client.read(lhs.handle.clone().binding());
-        let rhs_binding = &client.read(rhs.handle.clone().binding());
+        let lhs_binding = &client.read_one(lhs.handle.clone().binding());
+        let rhs_binding = &client.read_one(rhs.handle.clone().binding());
 
         let lhs = F::from_bytes(lhs_binding);
         let rhs = F::from_bytes(rhs_binding);

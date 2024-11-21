@@ -1,3 +1,4 @@
+use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{producer_consumer, Config as _};
 use crate::matmul::components::{stage, Ident};
@@ -66,18 +67,14 @@ impl BufferLoading {
 
 #[cube]
 fn get_tiles_x_y(nth_buffer_tile: u32, #[comptime] ident: Ident) -> (u32, u32) {
-    match comptime!(ident) {
-        Ident::Lhs => {
+    match comptime!(ident.as_input()) {
+        InputIdent::Lhs => {
             // Assuming ColMajor tiling order
             (nth_buffer_tile, 0)
         }
-        Ident::Rhs => {
+        InputIdent::Rhs => {
             // Assuming RowMajor tiling order
             (0, nth_buffer_tile)
-        }
-        Ident::Out => {
-            //unreachable
-            (0u32, 0u32)
         }
     }
 }

@@ -23,7 +23,7 @@ pub fn test_constant_array<R: Runtime>(client: ComputeClient<R::Server, R::Chann
         vec![3, 5, 1],
     );
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], 5.0);

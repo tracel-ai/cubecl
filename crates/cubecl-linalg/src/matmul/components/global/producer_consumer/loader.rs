@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global::base::Config as _;
 use crate::matmul::components::global::producer_consumer;
 use crate::matmul::components::global::producer_consumer::buffer_loading::BufferLoading;
@@ -81,7 +82,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
             tensor_view,
             stage,
             buffer_iter: 0,
-            num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y,
+            num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y_dim(),
             is_producer,
             _config: PhantomData::<S>.runtime(),
         }
@@ -137,7 +138,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
             tensor_view,
             stage,
             buffer_iter: 0,
-            num_buffers: config.stage_dim(Ident::Rhs).num_tiles_x,
+            num_buffers: config.stage_dim(Ident::Rhs).num_tiles_x_dim(),
             is_producer,
             _config: PhantomData::<S>.runtime(),
         }
@@ -167,19 +168,16 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
 }
 
 fn check_buffers_contiguous<G: global::Config>(ident: Ident, config: G) {
-    match ident {
-        Ident::Lhs => {
+    match ident.as_input() {
+        InputIdent::Lhs => {
             if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {
                 panic!("Lhs must have ColMajor tiling order in producer consumer setting")
             }
         }
-        Ident::Rhs => {
+        InputIdent::Rhs => {
             if let TilingOrderConfig::ColMajor = config.tiling_order(ident) {
                 panic!("Rhs must have RowMajor tiling order in producer consumer setting")
             }
-        }
-        Ident::Out => {
-            unreachable!()
         }
     }
 }

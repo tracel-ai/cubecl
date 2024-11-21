@@ -35,7 +35,7 @@ enum Message<Server>
 where
     Server: ComputeServer,
 {
-    Read(Binding, Callback<Vec<u8>>),
+    Read(Vec<Binding>, Callback<Vec<Vec<u8>>>),
     GetResource(Binding, Callback<BindingResource<Server>>),
     Create(Vec<u8>, Callback<Handle>),
     Empty(usize, Callback<Handle>),
@@ -62,8 +62,8 @@ where
             cubecl_common::future::block_on(async {
                 while let Ok(message) = receiver.recv().await {
                     match message {
-                        Message::Read(binding, callback) => {
-                            let data = server.read(binding).await;
+                        Message::Read(bindings, callback) => {
+                            let data = server.read(bindings).await;
                             callback.send(data).await.unwrap();
                         }
                         Message::GetResource(binding, callback) => {
@@ -124,10 +124,13 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
-    async fn read(&self, binding: Binding) -> Vec<u8> {
+    async fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
         let sender = self.state.sender.clone();
         let (callback, response) = async_channel::unbounded();
-        sender.send(Message::Read(binding, callback)).await.unwrap();
+        sender
+            .send(Message::Read(bindings, callback))
+            .await
+            .unwrap();
         handle_response(response.recv().await)
     }
 

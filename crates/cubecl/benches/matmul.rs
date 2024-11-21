@@ -108,7 +108,7 @@ fn main() {
         // PlaneMma
         // run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
         // CmmaOld
-        // run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
+        // run::<cubecl::hip::HipRuntime,<cubecl::hip::HipDialect> f32>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
         // Accelerated
         run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
         // Half-precision ----------------------------------------------------

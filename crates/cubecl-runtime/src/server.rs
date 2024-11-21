@@ -25,8 +25,11 @@ where
     /// The type of the features supported by the server.
     type Feature: Ord + Copy + Debug + Send + Sync;
 
-    /// Given a handle, returns the owned resource as bytes.
-    fn read(&mut self, binding: Binding) -> impl Future<Output = Vec<u8>> + Send + 'static;
+    /// Given bindings, returns the owned resources as bytes.
+    fn read(
+        &mut self,
+        bindings: Vec<Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self>;

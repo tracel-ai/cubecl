@@ -87,7 +87,10 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
     );
 }
 
-pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn test_simple_1<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    cube_dimensions: CubeDim,
+) {
     if !client.properties().feature_enabled(Feature::Cmma {
         a: Elem::Float(FloatKind::F16),
         b: Elem::Float(FloatKind::F16),
@@ -111,16 +114,14 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
         kernel_simple_1::launch::<R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            // For HIP, change dim to:
-            // CubeDim::new(32, 1, 1),
-            CubeDim::new(16, 16, 1),
+            cube_dimensions,
             ArrayArg::from_raw_parts::<f16>(&lhs, 256, 1),
             ArrayArg::from_raw_parts::<f16>(&rhs, 256, 1),
             ArrayArg::from_raw_parts::<f32>(&out, 256, 1),
         )
     };
 
-    let actual = client.read(out.binding());
+    let actual = client.read_one(out.binding());
     let actual = f32::from_bytes(&actual);
 
     let expected = [
@@ -150,7 +151,10 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     assert_eq!(expected, actual);
 }
 
-pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn test_simple_tf32<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    cube_dimensions: CubeDim,
+) {
     if !client.properties().feature_enabled(Feature::Cmma {
         a: Elem::Float(FloatKind::TF32),
         b: Elem::Float(FloatKind::TF32),
@@ -174,14 +178,14 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
         kernel_simple_tf32::launch::<R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(16, 16, 1),
+            cube_dimensions,
             ArrayArg::from_raw_parts::<f32>(&lhs, 128, 1),
             ArrayArg::from_raw_parts::<f32>(&rhs, 128, 1),
             ArrayArg::from_raw_parts::<f32>(&out, 256, 1),
         )
     };
 
-    let actual = client.read(out.binding());
+    let actual = client.read_one(out.binding());
     let actual = f32::from_bytes(&actual);
 
     let expected = [
@@ -213,17 +217,31 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
 macro_rules! testgen_cmma {
     () => {
         use super::*;
+        use cubecl_core::CubeDim;
 
         #[test]
         fn test_cmma_simple_1() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client);
+            // In HIP the thread block size must be 32
+            #[cfg(feature = "is_hip")]
+            let cube_dimensions = CubeDim::new(32, 1, 1);
+            #[cfg(not(feature = "is_hip"))]
+            let cube_dimensions = CubeDim::new(16, 16, 1);
+            cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client, cube_dimensions);
         }
 
         #[test]
         fn test_cmma_simple_tf32() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::cmma::test_simple_tf32::<TestRuntime>(client);
+            // In HIP the thread block size must be 32
+            #[cfg(feature = "is_hip")]
+            let cube_dimensions = CubeDim::new(32, 1, 1);
+            #[cfg(not(feature = "is_hip"))]
+            let cube_dimensions = CubeDim::new(16, 16, 1);
+            cubecl_core::runtime_tests::cmma::test_simple_tf32::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
         }
     };
 }

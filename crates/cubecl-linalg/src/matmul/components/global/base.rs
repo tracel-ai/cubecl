@@ -29,8 +29,8 @@ use crate::matmul::components::{Ident, MatrixLayout};
 pub trait Matmul<EG: Numeric, ES: Numeric>:
     'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
 {
-    type Lhs: Loader<EG, ES, Self::Config>;
-    type Rhs: Loader<EG, ES, Self::Config>;
+    type LhsLoader: Loader<EG, ES, Self::Config>;
+    type RhsLoader: Loader<EG, ES, Self::Config>;
     type Out: Unloader<EG>;
     type Accumulator: CubeType;
 
@@ -41,39 +41,44 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
-        lhs_loader: Self::Lhs,
-        rhs_loader: Self::Rhs,
+        lhs_loader: Self::LhsLoader,
+        rhs_loader: Self::RhsLoader,
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
 
+    /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
         lhs: &Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
+        m_offset: u32,
+        k_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Lhs;
+    ) -> Self::LhsLoader;
 
+    /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
         rhs: &Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
+        k_offset: u32,
+        n_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Rhs;
+    ) -> Self::RhsLoader;
 
+    /// Initialize the unloader at row m and column n
     fn init_unloader(
         out: &mut Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
+        m_offset: u32,
+        n_offset: u32,
         batch_offset: u32,
     ) -> Self::Out;
 
+    /// Initialize the accumulator without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
+    /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
@@ -119,7 +124,7 @@ pub trait Config: MatmulConfig {
     fn stage_line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageDim] for the given ident
-    fn stage_dim(&self, ident: Ident) -> StageDim;
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim>;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;
@@ -135,6 +140,9 @@ pub trait Config: MatmulConfig {
 
     /// Whether it is necessary to add bound checks in the m dimension
     fn check_m_bounds(&self) -> bool;
+
+    /// Whether it is necessary to add bound checks in the k dimension
+    fn check_k_bounds(&self) -> bool;
 
     /// Whether it is necessary to add bound checks in the n dimension
     fn check_n_bounds(&self) -> bool;
