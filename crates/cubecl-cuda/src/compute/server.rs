@@ -1,3 +1,4 @@
+use cubecl_cpp::cuda::arch::CudaArchitecture;
 use cubecl_cpp::{formatter::format_cpp, CudaCompiler};
 
 use super::fence::{Fence, SyncStream};
@@ -37,7 +38,7 @@ pub(crate) struct CudaContext {
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     timestamps: KernelTimestamps,
-    pub(crate) arch: u32,
+    pub(crate) arch: CudaArchitecture,
 }
 
 #[derive(Debug)]
@@ -72,12 +73,6 @@ struct CompiledKernel {
 unsafe impl Send for CudaServer {}
 
 impl CudaServer {
-    #[allow(unused)]
-    pub(crate) fn arch_version(&mut self) -> u32 {
-        let ctx = self.get_context();
-        ctx.arch
-    }
-
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
         let ctx = self.get_context();
         let resource = ctx.memory_management.get_resource(
@@ -312,7 +307,7 @@ impl CudaContext {
         memory_management: MemoryManagement<CudaStorage>,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
-        arch: u32,
+        arch: CudaArchitecture,
     ) -> Self {
         Self {
             context,
