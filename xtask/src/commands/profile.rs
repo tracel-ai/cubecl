@@ -10,7 +10,7 @@ pub struct ProfileArgs {
 
 #[derive(clap::Subcommand, strum::Display)]
 pub(crate) enum ProfileSubCommand {
-    /// Profole matmul on cuda.
+    /// Profile matmul on cuda.
     Matmul(ProfileOptionsArgs),
 }
 

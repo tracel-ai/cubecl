@@ -59,7 +59,7 @@ where
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        // #[unroll]
+        #[unroll]
         for buffer_iter in 0..SS::NUM_K {
             let tile_lhs =
                 LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
