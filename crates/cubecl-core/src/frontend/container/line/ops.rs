@@ -119,6 +119,128 @@ where
     }
 }
 
+impl<P> core::ops::BitAnd<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::Add<P, Output = P>,
+{
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self::new(self.val + rhs.val)
+    }
+}
+
+impl<P> core::ops::BitOr<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::Add<P, Output = P>,
+{
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self::new(self.val + rhs.val)
+    }
+}
+
+impl<P> core::ops::BitXor<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::Add<P, Output = P>,
+{
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        Self::new(self.val + rhs.val)
+    }
+}
+
+impl<P> core::ops::Not for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::Neg<Output = P>,
+{
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Self::new(-self.val)
+    }
+}
+
+impl<P> core::ops::Shl<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::Shl<P, Output = P>,
+{
+    type Output = Self;
+
+    fn shl(self, rhs: Self) -> Self::Output {
+        Self::new(self.val << rhs.val)
+    }
+}
+
+impl<P> core::ops::Shr<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::Shr<P, Output = P>,
+{
+    type Output = Self;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        Self::new(self.val >> rhs.val)
+    }
+}
+
+impl<P> core::ops::BitAndAssign<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::AddAssign,
+{
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.val += rhs.val;
+    }
+}
+
+impl<P> core::ops::BitOrAssign<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::AddAssign,
+{
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.val += rhs.val;
+    }
+}
+
+impl<P> core::ops::BitXorAssign<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::AddAssign,
+{
+    fn bitxor_assign(&mut self, rhs: Self) {
+        self.val += rhs.val;
+    }
+}
+
+impl<P> core::ops::ShlAssign<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::ShlAssign,
+{
+    fn shl_assign(&mut self, rhs: Self) {
+        self.val <<= rhs.val;
+    }
+}
+
+impl<P> core::ops::ShrAssign<Self> for Line<P>
+where
+    P: CubePrimitive,
+    P: core::ops::ShrAssign,
+{
+    fn shr_assign(&mut self, rhs: Self) {
+        self.val >>= rhs.val;
+    }
+}
+
 impl<P: CubePrimitive + Abs> Abs for Line<P> {}
 impl<P: CubePrimitive + Max> Max for Line<P> {}
 impl<P: CubePrimitive + Min> Min for Line<P> {}
