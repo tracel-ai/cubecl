@@ -122,36 +122,36 @@ where
 impl<P> core::ops::BitAnd<Self> for Line<P>
 where
     P: CubePrimitive,
-    P: core::ops::Add<P, Output = P>,
+    P: core::ops::BitAnd<P, Output = P>,
 {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        Self::new(self.val + rhs.val)
+        Self::new(self.val & rhs.val)
     }
 }
 
 impl<P> core::ops::BitOr<Self> for Line<P>
 where
     P: CubePrimitive,
-    P: core::ops::Add<P, Output = P>,
+    P: core::ops::BitOr<P, Output = P>,
 {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        Self::new(self.val + rhs.val)
+        Self::new(self.val | rhs.val)
     }
 }
 
 impl<P> core::ops::BitXor<Self> for Line<P>
 where
     P: CubePrimitive,
-    P: core::ops::Add<P, Output = P>,
+    P: core::ops::BitXor<P, Output = P>,
 {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        Self::new(self.val + rhs.val)
+        Self::new(self.val ^ rhs.val)
     }
 }
 
@@ -194,30 +194,30 @@ where
 impl<P> core::ops::BitAndAssign<Self> for Line<P>
 where
     P: CubePrimitive,
-    P: core::ops::AddAssign,
+    P: core::ops::BitAndAssign,
 {
     fn bitand_assign(&mut self, rhs: Self) {
-        self.val += rhs.val;
+        self.val &= rhs.val;
     }
 }
 
 impl<P> core::ops::BitOrAssign<Self> for Line<P>
 where
     P: CubePrimitive,
-    P: core::ops::AddAssign,
+    P: core::ops::BitOrAssign,
 {
     fn bitor_assign(&mut self, rhs: Self) {
-        self.val += rhs.val;
+        self.val |= rhs.val;
     }
 }
 
 impl<P> core::ops::BitXorAssign<Self> for Line<P>
 where
     P: CubePrimitive,
-    P: core::ops::AddAssign,
+    P: core::ops::BitXorAssign,
 {
     fn bitxor_assign(&mut self, rhs: Self) {
-        self.val += rhs.val;
+        self.val ^= rhs.val;
     }
 }
 
