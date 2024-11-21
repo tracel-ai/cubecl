@@ -158,12 +158,12 @@ where
 impl<P> core::ops::Not for Line<P>
 where
     P: CubePrimitive,
-    P: core::ops::Neg<Output = P>,
+    P: core::ops::Not<Output = P>,
 {
     type Output = Self;
 
     fn not(self) -> Self::Output {
-        Self::new(-self.val)
+        Self::new(!self.val)
     }
 }
 
