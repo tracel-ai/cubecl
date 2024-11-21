@@ -27,7 +27,7 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R::Se
         )
     };
 
-    let actual = client.read(handle1.binding());
+    let actual = client.read_one(handle1.binding());
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = (0..length).collect();
 

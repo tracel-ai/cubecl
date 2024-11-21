@@ -103,14 +103,26 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     type Storage = WgpuStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
-        let rb = self.get_resource(binding);
-        let resource = rb.resource();
+    fn read(
+        &mut self,
+        bindings: Vec<server::Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
+        let ressources = bindings
+            .into_iter()
+            .map(|binding| {
+                let rb = self.get_resource(binding);
+                let ressource = rb.resource();
+
+                (
+                    ressource.buffer.clone(),
+                    ressource.offset(),
+                    ressource.size(),
+                )
+            })
+            .collect();
 
         // Clear compute pass.
-        let fut = self
-            .stream
-            .read_buffer(&resource.buffer, resource.offset(), resource.size());
+        let fut = self.stream.read_buffers(ressources);
         self.on_flushed();
 
         fut

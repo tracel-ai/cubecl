@@ -101,8 +101,14 @@ impl ComputeServer for HipServer {
     type Storage = HipStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        let value = self.read_sync(binding);
+    fn read(
+        &mut self,
+        bindings: Vec<server::Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+        let value = bindings
+            .into_iter()
+            .map(|binding| self.read_sync(binding))
+            .collect();
         async { value }
     }
 

@@ -261,7 +261,7 @@ pub fn impl_reduce_sum_test<R: Runtime, N: Numeric + CubeElement + std::fmt::Dis
     }
 
     let binding = output_handle.binding();
-    let bytes = client.read(binding);
+    let bytes = client.read_one(binding);
     let output_values = N::from_bytes(&bytes);
 
     match test.tolerance {
