@@ -36,6 +36,7 @@ fn main() -> anyhow::Result<()> {
         Command::Check(cmd_args) => commands::check::handle_command(cmd_args),
         Command::Test(cmd_args) => commands::test::handle_command(cmd_args),
         Command::Book(cmd_args) => cmd_args.parse(),
+        Command::Validate(cmd_args) => commands::validate::handle_command(&cmd_args),
         _ => dispatch_base_commands(args),
     }?;
     let duration = start.elapsed();

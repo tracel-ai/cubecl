@@ -15,7 +15,7 @@ pub struct WgpuStream {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     poll: WgpuPoll,
-    sync_buffer: Option<wgpu::Buffer>,
+    sync_buffer: Option<Arc<wgpu::Buffer>>,
     submission_load: SubmissionLoad,
 }
 
@@ -35,7 +35,7 @@ impl WgpuStream {
         let encoder = create_encoder(&device);
 
         #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+        let sync_buffer = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: 32,
             usage: wgpu::BufferUsages::COPY_DST
@@ -43,7 +43,7 @@ impl WgpuStream {
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::INDIRECT,
             mapped_at_creation: false,
-        }));
+        })));
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
 
@@ -135,60 +135,87 @@ impl WgpuStream {
         }
     }
 
-    pub fn read_buffer(
+    pub fn read_buffers(
         &mut self,
-        buffer: &wgpu::Buffer,
-        offset: u64,
-        size: u64,
-    ) -> impl Future<Output = Vec<u8>> + 'static {
+        buffers: Vec<(Arc<wgpu::Buffer>, u64, u64)>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
         self.pass = None;
-        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
-        // memory is 32 bytes aligned (see WgpuStorage).
-        let align = wgpu::COPY_BUFFER_ALIGNMENT;
-        let aligned_len = size.div_ceil(align) * align;
+        let mut staging_buffers = Vec::with_capacity(buffers.len());
+        let mut callbacks = Vec::with_capacity(buffers.len());
 
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: aligned_len,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        for (buffer, offset, size) in buffers {
+            // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+            // memory is 32 bytes aligned (see WgpuStorage).
+            let align = wgpu::COPY_BUFFER_ALIGNMENT;
+            let aligned_len = size.div_ceil(align) * align;
 
-        self.encoder
-            .copy_buffer_to_buffer(buffer, offset, &staging_buffer, 0, aligned_len);
+            let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: aligned_len,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.encoder
+                .copy_buffer_to_buffer(&buffer, offset, &staging_buffer, 0, aligned_len);
+            staging_buffers.push((staging_buffer, size));
+        }
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
         self.flush();
 
-        let (sender, receiver) = async_channel::bounded(1);
-        staging_buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |v| {
-                sender
-                    .try_send(v)
-                    .expect("Unable to send buffer slice result to async channel.");
-            });
+        for (staging_buffer, _size) in staging_buffers.iter() {
+            let (sender, receiver) = async_channel::bounded(1);
+            staging_buffer
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |v| {
+                    sender
+                        .try_send(v)
+                        .expect("Unable to send buffer slice result to async channel.");
+                });
+
+            callbacks.push(receiver);
+        }
 
         let poll = self.poll.start_polling();
 
         async move {
-            receiver
-                .recv()
-                .await
-                .expect("Unable to receive buffer slice result.")
-                .expect("Failed to map buffer");
+            for callback in callbacks {
+                callback
+                    .recv()
+                    .await
+                    .expect("Unable to receive buffer slice result.")
+                    .expect("Failed to map buffer");
+            }
 
             // Can stop polling now.
             core::mem::drop(poll);
 
             let result = {
-                let data = staging_buffer.slice(..).get_mapped_range();
-                bytemuck::cast_slice(&data[0..(size as usize)]).to_vec()
+                staging_buffers
+                    .iter()
+                    .map(|(staging_buffer, size)| {
+                        let data = staging_buffer.slice(..).get_mapped_range();
+                        bytemuck::cast_slice(&data[0..(*size as usize)]).to_vec()
+                    })
+                    .collect()
             };
 
-            staging_buffer.unmap();
+            for (staging_buffer, _size) in staging_buffers {
+                staging_buffer.unmap();
+            }
             result
         }
+    }
+
+    pub fn read_buffer(
+        &mut self,
+        buffer: Arc<wgpu::Buffer>,
+        offset: u64,
+        size: u64,
+    ) -> impl Future<Output = Vec<u8>> + 'static {
+        let fut = self.read_buffers(vec![(buffer, offset, size)]);
+
+        async move { fut.await.remove(0) }
     }
 
     pub fn sync_elapsed(
@@ -243,7 +270,7 @@ impl WgpuStream {
         match method {
             TimestampMethod::Buffer(resolved, size) => {
                 let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-                let fut = self.read_buffer(&resolved, 0, size);
+                let fut = self.read_buffer(Arc::new(resolved), 0, size);
 
                 Box::pin(async move {
                     let data = fut
@@ -281,7 +308,7 @@ impl WgpuStream {
                 //
                 // For now, instead do a dummy readback. This *seems* to wait for the entire
                 // queue to be done.
-                let fut = self.read_buffer(buf, 0, 32);
+                let fut = self.read_buffer(buf.clone(), 0, 32);
                 core::mem::swap(&mut buffer, &mut self.sync_buffer);
 
                 Box::pin(async move {

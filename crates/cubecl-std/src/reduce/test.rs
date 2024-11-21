@@ -4,211 +4,152 @@ use cubecl_core::{prelude::*, Feature};
 
 use crate::reduce::sum::{reduce_sum, ReduceConfig};
 
+use super::sum::reduce_sum_lined;
+
 #[macro_export]
 macro_rules! testgen_reduce {
     () => {
         use super::*;
-        use cubecl_core::{CubeCount, CubeDim};
+        use cubecl_core::CubeCount;
         use cubecl_std::reduce::test::{impl_reduce_sum_test, TestCase, TestTensorParts};
 
         #[test]
         pub fn reduce_sum_vector_single_plane() {
-            impl_reduce_sum_test::<TestRuntime, u32>(
-                &Default::default(),
-                TestCase {
-                    input: TestTensorParts {
-                        values: (0..32).collect(),
-                        stride: vec![1],
-                        shape: vec![32],
-                    },
-                    output: TestTensorParts {
-                        values: vec![0],
-                        stride: vec![1],
-                        shape: vec![1],
-                    },
-                    line_size: 1,
-                    expected: vec![496],
-                    tolerance: None,
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(32, 1, 1),
-                    sum_dim: 0,
-                },
-            )
+            let test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..32).collect()),
+                // output
+                TestTensorParts::new_vector(vec![0]),
+                // expected
+                vec![496],
+            );
+            impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
         }
 
         #[test]
         pub fn reduce_sum_vector_single_plane_line_size_four() {
-            impl_reduce_sum_test::<TestRuntime, u32>(
-                &Default::default(),
-                TestCase {
-                    input: TestTensorParts {
-                        values: (0..32).collect(),
-                        stride: vec![1],
-                        shape: vec![32],
-                    },
-                    output: TestTensorParts {
-                        values: vec![0, 0, 0, 0],
-                        stride: vec![1],
-                        shape: vec![1],
-                    },
-                    line_size: 4,
-                    expected: vec![112, 120, 128, 136],
-                    tolerance: None,
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(32, 1, 1),
-                    sum_dim: 0,
-                },
-            )
+            let mut test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..32).collect()).with_line_size(4),
+                // output
+                TestTensorParts::new_vector(vec![0, 0, 0, 0]).with_line_size(4),
+                // expected
+                vec![112, 120, 128, 136],
+            );
+            impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
+        }
+
+        #[test]
+        pub fn reduce_sum_lined_vector_single_plane_line_size_four() {
+            let mut test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..32).collect()).with_line_size(4),
+                // output
+                TestTensorParts::new_vector(vec![0]),
+                // expected
+                vec![496],
+            );
+            test.reduce_lines = true;
+            impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
         }
 
         #[test]
         pub fn reduce_sum_vector_long_single_plane() {
-            impl_reduce_sum_test::<TestRuntime, u32>(
-                &Default::default(),
-                TestCase {
-                    input: TestTensorParts {
-                        values: (0..128).collect(),
-                        stride: vec![1],
-                        shape: vec![128],
-                    },
-                    output: TestTensorParts {
-                        values: vec![0],
-                        stride: vec![1],
-                        shape: vec![1],
-                    },
-                    line_size: 1,
-                    expected: vec![8128],
-                    tolerance: None,
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(32, 1, 1),
-                    sum_dim: 0,
-                },
-            )
+            let test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..128).collect()),
+                // output
+                TestTensorParts::new_vector(vec![0]),
+                // expected
+                vec![8128],
+            );
+            impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
         }
 
         #[test]
         pub fn reduce_sum_long_vector_four_planes() {
-            impl_reduce_sum_test::<TestRuntime, u32>(
-                &Default::default(),
-                TestCase {
-                    input: TestTensorParts {
-                        values: (0..128).collect(),
-                        stride: vec![1],
-                        shape: vec![128],
-                    },
-                    output: TestTensorParts {
-                        values: vec![0],
-                        stride: vec![1],
-                        shape: vec![1],
-                    },
-                    line_size: 1,
-                    expected: vec![8128],
-                    tolerance: None,
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(32, 4, 1),
-                    sum_dim: 0,
-                },
-            )
+            let mut test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..128).collect()),
+                // output
+                TestTensorParts::new_vector(vec![0]),
+                // expected
+                vec![8128],
+            );
+            test.cube_dim = CubeDim::new(32, 4, 1);
+            impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
         }
 
         #[test]
         pub fn reduce_sum_vector_with_remainder_single_plane() {
-            impl_reduce_sum_test::<TestRuntime, u32>(
-                &Default::default(),
-                TestCase {
-                    input: TestTensorParts {
-                        values: (0..100).collect(),
-                        stride: vec![1],
-                        shape: vec![100],
-                    },
-                    output: TestTensorParts {
-                        values: vec![0],
-                        stride: vec![1],
-                        shape: vec![1],
-                    },
-                    line_size: 1,
-                    expected: vec![4950],
-                    tolerance: None,
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(32, 1, 1),
-                    sum_dim: 0,
-                },
-            )
+            let test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..128).collect()),
+                // output
+                TestTensorParts::new_vector(vec![0]),
+                // expected
+                vec![8128],
+            );
+            impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
         }
 
         #[test]
         pub fn reduce_sum_vector_with_remainder_four_planes() {
-            impl_reduce_sum_test::<TestRuntime, u32>(
-                &Default::default(),
-                TestCase {
-                    input: TestTensorParts {
-                        values: (0..100).collect(),
-                        stride: vec![1],
-                        shape: vec![100],
-                    },
-                    output: TestTensorParts {
-                        values: vec![0],
-                        stride: vec![1],
-                        shape: vec![1],
-                    },
-                    line_size: 1,
-                    expected: vec![4950],
-                    tolerance: None,
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(32, 4, 1),
-                    sum_dim: 0,
-                },
-            )
+            let mut test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..100).collect()),
+                // output
+                TestTensorParts::new_vector(vec![0]),
+                // expected
+                vec![4950],
+            );
+            test.cube_dim = CubeDim::new(32, 4, 1);
+            impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
+        }
+
+        #[test]
+        pub fn reduce_sum_lined_vector_with_remainder_four_planes() {
+            let mut test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..100).collect()).with_line_size(4),
+                // output
+                TestTensorParts::new_vector(vec![0]),
+                // expected
+                vec![4950],
+            );
+            test.cube_dim = CubeDim::new(32, 4, 1);
+            test.reduce_lines = true;
+            impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
         }
 
         #[test]
         pub fn reduce_sum_vector_f32_eight_planes() {
-            impl_reduce_sum_test::<TestRuntime, f32>(
-                &Default::default(),
-                TestCase {
-                    input: TestTensorParts {
-                        values: (0..1024).map(|n| n as f32).collect(),
-                        stride: vec![1],
-                        shape: vec![1024],
-                    },
-                    output: TestTensorParts {
-                        values: vec![0.0],
-                        stride: vec![1],
-                        shape: vec![1],
-                    },
-                    line_size: 1,
-                    expected: vec![523776.0],
-                    tolerance: Some(1e-9),
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(32, 8, 1),
-                    sum_dim: 0,
-                },
-            )
+            let mut test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..1024).map(|n| n as f32).collect()),
+                // output
+                TestTensorParts::new_vector(vec![0.0]),
+                // expected
+                vec![523776.0],
+            );
+            test.tolerance = Some(1e-9);
+            test.cube_dim = CubeDim::new(32, 8, 1);
+            impl_reduce_sum_test::<TestRuntime, f32>(&Default::default(), test);
         }
 
         #[test]
         pub fn reduce_sum_vector_f32_too_many_planes() {
-            impl_reduce_sum_test::<TestRuntime, f32>(
-                &Default::default(),
-                TestCase {
-                    input: TestTensorParts {
-                        values: (0..128).map(|n| n as f32).collect(),
-                        stride: vec![1],
-                        shape: vec![128],
-                    },
-                    output: TestTensorParts {
-                        values: vec![0.0],
-                        stride: vec![1],
-                        shape: vec![1],
-                    },
-                    line_size: 1,
-                    expected: vec![8128.0],
-                    tolerance: Some(1e-9),
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(32, 8, 1),
-                    sum_dim: 0,
-                },
-            )
+            let mut test = TestCase::new(
+                // input
+                TestTensorParts::new_vector((0..128).map(|n| n as f32).collect()),
+                // output
+                TestTensorParts::new_vector(vec![0.0]),
+                // expected
+                vec![8128.0],
+            );
+            test.tolerance = Some(1e-9);
+            test.cube_dim = CubeDim::new(32, 8, 1);
+            impl_reduce_sum_test::<TestRuntime, f32>(&Default::default(), test);
         }
     };
 }
@@ -217,12 +158,27 @@ macro_rules! testgen_reduce {
 pub struct TestCase<N> {
     pub input: TestTensorParts<N>,
     pub output: TestTensorParts<N>,
-    pub line_size: u8,
     pub expected: Vec<N>,
     pub tolerance: Option<f32>,
     pub cube_count: CubeCount,
     pub cube_dim: CubeDim,
     pub sum_dim: u32,
+    pub reduce_lines: bool,
+}
+
+impl<N> TestCase<N> {
+    pub fn new(input: TestTensorParts<N>, output: TestTensorParts<N>, expected: Vec<N>) -> Self {
+        Self {
+            input,
+            output,
+            expected,
+            tolerance: None,
+            cube_count: CubeCount::Static(1, 1, 1),
+            cube_dim: CubeDim::new(32, 1, 1),
+            sum_dim: 0,
+            reduce_lines: false,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -230,6 +186,24 @@ pub struct TestTensorParts<N> {
     pub values: Vec<N>,
     pub stride: Vec<usize>,
     pub shape: Vec<usize>,
+    pub line_size: u8,
+}
+
+impl<N> TestTensorParts<N> {
+    pub fn new_vector(values: Vec<N>) -> Self {
+        let shape = vec![values.len()];
+        Self {
+            values,
+            stride: vec![1],
+            shape,
+            line_size: 1,
+        }
+    }
+
+    pub fn with_line_size(mut self, line_size: u8) -> Self {
+        self.line_size = line_size;
+        self
+    }
 }
 
 pub fn impl_reduce_sum_test<R: Runtime, N: Numeric + CubeElement + std::fmt::Display>(
@@ -246,7 +220,7 @@ pub fn impl_reduce_sum_test<R: Runtime, N: Numeric + CubeElement + std::fmt::Dis
     let output_handle = client.create(N::as_bytes(&test.output.values));
 
     let config = ReduceConfig {
-        line_size: test.line_size as u32,
+        line_size: test.input.line_size as u32,
         plane_size: test.cube_dim.x,
         num_planes: test.cube_dim.y,
     };
@@ -256,27 +230,38 @@ pub fn impl_reduce_sum_test<R: Runtime, N: Numeric + CubeElement + std::fmt::Dis
             &input_handle,
             &test.input.stride,
             &test.input.shape,
-            test.line_size,
+            test.input.line_size,
         );
         let output_tensor = TensorArg::from_raw_parts::<N>(
             &output_handle,
             &test.output.stride,
             &test.output.shape,
-            test.line_size,
+            test.output.line_size,
         );
 
-        reduce_sum::launch_unchecked::<N, R>(
-            &client,
-            test.cube_count,
-            test.cube_dim,
-            input_tensor,
-            output_tensor,
-            config,
-        );
+        if test.reduce_lines {
+            reduce_sum_lined::launch_unchecked::<N, R>(
+                &client,
+                test.cube_count,
+                test.cube_dim,
+                input_tensor,
+                output_tensor,
+                config,
+            );
+        } else {
+            reduce_sum::launch_unchecked::<N, R>(
+                &client,
+                test.cube_count,
+                test.cube_dim,
+                input_tensor,
+                output_tensor,
+                config,
+            );
+        }
     }
 
     let binding = output_handle.binding();
-    let bytes = client.read(binding);
+    let bytes = client.read_one(binding);
     let output_values = N::from_bytes(&bytes);
 
     match test.tolerance {
