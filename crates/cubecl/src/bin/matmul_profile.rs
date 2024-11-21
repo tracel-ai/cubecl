@@ -17,10 +17,20 @@ fn main() {
             args,
         );
     }
-    #[cfg(feature = "wgpu")]
+    #[cfg(feature = "wgpu-spirv")]
     {
+        use cubecl_linalg::matmul::kernels::cmma_old::PredefinedCmmaConfig;
+        println!("A");
+
+        type C = cubecl::wgpu::spirv::SpirvCompiler;
+        type R = cubecl::wgpu::WgpuRuntime<C>;
+
         let args = parse();
-        run::<cubecl::wgpu::WgpuRuntime, f32>(Strategy::PlaneMma, args);
+        run::<R, half::f16>(Strategy::Accelerated, args);
+        run::<R, half::f16>(
+            Strategy::CmmaOld(PredefinedCmmaConfig::M128K16.into()),
+            args,
+        );
     }
 }
 
