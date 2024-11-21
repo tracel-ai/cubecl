@@ -49,8 +49,8 @@ where
     ) {
         let is_consumer = Self::is_consumer(config);
 
-        let num_buffers = config.stage_dim(Ident::Lhs).num_tiles_y;
-        let buffer_step = config.stage_dim(Ident::Lhs).tile_size_y;
+        let num_buffers = config.stage_dim(Ident::Lhs).num_tiles_y_dim();
+        let buffer_step = config.stage_dim(Ident::Lhs).tile_size_y_dim();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;
@@ -160,7 +160,7 @@ where
     fn check_config(config: Self::Config) {
         assert!(config.num_producers() > 0, "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.");
         assert!(
-            config.stage_dim(Ident::Lhs).num_tiles_y > 1,
+            config.stage_dim(Ident::Lhs).num_tiles_y_dim() > 1,
             "Producer-consumer needs at least 2 buffers."
         );
         SMM::check_config(config.to_smm_config());
@@ -227,7 +227,7 @@ impl<S: stage::Config> global::Config for Config<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         self.smm_config.stage_dim(ident)
     }
 

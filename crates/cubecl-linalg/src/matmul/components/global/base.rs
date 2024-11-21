@@ -49,31 +49,36 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         #[comptime] config: Self::Config,
     );
 
+    /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
         lhs: &Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
+        m_offset: u32,
+        k_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
+    /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
         rhs: &Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
+        k_offset: u32,
+        n_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
+    /// Initialize the unloader at row m and column n
     fn init_unloader(
         out: &mut Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
+        m_offset: u32,
+        n_offset: u32,
         batch_offset: u32,
     ) -> Self::Out;
 
+    /// Initialize the accumulator without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
+    /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
@@ -119,7 +124,7 @@ pub trait Config: MatmulConfig {
     fn stage_line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageDim] for the given ident
-    fn stage_dim(&self, ident: Ident) -> StageDim;
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim>;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;

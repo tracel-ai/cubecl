@@ -41,74 +41,137 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Aggregation of [StageDim]s for all stages
 pub struct StageDims {
-    pub lhs: StageDim,
-    pub rhs: StageDim,
-    pub out: StageDim,
+    pub lhs: LhsStageDim,
+    pub rhs: RhsStageDim,
+    pub out: OutStageDim,
 }
 
-#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Dimensions for a stage. A stage has `num_tiles_x` tiles of size `tile_size_x` in
-/// x direction, and `num_tiles_y` tiles of size `tile_size_y` in y dimension.
-///
-/// Dimensions x and y are respectively the row and column dimensions,
-/// regardless of the [MatrixLayout]:
-///  - Lhs: x=m, y=k
-///  - Rhs: x=k, y=n
-///  - Out: x=m, y=n
-pub struct StageDim {
-    pub tile_size_x: u32,
-    pub tile_size_y: u32,
-    pub num_tiles_x: u32,
-    pub num_tiles_y: u32,
-    pub num_tiles_per_buffer: u32,
-}
-
-impl StageDim {
-    pub fn new(
-        ident: Ident,
-        tile_size_x: u32,
-        tile_size_y: u32,
-        num_tiles_x: u32,
-        num_tiles_y: u32,
-    ) -> Self {
-        Self {
-            tile_size_x,
-            tile_size_y,
-            num_tiles_x,
-            num_tiles_y,
-            num_tiles_per_buffer: match ident {
-                Ident::Lhs => num_tiles_x,
-                Ident::Rhs => num_tiles_y,
-                Ident::Out => 0,
-            },
-        }
-    }
-
+pub trait StageDim: 'static + Send + Sync {
     /// Returns the total number of elements of the stage
-    pub fn num_elements(&self) -> u32 {
-        self.num_tiles_x * self.num_tiles_y * self.tile_num_elements()
+    fn total_elements(&self) -> u32 {
+        self.height() * self.width()
     }
 
     /// Returns the number of elements within one tile
-    pub fn tile_num_elements(&self) -> u32 {
-        self.tile_size_x * self.tile_size_y
+    fn tile_num_elements(&self) -> u32 {
+        self.tile_size_x_dim() * self.tile_size_y_dim()
     }
 
     /// Returns the height of the stage, i.e. the number of elements across the x dimension
-    pub fn num_elements_x_dim(&self) -> u32 {
-        self.num_tiles_x * self.tile_size_x
+    fn height(&self) -> u32 {
+        self.num_tiles_x_dim() * self.tile_size_x_dim()
     }
 
     /// Returns the width of the stage, i.e. the number of elements across the y dimension
-    pub fn num_elements_y_dim(&self) -> u32 {
-        self.num_tiles_y * self.tile_size_y
+    fn width(&self) -> u32 {
+        self.num_tiles_y_dim() * self.tile_size_y_dim()
     }
 
-    pub fn buffer_num_elements(&self) -> u32 {
-        // Would be cleaner with an option, but it's not supported for CubeType
-        if self.num_tiles_per_buffer == 0 {
-            panic!("Should not call buffer_num_elements on output")
-        }
-        self.tile_num_elements() * self.num_tiles_per_buffer
+    /// Number of elements in a buffer
+    fn buffer_num_elements(&self) -> u32;
+
+    /// Returns the number of tiles across x dimension (rows)
+    fn num_tiles_x_dim(&self) -> u32;
+
+    /// Returns the number of tiles across y dimension (cols)
+    fn num_tiles_y_dim(&self) -> u32;
+
+    /// Returns the dimension of a tile across x dimension (rows)
+    fn tile_size_x_dim(&self) -> u32;
+
+    /// Returns the dimension of a tile across y dimension (col)
+    fn tile_size_y_dim(&self) -> u32;
+}
+
+#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+/// Dimensions for lhs stage.
+pub struct LhsStageDim {
+    pub tile_size_m: u32,
+    pub tile_size_k: u32,
+    pub num_tiles_m: u32,
+    pub num_tiles_k: u32,
+}
+
+#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+/// Dimensions for rhs stage.
+pub struct RhsStageDim {
+    pub tile_size_k: u32,
+    pub tile_size_n: u32,
+    pub num_tiles_k: u32,
+    pub num_tiles_n: u32,
+}
+
+#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+/// Dimensions for out stage.
+pub struct OutStageDim {
+    pub tile_size_m: u32,
+    pub tile_size_n: u32,
+    pub num_tiles_m: u32,
+    pub num_tiles_n: u32,
+}
+
+impl StageDim for LhsStageDim {
+    fn num_tiles_x_dim(&self) -> u32 {
+        self.num_tiles_m
+    }
+
+    fn num_tiles_y_dim(&self) -> u32 {
+        self.num_tiles_k
+    }
+
+    fn tile_size_x_dim(&self) -> u32 {
+        self.tile_size_m
+    }
+
+    fn tile_size_y_dim(&self) -> u32 {
+        self.tile_size_k
+    }
+
+    fn buffer_num_elements(&self) -> u32 {
+        self.num_tiles_m * self.tile_num_elements()
+    }
+}
+
+impl StageDim for RhsStageDim {
+    fn num_tiles_x_dim(&self) -> u32 {
+        self.num_tiles_k
+    }
+
+    fn num_tiles_y_dim(&self) -> u32 {
+        self.num_tiles_n
+    }
+
+    fn tile_size_x_dim(&self) -> u32 {
+        self.tile_size_k
+    }
+
+    fn tile_size_y_dim(&self) -> u32 {
+        self.tile_size_n
+    }
+
+    fn buffer_num_elements(&self) -> u32 {
+        self.num_tiles_n * self.tile_num_elements()
+    }
+}
+
+impl StageDim for OutStageDim {
+    fn num_tiles_x_dim(&self) -> u32 {
+        self.num_tiles_m
+    }
+
+    fn num_tiles_y_dim(&self) -> u32 {
+        self.num_tiles_n
+    }
+
+    fn tile_size_x_dim(&self) -> u32 {
+        self.tile_size_m
+    }
+
+    fn tile_size_y_dim(&self) -> u32 {
+        self.tile_size_n
+    }
+
+    fn buffer_num_elements(&self) -> u32 {
+        panic!("Out stage has no concept of buffer")
     }
 }

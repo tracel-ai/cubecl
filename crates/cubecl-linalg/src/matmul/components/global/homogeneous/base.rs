@@ -189,7 +189,7 @@ impl<S: stage::Config> global::Config for Config<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         self.smm_config.stage_dim(ident)
     }
 

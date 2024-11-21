@@ -5,6 +5,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::base::Matmul as _;
 use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
+use crate::matmul::components::{LhsStageDim, OutStageDim, RhsStageDim};
 use crate::matmul::{
     components::{
         config::MatmulConfig,
@@ -148,7 +149,7 @@ where
 
     fn check_config(config: Self::Config) {
         comptime!(check_num_planes(
-            config.stage_dim(Ident::Lhs).num_tiles_x,
+            config.stage_dim(Ident::Lhs).num_tiles_x_dim(),
             config.num_planes()
         ));
         TMM::check_config(config.to_tmm_config());
@@ -197,9 +198,9 @@ fn check_num_planes(expected_num_planes: u32, actual_num_planes: u32) {
 /// Configuration for the multi buffer matmul
 pub struct Config<T: tile::Config> {
     tmm_config: T,
-    lhs_stage_dim: StageDim,
-    rhs_stage_dim: StageDim,
-    out_stage_dim: StageDim,
+    lhs_stage_dim: LhsStageDim,
+    rhs_stage_dim: RhsStageDim,
+    out_stage_dim: OutStageDim,
     num_planes: u32,
     lhs_tiling_order: TilingOrderConfig,
     rhs_tiling_order: TilingOrderConfig,
@@ -216,11 +217,11 @@ impl<T: tile::Config> stage::Config for Config<T> {
         self.tmm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         match ident {
-            Ident::Lhs => self.lhs_stage_dim,
-            Ident::Rhs => self.rhs_stage_dim,
-            Ident::Out => self.out_stage_dim,
+            Ident::Lhs => Box::new(self.lhs_stage_dim),
+            Ident::Rhs => Box::new(self.rhs_stage_dim),
+            Ident::Out => Box::new(self.out_stage_dim),
         }
     }
 
@@ -250,9 +251,9 @@ impl<T: tile::Config> MatmulConfig for Config<T> {}
 impl<T: tile::Config> Config<T> {
     pub fn new(
         tmm_config: T,
-        lhs_stage_dim: StageDim,
-        rhs_stage_dim: StageDim,
-        out_stage_dim: StageDim,
+        lhs_stage_dim: LhsStageDim,
+        rhs_stage_dim: RhsStageDim,
+        out_stage_dim: OutStageDim,
         num_planes: u32,
         lhs_tiling_order: TilingOrderConfig,
         rhs_tiling_order: TilingOrderConfig,

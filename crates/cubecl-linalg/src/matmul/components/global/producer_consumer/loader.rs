@@ -81,7 +81,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
             tensor_view,
             stage,
             buffer_iter: 0,
-            num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y,
+            num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y_dim(),
             is_producer,
             _config: PhantomData::<S>.runtime(),
         }
@@ -137,7 +137,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
             tensor_view,
             stage,
             buffer_iter: 0,
-            num_buffers: config.stage_dim(Ident::Rhs).num_tiles_x,
+            num_buffers: config.stage_dim(Ident::Rhs).num_tiles_x_dim(),
             is_producer,
             _config: PhantomData::<S>.runtime(),
         }

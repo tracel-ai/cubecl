@@ -23,7 +23,7 @@ impl CyclicLoading {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_stage_elements = stage_dim.num_elements();
+        let num_stage_elements = stage_dim.total_elements();
         let total_units = comptime!(config.num_planes() * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_stage_elements / jump_length;
@@ -42,12 +42,16 @@ impl CyclicLoading {
             let pos_within_tile = unit_position % tile_num_elements;
 
             let (tile_x, tile_y) = match config.tiling_order(ident) {
-                TilingOrderConfig::RowMajor => {
-                    RowMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-                }
-                TilingOrderConfig::ColMajor => {
-                    ColMajorTiling::to_x_y(nth_tile, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-                }
+                TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
+                    nth_tile,
+                    stage_dim.num_tiles_x_dim(),
+                    stage_dim.num_tiles_y_dim(),
+                ),
+                TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
+                    nth_tile,
+                    stage_dim.num_tiles_x_dim(),
+                    stage_dim.num_tiles_y_dim(),
+                ),
             };
 
             let line_read =
@@ -63,8 +67,8 @@ impl CyclicLoading {
                     if comptime!(slice_line_size == 1) {
                         let tile_offset = nth_tile * tile_num_elements;
 
-                        let tile_size_x = config.stage_dim(ident).tile_size_x;
-                        let tile_size_y = config.stage_dim(ident).tile_size_y;
+                        let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
+                        let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
 
                         let (height, width) = match config.layout(ident) {
                             MatrixLayout::RowMajor => (tile_size_x, tile_size_y),

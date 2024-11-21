@@ -6,6 +6,7 @@ use std::hash::Hash;
 use crate::matmul::components::batch::shared::swizzle;
 
 #[cube]
+/// Distributes cube instances across the tensor, assigning each to compute data in distinct regions.
 pub trait CubeDispatch: Clone + Copy + 'static + Send + Sync + Debug + Hash + Eq {
     fn x_y_indices() -> (u32, u32);
     fn batch_index() -> u32;

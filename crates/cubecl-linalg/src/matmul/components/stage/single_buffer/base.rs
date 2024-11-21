@@ -5,6 +5,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::base::Matmul as _;
 use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
+use crate::matmul::components::{LhsStageDim, OutStageDim, RhsStageDim};
 use crate::matmul::{
     components::{
         config::MatmulConfig,
@@ -168,7 +169,7 @@ where
             lhs_stage_dim,
             rhs_stage_dim,
             out_stage_dim,
-            lhs_stage_dim.num_tiles_x,
+            lhs_stage_dim.num_tiles_x_dim(),
             advanced_config.lhs_tiling_order,
             advanced_config.rhs_tiling_order,
         )
@@ -179,9 +180,9 @@ where
 /// Configuration for the single buffer matmul
 pub struct Config<T: tile::Config> {
     tmm_config: T,
-    lhs_stage_dim: StageDim,
-    rhs_stage_dim: StageDim,
-    out_stage_dim: StageDim,
+    lhs_stage_dim: LhsStageDim,
+    rhs_stage_dim: RhsStageDim,
+    out_stage_dim: OutStageDim,
     num_planes: u32,
     lhs_tiling_order: TilingOrderConfig,
     rhs_tiling_order: TilingOrderConfig,
@@ -198,11 +199,11 @@ impl<T: tile::Config> stage::Config for Config<T> {
         self.tmm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         match ident {
-            Ident::Lhs => self.lhs_stage_dim,
-            Ident::Rhs => self.rhs_stage_dim,
-            Ident::Out => self.out_stage_dim,
+            Ident::Lhs => Box::new(self.lhs_stage_dim),
+            Ident::Rhs => Box::new(self.rhs_stage_dim),
+            Ident::Out => Box::new(self.out_stage_dim),
         }
     }
 
@@ -232,9 +233,9 @@ impl<T: tile::Config> MatmulConfig for Config<T> {}
 impl<T: tile::Config> Config<T> {
     pub fn new(
         tmm_config: T,
-        lhs_stage_dim: StageDim,
-        rhs_stage_dim: StageDim,
-        out_stage_dim: StageDim,
+        lhs_stage_dim: LhsStageDim,
+        rhs_stage_dim: RhsStageDim,
+        out_stage_dim: OutStageDim,
         num_planes: u32,
         lhs_tiling_order: TilingOrderConfig,
         rhs_tiling_order: TilingOrderConfig,
