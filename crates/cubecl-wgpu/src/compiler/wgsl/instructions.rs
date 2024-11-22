@@ -1056,26 +1056,30 @@ fn index(
     };
 
     if out.item().elem().is_atomic() {
-        value = format!("atomicLoad(&{value})")
-    };
-
-    if lhs.elem() != out.elem() {
-        value = lhs.item().fmt_cast_to(out.item(), value)
-    };
-
-    if let Some(ind) = index {
-        if let Some(len) = len {
-            // Note: This is technically not 100% allowed. According to the WebGPU specification,
-            // any OOB access is a "dynamic error" which allows "many possible outcomes". In practice,
-            // both wgpu and Dawn handle this by either returning dummy data or clamping the index
-            // to valid bounds. This means it's harmless to use in a select.
-            let out_item = out.item();
-            value = format!("select({out_item}(0), {value}, {ind} < {len})");
+        // Atomic values don't support casting or bound checking - we just assign the reference.
+        value = format!("&{value}");
+        writeln!(f, "let {out} = {value};")
+    } else {
+        // Check for casting
+        if lhs.elem() != out.elem() {
+            value = lhs.item().fmt_cast_to(out.item(), value)
         };
-    }
 
-    let out = out.fmt_left();
-    writeln!(f, "{out} = {value};")
+        // Check for bounds.
+        if let Some(ind) = index {
+            if let Some(len) = len {
+                // Note: This is technically not 100% allowed. According to the WebGPU specification,
+                // any OOB access is a "dynamic error" which allows "many possible outcomes". In practice,
+                // both wgpu and Dawn handle this by either returning dummy data or clamping the index
+                // to valid bounds. This means it's harmless to use in a select.
+                let out_item = out.item();
+                value = format!("select({out_item}(0), {value}, {ind} < {len})");
+            };
+        }
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {value};")
+    }
 }
 
 fn index_assign(

@@ -46,7 +46,6 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
     fn create_pipeline(
         server: &mut WgpuServer<Self>,
         kernel: CompiledKernel<Self>,
-        mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let (module, layout) = kernel
             .repr
