@@ -35,6 +35,7 @@ bytemuck = { workspace = true }
 derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
+paste = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.4.0", features = [
