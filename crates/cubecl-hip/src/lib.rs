@@ -27,4 +27,5 @@ mod tests {
 
     cubecl_core::testgen_all!();
     cubecl_linalg::testgen_cmma_matmul!();
+    cubecl_std::testgen_reduce!();
 }

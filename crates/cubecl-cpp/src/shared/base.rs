@@ -854,6 +854,7 @@ impl<D: Dialect> CppCompiler<D> {
                     Variable::GridDimGlobal
                 }
                 gpu::Builtin::PlaneDim => Variable::WarpSize,
+                gpu::Builtin::UnitPosPlane => Variable::ThreadIdxWarp,
             },
             gpu::VariableKind::LocalArray { id, depth, length } => {
                 let item = self.compile_item(item);

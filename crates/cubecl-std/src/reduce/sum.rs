@@ -4,8 +4,7 @@ use cubecl_core::prelude::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ReduceConfig {
     pub line_size: u32,
-    pub plane_size: u32,
-    pub num_planes: u32,
+    pub max_num_planes: u32,
 }
 
 /// Compute the sum of all elements of `input` and write it to the first element of `output`.
@@ -45,28 +44,27 @@ pub fn reduce_sum_vector<N: Numeric>(
     output: &mut SliceMut<Line<N>>,
     #[comptime] config: ReduceConfig,
 ) {
-    // How many lines accounted in each iteration.
-    let block_size = config.plane_size * config.num_planes;
+    let plane_id = UNIT_POS / PLANE_DIM;
+    let num_planes = div_ceil(CUBE_DIM, PLANE_DIM);
 
-    // This is an integer division rounded up.
-    let num_blocks = input.len() / block_size + (input.len() % block_size > 0) as u32;
+    // Compute the number of required iterations to reduce all lines when reducing CUBE_DIM lines per iteration.
+    let num_iterations = div_ceil(input.len(), CUBE_DIM);
 
-    let mut memory = SharedMemory::new_lined(config.num_planes, config.line_size);
+    let mut memory = SharedMemory::new_lined(config.max_num_planes, input[0].size());
+    memory[plane_id] = Line::empty(config.line_size).fill(N::from_int(0));
 
-    memory[UNIT_POS_Y] = Line::empty(config.line_size).fill(N::from_int(0));
-
-    // For each block, we reduce each group of plane_size lines to a single line. Then, we accumulate the results
+    // For each iteration, each plane reduces PLANE_DIM lines into a single line. Then, we accumulate the results
     // into the memory. Thus, after the loop, the reduction of the memory yields the expected output.
-    for i in 0..num_blocks {
-        let index = i * block_size + UNIT_POS_Y * config.plane_size + UNIT_POS_X;
+    for i in 0..num_iterations {
+        let index = i * CUBE_DIM + plane_id * PLANE_DIM + UNIT_POS_PLANE;
         let value = select(
             index < input.len(),
             input[index],
             Line::empty(config.line_size).fill(N::from_int(0)),
         );
         let sum = plane_sum(value);
-        if UNIT_POS_X == 0 {
-            memory[UNIT_POS_Y] += sum;
+        if UNIT_POS_PLANE == 0 {
+            memory[plane_id] += sum;
         }
     }
 
@@ -75,8 +73,8 @@ pub fn reduce_sum_vector<N: Numeric>(
 
     // Sum each elements in memory
     let sum = plane_sum(select(
-        UNIT_POS_X < config.num_planes,
-        memory[UNIT_POS_X],
+        UNIT_POS_PLANE < num_planes,
+        memory[UNIT_POS_PLANE],
         Line::empty(config.line_size).fill(N::from_int(0)),
     ));
     if UNIT_POS == 0 {
@@ -103,4 +101,10 @@ pub fn reduce_sum_lines<N: Numeric>(
 
         output[UNIT_POS] = sum;
     }
+}
+
+// Integer division rounded up.
+#[cube]
+fn div_ceil(a: u32, b: u32) -> u32 {
+    a / b + ((a % b) > 0) as u32
 }

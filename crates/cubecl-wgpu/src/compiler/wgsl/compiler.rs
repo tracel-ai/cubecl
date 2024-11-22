@@ -34,6 +34,7 @@ pub struct WgslCompiler {
     global_invocation_id: bool,
     workgroup_id: bool,
     subgroup_size: bool,
+    subgroup_invocation_id: bool,
     id: bool,
     num_workgroups: bool,
     workgroup_id_no_axis: bool,
@@ -277,6 +278,7 @@ impl WgslCompiler {
                 || self.workgroup_id_no_axis,
             workgroup_id: self.workgroup_id || self.workgroup_id_no_axis,
             subgroup_size: self.subgroup_size,
+            subgroup_invocation_id: self.subgroup_invocation_id,
             body,
             extensions,
             num_workgroups_no_axis: self.num_workgroup_no_axis,
@@ -461,6 +463,10 @@ impl WgslCompiler {
                 cube::Builtin::PlaneDim => {
                     self.subgroup_size = true;
                     wgsl::Variable::SubgroupSize
+                }
+                cube::Builtin::UnitPosPlane => {
+                    self.subgroup_invocation_id = true;
+                    wgsl::Variable::SubgroupInvocationId
                 }
             },
             cube::VariableKind::Matrix { .. } => {

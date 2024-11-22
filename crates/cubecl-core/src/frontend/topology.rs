@@ -31,6 +31,14 @@ The total amount of working units in a plane.
 );
 
 constant!(
+    UNIT_POS_PLANE,
+    crate::ir::Builtin::UnitPosPlane,
+    r"
+The relative position of the working unit inside the plane, without regards to cube dimensions.
+"
+);
+
+constant!(
     UNIT_POS,
     crate::ir::Builtin::UnitPos,
     r"

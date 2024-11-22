@@ -143,6 +143,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::GridDimZ => Item::scalar(Elem::U32),
             Variable::LocalArray(_, e, _, _) => *e,
             Variable::WarpSize => Item::scalar(Elem::U32),
+            Variable::ThreadIdxWarp => Item::scalar(Elem::U32),
             Variable::WmmaFragment {
                 id: _,
                 frag,
@@ -163,6 +164,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Variable<D: Dialect> {
     WarpSize,
+    ThreadIdxWarp,
     GlobalInputArray(u16, Item<D>),
     GlobalOutputArray(u16, Item<D>),
     GlobalScalar(u16, Elem<D>, gpu::Elem),
@@ -285,6 +287,7 @@ impl<D: Dialect> Display for Variable<D> {
                 write!(f, "l_arr_{}_{}", id, depth)
             }
             Variable::WarpSize => f.write_str("warpSize"),
+            Variable::ThreadIdxWarp => f.write_str("threadIdxGlobal % warpSize"),
             Variable::WmmaFragment {
                 id: index,
                 frag: _,
@@ -416,6 +419,7 @@ impl<D: Dialect> Variable<D> {
             Variable::GridDimZ => true,
             Variable::LocalArray(_, _, _, _) => false,
             Variable::WarpSize => true,
+            Variable::ThreadIdxWarp => true,
             Variable::WmmaFragment { .. } => false,
             Variable::BlockIdxGlobal => true,
             Variable::BlockDimGlobal => true,
