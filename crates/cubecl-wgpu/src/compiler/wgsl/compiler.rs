@@ -65,12 +65,13 @@ impl cubecl_core::Compiler for WgslCompiler {
     fn compile(
         shader: cube::KernelDefinition,
         compilation_options: &Self::CompilationOptions,
+        mode: ExecutionMode,
     ) -> Self::Representation {
         let mut compiler = Self {
             compilation_options: compilation_options.clone(),
             ..Self::default()
         };
-        compiler.compile_shader(shader)
+        compiler.compile_shader(shader, mode)
     }
 
     fn elem_size(elem: cube::Elem) -> usize {
