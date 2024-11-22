@@ -166,6 +166,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
         let mut target = self.target.clone();
+        target.set_kernel_name(kernel.kernel_name);
+
         let extensions = target.extensions(self);
         self.state.extensions = extensions;
 
