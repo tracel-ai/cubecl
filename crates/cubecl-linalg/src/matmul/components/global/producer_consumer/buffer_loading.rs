@@ -35,7 +35,7 @@ impl BufferLoading {
         let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        // #[unroll]
+        #[unroll]
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
 
