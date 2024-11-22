@@ -61,10 +61,10 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
     client.enable_timestamps();
 
     let bench = MatmulBench::<R, E> {
-        b: 8,
-        m: 2048,
-        k: 2048,
-        n: 2048,
+        b: 2,
+        m: 4096,
+        k: 4096,
+        n: 4096,
         client,
         device,
         strategy,
@@ -75,25 +75,31 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
 }
 
 fn main() {
-    #[cfg(feature = "wgpu")]
-    {
-        run::<cubecl::wgpu::WgpuRuntime, f32>(
-            Default::default(),
-            matmul::Strategy::Tiling2D(Default::default()),
-        );
-        run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
-    }
+    // #[cfg(feature = "wgpu")]
+    // {
+    //     run::<cubecl::wgpu::WgpuRuntime, f32>(
+    //         Default::default(),
+    //         matmul::Strategy::Tiling2D(Default::default()),
+    //     );
+    //     run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+    // }
 
     #[cfg(feature = "wgpu-spirv")]
     {
-        run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(
-            Default::default(),
-            matmul::Strategy::Tiling2D(Default::default()),
-        );
-        run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(
-            Default::default(),
-            matmul::Strategy::PlaneMma,
-        );
+        type R = cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>;
+        // run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(
+        //     Default::default(),
+        //     matmul::Strategy::Tiling2D(Default::default()),
+        // );
+        // run::<cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>, f32>(
+        //     Default::default(),
+        //     matmul::Strategy::PlaneMma,
+        // );
+        run::<R, half::f16>(Default::default(), matmul::Strategy::default());
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        // run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
+        run::<R, half::f16>(Default::default(), matmul::Strategy::Accelerated);
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
@@ -130,25 +136,25 @@ fn main() {
 
     #[cfg(feature = "cuda")]
     {
-        run::<cubecl::cuda::CudaRuntime, f32>(
-            Default::default(),
-            matmul::Strategy::Tiling2D(Default::default()),
-        );
+        // run::<cubecl::cuda::CudaRuntime, f32>(
+        //     Default::default(),
+        //     matmul::Strategy::Tiling2D(Default::default()),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, half::f16>(
+        //     Default::default(),
+        //     matmul::Strategy::Tiling2D(Default::default()),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f32>(
+        //     Default::default(),
+        //     matmul::Strategy::CmmaOld(Default::default()),
+        // );
         run::<cubecl::cuda::CudaRuntime, half::f16>(
             Default::default(),
-            matmul::Strategy::Tiling2D(Default::default()),
+            matmul::Strategy::default(),
         );
-        run::<cubecl::cuda::CudaRuntime, f32>(
-            Default::default(),
-            matmul::Strategy::CmmaOld(Default::default()),
-        );
-        run::<cubecl::cuda::CudaRuntime, half::f16>(
-            Default::default(),
-            matmul::Strategy::CmmaOld(Default::default()),
-        );
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
-        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        // run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), matmul::Strategy::PlaneMma);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
         run::<cubecl::cuda::CudaRuntime, half::f16>(
             Default::default(),
             matmul::Strategy::Accelerated,

@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::stage::{self, S8x8x1, StageSize};
+use crate::matmul::components::stage::{self, S8x8x2, StageSize};
 use crate::matmul::components::tile::accelerated::Accelerated16x16x16;
 use crate::matmul::components::tile::Matmul;
 use crate::matmul::components::MatmulProblem;
@@ -10,7 +10,7 @@ use crate::matmul::components::{batch, global};
 
 use super::base;
 
-type Stage = S8x8x1;
+type Stage = S8x8x2;
 
 pub struct Cmma<EG: Numeric> {
     pub _eg: PhantomData<EG>,
@@ -18,9 +18,10 @@ pub struct Cmma<EG: Numeric> {
 
 impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
     const PLANE_DIM: u32 = 32;
+
     type EG = EG;
     type ES = half::f16;
-    type EA = half::f16;
+    type EA = f32;
 
     type TileMatmul = Accelerated16x16x16<Self::ES, Self::EA>;
 
@@ -29,8 +30,12 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
 
     type GlobalMatmul = global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
 
-    type BatchMatmul =
-        batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul, batch::NaturalDispatch>;
+    type BatchMatmul = batch::one_to_one::Matmul<
+        Self::EG,
+        Self::ES,
+        Self::GlobalMatmul,
+        batch::TransposedDispatch,
+    >;
 
     fn cube_dim() -> CubeDim {
         CubeDim::new(Self::PLANE_DIM, Stage::NUM_M, 1)
