@@ -139,7 +139,7 @@ impl WgpuCompiler for WgslCompiler {
                     label: None,
                     layout: layout.as_ref(),
                     module: &module,
-                    entry_point: "main",
+                    entry_point: &kernel.kernel_name,
                     compilation_options: wgpu::PipelineCompilationOptions {
                         zero_initialize_workgroup_memory: false,
                         ..Default::default()
@@ -269,6 +269,7 @@ impl WgslCompiler {
             num_workgroups_no_axis: self.num_workgroup_no_axis,
             workgroup_id_no_axis: self.workgroup_id_no_axis,
             workgroup_size_no_axis: self.workgroup_size_no_axis,
+            kernel_name: value.kernel_name,
         }
     }
 

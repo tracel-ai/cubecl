@@ -88,6 +88,7 @@ pub struct ComputeShader {
     pub workgroup_size_no_axis: bool,
     pub body: Body,
     pub extensions: Vec<Extension>,
+    pub kernel_name: String,
 }
 
 impl Display for ComputeShader {
@@ -143,9 +144,9 @@ const WORKGROUP_SIZE_Z = {}u;\n",
             "
 @compute
 @workgroup_size({}, {}, {})
-fn main(
+fn {}(
 ",
-            self.workgroup_size.x, self.workgroup_size.y, self.workgroup_size.z
+            self.workgroup_size.x, self.workgroup_size.y, self.workgroup_size.z, self.kernel_name
         )?;
 
         if self.global_invocation_id {
