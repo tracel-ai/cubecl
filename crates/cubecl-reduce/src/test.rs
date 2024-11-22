@@ -2,16 +2,14 @@
 
 use cubecl_core::{prelude::*, Feature};
 
-use crate::reduce::sum::{reduce_sum, ReduceConfig};
-
-use super::sum::reduce_sum_lined;
+use crate::sum::{reduce_sum, reduce_sum_lined, ReduceConfig};
 
 #[macro_export]
 macro_rules! testgen_reduce {
     () => {
         use super::*;
         use cubecl_core::CubeCount;
-        use cubecl_std::reduce::test::{impl_reduce_sum_test, TestCase, TestTensorParts};
+        use cubecl_reduce::test::{impl_reduce_sum_test, TestCase, TestTensorParts};
 
         #[test]
         pub fn reduce_sum_vector_single_plane() {
