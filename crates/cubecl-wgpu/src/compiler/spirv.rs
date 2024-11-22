@@ -102,23 +102,20 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
             })
             .unwrap_or_else(|| {
                 let source = &kernel.source;
-                let module = match mode {
-                    ExecutionMode::Checked => {
-                        server
-                            .device
-                            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                                label: None,
-                                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                            })
-                    }
-                    ExecutionMode::Unchecked => unsafe {
-                        server
-                            .device
-                            .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
-                                label: None,
-                                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                            })
-                    },
+                // Cube always in principle uses unchecked modules. Certain operations like
+                // indexing are instead checked by cube. The WebGPU specification only makes
+                // incredibly loose gaurantees that Cube can't rely on. Additionally, kernels
+                // can opt in/out per operation whether checks should be performed which can be faster.
+                //
+                // SAFETY: Cube gaurantees OOB safety when launching in checked mode. Launching in unchecked mode
+                // is only availble through the use of unsafe code.
+                let module = unsafe {
+                    server
+                        .device
+                        .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
+                            label: None,
+                            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                        })
                 };
                 (module, None)
             });

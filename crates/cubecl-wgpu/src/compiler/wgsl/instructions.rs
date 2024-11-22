@@ -1066,9 +1066,9 @@ fn index(
     if let Some(ind) = index {
         if let Some(len) = len {
             // Note: This is technically not 100% allowed. According to the WebGPU specification,
-            // indexing OOB is a "dynamic error" which allows "many possible outcomes". In practice,
-            // both wgpu and Dawn handle this by either returning 0s or clamping the index
-            // to valid bounds. In practice this means it's harmless to use in a select.
+            // any OOB access is a "dynamic error" which allows "many possible outcomes". In practice,
+            // both wgpu and Dawn handle this by either returning dummy data or clamping the index
+            // to valid bounds. This means it's harmless to use in a select.
             let out_item = out.item();
             value = format!("select({out_item}(0), {value}, {ind} < {len})");
         };
