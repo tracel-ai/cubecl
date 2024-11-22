@@ -7,18 +7,24 @@ use cubecl_core::{
 use crate::tensor::TensorHandle;
 
 use super::kernels::{
-    cmma_old::{self, CmmaConfig},
+    cmma_old::{self, CmmaConfig, PredefinedCmmaConfig},
     matmul,
     tiling2d::{self, Tiling2dConfig},
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub enum Strategy {
-    #[default]
     Accelerated,
     PlaneMma,
     CmmaOld(CmmaConfig),
     Tiling2D(Tiling2dConfig),
+}
+
+impl Default for Strategy {
+    fn default() -> Self {
+        // Still the fastest implementation.
+        Strategy::CmmaOld(PredefinedCmmaConfig::M128K16.into())
+    }
 }
 
 pub fn launch<R: Runtime, EG: Float>(
