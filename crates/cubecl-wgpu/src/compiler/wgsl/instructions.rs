@@ -1043,39 +1043,39 @@ fn index(
         _ => false,
     };
 
-    let atomic_ref = if out.item().elem().is_atomic() {
-        "&"
-    } else {
-        ""
-    };
-
-    let read_exp = if is_scalar {
-        format!("{atomic_ref}{lhs}")
+    let (mut value, index) = if is_scalar {
+        (format!("{lhs}"), None)
     } else {
         let index = if let Some(offset) = offset {
-            format!("{rhs} + {offset}")
+            format!("{rhs}+{offset}")
         } else {
             format!("{rhs}")
         };
 
-        let item = lhs.item();
-
-        if let Some(len) = len {
-            format!("select({atomic_ref}{lhs}[{index}], {item}(0), {index} < {len}")
-        } else {
-            format!("{atomic_ref}{lhs}[{index}]")
-        }
+        (format!("{lhs}[{index}]"), Some(index))
     };
 
-    let out_bind = out.fmt_left();
+    if out.item().elem().is_atomic() {
+        value = format!("atomicLoad(&{value})")
+    };
 
     if lhs.elem() != out.elem() {
-        let item = out.item();
-        let value = lhs.item().fmt_cast_to(item, read_exp);
-        writeln!(f, "{out_bind} = {value};")
-    } else {
-        writeln!(f, "{out_bind} = {read_exp};")
+        value = lhs.item().fmt_cast_to(out.item(), value)
+    };
+
+    if let Some(ind) = index {
+        if let Some(len) = len {
+            // Note: This is technically not 100% allowed. According to the WebGPU specification,
+            // indexing OOB is a "dynamic error" which allows "many possible outcomes". In practice,
+            // both wgpu and Dawn handle this by either returning 0s or clamping the index
+            // to valid bounds. In practice this means it's harmless to use in a select.
+            let out_item = out.item();
+            value = format!("select({out_item}(0), {value}, {ind} < {len})");
+        };
     }
+
+    let out = out.fmt_left();
+    writeln!(f, "{out} = {value};")
 }
 
 fn index_assign(
