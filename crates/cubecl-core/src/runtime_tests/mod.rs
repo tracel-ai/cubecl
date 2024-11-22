@@ -5,6 +5,7 @@ pub mod cmma;
 pub mod const_match;
 pub mod constants;
 pub mod different_rank;
+pub mod index;
 pub mod launch;
 pub mod metadata;
 pub mod plane;
@@ -23,6 +24,7 @@ macro_rules! testgen_all {
         type IntType = i32;
         type UintType = u32;
 
+        cubecl_core::testgen_index!();
         cubecl_core::testgen_assign!();
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_const_match!();
