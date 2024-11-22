@@ -159,8 +159,10 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         let storage = WgpuStorage::new(device.clone());
         MemoryManagement::from_configuration(storage, mem_props, config)
     };
+    let compilation_options = Default::default();
     let server = WgpuServer::new(
         memory_management,
+        compilation_options,
         setup.device.clone(),
         setup.queue,
         options.tasks_max,

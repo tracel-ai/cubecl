@@ -12,7 +12,7 @@ const WORKGROUP_SIZE_Z = 1u;
 
 @compute
 @workgroup_size(16, 16, 1)
-fn main(
+fn sequence_for_loop_kernel(
     @builtin(local_invocation_index) local_idx: u32,
 ) {
 let _0 = local_idx != 0u;

@@ -51,8 +51,6 @@ pub fn register_wmma_features(
     supported_combinations: SupportedWmmaCombinations,
     properties: &mut DeviceProperties<Feature>,
 ) {
-    // TODO: move this commented line to register explicitly at the runtime level
-    // properties.register_feature(Feature::CmmaWarpSize(self.warp_size()));
     for (i, o, c, tdims) in supported_combinations {
         for (m, n, k) in tdims {
             properties.register_feature(Feature::Cmma {
@@ -115,6 +113,7 @@ pub enum WmmaInstruction<D: Dialect> {
         frag_b: Variable<D>,
         frag_c: Variable<D>,
         frag_d: Variable<D>,
+        warp_size: u32,
     },
     /// Store the fragment in an output variable following the stride and the layout.
     Store {
@@ -256,6 +255,7 @@ pub mod wmma_api_base {
                 frag_b,
                 frag_c,
                 frag_d,
+                ..
             } => writeln!(
                 f,
                 "{namespace}::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"

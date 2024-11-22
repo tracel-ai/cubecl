@@ -118,6 +118,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                 frag_b,
                 frag_c,
                 frag_d,
+                warp_size,
             } => {
                 let ab_format = if let Variable::WmmaFragment { frag: inner_a, .. } = frag_a {
                     if let Variable::WmmaFragment { frag: inner_b, .. } = frag_b {
@@ -158,10 +159,9 @@ for (uint i = 0; i < uint(8); ++i) {{
                 } else {
                     panic!("{frag_c} is not a WMMA fragment!")
                 };
-                // TODO: support wavefront size of 64
                 writeln!(
                     f,
-                    "{frag_d} = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w32({frag_a}, {frag_b}, {frag_c});"
+                    "{frag_d} = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}({frag_a}, {frag_b}, {frag_c});"
                 )
             }
             WmmaInstruction::Store {

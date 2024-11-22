@@ -30,6 +30,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     storage_locked: MemoryLock,
     duration_profiled: Option<Duration>,
     stream: WgpuStream,
+    pub compilation_options: C::CompilationOptions,
     _compiler: PhantomData<C>,
 }
 
@@ -37,6 +38,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     /// Create a new server.
     pub fn new(
         memory_management: MemoryManagement<WgpuStorage>,
+        compilation_options: C::CompilationOptions,
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         tasks_max: usize,
@@ -52,6 +54,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         Self {
             memory_management,
+            compilation_options,
             device: device.clone(),
             queue: queue.clone(),
             storage_locked: MemoryLock::default(),

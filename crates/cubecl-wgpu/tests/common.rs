@@ -37,8 +37,10 @@ pub fn array() -> ArrayCompilationArg {
 }
 
 pub fn compile(kernel: impl Kernel) -> String {
+    let comp_opts = Default::default();
     <<TestRuntime as Runtime>::Compiler as Compiler>::compile(
         kernel.define(),
+        &comp_opts,
         ExecutionMode::Checked,
     )
     .to_string()

@@ -16,7 +16,7 @@ const WORKGROUP_SIZE_Z = 1u;
 
 @compute
 @workgroup_size(1, 1, 1)
-fn main(
+fn slice_assign_kernel(
     @builtin(local_invocation_index) local_idx: u32,
 ) {
 let _0 = local_idx == 0u;

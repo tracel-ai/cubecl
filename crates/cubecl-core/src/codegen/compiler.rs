@@ -12,9 +12,14 @@ pub trait CompilerRepresentation: Display {
 pub trait Compiler: Sync + Send + 'static + Clone + Default + core::fmt::Debug {
     /// The representation for the compiled code.
     type Representation: CompilerRepresentation;
+    type CompilationOptions: Send + Default + core::fmt::Debug;
 
     /// Compiles the [kernel definition](KernelDefinition) into the compiler's representation.
-    fn compile(kernel: KernelDefinition, mode: ExecutionMode) -> Self::Representation;
+    fn compile(
+        kernel: KernelDefinition,
+        compilation_options: &Self::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> Self::Representation;
     /// The size of the given element in bytes.
     fn elem_size(elem: Elem) -> usize;
     fn local_allocator() -> impl LocalAllocator;

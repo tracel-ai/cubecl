@@ -20,7 +20,7 @@ const WORKGROUP_SIZE_Z = 1u;
 
 @compute
 @workgroup_size(16, 16, 1)
-fn main(
+fn execute_unary_kernel(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
