@@ -1,10 +1,11 @@
+#include <mma.h>
 typedef unsigned char uint8;
 typedef unsigned short uint16;
 typedef unsigned int uint;
 typedef unsigned long long int uint64;
 typedef long long int int64;
 
-extern "C" __global__ void kernel(float output_0[], uint info[]) {
+extern "C" __global__ void kernel_sum(float output_0[], uint info[]) {
 
   int threadIdxGlobal = threadIdx.x + threadIdx.y * blockDim.x +
                         threadIdx.z * (blockDim.x * blockDim.y);
@@ -18,6 +19,7 @@ extern "C" __global__ void kernel(float output_0[], uint info[]) {
   l_0_0 = (threadIdxGlobal < l_0_3) ? output_0[threadIdxGlobal] : float(0);
 
   l_0_1 = l_0_0;
+
   {
     for (int offset = 1; offset < warpSizeChecked; offset *= 2) {
       l_0_1 += __shfl_xor_sync(-1, l_0_1, offset);

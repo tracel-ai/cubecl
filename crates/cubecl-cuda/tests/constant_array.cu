@@ -1,10 +1,12 @@
+#include <mma.h>
 typedef unsigned char uint8;
 typedef unsigned short uint16;
 typedef unsigned int uint;
 typedef unsigned long long int uint64;
 typedef long long int int64;
 
-extern "C" __global__ void kernel(float output_0[], uint info[]) {
+extern "C" __global__ void constant_array_kernel(float output_0[],
+                                                 uint info[]) {
 
   int3 absoluteIdx = make_int3(blockIdx.x * blockDim.x + threadIdx.x,
                                blockIdx.y * blockDim.y + threadIdx.y,
