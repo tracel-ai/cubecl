@@ -58,7 +58,7 @@ pub trait Config: MatmulConfig {
 }
 
 #[cube(launch_unchecked)]
-pub(crate) fn launch<EG: Numeric, BMM: batch::Matmul<EG>>(
+pub(crate) fn batch_matmul<EG: Numeric, BMM: batch::Matmul<EG>>(
     lhs: &Tensor<Line<EG>>,
     rhs: &Tensor<Line<EG>>,
     out: &mut Tensor<Line<EG>>,
