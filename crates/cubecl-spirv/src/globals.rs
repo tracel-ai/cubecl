@@ -119,7 +119,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         BuiltIn::SubgroupLocalInvocationId,
                         Item::Scalar(Elem::Int(32, false)),
                     );
-                    b.debug_name(id, "PLANE_DIM");
+                    b.debug_name(id, "UNIT_POS_PLANE");
                     id
                 });
                 Variable::SubgroupSize(id)
