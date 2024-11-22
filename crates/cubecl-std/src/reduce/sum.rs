@@ -37,8 +37,6 @@ pub fn reduce_sum_lined<N: Numeric>(
     reduce_sum_lines(&tmp.to_slice(), &mut output.to_slice_mut(), 1_u32);
 }
 
-
-
 /// Compute the sum of all elements of `input` and write it to the first element of `output`.
 #[cube]
 pub fn reduce_sum_vector<N: Numeric>(
@@ -105,7 +103,7 @@ pub fn reduce_sum_lines<N: Numeric>(
     }
 }
 
-// Integer division rounded up. 
+// Integer division rounded up.
 #[cube]
 fn div_ceil(a: u32, b: u32) -> u32 {
     a / b + ((a % b) > 0) as u32
