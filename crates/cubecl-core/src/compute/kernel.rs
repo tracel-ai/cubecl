@@ -6,7 +6,37 @@ use cubecl_runtime::ExecutionMode;
 
 /// A kernel, compiled in the target language
 pub struct CompiledKernel<C: Compiler> {
-    pub kernel_name: String,
+    /// The name of the kernel entrypoint.
+
+    /// For example
+    ///
+    /// ```text
+    /// #[cube(launch)]
+    /// fn gelu_array<F: Float, R: Runtime>() {}
+    /// ```
+    ///
+    /// would have the entrypoint name "gelu_array".
+    pub entrypoint_name: String,
+
+    /// A fully qualified debug name of the kernel.
+    ///
+    /// For example
+    ///
+    /// ```text
+    /// #[cube(launch)]
+    /// fn gelu_array<F: Float, R: Runtime>() {}
+    /// ```
+    ///
+    /// would have a debug name such as
+    ///
+    /// ```text
+    /// gelu::gelu_array::GeluArray<
+    ///    cubecl_core::frontend::element::float::F32,
+    ///    cubecl_cuda::runtime::CudaRuntime,
+    /// >
+    /// ```
+    pub debug_name: Option<&'static str>,
+
     /// Source code of the kernel
     pub source: String,
     /// In-memory representation of the kernel
@@ -48,11 +78,13 @@ impl<C: Compiler> Display for CompiledKernel<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("\n[START_KERNEL_COMPILATION]")?;
 
-        if self.kernel_name.len() <= 32 {
-            f.write_fmt(format_args!("\nname: {}", self.kernel_name))?;
-        } else {
-            let name = format_str(&self.kernel_name, &[('<', '>')], false);
-            f.write_fmt(format_args!("\nname: {name}"))?;
+        if let Some(name) = self.debug_name {
+            if name.len() <= 32 {
+                f.write_fmt(format_args!("\nname: {name}"))?;
+            } else {
+                let name = format_str(name, &[('<', '>')], false);
+                f.write_fmt(format_args!("\nname: {name}"))?;
+            }
         }
 
         f.write_fmt(format_args!(
@@ -192,12 +224,13 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
         let shared_mem_bytes = lower_level_ir.shared_memory_size();
 
         CompiledKernel {
+            entrypoint_name: kernel_name,
+            debug_name: Some(core::any::type_name::<K>()),
             source: lower_level_ir.to_string(),
             repr: Some(lower_level_ir),
             cube_dim,
             shared_mem_bytes,
             debug_info: None,
-            kernel_name,
         }
     }
 

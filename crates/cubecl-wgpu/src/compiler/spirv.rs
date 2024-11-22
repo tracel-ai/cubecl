@@ -130,7 +130,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                     label: None,
                     layout: layout.as_ref(),
                     module: &module,
-                    entry_point: &kernel.kernel_name,
+                    entry_point: &kernel.entrypoint_name,
                     compilation_options: wgpu::PipelineCompilationOptions {
                         zero_initialize_workgroup_memory: false,
                         ..Default::default()
