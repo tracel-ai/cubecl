@@ -37,6 +37,7 @@ pub fn array() -> ArrayCompilationArg {
 pub fn compile(kernel: impl Kernel) -> String {
     let kernel = <<CudaRuntime as Runtime>::Compiler as Compiler>::compile(
         kernel.define(),
+        &Default::default(),
         ExecutionMode::Checked,
     )
     .to_string();
