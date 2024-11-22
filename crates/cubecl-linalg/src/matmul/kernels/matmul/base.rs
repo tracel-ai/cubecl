@@ -123,12 +123,12 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
         k: k as usize,
         batches: out.shape[..out.shape.len() - 2].to_vec(),
         lhs_layout: match transposed.0 {
-            true => matmul::components::MatrixLayout::RowMajor,
-            false => matmul::components::MatrixLayout::ColMajor,
+            true => matmul::components::MatrixLayout::ColMajor,
+            false => matmul::components::MatrixLayout::RowMajor,
         },
         rhs_layout: match transposed.1 {
-            true => matmul::components::MatrixLayout::RowMajor,
-            false => matmul::components::MatrixLayout::ColMajor,
+            true => matmul::components::MatrixLayout::ColMajor,
+            false => matmul::components::MatrixLayout::RowMajor,
         },
         lhs_line_size,
         rhs_line_size,

@@ -66,11 +66,11 @@ where
                 config.to_smm_config(),
             );
 
-            sync_units();
-
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
+
+        sync_units();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,

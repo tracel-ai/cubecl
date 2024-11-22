@@ -48,8 +48,8 @@ pub enum MatrixLayout {
 /// Maps the matmul MatrixLayout to cmma's MatrixLayout, for use in Cmma API.
 pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
     match layout {
-        MatrixLayout::RowMajor => cmma::MatrixLayout::ColMajor,
-        MatrixLayout::ColMajor => cmma::MatrixLayout::RowMajor,
+        MatrixLayout::RowMajor => cmma::MatrixLayout::RowMajor,
+        MatrixLayout::ColMajor => cmma::MatrixLayout::ColMajor,
     }
 }
 

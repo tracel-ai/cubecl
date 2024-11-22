@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::stage::{self, S8x8x2, StageSize};
+use crate::matmul::components::stage::{self, StageSize};
 use crate::matmul::components::tile::accelerated::Accelerated16x16x16;
 use crate::matmul::components::tile::Matmul;
 use crate::matmul::components::MatmulProblem;
@@ -10,7 +10,7 @@ use crate::matmul::components::{batch, global};
 
 use super::base;
 
-type Stage = S8x8x2;
+type Stage = stage::S8x8x2;
 
 pub struct Cmma<EG: Numeric> {
     pub _eg: PhantomData<EG>,
@@ -21,7 +21,8 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
 
     type EG = EG;
     type ES = half::f16;
-    type EA = f32;
+    type EA = half::f16; // TODO: Switch to f32 by default
+                         // type EA = f32;
 
     type TileMatmul = Accelerated16x16x16<Self::ES, Self::EA>;
 
@@ -30,10 +31,11 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
 
     type GlobalMatmul = global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
 
-    type BatchMatmul = batch::one_to_one::Matmul<
+    type BatchMatmul = batch::one_to_many::Matmul<
         Self::EG,
         Self::ES,
         Self::GlobalMatmul,
+        batch::RowMajorSpanMatmul,
         batch::TransposedDispatch,
     >;
 
