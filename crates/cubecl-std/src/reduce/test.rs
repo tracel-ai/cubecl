@@ -76,7 +76,7 @@ macro_rules! testgen_reduce {
                 // expected
                 vec![8128],
             );
-            test.cube_dim = CubeDim::new(32, 4, 1);
+            test.cube_dim = CubeDim::new(128, 1, 1);
             impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
         }
 
@@ -103,7 +103,7 @@ macro_rules! testgen_reduce {
                 // expected
                 vec![4950],
             );
-            test.cube_dim = CubeDim::new(32, 4, 1);
+            test.cube_dim = CubeDim::new(128, 1, 1);
             impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
         }
 
@@ -117,7 +117,7 @@ macro_rules! testgen_reduce {
                 // expected
                 vec![4950],
             );
-            test.cube_dim = CubeDim::new(32, 4, 1);
+            test.cube_dim = CubeDim::new(128, 1, 1);
             test.reduce_lines = true;
             impl_reduce_sum_test::<TestRuntime, u32>(&Default::default(), test);
         }
@@ -133,7 +133,7 @@ macro_rules! testgen_reduce {
                 vec![523776.0],
             );
             test.tolerance = Some(1e-9);
-            test.cube_dim = CubeDim::new(32, 8, 1);
+            test.cube_dim = CubeDim::new(256, 1, 1);
             impl_reduce_sum_test::<TestRuntime, f32>(&Default::default(), test);
         }
 
@@ -148,7 +148,7 @@ macro_rules! testgen_reduce {
                 vec![8128.0],
             );
             test.tolerance = Some(1e-9);
-            test.cube_dim = CubeDim::new(32, 8, 1);
+            test.cube_dim = CubeDim::new(256, 1, 1);
             impl_reduce_sum_test::<TestRuntime, f32>(&Default::default(), test);
         }
     };
@@ -221,8 +221,8 @@ pub fn impl_reduce_sum_test<R: Runtime, N: Numeric + CubeElement + std::fmt::Dis
 
     let config = ReduceConfig {
         line_size: test.input.line_size as u32,
-        plane_size: test.cube_dim.x,
-        num_planes: test.cube_dim.y,
+        max_num_planes: test.cube_dim.num_elems()
+            / client.properties().hardware_properties().plane_size_min,
     };
 
     unsafe {
