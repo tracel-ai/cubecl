@@ -5,7 +5,7 @@ authors = [
     "maxtremblay <t.maxime@pm.me>"
 ]
 categories = ["science", "mathematics", "algorithms"]
-description = "CubeCL Standard Library."
+description = "CubeCL Reduce Algorithms."
 edition.workspace = true
 keywords = []
 license.workspace = true
@@ -21,8 +21,10 @@ default = [
   "cubecl-core/default"
 ]
 std = ["cubecl-runtime/std", "cubecl-core/std"]
+export_tests = ["pretty_assertions"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.4.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.4.0", default-features = false }
 num-traits = "0.2.19"
+pretty_assertions = { workspace = true, optional = true }
