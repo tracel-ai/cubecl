@@ -37,6 +37,8 @@ pub fn reduce_sum_lined<N: Numeric>(
     reduce_sum_lines(&tmp.to_slice(), &mut output.to_slice_mut(), 1_u32);
 }
 
+
+
 /// Compute the sum of all elements of `input` and write it to the first element of `output`.
 #[cube]
 pub fn reduce_sum_vector<N: Numeric>(
@@ -45,11 +47,10 @@ pub fn reduce_sum_vector<N: Numeric>(
     #[comptime] config: ReduceConfig,
 ) {
     let plane_id = UNIT_POS / PLANE_DIM;
-    let num_planes = CUBE_DIM / PLANE_DIM;
+    let num_planes = div_ceil(CUBE_DIM, PLANE_DIM);
 
-    // This is an integer division rounded up. It computes the number of required iterations
-    // to reduce all lines when reducing CUBE_DIM lines per iteration.
-    let num_iterations = input.len() / CUBE_DIM + (input.len() % CUBE_DIM > 0) as u32;
+    // Compute the number of required iterations to reduce all lines when reducing CUBE_DIM lines per iteration.
+    let num_iterations = div_ceil(input.len(), CUBE_DIM);
 
     let mut memory = SharedMemory::new_lined(config.max_num_planes, input[0].size());
     memory[plane_id] = Line::empty(config.line_size).fill(N::from_int(0));
@@ -102,4 +103,10 @@ pub fn reduce_sum_lines<N: Numeric>(
 
         output[UNIT_POS] = sum;
     }
+}
+
+// Integer division rounded up. 
+#[cube]
+fn div_ceil(a: u32, b: u32) -> u32 {
+    a / b + ((a % b) > 0) as u32
 }

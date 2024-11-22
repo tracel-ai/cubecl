@@ -28,7 +28,7 @@ macro_rules! testgen_reduce {
 
         #[test]
         pub fn reduce_sum_vector_single_plane_line_size_four() {
-            let mut test = TestCase::new(
+            let test = TestCase::new(
                 // input
                 TestTensorParts::new_vector((0..32).collect()).with_line_size(4),
                 // output
