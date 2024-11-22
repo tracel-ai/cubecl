@@ -202,7 +202,11 @@ pub trait CubeTask<C: Compiler>: Send + Sync {
     /// Identifier for the kernel, used for caching kernel compilation.
     fn id(&self) -> KernelId;
     /// Compile the kernel into source
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C>;
+    fn compile(
+        &self,
+        compilation_options: &C::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> CompiledKernel<C>;
     fn name(&self) -> &'static str {
         core::any::type_name::<Self>()
     }
@@ -216,11 +220,15 @@ pub struct KernelTask<C: Compiler, K: Kernel> {
 }
 
 impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
+    fn compile(
+        &self,
+        compilation_options: &C::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> CompiledKernel<C> {
         let gpu_ir = self.kernel_definition.define();
         let kernel_name = gpu_ir.kernel_name.clone();
         let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = C::compile(gpu_ir, mode);
+        let lower_level_ir = C::compile(gpu_ir, compilation_options, mode);
         let shared_mem_bytes = lower_level_ir.shared_memory_size();
 
         CompiledKernel {
@@ -244,8 +252,12 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
 }
 
 impl<C: Compiler> CubeTask<C> for Arc<dyn CubeTask<C>> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
-        self.as_ref().compile(mode)
+    fn compile(
+        &self,
+        compilation_options: &C::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> CompiledKernel<C> {
+        self.as_ref().compile(compilation_options, mode)
     }
 
     fn id(&self) -> KernelId {
@@ -257,8 +269,12 @@ impl<C: Compiler> CubeTask<C> for Arc<dyn CubeTask<C>> {
 }
 
 impl<C: Compiler> CubeTask<C> for Box<dyn CubeTask<C>> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
-        self.as_ref().compile(mode)
+    fn compile(
+        &self,
+        compilation_options: &C::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> CompiledKernel<C> {
+        self.as_ref().compile(compilation_options, mode)
     }
 
     fn id(&self) -> KernelId {

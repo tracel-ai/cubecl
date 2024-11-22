@@ -36,6 +36,17 @@ pub trait Dialect:
     fn warp_any(out: &IndexedVariable<Self>) -> String;
 }
 
+#[derive(Clone, Debug)]
+pub struct CompilationOptions {
+    pub warp_size: u32,
+}
+
+impl Default for CompilationOptions {
+    fn default() -> Self {
+        Self { warp_size: 32 }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug, Default)]
 pub struct CppCompiler<D: Dialect> {
@@ -53,16 +64,20 @@ pub struct CppCompiler<D: Dialect> {
     items: HashSet<Item<D>>,
     strategy: ExecutionMode,
     settings: VariableSettings,
+    compilation_options: CompilationOptions,
 }
 
 impl<D: Dialect> Compiler for CppCompiler<D> {
     type Representation = ComputeKernel<D>;
+    type CompilationOptions = CompilationOptions;
 
     fn compile(
         kernel: cubecl_core::ir::KernelDefinition,
+        compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
     ) -> Self::Representation {
         let compiler = Self {
+            compilation_options: compilation_options.clone(),
             strategy,
             ..Self::default()
         };
@@ -296,6 +311,7 @@ impl<D: Dialect> CppCompiler<D> {
                 frag_b: self.compile_variable(mat_b),
                 frag_c: self.compile_variable(mat_c),
                 frag_d: out,
+                warp_size: self.compilation_options.warp_size,
             }),
             gpu::CoopMma::Store {
                 mat,

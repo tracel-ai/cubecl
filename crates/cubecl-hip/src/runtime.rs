@@ -3,7 +3,7 @@ use std::{ffi::CStr, mem::MaybeUninit, str::FromStr};
 use cubecl_cpp::{
     hip::HipDialect,
     register_supported_types,
-    shared::{register_wmma_features, Architecture, CppCompiler, WmmaCompiler},
+    shared::{register_wmma_features, Architecture, CompilationOptions, CppCompiler, WmmaCompiler},
 };
 
 use cubecl_core::{Feature, MemoryConfiguration, Runtime};
@@ -110,13 +110,16 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
         mem_properties.clone(),
         options.memory_config,
     );
-    let hip_ctx = HipContext::new(memory_management, stream, ctx);
-    let server = HipServer::new(hip_ctx);
     let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, topology);
     register_supported_types(&mut device_props);
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
 
+    let comp_opts = CompilationOptions {
+        warp_size: arch.warp_size(),
+    };
+    let hip_ctx = HipContext::new(memory_management, comp_opts, stream, ctx);
+    let server = HipServer::new(hip_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }
 

@@ -99,14 +99,14 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         options.memory_config,
     );
 
-    // register device props
     let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
     let supported_wmma_combinations = CudaWmmaCompiler::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
 
-    let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
+    let comp_opts = Default::default();
+    let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }
