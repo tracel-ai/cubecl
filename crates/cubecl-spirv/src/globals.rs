@@ -113,6 +113,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
                 Variable::SubgroupSize(id)
             }
+            Builtin::UnitPosPlane => {
+                let id = self.get_or_insert_global(Globals::SubgroupInvocationId, |b| {
+                    let id = b.load_builtin(
+                        BuiltIn::SubgroupLocalInvocationId,
+                        Item::Scalar(Elem::Int(32, false)),
+                    );
+                    b.debug_name(id, "PLANE_DIM");
+                    id
+                });
+                Variable::SubgroupSize(id)
+            }
             Builtin::CubePos => {
                 let id = self.get_or_insert_global(Globals::WorkgroupIndex, |b| {
                     let x = b.compile_variable(built_var(Builtin::CubePosX)).id(b);
