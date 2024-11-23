@@ -12,7 +12,7 @@ use super::kernels::{
     tiling2d::{self, Tiling2dConfig},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Strategy {
     Accelerated,
     PlaneMma,

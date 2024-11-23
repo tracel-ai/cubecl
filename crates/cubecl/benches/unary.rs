@@ -51,10 +51,6 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         )
     }
 
-    fn num_samples(&self) -> usize {
-        100
-    }
-
     fn name(&self) -> String {
         format!(
             "unary-{}-{}-{:?}",

@@ -1,5 +1,4 @@
-use std::path::Path;
-
+use glob::glob;
 use tracel_xtask::prelude::*;
 
 #[derive(clap::Args)]
@@ -10,24 +9,17 @@ pub struct ProfileArgs {
 
 #[derive(clap::Subcommand, strum::Display)]
 pub(crate) enum ProfileSubCommand {
-    /// Profile matmul on cuda.
-    Matmul(ProfileOptionsArgs),
+    Bench(BenchOptionsArgs),
 }
 
 #[derive(clap::Args)]
-pub(crate) struct ProfileOptionsArgs {
+pub(crate) struct BenchOptionsArgs {
+    #[arg(long)]
+    pub bench: String,
     #[arg(long, default_value = "/usr/local/cuda/bin/ncu")]
     pub ncu_path: String,
     #[arg(long, default_value = "/usr/local/cuda/bin/ncu-ui")]
     pub ncu_ui_path: String,
-    #[arg(short, long, default_value = "2")]
-    pub batch: usize,
-    #[arg(short, default_value = "4096")]
-    pub m: usize,
-    #[arg(short, default_value = "4096")]
-    pub n: usize,
-    #[arg(short, default_value = "4096")]
-    pub k: usize,
 }
 
 pub(crate) struct Profile {}
@@ -47,66 +39,70 @@ impl Profile {
         ensure_cargo_crate_is_installed("mdbook", None, None, false)?;
         group!("Profile: {}", command);
         match command {
-            ProfileSubCommand::Matmul(options) => self.matmul(options),
+            ProfileSubCommand::Bench(options) => self.bench(options),
         }?;
         endgroup!();
         Ok(())
     }
 
-    fn matmul(&self, options: &ProfileOptionsArgs) -> anyhow::Result<()> {
+    fn bench(&self, options: &BenchOptionsArgs) -> anyhow::Result<()> {
+        let get_benches = |bench: &str| {
+            let pattern = format!("./target/release/deps/{}-*", bench);
+            let files: Vec<_> = glob(&pattern)
+                .into_iter()
+                .map(|r| r.filter_map(|f| f.ok()))
+                .flatten()
+                .collect();
+
+            files
+        };
+
+        get_benches(&options.bench)
+            .into_iter()
+            .for_each(|f| std::fs::remove_file(f).unwrap());
+
         run_process(
             "cargo",
             &[
                 "build",
-                "--bin",
-                "matmul-profile",
+                "--bench",
+                &options.bench,
                 "--release",
                 "--features",
                 "cuda",
             ],
             None,
             None,
-            "Can build matmul-profile.",
+            "Can build bench.",
         )?;
 
-        Self::profile("matmul-profile", options)
-    }
-
-    fn profile(name: &str, options: &ProfileOptionsArgs) -> anyhow::Result<()> {
-        const TARGET_RELEASE_PATH: &str = "./target/release";
-        let target_path = Path::new(TARGET_RELEASE_PATH);
-        let b = format!("{}", options.batch);
-        let m = format!("{}", options.m);
-        let n = format!("{}", options.n);
-        let k = format!("{}", options.k);
+        let bins = get_benches(&options.bench);
+        let bin = bins.first().unwrap().as_path().to_str().unwrap();
 
         run_process(
             "sudo",
             &[
+                "BENCH_NUM_SAMPLES=1",
                 &options.ncu_path,
                 "--config-file",
                 "off",
                 "--export",
-                name,
+                &options.bench,
                 "--force-overwrite",
-                name,
-                &b,
-                &m,
-                &n,
-                &k,
+                bin,
             ],
             None,
-            Some(target_path),
-            format!("Should profile {name}").as_str(),
+            None,
+            format!("Should profile {}", options.bench).as_str(),
         )?;
 
-        let output = format!("{name}.ncu-rep");
+        let output = format!("{}.ncu-rep", options.bench);
         run_process(
             &options.ncu_ui_path,
             &[&output],
             None,
-            Some(target_path),
-            format!("Should open results for {name}").as_str(),
+            None,
+            format!("Should open results for {}", options.bench).as_str(),
         )
     }
 }

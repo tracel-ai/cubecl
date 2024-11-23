@@ -35,7 +35,7 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
         Self::EG,
         Self::ES,
         Self::GlobalMatmul,
-        batch::RowMajorSpanMatmul,
+        batch::ColMajorSpanMatmul,
         batch::TransposedDispatch,
     >;
 

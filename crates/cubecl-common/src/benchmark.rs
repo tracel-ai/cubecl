@@ -160,7 +160,19 @@ pub trait Benchmark {
     fn execute(&self, args: Self::Args);
     /// Number of samples per run required to have a statistical significance.
     fn num_samples(&self) -> usize {
-        10
+        const DEFAULT: usize = 10;
+
+        #[cfg(feature = "std")]
+        {
+            std::env::var("BENCH_NUM_SAMPLES")
+                .map(|val| str::parse::<usize>(&val).unwrap_or(DEFAULT))
+                .unwrap_or(DEFAULT)
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            DEFAULT
+        }
     }
     /// Name of the benchmark, should be short and it should match the name
     /// defined in the crate Cargo.toml
