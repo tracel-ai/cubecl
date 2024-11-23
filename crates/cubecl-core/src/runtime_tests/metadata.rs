@@ -256,14 +256,22 @@ macro_rules! testgen_metadata {
         }
 
         #[test]
-        fn test_buffer_len() {
+        fn test_buffer_len_discontiguous() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::metadata::test_buffer_len_discontiguous::<TestRuntime>(
-                client.clone(),
+                client,
             );
-            cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime>(
-                client.clone(),
-            );
+        }
+
+        #[test]
+        fn test_buffer_len_vectorized() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime>(client);
+        }
+
+        #[test]
+        fn test_buffer_len_offset() {
+            let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::metadata::test_buffer_len_offset::<TestRuntime>(client);
         }
     };
