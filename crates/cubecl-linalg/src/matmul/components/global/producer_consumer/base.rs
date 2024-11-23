@@ -63,7 +63,7 @@ where
             let lhs_stage_reader = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             let rhs_stage_reader = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
-            sync_units();
+            // sync_units();
 
             if is_consumer {
                 SMM::execute(
@@ -81,8 +81,6 @@ where
         }
 
         if is_consumer {
-            sync_units();
-
             SMM::read_accumulator::<Self::Out, Self::Config>(
                 acc,
                 &mut out_unloader,

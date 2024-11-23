@@ -69,7 +69,7 @@ impl Profile {
                 &options.bench,
                 "--release",
                 "--features",
-                "cuda",
+                "wgpu-spirv",
             ],
             None,
             None,
@@ -84,6 +84,8 @@ impl Profile {
             &[
                 "BENCH_NUM_SAMPLES=1",
                 &options.ncu_path,
+                "--target-processes",
+                "all",
                 "--config-file",
                 "off",
                 "--export",

@@ -21,15 +21,15 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
 
     type EG = EG;
     type ES = half::f16;
-    type EA = half::f16; // TODO: Switch to f32 by default
-                         // type EA = f32;
+    // type EA = half::f16; // TODO: Switch to f32 by default
+     type EA = f32;
 
     type TileMatmul = Accelerated16x16x16<Self::ES, Self::EA>;
 
     type StageMatmul =
-        stage::multi_buffer::Matmul<Self::ES, Self::EG, Self::EA, Self::TileMatmul, Stage>;
+        stage::single_buffer::Matmul<Self::ES, Self::EG, Self::EA, Self::TileMatmul, Stage>;
 
-    type GlobalMatmul = global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+    type GlobalMatmul = global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
 
     type BatchMatmul = batch::one_to_many::Matmul<
         Self::EG,
@@ -40,7 +40,7 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
     >;
 
     fn cube_dim() -> CubeDim {
-        CubeDim::new(Self::PLANE_DIM, Stage::NUM_M, 1)
+        CubeDim::new(Self::PLANE_DIM, Stage::NUM_M + (Stage::NUM_M / 2), 1)
     }
 
     fn cube_count(problem: &MatmulProblem) -> CubeCount {
