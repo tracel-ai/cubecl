@@ -55,7 +55,7 @@ struct MatmulBench<R: Runtime, E> {
 fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
-    for (b, m, n, k) in [(2, 4096, 4096, 4096), (8, 2048, 2048, 2048)] {
+    for (b, m, n, k) in [(2, 4096, 4096, 4096)] {
         let bench = MatmulBench::<R, E> {
             b,
             m,
@@ -139,10 +139,10 @@ fn main() {
         //     matmul::Strategy::Tiling2D(Default::default()),
         // );
 
-        run::<cubecl::cuda::CudaRuntime, half::f16>(
-            Default::default(),
-            matmul::Strategy::CmmaOld(PredefinedCmmaConfig::M128K16.into()),
-        );
+        // run::<cubecl::cuda::CudaRuntime, half::f16>(
+        //     Default::default(),
+        //     matmul::Strategy::CmmaOld(PredefinedCmmaConfig::M128K16.into()),
+        // );
         run::<cubecl::cuda::CudaRuntime, half::f16>(
             Default::default(),
             matmul::Strategy::Accelerated,

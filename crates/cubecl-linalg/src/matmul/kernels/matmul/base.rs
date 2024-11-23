@@ -154,7 +154,7 @@ pub(crate) fn matmul_cube_preparation<R: Runtime, EG: Numeric, D: Algorithm<EG>>
 
     let advanced_config = AdvancedConfig {
         lhs_tiling_order: matmul::components::stage::TilingOrderConfig::RowMajor,
-        rhs_tiling_order: matmul::components::stage::TilingOrderConfig::RowMajor,
+        rhs_tiling_order: matmul::components::stage::TilingOrderConfig::ColMajor,
         enforced_tile_layout: (None, None),
     };
 

@@ -204,7 +204,9 @@ pub trait Benchmark {
             // Warmup
             let args = self.prepare();
 
-            self.execute(args.clone());
+            for _ in 0..10 {
+                self.execute(args.clone());
+            }
 
             match timing_method {
                 TimingMethod::Full => self.sync(),
@@ -212,6 +214,7 @@ pub trait Benchmark {
                     let _ = self.sync_elapsed();
                 }
             }
+            std::thread::sleep(Duration::from_secs(1));
 
             let mut durations = Vec::with_capacity(self.num_samples());
 

@@ -34,12 +34,7 @@ pub fn launch<R: Runtime, EG: Float>(
     rhs: TensorHandle<R, EG>,
     out: TensorHandle<R, EG>,
 ) {
-    match strategy {
-        Strategy::Accelerated => matmul::launch(client, lhs, rhs, out, false),
-        Strategy::PlaneMma => matmul::launch(client, lhs, rhs, out, true),
-        Strategy::CmmaOld(config) => cmma_old::launch(client, lhs, rhs, out, config.clone()),
-        Strategy::Tiling2D(config) => tiling2d::launch(client, lhs, rhs, out, config.clone()),
-    };
+    launch_ref::<R, EG>(strategy, client, lhs.as_ref(), rhs.as_ref(), out.as_ref());
 }
 
 pub fn launch_ref<R: Runtime, EG: Float>(

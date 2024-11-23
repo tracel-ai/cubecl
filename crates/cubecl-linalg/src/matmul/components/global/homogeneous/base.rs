@@ -52,6 +52,8 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         for _ in 0..num_loops {
+            sync_units();
+
             let lhs_stage_reader = &Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             let rhs_stage_reader = &Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
@@ -68,9 +70,9 @@ where
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
-
-            sync_units();
         }
+
+        sync_units();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
