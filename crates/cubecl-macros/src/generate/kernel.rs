@@ -213,30 +213,30 @@ impl Launch {
         }
     }
 
-    /// Returns the kernel source name.
-    /// Appropriate for usage in source code such as CUDA kernel naming.
+    /// Returns the kernel entrypoint name.
+    /// Appropriate for usage in source code such as namiing the CUDA or WGSL entrypoint.
     ///
     /// For example a kernel:
     /// ```text
     /// #[cube(launch)]
-    /// fn my_kernel(input: &Array<f32>, output: &mut Array<f32>) { }
+    /// fn my_kernel(input: &Array<f32>, output: &mut Array<f32>) {}
     /// ```
     /// would produce the name `my_kernel`.
     ///
-    /// If a generic has the bound `Float`, the kernel also has a suffix
+    /// If a generic has the `Float` bound the kernel also has a suffix
     /// with the name of the float type in use:
     /// ```text
-    /// use cubecl_macros::cube;
-    /// fn my_kernel<F: Float>(input: &Array<F>, output: &mut Array<F>) { }
+    /// fn my_kernel<F: Float>(input: &Array<F>, output: &mut Array<F>) {}
     /// ```
     /// now produces the name `my_kernel_f16` or `my_kernel_f32` etc. depending
     /// on which variant of the kernel is launched by the user.
-    fn kernel_source_name(&self) -> TokenStream {
-        // This is always used
+    fn kernel_entrypoint_name(&self) -> TokenStream {
+        // This base name is always used; a suffix might be added
+        // based on generics.
         let base_name = self.func.sig.name.to_string();
 
         let generics = &self.kernel_generics;
-        let target = format_ident!("Float");
+        let ident_float = format_ident!("Float");
 
         // Inspect all generics for the `Float` bound in order to
         // determine if a suffix should be used
@@ -247,16 +247,17 @@ impl Launch {
                 };
 
                 // Using last should account for the bound `Float` but also `some::prefix::Float`
-                let Some(last_segment) = t.path.segments.last() else {
+                let Some(generic_trailing) = t.path.segments.last() else {
                     continue;
                 };
 
-                let type_param_ident = typ.ident.clone();
+                // If we find some type parameter with `Float` as a bound,
+                // add a suffix based on a shortened version of the
+                // type name
+                if generic_trailing.ident == ident_float {
+                    // E.g. the `F` in `F: Float`
+                    let type_param_ident = typ.ident.clone();
 
-                if last_segment.ident == target {
-                    // We found some type parameter with `Float` as a bound,
-                    // add a suffix based on a shortened version of the
-                    // type name
                     return quote! (
                         {
                             // Go from type names such as `half::f16` to `f16` etc.
@@ -268,7 +269,7 @@ impl Launch {
                                 }
                             };
 
-                            let type_name = std::any::type_name::< #type_param_ident >();
+                            let type_name = core::any::type_name::< #type_param_ident >();
                             let type_name = shorten(type_name);
 
                             format!("{}_{type_name}", #base_name)
@@ -307,7 +308,7 @@ impl Launch {
             let (compilation_args, args) = self.compilation_args_def();
             let info = param_names.clone().into_iter().chain(args.clone());
 
-            let kernel_source_name = self.kernel_source_name();
+            let kernel_source_name = self.kernel_entrypoint_name();
 
             quote! {
                 #[doc = #kernel_doc]
