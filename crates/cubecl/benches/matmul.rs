@@ -138,13 +138,14 @@ fn main() {
         //     Default::default(),
         //     matmul::Strategy::Tiling2D(Default::default()),
         // );
-        run::<cubecl::cuda::CudaRuntime, half::f16>(
-            Default::default(),
-            matmul::Strategy::Accelerated,
-        );
+
         run::<cubecl::cuda::CudaRuntime, half::f16>(
             Default::default(),
             matmul::Strategy::CmmaOld(PredefinedCmmaConfig::M128K16.into()),
+        );
+        run::<cubecl::cuda::CudaRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::Accelerated,
         );
     }
 }

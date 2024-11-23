@@ -78,6 +78,7 @@ impl Profile {
 
         let bins = get_benches(&options.bench);
         let bin = bins.first().unwrap().as_path().to_str().unwrap();
+        let file = format!("target/{}", options.bench);
 
         run_process(
             "sudo",
@@ -86,8 +87,10 @@ impl Profile {
                 &options.ncu_path,
                 "--config-file",
                 "off",
+                "--nvtx",
+                "--call-stack",
                 "--export",
-                &options.bench,
+                &file,
                 "--force-overwrite",
                 bin,
             ],
@@ -96,7 +99,7 @@ impl Profile {
             format!("Should profile {}", options.bench).as_str(),
         )?;
 
-        let output = format!("{}.ncu-rep", options.bench);
+        let output = format!("{}.ncu-rep", file);
         run_process(
             &options.ncu_ui_path,
             &[&output],
