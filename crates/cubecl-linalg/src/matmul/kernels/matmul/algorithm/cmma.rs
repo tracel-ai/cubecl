@@ -22,7 +22,7 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
     type EG = EG;
     type ES = half::f16;
     // type EA = half::f16; // TODO: Switch to f32 by default
-     type EA = f32;
+    type EA = f32;
 
     type TileMatmul = Accelerated16x16x16<Self::ES, Self::EA>;
 
@@ -35,10 +35,9 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
         Self::EG,
         Self::ES,
         Self::GlobalMatmul,
-        batch::ColMajorSpanMatmul,
+        batch::RowMajorSpanMatmul,
         batch::TransposedDispatch,
     >;
-
     fn cube_dim() -> CubeDim {
         CubeDim::new(Self::PLANE_DIM, Stage::NUM_M + (Stage::NUM_M / 2), 1)
     }
