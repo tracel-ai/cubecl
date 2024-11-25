@@ -1,7 +1,7 @@
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
-use syn::Ident;
+use syn::{Ident, TypeParamBound};
 
 use crate::{
     parse::kernel::{KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch},
@@ -213,6 +213,88 @@ impl Launch {
         }
     }
 
+    /// Returns the kernel entrypoint name.
+    /// Appropriate for usage in source code such as naming the CUDA or WGSL entrypoint.
+    ///
+    /// For example a kernel:
+    /// ```text
+    /// #[cube(launch)]
+    /// fn my_kernel(input: &Array<f32>, output: &mut Array<f32>) {}
+    /// ```
+    /// would produce the name `my_kernel`.
+    ///
+    /// If a generic has the `Float` or `Numeric` bound the kernel also has a suffix
+    /// with the name of that type in use:
+    /// ```text
+    /// fn my_kernel<F: Float>(input: &Array<F>, output: &mut Array<F>) {}
+    /// ```
+    /// now produces the name `my_kernel_f16` or `my_kernel_f32` etc. depending
+    /// on which variant of the kernel is launched by the user.
+    ///
+    /// If a kernel has several matching bounds they are appended as suffixes in order.
+    fn kernel_entrypoint_name(&self) -> TokenStream {
+        // This base name is always used; a suffix might be added
+        // based on generics.
+        let base_name = self.func.sig.name.to_string();
+
+        let generics = &self.kernel_generics;
+        let suffix_producing_bounds = [format_ident!("Float"), format_ident!("Numeric")];
+
+        let mut matching_generics = vec![];
+
+        // Inspect all generics for the bounds of interest in order to
+        // determine if a suffix should be added
+        for typ in generics.type_params() {
+            for bound in &typ.bounds {
+                let TypeParamBound::Trait(t) = bound else {
+                    continue;
+                };
+
+                // Using last should account for the bounds such as `Float` but also `some::prefix::Float`
+                let Some(generic_trailing) = t.path.segments.last() else {
+                    continue;
+                };
+
+                // If we find some type parameter with `Float` as a bound,
+                // add a suffix based on a shortened version of the
+                // type name
+                if suffix_producing_bounds.contains(&generic_trailing.ident) {
+                    // E.g. the `F` in `F: Float` or `N` in `N: Numeric`
+                    matching_generics.push(typ.ident.clone());
+                    continue;
+                }
+            }
+        }
+
+        if matching_generics.is_empty() {
+            quote! {
+                #base_name
+            }
+        } else {
+            quote! (
+                {
+                    // Go from type names such as `half::f16` to `f16` etc.
+                    let shorten = |p: &'static str| {
+                        if let Some((_, last)) = p.rsplit_once("::") {
+                            last
+                        } else {
+                            p
+                        }
+                    };
+
+                    let mut name = format!("{}", #base_name);
+
+                    #( {
+                        let type_name = shorten(core::any::type_name::< #matching_generics >());
+                        name.push_str(&format!("_{type_name}"));
+                    })*
+
+                    name
+                }
+            )
+        }
+    }
+
     pub fn kernel_definition(&self) -> TokenStream {
         if self.args.is_launch() {
             let kernel = core_type("Kernel");
@@ -236,7 +318,8 @@ impl Launch {
                 .map(|_| quote![__ty: ::core::marker::PhantomData]);
             let (compilation_args, args) = self.compilation_args_def();
             let info = param_names.clone().into_iter().chain(args.clone());
-            let sig_name = self.func.sig.name.to_string();
+
+            let kernel_source_name = self.kernel_entrypoint_name();
 
             quote! {
                 #[doc = #kernel_doc]
@@ -251,7 +334,7 @@ impl Launch {
                 impl #generics #kernel_name #generic_names #where_clause {
                     pub fn new(settings: #kernel_settings, #(#compilation_args,)* #(#const_params),*) -> Self {
                         Self {
-                            settings: settings.kernel_name(#sig_name),
+                            settings: settings.kernel_name(#kernel_source_name),
                             #(#args,)*
                             #(#param_names,)*
                             #phantom_data_init
