@@ -226,7 +226,8 @@ impl Elem {
             Self::AtomicI32 => core::mem::size_of::<i32>(),
             Self::U32 => core::mem::size_of::<u32>(),
             Self::AtomicU32 => core::mem::size_of::<u32>(),
-            Self::Bool => core::mem::size_of::<bool>(),
+            // Bools are defined as 4 bytes in wgsl.
+            Self::Bool => core::mem::size_of::<u32>(),
         }
     }
 

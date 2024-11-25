@@ -1,4 +1,4 @@
-use super::{flex32, CubePrimitive, Numeric, Vectorized};
+use super::{flex32, Algebraic, CubePrimitive, Vectorized};
 use crate::tf32;
 use crate::{
     ir::{ConstantScalarValue, Elem, Item, Operation, Variable, VariableKind},
@@ -424,7 +424,7 @@ impl<T: Init> Init for Vec<T> {
 }
 
 /// Create a constant element of the correct type during expansion.
-pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
+pub(crate) fn __expand_new<C: Algebraic, Out: Algebraic>(
     _context: &mut CubeContext,
     val: C,
 ) -> ExpandElementTyped<Out> {
@@ -433,7 +433,7 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
 }
 
 /// Create a vectorized constant element of the correct type during expansion.
-pub(crate) fn __expand_vectorized<C: Numeric + CubeIndex<u32>, Out: Numeric>(
+pub(crate) fn __expand_vectorized<C: Algebraic + CubeIndex<u32>, Out: Algebraic>(
     context: &mut CubeContext,
     val: C,
     vectorization: u32,

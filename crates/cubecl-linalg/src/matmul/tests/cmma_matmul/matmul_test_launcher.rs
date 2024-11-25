@@ -148,7 +148,7 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
             };
 
             TensorRawParts {
-                handle: client.create(EG::as_bytes(&data)),
+                handle: client.create(&EG::to_elem_data(&data)),
                 shape: shape(problem, Ident::Lhs),
                 strides: strides(problem, Ident::Lhs),
                 original_data: Some(original_data),
@@ -165,7 +165,7 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
             };
 
             TensorRawParts {
-                handle: client.create(EG::as_bytes(&data)),
+                handle: client.create(&EG::to_elem_data(&data)),
                 shape: shape(problem, Ident::Rhs),
                 strides: strides(problem, Ident::Rhs),
                 original_data: Some(original_data),

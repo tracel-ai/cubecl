@@ -370,7 +370,7 @@ fn test_plane_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
         return;
     }
 
-    let handle = client.create(F::as_bytes(input));
+    let handle = client.create(&F::to_elem_data(input));
     let (shape, strides) = ([input.len()], [1]);
 
     unsafe {
@@ -380,8 +380,7 @@ fn test_plane_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
         );
     }
 
-    let actual = client.read_one(handle.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(handle.binding()));
 
     assert_eq!(actual, expected);
 }

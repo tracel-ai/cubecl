@@ -1,4 +1,4 @@
-use crate::{self as cubecl, as_bytes, as_type};
+use crate::{self as cubecl, as_type, to_elem_data};
 
 use cubecl::prelude::*;
 
@@ -50,9 +50,9 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
 ) {
     let vectorisation = 2;
 
-    let handle_lhs = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
-    let handle_rhs = client.create(as_bytes![F: 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
-    let handle_out = client.create(as_bytes![F: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+    let handle_lhs = client.create(to_elem_data![F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+    let handle_rhs = client.create(to_elem_data![F: 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
+    let handle_out = client.create(to_elem_data![F: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
 
     let lhs = unsafe {
         TensorArg::from_raw_parts::<F>(&handle_lhs, &strides_lhs, &shape_lhs, vectorisation)
@@ -73,8 +73,7 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
         out,
     );
 
-    let actual = client.read_one(handle_out.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(handle_out.binding()));
 
     assert_eq!(
         actual,

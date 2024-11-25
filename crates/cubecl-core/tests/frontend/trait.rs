@@ -14,12 +14,12 @@ struct AddStrategy;
 #[cube]
 /// The actual implementation of AddStrategy's operation
 /// Automatically generated an _expand variant
-pub fn add_strategy_operation<T: Numeric>(input_1: T, input_2: T) -> T {
+pub fn add_strategy_operation<T: Algebraic>(input_1: T, input_2: T) -> T {
     input_1 + input_2
 }
 
 #[cube]
-impl<T: Numeric> Strategy<T> for AddStrategy {
+impl<T: Algebraic> Strategy<T> for AddStrategy {
     fn operation(input_1: T, input_2: T) -> T {
         add_strategy_operation::<T>(input_1, input_2)
     }
@@ -28,7 +28,7 @@ impl<T: Numeric> Strategy<T> for AddStrategy {
 struct SubStrategy;
 
 #[cube]
-impl<T: Numeric> Strategy<T> for SubStrategy {
+impl<T: Algebraic> Strategy<T> for SubStrategy {
     fn operation(input_1: T, input_2: T) -> T {
         input_1 - input_2
     }
@@ -46,8 +46,8 @@ pub fn two_strategy_traits<S1: Strategy<F>, S2: Strategy<F>, F: Float>(x: F, y: 
 }
 
 pub trait MethodTypedStrategy {
-    fn operation<T: Numeric>(input_1: T, input_2: T) -> T;
-    fn __expand_operation<T: Numeric>(
+    fn operation<T: Algebraic>(input_1: T, input_2: T) -> T;
+    fn __expand_operation<T: Algebraic>(
         _context: &mut CubeContext,
         input_1: <T as CubeType>::ExpandType,
         input_2: <T as CubeType>::ExpandType,
@@ -55,11 +55,11 @@ pub trait MethodTypedStrategy {
 }
 
 impl MethodTypedStrategy for AddStrategy {
-    fn operation<T: Numeric>(input_1: T, input_2: T) -> T {
+    fn operation<T: Algebraic>(input_1: T, input_2: T) -> T {
         add_strategy_operation(input_1, input_2)
     }
 
-    fn __expand_operation<T: Numeric>(
+    fn __expand_operation<T: Algebraic>(
         context: &mut CubeContext,
         input_1: <T as CubeType>::ExpandType,
         input_2: <T as CubeType>::ExpandType,
@@ -69,7 +69,7 @@ impl MethodTypedStrategy for AddStrategy {
 }
 
 #[cube]
-pub fn with_trait_generic_method<S: MethodTypedStrategy, T: Numeric>(x: T, y: T) -> T {
+pub fn with_trait_generic_method<S: MethodTypedStrategy, T: Algebraic>(x: T, y: T) -> T {
     S::operation::<T>(x, y)
 }
 

@@ -23,7 +23,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let input = &[-1., 0., 1., 5.];
     let vectorization = 4;
     let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
-    let input_handle = client.create(f32::as_bytes(input));
+    let input_handle = client.create(&f32::to_elem_data(input));
 
     unsafe {
         gelu_array::launch_unchecked::<f32, R>(
@@ -35,8 +35,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         )
     };
 
-    let bytes = client.read_one(output_handle.binding());
-    let output = f32::from_bytes(&bytes);
+    let output = f32::from_elem_data(client.read_one(output_handle.binding()));
 
     // Should be [-0.1587,  0.0000,  0.8413,  5.0000]
     println!("Executed gelu with runtime {:?} => {output:?}", R::name());

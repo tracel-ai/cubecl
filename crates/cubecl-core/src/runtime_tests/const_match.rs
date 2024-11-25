@@ -1,7 +1,7 @@
 use core::hash;
 use std::fmt::Debug;
 
-use crate::{self as cubecl, as_bytes};
+use crate::{self as cubecl, to_elem_data};
 
 use cubecl::prelude::*;
 
@@ -29,7 +29,7 @@ pub fn test_kernel_const_match<
 >(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0, 1.0]);
+    let handle = client.create(to_elem_data![F: 0.0, 1.0]);
 
     let index = 1;
     let value = 5.0;
@@ -42,8 +42,7 @@ pub fn test_kernel_const_match<
         Operation::IndexAssign(index as u32, U::new(value as i64)),
     );
 
-    let actual = client.read_one(handle.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(handle.binding()));
 
     assert_eq!(actual[index], F::new(value));
 }

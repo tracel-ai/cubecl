@@ -41,8 +41,8 @@ mod cube_cuda {
         let tensor_values: Vec<f32> = (0..num_of_batch * height * width)
             .map(|x| x as f32)
             .collect();
-        let tensor_a_handle = client.create(f32::as_bytes(&tensor_values));
-        let tensor_b_handle = client.create(f32::as_bytes(&tensor_values));
+        let tensor_a_handle = client.create(f32::to_elem_data(&tensor_values));
+        let tensor_b_handle = client.create(f32::to_elem_data(&tensor_values));
         let tensor_c_handle = client.empty(12 * 1024 * 1024 * core::mem::size_of::<f32>());
 
         let tensor_a_shape = vec![num_of_batch, height, width];
@@ -78,8 +78,8 @@ mod cube_wgpu {
         let tensor_values: Vec<f32> = (0..num_of_batch * height * width)
             .map(|x| x as f32)
             .collect();
-        let tensor_a_handle = client.create(f32::as_bytes(&tensor_values));
-        let tensor_b_handle = client.create(f32::as_bytes(&tensor_values));
+        let tensor_a_handle = client.create(f32::to_elem_data(&tensor_values));
+        let tensor_b_handle = client.create(f32::to_elem_data(&tensor_values));
         let tensor_c_handle = client.empty(12 * 1024 * 1024 * core::mem::size_of::<f32>());
 
         let tensor_a_shape = vec![num_of_batch, height, width];

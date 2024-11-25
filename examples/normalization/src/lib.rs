@@ -11,7 +11,7 @@ fn norm_test<F: Float>(input: &Array<F>, output_a: &mut Array<F>, output_b: &mut
 pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
-    let input_handle = client.create(f32::as_bytes(input));
+    let input_handle = client.create(&f32::to_elem_data(input));
     let output_a_handle = client.empty(input.len() * core::mem::size_of::<f32>());
     let output_b_handle = client.empty(input.len() * core::mem::size_of::<f32>());
 
@@ -26,16 +26,14 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         )
     };
 
-    let bytes = client.read_one(output_a_handle.binding());
-    let output = f32::from_bytes(&bytes);
+    let output = f32::from_elem_data(client.read_one(output_a_handle.binding()));
 
     println!(
         "Executed normalize with runtime {:?} => {output:?}",
         R::name()
     );
 
-    let bytes = client.read_one(output_b_handle.binding());
-    let output = f32::from_bytes(&bytes);
+    let output = f32::from_elem_data(client.read_one(output_b_handle.binding()));
 
     println!(
         "Executed normalize using magnitude with runtime {:?} => {output:?}",

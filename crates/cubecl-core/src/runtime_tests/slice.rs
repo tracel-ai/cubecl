@@ -1,4 +1,4 @@
-use crate::{self as cubecl, as_bytes, as_type};
+use crate::{self as cubecl, as_type, to_elem_data};
 use cubecl::prelude::*;
 
 #[cube(launch)]
@@ -51,7 +51,7 @@ pub fn slice_mut_len(output: &mut Array<u32>) {
 pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create(to_elem_data![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<F>());
 
     unsafe {
@@ -64,8 +64,7 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read_one(output.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(output.binding()));
 
     assert_eq!(actual[0], F::new(2.0));
 }
@@ -73,7 +72,7 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(
 pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create(to_elem_data![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<u32>());
 
     unsafe {
@@ -86,8 +85,7 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read_one(output.binding());
-    let actual = u32::from_bytes(&actual);
+    let actual = u32::from_elem_data(client.read_one(output.binding()));
 
     assert_eq!(actual, &[2]);
 }
@@ -95,8 +93,8 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(
 pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
-    let output = client.create(as_bytes![F: 0.0]);
+    let input = client.create(to_elem_data![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let output = client.create(to_elem_data![F: 0.0]);
 
     unsafe {
         slice_for::launch::<F, R>(
@@ -108,17 +106,15 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read_one(output.binding());
-    let actual = F::from_bytes(&actual);
-
+    let actual = F::from_elem_data(client.read_one(output.binding()));
     assert_eq!(actual[0], F::new(5.0));
 }
 
 pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let input = client.create(as_bytes![F: 15.0]);
-    let output = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create(to_elem_data![F: 15.0]);
+    let output = client.create(to_elem_data![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
 
     unsafe {
         slice_mut_assign::launch::<F, R>(
@@ -130,8 +126,7 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read_one(output.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(output.binding()));
 
     assert_eq!(&actual[0..5], as_type![F: 0.0, 1.0, 15.0, 3.0, 4.0]);
 }
@@ -148,8 +143,7 @@ pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R::Server, R::Channe
         )
     };
 
-    let actual = client.read_one(output.binding());
-    let actual = u32::from_bytes(&actual);
+    let actual = u32::from_elem_data(client.read_one(output.binding()));
 
     assert_eq!(actual[0], 2);
 }

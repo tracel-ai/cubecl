@@ -14,8 +14,7 @@ pub(crate) fn assert_equals_approx<
     expected: &[F],
     epsilon: f32,
 ) {
-    let actual = client.read_one(output.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(output.binding()));
 
     // normalize to type epsilon
     let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
@@ -69,8 +68,8 @@ macro_rules! test_binary_impl {
                 let lhs = $lhs;
                 let rhs = $rhs;
                 let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>());
-                let lhs_handle = client.create($float_type::as_bytes(lhs));
-                let rhs_handle = client.create($float_type::as_bytes(rhs));
+                let lhs_handle = client.create(&$float_type::to_elem_data(lhs));
+                let rhs_handle = client.create(&$float_type::to_elem_data(rhs));
 
                 unsafe {
                     test_function::launch_unchecked::<$float_type, R>(

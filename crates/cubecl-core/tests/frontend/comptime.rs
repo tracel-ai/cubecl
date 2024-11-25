@@ -14,7 +14,7 @@ impl Init for State {
 }
 
 #[cube]
-pub fn comptime_if_else<T: Numeric>(lhs: T, #[comptime] cond: bool) {
+pub fn comptime_if_else<T: Algebraic>(lhs: T, #[comptime] cond: bool) {
     if cond {
         let _ = lhs + T::from_int(4);
     } else {
@@ -24,7 +24,11 @@ pub fn comptime_if_else<T: Numeric>(lhs: T, #[comptime] cond: bool) {
 
 #[cube]
 #[allow(clippy::collapsible_else_if)]
-pub fn comptime_else_then_if<T: Numeric>(lhs: T, #[comptime] cond1: bool, #[comptime] cond2: bool) {
+pub fn comptime_else_then_if<T: Algebraic>(
+    lhs: T,
+    #[comptime] cond1: bool,
+    #[comptime] cond2: bool,
+) {
     if cond1 {
         let _ = lhs + T::from_int(4);
     } else {
@@ -43,7 +47,7 @@ pub fn comptime_float() {
 }
 
 #[cube]
-pub fn comptime_elsif<T: Numeric>(lhs: T, #[comptime] cond1: bool, #[comptime] cond2: bool) {
+pub fn comptime_elsif<T: Algebraic>(lhs: T, #[comptime] cond1: bool, #[comptime] cond2: bool) {
     if cond1 {
         let _ = lhs + T::from_int(4);
     } else if cond2 {
@@ -54,7 +58,7 @@ pub fn comptime_elsif<T: Numeric>(lhs: T, #[comptime] cond1: bool, #[comptime] c
 }
 
 #[cube]
-pub fn comptime_elsif_with_runtime1<T: Numeric>(lhs: T, #[comptime] comptime_cond: bool) {
+pub fn comptime_elsif_with_runtime1<T: Algebraic>(lhs: T, #[comptime] comptime_cond: bool) {
     let runtime_cond = lhs >= T::from_int(2);
     if comptime_cond {
         let _ = lhs + T::from_int(4);
@@ -66,7 +70,7 @@ pub fn comptime_elsif_with_runtime1<T: Numeric>(lhs: T, #[comptime] comptime_con
 }
 
 #[cube]
-pub fn comptime_elsif_with_runtime2<T: Numeric>(lhs: T, #[comptime] comptime_cond: bool) {
+pub fn comptime_elsif_with_runtime2<T: Algebraic>(lhs: T, #[comptime] comptime_cond: bool) {
     let runtime_cond = lhs >= T::from_int(2);
     if runtime_cond {
         let _ = lhs + T::from_int(4);
@@ -78,7 +82,7 @@ pub fn comptime_elsif_with_runtime2<T: Numeric>(lhs: T, #[comptime] comptime_con
 }
 
 #[cube]
-pub fn comptime_if_expr<T: Numeric>(lhs: T, #[comptime] x: u32, #[comptime] y: u32) {
+pub fn comptime_if_expr<T: Algebraic>(lhs: T, #[comptime] x: u32, #[comptime] y: u32) {
     let y2 = x + y;
 
     if x < y2 {
@@ -89,7 +93,7 @@ pub fn comptime_if_expr<T: Numeric>(lhs: T, #[comptime] x: u32, #[comptime] y: u
 }
 
 #[cube]
-pub fn comptime_with_map_bool<T: Numeric>(#[comptime] state: State) -> T {
+pub fn comptime_with_map_bool<T: Algebraic>(#[comptime] state: State) -> T {
     let cond = state.cond;
 
     let mut x = T::from_int(3);
@@ -102,7 +106,7 @@ pub fn comptime_with_map_bool<T: Numeric>(#[comptime] state: State) -> T {
 }
 
 #[cube]
-pub fn comptime_with_map_uint<T: Numeric>(#[comptime] state: State) -> T {
+pub fn comptime_with_map_uint<T: Algebraic>(#[comptime] state: State) -> T {
     let bound = state.bound;
 
     let mut x = T::from_int(3);
@@ -119,7 +123,7 @@ fn rust_function(input: u32) -> u32 {
 }
 
 #[cube]
-pub fn comptime_block<T: Numeric>(a: T) -> T {
+pub fn comptime_block<T: Algebraic>(a: T) -> T {
     let comptime_val = comptime! { rust_function(2) as i64 };
 
     a + T::from_int(comptime_val)

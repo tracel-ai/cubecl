@@ -2,27 +2,27 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub fn add_op<T: Numeric>(a: T, b: T) -> T {
+pub fn add_op<T: Algebraic>(a: T, b: T) -> T {
     a + b
 }
 
 #[cube]
-pub fn sub_op<T: Numeric>(a: T, b: T) -> T {
+pub fn sub_op<T: Algebraic>(a: T, b: T) -> T {
     a - b
 }
 
 #[cube]
-pub fn mul_op<T: Numeric>(a: T, b: T) -> T {
+pub fn mul_op<T: Algebraic>(a: T, b: T) -> T {
     a * b
 }
 
 #[cube]
-pub fn div_op<T: Numeric>(a: T, b: T) -> T {
+pub fn div_op<T: Algebraic>(a: T, b: T) -> T {
     a / b
 }
 
 #[cube]
-pub fn abs_op<T: Numeric>(a: T) -> T {
+pub fn abs_op<T: Algebraic>(a: T) -> T {
     T::abs(a)
 }
 
@@ -127,17 +127,17 @@ pub fn modulo_op(a: u32, b: u32) -> u32 {
 }
 
 #[cube]
-pub fn remainder_op<T: Numeric>(a: T, b: T) -> T {
+pub fn remainder_op<T: Algebraic>(a: T, b: T) -> T {
     T::rem(a, b)
 }
 
 #[cube]
-pub fn max_op<T: Numeric>(a: T, b: T) -> T {
+pub fn max_op<T: Algebraic>(a: T, b: T) -> T {
     T::max(a, b)
 }
 
 #[cube]
-pub fn min_op<T: Numeric>(a: T, b: T) -> T {
+pub fn min_op<T: Algebraic>(a: T, b: T) -> T {
     T::min(a, b)
 }
 
@@ -182,22 +182,22 @@ pub fn shr_op(a: u32, b: u32) -> u32 {
 }
 
 #[cube]
-pub fn add_assign_op<T: Numeric>(mut a: T, b: T) {
+pub fn add_assign_op<T: Algebraic>(mut a: T, b: T) {
     a += b;
 }
 
 #[cube]
-pub fn sub_assign_op<T: Numeric>(mut a: T, b: T) {
+pub fn sub_assign_op<T: Algebraic>(mut a: T, b: T) {
     a -= b;
 }
 
 #[cube]
-pub fn mul_assign_op<T: Numeric>(mut a: T, b: T) {
+pub fn mul_assign_op<T: Algebraic>(mut a: T, b: T) {
     a *= b;
 }
 
 #[cube]
-pub fn div_assign_op<T: Numeric>(mut a: T, b: T) {
+pub fn div_assign_op<T: Algebraic>(mut a: T, b: T) {
     a /= b;
 }
 

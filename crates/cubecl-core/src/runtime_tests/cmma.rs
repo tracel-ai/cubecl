@@ -106,8 +106,8 @@ pub fn test_simple_1<R: Runtime>(
     let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
     let rhs: Vec<f16> = (0..256).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
+    let lhs = client.create(&f16::to_elem_data(&lhs));
+    let rhs = client.create(&f16::to_elem_data(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
@@ -121,8 +121,7 @@ pub fn test_simple_1<R: Runtime>(
         )
     };
 
-    let actual = client.read_one(out.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = f32::from_elem_data(client.read_one(out.binding()));
 
     let expected = [
         504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504.,
@@ -148,7 +147,7 @@ pub fn test_simple_1<R: Runtime>(
         13944., 13944., 13944., 13944., 13944., 13944., 13944.,
     ];
 
-    assert_eq!(expected, actual);
+    assert_eq!(expected, actual.as_slice());
 }
 
 pub fn test_simple_tf32<R: Runtime>(
@@ -170,8 +169,8 @@ pub fn test_simple_tf32<R: Runtime>(
     let lhs: Vec<f32> = (0..128).map(|i| (i as f32)).collect();
     let rhs: Vec<f32> = (0..128).map(|i| ((i % 8) as f32)).collect();
 
-    let lhs = client.create(f32::as_bytes(&lhs));
-    let rhs = client.create(f32::as_bytes(&rhs));
+    let lhs = client.create(&f32::to_elem_data(&lhs));
+    let rhs = client.create(&f32::to_elem_data(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
@@ -185,8 +184,7 @@ pub fn test_simple_tf32<R: Runtime>(
         )
     };
 
-    let actual = client.read_one(out.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = f32::from_elem_data(client.read_one(out.binding()));
 
     let expected = [
         0., 28., 56., 84., 112., 140., 168., 196., 0., 28., 56., 84., 112., 140., 168., 196., 0.,
@@ -209,7 +207,7 @@ pub fn test_simple_tf32<R: Runtime>(
         2964., 3952., 4940., 5928., 6916., 0., 988., 1976., 2964., 3952., 4940., 5928., 6916.,
     ];
 
-    assert_eq!(expected, actual);
+    assert_eq!(expected, actual.as_slice());
 }
 
 #[allow(missing_docs)]

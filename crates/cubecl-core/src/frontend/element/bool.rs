@@ -1,10 +1,12 @@
+use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::Elem;
 use crate::prelude::CubeContext;
+use crate::{unexpanded, Runtime};
 
 use super::{
     init_expand_element, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, Init,
-    IntoRuntime,
+    IntoRuntime, LaunchArgExpand, Numeric, ScalarArgSettings, Vectorized,
 };
 
 /// Extension trait for [bool].
@@ -43,5 +45,38 @@ impl IntoRuntime for bool {
 impl ExpandElementBaseInit for bool {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
+    }
+}
+
+impl Vectorized for bool {
+    fn vectorization_factor(&self) -> u32 {
+        1
+    }
+
+    fn vectorize(self, _factor: u32) -> Self {
+        unexpanded!()
+    }
+}
+
+impl LaunchArgExpand for bool {
+    type CompilationArg = ();
+
+    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
+        builder.scalar(bool::as_elem()).into()
+    }
+}
+
+impl Numeric for bool {
+    const MAX: Self = true;
+    const MIN: Self = false;
+
+    fn from_int(val: i64) -> Self {
+        val != 0
+    }
+}
+
+impl ScalarArgSettings for bool {
+    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
+        settings.register_u32(if *self { 1 } else { 0 });
     }
 }

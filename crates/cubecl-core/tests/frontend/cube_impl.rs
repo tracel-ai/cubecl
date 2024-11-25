@@ -45,7 +45,7 @@ struct TypeGeneric<C: CubePrimitive> {
 }
 
 #[cube]
-impl<C: Numeric> TypeGeneric<C> {
+impl<C: Algebraic> TypeGeneric<C> {
     #[allow(dead_code)]
     fn value(&self, lhs: u32) -> C {
         self.a * C::cast_from(lhs)
@@ -60,13 +60,13 @@ impl<C: Numeric> TypeGeneric<C> {
 }
 
 #[derive(CubeType)]
-struct ComplexType<C: Numeric, T: Numeric> {
+struct ComplexType<C: Algebraic, T: Algebraic> {
     a: C,
     t: T,
 }
 
 #[cube]
-impl<C: Numeric> ComplexType<C, f32> {
+impl<C: Algebraic> ComplexType<C, f32> {
     #[allow(dead_code)]
     pub fn complex_method(&mut self, lhs: f32, rhs: C) -> f32 {
         let tmp = self.a + (C::cast_from(lhs) / rhs);

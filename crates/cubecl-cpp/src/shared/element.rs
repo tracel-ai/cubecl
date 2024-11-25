@@ -567,7 +567,8 @@ impl<D: Dialect> Elem<D> {
             Elem::U16 => core::mem::size_of::<u16>(),
             Elem::U32 => core::mem::size_of::<u32>(),
             Elem::U64 => core::mem::size_of::<u64>(),
-            Elem::Bool => core::mem::size_of::<bool>(),
+            // Bools are currently represented as u32s.
+            Elem::Bool => core::mem::size_of::<u32>(),
             Elem::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
             Elem::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
             Elem::_Dialect(_) => 0,

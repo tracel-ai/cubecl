@@ -14,8 +14,7 @@ pub(crate) fn assert_equals_approx<
     expected: &[F],
     epsilon: F,
 ) {
-    let actual = client.read_one(output.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(output.binding()));
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         assert!(
@@ -58,7 +57,7 @@ macro_rules! test_unary_impl {
             {
                 let input = $input;
                 let output_handle = client.empty(input.len() * core::mem::size_of::<$float_type>());
-                let input_handle = client.create($float_type::as_bytes(input));
+                let input_handle = client.create(&$float_type::to_elem_data(input));
 
                 unsafe {
                     test_function::launch_unchecked::<$float_type, R>(

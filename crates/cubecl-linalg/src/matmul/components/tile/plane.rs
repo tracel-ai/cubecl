@@ -23,13 +23,13 @@ pub type PlaneMma32x32x32<I, O> = PlaneMma<I, O, 32, 32, 32>;
 ///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used.
 ///    A solution could be to always load the stage with lhs in row-major and rhs in col-major, using only parallel fill
 ///  - If not vec4, there are patches in read_output that may harm performance
-pub struct PlaneMma<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> {
+pub struct PlaneMma<I: Algebraic, O: Algebraic, const M: u32, const N: u32, const K: u32> {
     _input: PhantomData<I>,
     _output: PhantomData<O>,
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Matmul<I, O>
+impl<I: Algebraic, O: Algebraic, const M: u32, const N: u32, const K: u32> tile::Matmul<I, O>
     for PlaneMma<I, O, M, N, K>
 {
     const M: u32 = M;
@@ -321,7 +321,7 @@ fn fill_parallel_rhs<E: Numeric>(
     }
 }
 
-impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKernel<I, O>
+impl<I: Algebraic, O: Algebraic, const M: u32, const N: u32, const K: u32> MatmulKernel<I, O>
     for PlaneMma<I, O, M, N, K>
 {
     type Config = Config;

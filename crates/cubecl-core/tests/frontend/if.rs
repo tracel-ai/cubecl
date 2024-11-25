@@ -2,14 +2,14 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub fn if_greater<T: Numeric>(lhs: T) {
+pub fn if_greater<T: Algebraic>(lhs: T) {
     if lhs > T::from_int(0) {
         let _ = lhs + T::from_int(4);
     }
 }
 
 #[cube]
-pub fn if_greater_var<T: Numeric>(lhs: T) {
+pub fn if_greater_var<T: Algebraic>(lhs: T) {
     let x = lhs > T::from_int(0);
     if x {
         let _ = lhs + T::from_int(4);

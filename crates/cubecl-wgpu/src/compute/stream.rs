@@ -195,7 +195,7 @@ impl WgpuStream {
                     .iter()
                     .map(|(staging_buffer, size)| {
                         let data = staging_buffer.slice(..).get_mapped_range();
-                        bytemuck::cast_slice(&data[0..(*size as usize)]).to_vec()
+                        data[0..(*size as usize)].to_vec()
                     })
                     .collect()
             };

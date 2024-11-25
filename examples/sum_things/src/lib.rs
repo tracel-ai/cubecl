@@ -188,7 +188,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let len = input.len();
 
     let output = client.empty(input.len() * core::mem::size_of::<f32>());
-    let input = client.create(f32::as_bytes(input));
+    let input = client.create(&f32::to_elem_data(input));
 
     for kind in [
         KernelKind::Basic,
@@ -216,8 +216,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
                 }
             }
         }
-        let bytes = client.read_one(output.clone().binding());
-        let output = f32::from_bytes(&bytes);
+        let output = f32::from_elem_data(client.read_one(output.clone().binding()));
 
         println!("[{:?} - {kind:?}]\n {output:?}", R::name());
     }

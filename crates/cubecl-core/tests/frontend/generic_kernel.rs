@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
-use cubecl_core::{cube, frontend::Numeric};
+use cubecl_core::{cube, frontend::Algebraic};
 
 #[cube]
-pub fn generic_kernel<T: Numeric>(lhs: T) {
+pub fn generic_kernel<T: Algebraic>(lhs: T) {
     let _ = lhs + T::from_int(5);
 }
 

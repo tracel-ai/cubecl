@@ -1,4 +1,5 @@
 use cubecl_core as cubecl;
+use cubecl_core::prelude::Algebraic;
 use cubecl_core::{cube, frontend::Numeric};
 
 #[cube]
@@ -32,17 +33,17 @@ pub fn no_call_with_arg(x: u32) {
 }
 
 #[cube]
-pub fn caller_with_generics<T: Numeric>(x: T) {
+pub fn caller_with_generics<T: Algebraic>(x: T) {
     let _ = x + callee_with_generics::<T>(x);
 }
 
 #[cube]
-pub fn callee_with_generics<T: Numeric>(x: T) -> T {
+pub fn callee_with_generics<T: Algebraic>(x: T) -> T {
     x * T::from_int(8)
 }
 
 #[cube]
-pub fn no_call_with_generics<T: Numeric>(x: T) {
+pub fn no_call_with_generics<T: Algebraic>(x: T) {
     let _ = x + x * T::from_int(8);
 }
 

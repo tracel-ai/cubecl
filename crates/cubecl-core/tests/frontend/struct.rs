@@ -32,7 +32,7 @@ pub struct State<T: Numeric> {
 }
 
 #[cube]
-pub fn state_receiver_with_reuse<T: Numeric>(state: State<T>) -> T {
+pub fn state_receiver_with_reuse<T: Algebraic>(state: State<T>) -> T {
     let x = state.first + state.second;
     state.second + x + state.first
 }

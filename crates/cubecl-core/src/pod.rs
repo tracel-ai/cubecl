@@ -1,3 +1,5 @@
+use bytemuck::NoUninit;
+
 use crate::{
     flex32,
     ir::{Elem, FloatKind, IntKind, UIntKind},
@@ -5,13 +7,15 @@ use crate::{
 };
 
 /// The base element trait for the jit backend.
-pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemuck::Pod {
+pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + NoUninit {
     /// Returns the name of the type.
     fn type_name() -> &'static str;
     /// Convert a slice of elements to a slice of bytes.
-    fn as_bytes(slice: &[Self]) -> &[u8];
+    fn to_elem_data(slice: &[Self]) -> Vec<u8> {
+        bytemuck::cast_slice(slice).to_vec()
+    }
     /// Convert a slice of bytes to a slice of elements.
-    fn from_bytes(bytes: &[u8]) -> &[Self];
+    fn from_elem_data(element_data: Vec<u8>) -> Vec<Self>;
     /// Element representation for `cubecl`.
     fn cube_elem() -> Elem;
     /// Highest possible value
@@ -24,11 +28,8 @@ impl CubeElement for u64 {
     fn type_name() -> &'static str {
         "u64"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::UInt(UIntKind::U64)
@@ -45,11 +46,8 @@ impl CubeElement for u32 {
     fn type_name() -> &'static str {
         "u32"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::UInt(UIntKind::U32)
@@ -66,11 +64,8 @@ impl CubeElement for u16 {
     fn type_name() -> &'static str {
         "u16"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::UInt(UIntKind::U16)
@@ -87,11 +82,8 @@ impl CubeElement for u8 {
     fn type_name() -> &'static str {
         "u8"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::UInt(UIntKind::U8)
@@ -108,11 +100,8 @@ impl CubeElement for i64 {
     fn type_name() -> &'static str {
         "i64"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::Int(IntKind::I64)
@@ -131,11 +120,8 @@ impl CubeElement for i32 {
     fn type_name() -> &'static str {
         "i32"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::Int(IntKind::I32)
@@ -154,11 +140,8 @@ impl CubeElement for i16 {
     fn type_name() -> &'static str {
         "i16"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::Int(IntKind::I16)
@@ -177,11 +160,8 @@ impl CubeElement for i8 {
     fn type_name() -> &'static str {
         "i8"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::Int(IntKind::I8)
@@ -200,11 +180,8 @@ impl CubeElement for f64 {
     fn type_name() -> &'static str {
         "f64"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::Float(FloatKind::F64)
@@ -221,11 +198,8 @@ impl CubeElement for f32 {
     fn type_name() -> &'static str {
         "f32"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::Float(FloatKind::F32)
@@ -242,11 +216,8 @@ impl CubeElement for half::f16 {
     fn type_name() -> &'static str {
         "f16"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::Float(FloatKind::F16)
@@ -263,11 +234,8 @@ impl CubeElement for half::bf16 {
     fn type_name() -> &'static str {
         "bf16"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::Float(FloatKind::BF16)
@@ -284,11 +252,8 @@ impl CubeElement for flex32 {
     fn type_name() -> &'static str {
         "flex32"
     }
-    fn as_bytes(slice: &[Self]) -> &[u8] {
-        bytemuck::cast_slice(slice)
-    }
-    fn from_bytes(bytes: &[u8]) -> &[Self] {
-        bytemuck::cast_slice(bytes)
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytemuck::cast_slice(bytes.as_slice()).to_vec()
     }
     fn cube_elem() -> Elem {
         Elem::Float(FloatKind::Flex32)
@@ -298,5 +263,38 @@ impl CubeElement for flex32 {
     }
     fn minimum_value() -> Self {
         flex32::MIN
+    }
+}
+
+impl CubeElement for bool {
+    fn type_name() -> &'static str {
+        "bool"
+    }
+    fn to_elem_data(slice: &[Self]) -> Vec<u8> {
+        slice
+            .iter()
+            .flat_map(|&x| {
+                if x {
+                    1u32.to_le_bytes()
+                } else {
+                    0u32.to_le_bytes()
+                }
+            })
+            .collect()
+    }
+    fn from_elem_data(bytes: Vec<u8>) -> Vec<Self> {
+        bytes
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()) != 0)
+            .collect()
+    }
+    fn cube_elem() -> Elem {
+        Elem::Bool
+    }
+    fn maximum_value() -> Self {
+        true
+    }
+    fn minimum_value() -> Self {
+        false
     }
 }

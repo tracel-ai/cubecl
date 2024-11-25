@@ -27,11 +27,10 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R::Se
         )
     };
 
-    let actual = client.read_one(handle1.binding());
-    let actual = u32::from_bytes(&actual);
+    let actual = u32::from_elem_data(client.read_one(handle1.binding()));
     let expect: Vec<u32> = (0..length).collect();
 
-    assert_eq!(actual, &expect);
+    assert_eq!(actual, expect);
 }
 
 #[allow(missing_docs)]

@@ -1,4 +1,4 @@
-use crate::{self as cubecl, as_bytes};
+use crate::{self as cubecl, to_elem_data};
 use cubecl::prelude::*;
 
 #[cube(launch)]
@@ -33,7 +33,7 @@ pub fn sequence_index<F: Float>(output: &mut Array<F>) {
 pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0]);
+    let handle = client.create(to_elem_data![F: 0.0]);
 
     sequence_for_loop::launch::<F, R>(
         &client,
@@ -42,8 +42,7 @@ pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     );
 
-    let actual = client.read_one(handle.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(handle.binding()));
 
     assert_eq!(actual[0], F::new(5.0));
 }
@@ -51,7 +50,7 @@ pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(
 pub fn test_sequence_index<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0]);
+    let handle = client.create(to_elem_data![F: 0.0]);
 
     sequence_index::launch::<F, R>(
         &client,
@@ -60,8 +59,7 @@ pub fn test_sequence_index<R: Runtime, F: Float + CubeElement>(
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     );
 
-    let actual = client.read_one(handle.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(handle.binding()));
 
     assert_eq!(actual[0], F::new(6.0));
 }

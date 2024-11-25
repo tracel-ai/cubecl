@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use num_traits::NumCast;
+use bytemuck::NoUninit;
 
 use crate::compute::KernelLauncher;
 use crate::ir::{Item, Variable};
@@ -24,30 +24,17 @@ use super::{
 /// Used in kernels that should work for both.
 pub trait Numeric:
     Copy
-    + Abs
-    + Max
-    + Min
-    + Clamp
-    + Remainder
     + Vectorized
     + CubePrimitive
     + LaunchArgExpand<CompilationArg = ()>
     + ScalarArgSettings
     + ExpandElementBaseInit
-    + Into<ExpandElementTyped<Self>>
     + CubeIndexMut<u32, Output = Self>
     + CubeIndexMut<ExpandElementTyped<u32>, Output = Self>
-    + num_traits::NumCast
-    + std::ops::AddAssign
-    + std::ops::SubAssign
-    + std::ops::MulAssign
-    + std::ops::DivAssign
-    + std::ops::Add<Output = Self>
-    + std::ops::Sub<Output = Self>
-    + std::ops::Mul<Output = Self>
-    + std::ops::Div<Output = Self>
+    + Into<ExpandElementTyped<Self>>
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
+    + NoUninit
 {
     const MAX: Self;
     const MIN: Self;
@@ -60,13 +47,7 @@ pub trait Numeric:
     ///
     /// This method panics when unexpanded. For creating an element
     /// with a val, use the new method of the sub type.
-    fn from_int(val: i64) -> Self {
-        <Self as NumCast>::from(val).unwrap()
-    }
-
-    fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {
-        unexpanded!()
-    }
+    fn from_int(val: i64) -> Self;
 
     fn __expand_from_int(
         _context: &mut CubeContext,
@@ -76,6 +57,10 @@ pub trait Numeric:
         let var: Variable = elem.constant_from_i64(val.constant().unwrap().as_i64());
 
         ExpandElement::Plain(var).into()
+    }
+
+    fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {
+        unexpanded!()
     }
 
     fn __expand_from_vec<const D: usize>(
@@ -102,6 +87,27 @@ pub trait Numeric:
 
         new_var.into()
     }
+}
+
+/// Type that encompasses both (unsigned or signed) integers and floats
+/// Used in kernels that should work for both.
+pub trait Algebraic:
+    Numeric
+    + Abs
+    + Max
+    + Min
+    + Clamp
+    + Remainder
+    + num_traits::NumCast
+    + std::ops::AddAssign
+    + std::ops::SubAssign
+    + std::ops::MulAssign
+    + std::ops::DivAssign
+    + std::ops::Add<Output = Self>
+    + std::ops::Sub<Output = Self>
+    + std::ops::Mul<Output = Self>
+    + std::ops::Div<Output = Self>
+{
 }
 
 /// Similar to [ArgSettings], however only for scalar types that don't depend on the [Runtime]

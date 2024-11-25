@@ -11,7 +11,7 @@ fn constant_array_kernel<F: Float>(out: &mut Array<F>, #[comptime] data: Vec<u32
 }
 
 pub fn test_constant_array<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
+    let handle = client.create(&f32::to_elem_data(&[0.0, 1.0]));
 
     let vectorization = 1;
 
@@ -23,8 +23,7 @@ pub fn test_constant_array<R: Runtime>(client: ComputeClient<R::Server, R::Chann
         vec![3, 5, 1],
     );
 
-    let actual = client.read_one(handle.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = f32::from_elem_data(client.read_one(handle.binding()));
 
     assert_eq!(actual[0], 5.0);
 }

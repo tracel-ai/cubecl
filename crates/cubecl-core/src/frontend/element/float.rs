@@ -1,6 +1,7 @@
 use std::num::NonZero;
 
 use half::{bf16, f16};
+use num_traits::NumCast;
 
 use crate::{
     ir::{Elem, FloatKind, Item},
@@ -8,7 +9,7 @@ use crate::{
     unexpanded,
 };
 
-use super::Numeric;
+use super::Algebraic;
 
 mod relaxed;
 mod tensor_float;
@@ -18,7 +19,7 @@ pub use tensor_float::*;
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
-    Numeric
+    Algebraic
     + Exp
     + Log
     + Log1p
@@ -112,7 +113,13 @@ macro_rules! impl_float {
         impl Numeric for $primitive {
             const MAX: Self = $primitive::MAX;
             const MIN: Self = $primitive::MIN;
+
+            fn from_int(val: i64) -> Self {
+                <Self as NumCast>::from(val).unwrap()
+            }
         }
+
+        impl Algebraic for $primitive {}
 
         impl Vectorized for $primitive {
             fn vectorization_factor(&self) -> u32 {

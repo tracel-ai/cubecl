@@ -1,6 +1,7 @@
 #![allow(missing_docs)]
 
 use cubecl_core::{prelude::*, Feature};
+use num_traits::ToPrimitive;
 
 use crate::reduce::sum::{reduce_sum, ReduceConfig};
 
@@ -206,7 +207,7 @@ impl<N> TestTensorParts<N> {
     }
 }
 
-pub fn impl_reduce_sum_test<R: Runtime, N: Numeric + CubeElement + std::fmt::Display>(
+pub fn impl_reduce_sum_test<R: Runtime, N: Algebraic + CubeElement + std::fmt::Display>(
     device: &R::Device,
     test: TestCase<N>,
 ) {
@@ -216,8 +217,8 @@ pub fn impl_reduce_sum_test<R: Runtime, N: Numeric + CubeElement + std::fmt::Dis
         return;
     }
 
-    let input_handle = client.create(N::as_bytes(&test.input.values));
-    let output_handle = client.create(N::as_bytes(&test.output.values));
+    let input_handle = client.create(&N::to_elem_data(&test.input.values));
+    let output_handle = client.create(&N::to_elem_data(&test.output.values));
 
     let config = ReduceConfig {
         line_size: test.input.line_size as u32,
@@ -261,16 +262,21 @@ pub fn impl_reduce_sum_test<R: Runtime, N: Numeric + CubeElement + std::fmt::Dis
     }
 
     let binding = output_handle.binding();
-    let bytes = client.read_one(binding);
-    let output_values = N::from_bytes(&bytes);
+    let output_values = N::from_elem_data(client.read_one(binding));
 
     match test.tolerance {
-        Some(tolerance) => assert_approx_equal_abs(output_values, &test.expected, tolerance),
+        Some(tolerance) => {
+            assert_approx_equal_abs(output_values.as_slice(), &test.expected, tolerance)
+        }
         None => assert_eq!(output_values, test.expected),
     }
 }
 
-pub fn assert_approx_equal_abs<N: Numeric>(actual: &[N], expected: &[N], epsilon: f32) {
+pub fn assert_approx_equal_abs<N: Numeric + ToPrimitive>(
+    actual: &[N],
+    expected: &[N],
+    epsilon: f32,
+) {
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         let a = a.to_f32().unwrap();
         let e = e.to_f32().unwrap();

@@ -1,14 +1,13 @@
 use std::marker::PhantomData;
 
 use crate::prelude::{ArrayArg, TensorArg};
-use crate::KernelSettings;
 use crate::{compute::KernelTask, ir::UIntKind};
 use crate::{
     ir::{Elem, FloatKind, IntKind},
     MetadataBuilder,
 };
+use crate::{CubeElement, KernelSettings};
 use crate::{Kernel, Runtime};
-use bytemuck::NoUninit;
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{Binding, CubeCount};
 
@@ -314,12 +313,12 @@ impl<R: Runtime> TensorState<R> {
             let metadata = metadata.finish();
 
             bindings_global.extend(bindings);
-            bindings_global.push(client.create(bytemuck::cast_slice(&metadata)).binding());
+            bindings_global.push(client.create(&u32::to_elem_data(&metadata)).binding());
         }
     }
 }
 
-impl<T: NoUninit> ScalarState<T> {
+impl<T: CubeElement> ScalarState<T> {
     /// Add a new scalar value to the state.
     pub fn push(&mut self, val: T) {
         match self {
@@ -336,7 +335,7 @@ impl<T: NoUninit> ScalarState<T> {
         match self {
             ScalarState::Empty => (),
             ScalarState::Some(values) => {
-                let handle = client.create(bytemuck::cast_slice(values));
+                let handle = client.create(&T::to_elem_data(values));
                 bindings.push(handle.binding());
             }
         }

@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub fn vectorization_binary<T: Numeric>(lhs: T) {
+pub fn vectorization_binary<T: Algebraic>(lhs: T) {
     let _ = lhs + T::from_vec([4, 5]);
 }
 

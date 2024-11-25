@@ -106,9 +106,9 @@ macro_rules! testgen_untyped {
 
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! as_bytes {
+macro_rules! to_elem_data {
     ($ty:ident: $($elem:expr),*) => {
-        F::as_bytes(&[$($ty::new($elem),)*])
+        &F::to_elem_data(&[$($ty::new($elem),)*])
     };
 }
 

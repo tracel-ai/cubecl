@@ -289,7 +289,7 @@ fn execute_settings<'a, R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeEl
         }
     }
 
-    let info = client.create(bytemuck::cast_slice(&info));
+    let info = client.create(&u32::to_elem_data(&info));
 
     // Finally we finish with the named bindings.
     let handles_scalars =
@@ -334,16 +334,16 @@ fn create_scalar_handles<R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeE
         for (j, scalar_priority) in scalar_priorities.iter().enumerate() {
             if scalar_priority == &i {
                 if j == 0 {
-                    if let Some(values) = &scalars_0 {
-                        handles_scalars.push(client.create(bytemuck::cast_slice(values)));
+                    if let Some(values) = scalars_0 {
+                        handles_scalars.push(client.create(&E1::to_elem_data(values)));
                     }
                 } else if j == 1 {
-                    if let Some(values) = &scalars_1 {
-                        handles_scalars.push(client.create(bytemuck::cast_slice(values)));
+                    if let Some(values) = scalars_1 {
+                        handles_scalars.push(client.create(&E2::to_elem_data(values)));
                     }
                 } else if j == 2 {
-                    if let Some(values) = &scalars_2 {
-                        handles_scalars.push(client.create(bytemuck::cast_slice(values)));
+                    if let Some(values) = scalars_2 {
+                        handles_scalars.push(client.create(&E3::to_elem_data(values)));
                     }
                 }
             }

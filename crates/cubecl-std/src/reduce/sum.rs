@@ -14,7 +14,7 @@ pub struct ReduceConfig {
 ///
 /// This is a work in progress toward a more general multi-dimensional reduce kernel.
 #[cube(launch_unchecked)]
-pub fn reduce_sum<N: Numeric>(
+pub fn reduce_sum<N: Algebraic>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
     #[comptime] config: ReduceConfig,
@@ -28,7 +28,7 @@ pub fn reduce_sum<N: Numeric>(
 ///
 /// This is a work in progress toward a more general multi-dimensional reduce kernel.
 #[cube(launch_unchecked)]
-pub fn reduce_sum_lined<N: Numeric>(
+pub fn reduce_sum_lined<N: Algebraic>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<N>,
     #[comptime] config: ReduceConfig,
@@ -40,7 +40,7 @@ pub fn reduce_sum_lined<N: Numeric>(
 
 /// Compute the sum of all elements of `input` and write it to the first element of `output`.
 #[cube]
-pub fn reduce_sum_vector<N: Numeric>(
+pub fn reduce_sum_vector<N: Algebraic>(
     input: &Slice<Line<N>>,
     output: &mut SliceMut<Line<N>>,
     #[comptime] config: ReduceConfig,
@@ -86,7 +86,7 @@ pub fn reduce_sum_vector<N: Numeric>(
 
 /// For each line, sum all elements and write the result into the corresponding element of output.
 #[cube]
-pub fn reduce_sum_lines<N: Numeric>(
+pub fn reduce_sum_lines<N: Algebraic>(
     input: &Slice<Line<N>>,
     output: &mut SliceMut<N>,
     #[comptime] length: u32,

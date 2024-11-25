@@ -22,7 +22,7 @@ template = []
 [dependencies]
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.4.0", default-features = false }
 
-bytemuck = { workspace = true }
+bytemuck = { workspace = true, features = ["extern_crate_alloc"] }
 cubecl-common = { path = "../cubecl-common", version = "0.4.0", default-features = false }
 cubecl-macros = { path = "../cubecl-macros", version = "0.4.0", default-features = false }
 derive-new = { workspace = true }

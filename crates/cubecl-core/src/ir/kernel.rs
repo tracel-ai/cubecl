@@ -171,7 +171,8 @@ impl Elem {
                 UIntKind::U32 => core::mem::size_of::<u32>(),
                 UIntKind::U64 => core::mem::size_of::<u64>(),
             },
-            Elem::Bool => core::mem::size_of::<bool>(),
+            // Currently, bools are represented as u32 in the backend.
+            Elem::Bool => core::mem::size_of::<u32>(),
         }
     }
 

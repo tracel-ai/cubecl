@@ -3,7 +3,7 @@ use std::fmt::Display;
 use cubecl_core::{
     client::ComputeClient,
     flex32,
-    prelude::{Float, Numeric},
+    prelude::{Algebraic, Float},
     server::Handle,
     CubeElement, Runtime,
 };
@@ -17,8 +17,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read_one(output.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(output.binding()));
 
     // normalize to type epsilon
     let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
@@ -142,8 +141,8 @@ pub(crate) fn matmul_cpu_reference<EG, ES>(
     problem: &MatmulProblem,
 ) -> Vec<EG>
 where
-    EG: Numeric + CubeElement + CastInto<ES>,
-    ES: Numeric + CubeElement + CastInto<EG>,
+    EG: Algebraic + CubeElement + CastInto<ES>,
+    ES: Algebraic + CubeElement + CastInto<EG>,
 {
     let m = problem.m;
     let n = problem.n;
@@ -190,13 +189,10 @@ impl MatmulTestCase {
         rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Vec<F> {
-        let lhs_binding = &client.read_one(lhs.handle.clone().binding());
-        let rhs_binding = &client.read_one(rhs.handle.clone().binding());
+        let lhs = F::from_elem_data(client.read_one(lhs.handle.clone().binding()));
+        let rhs = F::from_elem_data(client.read_one(rhs.handle.clone().binding()));
 
-        let lhs = F::from_bytes(lhs_binding);
-        let rhs = F::from_bytes(rhs_binding);
-
-        self.matmul_cpu_algorithm(lhs, rhs)
+        self.matmul_cpu_algorithm(&lhs, &rhs)
     }
 
     fn matmul_cpu_algorithm<F: Float + CubeElement>(&self, lhs: &[F], rhs: &[F]) -> Vec<F> {
@@ -253,7 +249,7 @@ impl MatmulTestCase {
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
         let data = generate_random_data::<F>(shape.iter().product(), 999);
-        let handle = client.create(bytemuck::cast_slice(&data));
+        let handle = client.create(&F::to_elem_data(&data));
         TensorHandle::new_contiguous(shape, handle)
     }
 

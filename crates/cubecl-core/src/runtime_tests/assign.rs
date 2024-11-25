@@ -13,7 +13,7 @@ pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
 pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
+    let handle = client.create(&F::to_elem_data(&[F::new(0.0), F::new(1.0)]));
 
     let vectorization = 2;
 
@@ -25,7 +25,7 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(
     );
 
     let actual = client.read_one(handle.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(actual);
 
     assert_eq!(actual[0], F::new(5.0));
 }

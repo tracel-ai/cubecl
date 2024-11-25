@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    init_expand_element, CubeContext, CubePrimitive, CubeType, ExpandElement,
+    init_expand_element, Algebraic, CubeContext, CubePrimitive, CubeType, ExpandElement,
     ExpandElementBaseInit, ExpandElementTyped, Float, Init, IntoRuntime, KernelBuilder,
     KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings, Vectorized,
 };
@@ -187,7 +187,13 @@ impl IntoRuntime for tf32 {
 impl Numeric for tf32 {
     const MAX: Self = tf32::from_f32(f32::MAX);
     const MIN: Self = tf32::from_f32(f32::MIN);
+
+    fn from_int(val: i64) -> Self {
+        <Self as NumCast>::from(val).unwrap()
+    }
 }
+
+impl Algebraic for tf32 {}
 
 impl Vectorized for tf32 {
     fn vectorization_factor(&self) -> u32 {

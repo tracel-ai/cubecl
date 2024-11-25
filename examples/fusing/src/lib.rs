@@ -38,7 +38,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let vectorization = 4;
     let output_handle_1 = client.empty(input.len() * core::mem::size_of::<f32>());
     let output_handle_2 = client.empty(input.len() * core::mem::size_of::<f32>());
-    let input_handle = client.create(f32::as_bytes(input));
+    let input_handle = client.create(&f32::to_elem_data(input));
 
     let mut ops = Sequence::new();
     let mut inputs = SequenceArg::new();
@@ -82,12 +82,10 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         )
     };
 
-    let bytes = client.read_one(output_handle_1.binding());
-    let output_1 = f32::from_bytes(&bytes);
+    let output_1 = f32::from_elem_data(client.read_one(output_handle_1.binding()));
 
     println!("Output 1 => {output_1:?}");
 
-    let bytes = client.read_one(output_handle_2.binding());
-    let output_2 = f32::from_bytes(&bytes);
+    let output_2 = f32::from_elem_data(client.read_one(output_handle_2.binding()));
     println!("Output 2 => {output_2:?}");
 }

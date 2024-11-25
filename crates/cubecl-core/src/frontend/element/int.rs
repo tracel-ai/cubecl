@@ -1,6 +1,6 @@
 use crate::frontend::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
-    Numeric,
+    Algebraic, CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
+    ExpandElementTyped, Numeric,
 };
 use crate::ir::{Elem, IntKind};
 use crate::Runtime;
@@ -8,6 +8,7 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     unexpanded,
 };
+use num_traits::NumCast;
 
 use super::{
     init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, Vectorized,
@@ -16,7 +17,7 @@ use super::{
 
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
-    Numeric
+    Algebraic
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>
@@ -81,7 +82,13 @@ macro_rules! impl_int {
         impl Numeric for $type {
             const MAX: Self = $type::MAX;
             const MIN: Self = $type::MIN;
+
+            fn from_int(val: i64) -> Self {
+                <Self as NumCast>::from(val).unwrap()
+            }
         }
+
+        impl Algebraic for $type {}
 
         impl Vectorized for $type {
             fn vectorization_factor(&self) -> u32 {

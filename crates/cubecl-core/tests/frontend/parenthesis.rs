@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub fn parenthesis<T: Numeric>(x: T, y: T, z: T) -> T {
+pub fn parenthesis<T: Algebraic>(x: T, y: T, z: T) -> T {
     x * (y + z)
 }
 

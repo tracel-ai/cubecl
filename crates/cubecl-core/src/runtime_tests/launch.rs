@@ -1,4 +1,4 @@
-use crate::{self as cubecl, as_bytes};
+use crate::{self as cubecl, to_elem_data};
 use cubecl::prelude::*;
 
 #[cube(launch)]
@@ -18,7 +18,7 @@ pub fn kernel_without_generics(output: &mut Array<f32>) {
 pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0, 1.0]);
+    let handle = client.create(to_elem_data![F: 0.0, 1.0]);
 
     kernel_with_generics::launch::<F, R>(
         &client,
@@ -27,14 +27,13 @@ pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     );
 
-    let actual = client.read_one(handle.binding());
-    let actual = F::from_bytes(&actual);
+    let actual = F::from_elem_data(client.read_one(handle.binding()));
 
     assert_eq!(actual[0], F::new(5.0));
 }
 
 pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
+    let handle = client.create(&f32::to_elem_data(&[0.0, 1.0]));
 
     kernel_without_generics::launch::<R>(
         &client,
@@ -43,8 +42,7 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server,
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, 1) },
     );
 
-    let actual = client.read_one(handle.binding());
-    let actual = f32::from_bytes(&actual);
+    let actual = f32::from_elem_data(client.read_one(handle.binding()));
 
     assert_eq!(actual[0], 5.0);
 }

@@ -1,10 +1,11 @@
 use crate::prelude::{KernelBuilder, KernelLauncher};
 use crate::Runtime;
 use crate::{
-    frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric},
+    frontend::{Algebraic, CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric},
     ir::UIntKind,
 };
 use crate::{ir::Elem, unexpanded};
+use num_traits::NumCast;
 
 use super::{
     init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntoRuntime,
@@ -53,7 +54,13 @@ macro_rules! declare_uint {
         impl Numeric for $primitive {
             const MAX: Self = $primitive::MAX;
             const MIN: Self = $primitive::MIN;
+
+            fn from_int(val: i64) -> Self {
+                <Self as NumCast>::from(val).unwrap()
+            }
         }
+
+        impl Algebraic for $primitive {}
 
         impl Int for $primitive {
             const BITS: u32 = $primitive::BITS;

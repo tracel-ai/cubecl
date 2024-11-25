@@ -1,7 +1,8 @@
 use cubecl_core as cubecl;
+use cubecl_core::prelude::Algebraic;
 use cubecl_core::{
     cube,
-    frontend::{Cast, Float, Int, Numeric},
+    frontend::{Cast, Float, Int},
 };
 
 #[cube]
@@ -19,14 +20,14 @@ pub fn cast_int_kind<I1: Int, I2: Int>(input: I1) {
 }
 
 #[cube]
-pub fn cast_numeric_to_kind<T: Numeric, I: Int>(input: T) {
+pub fn cast_numeric_to_kind<T: Algebraic, I: Int>(input: T) {
     let x = input + T::from_int(5);
     let y = I::cast_from(x);
     let _ = y + I::from_int(2);
 }
 
 #[cube]
-pub fn cast_int_to_numeric<I: Int, T: Numeric>(input: I) {
+pub fn cast_int_to_numeric<I: Int, T: Algebraic>(input: I) {
     let x = input + I::from_int(5);
     let y = T::cast_from(x);
     let _ = y + T::from_int(2);
