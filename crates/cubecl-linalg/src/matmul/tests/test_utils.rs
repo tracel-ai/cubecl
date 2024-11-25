@@ -8,7 +8,13 @@ use cubecl_core::{
     CubeElement, Runtime,
 };
 
-use crate::{matmul::components::MatmulProblem, tensor::TensorHandle};
+use crate::{
+    matmul::{
+        components::{batch, Ident, MatmulProblem},
+        tests::cmma_matmul::matmul_test_launcher::strides,
+    },
+    tensor::TensorHandle,
+};
 
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
@@ -148,24 +154,40 @@ where
     let m = problem.m;
     let n = problem.n;
     let k = problem.k;
-    let b = problem.num_batches();
+    let num_batches = problem.num_batches();
 
-    let mut out = vec![EG::from_int(0); m * n * b];
+    let (b_lhs, b_rhs) = problem.batches.clone();
+    assert!(b_lhs.len() == b_rhs.len(), "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning.");
 
-    for b_ in 0..b {
+    let lhs_strides = strides(problem, Ident::Lhs);
+    let rhs_strides = strides(problem, Ident::Rhs);
+    let out_strides = strides(problem, Ident::Out);
+
+    let mut out = vec![EG::from_int(0); m * n * num_batches];
+
+    for nth_batch in 0..num_batches {
+        let batch_out = nth_batch * m * n;
+        let mut batch_lhs = 0;
+        let mut batch_rhs = 0;
+        for b in 0..b_lhs.len() {
+            let tmp = batch_out / out_strides[b];
+            batch_lhs += tmp % b_lhs[b] * lhs_strides[b];
+            batch_rhs += tmp % b_rhs[b] * rhs_strides[b];
+        }
+
         for i in 0..m {
             for j in 0..n {
                 for k_ in 0..k {
-                    let lhs_index = b_ * m * k + i * k + k_;
-                    let rhs_index = b_ * k * n + k_ * n + j;
-                    let out_index = b_ * m * n + i * n + j;
+                    let lhs_index = i * k + k_;
+                    let rhs_index = k_ * n + j;
+                    let out_index = i * n + j;
 
-                    let l: ES = lhs[lhs_index].cast_into();
-                    let r: ES = rhs[rhs_index].cast_into();
+                    let l: ES = lhs[batch_lhs + lhs_index].cast_into();
+                    let r: ES = rhs[batch_rhs + rhs_index].cast_into();
                     let prod = l * r;
                     let casted: EG = prod.cast_into();
 
-                    out[out_index] += casted;
+                    out[batch_out + out_index] += casted;
                 }
             }
         }

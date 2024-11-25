@@ -15,7 +15,7 @@ pub struct MatmulProblem {
 }
 
 impl MatmulProblem {
-    pub(crate) fn batches(&self) -> Vec<usize> {
+    pub(crate) fn batch_dims(&self) -> Vec<usize> {
         self.batches
             .0
             .iter()
@@ -27,7 +27,7 @@ impl MatmulProblem {
 
     /// Returns the total number of batches
     pub(crate) fn num_batches(&self) -> usize {
-        self.batches().iter().product()
+        self.batch_dims().iter().product()
     }
 
     /// Asserts that the problem can be solved with the given batch matmul configs

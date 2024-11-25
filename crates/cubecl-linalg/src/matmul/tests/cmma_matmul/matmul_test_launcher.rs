@@ -263,7 +263,7 @@ fn shape(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
             .chain(vec![problem.k, problem.n])
             .collect(),
         Ident::Out => problem
-            .batches()
+            .batch_dims()
             .iter()
             .cloned()
             .chain(vec![problem.m, problem.n])
