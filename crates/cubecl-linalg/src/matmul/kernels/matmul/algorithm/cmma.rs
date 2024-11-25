@@ -38,7 +38,7 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
         Self::EG,
         Self::ES,
         Self::GlobalMatmul,
-        batch::TransposedDispatch,
+        batch::SwizzleTransposedDispatch<2>,
     >;
 
     fn cube_count(problem: &MatmulProblem) -> CubeCount {
