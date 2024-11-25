@@ -6,7 +6,7 @@ pub struct MatmulProblem {
     pub m: usize,
     pub n: usize,
     pub k: usize,
-    pub batches: Vec<usize>,
+    pub batches: (Vec<usize>, Vec<usize>),
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
     pub lhs_line_size: u8,
@@ -15,9 +15,19 @@ pub struct MatmulProblem {
 }
 
 impl MatmulProblem {
+    pub(crate) fn batches(&self) -> Vec<usize> {
+        self.batches
+            .0
+            .iter()
+            .rev()
+            .zip(self.batches.1.iter().rev())
+            .map(|(&dim_lhs, &dim_rhs)| std::cmp::max(dim_lhs, dim_rhs))
+            .collect()
+    }
+
     /// Returns the total number of batches
     pub(crate) fn num_batches(&self) -> usize {
-        self.batches.iter().copied().product()
+        self.batches().iter().product()
     }
 
     /// Asserts that the problem can be solved with the given batch matmul configs

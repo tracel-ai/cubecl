@@ -136,7 +136,7 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(
 ///
 /// This is a naive CPU implementation, very slow on large payloads,
 /// not designed to be used for other purposes than testing.
-pub(crate) fn matmul_cpu_reference<EG, ES>(
+pub(crate) fn matmul_cpu_with_broadcasting<EG, ES>(
     lhs: &[EG],
     rhs: &[EG],
     problem: &MatmulProblem,
@@ -149,30 +149,72 @@ where
     let n = problem.n;
     let k = problem.k;
     let b = problem.num_batches();
-
     let mut out = vec![EG::from_int(0); m * n * b];
 
     for b_ in 0..b {
+        let lhs_batch_stride = if problem.lhs_broadcast_batch { 0 } else { m * k };
+        let rhs_batch_stride = if problem.rhs_broadcast_batch { 0 } else { k * n };
+
+        let lhs_batch_start = b_ * lhs_batch_stride;
+        let rhs_batch_start = b_ * rhs_batch_stride;
+
         for i in 0..m {
             for j in 0..n {
                 for k_ in 0..k {
-                    let lhs_index = b_ * m * k + i * k + k_;
-                    let rhs_index = b_ * k * n + k_ * n + j;
+                    let lhs_index = lhs_batch_start + 
+                        if problem.lhs_broadcast_batch { 0 } else { i * k + k_ };
+                    let rhs_index = rhs_batch_start + 
+                        if problem.rhs_broadcast_batch { 0 } else { k_ * n + j };
                     let out_index = b_ * m * n + i * n + j;
 
                     let l: ES = lhs[lhs_index].cast_into();
                     let r: ES = rhs[rhs_index].cast_into();
                     let prod = l * r;
                     let casted: EG = prod.cast_into();
-
                     out[out_index] += casted;
                 }
             }
         }
     }
-
     out
 }
+// pub(crate) fn matmul_cpu_reference<EG, ES>(
+//     lhs: &[EG],
+//     rhs: &[EG],
+//     problem: &MatmulProblem,
+// ) -> Vec<EG>
+// where
+//     EG: Numeric + CubeElement + CastInto<ES>,
+//     ES: Numeric + CubeElement + CastInto<EG>,
+// {
+//     let m = problem.m;
+//     let n = problem.n;
+//     let k = problem.k;
+//     let b = problem.num_batches();
+
+//     let mut out = vec![EG::from_int(0); m * n * b];
+
+//     for b_ in 0..b {
+//         for i in 0..m {
+//             for j in 0..n {
+//                 for k_ in 0..k {
+//                     let lhs_index = b_ * m * k + i * k + k_;
+//                     let rhs_index = b_ * k * n + k_ * n + j;
+//                     let out_index = b_ * m * n + i * n + j;
+
+//                     let l: ES = lhs[lhs_index].cast_into();
+//                     let r: ES = rhs[rhs_index].cast_into();
+//                     let prod = l * r;
+//                     let casted: EG = prod.cast_into();
+
+//                     out[out_index] += casted;
+//                 }
+//             }
+//         }
+//     }
+
+//     out
+// }
 
 /// Deprecated
 pub(crate) struct MatmulTestCase {
