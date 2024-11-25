@@ -91,7 +91,7 @@ impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
                 gpu::Elem::Float(gpu::FloatKind::TF32),
                 gpu::Elem::Float(gpu::FloatKind::TF32),
                 gpu::Elem::Float(gpu::FloatKind::F32),
-                vec![(16, 8, 16)],
+                vec![(16, 16, 8)],
             ));
         }
         result
