@@ -44,10 +44,10 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
-    async fn read(&self, binding: Binding) -> Vec<u8> {
+    async fn read(&self, bindings: Vec<Binding>) -> Vec<Vec<u8>> {
         let future = {
             let mut server = self.server.borrow_mut();
-            server.read(binding)
+            server.read(bindings)
         };
         future.await
     }

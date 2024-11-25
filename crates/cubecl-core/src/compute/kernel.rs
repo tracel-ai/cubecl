@@ -6,7 +6,37 @@ use cubecl_runtime::ExecutionMode;
 
 /// A kernel, compiled in the target language
 pub struct CompiledKernel<C: Compiler> {
-    pub name: Option<&'static str>,
+    /// The name of the kernel entrypoint.
+
+    /// For example
+    ///
+    /// ```text
+    /// #[cube(launch)]
+    /// fn gelu_array<F: Float, R: Runtime>() {}
+    /// ```
+    ///
+    /// would have the entrypoint name "gelu_array".
+    pub entrypoint_name: String,
+
+    /// A fully qualified debug name of the kernel.
+    ///
+    /// For example
+    ///
+    /// ```text
+    /// #[cube(launch)]
+    /// fn gelu_array<F: Float, R: Runtime>() {}
+    /// ```
+    ///
+    /// would have a debug name such as
+    ///
+    /// ```text
+    /// gelu::gelu_array::GeluArray<
+    ///    cubecl_core::frontend::element::float::F32,
+    ///    cubecl_cuda::runtime::CudaRuntime,
+    /// >
+    /// ```
+    pub debug_name: Option<&'static str>,
+
     /// Source code of the kernel
     pub source: String,
     /// In-memory representation of the kernel
@@ -48,7 +78,7 @@ impl<C: Compiler> Display for CompiledKernel<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("\n[START_KERNEL_COMPILATION]")?;
 
-        if let Some(name) = self.name {
+        if let Some(name) = self.debug_name {
             if name.len() <= 32 {
                 f.write_fmt(format_args!("\nname: {name}"))?;
             } else {
@@ -172,7 +202,11 @@ pub trait CubeTask<C: Compiler>: Send + Sync {
     /// Identifier for the kernel, used for caching kernel compilation.
     fn id(&self) -> KernelId;
     /// Compile the kernel into source
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C>;
+    fn compile(
+        &self,
+        compilation_options: &C::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> CompiledKernel<C>;
     fn name(&self) -> &'static str {
         core::any::type_name::<Self>()
     }
@@ -186,14 +220,20 @@ pub struct KernelTask<C: Compiler, K: Kernel> {
 }
 
 impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
+    fn compile(
+        &self,
+        compilation_options: &C::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> CompiledKernel<C> {
         let gpu_ir = self.kernel_definition.define();
+        let kernel_name = gpu_ir.kernel_name.clone();
         let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = C::compile(gpu_ir, mode);
+        let lower_level_ir = C::compile(gpu_ir, compilation_options, mode);
         let shared_mem_bytes = lower_level_ir.shared_memory_size();
 
         CompiledKernel {
-            name: Some(core::any::type_name::<K>()),
+            entrypoint_name: kernel_name,
+            debug_name: Some(core::any::type_name::<K>()),
             source: lower_level_ir.to_string(),
             repr: Some(lower_level_ir),
             cube_dim,
@@ -212,8 +252,12 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
 }
 
 impl<C: Compiler> CubeTask<C> for Arc<dyn CubeTask<C>> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
-        self.as_ref().compile(mode)
+    fn compile(
+        &self,
+        compilation_options: &C::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> CompiledKernel<C> {
+        self.as_ref().compile(compilation_options, mode)
     }
 
     fn id(&self) -> KernelId {
@@ -225,8 +269,12 @@ impl<C: Compiler> CubeTask<C> for Arc<dyn CubeTask<C>> {
 }
 
 impl<C: Compiler> CubeTask<C> for Box<dyn CubeTask<C>> {
-    fn compile(&self, mode: ExecutionMode) -> CompiledKernel<C> {
-        self.as_ref().compile(mode)
+    fn compile(
+        &self,
+        compilation_options: &C::CompilationOptions,
+        mode: ExecutionMode,
+    ) -> CompiledKernel<C> {
+        self.as_ref().compile(compilation_options, mode)
     }
 
     fn id(&self) -> KernelId {

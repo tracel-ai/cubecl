@@ -10,7 +10,7 @@ use crate::ir::Synchronization;
 ///
 /// * Then all the invocations in the cube wait for each other to arrive at the barrier, i.e. this step.
 ///
-/// * Then all the invocations int he cube begin executing after the barrier, and any writes to cube address space that were made before the barrier are now visible to any invocation in this cube.
+/// * Then all the invocations int the cube begin executing after the barrier, and all writes to cube address space made before the barrier are now visible to any invocation in this cube.
 pub fn sync_units() {}
 
 pub mod sync_units {

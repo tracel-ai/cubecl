@@ -42,7 +42,7 @@ pub fn test_kernel_const_match<
         Operation::IndexAssign(index as u32, U::new(value as i64)),
     );
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[index], F::new(value));

@@ -3,68 +3,81 @@ use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_core::{
     cpa,
-    ir::{
-        self as gpu, ConstantScalarValue, Elem, Item, KernelDefinition, Metadata, ReusingAllocator,
-        Scope, UIntKind, Variable, VariableKind,
-    },
+    ir::{self as gpu},
     prelude::CubePrimitive,
     Compiler, Feature,
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
 
 use super::{
-    Instruction, UnaryInstruction, Variable as CppVariable, VariableSettings, WarpInstruction,
+    AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Elem, Fragment,
+    FragmentIdent, FragmentLayout, IndexedVariable, Instruction, Item, LocalArray, SharedMemory,
+    UnaryInstruction, Variable, VariableSettings, WarpInstruction, WmmaCompiler, WmmaInstruction,
 };
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
 
-pub trait Dialect: Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static {
+pub trait Dialect:
+    WmmaCompiler<Self> + Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
+{
     // includes
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_bf16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     // types
     fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     // warp instructions (all threads participating)
-    fn warp_shuffle(input: &CppVariable<Self>, id: &CppVariable<Self>) -> String;
-    fn warp_shuffle_xor(out: &CppVariable<Self>) -> String;
-    fn warp_shuffle_down(out: &CppVariable<Self>) -> String;
-    fn warp_all(out: &CppVariable<Self>) -> String;
-    fn warp_any(out: &CppVariable<Self>) -> String;
-    // Matrix-Multiple Accumulate
-    fn mma_namespace() -> &'static str;
+    fn warp_shuffle(input: &IndexedVariable<Self>, id: &Variable<Self>) -> String;
+    fn warp_shuffle_xor(out: &IndexedVariable<Self>) -> String;
+    fn warp_shuffle_down(out: &IndexedVariable<Self>) -> String;
+    fn warp_all(out: &IndexedVariable<Self>) -> String;
+    fn warp_any(out: &IndexedVariable<Self>) -> String;
+}
+
+#[derive(Clone, Debug)]
+pub struct CompilationOptions {
+    pub warp_size: u32,
+}
+
+impl Default for CompilationOptions {
+    fn default() -> Self {
+        Self { warp_size: 32 }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug, Default)]
 pub struct CppCompiler<D: Dialect> {
-    shared_memories: Vec<super::SharedMemory<D>>,
-    const_arrays: Vec<super::ConstArray<D>>,
-    local_arrays: Vec<super::LocalArray<D>>,
+    shared_memories: Vec<SharedMemory<D>>,
+    const_arrays: Vec<ConstArray<D>>,
+    local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
-    wrap_size_checked: bool,
+    warp_size_checked: bool,
     wmma: bool,
     bf16: bool,
     f16: bool,
     num_inputs: usize,
     num_outputs: usize,
     ext_meta_positions: Vec<u32>,
-    items: HashSet<super::Item<D>>,
+    items: HashSet<Item<D>>,
     strategy: ExecutionMode,
     settings: VariableSettings,
+    compilation_options: CompilationOptions,
 }
 
 impl<D: Dialect> Compiler for CppCompiler<D> {
-    type Representation = super::ComputeKernel<D>;
+    type Representation = ComputeKernel<D>;
+    type CompilationOptions = CompilationOptions;
 
     fn compile(
         kernel: cubecl_core::ir::KernelDefinition,
+        compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
     ) -> Self::Representation {
         let compiler = Self {
+            compilation_options: compilation_options.clone(),
             strategy,
             ..Self::default()
         };
@@ -82,12 +95,12 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
     }
 
     fn local_allocator() -> impl gpu::LocalAllocator {
-        ReusingAllocator::default()
+        gpu::ReusingAllocator::default()
     }
 }
 
 impl<D: Dialect> CppCompiler<D> {
-    fn compile_ir(mut self, mut value: gpu::KernelDefinition) -> super::ComputeKernel<D> {
+    fn compile_ir(mut self, mut value: gpu::KernelDefinition) -> ComputeKernel<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body);
@@ -107,16 +120,16 @@ impl<D: Dialect> CppCompiler<D> {
             .map(|(name, binding)| (name, self.compile_binding(binding)))
             .collect();
 
-        let body = super::Body {
+        let body = Body {
             instructions,
             shared_memories: self.shared_memories,
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
-            warp_size_checked: self.wrap_size_checked,
+            warp_size_checked: self.warp_size_checked,
             settings: self.settings,
         };
 
-        super::ComputeKernel {
+        ComputeKernel {
             inputs,
             outputs,
             named,
@@ -126,10 +139,11 @@ impl<D: Dialect> CppCompiler<D> {
             bf16: self.bf16,
             f16: self.f16,
             items: self.items,
+            kernel_name: value.kernel_name,
         }
     }
 
-    fn build_metadata(&mut self, value: &KernelDefinition) {
+    fn build_metadata(&mut self, value: &gpu::KernelDefinition) {
         self.num_inputs = value.inputs.len();
         self.num_outputs = value.outputs.len();
 
@@ -149,8 +163,8 @@ impl<D: Dialect> CppCompiler<D> {
 
     pub(crate) fn ext_meta_position(&self, var: gpu::Variable) -> u32 {
         let pos = match var.kind {
-            VariableKind::GlobalInputArray(id) => id as usize,
-            VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
+            gpu::VariableKind::GlobalInputArray(id) => id as usize,
+            gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
             other => panic!("Only global arrays have metadata, got {other:?}"),
         };
         self.ext_meta_positions[pos]
@@ -162,7 +176,7 @@ impl<D: Dialect> CppCompiler<D> {
         let const_arrays = scope
             .const_arrays
             .drain(..)
-            .map(|(var, values)| super::ConstArray {
+            .map(|(var, values)| ConstArray {
                 index: var.index().unwrap(),
                 item: self.compile_item(var.item),
                 size: values.len() as u32,
@@ -216,7 +230,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
             },
             gpu::Operation::Plane(op) => {
-                self.wrap_size_checked = true;
+                self.warp_size_checked = true;
                 let out = self.compile_variable(out.unwrap());
                 match op {
                     gpu::Plane::Sum(op) => {
@@ -274,7 +288,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
         let out = self.compile_variable(out.unwrap());
         match cmma {
-            gpu::CoopMma::Fill { value } => Instruction::Wmma(super::WmmaInstruction::Fill {
+            gpu::CoopMma::Fill { value } => Instruction::Wmma(WmmaInstruction::Fill {
                 frag: out,
                 value: self.compile_variable(value),
             }),
@@ -282,7 +296,7 @@ impl<D: Dialect> CppCompiler<D> {
                 value,
                 stride,
                 layout,
-            } => Instruction::Wmma(super::WmmaInstruction::Load {
+            } => Instruction::Wmma(WmmaInstruction::Load {
                 frag: out,
                 value: self.compile_variable(value),
                 stride: self.compile_variable(stride),
@@ -292,17 +306,18 @@ impl<D: Dialect> CppCompiler<D> {
                 mat_a,
                 mat_b,
                 mat_c,
-            } => Instruction::Wmma(super::WmmaInstruction::Execute {
+            } => Instruction::Wmma(WmmaInstruction::Execute {
                 frag_a: self.compile_variable(mat_a),
                 frag_b: self.compile_variable(mat_b),
                 frag_c: self.compile_variable(mat_c),
                 frag_d: out,
+                warp_size: self.compilation_options.warp_size,
             }),
             gpu::CoopMma::Store {
                 mat,
                 stride,
                 layout,
-            } => Instruction::Wmma(super::WmmaInstruction::Store {
+            } => Instruction::Wmma(WmmaInstruction::Store {
                 output: out,
                 frag: self.compile_variable(mat),
                 stride: self.compile_variable(stride),
@@ -352,17 +367,17 @@ impl<D: Dialect> CppCompiler<D> {
                 let out = self.compile_variable(out);
 
                 match input {
-                    super::Variable::Slice { .. } => super::Instruction::SliceLength { input, out },
+                    Variable::Slice { .. } => Instruction::SliceLength { input, out },
                     _ => {
                         let id = match input {
-                            super::Variable::GlobalInputArray(id, _) => id as u32,
-                            super::Variable::GlobalOutputArray(id, _) => {
+                            Variable::GlobalInputArray(id, _) => id as u32,
+                            Variable::GlobalOutputArray(id, _) => {
                                 self.num_inputs as u32 + id as u32
                             }
                             _ => panic!("Can only get length of global array"),
                         };
                         let offset = self.metadata.len_index(id);
-                        super::Instruction::Metadata {
+                        Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
                             out,
                         }
@@ -374,17 +389,17 @@ impl<D: Dialect> CppCompiler<D> {
                 let out = self.compile_variable(out);
 
                 match input {
-                    super::Variable::Slice { .. } => super::Instruction::SliceLength { input, out },
+                    Variable::Slice { .. } => Instruction::SliceLength { input, out },
                     _ => {
                         let id = match input {
-                            super::Variable::GlobalInputArray(id, _) => id as u32,
-                            super::Variable::GlobalOutputArray(id, _) => {
+                            Variable::GlobalInputArray(id, _) => id as u32,
+                            Variable::GlobalOutputArray(id, _) => {
                                 self.num_inputs as u32 + id as u32
                             }
                             _ => panic!("Can only get buffer length of global array"),
                         };
                         let offset = self.metadata.buffer_len_index(id);
-                        super::Instruction::Metadata {
+                        Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
                             out,
                         }
@@ -515,8 +530,8 @@ impl<D: Dialect> CppCompiler<D> {
                     instructions.extend(self.compile_scope(scope));
 
                     let length = match has_buffer_length(&lhs) {
-                        true => Metadata::BufferLength { var: lhs },
-                        false => Metadata::Length { var: lhs },
+                        true => gpu::Metadata::BufferLength { var: lhs },
+                        false => gpu::Metadata::Length { var: lhs },
                     };
 
                     instructions.push(self.compile_metadata(length, Some(array_len)));
@@ -642,17 +657,17 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Recip(op) => {
                 let elem = op.input.item.elem();
                 let lhs = match elem {
-                    gpu::Elem::Float(kind) => ConstantScalarValue::Float(1.0, kind),
-                    gpu::Elem::Int(kind) => ConstantScalarValue::Int(1, kind),
-                    gpu::Elem::UInt(kind) => ConstantScalarValue::UInt(1, kind),
-                    gpu::Elem::Bool => ConstantScalarValue::Bool(true),
+                    gpu::Elem::Float(kind) => gpu::ConstantScalarValue::Float(1.0, kind),
+                    gpu::Elem::Int(kind) => gpu::ConstantScalarValue::Int(1, kind),
+                    gpu::Elem::UInt(kind) => gpu::ConstantScalarValue::UInt(1, kind),
+                    gpu::Elem::Bool => gpu::ConstantScalarValue::Bool(true),
                     gpu::Elem::AtomicInt(_) | gpu::Elem::AtomicUInt(_) => {
                         panic!("Cannot use recip with atomics")
                     }
                 };
 
-                instructions.push(Instruction::Div(super::BinaryInstruction {
-                    lhs: super::Variable::ConstantScalar(lhs, self.compile_elem(elem)),
+                instructions.push(Instruction::Div(BinaryInstruction {
+                    lhs: Variable::ConstantScalar(lhs, self.compile_elem(elem)),
                     rhs: self.compile_variable(op.input),
                     out: self.compile_variable(out),
                 }))
@@ -727,8 +742,8 @@ impl<D: Dialect> CppCompiler<D> {
         &mut self,
         value: gpu::BinaryOperator,
         out: gpu::Variable,
-    ) -> super::BinaryInstruction<D> {
-        super::BinaryInstruction {
+    ) -> BinaryInstruction<D> {
+        BinaryInstruction {
             lhs: self.compile_variable(value.lhs),
             rhs: self.compile_variable(value.rhs),
             out: self.compile_variable(out),
@@ -739,106 +754,107 @@ impl<D: Dialect> CppCompiler<D> {
         &mut self,
         value: gpu::UnaryOperator,
         out: gpu::Variable,
-    ) -> super::UnaryInstruction<D> {
-        super::UnaryInstruction {
+    ) -> UnaryInstruction<D> {
+        UnaryInstruction {
             input: self.compile_variable(value.input),
             out: self.compile_variable(out),
         }
     }
 
-    fn compile_variable(&mut self, value: gpu::Variable) -> super::Variable<D> {
+    fn compile_variable(&mut self, value: gpu::Variable) -> Variable<D> {
         let item = value.item;
         match value.kind {
             gpu::VariableKind::GlobalInputArray(id) => {
-                super::Variable::GlobalInputArray(id, self.compile_item(item))
+                Variable::GlobalInputArray(id, self.compile_item(item))
             }
             gpu::VariableKind::GlobalScalar(id) => {
-                super::Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
+                Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
-            gpu::VariableKind::Local { id, depth } => super::Variable::Local {
+            gpu::VariableKind::Local { id, depth } => Variable::Local {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::VariableKind::Versioned { id, depth, .. } => super::Variable::Local {
+            gpu::VariableKind::Versioned { id, depth, .. } => Variable::Local {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::VariableKind::LocalBinding { id, depth } => super::Variable::ConstLocal {
+            gpu::VariableKind::LocalBinding { id, depth } => Variable::ConstLocal {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::VariableKind::Slice { id, depth } => super::Variable::Slice {
+            gpu::VariableKind::Slice { id, depth } => Variable::Slice {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
             gpu::VariableKind::GlobalOutputArray(id) => {
-                super::Variable::GlobalOutputArray(id, self.compile_item(item))
+                Variable::GlobalOutputArray(id, self.compile_item(item))
             }
             gpu::VariableKind::ConstantScalar(value) => {
-                super::Variable::ConstantScalar(value, self.compile_elem(value.elem()))
+                Variable::ConstantScalar(value, self.compile_elem(value.elem()))
             }
             gpu::VariableKind::SharedMemory { id, length } => {
                 let item = self.compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
-                        .push(super::SharedMemory::new(id, item, length));
+                        .push(SharedMemory::new(id, item, length));
                 }
-                super::Variable::SharedMemory(id, item, length)
+                Variable::SharedMemory(id, item, length)
             }
             gpu::VariableKind::ConstantArray { id, length } => {
                 let item = self.compile_item(item);
-                super::Variable::ConstantArray(id, item, length)
+                Variable::ConstantArray(id, item, length)
             }
             gpu::VariableKind::Builtin(builtin) => match builtin {
                 gpu::Builtin::AbsolutePos => {
                     self.settings.idx_global = true;
-                    super::Variable::IdxGlobal
+                    Variable::IdxGlobal
                 }
                 gpu::Builtin::UnitPos => {
                     self.settings.thread_idx_global = true;
-                    super::Variable::ThreadIdxGlobal
+                    Variable::ThreadIdxGlobal
                 }
-                gpu::Builtin::UnitPosX => super::Variable::ThreadIdxX,
-                gpu::Builtin::UnitPosY => super::Variable::ThreadIdxY,
-                gpu::Builtin::UnitPosZ => super::Variable::ThreadIdxZ,
-                gpu::Builtin::CubePosX => super::Variable::BlockIdxX,
-                gpu::Builtin::CubePosY => super::Variable::BlockIdxY,
-                gpu::Builtin::CubePosZ => super::Variable::BlockIdxZ,
+                gpu::Builtin::UnitPosX => Variable::ThreadIdxX,
+                gpu::Builtin::UnitPosY => Variable::ThreadIdxY,
+                gpu::Builtin::UnitPosZ => Variable::ThreadIdxZ,
+                gpu::Builtin::CubePosX => Variable::BlockIdxX,
+                gpu::Builtin::CubePosY => Variable::BlockIdxY,
+                gpu::Builtin::CubePosZ => Variable::BlockIdxZ,
                 gpu::Builtin::AbsolutePosX => {
                     self.settings.absolute_idx.0 = true;
-                    super::Variable::AbsoluteIdxX
+                    Variable::AbsoluteIdxX
                 }
                 gpu::Builtin::AbsolutePosY => {
                     self.settings.absolute_idx.1 = true;
-                    super::Variable::AbsoluteIdxY
+                    Variable::AbsoluteIdxY
                 }
                 gpu::Builtin::AbsolutePosZ => {
                     self.settings.absolute_idx.2 = true;
-                    super::Variable::AbsoluteIdxZ
+                    Variable::AbsoluteIdxZ
                 }
-                gpu::Builtin::CubeDimX => super::Variable::BlockDimX,
-                gpu::Builtin::CubeDimY => super::Variable::BlockDimY,
-                gpu::Builtin::CubeDimZ => super::Variable::BlockDimZ,
-                gpu::Builtin::CubeCountX => super::Variable::GridDimX,
-                gpu::Builtin::CubeCountY => super::Variable::GridDimY,
-                gpu::Builtin::CubeCountZ => super::Variable::GridDimZ,
+                gpu::Builtin::CubeDimX => Variable::BlockDimX,
+                gpu::Builtin::CubeDimY => Variable::BlockDimY,
+                gpu::Builtin::CubeDimZ => Variable::BlockDimZ,
+                gpu::Builtin::CubeCountX => Variable::GridDimX,
+                gpu::Builtin::CubeCountY => Variable::GridDimY,
+                gpu::Builtin::CubeCountZ => Variable::GridDimZ,
                 gpu::Builtin::CubePos => {
                     self.settings.block_idx_global = true;
-                    super::Variable::BlockIdxGlobal
+                    Variable::BlockIdxGlobal
                 }
                 gpu::Builtin::CubeDim => {
                     self.settings.block_dim_global = true;
-                    super::Variable::BlockDimGlobal
+                    Variable::BlockDimGlobal
                 }
                 gpu::Builtin::CubeCount => {
                     self.settings.grid_dim_global = true;
-                    super::Variable::GridDimGlobal
+                    Variable::GridDimGlobal
                 }
-                gpu::Builtin::PlaneDim => super::Variable::WarpSize,
+                gpu::Builtin::PlaneDim => Variable::WarpSize,
+                gpu::Builtin::UnitPosPlane => Variable::ThreadIdxWarp,
             },
             gpu::VariableKind::LocalArray { id, depth, length } => {
                 let item = self.compile_item(item);
@@ -848,13 +864,13 @@ impl<D: Dialect> CppCompiler<D> {
                     .any(|s| s.index == id && s.depth == depth)
                 {
                     self.local_arrays
-                        .push(super::LocalArray::new(id, item, depth, length));
+                        .push(LocalArray::new(id, item, depth, length));
                 }
-                super::Variable::LocalArray(id, item, depth, length)
+                Variable::LocalArray(id, item, depth, length)
             }
             gpu::VariableKind::Matrix { id, mat, depth } => {
                 self.wmma = true;
-                super::Variable::WmmaFragment {
+                Variable::WmmaFragment {
                     id,
                     frag: self.compile_matrix(mat),
                     depth,
@@ -863,8 +879,8 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_matrix(&mut self, matrix: gpu::Matrix) -> super::Fragment<D> {
-        super::Fragment {
+    fn compile_matrix(&mut self, matrix: gpu::Matrix) -> Fragment<D> {
+        Fragment {
             ident: self.compile_matrix_ident(matrix.ident),
             m: matrix.m,
             n: matrix.n,
@@ -874,34 +890,31 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_matrix_ident(&mut self, ident: gpu::MatrixIdent) -> super::FragmentIdent<D> {
+    fn compile_matrix_ident(&mut self, ident: gpu::MatrixIdent) -> FragmentIdent<D> {
         match ident {
-            gpu::MatrixIdent::A => super::FragmentIdent::A,
-            gpu::MatrixIdent::B => super::FragmentIdent::B,
-            gpu::MatrixIdent::Accumulator => super::FragmentIdent::Accumulator,
+            gpu::MatrixIdent::A => FragmentIdent::A,
+            gpu::MatrixIdent::B => FragmentIdent::B,
+            gpu::MatrixIdent::Accumulator => FragmentIdent::Accumulator,
         }
     }
 
-    fn compile_matrix_layout(
-        &mut self,
-        layout: gpu::MatrixLayout,
-    ) -> Option<super::FragmentLayout<D>> {
+    fn compile_matrix_layout(&mut self, layout: gpu::MatrixLayout) -> Option<FragmentLayout<D>> {
         match layout {
-            gpu::MatrixLayout::ColMajor => Some(super::FragmentLayout::ColMajor),
-            gpu::MatrixLayout::RowMajor => Some(super::FragmentLayout::RowMajor),
+            gpu::MatrixLayout::ColMajor => Some(FragmentLayout::ColMajor),
+            gpu::MatrixLayout::RowMajor => Some(FragmentLayout::RowMajor),
             gpu::MatrixLayout::Undefined => None,
         }
     }
 
-    fn compile_binding(&mut self, binding: gpu::Binding) -> super::Binding<D> {
-        super::Binding {
+    fn compile_binding(&mut self, binding: gpu::Binding) -> Binding<D> {
+        Binding {
             item: self.compile_item(binding.item),
             size: binding.size,
         }
     }
 
-    fn compile_item(&mut self, item: gpu::Item) -> super::Item<D> {
-        let item = super::Item::new(
+    fn compile_item(&mut self, item: gpu::Item) -> Item<D> {
+        let item = Item::new(
             self.compile_elem(item.elem),
             item.vectorization.map(NonZero::get).unwrap_or(1).into(),
         );
@@ -918,62 +931,62 @@ impl<D: Dialect> CppCompiler<D> {
         item
     }
 
-    fn compile_elem(&mut self, value: gpu::Elem) -> super::Elem<D> {
+    fn compile_elem(&mut self, value: gpu::Elem) -> Elem<D> {
         match value {
             gpu::Elem::Float(kind) => match kind {
                 gpu::FloatKind::F16 => {
                     self.f16 = true;
-                    super::Elem::F16
+                    Elem::F16
                 }
                 gpu::FloatKind::BF16 => {
                     self.bf16 = true;
-                    super::Elem::BF16
+                    Elem::BF16
                 }
-                gpu::FloatKind::TF32 => super::Elem::TF32,
-                gpu::FloatKind::Flex32 => super::Elem::F32,
-                gpu::FloatKind::F32 => super::Elem::F32,
-                gpu::FloatKind::F64 => super::Elem::F64,
+                gpu::FloatKind::TF32 => Elem::TF32,
+                gpu::FloatKind::Flex32 => Elem::F32,
+                gpu::FloatKind::F32 => Elem::F32,
+                gpu::FloatKind::F64 => Elem::F64,
             },
             gpu::Elem::Int(kind) => match kind {
-                gpu::IntKind::I8 => super::Elem::I8,
-                gpu::IntKind::I16 => super::Elem::I16,
-                gpu::IntKind::I32 => super::Elem::I32,
-                gpu::IntKind::I64 => super::Elem::I64,
+                gpu::IntKind::I8 => Elem::I8,
+                gpu::IntKind::I16 => Elem::I16,
+                gpu::IntKind::I32 => Elem::I32,
+                gpu::IntKind::I64 => Elem::I64,
             },
             gpu::Elem::AtomicInt(kind) => match kind {
-                gpu::IntKind::I32 => super::Elem::Atomic(super::AtomicKind::I32),
+                gpu::IntKind::I32 => Elem::Atomic(AtomicKind::I32),
                 _ => panic!("atomic<{}> isn't supported yet", value),
             },
             gpu::Elem::UInt(kind) => match kind {
-                UIntKind::U8 => super::Elem::U8,
-                UIntKind::U16 => super::Elem::U16,
-                UIntKind::U32 => super::Elem::U32,
-                UIntKind::U64 => super::Elem::U64,
+                gpu::UIntKind::U8 => Elem::U8,
+                gpu::UIntKind::U16 => Elem::U16,
+                gpu::UIntKind::U32 => Elem::U32,
+                gpu::UIntKind::U64 => Elem::U64,
             },
             gpu::Elem::AtomicUInt(kind) => match kind {
-                UIntKind::U32 => super::Elem::Atomic(super::AtomicKind::U32),
+                gpu::UIntKind::U32 => Elem::Atomic(AtomicKind::U32),
                 kind => unimplemented!("atomic<{kind:?}> not yet supported"),
             },
-            gpu::Elem::Bool => super::Elem::Bool,
+            gpu::Elem::Bool => Elem::Bool,
         }
     }
 }
 
 #[allow(missing_docs)]
 struct CheckedIndexAssign {
-    pub lhs: Variable,
-    pub rhs: Variable,
-    pub out: Variable,
+    pub lhs: gpu::Variable,
+    pub rhs: gpu::Variable,
+    pub out: gpu::Variable,
 }
 
 impl CheckedIndexAssign {
     #[allow(missing_docs)]
-    fn expand(self, scope: &mut Scope) {
+    fn expand(self, scope: &mut gpu::Scope) {
         let lhs = self.lhs;
         let rhs = self.rhs;
         let out = self.out;
-        let array_len = scope.create_local(Item::new(u32::as_elem()));
-        let inside_bound = scope.create_local(Item::new(Elem::Bool));
+        let array_len = scope.create_local(gpu::Item::new(u32::as_elem()));
+        let inside_bound = scope.create_local(gpu::Item::new(gpu::Elem::Bool));
 
         if has_buffer_length(&out) {
             cpa!(scope, array_len = buffer_len(out));
@@ -1006,26 +1019,24 @@ fn has_buffer_length(var: &gpu::Variable) -> bool {
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
-    use cubecl_core::ir::{Elem, FloatKind, IntKind};
-
     let supported_types = [
-        Elem::UInt(UIntKind::U8),
-        Elem::UInt(UIntKind::U16),
-        Elem::UInt(UIntKind::U32),
-        Elem::UInt(UIntKind::U64),
-        Elem::Int(IntKind::I8),
-        Elem::Int(IntKind::I16),
-        Elem::Int(IntKind::I32),
-        Elem::Int(IntKind::I64),
-        Elem::AtomicInt(IntKind::I32),
-        Elem::AtomicUInt(UIntKind::U32),
-        Elem::Float(FloatKind::BF16),
-        Elem::Float(FloatKind::F16),
-        Elem::Float(FloatKind::F32),
-        Elem::Float(FloatKind::Flex32),
+        gpu::Elem::UInt(gpu::UIntKind::U8),
+        gpu::Elem::UInt(gpu::UIntKind::U16),
+        gpu::Elem::UInt(gpu::UIntKind::U32),
+        gpu::Elem::UInt(gpu::UIntKind::U64),
+        gpu::Elem::Int(gpu::IntKind::I8),
+        gpu::Elem::Int(gpu::IntKind::I16),
+        gpu::Elem::Int(gpu::IntKind::I32),
+        gpu::Elem::Int(gpu::IntKind::I64),
+        gpu::Elem::AtomicInt(gpu::IntKind::I32),
+        gpu::Elem::AtomicUInt(gpu::UIntKind::U32),
+        gpu::Elem::Float(gpu::FloatKind::BF16),
+        gpu::Elem::Float(gpu::FloatKind::F16),
+        gpu::Elem::Float(gpu::FloatKind::F32),
+        gpu::Elem::Float(gpu::FloatKind::Flex32),
         // Causes CUDA_ERROR_INVALID_VALUE for matmul, disabling until that can be investigated
-        //Elem::Float(FloatKind::F64),
-        Elem::Bool,
+        //gpu::Elem::Float(gpu::FloatKind::F64),
+        gpu::Elem::Bool,
     ];
 
     for ty in supported_types {

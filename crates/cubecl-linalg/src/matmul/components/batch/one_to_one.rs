@@ -9,19 +9,23 @@ use crate::matmul::kernels::matmul::AdvancedConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::Config as _;
+use super::{Config as _, CubeDispatch};
 
-/// Performs matrix multiplication at the batch level,
-/// with one cube assigned to each underlying global matmul
-pub struct Matmul<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> {
+/// Executes matrix multiplication at the batch level,
+/// assigning each cube to a single global matmul.
+///
+/// Note: This algorithm requires one cube per global matmul;
+/// insufficient cubes will result in incomplete computations.
+pub struct Matmul<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _gmm: PhantomData<GMM>,
+    _c: PhantomData<C>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
-    for Matmul<EG, ES, GMM>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> batch::Matmul<EG>
+    for Matmul<EG, ES, GMM, C>
 {
     fn execute(
         lhs: &Tensor<Line<EG>>,
@@ -29,9 +33,10 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
         out: &mut Tensor<Line<EG>>,
         #[comptime] config: Self::Config,
     ) {
-        let x_offset = CUBE_POS_X * config.stage_dim(Ident::Lhs).num_elements_x_dim();
-        let y_offset = CUBE_POS_Y * config.stage_dim(Ident::Rhs).num_elements_y_dim();
-        let nth_batch = CUBE_POS_Z;
+        let (x_index, y_index) = C::x_y_indices();
+        let x_offset = x_index * config.stage_dim(Ident::Lhs).height();
+        let y_offset = y_index * config.stage_dim(Ident::Rhs).width();
+        let nth_batch = C::batch_index();
         let k_range = (0, lhs.shape(lhs.rank() - 1));
 
         let gmm_config = config.to_gmm_config();
@@ -49,10 +54,10 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> batch::Matmul<EG>
     }
 }
 
-impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulKernel<EG, EG>
-    for Matmul<EG, ES, GMM>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> MatmulKernel<EG, EG>
+    for Matmul<EG, ES, GMM, C>
 {
-    type Config = Config<GMM::Config>;
+    type Config = Config<GMM::Config, C>;
 
     fn check_config(config: Self::Config) {
         GMM::check_config(config.to_gmm_config())
@@ -71,19 +76,18 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulKernel<EG, EG>
         advanced_config: &AdvancedConfig,
     ) -> Self::Config {
         let gmm_config = GMM::make_config(problem, cube_dim, cube_count, advanced_config);
-        let (cube_count_x, cube_count_y, cube_count_z) =
-            if let CubeCount::Static(x, y, z) = cube_count {
-                (x, y, z)
-            } else {
-                panic!("Dynamic cube count unsupported")
-            };
+        let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
+            (*x, *y, *z)
+        } else {
+            panic!("Dynamic cube count unsupported")
+        };
 
-        Config::new(gmm_config, *cube_count_x, *cube_count_y, *cube_count_z)
+        Config::<GMM::Config, C>::new(gmm_config, cube_count)
     }
 }
 
-impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulLaunch<EG, EG>
-    for Matmul<EG, ES, GMM>
+impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> MatmulLaunch<EG, EG>
+    for Matmul<EG, ES, GMM, C>
 {
     unsafe fn launch_unchecked<R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -103,54 +107,44 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>> MatmulLaunch<EG, EG>
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the OneToOneBatchMatmul
-pub struct Config<G: global::Config> {
+pub struct Config<G: global::Config, C: CubeDispatch> {
     gmm_config: G,
-    cube_count_x: u32,
-    cube_count_y: u32,
-    cube_count_z: u32,
+    cube_count: (u32, u32, u32),
+    _c: PhantomData<C>,
 }
 
-impl<G: global::Config> batch::Config for Config<G> {
+impl<G: global::Config, C: CubeDispatch> batch::Config for Config<G, C> {
     type GmmConfig = G;
 
     fn to_gmm_config(&self) -> Self::GmmConfig {
         self.gmm_config
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         self.gmm_config.stage_dim(ident)
     }
 
-    fn cube_count_x(&self) -> u32 {
-        self.cube_count_x
-    }
-
-    fn cube_count_y(&self) -> u32 {
-        self.cube_count_y
-    }
-
     fn max_m(&self) -> u32 {
-        self.cube_count_x() * self.stage_dim(Ident::Out).num_elements_x_dim()
+        C::max_x(self.cube_count) * self.stage_dim(Ident::Out).height()
     }
 
     fn max_n(&self) -> u32 {
-        self.cube_count_y() * self.stage_dim(Ident::Out).num_elements_y_dim()
+        C::max_y(self.cube_count) * self.stage_dim(Ident::Out).width()
     }
 
     fn max_batches(&self) -> u32 {
-        self.cube_count_z
+        C::max_batches(self.cube_count)
     }
 }
 
-impl<G: global::Config> MatmulConfig for Config<G> {}
+impl<G: global::Config, C: CubeDispatch> MatmulConfig for Config<G, C> {}
 
-impl<G: global::Config> Config<G> {
-    pub fn new(gmm_config: G, cube_count_x: u32, cube_count_y: u32, cube_count_z: u32) -> Self {
+impl<G: global::Config, C: CubeDispatch> Config<G, C> {
+    pub fn new(gmm_config: G, cube_count: (u32, u32, u32)) -> Self {
         Self {
             gmm_config,
-            cube_count_x,
-            cube_count_y,
-            cube_count_z,
+            cube_count,
+            _c: PhantomData,
         }
     }
 }

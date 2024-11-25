@@ -40,9 +40,9 @@ macro_rules! instruction {
             const N: u32 = $n;
             const K: u32 = $k;
 
-            type Lhs = Fragment<I>;
-            type Rhs = Fragment<I>;
-            type Accumulator = Fragment<O>;
+            type Lhs = cmma::Matrix<I>;
+            type Rhs = cmma::Matrix<I>;
+            type Accumulator = cmma::Matrix<O>;
 
             fn execute(
                 lhs: &Self::Lhs,
@@ -61,12 +61,12 @@ macro_rules! instruction {
                 init_rhs(config.layout(Ident::Rhs), Self::M, Self::N, Self::K)
             }
 
-            fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] _config: Config) {
-                fill_lhs(slice, lhs);
+            fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
+                fill_lhs(slice, lhs, config, Self::M, Self::K);
             }
 
-            fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] _config: Config) {
-                fill_rhs(slice, rhs);
+            fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
+                fill_rhs(slice, rhs, config, Self::N, Self::K);
             }
 
             fn fill_accumulator(
@@ -83,7 +83,7 @@ macro_rules! instruction {
                 slice: &mut SliceMut<Line<C>>,
                 #[comptime] _config: Config,
             ) {
-                read_accumulator::<O, C>(out, slice);
+                read_accumulator::<O, C>(out, slice, Self::N);
             }
 
             fn init_accumulator(#[comptime] _config: Self::Config) -> Self::Accumulator {
@@ -91,7 +91,7 @@ macro_rules! instruction {
             }
 
             fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
-                cmma::fill(&acc.matrix, O::from_int(0));
+                cmma::fill(&acc, O::from_int(0));
             }
         }
 
@@ -128,56 +128,72 @@ instruction!(Accelerated32x8x16, 32, 8, 16);
 instruction!(Accelerated8x32x16, 8, 32, 16);
 
 #[cube]
-fn execute<I: Numeric, O: Numeric>(lhs: &Fragment<I>, rhs: &Fragment<I>, out: &mut Fragment<O>) {
-    cmma::execute::<I, I, O, O>(&lhs.matrix, &rhs.matrix, &out.matrix, &out.matrix);
+fn execute<I: Numeric, O: Numeric>(
+    lhs: &cmma::Matrix<I>,
+    rhs: &cmma::Matrix<I>,
+    out: &mut cmma::Matrix<O>,
+) {
+    cmma::execute::<I, I, O, O>(lhs, rhs, out, out);
 }
 
 #[cube]
-fn init_lhs<I: Numeric>(#[comptime] layout: MatrixLayout, m: u32, n: u32, k: u32) -> Fragment<I> {
+fn init_lhs<I: Numeric>(
+    #[comptime] layout: MatrixLayout,
+    #[comptime] m: u32,
+    #[comptime] n: u32,
+    #[comptime] k: u32,
+) -> cmma::Matrix<I> {
     unsafe {
-        Fragment::<I> {
-            matrix: cmma::Matrix::<I>::uninitialized(
-                cmma::MatrixIdent::A,
-                m,
-                n,
-                k,
-                as_cmma_layout(layout),
-            ),
-            stride: match layout {
-                MatrixLayout::RowMajor => k,
-                MatrixLayout::ColMajor => m,
-            },
-        }
+        cmma::Matrix::<I>::uninitialized(cmma::MatrixIdent::A, m, n, k, as_cmma_layout(layout))
     }
 }
 
 #[cube]
-fn init_rhs<I: Numeric>(#[comptime] layout: MatrixLayout, m: u32, n: u32, k: u32) -> Fragment<I> {
+fn init_rhs<I: Numeric>(
+    #[comptime] layout: MatrixLayout,
+    #[comptime] m: u32,
+    #[comptime] n: u32,
+    #[comptime] k: u32,
+) -> cmma::Matrix<I> {
     unsafe {
-        Fragment::<I> {
-            matrix: cmma::Matrix::<I>::uninitialized(
-                cmma::MatrixIdent::B,
-                m,
-                n,
-                k,
-                as_cmma_layout(layout),
-            ),
-            stride: match layout {
-                MatrixLayout::RowMajor => n,
-                MatrixLayout::ColMajor => k,
-            },
-        }
+        cmma::Matrix::<I>::uninitialized(cmma::MatrixIdent::B, m, n, k, as_cmma_layout(layout))
     }
 }
 
 #[cube]
-fn fill_lhs<C: CubePrimitive, I: Numeric>(slice: &Slice<C>, lhs: &mut Fragment<I>) {
-    cmma::load(&lhs.matrix, slice, lhs.stride);
+fn fill_lhs<C: CubePrimitive, I: Numeric>(
+    slice: &Slice<C>,
+    lhs: &mut cmma::Matrix<I>,
+    #[comptime] config: Config,
+    #[comptime] m: u32,
+    #[comptime] k: u32,
+) {
+    cmma::load(
+        lhs,
+        slice,
+        match config.layout(Ident::Lhs) {
+            MatrixLayout::RowMajor => k,
+            MatrixLayout::ColMajor => m,
+        },
+    );
 }
 
 #[cube]
-fn fill_rhs<C: CubePrimitive, I: Numeric>(slice: &Slice<C>, rhs: &mut Fragment<I>) {
-    cmma::load(&rhs.matrix, slice, rhs.stride);
+fn fill_rhs<C: CubePrimitive, I: Numeric>(
+    slice: &Slice<C>,
+    rhs: &mut cmma::Matrix<I>,
+    #[comptime] config: Config,
+    #[comptime] n: u32,
+    #[comptime] k: u32,
+) {
+    cmma::load(
+        rhs,
+        slice,
+        match config.layout(Ident::Rhs) {
+            MatrixLayout::RowMajor => n,
+            MatrixLayout::ColMajor => k,
+        },
+    );
 }
 
 #[cube]
@@ -192,7 +208,11 @@ fn fill_accumulator<C: CubePrimitive, I: Numeric>(
 }
 
 #[cube]
-fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
+fn init_output<O: Numeric>(
+    #[comptime] m: u32,
+    #[comptime] n: u32,
+    #[comptime] k: u32,
+) -> cmma::Matrix<O> {
     unsafe {
         let matrix = cmma::Matrix::<O>::uninitialized(
             cmma::MatrixIdent::Accumulator,
@@ -202,13 +222,17 @@ fn init_output<O: Numeric>(m: u32, n: u32, k: u32) -> Fragment<O> {
             cmma::MatrixLayout::Undefined,
         );
 
-        Fragment::<O> { matrix, stride: n }
+        matrix
     }
 }
 
 #[cube]
-fn read_accumulator<O: Numeric, C: Numeric>(out: &Fragment<O>, slice: &mut SliceMut<Line<C>>) {
-    cmma::store(slice, &out.matrix, out.stride, cmma::MatrixLayout::RowMajor);
+fn read_accumulator<O: Numeric, C: Numeric>(
+    out: &cmma::Matrix<O>,
+    slice: &mut SliceMut<Line<C>>,
+    #[comptime] n: u32,
+) {
+    cmma::store(slice, out, n, cmma::MatrixLayout::RowMajor);
 }
 
 fn check_availability<I: Numeric, O: Numeric, R: Runtime>(

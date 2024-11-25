@@ -236,6 +236,7 @@ impl Launch {
                 .map(|_| quote![__ty: ::core::marker::PhantomData]);
             let (compilation_args, args) = self.compilation_args_def();
             let info = param_names.clone().into_iter().chain(args.clone());
+            let sig_name = self.func.sig.name.to_string();
 
             quote! {
                 #[doc = #kernel_doc]
@@ -250,7 +251,7 @@ impl Launch {
                 impl #generics #kernel_name #generic_names #where_clause {
                     pub fn new(settings: #kernel_settings, #(#compilation_args,)* #(#const_params),*) -> Self {
                         Self {
-                            settings,
+                            settings: settings.kernel_name(#sig_name),
                             #(#args,)*
                             #(#param_names,)*
                             #phantom_data_init

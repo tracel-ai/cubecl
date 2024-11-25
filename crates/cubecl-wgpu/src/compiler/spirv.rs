@@ -130,7 +130,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                     label: None,
                     layout: layout.as_ref(),
                     module: &module,
-                    entry_point: "main",
+                    entry_point: &kernel.entrypoint_name,
                     compilation_options: wgpu::PipelineCompilationOptions {
                         zero_initialize_workgroup_memory: false,
                         ..Default::default()
@@ -153,7 +153,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
             mode
         };
         log::debug!("Compiling {}", kernel.name());
-        let compiled = kernel.compile(mode);
+        let compiled = kernel.compile(&server.compilation_options, mode);
         #[cfg(feature = "spirv-dump")]
         dump_spirv(&compiled, kernel.name(), kernel.id());
         compiled

@@ -37,17 +37,23 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     /// The same Accumulator will be added to across multiple executions of the stage matmul.
     type Accumulator: CubeType;
 
-    type Lhs: CubeType;
-    type Rhs: CubeType;
-    type AccumulatorInit: CubeType;
+    type LhsReader: CubeType;
+    type RhsReader: CubeType;
+
+    type LhsTile: CubeType;
+    type RhsTile: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     fn execute(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
+        lhs: &Self::LhsReader,
+        rhs: &Self::RhsReader,
+        instruction_lhs: &mut Self::LhsTile,
+        instruction_rhs: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
+
+    fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
 
     /// Reads the result of the accumulator and hands it to the stage writer
     fn read_accumulator<Out: StageWriter<O>, G: global::Config>(
@@ -57,10 +63,10 @@ pub trait Matmul<I: Numeric, O: Numeric>:
         #[comptime] global_config: G,
     );
 
-    /// Create an instance of the accumulator
+    /// Create an instance of the accumulator, without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    /// Set the accumulator to zeros
+    /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Fill the accumulator with data
@@ -71,20 +77,20 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     );
 }
 
-// #[cube]
-// /// Input to the stage matmul, responsible of handing slices of data
-// /// at precise locations in the stage
-// pub trait StageReader<ES: Numeric>: CubeType {
-//     /// Hands a portion of data from the stage, whose location is function of the
-//     /// plane, buffer and accumulator indexes.
-//     fn read_tile<S: Config>(
-//         this: &Self,
-//         compute_plane_offset: u32,
-//         buffer_offset: u32,
-//         accumulator_offset: u32,
-//         #[comptime] config: S,
-//     ) -> Slice<Line<ES>>;
-// }
+#[cube]
+/// Input to the stage matmul, responsible of handing slices of data
+/// at precise locations in the stage
+pub trait StageReader<ES: Numeric>: CubeType {
+    /// Hands a portion of data from the stage, whose location is function of the
+    /// plane, buffer and accumulator indexes.
+    fn read_tile<S: Config>(
+        this: &Self,
+        compute_plane_offset: u32,
+        buffer_offset: u32,
+        accumulator_offset: u32,
+        #[comptime] config: S,
+    ) -> Slice<Line<ES>>;
+}
 
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
@@ -113,7 +119,7 @@ pub trait Config: MatmulConfig {
     fn line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageDim] for the given ident
-    fn stage_dim(&self, ident: Ident) -> StageDim;
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim>;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;

@@ -1,5 +1,7 @@
+use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::{global, Ident};
+use crate::matmul::components::global::{producer_consumer, Config as _};
+use crate::matmul::components::{stage, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -10,11 +12,11 @@ pub struct BufferLoading {}
 
 #[cube]
 impl BufferLoading {
-    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
+    pub fn load_to_slice<EG: Numeric, ES: Numeric, S: stage::Config>(
         read_view: &TensorReader<EG>,
         buffer_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
-        #[comptime] config: G,
+        #[comptime] config: producer_consumer::Config<S>,
     ) {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
@@ -42,8 +44,13 @@ impl BufferLoading {
 
             let (tile_x, tile_y) = get_tiles_x_y(nth_buffer_tile, ident);
 
-            let line_read =
-                read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
+            let line_read = read_view.load_coalesced::<producer_consumer::Config<S>>(
+                tile_x,
+                tile_y,
+                pos_within_tile,
+                ident,
+                config,
+            );
 
             match config.transpose_load(ident) {
                 false => {
@@ -60,18 +67,14 @@ impl BufferLoading {
 
 #[cube]
 fn get_tiles_x_y(nth_buffer_tile: u32, #[comptime] ident: Ident) -> (u32, u32) {
-    match comptime!(ident) {
-        Ident::Lhs => {
+    match comptime!(ident.as_input()) {
+        InputIdent::Lhs => {
             // Assuming ColMajor tiling order
             (nth_buffer_tile, 0)
         }
-        Ident::Rhs => {
+        InputIdent::Rhs => {
             // Assuming RowMajor tiling order
             (0, nth_buffer_tile)
-        }
-        Ident::Out => {
-            //unreachable
-            (0u32, 0u32)
         }
     }
 }

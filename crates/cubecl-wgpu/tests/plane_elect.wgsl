@@ -12,7 +12,7 @@ const WORKGROUP_SIZE_Z = 1u;
 
 @compute
 @workgroup_size(4, 1, 1)
-fn main(
+fn kernel_elect(
     @builtin(local_invocation_index) local_idx: u32,
 ) {
 let _0 = subgroupElect();

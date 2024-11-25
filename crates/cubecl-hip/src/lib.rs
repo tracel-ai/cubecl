@@ -3,7 +3,6 @@
 extern crate derive_new;
 extern crate alloc;
 
-pub mod arch;
 #[cfg(target_os = "linux")]
 pub mod compute;
 #[cfg(target_os = "linux")]
@@ -14,6 +13,12 @@ pub mod runtime;
 pub use device::*;
 #[cfg(target_os = "linux")]
 pub use runtime::HipRuntime;
+#[cfg(target_os = "linux")]
+#[cfg(feature = "rocwmma")]
+pub(crate) type HipWmmaCompiler = cubecl_cpp::hip::wmma::RocWmmaCompiler;
+#[cfg(target_os = "linux")]
+#[cfg(not(feature = "rocwmma"))]
+pub(crate) type HipWmmaCompiler = cubecl_cpp::hip::wmma::WmmaIntrinsicCompiler;
 
 #[cfg(target_os = "linux")]
 #[cfg(test)]
@@ -21,5 +26,6 @@ mod tests {
     pub type TestRuntime = crate::HipRuntime;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_cmma_old!();
+    cubecl_linalg::testgen_cmma_matmul!();
+    cubecl_reduce::testgen_reduce!();
 }

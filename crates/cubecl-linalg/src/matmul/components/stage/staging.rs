@@ -20,7 +20,7 @@ impl<ES: Numeric> Stage<ES> {
         let line_size = config.line_size(ident);
 
         let smem = SharedMemory::new_lined(
-            comptime!(config.stage_dim(ident).num_elements() / line_size),
+            comptime!(config.stage_dim(ident).total_elements() / line_size),
             line_size,
         );
 

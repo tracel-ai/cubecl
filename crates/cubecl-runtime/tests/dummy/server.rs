@@ -49,10 +49,16 @@ impl ComputeServer for DummyServer {
     type Storage = BytesStorage;
     type Feature = ();
 
-    fn read(&mut self, binding: Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        let bytes_handle = self.memory_management.get(binding.memory);
-        let bytes = self.memory_management.storage().get(&bytes_handle);
-        async move { bytes.read().to_vec() }
+    fn read(&mut self, bindings: Vec<Binding>) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+        let bytes: Vec<_> = bindings
+            .into_iter()
+            .map(|b| {
+                let bytes_handle = self.memory_management.get(b.memory);
+                self.memory_management.storage().get(&bytes_handle)
+            })
+            .collect();
+
+        async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() }
     }
 
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {

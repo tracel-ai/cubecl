@@ -1,4 +1,6 @@
-use cubecl_cpp::{formatter::format_cpp, CudaCompiler};
+use cubecl_cpp::{
+    cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions, CudaCompiler,
+};
 
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
@@ -37,7 +39,8 @@ pub(crate) struct CudaContext {
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     timestamps: KernelTimestamps,
-    pub(crate) arch: u32,
+    pub(crate) arch: CudaArchitecture,
+    compilation_options: CompilationOptions,
 }
 
 #[derive(Debug)]
@@ -72,12 +75,6 @@ struct CompiledKernel {
 unsafe impl Send for CudaServer {}
 
 impl CudaServer {
-    #[allow(unused)]
-    pub(crate) fn arch_version(&mut self) -> u32 {
-        let ctx = self.get_context();
-        ctx.arch
-    }
-
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
         let ctx = self.get_context();
         let resource = ctx.memory_management.get_resource(
@@ -99,26 +96,32 @@ impl CudaServer {
 
     fn read_async(
         &mut self,
-        binding: server::Binding,
-    ) -> impl Future<Output = Vec<u8>> + 'static + Send {
+        bindings: Vec<server::Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static + Send {
         let ctx = self.get_context();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let mut result = Vec::with_capacity(bindings.len());
 
-        let mut data = uninit_vec(resource.size() as usize);
+        for binding in bindings {
+            let resource = ctx.memory_management.get_resource(
+                binding.memory,
+                binding.offset_start,
+                binding.offset_end,
+            );
 
-        unsafe {
-            cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream).unwrap();
-        };
+            let mut data = uninit_vec(resource.size() as usize);
+
+            unsafe {
+                cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream)
+                    .unwrap();
+            };
+            result.push(data);
+        }
 
         let fence = ctx.fence();
 
         async move {
             fence.wait();
-            data
+            result
         }
     }
 
@@ -141,8 +144,11 @@ impl ComputeServer for CudaServer {
     type Storage = CudaStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + 'static {
-        self.read_async(binding)
+    fn read(
+        &mut self,
+        bindings: Vec<server::Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+        self.read_async(bindings)
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
@@ -301,9 +307,10 @@ impl ComputeServer for CudaServer {
 impl CudaContext {
     pub fn new(
         memory_management: MemoryManagement<CudaStorage>,
+        compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
-        arch: u32,
+        arch: CudaArchitecture,
     ) -> Self {
         Self {
             context,
@@ -312,6 +319,7 @@ impl CudaContext {
             stream,
             arch,
             timestamps: KernelTimestamps::Disabled,
+            compilation_options,
         }
     }
 
@@ -336,7 +344,7 @@ impl CudaContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
-        let mut kernel_compiled = kernel.compile(mode);
+        let mut kernel_compiled = kernel.compile(&self.compilation_options, mode);
 
         if logger.is_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -368,13 +376,13 @@ impl CudaContext {
                         message += format!("\n    {line}").as_str();
                     }
                 }
-                let source = kernel.compile(mode).source;
+                let source = kernel.compile(&self.compilation_options, mode).source;
                 panic!("{message}\n[Source]  \n{source}");
             };
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
-        let func_name = CString::new("kernel".to_string()).unwrap();
+        let func_name = CString::new(kernel_compiled.entrypoint_name).unwrap();
         let func = unsafe {
             let module =
                 cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _).unwrap();

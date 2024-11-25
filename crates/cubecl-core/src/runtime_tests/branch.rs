@@ -65,7 +65,7 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(
         ScalarArg::new(0),
     );
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(1.0));
@@ -86,7 +86,7 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(
         ScalarArg::new(1),
     );
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(3.0));
@@ -107,7 +107,7 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(
         ScalarArg::new(5),
     );
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));
@@ -128,7 +128,7 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(
         ScalarArg::new(2),
     );
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(3.0));
@@ -152,7 +152,7 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(
         ScalarArg::new(cond_u32),
     );
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);
 
     if cond {

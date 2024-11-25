@@ -12,6 +12,7 @@ pub struct KernelDefinition {
     pub named: Vec<(String, Binding)>,
     pub cube_dim: CubeDim,
     pub body: Scope,
+    pub kernel_name: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]

@@ -19,6 +19,9 @@ use wgpu::{
     ShaderStages,
 };
 
+#[derive(Clone, Debug, Default)]
+pub struct CompilationOptions {}
+
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
 pub struct WgslCompiler {
@@ -31,6 +34,7 @@ pub struct WgslCompiler {
     global_invocation_id: bool,
     workgroup_id: bool,
     subgroup_size: bool,
+    subgroup_invocation_id: bool,
     id: bool,
     num_workgroups: bool,
     workgroup_id_no_axis: bool,
@@ -39,6 +43,8 @@ pub struct WgslCompiler {
     shared_memories: Vec<SharedMemory>,
     const_arrays: Vec<ConstantArray>,
     local_arrays: Vec<LocalArray>,
+    #[allow(dead_code)]
+    compilation_options: CompilationOptions,
 }
 
 impl core::fmt::Debug for WgslCompiler {
@@ -49,9 +55,17 @@ impl core::fmt::Debug for WgslCompiler {
 
 impl cubecl_core::Compiler for WgslCompiler {
     type Representation = ComputeShader;
+    type CompilationOptions = CompilationOptions;
 
-    fn compile(shader: cube::KernelDefinition, _mode: ExecutionMode) -> Self::Representation {
-        let mut compiler = Self::default();
+    fn compile(
+        shader: cube::KernelDefinition,
+        compilation_options: &Self::CompilationOptions,
+        _mode: ExecutionMode,
+    ) -> Self::Representation {
+        let mut compiler = Self {
+            compilation_options: compilation_options.clone(),
+            ..Self::default()
+        };
         compiler.compile_shader(shader)
     }
 
@@ -139,7 +153,7 @@ impl WgpuCompiler for WgslCompiler {
                     label: None,
                     layout: layout.as_ref(),
                     module: &module,
-                    entry_point: "main",
+                    entry_point: &kernel.entrypoint_name,
                     compilation_options: wgpu::PipelineCompilationOptions {
                         zero_initialize_workgroup_memory: false,
                         ..Default::default()
@@ -150,11 +164,11 @@ impl WgpuCompiler for WgslCompiler {
     }
 
     fn compile(
-        _server: &mut WgpuServer<Self>,
+        server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
         mode: ExecutionMode,
     ) -> CompiledKernel<Self> {
-        kernel.compile(mode)
+        kernel.compile(&server.compilation_options, mode)
     }
 
     async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
@@ -264,11 +278,13 @@ impl WgslCompiler {
                 || self.workgroup_id_no_axis,
             workgroup_id: self.workgroup_id || self.workgroup_id_no_axis,
             subgroup_size: self.subgroup_size,
+            subgroup_invocation_id: self.subgroup_invocation_id,
             body,
             extensions,
             num_workgroups_no_axis: self.num_workgroup_no_axis,
             workgroup_id_no_axis: self.workgroup_id_no_axis,
             workgroup_size_no_axis: self.workgroup_size_no_axis,
+            kernel_name: value.kernel_name,
         }
     }
 
@@ -447,6 +463,10 @@ impl WgslCompiler {
                 cube::Builtin::PlaneDim => {
                     self.subgroup_size = true;
                     wgsl::Variable::SubgroupSize
+                }
+                cube::Builtin::UnitPosPlane => {
+                    self.subgroup_invocation_id = true;
+                    wgsl::Variable::SubgroupInvocationId
                 }
             },
             cube::VariableKind::Matrix { .. } => {

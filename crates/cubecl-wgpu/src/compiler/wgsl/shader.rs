@@ -83,11 +83,13 @@ pub struct ComputeShader {
     pub num_workgroups: bool,
     pub workgroup_id: bool,
     pub subgroup_size: bool,
+    pub subgroup_invocation_id: bool,
     pub num_workgroups_no_axis: bool,
     pub workgroup_id_no_axis: bool,
     pub workgroup_size_no_axis: bool,
     pub body: Body,
     pub extensions: Vec<Extension>,
+    pub kernel_name: String,
 }
 
 impl Display for ComputeShader {
@@ -143,9 +145,9 @@ const WORKGROUP_SIZE_Z = {}u;\n",
             "
 @compute
 @workgroup_size({}, {}, {})
-fn main(
+fn {}(
 ",
-            self.workgroup_size.x, self.workgroup_size.y, self.workgroup_size.z
+            self.workgroup_size.x, self.workgroup_size.y, self.workgroup_size.z, self.kernel_name
         )?;
 
         if self.global_invocation_id {
@@ -169,6 +171,9 @@ fn main(
         }
         if self.subgroup_size {
             f.write_str("    @builtin(subgroup_size) subgroup_size: u32,\n")?;
+        }
+        if self.subgroup_invocation_id {
+            f.write_str("    @builtin(subgroup_invocation_id) subgroup_invocation_id: u32,\n")?;
         }
 
         // Open body

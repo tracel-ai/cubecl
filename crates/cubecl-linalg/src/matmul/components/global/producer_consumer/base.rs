@@ -32,16 +32,16 @@ impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, Lhs = LhsBufferReader<ES>, Rhs = RhsBufferReader<ES>>,
+    SMM: stage::Matmul<ES, EG, LhsReader = LhsBufferReader<ES>, RhsReader = RhsBufferReader<ES>>,
 {
-    type Lhs = LhsBufferLoader<EG, ES>;
-    type Rhs = RhsBufferLoader<EG, ES>;
+    type LhsLoader = LhsBufferLoader<EG, ES, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<EG, ES, SMM::Config>;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
-        mut lhs_loader: Self::Lhs,
-        mut rhs_loader: Self::Rhs,
+        mut lhs_loader: Self::LhsLoader,
+        mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -49,17 +49,19 @@ where
     ) {
         let is_consumer = Self::is_consumer(config);
 
-        let num_buffers = config.stage_dim(Ident::Lhs).num_tiles_y;
-        let buffer_step = config.stage_dim(Ident::Lhs).tile_size_y;
+        let num_buffers = config.stage_dim(Ident::Lhs).num_tiles_y_dim();
+        let buffer_step = config.stage_dim(Ident::Lhs).tile_size_y_dim();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;
         let num_loops = num_stages * num_buffers;
 
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
+
         for _ in 0..num_loops {
-            let lhs_stage_reader = Self::Lhs::fill_stage::<Self::Config>(&mut lhs_loader, config);
-            let rhs_stage_reader = Self::Rhs::fill_stage::<Self::Config>(&mut rhs_loader, config);
+            let lhs_stage_reader = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            let rhs_stage_reader = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             sync_units();
 
@@ -67,13 +69,15 @@ where
                 SMM::execute(
                     &lhs_stage_reader,
                     &rhs_stage_reader,
+                    &mut lhs_tile,
+                    &mut rhs_tile,
                     acc,
                     config.to_smm_config(),
                 );
             }
 
-            Self::Lhs::advance_view(&mut lhs_loader, buffer_step);
-            Self::Rhs::advance_view(&mut rhs_loader, buffer_step);
+            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
         }
 
         if is_consumer {
@@ -92,8 +96,8 @@ where
         y_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Lhs {
-        Self::Lhs::new::<Self::Config>(
+    ) -> Self::LhsLoader {
+        Self::LhsLoader::new(
             lhs,
             x_offset,
             y_offset,
@@ -109,8 +113,8 @@ where
         y_offset: u32,
         nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Rhs {
-        Self::Rhs::new::<Self::Config>(
+    ) -> Self::RhsLoader {
+        Self::RhsLoader::new(
             rhs,
             x_offset,
             y_offset,
@@ -130,9 +134,7 @@ where
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let mut acc = SMM::init_accumulator(config.to_smm_config());
-        Self::zero_accumulator(&mut acc, config);
-        acc
+        SMM::init_accumulator(config.to_smm_config())
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
@@ -158,7 +160,7 @@ where
     fn check_config(config: Self::Config) {
         assert!(config.num_producers() > 0, "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.");
         assert!(
-            config.stage_dim(Ident::Lhs).num_tiles_y > 1,
+            config.stage_dim(Ident::Lhs).num_tiles_y_dim() > 1,
             "Producer-consumer needs at least 2 buffers."
         );
         SMM::check_config(config.to_smm_config());
@@ -182,6 +184,7 @@ where
             smm_config,
             problem.m as u32 % SMM::M != 0,
             problem.n as u32 % SMM::N != 0,
+            problem.k as u32 % SMM::K != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,
@@ -198,6 +201,7 @@ pub struct Config<S: stage::Config> {
     smm_config: S,
     check_m_bounds: bool,
     check_n_bounds: bool,
+    check_k_bounds: bool,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
     lhs_line_size: u32,
@@ -225,7 +229,7 @@ impl<S: stage::Config> global::Config for Config<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         self.smm_config.stage_dim(ident)
     }
 
@@ -257,16 +261,12 @@ impl<S: stage::Config> global::Config for Config<S> {
         self.check_n_bounds
     }
 
+    fn check_k_bounds(&self) -> bool {
+        self.check_k_bounds
+    }
+
     fn transpose_load(&self, ident: Ident) -> bool {
         self.layout(ident) != self.smm_config.layout(ident)
-    }
-
-    fn num_producers(&self) -> u32 {
-        self.num_planes() - self.num_consumers()
-    }
-
-    fn num_consumers(&self) -> u32 {
-        self.smm_config.num_planes()
     }
 }
 
@@ -278,6 +278,7 @@ impl<S: stage::Config> Config<S> {
         smm_config: S,
         check_m_bounds: bool,
         check_n_bounds: bool,
+        check_k_bounds: bool,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
         lhs_line_size: u32,
@@ -289,6 +290,7 @@ impl<S: stage::Config> Config<S> {
             smm_config,
             check_m_bounds,
             check_n_bounds,
+            check_k_bounds,
             lhs_layout,
             rhs_layout,
             lhs_line_size,
@@ -296,5 +298,13 @@ impl<S: stage::Config> Config<S> {
             out_line_size,
             num_planes,
         }
+    }
+
+    pub fn num_producers(&self) -> u32 {
+        self.num_planes() - self.num_consumers()
+    }
+
+    pub fn num_consumers(&self) -> u32 {
+        self.smm_config.num_planes()
     }
 }

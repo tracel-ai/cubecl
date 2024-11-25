@@ -16,7 +16,12 @@ use crate::{
     compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
 };
-use cubecl_cpp::{register_supported_types, CudaCompiler};
+use cubecl_cpp::{
+    cuda::{arch::CudaArchitecture, wmma::CudaWmmaCompiler},
+    register_supported_types,
+    shared::register_wmma_features,
+    CudaCompiler, WmmaCompiler,
+};
 
 /// The values that control how a WGPU Runtime will perform its calculations.
 #[derive(Default)]
@@ -50,6 +55,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         .unwrap();
         major * 10 + minor
     } as u32;
+    let arch = CudaArchitecture { version: arch };
 
     let ctx = unsafe {
         let ctx = cudarc::driver::result::primary_ctx::retain(device_ptr).unwrap();
@@ -93,13 +99,15 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         options.memory_config,
     );
 
-    let cuda_ctx = CudaContext::new(memory_management, stream, ctx, arch);
-    let mut server = CudaServer::new(cuda_ctx);
     let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
-    register_wmma_features(&mut device_props, server.arch_version());
+    let supported_wmma_combinations = CudaWmmaCompiler::supported_wmma_combinations(&arch);
+    register_wmma_features(supported_wmma_combinations, &mut device_props);
 
+    let comp_opts = Default::default();
+    let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
+    let server = CudaServer::new(cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }
 
@@ -134,69 +142,5 @@ impl Runtime for CudaRuntime {
 
     fn extension() -> &'static str {
         "cu"
-    }
-}
-
-fn register_wmma_features(properties: &mut DeviceProperties<Feature>, arch: u32) {
-    let wmma_minimum_version = 70;
-    let mut wmma = false;
-
-    if arch >= wmma_minimum_version {
-        wmma = true;
-    }
-
-    if wmma {
-        properties.register_feature(Feature::CmmaWarpSize(32));
-        // Types fully supported.
-        for (a, b, c) in [
-            (
-                Elem::Float(FloatKind::F16),
-                Elem::Float(FloatKind::F16),
-                Elem::Float(FloatKind::F16),
-            ),
-            (
-                Elem::Float(FloatKind::F16),
-                Elem::Float(FloatKind::F16),
-                Elem::Float(FloatKind::F32),
-            ),
-            (
-                Elem::Float(FloatKind::BF16),
-                Elem::Float(FloatKind::BF16),
-                Elem::Float(FloatKind::F32),
-            ),
-        ] {
-            properties.register_feature(Feature::Cmma {
-                a,
-                b,
-                c,
-                m: 16,
-                k: 16,
-                n: 16,
-            });
-            properties.register_feature(Feature::Cmma {
-                a,
-                b,
-                c,
-                m: 32,
-                k: 16,
-                n: 8,
-            });
-            properties.register_feature(Feature::Cmma {
-                a,
-                b,
-                c,
-                m: 8,
-                k: 16,
-                n: 32,
-            });
-        }
-        properties.register_feature(Feature::Cmma {
-            a: Elem::Float(FloatKind::TF32),
-            b: Elem::Float(FloatKind::TF32),
-            c: Elem::Float(FloatKind::F32),
-            m: 16,
-            k: 8,
-            n: 16,
-        });
     }
 }

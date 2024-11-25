@@ -14,7 +14,7 @@ pub(crate) fn assert_equals_approx<
     expected: &[F],
     epsilon: f32,
 ) {
-    let actual = client.read(output.binding());
+    let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
