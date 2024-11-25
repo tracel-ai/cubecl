@@ -23,9 +23,10 @@ pub(crate) type HipWmmaCompiler = cubecl_cpp::hip::wmma::WmmaIntrinsicCompiler;
 #[cfg(target_os = "linux")]
 #[cfg(test)]
 mod tests {
+    use half::{bf16, f16};
     pub type TestRuntime = crate::HipRuntime;
 
     cubecl_core::testgen_all!();
     cubecl_linalg::testgen_cmma_matmul!();
-    cubecl_reduce::testgen_reduce!();
+    cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
 }
