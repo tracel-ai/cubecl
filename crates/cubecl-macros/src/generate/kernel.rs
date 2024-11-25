@@ -214,7 +214,7 @@ impl Launch {
     }
 
     /// Returns the kernel entrypoint name.
-    /// Appropriate for usage in source code such as namiing the CUDA or WGSL entrypoint.
+    /// Appropriate for usage in source code such as naming the CUDA or WGSL entrypoint.
     ///
     /// For example a kernel:
     /// ```text
