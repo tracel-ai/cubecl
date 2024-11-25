@@ -20,6 +20,12 @@ let id = (global_id.z * num_workgroups.x * WORKGROUP_SIZE_X * num_workgroups.y *
 let _0 = info[1u];
 let _1 = id < _0;
 if _1 {
+var l_1_0: u32;
+var l_1_1: bool;
+l_1_0 = info[0u];
+l_1_1 = id < l_1_0;
+if l_1_1 {
 output_0_global[id] = 0f;
+}
 }
 }
